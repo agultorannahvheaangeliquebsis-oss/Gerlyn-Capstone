@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head><title>Procurement Orders</title></head>
+<body>
+    <h2>Procurement Orders</h2>
+    <a href="{% url 'procurement_add' %}">+ New Procurement Order</a>
+    {% if messages %}
+        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+    {% endif %}
+    <table border="1">
+        <tr>
+            <th>ID</th><th>Branch</th><th>Supplier</th><th>Order Date</th>
+            <th>Delivery Date</th><th>Total Cost</th><th>Status</th><th>Action</th>
+        </tr>
+        {% for proc in procurements %}
+        <tr>
+            <td>{{ proc.id }}</td>
+            <td>{{ proc.branch }}</td>
+            <td>{{ proc.supplier }}</td>
+            <td>{{ proc.order_date }}</td>
+            <td>{{ proc.delivery_date|default:"-" }}</td>
+            <td>{{ proc.total_cost }}</td>
+            <td>{{ proc.status }}</td>
+            <td><a href="{% url 'procurement_detail' proc.pk %}">View</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

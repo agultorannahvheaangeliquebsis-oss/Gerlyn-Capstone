@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head><title>New Procurement Order</title></head>
+<body>
+    <h2>New Procurement Order</h2>
+    <form method="POST">
+        {% csrf_token %}
+        <label>Branch</label>
+        <select name="branch" required>
+            {% for branch in branches %}
+            <option value="{{ branch.id }}">{{ branch.branch_name }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label>Supplier</label>
+        <select name="supplier" required>
+            {% for supplier in suppliers %}
+            <option value="{{ supplier.id }}">{{ supplier.username }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label>Order Date</label>
+        <input type="date" name="order_date" required><br><br>
+
+        <label>Expected Delivery Date</label>
+        <input type="date" name="delivery_date"><br><br>
+
+        <h3>Items</h3>
+        <div id="item-rows">
+            <div class="item-row">
+                <select name="product_id">
+                    {% for product in products %}
+                    <option value="{{ product.id }}">{{ product.product_name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="number" name="quantity_ordered" placeholder="Quantity" min="1" required>
+                <input type="number" step="0.01" name="cost_price" placeholder="Cost Price" required>
+            </div>
+        </div>
+        <button type="button" onclick="addRow()">+ Add Another Item</button><br><br>
+
+        <button type="submit">Create Order</button>
+    </form>
+
+    <script>
+        function addRow() {
+            const container = document.getElementById('item-rows');
+            const row = container.children[0].cloneNode(true);
+            row.querySelectorAll('input').forEach(input => input.value = '');
+            container.appendChild(row);
+        }
+    </script>
+</body>
+</html>

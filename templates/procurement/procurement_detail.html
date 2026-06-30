@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><title>Procurement Detail</title></head>
+<body>
+    <h2>Procurement Order #{{ procurement.id }}</h2>
+    <p>Branch: {{ procurement.branch }}</p>
+    <p>Supplier: {{ procurement.supplier }}</p>
+    <p>Order Date: {{ procurement.order_date }}</p>
+    <p>Status: {{ procurement.status }}</p>
+    <p>Total Cost: {{ procurement.total_cost }}</p>
+
+    <h3>Items</h3>
+    <table border="1">
+        <tr><th>Product</th><th>Qty Ordered</th><th>Qty Received</th><th>Cost Price</th></tr>
+        {% for item in items %}
+        <tr>
+            <td>{{ item.product.product_name }}</td>
+            <td>{{ item.quantity_ordered }}</td>
+            <td>{{ item.quantity_received }}</td>
+            <td>{{ item.cost_price }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    {% if procurement.status != "Received" and procurement.status != "Cancelled" %}
+    <h3>Update Status</h3>
+    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}">
+        {% csrf_token %}
+        <select name="status">
+            <option value="Ordered">Ordered</option>
+            <option value="Received">Received</option>
+            <option value="Cancelled">Cancelled</option>
+        </select>
+        <button type="submit">Update</button>
+    </form>
+    {% endif %}
+
+    <br><a href="{% url 'procurement_list' %}">Back to list</a>
+</body>
+</html>
