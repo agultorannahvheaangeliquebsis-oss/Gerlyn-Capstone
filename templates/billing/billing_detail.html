@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head><title>Billing Detail</title></head>
+<body>
+    <h2>Billing Record #{{ record.id }}</h2>
+    {% if messages %}{% for m in messages %}<p>{{ m }}</p>{% endfor %}{% endif %}
+    <p>Transaction: #{{ record.transaction.id }}</p>
+    <p>Amount Due: {{ record.amount_due }}</p>
+    <p>Payment Method: {{ record.payment_method }}</p>
+    <p>Reference Number: {{ record.reference_number|default:"-" }}</p>
+    {% if record.proof_of_payment %}
+        <p>Proof of Payment:</p>
+        <img src="{{ record.proof_of_payment.url }}" width="300">
+    {% endif %}
+    <p>Status: {{ record.status }}</p>
+    <p>Date Recorded: {{ record.date_recorded }}</p>
+    {% if record.confirmed_by %}
+        <p>Confirmed By: {{ record.confirmed_by }}</p>
+        <p>Date Confirmed: {{ record.date_confirmed }}</p>
+    {% endif %}
+
+    {% if record.status == "Pending" %}
+    <h3>Confirm Payment</h3>
+    <form method="POST" action="{% url 'billing_confirm' record.pk %}">
+        {% csrf_token %}
+        <select name="status">
+            <option value="Paid">Mark as Paid</option>
+            <option value="Rejected">Reject</option>
+        </select>
+        <button type="submit">Submit</button>
+    </form>
+    {% endif %}
+
+    <br><a href="{% url 'billing_list' %}">Back to list</a>
+</body>
+</html>

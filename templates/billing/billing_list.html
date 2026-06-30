@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head><title>Billing Records</title></head>
+<body>
+    <h2>Billing Records</h2>
+    {% if messages %}{% for m in messages %}<p>{{ m }}</p>{% endfor %}{% endif %}
+    <table border="1">
+        <tr>
+            <th>ID</th><th>Transaction</th><th>Amount Due</th><th>Method</th><th>Status</th><th>Action</th>
+        </tr>
+        {% for record in records %}
+        <tr>
+            <td>{{ record.id }}</td>
+            <td>#{{ record.transaction.id }}</td>
+            <td>{{ record.amount_due }}</td>
+            <td>{{ record.payment_method }}</td>
+            <td>{{ record.status }}</td>
+            <td><a href="{% url 'billing_detail' record.pk %}">View</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
