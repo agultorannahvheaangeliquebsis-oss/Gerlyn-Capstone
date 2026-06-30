@@ -1,20 +1,29 @@
-<!DOCTYPE html>
-<html>
-<head><title>Gerlyn Variety Store - Login</title></head>
-<body>
-    <h2>Login</h2>
-    {% if messages %}
-        {% for message in messages %}
-            <p style="color:red;">{{ message }}</p>
-        {% endfor %}
-    {% endif %}
-    <form method="POST">
-        {% csrf_token %}
-        <label>Username</label>
-        <input type="text" name="username" required><br><br>
-        <label>Password</label>
-        <input type="password" name="password" required><br><br>
-        <button type="submit">Login</button>
-    </form>
-</body>
-</html>
+{% extends "public_base.html" %}
+{% block title %}Sign In{% endblock %}
+{% block content %}
+<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 75vh;">
+    <div class="bg-gerlyn rounded-3 d-flex align-items-center justify-content-center mb-3"
+         style="width:64px; height:64px; background-color:#3f7f5b; border-radius:16px;">
+        <i class="fa-solid fa-store fa-lg text-white"></i>
+    </div>
+    <h3 class="fw-bold mb-1">Sign In</h3>
+    <p class="text-muted mb-4">Sign in to your Gerlyn account</p>
+
+    <div class="card shadow-sm border-0" style="width: 100%; max-width: 380px;">
+        <div class="card-body p-4">
+            <form method="POST">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Username</label>
+                    <input type="text" name="username" class="form-control" placeholder="juan" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Password</label>
+                    <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn btn-gerlyn w-100 py-2 fw-semibold">Sign In</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

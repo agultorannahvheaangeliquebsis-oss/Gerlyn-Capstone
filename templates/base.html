@@ -1,16 +1,38 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Gerlyn Variety Store{% endblock %}</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
 </head>
 <body>
-    {% if messages %}
-        {% for message in messages %}
-            <p>{{ message }}</p>
-        {% endfor %}
-    {% endif %}
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background-color: #2c5530;">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Gerlyn Variety Store</a>
+            {% if request.user.is_authenticated %}
+            <div class="d-flex align-items-center">
+                <span class="text-white me-3">{{ request.user.username }} ({{ request.user.get_role_display }})</span>
+                <a href="{% url 'logout' %}" class="btn btn-outline-light btn-sm">Logout</a>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
 
-    {% block content %}
-    {% endblock %}
+    <div class="container mt-4">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-info">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+
+        {% block content %}
+        {% endblock %}
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+    {% block extra_js %}{% endblock %}
 </body>
 </html>
