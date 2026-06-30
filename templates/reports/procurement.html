@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><title>Procurement Report</title></head>
+<body>
+    <h2>Full Procurement Report</h2>
+    <table border="1">
+        <tr><th>ID</th><th>Branch</th><th>Supplier</th><th>Order Date</th><th>Total Cost</th><th>Status</th></tr>
+        {% for p in procurements %}
+        <tr>
+            <td>{{ p.id }}</td><td>{{ p.branch }}</td><td>{{ p.supplier }}</td>
+            <td>{{ p.order_date }}</td><td>{{ p.total_cost }}</td><td>{{ p.status }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <a href="{% url 'reports_dashboard' %}">Back to Dashboard</a>
+</body>
+</html>

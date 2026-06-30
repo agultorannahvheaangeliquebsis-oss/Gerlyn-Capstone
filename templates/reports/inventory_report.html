@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><title>Inventory Report</title></head>
+<body>
+    <h2>Full Inventory Report</h2>
+    <table border="1">
+        <tr><th>Product</th><th>Branch</th><th>On Hand</th><th>Reorder Level</th><th>Restock?</th></tr>
+        {% for item in inventory_records %}
+        <tr {% if item.restock %}style="color:red;"{% endif %}>
+            <td>{{ item.product.product_name }}</td><td>{{ item.branch.branch_name }}</td>
+            <td>{{ item.quantity_on_hand }}</td><td>{{ item.reorder_level }}</td>
+            <td>{{ item.restock|yesno:"Yes,No" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <a href="{% url 'reports_dashboard' %}">Back to Dashboard</a>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head><title>Reports Dashboard</title></head>
+<body>
+    <h2>Reports Dashboard</h2>
+    <a href="{% url 'sales_report' %}">Full Sales Report</a> |
+    <a href="{% url 'inventory_report' %}">Full Inventory Report</a> |
+    <a href="{% url 'procurement_report' %}">Full Procurement Report</a>
+
+    <h3>Sales Summary</h3>
+    <p>Total Sales (All Time): {{ total_sales }}</p>
+    <p>Total Transactions: {{ total_transactions }}</p>
+    <p>Sales (Last 30 Days): {{ recent_sales }}</p>
+
+    {% if is_owner %}
+    <h3>Sales by Branch</h3>
+    <table border="1">
+        <tr><th>Branch</th><th>Total Sales</th><th>Transactions</th></tr>
+        {% for b in sales_by_branch %}
+        <tr><td>{{ b.branch__branch_name }}</td><td>{{ b.total }}</td><td>{{ b.count }}</td></tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+
+    <h3>Top 5 Selling Products</h3>
+    <table border="1">
+        <tr><th>Product</th><th>Qty Sold</th><th>Revenue</th></tr>
+        {% for p in top_products %}
+        <tr><td>{{ p.product__product_name }}</td><td>{{ p.total_qty }}</td><td>{{ p.total_revenue }}</td></tr>
+        {% endfor %}
+    </table>
+
+    <h3>Low Stock Alerts</h3>
+    <table border="1">
+        <tr><th>Product</th><th>Branch</th><th>Qty On Hand</th><th>Reorder Level</th></tr>
+        {% for item in low_stock %}
+        <tr style="color:red;">
+            <td>{{ item.product.product_name }}</td>
+            <td>{{ item.branch.branch_name }}</td>
+            <td>{{ item.quantity_on_hand }}</td>
+            <td>{{ item.reorder_level }}</td>
+        </tr>
+        {% endfor %}
+        {% if not low_stock %}<tr><td colspan="4">No items need restocking.</td></tr>{% endif %}
+    </table>
+
+    <h3>Procurement Summary</h3>
+    <p>Total Procurement Cost: {{ total_procurement_cost }}</p>
+    <p>Pending Orders: {{ pending_orders }}</p>
+</body>
+</html>

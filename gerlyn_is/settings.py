@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'sales',
     'procurement',
     'billing',
+    'reports',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'

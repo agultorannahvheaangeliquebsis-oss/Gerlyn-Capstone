@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><title>Sales Report</title></head>
+<body>
+    <h2>Full Sales Report</h2>
+    <table border="1">
+        <tr><th>ID</th><th>Branch</th><th>Staff</th><th>Customer</th><th>Date</th><th>Total</th><th>Type</th></tr>
+        {% for txn in transactions %}
+        <tr>
+            <td>{{ txn.id }}</td><td>{{ txn.branch }}</td><td>{{ txn.staff|default:"-" }}</td>
+            <td>{{ txn.customer|default:"-" }}</td><td>{{ txn.transaction_date }}</td>
+            <td>{{ txn.total_amount }}</td><td>{{ txn.transaction_type }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <a href="{% url 'reports_dashboard' %}">Back to Dashboard</a>
+</body>
+</html>
