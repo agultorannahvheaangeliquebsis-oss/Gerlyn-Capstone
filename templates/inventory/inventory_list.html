@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>Inventory</title></head>
+<body>
+    <h2>Inventory / Stock Levels</h2>
+    <table border="1">
+        <tr>
+            <th>Product</th><th>Branch</th><th>On Hand</th><th>Reorder Level</th><th>Restock?</th><th>Last Updated</th>
+        </tr>
+        {% for record in inventory_records %}
+        <tr>
+            <td>{{ record.product.product_name }}</td>
+            <td>{{ record.branch.branch_name }}</td>
+            <td>{{ record.quantity_on_hand }}</td>
+            <td>{{ record.reorder_level }}</td>
+            <td>{{ record.restock|yesno:"Yes,No" }}</td>
+            <td>{{ record.last_stock_update }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

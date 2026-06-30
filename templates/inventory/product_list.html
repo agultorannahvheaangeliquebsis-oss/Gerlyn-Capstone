@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><title>Products</title></head>
+<body>
+    <h2>Product List</h2>
+    <a href="{% url 'product_add' %}">+ Add Product</a>
+    {% if messages %}
+        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+    {% endif %}
+    <table border="1">
+        <tr>
+            <th>SKU</th><th>Name</th><th>Category</th><th>Unit</th><th>Price</th><th>Action</th>
+        </tr>
+        {% for product in products %}
+        <tr>
+            <td>{{ product.sku_code }}</td>
+            <td>{{ product.product_name }}</td>
+            <td>{{ product.category }}</td>
+            <td>{{ product.unit_of_measure }}</td>
+            <td>{{ product.unit_price }}</td>
+            <td><a href="{% url 'product_edit' product.pk %}">Edit</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
