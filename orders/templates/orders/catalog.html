@@ -1,0 +1,23 @@
+<!-- orders/templates/orders/catalog.html -->
+{% extends "base.html" %}
+{% block content %}
+<h1>Products at {{ branch.branch_name }}</h1>
+<a href="{% url 'orders:select_branch' %}">Change branch</a>
+
+{% for record in stock_records %}
+  <div>
+    <strong>{{ record.product.product_name }}</strong>
+    — ₱{{ record.product.unit_price }} per {{ record.product.unit_of_measure }}
+    ({{ record.quantity_on_hand }} in stock)
+    <form method="post" action="{% url 'orders:add_to_cart' record.product.id %}">
+      {% csrf_token %}
+      <input type="number" name="quantity" value="1" min="1" max="{{ record.quantity_on_hand }}">
+      <button type="submit">Add to cart</button>
+    </form>
+  </div>
+{% empty %}
+  <p>No products available at this branch.</p>
+{% endfor %}
+
+<a href="{% url 'orders:cart' %}">View Cart</a>
+{% endblock %}
