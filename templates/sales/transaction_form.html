@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head><title>Record Sale</title></head>
+<body>
+    <h2>Record a Sale</h2>
+    <form method="POST">
+        {% csrf_token %}
+        <label>Branch</label>
+        <select name="branch" required>
+            {% for branch in branches %}
+            <option value="{{ branch.id }}">{{ branch.branch_name }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label>Transaction Type</label>
+        <select name="transaction_type">
+            <option value="Physical">Physical</option>
+            <option value="Online">Online</option>
+        </select><br><br>
+
+        <label>Mode of Payment</label>
+        <select name="mode_of_payment">
+            <option value="Cash">Cash</option>
+            <option value="GCash">GCash</option>
+            <option value="Card">Card</option>
+        </select><br><br>
+
+        <h3>Items</h3>
+        <div id="item-rows">
+            <div class="item-row">
+                <select name="product_id">
+                    {% for product in products %}
+                    <option value="{{ product.id }}">{{ product.product_name }} (₱{{ product.unit_price }})</option>
+                    {% endfor %}
+                </select>
+                <input type="number" name="quantity" placeholder="Quantity" min="1" required>
+            </div>
+        </div>
+        <button type="button" onclick="addRow()">+ Add Another Item</button><br><br>
+
+        <button type="submit">Save Transaction</button>
+    </form>
+
+    <script>
+        function addRow() {
+            const container = document.getElementById('item-rows');
+            const row = container.children[0].cloneNode(true);
+            row.querySelectorAll('input').forEach(input => input.value = '');
+            container.appendChild(row);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><title>Sales Transactions</title></head>
+<body>
+    <h2>Sales Transactions</h2>
+    <a href="{% url 'transaction_add' %}">+ Record Sale</a>
+    {% if messages %}
+        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+    {% endif %}
+    <table border="1">
+        <tr>
+            <th>ID</th><th>Branch</th><th>Staff</th><th>Date</th><th>Total</th><th>Type</th><th>Payment</th><th>Action</th>
+        </tr>
+        {% for txn in transactions %}
+        <tr>
+            <td>{{ txn.id }}</td>
+            <td>{{ txn.branch }}</td>
+            <td>{{ txn.staff }}</td>
+            <td>{{ txn.transaction_date }}</td>
+            <td>{{ txn.total_amount }}</td>
+            <td>{{ txn.transaction_type }}</td>
+            <td>{{ txn.mode_of_payment }}</td>
+            <td><a href="{% url 'transaction_detail' txn.pk %}">View</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

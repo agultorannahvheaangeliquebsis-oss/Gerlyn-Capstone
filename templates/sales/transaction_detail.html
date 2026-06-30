@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head><title>Transaction Detail</title></head>
+<body>
+    <h2>Transaction #{{ transaction.id }}</h2>
+    <p>Branch: {{ transaction.branch }}</p>
+    <p>Date: {{ transaction.transaction_date }}</p>
+    <p>Total: {{ transaction.total_amount }}</p>
+
+    <h3>Items</h3>
+    <table border="1">
+        <tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr>
+        {% for item in items %}
+        <tr>
+            <td>{{ item.product.product_name }}</td>
+            <td>{{ item.quantity_sold }}</td>
+            <td>{{ item.unit_price }}</td>
+            <td>{{ item.subtotal }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <a href="{% url 'transaction_list' %}">Back to list</a>
+</body>
+</html>
