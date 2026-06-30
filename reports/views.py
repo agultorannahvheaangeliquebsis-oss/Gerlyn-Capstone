@@ -1,3 +1,5 @@
+from multiprocessing import context
+
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -23,6 +25,7 @@ def get_user_branch(user):
         return None
     return None
 
+total_products = Product.objects.count()
 
 @login_required(login_url='login')
 def reports_dashboard(request):
@@ -71,17 +74,18 @@ def reports_dashboard(request):
     pending_orders = procurement_qs.filter(status='Ordered').count()
 
     context = {
-        'total_sales': total_sales,
-        'total_transactions': total_transactions,
-        'recent_sales': recent_sales,
-        'sales_by_branch': sales_by_branch,
-        'top_products': top_products,
-        'low_stock': low_stock,
-        'total_procurement_cost': total_procurement_cost,
-        'pending_orders': pending_orders,
-        'is_owner': request.user.role == User.Role.OWNER,
-    }
-    return render(request, 'reports/dashboard.html', context)
+    'total_products': total_products,
+    'total_sales': total_sales,
+    'total_transactions': total_transactions,
+    'recent_sales': recent_sales,
+    'sales_by_branch': sales_by_branch,
+    'top_products': top_products,
+    'low_stock': low_stock,
+    'total_procurement_cost': total_procurement_cost,
+    'pending_orders': pending_orders,
+    'is_owner': request.user.role == User.Role.OWNER,
+    }   
+    return render(request, 'accounts/owner_dashboard.html', context)
 
 
 @login_required(login_url='login')
@@ -125,4 +129,4 @@ def procurement_report(request):
         procurement_qs = procurement_qs.filter(branch=user_branch)
 
     procurement_qs = procurement_qs.order_by('-order_date')
-    return render(request, 'reports/procurement_report.html', {'procurements': procurement_qs})
+    return render(request, 'accounts/owner_dashboard.html', context)

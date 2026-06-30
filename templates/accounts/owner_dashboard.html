@@ -1,8 +1,99 @@
-<!DOCTYPE html>
-<html>
-<head><title>Owner Dashboard</title></head>
-<body>
-    <h2>Welcome, {{ request.user.username }} (Owner)</h2>
-    <a href="{% url 'logout' %}">Logout</a>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+
+{% block content %}
+<h4 class="fw-bold mb-1">Dashboard</h4>
+<p class="text-muted mb-4">Good morning, {{ request.user.username }}! Here's what's happening today.</p>
+
+<div class="row row-cols-2 row-cols-md-3 row-cols-lg-6 g-3 mb-4">
+    <div class="col">
+        <div class="stat-card p-3 bg-white h-100">
+            <i class="fa-solid fa-box text-primary mb-2"></i>
+            <div class="text-muted small">Total Products</div>
+            <div class="fs-4 fw-bold">{{ total_products }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card p-3 bg-white h-100">
+            <i class="fa-solid fa-triangle-exclamation text-danger mb-2"></i>
+            <div class="text-muted small">Low / Critical Stock</div>
+            <div class="fs-4 fw-bold">{{ low_stock_count }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">items need restock</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card p-3 bg-white h-100">
+            <i class="fa-solid fa-dollar-sign text-success mb-2"></i>
+            <div class="text-muted small">Total Sales</div>
+            <div class="fs-4 fw-bold">₱{{ total_sales }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card p-3 bg-white h-100">
+            <i class="fa-solid fa-arrow-trend-up text-warning mb-2"></i>
+            <div class="text-muted small">Recent Sales (30 days)</div>
+            <div class="fs-4 fw-bold">₱{{ recent_sales }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card p-3 bg-white h-100">
+            <i class="fa-solid fa-chart-simple text-purple mb-2"></i>
+            <div class="text-muted small">Procurement Cost</div>
+            <div class="fs-4 fw-bold">₱{{ total_procurement_cost }}</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card p-3 bg-white h-100">
+            <i class="fa-solid fa-cart-shopping text-info mb-2"></i>
+            <div class="text-muted small">Total Transactions</div>
+            <div class="fs-4 fw-bold">{{ total_transactions }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-7">
+        <div class="stat-card p-3 bg-white h-100">
+            <h6 class="fw-bold mb-3">Sales by Branch</h6>
+            <table class="table table-sm">
+                <thead><tr><th>Branch</th><th>Orders</th><th>Sales</th></tr></thead>
+                <tbody>
+                    {% for b in sales_by_branch %}
+                    <tr><td>{{ b.branch__branch_name }}</td><td>{{ b.count }}</td><td>₱{{ b.total }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="col-md-5">
+        <div class="stat-card p-3 bg-white h-100">
+            <h6 class="fw-bold mb-3">Top-Selling Products</h6>
+            {% for p in top_products %}
+            <div class="d-flex justify-content-between small mb-2">
+                <span>{{ p.product__product_name }}</span>
+                <strong>{{ p.total_qty }} sold</strong>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="stat-card p-3 bg-white">
+    <h6 class="fw-bold mb-3">Low Stock Alerts</h6>
+    <table class="table table-sm">
+        <thead><tr><th>Product</th><th>Branch</th><th>On Hand</th><th>Reorder Level</th></tr></thead>
+        <tbody>
+            {% for item in low_stock %}
+            <tr class="table-danger">
+                <td>{{ item.product.product_name }}</td>
+                <td>{{ item.branch.branch_name }}</td>
+                <td>{{ item.quantity_on_hand }}</td>
+                <td>{{ item.reorder_level }}</td>
+            </tr>
+            {% endfor %}
+            {% if not low_stock %}<tr><td colspan="4" class="text-muted">No items need restocking.</td></tr>{% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

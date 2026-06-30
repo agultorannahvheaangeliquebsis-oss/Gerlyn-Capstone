@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Internal System{% endblock %} - Gerlyn Variety Store</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --gerlyn-green: #3f7f5b;
+            --gerlyn-green-dark: #2d5f43;
+            --gerlyn-bg: #f8f9fb;
+        }
+        body { background-color: var(--gerlyn-bg); }
+        .sidebar {
+            width: 220px;
+            min-height: 100vh;
+            background: #fff;
+            border-right: 1px solid #eee;
+            position: fixed;
+            top: 0; left: 0;
+            padding: 16px 12px;
+        }
+        .sidebar-brand-icon {
+            background-color: var(--gerlyn-green);
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            display: inline-flex; align-items: center; justify-content: center;
+            color: white;
+        }
+        .sidebar .nav-link {
+            color: #444;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 2px;
+            font-size: 0.92rem;
+        }
+        .sidebar .nav-link.active, .sidebar .nav-link:hover {
+            background-color: #eaf3ee;
+            color: var(--gerlyn-green-dark);
+            font-weight: 600;
+        }
+        .sidebar .nav-link i { width: 18px; }
+        .main-content { margin-left: 220px; padding: 24px 32px; }
+        .role-badge {
+            background-color: #eaf3ee;
+            color: var(--gerlyn-green-dark);
+            font-size: 0.72rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        .stat-card { border-radius: 12px; border: 1px solid #eee; }
+        .text-gerlyn { color: var(--gerlyn-green); }
+        .btn-gerlyn { background-color: var(--gerlyn-green); color: white; border: none; }
+        .btn-gerlyn:hover { background-color: var(--gerlyn-green-dark); color: white; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<div class="sidebar d-flex flex-column">
+    <div class="d-flex align-items-center gap-2 px-2 mb-4">
+        <span class="sidebar-brand-icon"><i class="fa-solid fa-store"></i></span>
+        <div>
+            <div class="fw-bold small">Gerlyn Variety Store</div>
+            <div class="text-muted" style="font-size: 0.7rem;">Internal System</div>
+        </div>
+    </div>
+
+    <div class="px-2 mb-4 d-flex align-items-center gap-2">
+        <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center"
+             style="width:32px;height:32px;font-size:0.85rem;">
+            {{ request.user.username|slice:":1"|upper }}
+        </div>
+        <div>
+            <div class="fw-semibold small">{{ request.user.username }}</div>
+            <span class="role-badge">{{ request.user.get_role_display }}</span>
+        </div>
+    </div>
+
+    <nav class="nav flex-column flex-grow-1">
+        <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="#">
+            <i class="fa-solid fa-table-cells-large me-2"></i> Dashboard
+        </a>
+        <a class="nav-link" href="{% url 'transaction_list' %}">
+            <i class="fa-solid fa-cart-shopping me-2"></i> Sales &amp; Orders
+        </a>
+        <a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="{% url 'product_list' %}">
+            <i class="fa-solid fa-box me-2"></i> Product Master List
+        </a>
+        <a class="nav-link {% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">
+            <i class="fa-solid fa-warehouse me-2"></i> Stock per Branch
+        </a>
+        <a class="nav-link" href="{% url 'procurement_list' %}">
+            <i class="fa-solid fa-truck me-2"></i> Procurement
+        </a>
+        <a class="nav-link" href="{% url 'reports_dashboard' %}">
+            <i class="fa-solid fa-chart-line me-2"></i> Reports
+        </a>
+        <a class="nav-link" href="{% url 'billing_list' %}">
+            <i class="fa-solid fa-receipt me-2"></i> Billing
+        </a>
+    </nav>
+
+    <a class="nav-link text-danger" href="{% url 'logout' %}">
+        <i class="fa-solid fa-arrow-right-from-bracket me-2"></i> Logout
+    </a>
+</div>
+
+<div class="main-content">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <h5 class="mb-0">{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}</h5>
+            <small class="text-muted">{% block page_subtitle %}All Branches{% endblock %}</small>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <i class="fa-regular fa-bell text-muted"></i>
+            <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center"
+                 style="width:32px;height:32px;font-size:0.85rem;">
+                {{ request.user.username|slice:":1"|upper }}
+            </div>
+        </div>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-info">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+
+    {% block content %}{% endblock %}
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -44,7 +44,9 @@ def owner_dashboard(request):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Access denied.')
         return redirect('login')
-    return render(request, 'accounts/owner_dashboard.html')
+
+    from reports.views import reports_dashboard
+    return reports_dashboard(request)
 
 
 @login_required(login_url='login')
@@ -77,3 +79,13 @@ def customer_dashboard(request):
         messages.error(request, 'Access denied.')
         return redirect('login')
     return render(request, 'accounts/customer_dashboard.html')
+
+from inventory.models import Product, ProductCategory
+from branches.models import Branch
+
+
+def home_view(request):
+    products = Product.objects.all()[:8]
+    branches = Branch.objects.all()
+    categories = ProductCategory.objects.all()
+    return render(request, 'home.html', {'products': products, 'branches': branches, 'categories': categories})
