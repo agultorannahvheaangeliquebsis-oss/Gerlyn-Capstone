@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'procurement',
     'billing',
     'reports',
+    'orders',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -132,3 +133,5 @@ STATIC_URL = 'static/'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+LOGIN_URL = '/'
