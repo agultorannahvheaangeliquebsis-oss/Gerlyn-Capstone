@@ -1,26 +1,59 @@
-<!DOCTYPE html>
-<html>
-<head><title>Products</title></head>
-<body>
-    <h2>Product List</h2>
-    <a href="{% url 'product_add' %}">+ Add Product</a>
-    {% if messages %}
-        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
-    {% endif %}
-    <table border="1">
-        <tr>
-            <th>SKU</th><th>Name</th><th>Category</th><th>Unit</th><th>Price</th><th>Action</th>
-        </tr>
-        {% for product in products %}
-        <tr>
-            <td>{{ product.sku_code }}</td>
-            <td>{{ product.product_name }}</td>
-            <td>{{ product.category }}</td>
-            <td>{{ product.unit_of_measure }}</td>
-            <td>{{ product.unit_price }}</td>
-            <td><a href="{% url 'product_edit' product.pk %}">Edit</a></td>
-        </tr>
+{% extends "internal_base.html" %}
+{% block title %}Product Master List{% endblock %}
+{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-1">
+    <div>
+        <h4 class="fw-bold mb-0">Product Master List</h4>
+        <p class="text-muted small">{{ products.count }} of {{ total_count }} products</p>
+    </div>
+    <a href="{% url 'product_add' %}" class="btn btn-gerlyn px-3"><i class="fa-solid fa-plus me-1"></i> Add Product</a>
+</div>
+
+<form method="GET" class="d-flex gap-2 mb-3">
+    <input type="text" name="q" class="form-control" placeholder="Search product or SKU..." value="{{ search_query }}">
+    <select name="category" class="form-select" style="max-width: 220px;" onchange="this.form.submit()">
+        <option value="">All Categories</option>
+        {% for category in categories %}
+        <option value="{{ category.id }}" {% if category_filter == category.id|stringformat:"s" %}selected{% endif %}>
+            {{ category.category_name }}
+        </option>
         {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-outline-secondary"><i class="fa-solid fa-magnifying-glass"></i></button>
+</form>
+
+<div class="stat-card bg-white p-0">
+    <table class="table table-hover mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>SKU</th>
+                <th>Product Name</th>
+                <th>Category</th>
+                <th>Unit</th>
+                <th>Retail Price</th>
+                <th>Wholesale Price</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for product in products %}
+            <tr>
+                <td class="text-muted">{{ product.sku_code }}</td>
+                <td class="fw-semibold">{{ product.product_name }}</td>
+                <td><span class="badge bg-light text-dark border">{{ product.category }}</span></td>
+                <td>{{ product.unit_of_measure }}</td>
+                <td class="fw-semibold">₱{{ product.unit_price }}</td>
+                <td class="text-success fw-semibold">{% if product.wholesale_price %}₱{{ product.wholesale_price }}{% else %}-{% endif %}</td>
+                <td>
+                    <a href="{% url 'product_edit' product.pk %}" class="text-muted me-2"><i class="fa-solid fa-pen"></i></a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="text-center text-muted py-4">No products found.</td></tr>
+            {% endfor %}
+        </tbody>
     </table>
-</body>
-</html>
+</div>
+{% endblock %}

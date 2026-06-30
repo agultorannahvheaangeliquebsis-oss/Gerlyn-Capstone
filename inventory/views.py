@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import ProductCategory, Product, Inventory
 from accounts.models import User
+from django.db import models
 
 
 def role_required(*allowed_roles):
@@ -15,7 +16,26 @@ def role_required(*allowed_roles):
 @login_required(login_url='login')
 def product_list(request):
     products = Product.objects.select_related('category').all()
-    return render(request, 'inventory/product_list.html', {'products': products})
+    categories = ProductCategory.objects.all()
+
+    search_query = request.GET.get('q', '')
+    category_filter = request.GET.get('category', '')
+
+    if search_query:
+        products = products.filter(
+            models.Q(product_name__icontains=search_query) |
+            models.Q(sku_code__icontains=search_query)
+        )
+    if category_filter:
+        products = products.filter(category_id=category_filter)
+
+    return render(request, 'inventory/product_list.html', {
+        'products': products,
+        'categories': categories,
+        'search_query': search_query,
+        'category_filter': category_filter,
+        'total_count': Product.objects.count(),
+    })
 
 
 @login_required(login_url='login')
@@ -34,12 +54,13 @@ def product_add(request):
         unit_price = request.POST.get('unit_price')
 
         Product.objects.create(
-            category_id=category_id,
-            sku_code=sku_code,
-            product_name=product_name,
-            unit_of_measure=unit_of_measure,
-            unit_price=unit_price,
-        )
+        category_id=category_id,
+        sku_code=sku_code,
+        product_name=product_name,
+        unit_of_measure=unit_of_measure,
+        unit_price=unit_price,
+        wholesale_price=request.POST.get('wholesale_price') or None,
+    )
         messages.success(request, 'Product added successfully.')
         return redirect('product_list')
 
@@ -61,6 +82,7 @@ def product_edit(request, pk):
         product.product_name = request.POST.get('product_name')
         product.unit_of_measure = request.POST.get('unit_of_measure')
         product.unit_price = request.POST.get('unit_price')
+        product.wholesale_price = request.POST.get('wholesale_price') or None
         product.save()
         messages.success(request, 'Product updated successfully.')
         return redirect('product_list')

@@ -8,7 +8,7 @@ class ProductCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('product_name', 'sku_code', 'category', 'unit_of_measure', 'unit_price')
+    list_display = ('product_name', 'sku_code', 'category', 'unit_of_measure', 'unit_price', 'wholesale_price')
     search_fields = ('product_name', 'sku_code')
     list_filter = ('category', 'unit_of_measure')
 
