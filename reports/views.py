@@ -1,5 +1,3 @@
-from multiprocessing import context
-
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -25,7 +23,6 @@ def get_user_branch(user):
         return None
     return None
 
-total_products = Product.objects.count()
 
 @login_required(login_url='login')
 def reports_dashboard(request):
@@ -53,7 +50,7 @@ def reports_dashboard(request):
         total=Sum('total_amount')
     )['total'] or 0
 
-    # --- Sales by Branch (Owner view only, since Branch Managers are already filtered) ---
+    # --- Sales by Branch ---
     sales_by_branch = sales_qs.values('branch__branch_name').annotate(
         total=Sum('total_amount'), count=Count('id')
     ).order_by('-total')
@@ -68,23 +65,28 @@ def reports_dashboard(request):
 
     # --- Low Stock Alerts ---
     low_stock = inventory_qs.filter(restock=True)
+    low_stock_count = low_stock.count()
 
     # --- Procurement Summary ---
     total_procurement_cost = procurement_qs.aggregate(total=Sum('total_cost'))['total'] or 0
     pending_orders = procurement_qs.filter(status='Ordered').count()
 
+    # --- Total Products ---
+    total_products = Product.objects.count()
+
     context = {
-    'total_products': total_products,
-    'total_sales': total_sales,
-    'total_transactions': total_transactions,
-    'recent_sales': recent_sales,
-    'sales_by_branch': sales_by_branch,
-    'top_products': top_products,
-    'low_stock': low_stock,
-    'total_procurement_cost': total_procurement_cost,
-    'pending_orders': pending_orders,
-    'is_owner': request.user.role == User.Role.OWNER,
-    }   
+        'total_products': total_products,
+        'total_sales': total_sales,
+        'total_transactions': total_transactions,
+        'recent_sales': recent_sales,
+        'sales_by_branch': sales_by_branch,
+        'top_products': top_products,
+        'low_stock': low_stock,
+        'low_stock_count': low_stock_count,
+        'total_procurement_cost': total_procurement_cost,
+        'pending_orders': pending_orders,
+        'is_owner': request.user.role == User.Role.OWNER,
+    }
     return render(request, 'accounts/owner_dashboard.html', context)
 
 
@@ -129,4 +131,4 @@ def procurement_report(request):
         procurement_qs = procurement_qs.filter(branch=user_branch)
 
     procurement_qs = procurement_qs.order_by('-order_date')
-    return render(request, 'accounts/owner_dashboard.html', context)
+    return render(request, 'reports/procurement_report.html', {'procurements': procurement_qs})

@@ -43,7 +43,15 @@ def procurement_add(request):
     branches = Branch.objects.all()
 
     if request.method == 'POST':
-        branch_id = request.POST.get('branch')
+        if request.user.role == User.Role.BRANCH_MANAGER:
+            try:
+                branch_id = request.user.manager_profile.branch.id
+            except Exception:
+                messages.error(request, 'No branch assigned to your account.')
+                return redirect('procurement_list')
+        else:
+            branch_id = request.POST.get('branch')
+
         supplier_id = request.POST.get('supplier')
         order_date = request.POST.get('order_date')
         delivery_date = request.POST.get('delivery_date') or None
@@ -102,22 +110,23 @@ def procurement_update_status(request, pk):
 
     if request.method == 'POST':
         new_status = request.POST.get('status')
-        proc.status = new_status
-        proc.save()
 
-        # If marked as Received, update inventory and quantity_received
-        if new_status == Procurement.Status.RECEIVED:
-            for item in proc.items.all():
-                item.quantity_received = item.quantity_ordered
-                item.save()
+        with transaction.atomic():
+            proc.status = new_status
+            proc.save()
 
-                inv, created = Inventory.objects.get_or_create(
-                    product=item.product,
-                    branch=proc.branch,
-                    defaults={'quantity_on_hand': 0, 'reorder_level': 0}
-                )
-                inv.quantity_on_hand += item.quantity_ordered
-                inv.save()
+            if new_status == Procurement.Status.RECEIVED:
+                for item in proc.items.all():
+                    item.quantity_received = item.quantity_ordered
+                    item.save()
+
+                    inv, created = Inventory.objects.get_or_create(
+                        product=item.product,
+                        branch=proc.branch,
+                        defaults={'quantity_on_hand': 0, 'reorder_level': 0}
+                    )
+                    inv.quantity_on_hand += item.quantity_ordered
+                    inv.save()
 
         messages.success(request, 'Status updated.')
 

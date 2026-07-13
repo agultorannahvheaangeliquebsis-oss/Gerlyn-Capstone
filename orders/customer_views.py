@@ -6,6 +6,7 @@ from django.db import transaction
 from branches.models import Branch
 from inventory.models import Inventory
 from sales.models import SalesTransaction, SalesItem
+from billing.models import BillingRecord
 
 
 def is_customer(user):
@@ -17,7 +18,7 @@ def select_branch(request):
     branches = Branch.objects.all()
     if request.method == 'POST':
         request.session['branch_id'] = int(request.POST['branch_id'])
-        request.session['cart'] = {}  # reset cart when switching branch
+        request.session['cart'] = {}
         return redirect('orders:catalog')
     return render(request, 'orders/select_branch.html', {'branches': branches})
 
@@ -28,7 +29,6 @@ def product_catalog(request):
     if not branch_id:
         return redirect('orders:select_branch')
 
-    # only show products with stock at this branch
     stock_records = Inventory.objects.filter(
         branch_id=branch_id, quantity_on_hand__gt=0
     ).select_related('product')
@@ -114,6 +114,14 @@ def checkout(request):
 
         sale.total_amount = running_total
         sale.save()
+
+        # Auto-create pending billing record
+        BillingRecord.objects.create(
+            transaction=sale,
+            amount_due=sale.total_amount,
+            payment_method=sale.mode_of_payment,
+            status=BillingRecord.PaymentStatus.PENDING,
+        )
 
     request.session['cart'] = {}
     return redirect('orders:confirmation', transaction_id=sale.id)

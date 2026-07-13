@@ -11,7 +11,6 @@ from accounts.models import User
 def transaction_list(request):
     transactions = SalesTransaction.objects.select_related('branch', 'staff', 'customer').all()
 
-    # Branch managers and staff only see their own branch's transactions
     if request.user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         try:
             branch = request.user.manager_profile.branch if request.user.role == User.Role.BRANCH_MANAGER \
@@ -39,7 +38,21 @@ def transaction_add(request):
     products = Product.objects.all()
 
     if request.method == 'POST':
-        branch_id = request.POST.get('branch')
+        if request.user.role == User.Role.STAFF:
+            try:
+                branch_id = request.user.staff_profile.branch.id
+            except Exception:
+                messages.error(request, 'No branch assigned to your account.')
+                return redirect('transaction_list')
+        elif request.user.role == User.Role.BRANCH_MANAGER:
+            try:
+                branch_id = request.user.manager_profile.branch.id
+            except Exception:
+                messages.error(request, 'No branch assigned to your account.')
+                return redirect('transaction_list')
+        else:
+            branch_id = request.POST.get('branch')
+
         transaction_type = request.POST.get('transaction_type')
         mode_of_payment = request.POST.get('mode_of_payment')
         product_ids = request.POST.getlist('product_id')
@@ -70,7 +83,6 @@ def transaction_add(request):
                 )
                 total += subtotal
 
-                # Reduce stock if an Inventory record exists for this branch/product
                 inv = Inventory.objects.filter(product=product, branch_id=branch_id).first()
                 if inv:
                     inv.quantity_on_hand = max(0, inv.quantity_on_hand - qty)
