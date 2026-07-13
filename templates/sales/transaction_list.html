@@ -1,28 +1,64 @@
-<!DOCTYPE html>
-<html>
-<head><title>Sales Transactions</title></head>
-<body>
-    <h2>Sales Transactions</h2>
-    <a href="{% url 'transaction_add' %}">+ Record Sale</a>
-    {% if messages %}
-        {% for message in messages %}<p>{{ message }}</p>{% endfor %}
-    {% endif %}
-    <table border="1">
-        <tr>
-            <th>ID</th><th>Branch</th><th>Staff</th><th>Date</th><th>Total</th><th>Type</th><th>Payment</th><th>Action</th>
-        </tr>
-        {% for txn in transactions %}
-        <tr>
-            <td>{{ txn.id }}</td>
-            <td>{{ txn.branch }}</td>
-            <td>{{ txn.staff }}</td>
-            <td>{{ txn.transaction_date }}</td>
-            <td>{{ txn.total_amount }}</td>
-            <td>{{ txn.transaction_type }}</td>
-            <td>{{ txn.mode_of_payment }}</td>
-            <td><a href="{% url 'transaction_detail' txn.pk %}">View</a></td>
-        </tr>
-        {% endfor %}
+{% extends "internal_base.html" %}
+{% block title %}Sales & Orders{% endblock %}
+{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+        <h4 class="fw-bold mb-0">Sales & Orders</h4>
+        <p class="text-muted small">All recorded transactions</p>
+    </div>
+    <a href="{% url 'transaction_add' %}" class="btn btn-gerlyn px-3">
+        <i class="fa-solid fa-plus me-1"></i> Record Sale
+    </a>
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-info">{{ message }}</div>
+    {% endfor %}
+{% endif %}
+
+<div class="stat-card bg-white p-0">
+    <table class="table table-hover mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>#</th>
+                <th>Branch</th>
+                <th>Staff</th>
+                <th>Customer</th>
+                <th>Date</th>
+                <th>Total</th>
+                <th>Type</th>
+                <th>Payment</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for txn in transactions %}
+            <tr>
+                <td class="text-muted">{{ txn.id }}</td>
+                <td>{{ txn.branch }}</td>
+                <td>{{ txn.staff|default:"-" }}</td>
+                <td>{{ txn.customer|default:"-" }}</td>
+                <td>{{ txn.transaction_date|date:"M d, Y" }}</td>
+                <td class="fw-semibold">₱{{ txn.total_amount }}</td>
+                <td>
+                    <span class="badge {% if txn.transaction_type == 'Online' %}bg-primary{% else %}bg-secondary{% endif %}">
+                        {{ txn.transaction_type }}
+                    </span>
+                </td>
+                <td>{{ txn.mode_of_payment }}</td>
+                <td>
+                    <a href="{% url 'transaction_detail' txn.pk %}" class="text-muted">
+                        <i class="fa-solid fa-eye"></i>
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="9" class="text-center text-muted py-4">No transactions recorded yet.</td></tr>
+            {% endfor %}
+        </tbody>
     </table>
-</body>
-</html>
+</div>
+{% endblock %}

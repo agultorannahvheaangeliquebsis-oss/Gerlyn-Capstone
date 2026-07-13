@@ -1,53 +1,87 @@
-<!DOCTYPE html>
-<html>
-<head><title>Record Sale</title></head>
-<body>
-    <h2>Record a Sale</h2>
+{% extends "internal_base.html" %}
+{% block title %}Record Sale{% endblock %}
+{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+
+{% block content %}
+<h4 class="fw-bold mb-4">Record a Sale</h4>
+
+<div class="stat-card bg-white p-4">
     <form method="POST">
         {% csrf_token %}
-        <label>Branch</label>
-        <select name="branch" required>
-            {% for branch in branches %}
-            <option value="{{ branch.id }}">{{ branch.branch_name }}</option>
-            {% endfor %}
-        </select><br><br>
-
-        <label>Transaction Type</label>
-        <select name="transaction_type">
-            <option value="Physical">Physical</option>
-            <option value="Online">Online</option>
-        </select><br><br>
-
-        <label>Mode of Payment</label>
-        <select name="mode_of_payment">
-            <option value="Cash">Cash</option>
-            <option value="GCash">GCash</option>
-            <option value="Card">Card</option>
-        </select><br><br>
-
-        <h3>Items</h3>
-        <div id="item-rows">
-            <div class="item-row">
-                <select name="product_id">
-                    {% for product in products %}
-                    <option value="{{ product.id }}">{{ product.product_name }} (₱{{ product.unit_price }})</option>
+        <div class="row g-3 mb-4">
+            {% if request.user.role == 'OWNER' %}
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Branch</label>
+                <select name="branch" class="form-select" required>
+                    {% for branch in branches %}
+                    <option value="{{ branch.id }}">{{ branch.branch_name }}</option>
                     {% endfor %}
                 </select>
-                <input type="number" name="quantity" placeholder="Quantity" min="1" required>
+            </div>
+            {% endif %}
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Transaction Type</label>
+                <select name="transaction_type" class="form-select">
+                    <option value="Physical">Physical</option>
+                    <option value="Online">Online</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Mode of Payment</label>
+                <select name="mode_of_payment" class="form-select">
+                    <option value="Cash">Cash</option>
+                    <option value="GCash">GCash</option>
+                    <option value="Card">Card</option>
+                </select>
             </div>
         </div>
-        <button type="button" onclick="addRow()">+ Add Another Item</button><br><br>
 
-        <button type="submit">Save Transaction</button>
+        <h6 class="fw-bold mb-3">Items</h6>
+        <div id="item-rows">
+            <div class="item-row row g-2 mb-2 align-items-center">
+                <div class="col-md-7">
+                    <select name="product_id" class="form-select">
+                        {% for product in products %}
+                        <option value="{{ product.id }}">{{ product.product_name }} (₱{{ product.unit_price }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <input type="number" name="quantity" class="form-control" placeholder="Quantity" min="1" required>
+                </div>
+                <div class="col-md-2">
+                    <button type="button" class="btn btn-outline-danger w-100" onclick="removeRow(this)">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <button type="button" class="btn btn-outline-secondary btn-sm mb-4" onclick="addRow()">
+            <i class="fa-solid fa-plus me-1"></i> Add Another Item
+        </button>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-gerlyn px-4">Save Transaction</button>
+            <a href="{% url 'transaction_list' %}" class="btn btn-outline-secondary px-4">Cancel</a>
+        </div>
     </form>
+</div>
 
-    <script>
-        function addRow() {
-            const container = document.getElementById('item-rows');
-            const row = container.children[0].cloneNode(true);
-            row.querySelectorAll('input').forEach(input => input.value = '');
-            container.appendChild(row);
+{% block extra_js %}
+<script>
+    function addRow() {
+        const container = document.getElementById('item-rows');
+        const row = container.children[0].cloneNode(true);
+        row.querySelectorAll('input').forEach(input => input.value = '');
+        container.appendChild(row);
+    }
+    function removeRow(btn) {
+        const container = document.getElementById('item-rows');
+        if (container.children.length > 1) {
+            btn.closest('.item-row').remove();
         }
-    </script>
-</body>
-</html>
+    }
+</script>
+{% endblock %}
+{% endblock %}

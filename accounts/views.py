@@ -89,3 +89,49 @@ def home_view(request):
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()
     return render(request, 'home.html', {'products': products, 'branches': branches, 'categories': categories})
+
+def register_view(request):
+    if request.user.is_authenticated:
+        return redirect_by_role(request.user)
+
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        email = request.POST.get('email')
+        password1 = request.POST.get('password1')
+        password2 = request.POST.get('password2')
+        full_name = request.POST.get('full_name')
+        contact_number = request.POST.get('contact_number')
+        address = request.POST.get('address')
+
+        if password1 != password2:
+            messages.error(request, 'Passwords do not match.')
+            return render(request, 'accounts/register.html')
+
+        if User.objects.filter(username=username).exists():
+            messages.error(request, 'Username already taken.')
+            return render(request, 'accounts/register.html')
+
+        if User.objects.filter(email=email).exists():
+            messages.error(request, 'Email already registered.')
+            return render(request, 'accounts/register.html')
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password1,
+            role=User.Role.CUSTOMER,
+        )
+
+        from .models import CustomerProfile
+        CustomerProfile.objects.create(
+            user=user,
+            customer_name=full_name,
+            contact_number=contact_number,
+            address=address,
+        )
+
+        login(request, user)
+        messages.success(request, 'Account created successfully. Welcome!')
+        return redirect('customer_dashboard')
+
+    return render(request, 'accounts/register.html')

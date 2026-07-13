@@ -1,0 +1,57 @@
+{% extends "public_base.html" %}
+{% block title %}Create Account{% endblock %}
+{% block content %}
+<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 75vh;">
+    <div class="bg-gerlyn rounded-3 d-flex align-items-center justify-content-center mb-3"
+         style="width:64px; height:64px; background-color:#3f7f5b; border-radius:16px;">
+        <i class="fa-solid fa-store fa-lg text-white"></i>
+    </div>
+    <h3 class="fw-bold mb-1">Create Account</h3>
+    <p class="text-muted mb-4">Sign up for a Gerlyn Variety Store account</p>
+
+    <div class="card shadow-sm border-0" style="width: 100%; max-width: 420px;">
+        <div class="card-body p-4">
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-danger py-2">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+            <form method="POST">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Full Name</label>
+                    <input type="text" name="full_name" class="form-control" placeholder="Juan dela Cruz" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Username</label>
+                    <input type="text" name="username" class="form-control" placeholder="juandelacruz" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Email Address</label>
+                    <input type="email" name="email" class="form-control" placeholder="juan@example.com" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Contact Number</label>
+                    <input type="text" name="contact_number" class="form-control" placeholder="09XX XXX XXXX">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Address</label>
+                    <textarea name="address" class="form-control" rows="2" placeholder="Baliuag, Bulacan"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Password</label>
+                    <input type="password" name="password1" class="form-control" placeholder="••••••••" required>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Confirm Password</label>
+                    <input type="password" name="password2" class="form-control" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn btn-gerlyn w-100 py-2 fw-semibold">Create Account</button>
+            </form>
+            <p class="text-center text-muted mt-3 mb-0">
+                Already have an account? <a href="{% url 'login' %}" class="text-gerlyn">Sign in</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
