@@ -39,6 +39,8 @@ class Product(models.Model):
         help_text="Price for bulk/wholesale orders"
     )
 
+    description = models.TextField(blank=True, default='')
+
     def __str__(self):
         return f"{self.product_name} ({self.sku_code})"
 
@@ -76,7 +78,11 @@ class WarehouseStock(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.product.product_name} | {self.warehouse.name} | {self.quantity_on_hand}"
+        return (
+            f"{self.product.product_name} | "
+            f"{self.warehouse.name} | "
+            f"{self.quantity_on_hand}"
+        )
 
     def save(self, *args, **kwargs):
         self.restock_flag = self.quantity_on_hand <= self.reorder_level
@@ -89,8 +95,7 @@ class WarehouseStock(models.Model):
 
 class Inventory(models.Model):
     """
-    Represents store floor stock only — what is physically
-    available on the retail shelves for sale.
+    Represents store floor stock only.
     Stock only enters here via a completed StockTransfer
     from the warehouse. Never directly from procurement.
     """
@@ -125,24 +130,46 @@ class Inventory(models.Model):
 class StockTransfer(models.Model):
     """
     Digital Withdrawal Slip.
-    Staff requests stock from the warehouse.
+    Staff requests stock transfer — either from warehouse to floor,
+    or from one branch to another (Branch Restock).
     Branch Manager or Owner approves it.
-    On completion, WarehouseStock decreases and
-    Inventory (floor) increases automatically.
     """
     class Status(models.TextChoices):
         PENDING = 'Pending', 'Pending'
         APPROVED = 'Approved', 'Approved'
         REJECTED = 'Rejected', 'Rejected'
-        COMPLETED = 'Completed', 'Completed'
+        RELEASED = 'Released', 'Released'
+        ACKNOWLEDGED = 'Acknowledged', 'Acknowledged'
+        DISCREPANCY = 'Discrepancy', 'Discrepancy'
 
+    class Purpose(models.TextChoices):
+        BRANCH_RESTOCK = 'Branch Restock', 'Branch Restock'
+        DAMAGED_SPOILED = 'Damaged/Spoiled', 'Damaged/Spoiled'
+        SAMPLE_DISPLAY = 'Sample/Display', 'Sample/Display'
+        OTHER = 'Other', 'Other'
+
+    slip_number = models.CharField(
+        max_length=20, unique=True, blank=True,
+        help_text="Auto-generated slip ID e.g. WS-2026-001"
+    )
     warehouse = models.ForeignKey(
         Warehouse, on_delete=models.CASCADE,
         related_name='transfers'
     )
-    branch = models.ForeignKey(
-        Branch, on_delete=models.CASCADE,
-        related_name='stock_transfers'
+    source_branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL,
+        null=True, related_name='outgoing_transfers',
+        help_text="Branch sending the stock"
+    )
+    destination_branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='incoming_transfers',
+        help_text="Branch receiving the stock. Null if write-off or display."
+    )
+    purpose = models.CharField(
+        max_length=20, choices=Purpose.choices,
+        default=Purpose.BRANCH_RESTOCK
     )
     requested_by = models.ForeignKey(
         'accounts.User', on_delete=models.SET_NULL,
@@ -156,7 +183,7 @@ class StockTransfer(models.Model):
         limit_choices_to={'role__in': ['BRANCH_MANAGER', 'OWNER']}
     )
     status = models.CharField(
-        max_length=10, choices=Status.choices,
+        max_length=15, choices=Status.choices,
         default=Status.PENDING
     )
     transfer_date = models.DateField(null=True, blank=True)
@@ -164,8 +191,20 @@ class StockTransfer(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        if not self.slip_number:
+            super().save(*args, **kwargs)
+            year = self.created_at.year
+            self.slip_number = f"WS-{year}-{str(self.pk).zfill(3)}"
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"Transfer #{self.id} | {self.warehouse} → {self.branch.branch_name} | {self.status}"
+        return (
+            f"{self.slip_number} | "
+            f"{self.source_branch} -> "
+            f"{self.destination_branch or 'N/A'} | "
+            f"{self.status}"
+        )
 
     class Meta:
         ordering = ['-created_at']
@@ -187,7 +226,11 @@ class StockTransferItem(models.Model):
     )
 
     def __str__(self):
-        return f"{self.product.product_name} | Requested: {self.quantity_requested} | Approved: {self.quantity_approved}"
+        return (
+            f"{self.product.product_name} | "
+            f"Requested: {self.quantity_requested} | "
+            f"Approved: {self.quantity_approved}"
+        )
 
 
 class StockMovement(models.Model):
@@ -221,7 +264,8 @@ class StockMovement(models.Model):
     )
     location_type = models.CharField(
         max_length=10, choices=LocationType.choices,
-        help_text="Whether this movement happened in the warehouse or on the store floor"
+        help_text="Whether this movement happened in the warehouse or on the store floor",
+        default=LocationType.FLOOR
     )
     movement_type = models.CharField(
         max_length=30, choices=MovementType.choices
@@ -247,10 +291,14 @@ class StockMovement(models.Model):
         direction = "+" if self.quantity_change > 0 else ""
         product_name = (
             self.inventory.product.product_name if self.inventory
-            else self.warehouse_stock.product.product_name if self.warehouse_stock
-            else "Unknown"
+            else self.warehouse_stock.product.product_name
+            if self.warehouse_stock else "Unknown"
         )
-        return f"{product_name} | {self.movement_type} | {direction}{self.quantity_change}"
+        return (
+            f"{product_name} | "
+            f"{self.movement_type} | "
+            f"{direction}{self.quantity_change}"
+        )
 
     class Meta:
         ordering = ['-created_at']
