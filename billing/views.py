@@ -37,28 +37,46 @@ def billing_detail(request, pk):
 def billing_create(request, transaction_id):
     txn = get_object_or_404(SalesTransaction, pk=transaction_id)
 
-    # Prevent duplicate billing records for the same transaction
-    if hasattr(txn, 'billing_record'):
+    # The signal may have already created a pending record.
+    # If it exists and is still Pending, let the user fill in payment details.
+    # If it's already Paid/Rejected, just show the existing record.
+    existing = getattr(txn, 'billing_record', None)
+
+    if existing and existing.status != BillingRecord.PaymentStatus.PENDING:
         messages.info(request, 'A billing record already exists for this transaction.')
-        return redirect('billing_detail', pk=txn.billing_record.pk)
+        return redirect('billing_detail', pk=existing.pk)
 
     if request.method == 'POST':
         payment_method = request.POST.get('payment_method')
         reference_number = request.POST.get('reference_number', '')
         proof_of_payment = request.FILES.get('proof_of_payment')
 
-        record = BillingRecord.objects.create(
-            transaction=txn,
-            amount_due=txn.total_amount,
-            payment_method=payment_method,
-            reference_number=reference_number,
-            proof_of_payment=proof_of_payment,
-            status=BillingRecord.PaymentStatus.PENDING,
-        )
-        messages.success(request, 'Billing record created.')
+        if existing:
+            # Update the auto-created record with the actual payment details
+            existing.payment_method = payment_method
+            existing.reference_number = reference_number
+            if proof_of_payment:
+                existing.proof_of_payment = proof_of_payment
+            existing.save()
+            record = existing
+        else:
+            # Fallback: create fresh if somehow the signal didn't fire
+            record = BillingRecord.objects.create(
+                transaction=txn,
+                amount_due=txn.total_amount,
+                payment_method=payment_method,
+                reference_number=reference_number,
+                proof_of_payment=proof_of_payment,
+                status=BillingRecord.PaymentStatus.PENDING,
+            )
+
+        messages.success(request, 'Billing record saved.')
         return redirect('billing_detail', pk=record.pk)
 
-    return render(request, 'billing/billing_form.html', {'transaction': txn})
+    return render(request, 'billing/billing_form.html', {
+        'transaction': txn,
+        'record': existing,  # Pass to template so it can pre-fill payment_method if desired
+    })
 
 
 @login_required(login_url='login')
