@@ -99,7 +99,8 @@ def register_view(request):
         email = request.POST.get('email')
         password1 = request.POST.get('password1')
         password2 = request.POST.get('password2')
-        full_name = request.POST.get('full_name')
+        first_name = request.POST.get('first_name')
+        last_name = request.POST.get('last_name')
         contact_number = request.POST.get('contact_number')
         address = request.POST.get('address')
 
@@ -119,13 +120,16 @@ def register_view(request):
             username=username,
             email=email,
             password=password1,
+            first_name=first_name,
+            last_name=last_name,
             role=User.Role.CUSTOMER,
         )
 
         from .models import CustomerProfile
         CustomerProfile.objects.create(
             user=user,
-            customer_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
             contact_number=contact_number,
             address=address,
         )
