@@ -1,8 +1,14 @@
+# accounts/models.py
+# Changes from original:
+#   - SupplierProfile: added supplier_category and contact_person
+#   - All other models completely untouched
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
 class User(AbstractUser):
+    # --- unchanged ---
     class Role(models.TextChoices):
         OWNER = 'OWNER', 'Owner'
         BRANCH_MANAGER = 'BRANCH_MANAGER', 'Branch Manager'
@@ -19,6 +25,7 @@ class User(AbstractUser):
 
 
 class OwnerProfile(models.Model):
+    # --- unchanged ---
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='owner_profile'
     )
@@ -30,6 +37,7 @@ class OwnerProfile(models.Model):
 
 
 class BranchManagerProfile(models.Model):
+    # --- unchanged ---
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='manager_profile'
     )
@@ -45,6 +53,7 @@ class BranchManagerProfile(models.Model):
 
 
 class StaffProfile(models.Model):
+    # --- unchanged ---
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='staff_profile'
     )
@@ -61,7 +70,9 @@ class StaffProfile(models.Model):
     def __str__(self):
         return self.staff_name
 
+
 class CustomerProfile(models.Model):
+    # --- unchanged ---
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='customer_profile'
     )
@@ -75,12 +86,23 @@ class CustomerProfile(models.Model):
 
 
 class SupplierProfile(models.Model):
+    # --- existing fields unchanged ---
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='supplier_profile'
     )
     supplier_name = models.CharField(max_length=100)
     contact_number = models.CharField(max_length=20)
     address = models.TextField(blank=True)
+
+    # --- new fields ---------------------------------------------------------
+    supplier_category = models.CharField(
+        max_length=100, blank=True,
+        help_text="e.g. Rice & Grains, Beverages, Canned Goods"
+    )
+    contact_person = models.CharField(
+        max_length=100, blank=True,
+        help_text="Name of the supplier's representative"
+    )
 
     def __str__(self):
         return self.supplier_name

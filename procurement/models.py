@@ -1,3 +1,4 @@
+
 from django.db import models
 from branches.models import Branch
 from inventory.models import Product
@@ -6,10 +7,17 @@ from accounts.models import User
 
 class Procurement(models.Model):
     class Status(models.TextChoices):
+        DRAFT = 'Draft', 'Draft'               # <-- new
         ORDERED = 'Ordered', 'Ordered'
         RECEIVED = 'Received', 'Received'
         CANCELLED = 'Cancelled', 'Cancelled'
 
+    class ReceiptFlag(models.TextChoices):      # <-- new
+        NONE = 'None', 'None'
+        PARTIAL = 'Partial', 'Partial'
+        DISCREPANCY = 'Discrepancy', 'Discrepancy'
+
+    # --- existing fields (untouched) ----------------------------------------
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL,
         null=True, related_name='procurements'
@@ -31,14 +39,41 @@ class Procurement(models.Model):
     )
     status = models.CharField(
         max_length=15, choices=Status.choices,
-        default=Status.ORDERED
+        default=Status.DRAFT                   # <-- changed default to Draft
     )
 
+    # --- new fields ---------------------------------------------------------
+    po_number = models.CharField(
+        max_length=20, unique=True, blank=True,
+        help_text="Auto-generated PO number e.g. PO-2026-001"
+    )
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['STAFF', 'BRANCH_MANAGER', 'OWNER']},
+        related_name='created_procurements',
+        help_text="Staff or manager who raised this purchase order"
+    )
+    receipt_flag = models.CharField(
+        max_length=15, choices=ReceiptFlag.choices,
+        default=ReceiptFlag.NONE,
+        help_text="Flags whether received quantities had discrepancies"
+    )
+
+    def save(self, *args, **kwargs):
+        # Auto-generate po_number on first save, same pattern as slip_number
+        if not self.po_number:
+            super().save(*args, **kwargs)
+            from django.utils import timezone
+            year = timezone.now().year
+            self.po_number = f"PO-{year}-{str(self.pk).zfill(3)}"
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"Procurement #{self.id} - {self.branch} - {self.status}"
+        return f"{self.po_number or f'Procurement #{self.id}'} - {self.branch} - {self.status}"
 
 
 class ProcurementItem(models.Model):
+    # --- unchanged ---
     procurement = models.ForeignKey(
         Procurement, on_delete=models.CASCADE,
         related_name='items'

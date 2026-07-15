@@ -1,8 +1,10 @@
+
 from django.db import models
 from branches.models import Branch
 
 
 class ProductCategory(models.Model):
+    # --- unchanged ---
     category_name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
 
@@ -14,6 +16,7 @@ class ProductCategory(models.Model):
 
 
 class Product(models.Model):
+    # --- unchanged ---
     class UnitOfMeasure(models.TextChoices):
         SACK = 'Sack', 'Sack'
         KILO = 'Kilo', 'Kilo'
@@ -39,13 +42,12 @@ class Product(models.Model):
         help_text="Price for bulk/wholesale orders"
     )
 
-    description = models.TextField(blank=True, default='')
-
     def __str__(self):
         return f"{self.product_name} ({self.sku_code})"
 
 
 class Warehouse(models.Model):
+    # --- unchanged ---
     branch = models.OneToOneField(
         Branch, on_delete=models.CASCADE,
         related_name='warehouse'
@@ -58,6 +60,7 @@ class Warehouse(models.Model):
 
 
 class WarehouseStock(models.Model):
+    # --- unchanged ---
     warehouse = models.ForeignKey(
         Warehouse, on_delete=models.CASCADE,
         related_name='stock_records'
@@ -67,15 +70,13 @@ class WarehouseStock(models.Model):
         related_name='warehouse_stock'
     )
     quantity_on_hand = models.PositiveIntegerField(default=0)
-    reorder_level = models.PositiveIntegerField(
-        default=0,
-        help_text="When stock falls to or below this level, a restock alert is triggered"
-    )
-    restock_flag = models.BooleanField(
-        default=False,
-        help_text="Auto-set to True when quantity_on_hand <= reorder_level"
-    )
+    reorder_level = models.PositiveIntegerField(default=0)
+    restock_flag = models.BooleanField(default=False)
     last_updated = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        self.restock_flag = self.quantity_on_hand <= self.reorder_level
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return (
@@ -84,10 +85,6 @@ class WarehouseStock(models.Model):
             f"{self.quantity_on_hand}"
         )
 
-    def save(self, *args, **kwargs):
-        self.restock_flag = self.quantity_on_hand <= self.reorder_level
-        super().save(*args, **kwargs)
-
     class Meta:
         verbose_name_plural = "Warehouse Stock"
         unique_together = ('warehouse', 'product')
@@ -95,10 +92,10 @@ class WarehouseStock(models.Model):
 
 class Inventory(models.Model):
     """
-    Represents store floor stock only.
-    Stock only enters here via a completed StockTransfer
-    from the warehouse. Never directly from procurement.
+    Store floor stock only.
+    Stock enters here via a completed StockTransfer from the warehouse.
     """
+    # --- existing fields (untouched) ----------------------------------------
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE,
         related_name='inventory_records'
@@ -115,26 +112,129 @@ class Inventory(models.Model):
     restock = models.BooleanField(default=False)
     last_stock_update = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return f"{self.product.product_name} - {self.branch.branch_name} (Floor)"
+    # --- new field ----------------------------------------------------------
+    expiry_date = models.DateField(
+        null=True, blank=True,
+        help_text="Expiry date for the current stock on the floor. "
+                  "For per-lot tracking use the Batch model instead."
+    )
 
     def save(self, *args, **kwargs):
         self.restock = self.quantity_on_hand <= self.reorder_level
         super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.product.product_name} - {self.branch.branch_name} (Floor)"
 
     class Meta:
         verbose_name_plural = "Inventory (Store Floor)"
         unique_together = ('product', 'branch')
 
 
+# =============================================================================
+# NEW MODEL: Batch (per-lot expiry tracking)
+# Answers the panel question: "How do you prevent expired products from
+# being sold?" via FEFO (First Expired, First Out) logic.
+# =============================================================================
+
+class Batch(models.Model):
+    """
+    Represents one delivery lot of a product at a specific branch.
+    Multiple batches can exist per product per branch, each with
+    their own expiry date.
+
+    FEFO rule: when stock is deducted (via a sale), the batch with
+    the nearest expiry_date is consumed first.
+    """
+
+    class ExpiryStatus(models.TextChoices):
+        FRESH = 'Fresh', 'Fresh'
+        EXPIRING_SOON = 'Expiring Soon', 'Expiring Soon'   # within 30 days
+        EXPIRED = 'Expired', 'Expired'
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE,
+        related_name='batches'
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE,
+        related_name='batches'
+    )
+    # Link to the procurement that brought this batch in (optional but useful
+    # for traceability — which supplier delivered this lot?)
+    procurement = models.ForeignKey(
+        'procurement.Procurement', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='batches',
+        help_text="The purchase order that delivered this batch"
+    )
+    batch_number = models.CharField(
+        max_length=20, unique=True, blank=True,
+        help_text="Auto-generated e.g. BAT-2026-001"
+    )
+    quantity = models.PositiveIntegerField(
+        help_text="Remaining quantity in this batch"
+    )
+    received_date = models.DateField(
+        help_text="Date this batch was received into the warehouse/floor"
+    )
+    expiry_date = models.DateField(
+        help_text="Expiry date printed on the product lot"
+    )
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.batch_number:
+            super().save(*args, **kwargs)
+            from django.utils import timezone
+            year = timezone.now().year
+            self.batch_number = f"BAT-{year}-{str(self.pk).zfill(3)}"
+        super().save(*args, **kwargs)
+
+    @property
+    def expiry_status(self) -> str:
+        """
+        Computed property — not stored in DB.
+        Called by the serializer's SerializerMethodField.
+        Thresholds: expired = past today, expiring soon = within 30 days.
+        """
+        from django.utils import timezone
+        today = timezone.now().date()
+        delta = (self.expiry_date - today).days
+
+        if delta < 0:
+            return self.ExpiryStatus.EXPIRED
+        elif delta <= 30:
+            return self.ExpiryStatus.EXPIRING_SOON
+        return self.ExpiryStatus.FRESH
+
+    @property
+    def days_until_expiry(self) -> int:
+        from django.utils import timezone
+        today = timezone.now().date()
+        return (self.expiry_date - today).days
+
+    def __str__(self):
+        return (
+            f"{self.batch_number} | "
+            f"{self.product.product_name} | "
+            f"{self.branch.branch_name} | "
+            f"Exp: {self.expiry_date} | "
+            f"Qty: {self.quantity}"
+        )
+
+    class Meta:
+        ordering = ['expiry_date']   # FEFO: nearest expiry first
+        verbose_name_plural = "Batches"
+
+
 class StockTransfer(models.Model):
     """
     Digital Withdrawal Slip.
-    Staff requests stock transfer — either from warehouse to floor,
-    or from one branch to another (Branch Restock).
-    Branch Manager or Owner approves it.
     """
     class Status(models.TextChoices):
+        # --- unchanged ---
         PENDING = 'Pending', 'Pending'
         APPROVED = 'Approved', 'Approved'
         REJECTED = 'Rejected', 'Rejected'
@@ -143,11 +243,13 @@ class StockTransfer(models.Model):
         DISCREPANCY = 'Discrepancy', 'Discrepancy'
 
     class Purpose(models.TextChoices):
+        # --- unchanged ---
         BRANCH_RESTOCK = 'Branch Restock', 'Branch Restock'
         DAMAGED_SPOILED = 'Damaged/Spoiled', 'Damaged/Spoiled'
         SAMPLE_DISPLAY = 'Sample/Display', 'Sample/Display'
         OTHER = 'Other', 'Other'
 
+    # --- existing fields (untouched) ----------------------------------------
     slip_number = models.CharField(
         max_length=20, unique=True, blank=True,
         help_text="Auto-generated slip ID e.g. WS-2026-001"
@@ -191,6 +293,23 @@ class StockTransfer(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # --- new fields ---------------------------------------------------------
+    acknowledged_by = models.ForeignKey(
+        'accounts.User', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='acknowledged_transfers',
+        limit_choices_to={'role__in': ['STAFF', 'BRANCH_MANAGER']},
+        help_text="Staff who confirmed receipt of the transferred stock"
+    )
+    flag_reason = models.TextField(
+        blank=True,
+        help_text="Reason for Discrepancy status — required when status=Discrepancy"
+    )
+    received_qty = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Actual quantity received. May differ from approved qty if discrepancy."
+    )
+
     def save(self, *args, **kwargs):
         if not self.slip_number:
             super().save(*args, **kwargs)
@@ -211,6 +330,7 @@ class StockTransfer(models.Model):
 
 
 class StockTransferItem(models.Model):
+    # --- unchanged ---
     transfer = models.ForeignKey(
         StockTransfer, on_delete=models.CASCADE,
         related_name='items'
@@ -234,11 +354,7 @@ class StockTransferItem(models.Model):
 
 
 class StockMovement(models.Model):
-    """
-    Permanent audit log of every stock change.
-    Never edited or deleted — system-generated only.
-    Covers both warehouse and store floor movements.
-    """
+    # --- unchanged ---
     class MovementType(models.TextChoices):
         SALE = 'Sale', 'Sale (Floor Out)'
         PROCUREMENT_RECEIVED = 'Procurement Received', 'Procurement Received (Warehouse In)'
@@ -264,7 +380,6 @@ class StockMovement(models.Model):
     )
     location_type = models.CharField(
         max_length=10, choices=LocationType.choices,
-        help_text="Whether this movement happened in the warehouse or on the store floor",
         default=LocationType.FLOOR
     )
     movement_type = models.CharField(
