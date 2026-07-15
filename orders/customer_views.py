@@ -7,6 +7,7 @@ from branches.models import Branch
 from inventory.models import Inventory
 from sales.models import SalesTransaction, SalesItem
 from billing.models import BillingRecord
+from inventory.models import Product
 
 
 def is_customer(user):
@@ -148,3 +149,31 @@ def set_branch(request, branch_id):
 def clear_branch(request):
     request.session.pop('branch_id', None)
     return redirect('orders:catalog')
+
+def product_detail(request, product_id):
+    from inventory.models import Product
+    product = get_object_or_404(Product, id=product_id)
+    branch_id = request.session.get('branch_id')
+    branches = Branch.objects.all()
+    
+    # Get inventory per branch
+    branch_stock = []
+    for branch in branches:
+        inv = Inventory.objects.filter(product=product, branch=branch).first()
+        branch_stock.append({
+            'branch': branch,
+            'available': inv and inv.quantity_on_hand > 0,
+            'qty': inv.quantity_on_hand if inv else 0,
+        })
+    
+    # Related products in same category
+    related = Product.objects.filter(
+        category=product.category
+    ).exclude(id=product.id)[:6]
+
+    return render(request, 'orders/product_detail.html', {
+        'product': product,
+        'branch_stock': branch_stock,
+        'related': related,
+        'selected_branch_id': branch_id,
+    })

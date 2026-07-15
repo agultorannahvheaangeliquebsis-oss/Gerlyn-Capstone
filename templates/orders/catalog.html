@@ -209,9 +209,10 @@
         <!-- Product Grid -->
         <div class="product-grid" id="product-grid">
             {% for record in stock_records %}
-                <a href="#" class="product-card product-item"
-                data-category="{{ record.product.category.category_name }}"
-                data-name="{{ record.product.product_name|lower }}">
+                <a href="{% url 'orders:product_detail' record.product.id %}"
+                    class="product-card product-item"
+                    data-category="{{ record.product.category.category_name }}"
+                    data-name="{{ record.product.product_name|lower }}">
                     <div class="product-img">
                         <span class="sku-badge">{{ record.product.sku_code }}</span>
                         {% if record.product.category.category_name == "Canned Goods" %}🥫
@@ -268,8 +269,10 @@ let searchVal = '';
 
 function filterProducts() {
     items.forEach(item => {
-        const catMatch = activeCat === 'all' || item.dataset.category === activeCat;
-        const nameMatch = item.dataset.name.includes(searchVal);
+        const cat = item.getAttribute('data-category').trim();
+        const name = item.getAttribute('data-name').trim();
+        const catMatch = activeCat === 'all' || cat === activeCat;
+        const nameMatch = name.includes(searchVal);
         item.style.display = (catMatch && nameMatch) ? 'flex' : 'none';
     });
 }
@@ -278,22 +281,22 @@ pills.forEach(pill => {
     pill.addEventListener('click', () => {
         pills.forEach(p => p.classList.remove('active'));
         pill.classList.add('active');
-        activeCat = pill.dataset.cat;
+        activeCat = pill.getAttribute('data-cat').trim();
         filterProducts();
     });
 });
 
 document.getElementById('search-input').addEventListener('input', function() {
-    searchVal = this.value.toLowerCase();
+    searchVal = this.value.toLowerCase().trim();
     filterProducts();
 });
 
-// Pastel bg per category index
+// Pastel bg per category
 const catColors = ['#e8f5ff','#fff3e8','#e8fff0','#f5e8ff','#fff8e8','#ffe8e8','#e8f5e8','#fff0e8'];
 const catMap = {};
 let catIdx = 0;
 items.forEach(item => {
-    const cat = item.dataset.category;
+    const cat = item.getAttribute('data-category');
     if (!(cat in catMap)) catMap[cat] = catColors[catIdx++ % catColors.length];
     item.querySelector('.product-img').style.background = catMap[cat];
 });
