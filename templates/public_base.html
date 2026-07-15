@@ -136,6 +136,7 @@
         <span>Free delivery within Baliuag on orders over ₱500</span>
         <div class="d-flex align-items-center gap-3">
             <a href="#" class="text-white text-decoration-none"><i class="fa-regular fa-circle-question me-1"></i>Help</a>
+
         </div>
     </div>
 </div>
@@ -149,16 +150,18 @@
             </a>
 
             <!-- Search bar -->
+            {% comment %}
             <div class="d-flex flex-grow-1 navbar-search">
                 <input type="text" class="form-control" placeholder="Search products, brands...">
                 <button class="btn-search">Search</button>
             </div>
+            {% endcomment %}
 
             {% if request.user.is_authenticated %}
                 <!-- Nav links when logged in -->
-                <div class="d-flex align-items-center gap-4">
-                    <a href="/" class="text-decoration-none text-dark fw-semibold">Home</a>
-                    <a href="{% url 'orders:catalog' %}" class="text-decoration-none text-dark">Products</a>
+                <div class="d-flex align-items-center gap-4 ms-auto">
+                    <a href="/" class="text-decoration-none text-dark {% if request.path == '/' or request.path == '/dashboard/customer/' %}fw-bold{% endif %}">Home</a>
+                    <a href="{% url 'orders:catalog' %}" class="text-decoration-none text-dark {% if '/shop/' in request.path %}fw-bold{% endif %}">Products</a>
                 </div>
 
                 <div class="d-flex align-items-center gap-3">
@@ -207,8 +210,9 @@
                 </div>
             {% else %}
                 <div class="d-flex align-items-center gap-4">
-                    <a href="/" class="text-decoration-none text-dark fw-semibold">Home</a>
-                    <a href="{% url 'orders:catalog' %}" class="text-decoration-none text-dark">Products</a>
+                    <a href="/" class="text-decoration-none text-dark {% if request.path == '/' or request.path == '/dashboard/customer/' %}fw-bold{% endif %}">Home</a>
+                    <a href="{% url 'orders:catalog' %}" class="text-decoration-none text-dark {% if '/shop/' in request.path %}fw-bold{% endif %}">Products</a>
+                    <a href="#" class="text-decoration-none text-dark">My Orders</a>
                 </div>
                 <div class="d-flex align-items-center gap-3">
                     <a href="{% url 'login' %}" class="text-dark"><i class="fa-regular fa-heart fs-5"></i></a>
