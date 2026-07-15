@@ -1,9 +1,14 @@
-<!DOCTYPE html>
-<html>
-<head><title>Customer Dashboard</title></head>
-<body>
-    <h2>Welcome, {{ request.user.username }} (Customer)</h2>
-    <a href="{% url 'orders:catalog' %}">Shop Now</a> |
-    <a href="{% url 'logout' %}">Logout</a>
-</body>
-</html>
+{% extends "public_base.html" %}
+{% block title %}Customer Dashboard - Gerlyn Variety Store{% endblock %}
+
+{% block extra_css %}
+{% include "partials/home_extra_css.html" %}
+{% endblock %}
+
+{% block content %}
+{% include "partials/home_content.html" %}
+{% endblock %}
+
+{% block extra_js %}
+{% include "partials/home_extra_js.html" %}
+{% endblock %}

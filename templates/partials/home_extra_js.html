@@ -1,0 +1,57 @@
+{% block extra_js %}
+<script>
+// ── CAROUSEL ──
+let current = 0;
+const slides = document.querySelectorAll('.hero-slide');
+const dots   = document.querySelectorAll('.carousel-dots .dot');
+let autoplay = setInterval(() => changeSlide(1), 10000);
+
+function showSlide(n) {
+    slides[current].classList.remove('active');
+    dots[current].classList.remove('active');
+    current = (n + slides.length) % slides.length;
+    slides[current].classList.add('active');
+    dots[current].classList.add('active');
+}
+function changeSlide(dir) {
+    clearInterval(autoplay);
+    showSlide(current + dir);
+    autoplay = setInterval(() => changeSlide(1), 10000);
+}
+function goToSlide(n) {
+    clearInterval(autoplay);
+    showSlide(n);
+    autoplay = setInterval(() => changeSlide(1), 10000);
+}
+
+// ── COUNTDOWN TIMER (counts down from now to midnight) ──
+function updateCountdown() {
+    const now  = new Date();
+    const end  = new Date(); end.setHours(23, 59, 59, 0);
+    let diff   = Math.floor((end - now) / 1000);
+    const h    = Math.floor(diff / 3600);
+    diff      -= h * 3600;
+    const m    = Math.floor(diff / 60);
+    const s    = diff % 60;
+    document.getElementById('cd-h').textContent = String(h).padStart(2,'0');
+    document.getElementById('cd-m').textContent = String(m).padStart(2,'0');
+    document.getElementById('cd-s').textContent = String(s).padStart(2,'0');
+}
+updateCountdown();
+setInterval(updateCountdown, 1000);
+
+// ── SEARCH: redirect to login if not authenticated ──
+{% if not request.user.is_authenticated %}
+document.querySelector('.btn-search').addEventListener('click', function(e) {
+    e.preventDefault();
+    window.location.href = "{% url 'login' %}";
+});
+document.querySelector('.navbar-search input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        window.location.href = "{% url 'login' %}";
+    }
+});
+{% endif %}
+</script>
+{% endblock %}
