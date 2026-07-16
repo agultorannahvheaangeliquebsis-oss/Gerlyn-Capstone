@@ -127,3 +127,98 @@ export const productsApi = {
       method: 'DELETE',
     }),
 };
+
+// ─── Branch endpoints ────────────────────────────────────────────────────────
+
+export interface Branch {
+  id: number;
+  ownerId: number | null;
+  ownerName: string | null;
+  name: string;
+  location: string;
+}
+
+export const branchesApi = {
+  list: () => apiFetch<Branch[]>('/api/branches/'),
+};
+
+// ─── Reports endpoints ───────────────────────────────────────────────────────
+
+export interface SalesByBranch {
+  branch: string | null;
+  total: string;
+  count: number;
+}
+
+export interface TopProduct {
+  productName: string;
+  totalQty: number;
+  totalRevenue: string;
+}
+
+export interface DashboardSummary {
+  totalProducts: number;
+  totalSales: string;
+  totalTransactions: number;
+  recentSales: string;
+  salesByBranch: SalesByBranch[];
+  topProducts: TopProduct[];
+  lowStockCount: number;
+  totalProcurementCost: string;
+  pendingOrders: number;
+  isOwner: boolean;
+}
+
+export interface InventoryRow {
+  id: number;
+  productId: number;
+  productName: string;
+  productSku: string;
+  branchId: number;
+  branchName: string;
+  quantityOnHand: number;
+  reorderLevel: number;
+  restock: boolean;
+  expiryDate: string | null;
+  lastStockUpdate: string;
+}
+
+export const reportsApi = {
+  dashboardSummary: () =>
+    apiFetch<DashboardSummary>('/api/reports/dashboard-summary/'),
+
+  inventoryReport: () =>
+    apiFetch<InventoryRow[]>('/api/reports/inventory-report/'),
+};
+
+// ─── Sales endpoints ─────────────────────────────────────────────────────────
+
+export interface SalesItem {
+  id: number;
+  productId: number;
+  productName: string;
+  productSku: string;
+  quantitySold: number;
+  unitPrice: string;
+  subtotal: string;
+}
+
+export interface SalesTransaction {
+  id: number;
+  orderNumber: string;
+  branch: string | null;
+  staff: string | null;
+  customer: string | null;
+  transactionDate: string;
+  totalAmount: string;
+  transactionType: string;
+  modeOfPayment: string;
+  orderType: string;
+  orderStatus: string;
+  deliveryAddress: string;
+  items: SalesItem[];
+}
+
+export const salesApi = {
+  list: () => apiFetch<SalesTransaction[]>('/api/sales/'),
+};

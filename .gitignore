@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 db.sqlite3
 .vscode/
+
+# Frontend
+node_modules/
+dist/
+*.local
