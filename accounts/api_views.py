@@ -3,7 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.contrib.auth import authenticate, login, logout
-from .serializers import UserSerializer
+from django.shortcuts import get_object_or_404
+from .serializers import UserSerializer, UserAdminSerializer, UserCreateSerializer, UserUpdateSerializer
 from .models import User
 
 
@@ -125,7 +126,9 @@ class RegisterCustomerView(APIView):
         # Update the auto-created profile with the submitted data
         try:
             profile = user.customer_profile
-            profile.customer_name = full_name
+            name_parts = full_name.strip().split(' ', 1)
+            profile.first_name = name_parts[0] if name_parts else ''
+            profile.last_name = name_parts[1] if len(name_parts) > 1 else ''
             profile.contact_number = contact_number
             profile.address = address
             profile.save()
@@ -139,3 +142,61 @@ class RegisterCustomerView(APIView):
             'user': serializer.data,
             'detail': 'Account created successfully.',
         }, status=status.HTTP_201_CREATED)
+
+
+# =============================================================================
+# ADMINISTRATION — user management (Owner only)
+# =============================================================================
+
+def check_owner(request):
+    if request.user.role != User.Role.OWNER:
+        return Response(
+            {'detail': 'Only the Owner can manage user accounts.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    return None
+
+
+class UserListCreateAPIView(APIView):
+    """
+    GET  /api/auth/users/   → list every account, all roles
+    POST /api/auth/users/   → create a new account + role-specific profile
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        denied = check_owner(request)
+        if denied:
+            return denied
+        users = User.objects.all().order_by('role', 'username')
+        return Response(UserAdminSerializer(users, many=True).data)
+
+    def post(self, request):
+        denied = check_owner(request)
+        if denied:
+            return denied
+        serializer = UserCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response(UserAdminSerializer(user).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserDetailAPIView(APIView):
+    """
+    PATCH /api/auth/users/<pk>/   → update profile fields / active status
+    No DELETE — accounts are deactivated (isActive: false), not removed,
+    since they're referenced by historical sales/procurement/transfer records.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        denied = check_owner(request)
+        if denied:
+            return denied
+        user = get_object_or_404(User, pk=pk)
+        serializer = UserUpdateSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated = serializer.save()
+            return Response(UserAdminSerializer(updated).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -24,3 +24,6 @@ def create_user_profile(sender, instance, created, **kwargs):
 
     elif role == User.Role.SUPPLIER and not hasattr(instance, 'supplier_profile'):
         SupplierProfile.objects.create(user=instance, supplier_name=instance.username)
+
+    elif role == User.Role.CUSTOMER and not hasattr(instance, 'customer_profile'):
+        CustomerProfile.objects.create(user=instance, first_name=instance.username, last_name='')

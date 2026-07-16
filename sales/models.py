@@ -87,14 +87,13 @@ class SalesTransaction(models.Model):
     )
 
     def save(self, *args, **kwargs):
-        if not self.order_number:
-            super().save(*args, **kwargs)
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.order_number:
             from django.utils import timezone
             year = timezone.now().year
             self.order_number = f"ORD-{year}-{str(self.pk).zfill(3)}"
-            super().save(update_fields=["order_number"])
-        else:
-            super().save(*args, **kwargs)
+            super().save(update_fields=['order_number'])
 
     def __str__(self):
         return (

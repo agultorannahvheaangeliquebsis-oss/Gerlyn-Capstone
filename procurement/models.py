@@ -61,14 +61,13 @@ class Procurement(models.Model):
 
     def save(self, *args, **kwargs):
         # Auto-generate po_number on first save, same pattern as slip_number
-        if not self.po_number:
-            super().save(*args, **kwargs)
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.po_number:
             from django.utils import timezone
             year = timezone.now().year
             self.po_number = f"PO-{year}-{str(self.pk).zfill(3)}"
-            super().save(update_fields=["po_number"])
-        else:
-            super().save(*args, **kwargs)
+            super().save(update_fields=['po_number'])
 
     def __str__(self):
         return f"{self.po_number or f'Procurement #{self.id}'} - {self.branch} - {self.status}"

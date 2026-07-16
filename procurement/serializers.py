@@ -77,7 +77,7 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
         receipt_flag        -> receiptFlag
         items (related)     -> items (nested array)
     """
-    id               = serializers.CharField(source='po_number', read_only=True)
+    poNumber         = serializers.CharField(source='po_number', read_only=True)
     branch           = serializers.SerializerMethodField()
     supplierId       = serializers.SerializerMethodField()
     supplierName     = serializers.SerializerMethodField()
@@ -93,6 +93,7 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
         model  = Procurement
         fields = [
             'id',
+            'poNumber',
             'branch',
             'supplierId',
             'supplierName',
