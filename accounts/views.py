@@ -25,7 +25,7 @@ def login_view(request):
 
 def logout_view(request):
     logout(request)
-    return redirect('login')
+    return redirect('/')
 
 
 def redirect_by_role(user):
@@ -78,7 +78,17 @@ def customer_dashboard(request):
     if request.user.role != User.Role.CUSTOMER:
         messages.error(request, 'Access denied.')
         return redirect('login')
-    return render(request, 'accounts/customer_dashboard.html')
+    
+    from inventory.models import Product, ProductCategory
+    from branches.models import Branch
+    products = Product.objects.all()[:8]
+    branches = Branch.objects.all()
+    categories = ProductCategory.objects.all()
+    return render(request, 'accounts/customer_dashboard.html', {
+        'products': products,
+        'branches': branches,
+        'categories': categories
+    })
 
 from inventory.models import Product, ProductCategory
 from branches.models import Branch

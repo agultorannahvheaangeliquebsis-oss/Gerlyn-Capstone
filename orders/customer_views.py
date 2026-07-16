@@ -7,6 +7,7 @@ from branches.models import Branch
 from inventory.models import Inventory
 from sales.models import SalesTransaction, SalesItem
 from billing.models import BillingRecord
+from inventory.models import Product
 
 
 def is_customer(user):
@@ -26,16 +27,25 @@ def select_branch(request):
 @user_passes_test(is_customer)
 def product_catalog(request):
     branch_id = request.session.get('branch_id')
-    if not branch_id:
-        return redirect('orders:select_branch')
+    branches = Branch.objects.all()
 
-    stock_records = Inventory.objects.filter(
-        branch_id=branch_id, quantity_on_hand__gt=0
-    ).select_related('product')
+    if branch_id:
+        stock_records = Inventory.objects.filter(
+            branch_id=branch_id, quantity_on_hand__gt=0
+        ).select_related('product', 'product__category')
+    else:
+        stock_records = Inventory.objects.filter(
+            quantity_on_hand__gt=0
+        ).select_related('product', 'product__category').distinct()
+
+    from inventory.models import ProductCategory
+    categories = ProductCategory.objects.all()
 
     return render(request, 'orders/catalog.html', {
         'stock_records': stock_records,
-        'branch': get_object_or_404(Branch, id=branch_id),
+        'branches': branches,
+        'selected_branch_id': branch_id,
+        'categories': categories,
     })
 
 
@@ -131,3 +141,39 @@ def checkout(request):
 def order_confirmation(request, transaction_id):
     sale = get_object_or_404(SalesTransaction, id=transaction_id, customer=request.user)
     return render(request, 'orders/confirmation.html', {'sale': sale})
+
+def set_branch(request, branch_id):
+    request.session['branch_id'] = branch_id
+    return redirect('orders:catalog')
+
+def clear_branch(request):
+    request.session.pop('branch_id', None)
+    return redirect('orders:catalog')
+
+def product_detail(request, product_id):
+    from inventory.models import Product
+    product = get_object_or_404(Product, id=product_id)
+    branch_id = request.session.get('branch_id')
+    branches = Branch.objects.all()
+    
+    # Get inventory per branch
+    branch_stock = []
+    for branch in branches:
+        inv = Inventory.objects.filter(product=product, branch=branch).first()
+        branch_stock.append({
+            'branch': branch,
+            'available': inv and inv.quantity_on_hand > 0,
+            'qty': inv.quantity_on_hand if inv else 0,
+        })
+    
+    # Related products in same category
+    related = Product.objects.filter(
+        category=product.category
+    ).exclude(id=product.id)[:6]
+
+    return render(request, 'orders/product_detail.html', {
+        'product': product,
+        'branch_stock': branch_stock,
+        'related': related,
+        'selected_branch_id': branch_id,
+    })
