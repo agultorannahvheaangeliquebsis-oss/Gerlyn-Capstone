@@ -1,17 +1,18 @@
 import type { ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 interface NavItem {
   label: string;
-  active?: boolean;
+  path?: string;
   badge?: number;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', active: true },
-  { label: 'Sales & Orders' },
-  { label: 'Inventory' },
-  { label: 'Procurement' },
+  { label: 'Dashboard', path: '/' },
+  { label: 'Sales & Orders', path: '/sales' },
+  { label: 'Inventory', path: '/inventory' },
+  { label: 'Procurement', path: '/procurement' },
   { label: 'Reports' },
   { label: 'Alerts', badge: 0 },
   { label: 'Administration' },
@@ -39,6 +40,7 @@ export function InternalLayout({
   children: ReactNode;
 }) {
   const { user, logout } = useAuth();
+  const location = useLocation();
 
   return (
     <div className="flex min-h-screen bg-surface-bg">
@@ -55,24 +57,43 @@ export function InternalLayout({
         </div>
 
         <nav className="flex flex-col gap-0.5 px-3 py-1.5">
-          {NAV_ITEMS.map((item) => (
-            <div
-              key={item.label}
-              className={`flex min-h-[44px] cursor-not-allowed items-center justify-between rounded-lg px-3 text-[15px] ${
-                item.active
-                  ? 'bg-action-50 font-semibold text-action-700'
-                  : 'font-medium text-ink-500'
-              }`}
-              title={item.active ? undefined : 'Not built yet in this pass'}
-            >
-              <span>{item.label}</span>
-              {typeof item.badge === 'number' && item.badge > 0 && (
-                <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-status-danger-dot px-1.5 text-xs font-bold text-white">
-                  {item.badge}
-                </span>
-              )}
-            </div>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            const isActive = !!item.path && location.pathname === item.path;
+            const content = (
+              <>
+                <span>{item.label}</span>
+                {typeof item.badge === 'number' && item.badge > 0 && (
+                  <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-status-danger-dot px-1.5 text-xs font-bold text-white">
+                    {item.badge}
+                  </span>
+                )}
+              </>
+            );
+
+            if (!item.path) {
+              return (
+                <div
+                  key={item.label}
+                  className="flex min-h-[44px] cursor-not-allowed items-center justify-between rounded-lg px-3 text-[15px] font-medium text-ink-500"
+                  title="Not built yet in this pass"
+                >
+                  {content}
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={item.label}
+                to={item.path}
+                className={`flex min-h-[44px] items-center justify-between rounded-lg px-3 text-[15px] ${
+                  isActive ? 'bg-action-50 font-semibold text-action-700' : 'font-medium text-ink-500 hover:bg-surface-bg'
+                }`}
+              >
+                {content}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="mt-auto flex items-center gap-2.5 border-t border-surface-line px-4 py-3">

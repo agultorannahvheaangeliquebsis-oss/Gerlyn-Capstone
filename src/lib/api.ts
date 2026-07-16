@@ -1,4 +1,4 @@
-const BASE_URL = 'http://127.0.0.1:8000';
+export const BASE_URL = 'http://localhost:8000';
 
 /**
  * Gets the CSRF token from the cookie Django sets.
@@ -21,12 +21,15 @@ async function apiFetch<T>(
 ): Promise<T> {
   const method = options.method?.toUpperCase() ?? 'GET';
   const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+  // FormData bodies (file uploads) must let the browser set their own
+  // multipart/form-data boundary — never force a Content-Type on them.
+  const isFormData = options.body instanceof FormData;
 
   const response = await fetch(`${BASE_URL}${endpoint}`, {
     ...options,
     credentials: 'include', // sends session cookie + csrftoken cookie
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(isMutating ? { 'X-CSRFToken': getCsrfToken() } : {}),
       ...options.headers,
     },
@@ -95,7 +98,6 @@ export interface Product {
   unit: string;
   retailPrice: string;
   wholesalePrice: string | null;
-  description: string;
   availability: string[];
 }
 
@@ -219,6 +221,177 @@ export interface SalesTransaction {
   items: SalesItem[];
 }
 
+export interface SalesTransactionInput {
+  branchId?: number;
+  transactionType: string;
+  modeOfPayment: string;
+  orderType: string;
+  deliveryAddress?: string;
+  items: { productId: number; quantity: number }[];
+}
+
 export const salesApi = {
   list: () => apiFetch<SalesTransaction[]>('/api/sales/'),
+
+  get: (id: number) => apiFetch<SalesTransaction>(`/api/sales/${id}/`),
+
+  create: (data: SalesTransactionInput) =>
+    apiFetch<SalesTransaction>('/api/sales/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+
+// ─── Billing endpoints ───────────────────────────────────────────────────────
+
+export interface BillingRecord {
+  id: number;
+  transactionId: number;
+  orderNumber: string;
+  branch: string | null;
+  amountDue: string;
+  paymentMethod: string;
+  referenceNumber: string;
+  proofOfPayment: string | null;
+  status: string;
+  confirmedBy: string | null;
+  dateRecorded: string;
+  dateConfirmed: string | null;
+}
+
+export const billingApi = {
+  list: () => apiFetch<BillingRecord[]>('/api/billing/'),
+
+  get: (id: number) => apiFetch<BillingRecord>(`/api/billing/${id}/`),
+
+  pay: (id: number, data: { paymentMethod: string; referenceNumber?: string; proofOfPayment?: File }) => {
+    const form = new FormData();
+    form.append('paymentMethod', data.paymentMethod);
+    if (data.referenceNumber) form.append('referenceNumber', data.referenceNumber);
+    if (data.proofOfPayment) form.append('proofOfPayment', data.proofOfPayment);
+    return apiFetch<BillingRecord>(`/api/billing/${id}/pay/`, {
+      method: 'PATCH',
+      body: form,
+    });
+  },
+
+  confirm: (id: number, status: 'Paid' | 'Rejected') =>
+    apiFetch<BillingRecord>(`/api/billing/${id}/confirm/`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+};
+
+// ─── Inventory endpoints ─────────────────────────────────────────────────────
+// Deliberately hit /api/inventory/, /api/warehouse-stock/, /api/batches/
+// directly rather than the /api/reports/ equivalents — the report endpoints
+// are gated to Owner/Branch Manager only, but floor and warehouse stock need
+// to be visible to Staff too.
+
+export const inventoryApi = {
+  list: () => apiFetch<InventoryRow[]>('/api/inventory/'),
+};
+
+export interface WarehouseStockRow {
+  id: number;
+  warehouseId: number;
+  warehouseName: string;
+  branchName: string;
+  productId: number;
+  productName: string;
+  productSku: string;
+  quantityOnHand: number;
+  reorderLevel: number;
+  restockFlag: boolean;
+  lastUpdated: string;
+}
+
+export const warehouseStockApi = {
+  list: () => apiFetch<WarehouseStockRow[]>('/api/warehouse-stock/'),
+};
+
+export interface Batch {
+  id: number;
+  productId: number;
+  productName: string;
+  branchId: number;
+  branchName: string;
+  batchNumber: string;
+  quantity: number;
+  receivedDate: string;
+  expiryDate: string;
+  expiryStatus: 'Fresh' | 'Expiring Soon' | 'Expired';
+  daysUntilExpiry: number;
+  notes: string;
+}
+
+export const batchesApi = {
+  list: () => apiFetch<Batch[]>('/api/batches/'),
+};
+
+// ─── Procurement endpoints ───────────────────────────────────────────────────
+
+export interface ProcurementItem {
+  id: number;
+  productId: string | null;
+  productName: string | null;
+  productSku: string | null;
+  quantityOrdered: number;
+  quantityReceived: number;
+  costPrice: string;
+  subtotal: number;
+}
+
+export interface Procurement {
+  id: number;
+  poNumber: string;
+  branch: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  authorizedBy: string | null;
+  createdBy: string | null;
+  orderDate: string;
+  expectedDelivery: string | null;
+  total: string;
+  status: string;
+  receiptFlag: string;
+  items: ProcurementItem[];
+}
+
+export interface ProcurementInput {
+  branchId: number;
+  supplierId: number;
+  orderDate: string;
+  expectedDelivery?: string;
+  items: { productId: number; quantityOrdered: number; costPrice: number }[];
+}
+
+export interface Supplier {
+  id: number;
+  name: string;
+}
+
+export const procurementApi = {
+  list: () => apiFetch<Procurement[]>('/api/procurement/'),
+
+  get: (id: number) => apiFetch<Procurement>(`/api/procurement/${id}/`),
+
+  create: (data: ProcurementInput) =>
+    apiFetch<Procurement>('/api/procurement/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  remove: (id: number) =>
+    apiFetch<void>(`/api/procurement/${id}/`, {
+      method: 'DELETE',
+    }),
+
+  updateStatus: (id: number, data: { status: string; receiptFlag?: string; deliveryDate?: string }) =>
+    apiFetch<Procurement>(`/api/procurement/${id}/update_status/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  suppliers: () => apiFetch<Supplier[]>('/api/procurement/suppliers/'),
 };

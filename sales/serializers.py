@@ -112,17 +112,13 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         order_type = validated_data['orderType']
 
         with transaction.atomic():
-            txn = SalesTransaction.objects.create(
-                branch_id=branch_id,
-                staff=user if user.role == user.Role.STAFF else None,
-                customer=user if user.role == user.Role.CUSTOMER else None,
-                transaction_type=validated_data['transactionType'],
-                mode_of_payment=validated_data['modeOfPayment'],
-                order_type=order_type,
-                delivery_address=validated_data.get('deliveryAddress', ''),
-                total_amount=0,
-            )
-
+            # Resolve products/prices and compute the total *before* creating
+            # the transaction, so it's inserted with its final total_amount
+            # in one shot. billing.signals.auto_create_billing_record reads
+            # total_amount at creation time — creating with 0 then updating
+            # it afterward (a second save()) left the billing record's
+            # amount_due permanently stuck at 0.
+            resolved_items = []
             total = 0
             for item in items_data:
                 product = Product.objects.get(id=item['productId'])
@@ -132,21 +128,30 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price
                     else product.unit_price
                 )
+                resolved_items.append((product, qty, unit_price))
+                total += unit_price * qty
 
+            txn = SalesTransaction.objects.create(
+                branch_id=branch_id,
+                staff=user if user.role == user.Role.STAFF else None,
+                customer=user if user.role == user.Role.CUSTOMER else None,
+                transaction_type=validated_data['transactionType'],
+                mode_of_payment=validated_data['modeOfPayment'],
+                order_type=order_type,
+                delivery_address=validated_data.get('deliveryAddress', ''),
+                total_amount=total,
+            )
+
+            for product, qty, unit_price in resolved_items:
                 SalesItem.objects.create(
                     transaction=txn,
                     product=product,
                     quantity_sold=qty,
                     unit_price=unit_price,
                 )
-                total += unit_price * qty
-
                 inv = Inventory.objects.filter(product=product, branch_id=branch_id).first()
                 if inv:
                     inv.quantity_on_hand = max(0, inv.quantity_on_hand - qty)
                     inv.save()
-
-            txn.total_amount = total
-            txn.save()
 
         return txn

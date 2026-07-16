@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { InternalLayout } from '../layouts/InternalLayout';
 import { StatusPill } from '../components/StatusPill';
+import { Card } from '../components/Card';
 import { useAuth } from '../contexts/AuthContext';
 import {
   reportsApi,
@@ -54,14 +55,6 @@ function isExpiringSoon(row: InventoryRow): boolean {
   if (!row.expiryDate) return false;
   const days = (new Date(row.expiryDate).getTime() - Date.now()) / 86_400_000;
   return days >= 0 && days <= 30;
-}
-
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`rounded-card border border-surface-line bg-white shadow-card ${className}`}>
-      {children}
-    </div>
-  );
 }
 
 export function DashboardPage() {

@@ -304,3 +304,30 @@ class ProcurementStatusUpdateAPIView(APIView):
         updated    = serializer.update(proc, serializer.validated_data)
         read_serializer = ProcurementReadSerializer(updated)
         return Response(read_serializer.data)
+
+
+class SupplierListAPIView(APIView):
+    """
+    GET /api/procurement/suppliers/
+    Minimal supplier picker list for the PO creation form — mirrors the
+    `suppliers = User.objects.filter(role=User.Role.SUPPLIER)` queryset
+    the template view (procurement_add) already uses.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        suppliers = User.objects.filter(
+            role=User.Role.SUPPLIER
+        ).select_related('supplier_profile')
+        data = [
+            {
+                'id': s.id,
+                'name': (
+                    getattr(getattr(s, 'supplier_profile', None), 'supplier_name', None)
+                    or s.get_full_name()
+                    or s.username
+                ),
+            }
+            for s in suppliers
+        ]
+        return Response(data)

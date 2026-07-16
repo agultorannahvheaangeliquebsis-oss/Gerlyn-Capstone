@@ -47,7 +47,6 @@ class ProductSerializer(serializers.ModelSerializer):
             'unit',
             'retailPrice',
             'wholesalePrice',
-            'description',
             'availability',
         ]
 
@@ -176,8 +175,8 @@ class BatchSerializer(serializers.ModelSerializer):
     batchNumber = serializers.CharField(source='batch_number', read_only=True)
     receivedDate = serializers.DateField(source='received_date', read_only=True)
     expiryDate = serializers.DateField(source='expiry_date', read_only=True)
-    expiryStatus = serializers.CharField(read_only=True)
-    daysUntilExpiry = serializers.IntegerField(read_only=True)
+    expiryStatus = serializers.CharField(source='expiry_status', read_only=True)
+    daysUntilExpiry = serializers.IntegerField(source='days_until_expiry', read_only=True)
 
     class Meta:
         model = Batch
