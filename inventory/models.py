@@ -185,12 +185,13 @@ class Batch(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        if not self.batch_number:
-            super().save(*args, **kwargs)
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.batch_number:
             from django.utils import timezone
             year = timezone.now().year
             self.batch_number = f"BAT-{year}-{str(self.pk).zfill(3)}"
-        super().save(*args, **kwargs)
+            super().save(update_fields=['batch_number'])
 
     @property
     def expiry_status(self) -> str:
@@ -311,11 +312,12 @@ class StockTransfer(models.Model):
     )
 
     def save(self, *args, **kwargs):
-        if not self.slip_number:
-            super().save(*args, **kwargs)
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.slip_number:
             year = self.created_at.year
             self.slip_number = f"WS-{year}-{str(self.pk).zfill(3)}"
-        super().save(*args, **kwargs)
+            super().save(update_fields=['slip_number'])
 
     def __str__(self):
         return (

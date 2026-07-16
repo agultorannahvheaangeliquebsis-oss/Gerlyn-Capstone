@@ -1,15 +1,43 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
-from .models import Product, ProductCategory
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from .models import (
+    Product, ProductCategory, Warehouse, WarehouseStock, Inventory,
+    Batch, StockTransfer, StockTransferItem, StockMovement,
+)
 from .serializers import (
     ProductSerializer,
     ProductWriteSerializer,
     ProductCategorySerializer,
+    WarehouseSerializer,
+    WarehouseStockSerializer,
+    InventorySerializer,
+    BatchSerializer,
+    StockTransferSerializer,
+    StockTransferWriteSerializer,
+    StockTransferApproveSerializer,
+    StockTransferAcknowledgeSerializer,
+    StockMovementSerializer,
 )
 from accounts.models import User
+
+
+def get_user_branch(user):
+    """Same rule used throughout the template views: Managers/Staff are
+    scoped to their own branch, everyone else (Owner) sees everything."""
+    try:
+        if user.role == User.Role.BRANCH_MANAGER:
+            return user.manager_profile.branch
+        elif user.role == User.Role.STAFF:
+            return user.staff_profile.branch
+    except Exception:
+        return None
+    return None
 
 
 class ProductCategoryViewSet(viewsets.ModelViewSet):
@@ -99,3 +127,416 @@ class ProductViewSet(viewsets.ModelViewSet):
         if denied:
             return denied
         return super().destroy(request, *args, **kwargs)
+
+
+def check_owner_or_manager(request):
+    """Shared write-gate for warehouse-side endpoints, same rule as Product."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        return Response(
+            {'detail': 'You do not have permission to modify this resource.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    return None
+
+
+class WarehouseViewSet(viewsets.ModelViewSet):
+    """
+    /api/warehouses/
+    GET → list/retrieve (any authenticated user)
+    POST/PUT/PATCH/DELETE → Owner/Branch Manager only
+    """
+    queryset = Warehouse.objects.select_related('branch').all()
+    serializer_class = WarehouseSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().destroy(request, *args, **kwargs)
+
+
+class WarehouseStockViewSet(viewsets.ModelViewSet):
+    """
+    /api/warehouse-stock/
+    Mirrors warehouse_stock_list: Owner sees every warehouse, Manager/Staff
+    are scoped to their own branch's warehouse.
+    """
+    serializer_class = WarehouseStockSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = WarehouseStock.objects.select_related(
+            'product', 'product__category', 'warehouse', 'warehouse__branch'
+        ).all()
+        user_branch = get_user_branch(self.request.user)
+        if user_branch:
+            qs = qs.filter(warehouse__branch=user_branch)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().destroy(request, *args, **kwargs)
+
+
+class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    /api/inventory/
+    Store-floor stock. Read-only — rows are created by procurement receipt
+    or a released StockTransfer, never directly. Mirrors inventory_list.
+    """
+    serializer_class = InventorySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Inventory.objects.select_related('product', 'branch').all()
+        user_branch = get_user_branch(self.request.user)
+        if user_branch:
+            qs = qs.filter(branch=user_branch)
+        return qs
+
+
+class BatchViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    /api/batches/
+    FEFO expiry tracking. Read-only — Batches are auto-created when a
+    Procurement is marked Received. Ordered nearest-expiry-first (see
+    Batch.Meta.ordering). Supports ?status=Expired|Expiring Soon|Fresh.
+    """
+    serializer_class = BatchSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Batch.objects.select_related('product', 'branch').all()
+        user_branch = get_user_branch(self.request.user)
+        if user_branch:
+            qs = qs.filter(branch=user_branch)
+
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            # expiry_status is a computed property, not a DB field —
+            # filter in Python after the queryset is evaluated.
+            ids = [b.id for b in qs if b.expiry_status == status_filter]
+            qs = qs.filter(id__in=ids)
+        return qs
+
+
+class StockMovementListAPIView(APIView):
+    """
+    GET /api/stock-movements/?product=<id>&branch=<id>
+    Read-only audit log.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = StockMovement.objects.select_related(
+            'inventory__product', 'inventory__branch',
+            'warehouse_stock__product', 'warehouse_stock__warehouse__branch',
+            'created_by',
+        ).all()
+
+        user_branch = get_user_branch(request.user)
+        if user_branch:
+            qs = qs.filter(
+                Q(inventory__branch=user_branch) |
+                Q(warehouse_stock__warehouse__branch=user_branch)
+            )
+
+        product_id = request.query_params.get('product')
+        if product_id:
+            qs = qs.filter(
+                Q(inventory__product_id=product_id) |
+                Q(warehouse_stock__product_id=product_id)
+            )
+
+        serializer = StockMovementSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+# =============================================================================
+# STOCK TRANSFER (Withdrawal Slip) — full request/approve/release/acknowledge
+# workflow. Mirrors inventory/views.py: transfer_list, transfer_create,
+# transfer_approve, transfer_complete. The Acknowledge step has no template
+# view yet, but the model already carries the fields for it, so it's
+# implemented directly against those fields (see StockTransferAcknowledgeSerializer).
+# =============================================================================
+
+class StockTransferListCreateAPIView(APIView):
+    """
+    GET  /api/stock-transfers/   → list, scoped like transfer_list
+    POST /api/stock-transfers/   → create, mirrors transfer_create
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = StockTransfer.objects.select_related(
+            'source_branch', 'destination_branch', 'requested_by',
+            'approved_by', 'acknowledged_by', 'warehouse',
+        ).prefetch_related('items__product').all()
+
+        user_branch = get_user_branch(request.user)
+        if user_branch:
+            qs = qs.filter(source_branch=user_branch)
+
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        purpose_filter = request.query_params.get('purpose')
+        if purpose_filter:
+            qs = qs.filter(purpose=purpose_filter)
+
+        serializer = StockTransferSerializer(qs.order_by('-created_at'), many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        if request.user.role not in [
+            User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
+        ]:
+            return Response(
+                {'detail': 'You do not have permission to create withdrawal slips.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        user_branch = get_user_branch(request.user)
+        serializer = StockTransferWriteSerializer(
+            data=request.data,
+            context={'request': request, 'user_branch_id': user_branch.id if user_branch else None},
+        )
+        if serializer.is_valid():
+            transfer = serializer.save()
+            return Response(
+                StockTransferSerializer(transfer).data, status=status.HTTP_201_CREATED
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StockTransferDetailAPIView(APIView):
+    """GET /api/stock-transfers/<pk>/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        transfer = get_object_or_404(
+            StockTransfer.objects.select_related(
+                'source_branch', 'destination_branch', 'requested_by',
+                'approved_by', 'acknowledged_by', 'warehouse',
+            ).prefetch_related('items__product'),
+            pk=pk
+        )
+        return Response(StockTransferSerializer(transfer).data)
+
+
+class StockTransferApproveAPIView(APIView):
+    """
+    PATCH /api/stock-transfers/<pk>/approve/
+    Body: { "action": "approve", "items": { "<itemId>": <approvedQty>, ... } }
+         | { "action": "reject" }
+    Mirrors transfer_approve exactly, including the warehouse-stock check.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
+            return Response(
+                {'detail': 'Only Branch Managers and Owners can approve transfers.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        if transfer.status != StockTransfer.Status.PENDING:
+            return Response(
+                {'detail': 'This transfer has already been processed.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = StockTransferApproveSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+
+        with transaction.atomic():
+            if data['action'] == 'approve':
+                items_map = {int(k): v for k, v in data['items'].items()}
+                items = transfer.items.select_related('product').all()
+
+                for item in items:
+                    approved_qty = items_map.get(item.id, 0)
+                    try:
+                        ws = WarehouseStock.objects.get(
+                            warehouse=transfer.warehouse, product=item.product
+                        )
+                    except WarehouseStock.DoesNotExist:
+                        return Response(
+                            {'detail': f'{item.product.product_name} not found in warehouse.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    if approved_qty > ws.quantity_on_hand:
+                        return Response(
+                            {'detail': (
+                                f'Not enough warehouse stock for '
+                                f'{item.product.product_name}. Available: {ws.quantity_on_hand}'
+                            )},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    item.quantity_approved = approved_qty
+                    item.save()
+
+                transfer.status = StockTransfer.Status.APPROVED
+                transfer.approved_by = request.user
+                transfer.save()
+
+            else:  # reject
+                transfer.status = StockTransfer.Status.REJECTED
+                transfer.approved_by = request.user
+                transfer.save()
+
+        return Response(StockTransferSerializer(transfer).data)
+
+
+class StockTransferReleaseAPIView(APIView):
+    """
+    PATCH /api/stock-transfers/<pk>/release/
+    Mirrors transfer_complete: deducts warehouse stock, credits floor
+    inventory at the destination branch, logs both StockMovements.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
+            return Response(
+                {'detail': 'Only Branch Managers and Owners can release transfers.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        if transfer.status != StockTransfer.Status.APPROVED:
+            return Response(
+                {'detail': 'Transfer must be approved before it can be released.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            for item in transfer.items.select_related('product').all():
+                if item.quantity_approved <= 0:
+                    continue
+
+                ws = get_object_or_404(
+                    WarehouseStock, warehouse=transfer.warehouse, product=item.product
+                )
+                qty_before_warehouse = ws.quantity_on_hand
+                ws.quantity_on_hand -= item.quantity_approved
+                ws.save()
+
+                StockMovement.objects.create(
+                    warehouse_stock=ws,
+                    location_type=StockMovement.LocationType.WAREHOUSE,
+                    movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
+                    quantity_change=-item.quantity_approved,
+                    quantity_before=qty_before_warehouse,
+                    quantity_after=ws.quantity_on_hand,
+                    reference_id=transfer.pk,
+                    notes=f'Withdrawal Slip {transfer.slip_number}',
+                    created_by=request.user,
+                )
+
+                if transfer.destination_branch:
+                    inv, _ = Inventory.objects.get_or_create(
+                        product=item.product,
+                        branch=transfer.destination_branch,
+                        defaults={'quantity_on_hand': 0, 'reorder_level': 0}
+                    )
+                    qty_before_floor = inv.quantity_on_hand
+                    inv.quantity_on_hand += item.quantity_approved
+                    inv.save()
+
+                    StockMovement.objects.create(
+                        inventory=inv,
+                        location_type=StockMovement.LocationType.FLOOR,
+                        movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
+                        quantity_change=item.quantity_approved,
+                        quantity_before=qty_before_floor,
+                        quantity_after=inv.quantity_on_hand,
+                        reference_id=transfer.pk,
+                        notes=f'Withdrawal Slip {transfer.slip_number}',
+                        created_by=request.user,
+                    )
+
+            transfer.status = StockTransfer.Status.RELEASED
+            transfer.save()
+
+        return Response(StockTransferSerializer(transfer).data)
+
+
+class StockTransferAcknowledgeAPIView(APIView):
+    """
+    PATCH /api/stock-transfers/<pk>/acknowledge/
+    Body: { "receivedQty": <int>, "flagReason": "..." (optional) }
+
+    Confirms receipt at the destination branch. If receivedQty matches the
+    sum of approved quantities, status becomes Acknowledged; otherwise it
+    becomes Discrepancy and flagReason is required.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role not in [User.Role.STAFF, User.Role.BRANCH_MANAGER]:
+            return Response(
+                {'detail': 'Only Staff or Branch Managers can acknowledge a delivery.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        transfer = get_object_or_404(StockTransfer, pk=pk)
+        if transfer.status != StockTransfer.Status.RELEASED:
+            return Response(
+                {'detail': 'Transfer must be Released before it can be acknowledged.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = StockTransferAcknowledgeSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+
+        total_approved = sum(item.quantity_approved for item in transfer.items.all())
+        is_match = data['receivedQty'] == total_approved
+
+        if not is_match and not data.get('flagReason'):
+            return Response(
+                {'flagReason': 'Required when received quantity does not match approved quantity.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        transfer.received_qty = data['receivedQty']
+        transfer.flag_reason = data.get('flagReason', '')
+        transfer.acknowledged_by = request.user
+        transfer.status = (
+            StockTransfer.Status.ACKNOWLEDGED if is_match else StockTransfer.Status.DISCREPANCY
+        )
+        transfer.save()
+
+        return Response(StockTransferSerializer(transfer).data)
