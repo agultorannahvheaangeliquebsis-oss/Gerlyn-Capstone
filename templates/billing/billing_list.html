@@ -1,23 +1,66 @@
-<!DOCTYPE html>
-<html>
-<head><title>Billing Records</title></head>
-<body>
-    <h2>Billing Records</h2>
-    {% if messages %}{% for m in messages %}<p>{{ m }}</p>{% endfor %}{% endif %}
-    <table border="1">
-        <tr>
-            <th>ID</th><th>Transaction</th><th>Amount Due</th><th>Method</th><th>Status</th><th>Action</th>
-        </tr>
-        {% for record in records %}
-        <tr>
-            <td>{{ record.id }}</td>
-            <td>#{{ record.transaction.id }}</td>
-            <td>{{ record.amount_due }}</td>
-            <td>{{ record.payment_method }}</td>
-            <td>{{ record.status }}</td>
-            <td><a href="{% url 'billing_detail' record.pk %}">View</a></td>
-        </tr>
-        {% endfor %}
-    </table>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Billing Records{% endblock %}
+{% block page_subtitle %}Billing{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Billing Records</h1>
+    <p class="gv-meta mb-0">{{ counts.all }} record{{ counts.all|pluralize }} · ₱{{ outstanding|floatformat:2 }} outstanding</p>
+  </div>
+</div>
+
+<div class="tabs">
+  <a class="tab {% if not status_filter %}active{% endif %}" href="?">All <span class="count">{{ counts.all }}</span></a>
+  <a class="tab {% if status_filter == 'Pending' %}active{% endif %}" href="?status=Pending">Pending <span class="count">{{ counts.pending }}</span></a>
+  <a class="tab {% if status_filter == 'Paid' %}active{% endif %}" href="?status=Paid">Paid <span class="count">{{ counts.paid }}</span></a>
+  <a class="tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?status=Rejected">Rejected <span class="count">{{ counts.rejected }}</span></a>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Order</th>
+        <th>Branch</th>
+        <th>Date</th>
+        <th class="num">Amount Due</th>
+        <th>Method</th>
+        <th>Reference</th>
+        <th>Status</th>
+        <th style="text-align:right;">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td data-label="Order" class="sku strong">{{ r.transaction.order_number }}</td>
+        <td data-label="Branch">{{ r.transaction.branch.branch_name }}</td>
+        <td data-label="Date" class="gv-meta">{{ r.date_recorded|date:"Y-m-d" }}</td>
+        <td data-label="Amount Due" class="num strong">₱{{ r.amount_due|floatformat:2 }}</td>
+        <td data-label="Method">{{ r.payment_method }}</td>
+        <td data-label="Reference" class="sku">{{ r.reference_number|default:"—" }}</td>
+        <td data-label="Status">
+          {% if r.status == "Paid" %}<span class="pill pill-ok">Paid</span>
+          {% elif r.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+          {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+        </td>
+        <td data-label="Action">
+          <span class="row-actions"><a class="btn btn-sm" href="{% url 'billing_detail' r.pk %}">View</a></span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8">
+          <div class="empty">
+            <span class="glyph">₱</span>
+            <h3>No billing records</h3>
+            <p>A billing record is created automatically for every sale.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

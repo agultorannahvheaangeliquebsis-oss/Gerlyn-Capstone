@@ -66,7 +66,9 @@ class Procurement(models.Model):
             from django.utils import timezone
             year = timezone.now().year
             self.po_number = f"PO-{year}-{str(self.pk).zfill(3)}"
-        super().save(*args, **kwargs)
+            super().save(update_fields=["po_number"])
+        else:
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.po_number or f'Procurement #{self.id}'} - {self.branch} - {self.status}"

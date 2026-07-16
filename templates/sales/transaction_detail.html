@@ -1,55 +1,121 @@
 {% extends "internal_base.html" %}
-{% block title %}Transaction #{{ transaction.id }}{% endblock %}
-{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+{% block title %}{{ transaction.order_number }}{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% block branch_scope %}{{ transaction.branch.branch_name }}{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-4">
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'transaction_list' %}">&larr; Order Console</a>
+    <h1 class="mt-2">{{ transaction.order_number }}
+      {% if transaction.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>
+      {% elif transaction.order_status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>
+      {% elif transaction.order_status == "Preparing" %}<span class="pill pill-warn">Preparing</span>
+      {% elif transaction.order_status == "Approved" %}<span class="pill pill-info">Approved</span>
+      {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}
+    </h1>
+    <p class="gv-meta mb-0">{{ transaction.transaction_date|date:"F d, Y — g:i A" }}</p>
+  </div>
+</div>
+
+{# ---- lifecycle actions ---- #}
+{% if next_actions %}
+<div class="card card-pad mb-4">
+  <div class="row-between wrap">
     <div>
-        <h4 class="fw-bold mb-0">Transaction #{{ transaction.id }}</h4>
-        <p class="text-muted small">{{ transaction.transaction_date|date:"F d, Y - g:i A" }}</p>
+      <h3>Next step</h3>
+      <p class="gv-meta mb-0">This order is <strong>{{ transaction.order_status }}</strong>.
+        {% if transaction.transaction_type == "Online" %}Completing it deducts stock from {{ transaction.branch.branch_name }}.{% endif %}
+      </p>
     </div>
-    <a href="{% url 'billing_create' transaction.pk %}" class="btn btn-gerlyn px-3">
-        <i class="fa-solid fa-receipt me-1"></i> Record Payment
-    </a>
+    <div class="row wrap">
+      {% for action in next_actions %}
+        <form method="post" action="{% url 'transaction_set_status' transaction.pk action %}">
+          {% csrf_token %}
+          <button type="submit" class="btn {% if action == 'Cancelled' %}btn-danger{% else %}btn-primary{% endif %}">
+            {% if action == 'Cancelled' %}Cancel Order{% else %}Mark {{ action }}{% endif %}
+          </button>
+        </form>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid-2 mb-4">
+  <!-- Order info -->
+  <div class="card card-pad">
+    <h3 class="mb-4">Order Details</h3>
+    <table class="gv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ transaction.branch.branch_name }}</td></tr>
+        <tr><td class="gv-meta">Channel</td><td style="text-align:right;">
+          {% if transaction.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
+          {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td></tr>
+        <tr><td class="gv-meta">Customer</td><td style="text-align:right;">
+          {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
+          {% else %}Walk-in{% endif %}</td></tr>
+        <tr><td class="gv-meta">Recorded by</td><td style="text-align:right;">
+          {% if transaction.staff %}{{ transaction.staff.username }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ transaction.mode_of_payment }}</td></tr>
+        {% if transaction.delivery_address %}
+        <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ transaction.delivery_address }}</td></tr>{% endif %}
+        <tr><td class="gv-meta">Total</td>
+            <td class="num" style="text-align:right;"><span class="gv-metric" style="color:var(--action);">₱{{ transaction.total_amount|floatformat:2 }}</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Payment -->
+  <div class="card card-pad">
+    <div class="row-between mb-4">
+      <h3>Payment</h3>
+      {% if billing %}
+        {% if billing.status == "Paid" %}<span class="pill pill-ok">Paid</span>
+        {% elif billing.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+        {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+      {% endif %}
+    </div>
+    {% if billing %}
+    <table class="gv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Amount due</td><td class="num strong" style="text-align:right;">₱{{ billing.amount_due|floatformat:2 }}</td></tr>
+        <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ billing.payment_method }}</td></tr>
+        <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ billing.reference_number|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ billing.confirmed_by.username|default:"—" }}</td></tr>
+      </tbody>
+    </table>
+    <div class="row mt-4">
+      <a class="btn" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
+      {% if billing.status != "Paid" %}
+        <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+      {% endif %}
+    </div>
+    {% else %}
+      <p class="gv-meta">No billing record.</p>
+      <a class="btn btn-primary mt-2" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+    {% endif %}
+  </div>
 </div>
 
-<div class="row g-3 mb-4">
-    <div class="col-md-6">
-        <div class="stat-card bg-white p-4 h-100">
-            <h6 class="fw-bold mb-3">Transaction Info</h6>
-            <table class="table table-sm table-borderless mb-0">
-                <tr><td class="text-muted">Branch</td><td class="fw-semibold">{{ transaction.branch }}</td></tr>
-                <tr><td class="text-muted">Staff</td><td>{{ transaction.staff|default:"-" }}</td></tr>
-                <tr><td class="text-muted">Customer</td><td>{{ transaction.customer|default:"-" }}</td></tr>
-                <tr><td class="text-muted">Type</td><td>{{ transaction.transaction_type }}</td></tr>
-                <tr><td class="text-muted">Payment</td><td>{{ transaction.mode_of_payment }}</td></tr>
-                <tr><td class="text-muted">Total</td><td class="fw-bold text-gerlyn fs-5">₱{{ transaction.total_amount }}</td></tr>
-            </table>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="stat-card bg-white p-4 h-100">
-            <h6 class="fw-bold mb-3">Items Sold</h6>
-            <table class="table table-sm mb-0">
-                <thead class="table-light">
-                    <tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr>
-                </thead>
-                <tbody>
-                    {% for item in items %}
-                    <tr>
-                        <td>{{ item.product.product_name }}</td>
-                        <td>{{ item.quantity_sold }}</td>
-                        <td>₱{{ item.unit_price }}</td>
-                        <td>₱{{ item.subtotal }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+<!-- Items -->
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Product</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Subtotal</th></tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+        <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
+        <td data-label="Unit Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
+        <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4"><div class="empty"><h3>No items on this order</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
-
-<a href="{% url 'transaction_list' %}" class="btn btn-outline-secondary">
-    <i class="fa-solid fa-arrow-left me-1"></i> Back to Sales
-</a>
 {% endblock %}

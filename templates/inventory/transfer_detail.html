@@ -1,0 +1,53 @@
+{% extends 'internal_base.html' %}
+{% block title %}{{ transfer.slip_number }}{% endblock %}
+{% block content %}
+<div style="padding:8px 4px; max-width:800px;">
+  <a href="{% url 'transfer_list' %}">&larr; Withdrawal Slips</a>
+  <h2 style="margin:8px 0;">{{ transfer.slip_number }}
+    <span style="font-size:14px; padding:2px 10px; border-radius:12px; background:#eef; color:#334;">{{ transfer.status }}</span>
+  </h2>
+  {% for m in messages %}<div style="padding:10px 14px; border-radius:8px; background:#eef; margin:6px 0;">{{ m }}</div>{% endfor %}
+
+  <table style="width:100%; border-collapse:collapse; margin:12px 0;">
+    <tr><td style="padding:6px; color:#888;">From</td><td>{{ transfer.source_branch }}</td>
+        <td style="padding:6px; color:#888;">To</td><td>{{ transfer.destination_branch|default:"N/A (write-off/display)" }}</td></tr>
+    <tr><td style="padding:6px; color:#888;">Purpose</td><td>{{ transfer.purpose }}</td>
+        <td style="padding:6px; color:#888;">Date</td><td>{{ transfer.transfer_date|date:"Y-m-d" }}</td></tr>
+    <tr><td style="padding:6px; color:#888;">Requested by</td><td>{{ transfer.requested_by.username|default:"—" }}</td>
+        <td style="padding:6px; color:#888;">Approved by</td><td>{{ transfer.approved_by.username|default:"—" }}</td></tr>
+    {% if transfer.received_qty is not None %}
+    <tr><td style="padding:6px; color:#888;">Received qty</td><td>{{ transfer.received_qty }}</td>
+        <td style="padding:6px; color:#888;">Acknowledged by</td><td>{{ transfer.acknowledged_by.username|default:"—" }}</td></tr>{% endif %}
+    {% if transfer.flag_reason %}<tr><td style="padding:6px; color:#c0392b;">Discrepancy</td><td colspan="3">{{ transfer.flag_reason }}</td></tr>{% endif %}
+  </table>
+
+  <h3>Items</h3>
+  <table style="width:100%; border-collapse:collapse;">
+    <tr style="text-align:left;"><th style="padding:8px; border-bottom:1px solid #eee;">Product</th>
+      <th style="padding:8px; border-bottom:1px solid #eee;">Requested</th>
+      <th style="padding:8px; border-bottom:1px solid #eee;">Approved</th></tr>
+    {% for it in items %}
+    <tr><td style="padding:8px; border-bottom:1px solid #f2f2f2;">{{ it.product.product_name }}</td>
+        <td style="padding:8px; border-bottom:1px solid #f2f2f2;">{{ it.quantity_requested }}</td>
+        <td style="padding:8px; border-bottom:1px solid #f2f2f2;">{{ it.quantity_approved }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <div style="margin-top:20px; display:flex; gap:10px;">
+    {% if transfer.status == 'Pending' %}
+      <a class="btn green" style="padding:8px 16px; background:#128a4f; color:#fff; border-radius:8px; text-decoration:none;" href="{% url 'transfer_approve' transfer.pk %}">Review &amp; Approve</a>
+    {% elif transfer.status == 'Approved' %}
+      <form method="post" action="{% url 'transfer_complete' transfer.pk %}">{% csrf_token %}
+        <button type="submit" style="padding:8px 16px; background:#128a4f; color:#fff; border:0; border-radius:8px;">Release Stock</button></form>
+    {% elif transfer.status == 'Released' %}
+      <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" style="display:flex; gap:6px;">{% csrf_token %}
+        <input type="number" name="received_qty" placeholder="received qty" style="padding:6px;">
+        <button type="submit" style="padding:8px 16px; background:#128a4f; color:#fff; border:0; border-radius:8px;">✓ Confirm Receipt</button></form>
+      <form method="post" action="{% url 'transfer_flag_discrepancy' transfer.pk %}" style="display:flex; gap:6px;">{% csrf_token %}
+        <input type="number" name="received_qty" placeholder="qty" style="padding:6px; width:80px;">
+        <input type="text" name="flag_reason" placeholder="reason" style="padding:6px;">
+        <button type="submit" style="padding:8px 16px; color:#c0392b; background:#fff; border:1px solid #e6b3ae; border-radius:8px;">⚑ Flag Discrepancy</button></form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

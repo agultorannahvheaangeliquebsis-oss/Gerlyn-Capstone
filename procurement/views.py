@@ -7,6 +7,10 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
+from django.utils import timezone
+from django.utils.crypto import get_random_string
+
+from core.scoping import scope_queryset, user_can_access_branch
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -19,7 +23,7 @@ from .serializers import (
     ProcurementWriteSerializer,
     ProcurementStatusSerializer,
 )
-from inventory.models import Product, Inventory
+from inventory.models import Product, Inventory, StockMovement
 from accounts.models import User
 
 
@@ -32,16 +36,41 @@ from accounts.models import User
 def procurement_list(request):
     procurements = Procurement.objects.select_related('branch', 'supplier', 'owner').all()
 
-    if request.user.role == User.Role.BRANCH_MANAGER:
-        try:
-            branch = request.user.manager_profile.branch
-            procurements = procurements.filter(branch=branch)
-        except Exception:
-            procurements = procurements.none()
-    elif request.user.role == User.Role.SUPPLIER:
+    if request.user.role == User.Role.SUPPLIER:
+        # Suppliers only ever see the orders addressed to them.
         procurements = procurements.filter(supplier=request.user)
+    else:
+        # Owner = all branches; manager/staff = their own branch only.
+        procurements = scope_queryset(procurements, request.user)
 
-    return render(request, 'procurement/procurement_list.html', {'procurements': procurements})
+    procurements = procurements.order_by('-order_date')
+
+    status_filter = request.GET.get('status', '')
+    counts = {
+        'all': procurements.count(),
+        'draft': procurements.filter(status=Procurement.Status.DRAFT).count(),
+        'ordered': procurements.filter(status=Procurement.Status.ORDERED).count(),
+        'received': procurements.filter(status=Procurement.Status.RECEIVED).count(),
+        'cancelled': procurements.filter(status=Procurement.Status.CANCELLED).count(),
+    }
+    if status_filter:
+        procurements = procurements.filter(status=status_filter)
+
+    open_value = sum(
+        p.total_cost for p in procurements
+        if p.status in [Procurement.Status.DRAFT, Procurement.Status.ORDERED]
+    )
+
+    return render(request, 'procurement/procurement_list.html', {
+        'procurements': procurements,
+        'counts': counts,
+        'status_filter': status_filter,
+        'open_value': open_value,
+        'today': timezone.now().date(),
+        'can_create': request.user.role in [
+            User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+        ],
+    })
 
 
 @login_required(login_url='login')
@@ -133,26 +162,258 @@ def procurement_update_status(request, pk):
     if request.method == 'POST':
         new_status = request.POST.get('status')
 
-        with transaction.atomic():
-            proc.status = new_status
-            proc.save()
+        # Receiving moves stock, so it goes through the Deliveries screen where
+        # actual quantities are recorded. This guard also stops a repeat POST
+        # from adding the same delivery to stock twice.
+        if new_status == Procurement.Status.RECEIVED:
+            if proc.status == Procurement.Status.RECEIVED:
+                messages.error(request, f'{proc.po_number} has already been received.')
+                return redirect('procurement_detail', pk=pk)
+            return redirect('delivery_receive', pk=pk)
 
-            if new_status == Procurement.Status.RECEIVED:
-                for item in proc.items.all():
-                    item.quantity_received = item.quantity_ordered
-                    item.save()
-
-                    inv, created = Inventory.objects.get_or_create(
-                        product=item.product,
-                        branch=proc.branch,
-                        defaults={'quantity_on_hand': 0, 'reorder_level': 0}
-                    )
-                    inv.quantity_on_hand += item.quantity_ordered
-                    inv.save()
-
-        messages.success(request, 'Status updated.')
+        proc.status = new_status
+        proc.save()
+        messages.success(request, f'{proc.po_number} is now {new_status}.')
 
     return redirect('procurement_detail', pk=pk)
+
+
+# =============================================================================
+# DELIVERIES — receive a purchase order into stock.
+# Business rule 13: a procurement transaction updates branch inventory only
+# after a formal receipt validation, so digital stock matches physical goods.
+# =============================================================================
+
+@login_required(login_url='login')
+def delivery_list(request):
+    """Pick a purchase order to receive."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    pending = scope_queryset(
+        Procurement.objects.select_related('branch', 'supplier')
+        .filter(status=Procurement.Status.ORDERED),
+        request.user,
+    ).order_by('delivery_date')
+
+    return render(request, 'procurement/delivery_list.html', {
+        'pending': pending,
+        'today': timezone.now().date(),
+    })
+
+
+@login_required(login_url='login')
+def delivery_receive(request, pk):
+    """Record the quantities actually delivered against a PO."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    proc = get_object_or_404(
+        Procurement.objects.select_related('branch', 'supplier'), pk=pk
+    )
+
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('delivery_list')
+
+    if proc.status == Procurement.Status.RECEIVED:
+        messages.info(request, f'{proc.po_number} was already received.')
+        return redirect('procurement_detail', pk=pk)
+    if proc.status == Procurement.Status.CANCELLED:
+        messages.error(request, f'{proc.po_number} was cancelled.')
+        return redirect('procurement_detail', pk=pk)
+
+    items = proc.items.select_related('product').all()
+
+    if request.method == 'POST':
+        received_map = request.POST.getlist('quantity_received')
+        item_ids = request.POST.getlist('item_id')
+
+        with transaction.atomic():
+            any_short = False
+            for item_id, qty_str in zip(item_ids, received_map):
+                item = proc.items.select_related('product').get(pk=item_id)
+                qty_received = int(qty_str or 0)
+
+                if qty_received != item.quantity_ordered:
+                    any_short = True
+
+                item.quantity_received = qty_received
+                item.save()
+
+                if qty_received <= 0:
+                    continue
+
+                inv, _ = Inventory.objects.get_or_create(
+                    product=item.product, branch=proc.branch,
+                    defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+                )
+                before = inv.quantity_on_hand
+                inv.quantity_on_hand += qty_received
+                inv.save()
+
+                # Audit trail — every stock change is attributable.
+                StockMovement.objects.create(
+                    inventory=inv,
+                    location_type=StockMovement.LocationType.FLOOR,
+                    movement_type=StockMovement.MovementType.PROCUREMENT_RECEIVED,
+                    quantity_change=qty_received,
+                    quantity_before=before,
+                    quantity_after=inv.quantity_on_hand,
+                    reference_id=proc.pk,
+                    notes=f'Delivery for {proc.po_number}',
+                    created_by=request.user,
+                )
+
+            proc.status = Procurement.Status.RECEIVED
+            proc.receipt_flag = (
+                Procurement.ReceiptFlag.DISCREPANCY if any_short
+                else Procurement.ReceiptFlag.NONE
+            )
+            proc.save()
+
+        if any_short:
+            messages.warning(
+                request,
+                f'{proc.po_number} received with a discrepancy — '
+                f'delivered quantities differ from what was ordered.'
+            )
+        else:
+            messages.success(request, f'{proc.po_number} received in full. Stock updated.')
+        return redirect('procurement_detail', pk=pk)
+
+    return render(request, 'procurement/delivery_receive.html', {
+        'procurement': proc,
+        'items': items,
+    })
+
+
+@login_required(login_url='login')
+def receiving_history(request):
+    """Everything already received, newest first."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    received = scope_queryset(
+        Procurement.objects.select_related('branch', 'supplier')
+        .filter(status=Procurement.Status.RECEIVED),
+        request.user,
+    ).order_by('-delivery_date')
+
+    return render(request, 'procurement/receiving_history.html', {'received': received})
+
+
+# =============================================================================
+# SUPPLIERS
+# =============================================================================
+
+@login_required(login_url='login')
+def supplier_list(request):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    suppliers = User.objects.filter(role=User.Role.SUPPLIER).select_related(
+        'supplier_profile'
+    ).order_by('supplier_profile__supplier_name')
+
+    search_query = request.GET.get('q', '')
+    if search_query:
+        suppliers = suppliers.filter(
+            supplier_profile__supplier_name__icontains=search_query
+        )
+
+    return render(request, 'procurement/supplier_list.html', {
+        'suppliers': suppliers,
+        'search_query': search_query,
+        'can_edit': request.user.role == User.Role.OWNER,
+    })
+
+
+@login_required(login_url='login')
+def supplier_form(request, pk=None):
+    """Add or edit a supplier (Owner only)."""
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage suppliers.')
+        return redirect('supplier_list')
+
+    supplier = get_object_or_404(User, pk=pk, role=User.Role.SUPPLIER) if pk else None
+    profile = getattr(supplier, 'supplier_profile', None) if supplier else None
+
+    if request.method == 'POST':
+        name = request.POST.get('supplier_name', '').strip()
+        username = request.POST.get('username', '').strip()
+
+        if not name or not username:
+            messages.error(request, 'Supplier name and username are required.')
+            return redirect(request.path)
+
+        with transaction.atomic():
+            if supplier is None:
+                if User.objects.filter(username=username).exists():
+                    messages.error(request, f'Username "{username}" is already taken.')
+                    return redirect('supplier_add')
+                # Suppliers get a random password; the Owner shares a reset link
+                # if the supplier ever needs to log in themselves.
+                supplier = User.objects.create_user(
+                    username=username,
+                    email=request.POST.get('email', ''),
+                    password=get_random_string(20),
+                    role=User.Role.SUPPLIER,
+                )
+                # accounts.signals creates a blank profile on user creation.
+                profile = supplier.supplier_profile
+            else:
+                supplier.username = username
+                supplier.email = request.POST.get('email', '')
+                supplier.save()
+
+            profile.supplier_name = name
+            profile.contact_person = request.POST.get('contact_person', '')
+            profile.contact_number = request.POST.get('contact_number', '')
+            profile.supplier_category = request.POST.get('supplier_category', '')
+            profile.address = request.POST.get('address', '')
+            profile.save()
+
+        messages.success(request, f'Supplier "{name}" saved.')
+        return redirect('supplier_list')
+
+    return render(request, 'procurement/supplier_form.html', {
+        'supplier': supplier,
+        'profile': profile,
+    })
+
+
+@login_required(login_url='login')
+def supplier_delete(request, pk):
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can delete suppliers.')
+        return redirect('supplier_list')
+
+    supplier = get_object_or_404(User, pk=pk, role=User.Role.SUPPLIER)
+    open_orders = Procurement.objects.filter(supplier=supplier).exclude(
+        status__in=[Procurement.Status.RECEIVED, Procurement.Status.CANCELLED]
+    ).count()
+
+    if request.method == 'POST':
+        if open_orders:
+            messages.error(
+                request,
+                f'Cannot delete — this supplier still has {open_orders} open order(s).'
+            )
+            return redirect('supplier_list')
+        name = getattr(supplier.supplier_profile, 'supplier_name', supplier.username)
+        supplier.delete()
+        messages.success(request, f'Supplier "{name}" deleted.')
+        return redirect('supplier_list')
+
+    return render(request, 'procurement/supplier_confirm_delete.html', {
+        'supplier': supplier,
+        'open_orders': open_orders,
+    })
 
 
 # =============================================================================

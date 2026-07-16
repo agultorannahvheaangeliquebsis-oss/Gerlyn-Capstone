@@ -1,36 +1,73 @@
-<!DOCTYPE html>
-<html>
-<head><title>Billing Detail</title></head>
-<body>
-    <h2>Billing Record #{{ record.id }}</h2>
-    {% if messages %}{% for m in messages %}<p>{{ m }}</p>{% endfor %}{% endif %}
-    <p>Transaction: #{{ record.transaction.id }}</p>
-    <p>Amount Due: {{ record.amount_due }}</p>
-    <p>Payment Method: {{ record.payment_method }}</p>
-    <p>Reference Number: {{ record.reference_number|default:"-" }}</p>
-    {% if record.proof_of_payment %}
-        <p>Proof of Payment:</p>
-        <img src="{{ record.proof_of_payment.url }}" width="300">
-    {% endif %}
-    <p>Status: {{ record.status }}</p>
-    <p>Date Recorded: {{ record.date_recorded }}</p>
-    {% if record.confirmed_by %}
-        <p>Confirmed By: {{ record.confirmed_by }}</p>
-        <p>Date Confirmed: {{ record.date_confirmed }}</p>
-    {% endif %}
+{% extends "internal_base.html" %}
+{% block title %}Billing #{{ record.id }}{% endblock %}
+{% block page_subtitle %}Billing{% endblock %}
 
-    {% if record.status == "Pending" %}
-    <h3>Confirm Payment</h3>
-    <form method="POST" action="{% url 'billing_confirm' record.pk %}">
-        {% csrf_token %}
-        <select name="status">
-            <option value="Paid">Mark as Paid</option>
-            <option value="Rejected">Reject</option>
-        </select>
-        <button type="submit">Submit</button>
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'billing_list' %}">&larr; Billing Records</a>
+    <h1 class="mt-2">Billing for {{ record.transaction.order_number }}
+      {% if record.status == "Paid" %}<span class="pill pill-ok">Paid</span>
+      {% elif record.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+      {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+    </h1>
+    <p class="gv-meta mb-0">Recorded {{ record.date_recorded|date:"F d, Y — g:i A" }}</p>
+  </div>
+</div>
+
+{% if record.status == "Pending" %}
+<div class="card card-pad mb-4">
+  <div class="row-between wrap">
+    <div>
+      <h3>Verify this payment</h3>
+      <p class="gv-meta mb-0">
+        The system records payment only — funds move outside it. Confirm once you have
+        seen the cash or checked the reference number.
+      </p>
+    </div>
+    <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
+      {% csrf_token %}
+      <button type="submit" name="status" value="Paid" class="btn btn-primary">Mark as Paid</button>
+      <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject</button>
     </form>
-    {% endif %}
+  </div>
+</div>
+{% endif %}
 
-    <br><a href="{% url 'billing_list' %}">Back to list</a>
-</body>
-</html>
+<div class="grid-2">
+  <div class="card card-pad">
+    <h3 class="mb-4">Payment Details</h3>
+    <table class="gv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Order</td><td style="text-align:right;">
+          <a href="{% url 'transaction_detail' record.transaction.pk %}">{{ record.transaction.order_number }}</a></td></tr>
+        <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ record.transaction.branch.branch_name }}</td></tr>
+        <tr><td class="gv-meta">Amount due</td><td class="num" style="text-align:right;">
+          <span class="gv-metric" style="color:var(--action);">₱{{ record.amount_due|floatformat:2 }}</span></td></tr>
+        <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ record.payment_method }}</td></tr>
+        <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ record.reference_number|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ record.confirmed_by.username|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Date confirmed</td><td style="text-align:right;">{{ record.date_confirmed|date:"Y-m-d H:i"|default:"—" }}</td></tr>
+      </tbody>
+    </table>
+    {% if record.status != "Paid" %}
+      <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}">Edit payment details</a>
+    {% endif %}
+  </div>
+
+  <div class="card card-pad">
+    <h3 class="mb-4">Proof of Payment</h3>
+    {% if record.proof_of_payment %}
+      <img src="{{ record.proof_of_payment.url }}" alt="Proof of payment"
+           style="max-width:100%; border-radius:var(--r-card); border:1px solid var(--line);">
+    {% else %}
+      <div class="empty">
+        <span class="glyph">□</span>
+        <h3>No proof uploaded</h3>
+        <p>GCash or bank payments can attach a screenshot as evidence.</p>
+        <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}">Upload proof</a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

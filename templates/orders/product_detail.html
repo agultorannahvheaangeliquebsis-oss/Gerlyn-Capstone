@@ -1,298 +1,84 @@
 {% extends "public_base.html" %}
-{% block title %}{{ product.product_name }} - Gerlyn Variety Store{% endblock %}
-
-{% block extra_css %}
-<style>
-    .detail-wrap { background: #f7f8fa; min-height: 80vh; }
-
-    .product-image-box {
-        background: white;
-        border-radius: 16px;
-        border: 1px solid #eee;
-        height: 340px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 7rem;
-        position: relative;
-    }
-    .sku-badge {
-        position: absolute;
-        top: 14px; left: 14px;
-        background: rgba(255,255,255,0.95);
-        border: 1px solid #eee;
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: #888;
-        padding: 4px 10px;
-        border-radius: 8px;
-    }
-
-    .detail-card {
-        background: white;
-        border-radius: 16px;
-        border: 1px solid #eee;
-        padding: 28px;
-    }
-
-    .category-label {
-        font-size: 0.78rem;
-        font-weight: 700;
-        color: var(--gerlyn-green);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 8px;
-    }
-    .product-title {
-        font-size: 1.6rem;
-        font-weight: 700;
-        color: #1a1a1a;
-        margin-bottom: 4px;
-        line-height: 1.2;
-    }
-    .product-uom {
-        font-size: 0.85rem;
-        color: #888;
-        margin-bottom: 16px;
-    }
-    .product-desc {
-        font-size: 0.9rem;
-        color: #555;
-        line-height: 1.6;
-        margin-bottom: 20px;
-    }
-    .price-display {
-        font-size: 2rem;
-        font-weight: 800;
-        color: var(--gerlyn-green);
-        margin-bottom: 4px;
-    }
-    .price-label {
-        font-size: 0.78rem;
-        color: #999;
-        margin-bottom: 20px;
-    }
-
-    /* Branch availability */
-    .branch-avail-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 14px;
-        border-radius: 10px;
-        border: 1px solid #eee;
-        margin-bottom: 8px;
-        background: #fafafa;
-    }
-    .branch-avail-row .branch-name { font-size: 0.88rem; font-weight: 500; }
-    .avail-tag {
-        font-size: 0.75rem;
-        font-weight: 600;
-        padding: 3px 10px;
-        border-radius: 20px;
-    }
-    .avail-tag.yes { background: #e8f5e9; color: #2e7d32; }
-    .avail-tag.no  { background: #fce4e4; color: #c62828; }
-
-    /* Quantity selector */
-    .qty-selector {
-        display: flex;
-        align-items: center;
-        gap: 0;
-        border: 1.5px solid #ddd;
-        border-radius: 10px;
-        overflow: hidden;
-        width: fit-content;
-    }
-    .qty-btn {
-        width: 38px; height: 38px;
-        background: #f5f5f5;
-        border: none;
-        font-size: 1.1rem;
-        cursor: pointer;
-        display: flex; align-items: center; justify-content: center;
-        transition: background 0.15s;
-        color: #333;
-    }
-    .qty-btn:hover { background: #e8e8e8; }
-    .qty-input {
-        width: 48px;
-        text-align: center;
-        border: none;
-        border-left: 1.5px solid #ddd;
-        border-right: 1.5px solid #ddd;
-        font-size: 0.95rem;
-        font-weight: 600;
-        height: 38px;
-        outline: none;
-    }
-
-    .btn-add-cart {
-        background: var(--gerlyn-green);
-        color: white;
-        border: none;
-        border-radius: 10px;
-        padding: 12px 28px;
-        font-size: 0.95rem;
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: background 0.15s;
-        flex: 1;
-    }
-    .btn-add-cart:hover { background: var(--gerlyn-green-dark); }
-
-    /* Related products */
-    .related-card {
-        background: white;
-        border-radius: 12px;
-        border: 1px solid #eee;
-        overflow: hidden;
-        text-decoration: none;
-        color: inherit;
-        transition: box-shadow 0.2s, transform 0.2s;
-        display: block;
-    }
-    .related-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); }
-    .related-img {
-        height: 100px;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 2.5rem;
-    }
-    .related-body { padding: 10px 12px; }
-    .related-name { font-size: 0.82rem; font-weight: 600; margin-bottom: 4px; }
-    .related-price { font-size: 0.88rem; font-weight: 700; color: var(--gerlyn-green); }
-</style>
-{% endblock %}
+{% load shop_extras %}
+{% block title %}{{ product.product_name }} — Gerlyn Variety Store{% endblock %}
 
 {% block content %}
-<div class="detail-wrap">
-    <div class="container py-4">
+<div class="shop-wrap section">
+  <p class="gv-meta"><a href="{% url 'orders:catalog' %}">&larr; Back to Products</a></p>
 
-        <!-- Breadcrumb -->
-        <nav class="mb-4" style="font-size:0.82rem; color:#888;">
-            <a href="/" class="text-decoration-none text-muted">Home</a>
-            <span class="mx-1">/</span>
-            <a href="{% url 'orders:catalog' %}" class="text-decoration-none text-muted">Products</a>
-            <span class="mx-1">/</span>
-            <span class="text-dark fw-semibold">{{ product.product_name }}</span>
-        </nav>
-
-        <div class="row g-4">
-
-            <!-- Left: Product Image -->
-            <div class="col-md-5">
-                <div class="product-image-box">
-                    <span class="sku-badge">{{ product.sku_code }}</span>
-                    {% if product.category.category_name == "Canned Goods" %}🥫
-                    {% elif product.category.category_name == "Noodles & Pasta" %}🍜
-                    {% elif product.category.category_name == "Beverages" %}🥤
-                    {% elif product.category.category_name == "Dairy & Milk" %}🥛
-                    {% elif product.category.category_name == "Condiments" %}🍅
-                    {% elif product.category.category_name == "Baby & Personal Care" %}🧴
-                    {% elif product.category.category_name == "Rice & Grains" %}🌾
-                    {% elif product.category.category_name == "Snacks" %}🍪
-                    {% else %}📦
-                    {% endif %}
-                </div>
-            </div>
-
-            <!-- Right: Product Details -->
-            <div class="col-md-7">
-                <div class="detail-card">
-                    <div class="category-label">{{ product.category.category_name }}</div>
-                    <h1 class="product-title">{{ product.product_name }}</h1>
-                    <div class="product-uom">Unit: {{ product.unit_of_measure|capfirst }}</div>
-
-                    {% if product.description %}
-                    <p class="product-desc">{{ product.description }}</p>
-                    {% endif %}
-
-                    <div class="price-display">₱{{ product.unit_price }}</div>
-                    <div class="price-label">Retail price per {{ product.unit_of_measure }}</div>
-
-                    <!-- Branch Availability -->
-                    <div class="fw-semibold small mb-2">
-                        <i class="fa-solid fa-location-dot me-1 text-gerlyn"></i> Availability per Branch
-                    </div>
-                    {% for item in branch_stock %}
-                    <div class="branch-avail-row">
-                        <span class="branch-name">{{ item.branch.branch_name }}</span>
-                        {% if item.available %}
-                            <span class="avail-tag yes"><i class="fa-solid fa-check me-1"></i>Available</span>
-                        {% else %}
-                            <span class="avail-tag no"><i class="fa-solid fa-xmark me-1"></i>Out of Stock</span>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-
-                    <!-- Add to Cart -->
-                    <form method="post" action="{% url 'orders:add_to_cart' product.id %}" class="mt-4">
-                        {% csrf_token %}
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="qty-selector">
-                                <button type="button" class="qty-btn" onclick="changeQty(-1)">−</button>
-                                <input type="number" name="quantity" id="qty" class="qty-input" value="1" min="1" max="99">
-                                <button type="button" class="qty-btn" onclick="changeQty(1)">+</button>
-                            </div>
-                            <button type="submit" class="btn-add-cart">
-                                <i class="fa-solid fa-cart-shopping"></i> Add to Cart
-                            </button>
-                        </div>
-                    </form>
-
-                    <div class="mt-2 text-center">
-                        <a href="{% url 'orders:cart' %}" class="text-muted small text-decoration-underline">View Cart</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Related Products -->
-        {% if related %}
-        <div class="mt-5">
-            <h5 class="fw-bold mb-3">More in {{ product.category.category_name }}</h5>
-            <div class="row row-cols-2 row-cols-md-4 g-3">
-                {% for rec in related %}
-                <div class="col">
-                    <a href="{% url 'orders:product_detail' rec.id %}" class="related-card">
-                        <div class="related-img" style="background:#f5f5f5;">
-                            {% if rec.category.category_name == "Canned Goods" %}🥫
-                            {% elif rec.category.category_name == "Noodles & Pasta" %}🍜
-                            {% elif rec.category.category_name == "Beverages" %}🥤
-                            {% elif rec.category.category_name == "Dairy & Milk" %}🥛
-                            {% elif rec.category.category_name == "Condiments" %}🍅
-                            {% elif rec.category.category_name == "Baby & Personal Care" %}🧴
-                            {% elif rec.category.category_name == "Rice & Grains" %}🌾
-                            {% elif rec.category.category_name == "Snacks" %}🍪
-                            {% else %}📦
-                            {% endif %}
-                        </div>
-                        <div class="related-body">
-                            <div class="related-name">{{ rec.product_name }}</div>
-                            <div class="related-price">₱{{ rec.unit_price }}</div>
-                        </div>
-                    </a>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
+  <div class="grid-2" style="grid-template-columns: minmax(260px, 380px) 1fr; align-items:start;">
+    <!-- image -->
+    <div class="card" style="aspect-ratio:1/1; background:var(--green-50); display:flex;
+                             align-items:center; justify-content:center; font-size:120px;">
+      {{ product|product_emoji }}
     </div>
-</div>
-{% endblock %}
 
-{% block extra_js %}
-<script>
-function changeQty(delta) {
-    const input = document.getElementById('qty');
-    let val = parseInt(input.value) + delta;
-    if (val < 1) val = 1;
-    if (val > 99) val = 99;
-    input.value = val;
-}
-</script>
+    <!-- info -->
+    <div>
+      <span class="pill pill-neutral">{{ product.category.category_name|default:"Uncategorised" }}</span>
+      <h1 class="mt-2">{{ product.product_name }}</h1>
+      <p class="gv-meta">SKU {{ product.sku_code }} · sold per {{ product.unit_of_measure|lower }}</p>
+
+      <div class="row" style="gap:12px; align-items:baseline; margin:16px 0;">
+        <span class="gv-metric" style="color:var(--action);">₱{{ product.unit_price|floatformat:2 }}</span>
+        {% if product.wholesale_price %}
+          <span class="gv-meta">Wholesale ₱{{ product.wholesale_price|floatformat:2 }}</span>
+        {% endif %}
+      </div>
+
+      <!-- honest per-branch availability -->
+      <div class="card card-pad mb-4">
+        <h3 class="mb-4">Availability by branch</h3>
+        <div class="stack">
+          {% for bs in branch_stock %}
+          <div class="row-between">
+            <span>{{ bs.branch.branch_name }}</span>
+            {% if not bs.available %}
+              <span class="pill pill-danger">Out of stock</span>
+            {% elif bs.qty <= 10 %}
+              <span class="pill pill-warn">Only {{ bs.qty }} left</span>
+            {% else %}
+              <span class="pill pill-ok">In stock</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% if not request.user.is_authenticated %}
+        <a class="btn btn-primary" href="{% url 'login' %}">Log in to buy</a>
+      {% elif not selected_branch_id %}
+        <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
+      {% else %}
+        <form method="POST" action="{% url 'orders:add_to_cart' product.id %}" class="row wrap" style="gap:12px;">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'orders:cart' %}">
+          <div class="field" style="width:110px;">
+            <label for="quantity">Quantity</label>
+            <input id="quantity" type="number" name="quantity" min="1" value="1">
+          </div>
+          <button type="submit" class="btn btn-primary" style="align-self:flex-end;">Add to Cart</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if related %}
+  <section class="section">
+    <div class="section-head"><h2>You might also like</h2></div>
+    <div class="pgrid">
+      {% for p in related %}
+      <div class="pcard">
+        <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{{ p|product_emoji }}</a>
+        <div class="body">
+          <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
+          <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
+          <a class="btn" href="{% url 'orders:product_detail' p.id %}">View</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</div>
 {% endblock %}

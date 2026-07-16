@@ -1,0 +1,60 @@
+{% extends "internal_base.html" %}
+{% block title %}Receive {{ procurement.po_number }}{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+{% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'delivery_list' %}">&larr; Receive Delivery</a>
+    <h1 class="mt-2">Receive {{ procurement.po_number }}</h1>
+    <p class="gv-meta mb-0">
+      {{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}
+      · {{ procurement.branch.branch_name }}
+    </p>
+  </div>
+</div>
+
+<div class="banner banner-info">
+  Count the goods first. Recording a receipt adds these quantities to
+  {{ procurement.branch.branch_name }}'s stock — if what arrived differs from what was
+  ordered, enter the real number and the order is flagged as a discrepancy.
+</div>
+
+<form method="POST">
+  {% csrf_token %}
+  <div class="card table-wrap mb-4">
+    <table class="gv-table">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th class="num">Ordered</th>
+          <th class="num">Cost Price</th>
+          <th class="num">Quantity Received</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td data-label="Product" class="strong">
+            {{ item.product.product_name }}
+            <input type="hidden" name="item_id" value="{{ item.pk }}">
+          </td>
+          <td data-label="Ordered" class="num">{{ item.quantity_ordered }}</td>
+          <td data-label="Cost Price" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
+          <td data-label="Quantity Received" class="num">
+            <input type="number" name="quantity_received" min="0"
+                   value="{{ item.quantity_ordered }}" style="max-width:120px; margin-left:auto;">
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="row">
+    <button type="submit" class="btn btn-primary">Confirm Receipt &amp; Update Stock</button>
+    <a href="{% url 'procurement_detail' procurement.pk %}" class="btn">Cancel</a>
+  </div>
+</form>
+{% endblock %}

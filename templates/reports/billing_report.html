@@ -1,0 +1,57 @@
+{% extends "internal_base.html" %}
+{% block title %}Billing Report{% endblock %}
+{% block page_subtitle %}Reports{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta no-print" href="{% url 'reports_dashboard' %}">&larr; Dashboard</a>
+    <h1 class="mt-2">Billing Report</h1>
+    <p class="gv-meta mb-0">{{ records|length }} record{{ records|length|pluralize }}</p>
+  </div>
+  <div class="row no-print">
+    <a class="btn" href="{% url 'export_csv' 'billing' %}">Export CSV</a>
+    <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
+  </div>
+</div>
+
+<div class="stat-strip mb-6">
+  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
+    <div class="value" style="color:var(--warn-fg);">₱{{ outstanding|floatformat:2 }}</div>
+    <div class="label">Outstanding</div>
+  </div>
+  <div class="stat" style="background:var(--ok-bg); border-color:var(--ok-bg);">
+    <div class="value" style="color:var(--ok-fg);">₱{{ collected|floatformat:2 }}</div>
+    <div class="label">Collected</div>
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Order</th><th>Branch</th><th>Date</th><th class="num">Amount Due</th>
+          <th>Method</th><th>Reference</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td data-label="Order" class="sku strong">{{ r.transaction.order_number }}</td>
+        <td data-label="Branch">{{ r.transaction.branch.branch_name }}</td>
+        <td data-label="Date" class="gv-meta">{{ r.date_recorded|date:"Y-m-d" }}</td>
+        <td data-label="Amount Due" class="num strong">₱{{ r.amount_due|floatformat:2 }}</td>
+        <td data-label="Method">{{ r.payment_method }}</td>
+        <td data-label="Reference" class="sku">{{ r.reference_number|default:"—" }}</td>
+        <td data-label="Status">
+          {% if r.status == "Paid" %}<span class="pill pill-ok">Paid</span>
+          {% elif r.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+          {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty">
+        <span class="glyph">₱</span><h3>No billing records</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

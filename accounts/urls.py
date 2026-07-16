@@ -12,5 +12,13 @@ urlpatterns = [
     path('dashboard/customer/', views.customer_dashboard, name='customer_dashboard'),
     path('dashboard/owner/', views.owner_dashboard, name='owner_dashboard'),
     path('register/', views.register_view, name='register'),
+
+    # Administration — User Management (Owner only).
+    # NOTE: not under /admin/ — that prefix belongs to django.contrib.admin,
+    # which is registered first and would swallow these routes.
+    path('manage/users/', views.user_list, name='user_list'),
+    path('manage/users/add/', views.user_form, name='user_add'),
+    path('manage/users/<int:pk>/edit/', views.user_form, name='user_edit'),
+    path('manage/users/<int:pk>/toggle/', views.user_toggle_active, name='user_toggle_active'),
 ]
 

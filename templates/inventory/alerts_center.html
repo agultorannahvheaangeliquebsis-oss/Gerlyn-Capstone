@@ -1,0 +1,143 @@
+{% extends 'internal_base.html' %}
+{% block title %}Alerts Center{% endblock %}
+{% block page_subtitle %}Alerts{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Alerts Center</h1>
+    <p class="gv-meta mb-0">{{ low_count }} low/critical stock · {{ expiring_count }} expiry alerts</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'procurement_add' %}">Create Purchase Order</a>
+</div>
+
+<div class="stat-strip mb-6">
+  <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
+    <div class="value" style="color:var(--danger-fg);">{{ critical_count }}</div>
+    <div class="label">Critical Stock</div>
+  </div>
+  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
+    <div class="value" style="color:var(--warn-fg);">{{ low_count }}</div>
+    <div class="label">Low / Critical Stock</div>
+  </div>
+  <div class="stat" style="background:var(--info-bg); border-color:var(--info-bg);">
+    <div class="value" style="color:var(--info-fg);">{{ expiring_count }}</div>
+    <div class="label">Expiring within 14 days</div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button type="button" class="tab active" id="tab-low" onclick="showTab('low')">
+    Low Stock Alerts <span class="count">{{ low_count }}</span>
+  </button>
+  <button type="button" class="tab" id="tab-exp" onclick="showTab('exp')">
+    Expiry Alerts <span class="count">{{ expiring_count }}</span>
+  </button>
+</div>
+
+<!-- ---------------------------------------------------------- low stock -->
+<div id="panel-low" class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Branch</th>
+        <th class="num">Qty</th>
+        <th class="num">Reorder</th>
+        <th class="num">Suggested</th>
+        <th>Risk</th>
+        <th style="text-align:right;">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in low_stock %}
+      <tr>
+        <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
+        <td data-label="Branch">{{ row.branch.branch_name }}</td>
+        <td data-label="Qty" class="num strong"
+            style="color:{% if row.risk == 'Critical' %}var(--danger-fg){% else %}var(--warn-fg){% endif %};">
+          {{ row.quantity_on_hand }}
+        </td>
+        <td data-label="Reorder" class="num gv-meta">{{ row.reorder_level }}</td>
+        <td data-label="Suggested" class="num strong" style="color:var(--ok-fg);">{{ row.suggested_qty }}</td>
+        <td data-label="Risk">
+          {% if row.risk == 'Critical' %}<span class="pill pill-danger">Critical</span>
+          {% elif row.risk == 'High' %}<span class="pill pill-warn">High</span>
+          {% else %}<span class="pill pill-neutral">Moderate</span>{% endif %}
+        </td>
+        <td data-label="Action">
+          <span class="row-actions">
+            <a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}">Create PO</a>
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7">
+          <div class="empty">
+            <span class="glyph">✓</span>
+            <h3>Nothing needs restocking</h3>
+            <p>Every product is above its reorder level.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ------------------------------------------------------------- expiry -->
+<div id="panel-exp" class="card table-wrap hidden">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Branch</th>
+        <th>Batch</th>
+        <th class="num">Qty</th>
+        <th>Expiry</th>
+        <th class="num">Days Left</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in expiry %}
+      <tr>
+        <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
+        <td data-label="Branch">{{ row.branch.branch_name }}</td>
+        <td data-label="Batch" class="sku">{{ row.batch.batch_number }}</td>
+        <td data-label="Qty" class="num">{{ row.quantity }}</td>
+        <td data-label="Expiry">{{ row.expiry_date|date:"Y-m-d" }}</td>
+        <td data-label="Days Left" class="num">{{ row.days_until_expiry }}</td>
+        <td data-label="Status">
+          {% if row.status == 'Expired' %}<span class="pill pill-danger">Expired</span>
+          {% elif row.status == 'Expiring Soon' %}<span class="pill pill-warn">Expiring Soon</span>
+          {% else %}<span class="pill pill-ok">Fresh</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7">
+          <div class="empty">
+            <span class="glyph">✓</span>
+            <h3>Nothing expiring soon</h3>
+            <p>No batches expire within the next 14 days.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function showTab(which) {
+    document.getElementById('panel-low').classList.toggle('hidden', which !== 'low');
+    document.getElementById('panel-exp').classList.toggle('hidden', which !== 'exp');
+    document.getElementById('tab-low').classList.toggle('active', which === 'low');
+    document.getElementById('tab-exp').classList.toggle('active', which === 'exp');
+  }
+</script>
+{% endblock %}

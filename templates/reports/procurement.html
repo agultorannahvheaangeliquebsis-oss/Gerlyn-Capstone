@@ -1,17 +1,48 @@
-<!DOCTYPE html>
-<html>
-<head><title>Procurement Report</title></head>
-<body>
-    <h2>Full Procurement Report</h2>
-    <table border="1">
-        <tr><th>ID</th><th>Branch</th><th>Supplier</th><th>Order Date</th><th>Total Cost</th><th>Status</th></tr>
-        {% for p in procurements %}
-        <tr>
-            <td>{{ p.id }}</td><td>{{ p.branch }}</td><td>{{ p.supplier }}</td>
-            <td>{{ p.order_date }}</td><td>{{ p.total_cost }}</td><td>{{ p.status }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-    <a href="{% url 'reports_dashboard' %}">Back to Dashboard</a>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Procurement Report{% endblock %}
+{% block page_subtitle %}Reports{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta no-print" href="{% url 'reports_dashboard' %}">&larr; Dashboard</a>
+    <h1 class="mt-2">Procurement Report</h1>
+    <p class="gv-meta mb-0">{{ procurements|length }} purchase order{{ procurements|length|pluralize }}</p>
+  </div>
+  <div class="row no-print">
+    <a class="btn" href="{% url 'export_csv' 'procurement' %}">Export CSV</a>
+    <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>PO ID</th><th>Branch</th><th>Supplier</th><th>Order Date</th>
+          <th>Delivery Date</th><th class="num">Total Cost</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for p in procurements %}
+      <tr>
+        <td data-label="PO ID" class="sku strong">
+          <a href="{% url 'procurement_detail' p.pk %}">{{ p.po_number }}</a></td>
+        <td data-label="Branch">{{ p.branch.branch_name }}</td>
+        <td data-label="Supplier">
+          {{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username|default:"—" }}</td>
+        <td data-label="Order Date" class="gv-meta">{{ p.order_date|date:"Y-m-d" }}</td>
+        <td data-label="Delivery Date" class="gv-meta">{{ p.delivery_date|date:"Y-m-d"|default:"—" }}</td>
+        <td data-label="Total Cost" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
+        <td data-label="Status">
+          {% if p.status == 'Received' %}<span class="pill pill-ok">Received</span>
+          {% elif p.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+          {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
+          {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty">
+        <span class="glyph">□</span><h3>No purchase orders</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

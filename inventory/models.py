@@ -21,6 +21,11 @@ class Product(models.Model):
         SACK = 'Sack', 'Sack'
         KILO = 'Kilo', 'Kilo'
         PIECE = 'Piece', 'Piece'
+        # Retail units used across the catalog/UI.
+        CAN = 'Can', 'Can'
+        PACK = 'Pack', 'Pack'
+        BOTTLE = 'Bottle', 'Bottle'
+        BOX = 'Box', 'Box'
 
     category = models.ForeignKey(
         ProductCategory, on_delete=models.SET_NULL,
@@ -190,7 +195,10 @@ class Batch(models.Model):
             from django.utils import timezone
             year = timezone.now().year
             self.batch_number = f"BAT-{year}-{str(self.pk).zfill(3)}"
-        super().save(*args, **kwargs)
+            # Second save must be an UPDATE, not another force_insert INSERT.
+            super().save(update_fields=["batch_number"])
+        else:
+            super().save(*args, **kwargs)
 
     @property
     def expiry_status(self) -> str:
@@ -315,7 +323,9 @@ class StockTransfer(models.Model):
             super().save(*args, **kwargs)
             year = self.created_at.year
             self.slip_number = f"WS-{year}-{str(self.pk).zfill(3)}"
-        super().save(*args, **kwargs)
+            super().save(update_fields=["slip_number"])
+        else:
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return (

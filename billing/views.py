@@ -24,7 +24,29 @@ def billing_list(request):
     elif request.user.role == User.Role.CUSTOMER:
         records = records.filter(transaction__customer=request.user)
 
-    return render(request, 'billing/billing_list.html', {'records': records})
+    records = records.order_by('-date_recorded')
+
+    status_filter = request.GET.get('status', '')
+    counts = {
+        'all': records.count(),
+        'pending': records.filter(status=BillingRecord.PaymentStatus.PENDING).count(),
+        'paid': records.filter(status=BillingRecord.PaymentStatus.PAID).count(),
+        'rejected': records.filter(status=BillingRecord.PaymentStatus.REJECTED).count(),
+    }
+    if status_filter:
+        records = records.filter(status=status_filter)
+
+    outstanding = sum(
+        r.amount_due for r in records
+        if r.status == BillingRecord.PaymentStatus.PENDING
+    )
+
+    return render(request, 'billing/billing_list.html', {
+        'records': records,
+        'counts': counts,
+        'status_filter': status_filter,
+        'outstanding': outstanding,
+    })
 
 
 @login_required(login_url='login')
@@ -76,6 +98,7 @@ def billing_create(request, transaction_id):
     return render(request, 'billing/billing_form.html', {
         'transaction': txn,
         'record': existing,  # Pass to template so it can pre-fill payment_method if desired
+        'payment_choices': BillingRecord.PaymentMethod.choices,
     })
 
 

@@ -1,0 +1,64 @@
+{% extends "internal_base.html" %}
+{% block title %}Suppliers{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Suppliers</h1>
+    <p class="gv-meta mb-0">{{ suppliers|length }} supplier{{ suppliers|length|pluralize }} on record</p>
+  </div>
+  {% if can_edit %}
+  <a class="btn btn-primary" href="{% url 'supplier_add' %}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Add Supplier
+  </a>
+  {% endif %}
+</div>
+
+<form method="GET" class="toolbar">
+  <input type="search" name="q" class="input grow" placeholder="Search suppliers…" value="{{ search_query }}">
+  <button class="btn" type="submit">Search</button>
+</form>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Supplier</th><th>Category</th><th>Contact Person</th>
+          <th>Contact Number</th><th>Email</th><th>Address</th>
+          {% if can_edit %}<th style="text-align:right;">Actions</th>{% endif %}</tr>
+    </thead>
+    <tbody>
+      {% for s in suppliers %}
+      <tr>
+        <td data-label="Supplier" class="strong">{{ s.supplier_profile.supplier_name|default:s.username }}</td>
+        <td data-label="Category">
+          {% if s.supplier_profile.supplier_category %}
+            <span class="pill pill-info">{{ s.supplier_profile.supplier_category }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td data-label="Contact Person">{{ s.supplier_profile.contact_person|default:"—" }}</td>
+        <td data-label="Contact Number" class="num">{{ s.supplier_profile.contact_number|default:"—" }}</td>
+        <td data-label="Email" class="gv-meta">{{ s.email|default:"—" }}</td>
+        <td data-label="Address" class="gv-meta">{{ s.supplier_profile.address|default:"—"|truncatechars:34 }}</td>
+        {% if can_edit %}
+        <td data-label="Actions">
+          <span class="row-actions">
+            <a class="btn btn-sm" href="{% url 'supplier_edit' s.pk %}">Edit</a>
+            <a class="btn btn-sm btn-danger" href="{% url 'supplier_delete' s.pk %}">Delete</a>
+          </span>
+        </td>
+        {% endif %}
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty">
+        <span class="glyph">＋</span>
+        <h3>No suppliers yet</h3>
+        <p>Suppliers are who you raise purchase orders with.</p>
+        {% if can_edit %}<a class="btn btn-primary mt-2" href="{% url 'supplier_add' %}">Add Supplier</a>{% endif %}
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "internal_base.html" %}
+{% block title %}Receiving History{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'delivery_list' %}">&larr; Receive Delivery</a>
+    <h1 class="mt-2">Receiving History</h1>
+    <p class="gv-meta mb-0">{{ received|length }} delivery{{ received|length|pluralize:"y,ies" }} received</p>
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>PO ID</th><th>Branch</th><th>Supplier</th><th>Delivered</th>
+          <th class="num">Total</th><th>Receipt</th><th style="text-align:right;">Action</th></tr>
+    </thead>
+    <tbody>
+      {% for p in received %}
+      <tr>
+        <td data-label="PO ID" class="sku strong">{{ p.po_number }}</td>
+        <td data-label="Branch">{{ p.branch.branch_name }}</td>
+        <td data-label="Supplier">{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username|default:"—" }}</td>
+        <td data-label="Delivered" class="gv-meta">{{ p.delivery_date|date:"Y-m-d"|default:"—" }}</td>
+        <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
+        <td data-label="Receipt">
+          {% if p.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
+          {% elif p.receipt_flag == 'Partial' %}<span class="pill pill-warn">Partial</span>
+          {% else %}<span class="pill pill-ok">Complete</span>{% endif %}
+        </td>
+        <td data-label="Action">
+          <span class="row-actions"><a class="btn btn-sm" href="{% url 'procurement_detail' p.pk %}">View</a></span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty">
+        <span class="glyph">□</span>
+        <h3>No deliveries received yet</h3>
+        <p>Received purchase orders appear here with their receipt status.</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

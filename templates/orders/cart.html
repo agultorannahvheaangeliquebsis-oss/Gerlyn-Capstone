@@ -1,0 +1,109 @@
+{% extends "public_base.html" %}
+{% load shop_extras %}
+{% block title %}Your Cart — Gerlyn Variety Store{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section {% if items %}has-sticky{% endif %}">
+  <div class="section-head">
+    <div>
+      <h2>Your Cart</h2>
+      <p class="gv-meta mb-0">
+        {% if branch %}Collecting from {{ branch.branch_name }}{% else %}No branch selected{% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if items %}
+  <div class="cart-grid">
+    <!-- items -->
+    <div class="card card-pad">
+      {% for it in items %}
+      <div class="cart-row">
+        <div class="cart-thumb">{{ it.product|product_emoji }}</div>
+        <div>
+          <a href="{% url 'orders:product_detail' it.product.id %}"
+             style="font-weight:600; text-decoration:none; color:var(--ink-900);">{{ it.product.product_name }}</a>
+          <div class="gv-meta">₱{{ it.product.unit_price|floatformat:2 }} × {{ it.quantity }}</div>
+          {% if it.short %}
+            <span class="stock-out">Only {{ it.in_stock }} left — please reduce the quantity</span>
+          {% elif it.in_stock <= 10 %}
+            <span class="stock-low">Only {{ it.in_stock }} left</span>
+          {% endif %}
+        </div>
+        <div class="num" style="font-weight:700; font-size:16px;">₱{{ it.subtotal|floatformat:2 }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- summary -->
+    <div class="card card-pad">
+      <h3 class="mb-4">Order Summary</h3>
+
+      <!-- free-delivery meter -->
+      <div class="mb-4">
+        {% if qualifies %}
+          <p class="stock-ok mb-2">✓ You've unlocked free delivery within Baliuag</p>
+          <div class="meter"><span style="width:100%;"></span></div>
+        {% else %}
+          <p class="gv-meta mb-2">Add ₱{{ remaining_for_free|floatformat:2 }} more for free delivery</p>
+          <div class="meter"><span style="width:{{ progress_pct }}%;"></span></div>
+        {% endif %}
+      </div>
+
+      <div class="summary-line"><span class="gv-meta">Subtotal</span><span class="num">₱{{ total|floatformat:2 }}</span></div>
+      <div class="summary-line"><span class="gv-meta">Delivery</span>
+        <span class="num">{% if qualifies %}Free{% else %}Calculated at delivery{% endif %}</span></div>
+      <div class="summary-total">
+        <span class="gv-label">Total</span>
+        <span class="gv-metric" style="color:var(--action);">₱{{ total|floatformat:2 }}</span>
+      </div>
+
+      <form method="POST" action="{% url 'orders:checkout' %}" class="stack mt-6">
+        {% csrf_token %}
+        <div class="field">
+          <label for="mode_of_payment">Payment method</label>
+          <select id="mode_of_payment" name="mode_of_payment">
+            {% for value, label in payment_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="delivery_address">Delivery address <span class="gv-meta">— leave blank to pick up</span></label>
+          <textarea id="delivery_address" name="delivery_address" rows="2"
+                    placeholder="House no., street, barangay, Baliuag"></textarea>
+        </div>
+        <div class="field">
+          <label for="reference_number">GCash reference <span class="gv-meta">— if paying by GCash</span></label>
+          <input id="reference_number" type="text" name="reference_number" placeholder="e.g. GC-2026-0001">
+        </div>
+
+        <div class="banner banner-info">
+          We record your payment method — payment itself happens on delivery or in store.
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width:100%;">Place Order</button>
+        <a href="{% url 'orders:catalog' %}" class="btn" style="width:100%;">Continue shopping</a>
+      </form>
+    </div>
+  </div>
+
+  <!-- mobile sticky bar: the running total is always visible -->
+  <div class="sticky-checkout">
+    <div>
+      <div class="gv-label">Total</div>
+      <div style="font:700 18px/1 system-ui; color:var(--action);">₱{{ total|floatformat:2 }}</div>
+    </div>
+    <a class="btn btn-primary" href="#mode_of_payment">Checkout</a>
+  </div>
+
+  {% else %}
+  <div class="card">
+    <div class="empty">
+      <span class="glyph">🛒</span>
+      <h3>Your cart is empty</h3>
+      <p>Add some products to get started.</p>
+      <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">Browse Products</a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

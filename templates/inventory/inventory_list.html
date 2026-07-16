@@ -1,22 +1,98 @@
-<!DOCTYPE html>
-<html>
-<head><title>Inventory</title></head>
-<body>
-    <h2>Inventory / Stock Levels</h2>
-    <table border="1">
-        <tr>
-            <th>Product</th><th>Branch</th><th>On Hand</th><th>Reorder Level</th><th>Restock?</th><th>Last Updated</th>
-        </tr>
-        {% for record in inventory_records %}
-        <tr>
-            <td>{{ record.product.product_name }}</td>
-            <td>{{ record.branch.branch_name }}</td>
-            <td>{{ record.quantity_on_hand }}</td>
-            <td>{{ record.reorder_level }}</td>
-            <td>{{ record.restock|yesno:"Yes,No" }}</td>
-            <td>{{ record.last_stock_update }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Stock per Branch{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
+{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Stock per Branch</h1>
+    <p class="gv-meta mb-0">Real-time inventory levels{% if user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
+  </div>
+</div>
+
+<div class="stat-strip mb-4">
+  <div class="stat" style="background:var(--ok-bg); border-color:var(--ok-bg);">
+    <div class="value" style="color:var(--ok-fg);">{{ counts.in_stock }}</div>
+    <div class="label">In Stock</div>
+  </div>
+  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
+    <div class="value" style="color:var(--warn-fg);">{{ counts.low }}</div>
+    <div class="label">Low Stock</div>
+  </div>
+  <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
+    <div class="value" style="color:var(--danger-fg);">{{ counts.critical }}</div>
+    <div class="label">Critical</div>
+  </div>
+</div>
+
+<form method="GET" class="toolbar">
+  <input type="search" name="q" class="input grow" placeholder="Search product…" value="{{ search_query }}">
+  {% if branches %}
+  <select name="branch" onchange="this.form.submit()">
+    <option value="">All Branches</option>
+    {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <select name="category" onchange="this.form.submit()">
+    <option value="">All Categories</option>
+    {% for c in categories %}
+      <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+    {% endfor %}
+  </select>
+  <select name="status" onchange="this.form.submit()">
+    <option value="">All Status</option>
+    <option value="In Stock" {% if status_filter == "In Stock" %}selected{% endif %}>In Stock</option>
+    <option value="Low Stock" {% if status_filter == "Low Stock" %}selected{% endif %}>Low Stock</option>
+    <option value="Critical" {% if status_filter == "Critical" %}selected{% endif %}>Critical</option>
+  </select>
+  <button type="submit" class="btn">Search</button>
+</form>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Branch</th>
+        <th>Category</th>
+        <th class="num">Qty on Hand</th>
+        <th class="num">Reorder Level</th>
+        <th>Nearest Expiry</th>
+        <th>Last Updated</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td data-label="Product" class="strong">{{ row.inv.product.product_name }}</td>
+        <td data-label="Branch">{{ row.inv.branch.branch_name }}</td>
+        <td data-label="Category" class="gv-meta">{{ row.inv.product.category.category_name|default:"—" }}</td>
+        <td data-label="Qty on Hand" class="num strong">{{ row.inv.quantity_on_hand }}</td>
+        <td data-label="Reorder Level" class="num gv-meta">{{ row.inv.reorder_level }}</td>
+        <td data-label="Nearest Expiry">{{ row.inv.expiry_date|date:"Y-m-d"|default:"—" }}</td>
+        <td data-label="Last Updated" class="gv-meta">{{ row.inv.last_stock_update|date:"Y-m-d" }}</td>
+        <td data-label="Status">
+          {% if row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
+          {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
+          {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8">
+          <div class="empty">
+            <span class="glyph">□</span>
+            <h3>No stock records match</h3>
+            <p>Try clearing the filters, or add stock by receiving a delivery.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

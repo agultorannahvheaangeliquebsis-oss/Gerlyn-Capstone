@@ -1,0 +1,45 @@
+{% extends "internal_base.html" %}
+{% block title %}Receive Delivery{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Receive Delivery</h1>
+    <p class="gv-meta mb-0">Select a purchase order to record what actually arrived.</p>
+  </div>
+  <a class="btn" href="{% url 'receiving_history' %}">Receiving History</a>
+</div>
+
+<div class="card card-pad">
+  <h3 class="mb-4">Awaiting delivery</h3>
+  <div class="stack">
+    {% for p in pending %}
+    <div class="row-between wrap" style="padding:16px; border:1px solid var(--line); border-radius:var(--r-card);">
+      <div>
+        <div class="row" style="gap:10px;">
+          <span class="sku" style="font-weight:700;">{{ p.po_number }}</span>
+          <span style="font-weight:600;">{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username|default:"—" }}</span>
+          <span class="pill pill-neutral">{{ p.branch.branch_name }}</span>
+        </div>
+        <div class="gv-meta mt-2">
+          Expected
+          {% if p.delivery_date and p.delivery_date < today %}
+            <span style="color:var(--danger-fg); font-weight:600;">{{ p.delivery_date|date:"Y-m-d" }} · overdue</span>
+          {% else %}{{ p.delivery_date|date:"Y-m-d"|default:"—" }}{% endif %}
+          · {{ p.items.count }} item{{ p.items.count|pluralize }} · ₱{{ p.total_cost|floatformat:2 }}
+        </div>
+      </div>
+      <a class="btn btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive</a>
+    </div>
+    {% empty %}
+    <div class="empty">
+      <span class="glyph">✓</span>
+      <h3>Nothing awaiting delivery</h3>
+      <p>Purchase orders marked “Ordered” show up here, ready to receive.</p>
+      <a class="btn btn-primary mt-2" href="{% url 'procurement_list' %}">View purchase orders</a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

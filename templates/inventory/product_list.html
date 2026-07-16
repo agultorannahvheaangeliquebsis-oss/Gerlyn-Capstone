@@ -1,59 +1,78 @@
 {% extends "internal_base.html" %}
 {% block title %}Product Master List{% endblock %}
-{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+{% block page_subtitle %}Catalog{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-1">
-    <div>
-        <h4 class="fw-bold mb-0">Product Master List</h4>
-        <p class="text-muted small">{{ products.count }} of {{ total_count }} products</p>
-    </div>
-    <a href="{% url 'product_add' %}" class="btn btn-gerlyn px-3"><i class="fa-solid fa-plus me-1"></i> Add Product</a>
+<div class="page-head">
+  <div>
+    <h1>Product Master List</h1>
+    <p class="gv-meta mb-0">{{ shown_count }} of {{ total_count }} products</p>
+  </div>
+  {% if can_edit %}
+  <a href="{% url 'product_add' %}" class="btn btn-primary">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Add Product
+  </a>
+  {% endif %}
 </div>
 
-<form method="GET" class="d-flex gap-2 mb-3">
-    <input type="text" name="q" class="form-control" placeholder="Search product or SKU..." value="{{ search_query }}">
-    <select name="category" class="form-select" style="max-width: 220px;" onchange="this.form.submit()">
-        <option value="">All Categories</option>
-        {% for category in categories %}
-        <option value="{{ category.id }}" {% if category_filter == category.id|stringformat:"s" %}selected{% endif %}>
-            {{ category.category_name }}
-        </option>
-        {% endfor %}
-    </select>
-    <button type="submit" class="btn btn-outline-secondary"><i class="fa-solid fa-magnifying-glass"></i></button>
+<form method="GET" class="toolbar">
+  <input type="search" name="q" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}">
+  <select name="category" onchange="this.form.submit()">
+    <option value="">All Categories</option>
+    {% for c in categories %}
+      <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn">Search</button>
 </form>
 
-<div class="stat-card bg-white p-0">
-    <table class="table table-hover mb-0">
-        <thead class="table-light">
-            <tr>
-                <th>SKU</th>
-                <th>Product Name</th>
-                <th>Category</th>
-                <th>Unit</th>
-                <th>Retail Price</th>
-                <th>Wholesale Price</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for product in products %}
-            <tr>
-                <td class="text-muted">{{ product.sku_code }}</td>
-                <td class="fw-semibold">{{ product.product_name }}</td>
-                <td><span class="badge bg-light text-dark border">{{ product.category }}</span></td>
-                <td>{{ product.unit_of_measure }}</td>
-                <td class="fw-semibold">₱{{ product.unit_price }}</td>
-                <td class="text-success fw-semibold">{% if product.wholesale_price %}₱{{ product.wholesale_price }}{% else %}-{% endif %}</td>
-                <td>
-                    <a href="{% url 'product_edit' product.pk %}" class="text-muted me-2"><i class="fa-solid fa-pen"></i></a>
-                </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="6" class="text-center text-muted py-4">No products found.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>Product Name</th>
+        <th>Category</th>
+        <th>Unit</th>
+        <th class="num">Retail Price</th>
+        <th class="num">Wholesale Price</th>
+        <th>Availability</th>
+        {% if can_edit %}<th style="text-align:right;">Actions</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td data-label="SKU" class="sku">{{ row.product.sku_code }}</td>
+        <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
+        <td data-label="Category"><span class="pill pill-neutral">{{ row.product.category.category_name|default:"—" }}</span></td>
+        <td data-label="Unit">{{ row.product.unit_of_measure }}</td>
+        <td data-label="Retail" class="num">₱{{ row.product.unit_price|floatformat:2 }}</td>
+        <td data-label="Wholesale" class="num">{% if row.product.wholesale_price %}₱{{ row.product.wholesale_price|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td data-label="Availability" class="gv-meta">{{ row.availability }}</td>
+        {% if can_edit %}
+        <td data-label="Actions">
+          <span class="row-actions">
+            <a class="btn btn-sm" href="{% url 'product_edit' row.product.pk %}">Edit</a>
+            <a class="btn btn-sm btn-danger" href="{% url 'product_delete' row.product.pk %}">Delete</a>
+          </span>
+        </td>
+        {% endif %}
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8">
+          <div class="empty">
+            <span class="glyph">＋</span>
+            <h3>No products found</h3>
+            <p>{% if search_query or category_filter %}Try clearing the search or category filter.{% else %}The catalog is empty. Add your first product to get started.{% endif %}</p>
+            {% if can_edit %}<a class="btn btn-primary mt-2" href="{% url 'product_add' %}">Add Product</a>{% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endblock %}

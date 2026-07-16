@@ -1,40 +1,99 @@
-<!DOCTYPE html>
-<html>
-<head><title>Procurement Detail</title></head>
-<body>
-    <h2>Procurement Order #{{ procurement.id }}</h2>
-    <p>Branch: {{ procurement.branch }}</p>
-    <p>Supplier: {{ procurement.supplier }}</p>
-    <p>Order Date: {{ procurement.order_date }}</p>
-    <p>Status: {{ procurement.status }}</p>
-    <p>Total Cost: {{ procurement.total_cost }}</p>
+{% extends "internal_base.html" %}
+{% block title %}{{ procurement.po_number }}{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+{% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
 
-    <h3>Items</h3>
-    <table border="1">
-        <tr><th>Product</th><th>Qty Ordered</th><th>Qty Received</th><th>Cost Price</th></tr>
-        {% for item in items %}
-        <tr>
-            <td>{{ item.product.product_name }}</td>
-            <td>{{ item.quantity_ordered }}</td>
-            <td>{{ item.quantity_received }}</td>
-            <td>{{ item.cost_price }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'procurement_list' %}">&larr; Purchase Orders</a>
+    <h1 class="mt-2">{{ procurement.po_number }}
+      {% if procurement.status == 'Received' %}<span class="pill pill-ok">Received</span>
+      {% elif procurement.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+      {% elif procurement.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
+      {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
+    </h1>
+    <p class="gv-meta mb-0">Ordered {{ procurement.order_date|date:"F d, Y" }}</p>
+  </div>
+</div>
 
-    {% if procurement.status != "Received" and procurement.status != "Cancelled" %}
-    <h3>Update Status</h3>
-    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}">
-        {% csrf_token %}
-        <select name="status">
-            <option value="Ordered">Ordered</option>
-            <option value="Received">Received</option>
-            <option value="Cancelled">Cancelled</option>
-        </select>
-        <button type="submit">Update</button>
+{% if procurement.status != "Received" and procurement.status != "Cancelled" %}
+<div class="card card-pad mb-4">
+  <div class="row-between wrap">
+    <div>
+      <h3>Update status</h3>
+      <p class="gv-meta mb-0">
+        Marking this <strong>Received</strong> adds the delivered quantities to
+        {{ procurement.branch.branch_name }}'s stock.
+      </p>
+    </div>
+    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="row wrap">
+      {% csrf_token %}
+      <select name="status" style="min-width:170px;">
+        <option value="Ordered">Ordered</option>
+        <option value="Received">Received</option>
+        <option value="Cancelled">Cancelled</option>
+      </select>
+      <button type="submit" class="btn btn-primary">Update</button>
     </form>
-    {% endif %}
+  </div>
+</div>
+{% endif %}
 
-    <br><a href="{% url 'procurement_list' %}">Back to list</a>
-</body>
-</html>
+<div class="grid-2 mb-4">
+  <div class="card card-pad">
+    <h3 class="mb-4">Order Details</h3>
+    <table class="gv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ procurement.branch.branch_name }}</td></tr>
+        <tr><td class="gv-meta">Supplier</td><td style="text-align:right;">
+          {{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
+        <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
+          {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">
+          {% if procurement.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
+          {% elif procurement.receipt_flag == 'Partial' %}<span class="pill pill-warn">Partial</span>
+          {% else %}<span class="pill pill-ok">None</span>{% endif %}</td></tr>
+        <tr><td class="gv-meta">Total cost</td><td class="num" style="text-align:right;">
+          <span class="gv-metric" style="color:var(--action);">₱{{ procurement.total_cost|floatformat:2 }}</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card card-pad">
+    <h3 class="mb-4">Delivery</h3>
+    <p class="gv-meta">
+      Stock is only added after a receipt is validated — this keeps the digital
+      records matching the physical goods.
+    </p>
+    <div class="stat mt-4">
+      <div class="value">{{ items|length }}</div>
+      <div class="label">Line item{{ items|length|pluralize }} on this order</div>
+    </div>
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Product</th><th class="num">Qty Ordered</th><th class="num">Qty Received</th>
+          <th class="num">Cost Price</th><th class="num">Line Total</th></tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+        <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
+        <td data-label="Qty Received" class="num">{{ item.quantity_received }}</td>
+        <td data-label="Cost Price" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
+        <td data-label="Line Total" class="num strong">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty"><h3>No items on this order</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
