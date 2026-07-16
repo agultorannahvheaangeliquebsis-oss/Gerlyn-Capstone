@@ -28,6 +28,25 @@ def get_user_branch(user):
     return None
 
 
+def user_can_access_billing_record(user, record):
+    """
+    Same scoping rule as BillingRecordListAPIView.get, applied to a single
+    record: Owner sees everything, Manager/Staff are scoped to their own
+    branch, Customers are scoped to their own transactions. Without this,
+    any authenticated user could view or pay toward any billing record just
+    by guessing its pk — harmless while only internal staff had accounts,
+    but a real hole once customers can self-register.
+    """
+    if user.role == User.Role.OWNER:
+        return True
+    if user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        user_branch = get_user_branch(user)
+        return user_branch is not None and record.transaction.branch_id == user_branch.id
+    if user.role == User.Role.CUSTOMER:
+        return record.transaction.customer_id == user.id
+    return False
+
+
 class BillingRecordListAPIView(APIView):
     """GET /api/billing/ — scoped like billing_list."""
     permission_classes = [IsAuthenticated]
@@ -53,6 +72,8 @@ class BillingRecordDetailAPIView(APIView):
         record = get_object_or_404(
             BillingRecord.objects.select_related('transaction', 'transaction__branch'), pk=pk
         )
+        if not user_can_access_billing_record(request.user, record):
+            return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(BillingRecordSerializer(record).data)
 
 
@@ -66,6 +87,8 @@ class BillingPaymentAPIView(APIView):
 
     def patch(self, request, pk):
         record = get_object_or_404(BillingRecord, pk=pk)
+        if not user_can_access_billing_record(request.user, record):
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if record.status != BillingRecord.PaymentStatus.PENDING:
             return Response(

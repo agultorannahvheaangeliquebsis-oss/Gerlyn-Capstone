@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export function LoginPage() {
@@ -12,7 +12,8 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (user) {
-    const from = (location.state as { from?: string } | null)?.from ?? '/';
+    const from = (location.state as { from?: string } | null)?.from
+      ?? (user.roleCode === 'CUSTOMER' ? '/' : '/dashboard');
     return <Navigate to={from} replace />;
   }
 
@@ -21,8 +22,10 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(username, password);
-      navigate('/', { replace: true });
+      const loggedInUser = await login(username, password);
+      const from = (location.state as { from?: string } | null)?.from
+        ?? (loggedInUser.roleCode === 'CUSTOMER' ? '/' : '/dashboard');
+      navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed.');
     } finally {
@@ -39,7 +42,7 @@ export function LoginPage() {
           </div>
           <div>
             <div className="text-xl font-bold text-ink-900">Gerlyn Variety Store</div>
-            <div className="text-sm text-ink-400">Sign in to the staff dashboard</div>
+            <div className="text-sm text-ink-400">Sign in to your account</div>
           </div>
         </div>
 
@@ -87,6 +90,13 @@ export function LoginPage() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+
+        <div className="mt-5 text-center text-sm text-ink-400">
+          New customer?{' '}
+          <Link to="/signup" className="font-semibold text-action-600 hover:text-action-700">
+            Create an account
+          </Link>
+        </div>
       </div>
     </div>
   );

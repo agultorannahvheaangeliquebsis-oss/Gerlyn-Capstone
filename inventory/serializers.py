@@ -39,6 +39,10 @@ class ProductSerializer(serializers.ModelSerializer):
     # Django derives this from Inventory records — computed here
     availability = serializers.SerializerMethodField()
 
+    # Only populated when the request scopes to a branch (?branchId=) —
+    # the storefront uses this to show/cap stock for the selected branch.
+    stockAtBranch = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
         fields = [
@@ -50,6 +54,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'retailPrice',
             'wholesalePrice',
             'availability',
+            'stockAtBranch',
         ]
 
     def get_category(self, obj):
@@ -67,6 +72,13 @@ class ProductSerializer(serializers.ModelSerializer):
             .filter(quantity_on_hand__gt=0)
             .values_list('branch__branch_name', flat=True)
         )
+
+    def get_stockAtBranch(self, obj):
+        branch_id = self.context.get('branch_id')
+        if not branch_id:
+            return None
+        record = obj.inventory_records.filter(branch_id=branch_id).first()
+        return record.quantity_on_hand if record else 0
 
 
 class ProductWriteSerializer(serializers.ModelSerializer):

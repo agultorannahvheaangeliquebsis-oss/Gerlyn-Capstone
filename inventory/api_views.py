@@ -2,7 +2,7 @@ from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -50,6 +50,12 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = ProductCategorySerializer
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        """Categories are public read (storefront filter dropdown); writes stay gated."""
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return super().get_permissions()
+
     def create(self, request, *args, **kwargs):
         denied = check_owner_or_manager(request)
         if denied:
@@ -83,6 +89,12 @@ class ProductViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'sku_code']
 
+    def get_permissions(self):
+        """Products are public read (storefront catalog); writes stay gated."""
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return super().get_permissions()
+
     def get_queryset(self):
         queryset = Product.objects.select_related(
             'category'
@@ -98,7 +110,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             )
 
         # ?search=tuna  → search by product name or SKU (handled by filter_backends)
-        # ?branch=Tarcan → filter products available at a specific branch
+        # ?branch=Tarcan → filter products available at a specific branch (internal, by name)
         branch = self.request.query_params.get('branch')
         if branch:
             queryset = queryset.filter(
@@ -106,7 +118,22 @@ class ProductViewSet(viewsets.ModelViewSet):
                 inventory_records__quantity_on_hand__gt=0
             ).distinct()
 
+        # ?branchId=3 → storefront: exact-id filter, also drives stockAtBranch below
+        branch_id = self.request.query_params.get('branchId')
+        if branch_id:
+            queryset = queryset.filter(
+                inventory_records__branch_id=branch_id,
+                inventory_records__quantity_on_hand__gt=0
+            ).distinct()
+
         return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        branch_id = self.request.query_params.get('branchId')
+        if branch_id:
+            context['branch_id'] = branch_id
+        return context
 
     def get_serializer_class(self):
         """

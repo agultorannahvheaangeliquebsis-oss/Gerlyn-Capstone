@@ -143,18 +143,27 @@ export interface Product {
   retailPrice: string;
   wholesalePrice: string | null;
   availability: string[];
+  // Only populated when `branchId` is passed — the storefront's per-branch
+  // stock count, used to show/cap availability once a branch is selected.
+  stockAtBranch: number | null;
 }
 
 export const productsApi = {
-  list: (params?: { search?: string; category?: string; branch?: string }) => {
+  list: (params?: { search?: string; category?: string; branch?: string; branchId?: number }) => {
     const query = new URLSearchParams(
       Object.entries(params ?? {}).filter(([, v]) => v != null) as [string, string][]
     ).toString();
     return apiFetch<Product[]>(`/api/products/${query ? `?${query}` : ''}`);
   },
 
-  get: (id: number) =>
-    apiFetch<Product>(`/api/products/${id}/`),
+  get: (id: number, params?: { branchId?: number }) => {
+    const query = new URLSearchParams(
+      Object.entries(params ?? {})
+        .filter(([, v]) => v != null)
+        .map(([k, v]) => [k, String(v)])
+    ).toString();
+    return apiFetch<Product>(`/api/products/${id}/${query ? `?${query}` : ''}`);
+  },
 
   create: (data: Partial<Product>) =>
     apiFetch<Product>('/api/products/', {

@@ -100,6 +100,14 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("One or more products not found.")
         return value
 
+    def validate(self, data):
+        if data.get('transactionType') == SalesTransaction.TransactionType.ONLINE \
+                and not data.get('deliveryAddress', '').strip():
+            raise serializers.ValidationError(
+                {'deliveryAddress': 'Delivery address is required for online orders.'}
+            )
+        return data
+
     def create(self, validated_data):
         request = self.context['request']
         user = request.user
@@ -112,12 +120,13 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         order_type = validated_data['orderType']
 
         with transaction.atomic():
-            # Resolve products/prices and compute the total *before* creating
-            # the transaction, so it's inserted with its final total_amount
-            # in one shot. billing.signals.auto_create_billing_record reads
-            # total_amount at creation time — creating with 0 then updating
-            # it afterward (a second save()) left the billing record's
-            # amount_due permanently stuck at 0.
+            # Lock stock and validate availability before writing anything, so
+            # total_amount can be set at creation time (billing.signals reads
+            # it then — creating with 0 and updating afterward left the
+            # billing record's amount_due permanently stuck at 0) and an
+            # oversold cart is rejected outright instead of being silently
+            # short-filled (fine when staff are watching; not fine for
+            # unattended customer checkout).
             resolved_items = []
             total = 0
             for item in items_data:
@@ -128,7 +137,14 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price
                     else product.unit_price
                 )
-                resolved_items.append((product, qty, unit_price))
+                inv = Inventory.objects.select_for_update().filter(
+                    product=product, branch_id=branch_id
+                ).first()
+                if not inv or inv.quantity_on_hand < qty:
+                    raise serializers.ValidationError(
+                        {'items': f'Not enough stock for {product.product_name}.'}
+                    )
+                resolved_items.append((product, qty, unit_price, inv))
                 total += unit_price * qty
 
             txn = SalesTransaction.objects.create(
@@ -142,16 +158,14 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 total_amount=total,
             )
 
-            for product, qty, unit_price in resolved_items:
+            for product, qty, unit_price, inv in resolved_items:
                 SalesItem.objects.create(
                     transaction=txn,
                     product=product,
                     quantity_sold=qty,
                     unit_price=unit_price,
                 )
-                inv = Inventory.objects.filter(product=product, branch_id=branch_id).first()
-                if inv:
-                    inv.quantity_on_hand = max(0, inv.quantity_on_hand - qty)
-                    inv.save()
+                inv.quantity_on_hand -= qty
+                inv.save()
 
         return txn
