@@ -6,9 +6,11 @@ from .models import (
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
+    categoryName = serializers.CharField(source='category_name')
+
     class Meta:
         model = ProductCategory
-        fields = ['id', 'category_name', 'description']
+        fields = ['id', 'categoryName', 'description']
 
 
 class ProductSerializer(serializers.ModelSerializer):

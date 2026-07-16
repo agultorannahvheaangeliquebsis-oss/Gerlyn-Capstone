@@ -13,9 +13,9 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Sales & Orders', path: '/sales' },
   { label: 'Inventory', path: '/inventory' },
   { label: 'Procurement', path: '/procurement' },
-  { label: 'Reports' },
-  { label: 'Alerts', badge: 0 },
-  { label: 'Administration' },
+  { label: 'Reports', path: '/reports' },
+  { label: 'Alerts', path: '/alerts' },
+  { label: 'Administration', path: '/administration' },
 ];
 
 function initials(name: string): string {

@@ -6,7 +6,6 @@ from django.db import transaction
 from branches.models import Branch
 from inventory.models import Inventory
 from sales.models import SalesTransaction, SalesItem
-from billing.models import BillingRecord
 from inventory.models import Product
 
 
@@ -93,14 +92,11 @@ def checkout(request):
         return redirect('orders:catalog')
 
     with transaction.atomic():
-        sale = SalesTransaction.objects.create(
-            branch_id=branch_id,
-            staff=None,
-            customer=request.user,
-            transaction_type=SalesTransaction.TransactionType.ONLINE,
-            mode_of_payment=request.POST.get('mode_of_payment', SalesTransaction.ModeOfPayment.CASH),
-        )
-
+        # Lock and validate stock before creating the transaction, so the
+        # total is known up front. billing.signals.auto_create_billing_record
+        # snapshots total_amount on creation, so creating with 0 and updating
+        # afterward (as this used to) leaves amount_due stuck at 0.
+        resolved_items = []
         running_total = Decimal('0')
         for product_id, qty in cart.items():
             inv = get_object_or_404(
@@ -109,9 +105,20 @@ def checkout(request):
             )
             if inv.quantity_on_hand < qty:
                 messages.error(request, f"Not enough stock for {inv.product.product_name}.")
-                transaction.set_rollback(True)
                 return redirect('orders:cart')
+            resolved_items.append((inv, qty))
+            running_total += inv.product.unit_price * qty
 
+        sale = SalesTransaction.objects.create(
+            branch_id=branch_id,
+            staff=None,
+            customer=request.user,
+            transaction_type=SalesTransaction.TransactionType.ONLINE,
+            mode_of_payment=request.POST.get('mode_of_payment', SalesTransaction.ModeOfPayment.CASH),
+            total_amount=running_total,
+        )
+
+        for inv, qty in resolved_items:
             SalesItem.objects.create(
                 transaction=sale,
                 product=inv.product,
@@ -120,18 +127,12 @@ def checkout(request):
             )
             inv.quantity_on_hand -= qty
             inv.save()
-            running_total += inv.product.unit_price * qty
 
-        sale.total_amount = running_total
-        sale.save()
-
-        # Auto-create pending billing record
-        BillingRecord.objects.create(
-            transaction=sale,
-            amount_due=sale.total_amount,
-            payment_method=sale.mode_of_payment,
-            status=BillingRecord.PaymentStatus.PENDING,
-        )
+        # billing.signals.auto_create_billing_record already created the
+        # pending BillingRecord above; just align its payment method with
+        # what the customer chose at checkout.
+        sale.billing_record.payment_method = sale.mode_of_payment
+        sale.billing_record.save()
 
     request.session['cart'] = {}
     return redirect('orders:confirmation', transaction_id=sale.id)

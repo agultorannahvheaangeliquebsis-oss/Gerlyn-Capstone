@@ -88,6 +88,50 @@ export const authApi = {
     }),
 };
 
+// ─── User administration endpoints (Owner only) ─────────────────────────────
+
+export interface AdminUser extends AuthUser {
+  branchId: number | null;
+  contactNumber: string | null;
+  isActive: boolean;
+  dateJoined: string;
+}
+
+export interface UserCreateInput {
+  username: string;
+  password: string;
+  role: string;
+  email?: string;
+  fullName?: string;
+  contactNumber?: string;
+  branchId?: number;
+  address?: string;
+}
+
+export interface UserUpdateInput {
+  fullName?: string;
+  contactNumber?: string;
+  branchId?: number;
+  address?: string;
+  isActive?: boolean;
+}
+
+export const usersApi = {
+  list: () => apiFetch<AdminUser[]>('/api/auth/users/'),
+
+  create: (data: UserCreateInput) =>
+    apiFetch<AdminUser>('/api/auth/users/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: number, data: UserUpdateInput) =>
+    apiFetch<AdminUser>(`/api/auth/users/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+};
+
 // ─── Product endpoints ───────────────────────────────────────────────────────
 
 export interface Product {
@@ -130,6 +174,35 @@ export const productsApi = {
     }),
 };
 
+// ─── Product category endpoints ─────────────────────────────────────────────
+
+export interface ProductCategory {
+  id: number;
+  categoryName: string;
+  description: string;
+}
+
+export const categoriesApi = {
+  list: () => apiFetch<ProductCategory[]>('/api/categories/'),
+
+  create: (data: { categoryName: string; description?: string }) =>
+    apiFetch<ProductCategory>('/api/categories/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: number, data: { categoryName?: string; description?: string }) =>
+    apiFetch<ProductCategory>(`/api/categories/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  remove: (id: number) =>
+    apiFetch<void>(`/api/categories/${id}/`, {
+      method: 'DELETE',
+    }),
+};
+
 // ─── Branch endpoints ────────────────────────────────────────────────────────
 
 export interface Branch {
@@ -142,6 +215,23 @@ export interface Branch {
 
 export const branchesApi = {
   list: () => apiFetch<Branch[]>('/api/branches/'),
+
+  create: (data: { name: string; location: string }) =>
+    apiFetch<Branch>('/api/branches/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: number, data: { name?: string; location?: string }) =>
+    apiFetch<Branch>(`/api/branches/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  remove: (id: number) =>
+    apiFetch<void>(`/api/branches/${id}/`, {
+      method: 'DELETE',
+    }),
 };
 
 // ─── Reports endpoints ───────────────────────────────────────────────────────
@@ -191,6 +281,12 @@ export const reportsApi = {
 
   inventoryReport: () =>
     apiFetch<InventoryRow[]>('/api/reports/inventory-report/'),
+
+  // salesReport/procurementReport return types are declared further down
+  // this file (SalesTransaction, Procurement) — see the bottom re-exports.
+  salesReport: () => apiFetch<SalesTransaction[]>('/api/reports/sales-report/'),
+
+  procurementReport: () => apiFetch<Procurement[]>('/api/reports/procurement-report/'),
 };
 
 // ─── Sales endpoints ─────────────────────────────────────────────────────────

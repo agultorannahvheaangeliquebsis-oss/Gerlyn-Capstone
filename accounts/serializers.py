@@ -37,7 +37,8 @@ class UserSerializer(serializers.ModelSerializer):
             elif obj.role == User.Role.STAFF:
                 return obj.staff_profile.staff_name
             elif obj.role == User.Role.CUSTOMER:
-                return obj.customer_profile.customer_name
+                profile = obj.customer_profile
+                return f"{profile.first_name} {profile.last_name}".strip() or obj.username
             elif obj.role == User.Role.SUPPLIER:
                 return obj.supplier_profile.supplier_name
         except Exception:
@@ -59,3 +60,148 @@ class UserSerializer(serializers.ModelSerializer):
         except Exception:
             pass
         return None
+
+
+# =============================================================================
+# ADMINISTRATION — user management (Owner only)
+# =============================================================================
+
+def _profile_for(user):
+    """Return (profile, name_field) for the user's role-specific profile."""
+    if user.role == User.Role.OWNER:
+        return user.owner_profile, 'owner_name'
+    if user.role == User.Role.BRANCH_MANAGER:
+        return user.manager_profile, 'manager_name'
+    if user.role == User.Role.STAFF:
+        return user.staff_profile, 'staff_name'
+    if user.role == User.Role.SUPPLIER:
+        return user.supplier_profile, 'supplier_name'
+    return None, None
+
+
+class UserAdminSerializer(UserSerializer):
+    """Extends UserSerializer with the extra fields the Administration
+    screen needs: contact info, branch id (not just name), active status."""
+    branchId = serializers.SerializerMethodField()
+    contactNumber = serializers.SerializerMethodField()
+    isActive = serializers.BooleanField(source='is_active', read_only=True)
+    dateJoined = serializers.DateTimeField(source='date_joined', read_only=True)
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ['branchId', 'contactNumber', 'isActive', 'dateJoined']
+
+    def get_branchId(self, obj):
+        try:
+            if obj.role == User.Role.BRANCH_MANAGER:
+                return obj.manager_profile.branch_id
+            elif obj.role == User.Role.STAFF:
+                return obj.staff_profile.branch_id
+        except Exception:
+            pass
+        return None
+
+    def get_contactNumber(self, obj):
+        try:
+            if obj.role == User.Role.CUSTOMER:
+                return obj.customer_profile.contact_number
+            profile, _ = _profile_for(obj)
+            return profile.contact_number if profile else None
+        except Exception:
+            return None
+
+
+class UserCreateSerializer(serializers.Serializer):
+    """Handles POST /api/auth/users/ — creates a User plus its role-specific
+    profile in one call. The post_save signal (accounts/signals.py) creates
+    an empty profile first; this fills it in with the submitted details."""
+    username = serializers.CharField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, min_length=4)
+    role = serializers.ChoiceField(choices=User.Role.choices)
+    fullName = serializers.CharField(required=False, allow_blank=True)
+    contactNumber = serializers.CharField(required=False, allow_blank=True)
+    branchId = serializers.IntegerField(required=False, allow_null=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError('Username already taken.')
+        return value
+
+    def create(self, validated_data):
+        role = validated_data['role']
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data.get('email', ''),
+            password=validated_data['password'],
+            role=role,
+        )
+
+        full_name = validated_data.get('fullName', '').strip()
+        contact_number = validated_data.get('contactNumber', '')
+        branch_id = validated_data.get('branchId')
+
+        if role == User.Role.CUSTOMER:
+            parts = full_name.split(' ', 1)
+            profile = user.customer_profile
+            profile.first_name = parts[0] if parts and parts[0] else user.username
+            profile.last_name = parts[1] if len(parts) > 1 else ''
+            profile.contact_number = contact_number
+            profile.address = validated_data.get('address', '')
+            profile.save()
+        else:
+            profile, name_field = _profile_for(user)
+            if profile:
+                setattr(profile, name_field, full_name or user.username)
+                profile.contact_number = contact_number
+                if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and branch_id:
+                    profile.branch_id = branch_id
+                profile.save()
+
+        return user
+
+
+class UserUpdateSerializer(serializers.Serializer):
+    """Handles PATCH /api/auth/users/<pk>/ — profile fields + active status.
+    Role and username are intentionally not editable here: changing role
+    would require migrating between profile models, which is out of scope."""
+    fullName = serializers.CharField(required=False, allow_blank=True)
+    contactNumber = serializers.CharField(required=False, allow_blank=True)
+    branchId = serializers.IntegerField(required=False, allow_null=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+    isActive = serializers.BooleanField(required=False)
+
+    def update(self, instance, validated_data):
+        if 'isActive' in validated_data:
+            instance.is_active = validated_data['isActive']
+            instance.save(update_fields=['is_active'])
+
+        full_name = validated_data.get('fullName')
+        contact_number = validated_data.get('contactNumber')
+
+        try:
+            if instance.role == User.Role.CUSTOMER:
+                profile = instance.customer_profile
+                if full_name is not None:
+                    parts = full_name.strip().split(' ', 1)
+                    profile.first_name = parts[0] if parts and parts[0] else instance.username
+                    profile.last_name = parts[1] if len(parts) > 1 else ''
+                if contact_number is not None:
+                    profile.contact_number = contact_number
+                if 'address' in validated_data:
+                    profile.address = validated_data['address']
+                profile.save()
+            else:
+                profile, name_field = _profile_for(instance)
+                if profile:
+                    if full_name is not None:
+                        setattr(profile, name_field, full_name or instance.username)
+                    if contact_number is not None:
+                        profile.contact_number = contact_number
+                    if instance.role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and 'branchId' in validated_data:
+                        profile.branch_id = validated_data['branchId']
+                    profile.save()
+        except Exception:
+            pass
+
+        return instance

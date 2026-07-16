@@ -6,6 +6,9 @@ import { DashboardPage } from './pages/DashboardPage';
 import { SalesOrdersPage } from './pages/SalesOrdersPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { ProcurementPage } from './pages/ProcurementPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { AlertsPage } from './pages/AlertsPage';
+import { AdministrationPage } from './pages/AdministrationPage';
 
 export default function App() {
   return (
@@ -42,6 +45,30 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ProcurementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute>
+                <ReportsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/alerts"
+            element={
+              <ProtectedRoute>
+                <AlertsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/administration"
+            element={
+              <ProtectedRoute>
+                <AdministrationPage />
               </ProtectedRoute>
             }
           />

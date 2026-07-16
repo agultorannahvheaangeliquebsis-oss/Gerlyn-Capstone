@@ -44,11 +44,29 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
     """
     /api/categories/
     GET    → list all categories
-    POST   → create a new category (Owner/Manager only)
+    POST/PUT/PATCH/DELETE → Owner/Branch Manager only
     """
     queryset = ProductCategory.objects.all().order_by('category_name')
     serializer_class = ProductCategorySerializer
     permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = check_owner_or_manager(request)
+        if denied:
+            return denied
+        return super().destroy(request, *args, **kwargs)
 
 
 class ProductViewSet(viewsets.ModelViewSet):
