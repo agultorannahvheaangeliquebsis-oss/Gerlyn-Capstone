@@ -196,6 +196,190 @@ class AcceptanceTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.order_status, before, 'cross-branch write must be blocked')
 
+    # --- detail views must scope too, not just lists ----------------------
+    # Regression guard: these all leaked via the URL until 2026-07-17.
+
+    def test_supplier_cannot_open_a_rival_suppliers_po(self):
+        supplier = User.objects.get(username='monde')
+        rival_po = Procurement.objects.exclude(supplier=supplier).first()
+        client = Client()
+        client.force_login(supplier)
+        self.assertEqual(client.get(f'/procurement/{rival_po.pk}/').status_code, 302)
+
+    def test_supplier_can_open_their_own_po(self):
+        supplier = User.objects.get(username='monde')
+        own_po = Procurement.objects.filter(supplier=supplier).first()
+        client = Client()
+        client.force_login(supplier)
+        self.assertEqual(client.get(f'/procurement/{own_po.pk}/').status_code, 200)
+
+    def test_manager_cannot_open_another_branchs_po(self):
+        foreign = Procurement.objects.exclude(branch__branch_name='Tarcan').first()
+        self.assertEqual(
+            self.login('carlo').get(f'/procurement/{foreign.pk}/').status_code, 302
+        )
+
+    def test_staff_cannot_open_another_branchs_billing_record(self):
+        from billing.models import BillingRecord
+        record = BillingRecord.objects.filter(
+            transaction__branch__branch_name='Tarcan'
+        ).first()
+        # ben is Makinabang staff
+        self.assertEqual(self.login('ben').get(f'/billing/{record.pk}/').status_code, 302)
+
+    def test_customer_cannot_open_another_customers_order(self):
+        juan = User.objects.get(username='juan')
+        someone_elses = SalesTransaction.objects.exclude(
+            customer=juan
+        ).exclude(customer=None).first()
+        client = Client()
+        client.force_login(juan)
+        self.assertEqual(
+            client.get(f'/shop/confirmation/{someone_elses.pk}/').status_code, 404
+        )
+
+    # --- supplier portal + lockout -----------------------------------------
+    # A supplier is an OUTSIDE party. They see their own orders and nothing else.
+    # Regression guard: /inventory/stock/ showed them all 35 rows until 2026-07-17.
+
+    def test_supplier_cannot_see_store_screens(self):
+        client = Client()
+        client.force_login(User.objects.get(username='century'))
+        for url in ['/sales/', '/inventory/stock/', '/inventory/products/',
+                    '/inventory/alerts/', '/manage/users/']:
+            self.assertEqual(
+                client.get(url).status_code, 302,
+                f'a supplier must not reach {url}',
+            )
+
+    def test_supplier_portal_shows_only_their_own_orders(self):
+        supplier = User.objects.get(username='century')
+        client = Client()
+        client.force_login(supplier)
+        html = client.get('/procurement/portal/').content.decode()
+
+        for po in Procurement.objects.filter(supplier=supplier).exclude(status='Draft'):
+            self.assertIn(po.po_number, html)
+        # A draft order hasn't been placed yet — the supplier must not see it.
+        for po in Procurement.objects.filter(supplier=supplier, status='Draft'):
+            self.assertNotIn(po.po_number, html)
+        # ...nor anyone else's.
+        for po in Procurement.objects.exclude(supplier=supplier)[:3]:
+            self.assertNotIn(po.po_number, html)
+
+    def test_supplier_can_confirm_delivery_date_on_own_order(self):
+        supplier = User.objects.get(username='delmonte')
+        po = Procurement.objects.filter(supplier=supplier, status='Ordered').first()
+        client = Client()
+        client.force_login(supplier)
+        client.post(f'/procurement/portal/{po.pk}/delivery-date/',
+                    {'delivery_date': '2026-08-01'})
+        po.refresh_from_db()
+        self.assertEqual(str(po.delivery_date), '2026-08-01')
+
+    def test_supplier_cannot_mark_their_own_order_received(self):
+        """Business rule 13: only the store validates a receipt."""
+        supplier = User.objects.get(username='delmonte')
+        po = Procurement.objects.filter(supplier=supplier, status='Ordered').first()
+        client = Client()
+        client.force_login(supplier)
+        client.post(f'/procurement/{po.pk}/update-status/', {'status': 'Received'})
+        po.refresh_from_db()
+        self.assertEqual(po.status, 'Ordered')
+
+    # --- customer order history + tracking ---------------------------------
+    # The Context Diagram promises the Customer receives order status back.
+
+    def test_customer_sees_only_their_own_orders(self):
+        juan = User.objects.get(username='juan')
+        client = Client()
+        client.force_login(juan)
+        html = client.get('/shop/orders/').content.decode()
+
+        for order in SalesTransaction.objects.filter(customer=juan):
+            self.assertIn(order.order_number, html)
+        for order in SalesTransaction.objects.exclude(customer=juan).exclude(customer=None):
+            self.assertNotIn(order.order_number, html)
+
+    def test_customer_can_track_their_own_order(self):
+        juan = User.objects.get(username='juan')
+        order = SalesTransaction.objects.filter(customer=juan).first()
+        client = Client()
+        client.force_login(juan)
+        response = client.get(f'/shop/orders/{order.pk}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(order.order_number, response.content.decode())
+
+    def test_customer_cannot_track_someone_elses_order(self):
+        juan = User.objects.get(username='juan')
+        foreign = SalesTransaction.objects.exclude(
+            customer=juan
+        ).exclude(customer=None).first()
+        client = Client()
+        client.force_login(juan)
+        self.assertEqual(client.get(f'/shop/orders/{foreign.pk}/').status_code, 404)
+
+    # --- wholesale pricing --------------------------------------------------
+    # Chapter 1 describes Gerlyn as a "retail and wholesale business".
+
+    def test_retail_sale_uses_retail_price(self):
+        product = Product.objects.get(sku_code='SKU-005')   # 48 retail / 41 wholesale
+        self.login('ana').post('/sales/add/', {
+            'mode_of_payment': 'Cash', 'order_type': 'Retail',
+            'product_id': [str(product.pk)], 'quantity': ['10'],
+        })
+        tx = SalesTransaction.objects.order_by('-id').first()
+        self.assertEqual(tx.order_type, 'Retail')
+        self.assertEqual(tx.items.first().unit_price, product.unit_price)
+
+    def test_wholesale_sale_uses_wholesale_price(self):
+        product = Product.objects.get(sku_code='SKU-005')
+        self.login('ana').post('/sales/add/', {
+            'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
+            'product_id': [str(product.pk)], 'quantity': ['10'],
+        })
+        tx = SalesTransaction.objects.order_by('-id').first()
+        self.assertEqual(tx.order_type, 'Wholesale')
+        self.assertEqual(tx.items.first().unit_price, product.wholesale_price)
+        self.assertEqual(tx.total_amount, product.wholesale_price * 10)
+
+    def test_wholesale_falls_back_to_retail_when_no_wholesale_price(self):
+        """Never sell at ₱0 just because a product has no wholesale price."""
+        product = Product.objects.get(sku_code='SKU-005')
+        Product.objects.filter(pk=product.pk).update(wholesale_price=None)
+        product.refresh_from_db()
+
+        self.login('ana').post('/sales/add/', {
+            'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
+            'product_id': [str(product.pk)], 'quantity': ['2'],
+        })
+        tx = SalesTransaction.objects.order_by('-id').first()
+        self.assertEqual(tx.total_amount, product.unit_price * 2)
+
+    def test_invalid_order_type_falls_back_to_retail(self):
+        product = Product.objects.get(sku_code='SKU-005')
+        self.login('ana').post('/sales/add/', {
+            'mode_of_payment': 'Cash', 'order_type': 'Free',
+            'product_id': [str(product.pk)], 'quantity': ['1'],
+        })
+        tx = SalesTransaction.objects.order_by('-id').first()
+        self.assertEqual(tx.order_type, 'Retail')
+
+    def test_price_over_1000_survives_an_edit(self):
+        """
+        USE_THOUSAND_SEPARATOR localises template output, so a number input
+        would render value="1,345.50" — invalid HTML5, silently blanked by the
+        browser, price lost on save. The form must unlocalize.
+        """
+        product = Product.objects.get(sku_code='SKU-010')
+        Product.objects.filter(pk=product.pk).update(unit_price='1345.50')
+        product.refresh_from_db()
+
+        client = self.login('gerlyn')
+        html = client.get(f'/inventory/products/edit/{product.pk}/').content.decode()
+        self.assertIn('value="1345.50"', html, 'number input must not be localised')
+        self.assertNotIn('value="1,345.50"', html)
+
     def test_csv_export_is_branch_scoped(self):
         owner_rows = self.login('gerlyn').get('/reports/export/sales.csv').content.count(b'\n')
         manager_rows = self.login('carlo').get('/reports/export/sales.csv').content.count(b'\n')

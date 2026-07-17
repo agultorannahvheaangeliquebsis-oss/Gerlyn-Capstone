@@ -43,6 +43,32 @@ def branch_ids_for_user(user):
     return []
 
 
+def branch_for_user(user):
+    """
+    The single Branch a manager/staff is pinned to, or None.
+
+    None means "not pinned to one branch" — for the Owner that means ALL
+    branches, so callers MUST role-check before using this to filter, e.g.
+
+        if user.role in (BRANCH_MANAGER, STAFF):
+            qs = qs.filter(branch=branch_for_user(user))
+
+    Prefer `scope_queryset()` where you can; this exists for the API views,
+    which need the Branch object itself rather than a filtered queryset.
+    """
+    if not getattr(user, "is_authenticated", False):
+        return None
+
+    role = getattr(user, "role", None)
+    if role == BRANCH_MANAGER:
+        profile = getattr(user, "manager_profile", None)
+        return profile.branch if profile else None
+    if role == STAFF:
+        profile = getattr(user, "staff_profile", None)
+        return profile.branch if profile else None
+    return None
+
+
 def scope_queryset(qs, user, branch_field="branch"):
     """
     Filter `qs` to the branches `user` may see.

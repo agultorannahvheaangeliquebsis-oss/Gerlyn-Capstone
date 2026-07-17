@@ -401,28 +401,32 @@ class Command(BaseCommand):
         T, M, G = "Tarcan", "Makinabang", "Tiaong Baliwag Mini Mart"
         S = suppliers
         P = products
-        # (branch, supplier, order_date, delivery_date, status, total, [(sku, qty, cost)])
+        today = timezone.localtime().date()
+        # Relative dates again — a PO dated last March would show as months
+        # overdue forever. One is deliberately left overdue to demo that state.
+        # (branch, supplier, ordered_days_ago, due_in_days, status, total, [(sku, qty, cost)])
         pos = [
-            (T, "Century Pacific Food Inc.", "2026-03-10", "2026-03-14", "Received", 9500,
+            (T, "Century Pacific Food Inc.", 12, -8, "Received", 9500,
              [("SKU-001", 200, 27), ("SKU-005", 100, 41)]),
-            (M, "Monde Nissin Corporation", "2026-03-12", "2026-03-16", "Received", 3600,
+            (M, "Monde Nissin Corporation", 10, -6, "Received", 3600,
              [("SKU-004", 300, 12)]),
-            (G, "Del Monte Philippines Inc.", "2026-03-14", "2026-03-18", "Ordered", 2920,
+            (G, "Del Monte Philippines Inc.", 4, 3, "Ordered", 2920,
              [("SKU-009", 80, 23), ("SKU-014", 40, 29)]),
-            (T, "San Miguel Purefoods Co. Inc.", "2026-03-15", "2026-03-20", "Ordered", 5000,
+            (T, "San Miguel Purefoods Co. Inc.", 8, -2, "Ordered", 5000,   # overdue on purpose
              [("SKU-006", 100, 50)]),
-            (M, "Century Pacific Food Inc.", "2026-03-16", "2026-03-21", "Draft", 5700,
+            (M, "Century Pacific Food Inc.", 1, 6, "Draft", 5700,
              [("SKU-002", 150, 22), ("SKU-003", 120, 20)]),
-            (T, "Nestlé Philippines Inc.", "2026-03-08", "2026-03-12", "Received", 16200,
+            (T, "Nestlé Philippines Inc.", 14, -10, "Received", 16200,
              [("SKU-007", 100, 74), ("SKU-008", 80, 83), ("SKU-015", 15, 130)]),
-            (G, "Century Pacific Food Inc.", "2026-03-05", "2026-03-08", "Cancelled", 1600,
+            (G, "Century Pacific Food Inc.", 20, -17, "Cancelled", 1600,
              [("SKU-001", 60, 27)]),
         ]
-        for branch, supplier, odate, ddate, status, total, items in pos:
+        for branch, supplier, ordered_ago, due_in, status, total, items in pos:
             po = Procurement.objects.create(
                 branch=branches[branch], supplier=S[supplier], owner=owner,
-                created_by=owner, order_date=dt.date.fromisoformat(odate),
-                delivery_date=dt.date.fromisoformat(ddate),
+                created_by=owner,
+                order_date=today - dt.timedelta(days=ordered_ago),
+                delivery_date=today + dt.timedelta(days=due_in),
                 status=status, total_cost=D(total),
             )
             for sku, qty, cost in items:
@@ -438,30 +442,40 @@ class Command(BaseCommand):
         T, M, G = "Tarcan", "Makinabang", "Tiaong Baliwag Mini Mart"
         P = products
         Tx = SalesTransaction
-        # (date, customer|None, branch, channel, mop, pay_status, order_status, total, [(sku,qty,price)])
+        today = timezone.localtime().date()
+
+        # Dates are RELATIVE to today (days_ago), not fixed. Otherwise the demo
+        # rots: "today's sales" reads ₱0 and the trend chart renders empty the
+        # moment you seed on a later date than the one hard-coded here.
+        # (days_ago, customer|None, branch, channel, mop, order_type, pay_status, order_status, total, [(sku,qty,price)])
         orders = [
-            ("2026-03-18", None, T, "Physical", "Cash", "Paid", "Completed", 310,
+            (0, None, T, "Physical", "Cash", "Retail", "Paid", "Completed", 310,
              [("SKU-001", 5, 32), ("SKU-004", 10, 15)]),
-            ("2026-03-18", "Juan dela Cruz", T, "Online", "Cash", "Pending", "Approved", 334,
+            (0, "Juan dela Cruz", T, "Online", "Cash on Delivery", "Retail", "Pending", "Approved", 334,
              [("SKU-005", 5, 48), ("SKU-013", 8, 12)]),
-            ("2026-03-18", None, M, "Physical", "Cash", "Paid", "Completed", 1104,
-             [("SKU-007", 12, 85), ("SKU-011", 2, 42)]),
-            ("2026-03-17", "Maria Santos", M, "Online", "Cash", "Pending", "Preparing", 435,
+            (0, None, M, "Physical", "Cash", "Wholesale", "Paid", "Completed", 1104,
+             [("SKU-007", 12, 74), ("SKU-011", 2, 36)]),
+            (1, "Maria Santos", M, "Online", "Pay at Store", "Retail", "Pending", "Preparing", 435,
              [("SKU-004", 15, 15), ("SKU-003", 9, 24)]),
-            ("2026-03-17", None, G, "Physical", "Cash", "Paid", "Completed", 120,
+            (1, None, G, "Physical", "Cash", "Retail", "Paid", "Completed", 120,
              [("SKU-013", 10, 12)]),
-            ("2026-03-17", "Pedro Ramos", T, "Online", "Cash", "Pending", "Pending", 200,
+            (2, "Pedro Ramos", T, "Online", "Cash on Delivery", "Retail", "Pending", "Pending", 200,
              [("SKU-001", 5, 32), ("SKU-013", 3, 12)]),
-            ("2026-03-16", None, T, "Physical", "Cash", "Paid", "Completed", 407,
+            (3, None, T, "Physical", "Cash", "Retail", "Paid", "Completed", 407,
              [("SKU-006", 5, 58), ("SKU-011", 3, 42)]),
-            ("2026-03-15", "Ana Villanueva", T, "Online", "GCash", "Paid", "Completed", 775,
+            (5, "Ana Villanueva", T, "Online", "GCash", "Retail", "Paid", "Completed", 775,
              [("SKU-010", 2, 345), ("SKU-008", 1, 95)]),
-            ("2026-03-14", "Juan dela Cruz", M, "Online", "Cash", "Paid", "Completed", 294,
+            (7, "Juan dela Cruz", M, "Online", "Cash on Delivery", "Retail", "Paid", "Completed", 294,
              [("SKU-004", 12, 15), ("SKU-013", 9, 12)]),
-            ("2026-03-13", None, M, "Physical", "Cash", "Paid", "Completed", 1992,
-             [("SKU-010", 5, 345), ("SKU-007", 3, 85)]),
+            (9, None, M, "Physical", "Cash", "Wholesale", "Paid", "Completed", 1992,
+             [("SKU-010", 5, 308), ("SKU-007", 3, 74)]),
+            (11, None, G, "Physical", "Cash", "Retail", "Paid", "Completed", 645,
+             [("SKU-008", 3, 95), ("SKU-002", 6, 26)]),
+            (13, None, T, "Physical", "Cash", "Wholesale", "Paid", "Completed", 1230,
+             [("SKU-005", 30, 41)]),
         ]
-        for odate, cust, branch_name, channel, mop, pay_status, order_status, total, items in orders:
+        for days_ago, cust, branch_name, channel, mop, otype, pay_status, order_status, total, items in orders:
+            odate = (today - dt.timedelta(days=days_ago)).isoformat()
             branch = branches[branch_name]
             tx = Tx.objects.create(
                 branch=branch,
@@ -470,6 +484,7 @@ class Command(BaseCommand):
                 total_amount=D(total),
                 transaction_type=channel,
                 mode_of_payment=mop,
+                order_type=otype,
                 order_status=order_status,
                 delivery_address="Baliuag, Bulacan" if channel == "Online" else "",
             )
@@ -487,7 +502,7 @@ class Command(BaseCommand):
             # save; update it to reflect this order's payment method/status.
             BillingRecord.objects.filter(transaction=tx).update(
                 amount_due=D(total),
-                payment_method="GCash" if mop == "GCash" else "Cash",
+                payment_method=mop,
                 status=pay_status,
                 reference_number="GC-2026-0001" if mop == "GCash" else "",
             )
