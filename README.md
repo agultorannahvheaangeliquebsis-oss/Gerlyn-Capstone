@@ -5,6 +5,10 @@ Gerlyn Variety Store, a multi-branch retail enterprise in Baliuag, Bulacan.
 
 Capstone project · BSIS · Bulacan State University · CICT
 
+> 👉 **New to this project, or want to test it?** Start with
+> **[PROJECT-LOG.md](PROJECT-LOG.md)** — it explains what was built, every bug that
+> was fixed, and has step-by-step testing instructions anyone on the team can follow.
+
 ---
 
 ## What it does
@@ -104,7 +108,30 @@ All seeded accounts use the password **`demo1234`**.
 - **Database:** MySQL (single centralized database — every branch reads/writes the same data)
 - **Frontend:** Django templates + a self-contained design system
   (`static/css/gerlyn.css`, `static/css/storefront.css`). **No CDN, no external
-  fonts or scripts** — the system runs fully offline.
+  fonts or scripts** — the system runs fully offline, with no build step.
+
+### Why server-rendered templates, not the React SPA
+
+A React/Vite SPA was built in parallel and both were tested side by side before
+choosing. Django templates won on evidence, not preference:
+
+| | React SPA | Django templates |
+|---|---|---|
+| Withdrawal Slips (a core process) | missing | implemented |
+| CSV export | missing | 4 reports, branch-scoped |
+| Order filters (search / status tabs / branch / channel) | missing | implemented |
+| Automated tests | 0 | 13, passing |
+| Correctness | showed staff names in the Customer column on walk-in sales | correct |
+| To run | `npm install` + 2 servers + CORS | one command |
+
+The SPA is preserved in full on the **`frontend-react`** branch
+(`git checkout frontend-react`) — nothing was lost. Its one genuinely better idea,
+**Category management**, was ported into the Django UI.
+
+The **DRF API (`/api/`) is kept** — it works, enforces the same branch scoping and
+stock guards, and is defensible as API-ready architecture. Its branch scoping now
+imports `core.scoping` rather than keeping its own copy, so the API and the template
+views can never drift apart.
 
 ### Apps
 
@@ -113,7 +140,7 @@ All seeded accounts use the password **`demo1234`**.
 | `core` | Shared RBAC (`permissions.py`) and multi-branch scoping (`scoping.py`) |
 | `accounts` | Custom `User` + role profiles, auth, User Management |
 | `branches` | Branch Management |
-| `inventory` | Products, categories, stock, batches, withdrawal slips, alerts engine |
+| `inventory` | Products, category management, stock, batches, withdrawal slips, alerts engine |
 | `sales` | Order Console, POS, order lifecycle |
 | `billing` | Billing records, payment verification |
 | `procurement` | Suppliers, purchase orders, deliveries |

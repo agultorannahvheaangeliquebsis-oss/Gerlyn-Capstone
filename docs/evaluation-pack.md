@@ -83,8 +83,10 @@ Reliability — the evaluators can run it themselves in under 5 seconds.
 - The original MySQL password exists in **git history** and must be rotated.
 - PDF export uses the browser's print-to-PDF rather than a server-generated file
   (a deliberate trade-off to avoid an extra dependency and keep the system offline-capable).
-- **Bundle Management** appears in the UI mockups but is **not implemented** — it is
-  absent from the Chapter 1–3 scope and the ERD, so no schema was invented for it.
+- **Bundle Management** is **deliberately out of scope** (team decision, 17 July
+  2026) — it appears in the UI mockups but not in the Chapter 1–3 scope or the ERD,
+  so no schema was invented for it. It is documented in Chapter 5 as future work.
+  Present this as a scope decision, not an omission.
 - Test coverage targets the acceptance scenarios and RBAC, not every view.
 
 ---
