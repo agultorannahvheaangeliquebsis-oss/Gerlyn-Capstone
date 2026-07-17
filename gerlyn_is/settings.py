@@ -75,14 +75,17 @@ INSTALLED_APPS = [
     'billing',
     'reports',
     'orders',
-    # The DRF API (/api/) is kept and is same-origin, so no CORS layer is needed.
     "rest_framework",
+    # Needed by the React dev server (npm run dev on :5173), which is a
+    # different origin from Django on :8000.
+    "corsheaders",
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    "corsheaders.middleware.CorsMiddleware",   # must sit above CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -90,6 +93,17 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# --- React dev server (Vite) ----------------------------------------------
+# The SPA runs on :5173 and calls Django on :8000, so it needs CORS + CSRF
+# trust. Session auth is cookie-based, hence ALLOW_CREDENTIALS.
+CORS_ALLOWED_ORIGINS = env_list(
+    'DJANGO_CORS_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173'
+)
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+# The SPA reads the CSRF cookie in JS, so it must not be HttpOnly.
+CSRF_COOKIE_HTTPONLY = False
 
 
 
@@ -161,11 +175,16 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# The store is in Baliuag, Bulacan — reports and "today's sales" must reflect
+# local time, not UTC, or a late-evening sale lands on the wrong day.
+TIME_ZONE = 'Asia/Manila'
 
 USE_I18N = True
 
 USE_TZ = True
+
+# Money reads as ₱253,529.00 (per the design system), not ₱253529.
+USE_THOUSAND_SEPARATOR = True
 
 
 # Static files (CSS, JavaScript, Images)
