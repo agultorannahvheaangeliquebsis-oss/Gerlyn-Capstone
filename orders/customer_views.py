@@ -238,6 +238,83 @@ def checkout(request):
     return redirect('orders:confirmation', transaction_id=sale.id)
 
 
+# ─────────────────────────────────────────────
+# MY ORDERS / TRACK ORDER
+# The Context Diagram says the Customer receives order status back from the
+# system — this is that. Strictly scoped to the logged-in customer's own orders.
+# ─────────────────────────────────────────────
+
+# What the customer is told at each stage, in plain language.
+STATUS_STEPS = ['Pending', 'Approved', 'Preparing', 'Completed']
+STATUS_BLURB = {
+    'Pending': "We've received your order. The store will confirm it shortly.",
+    'Approved': 'The store has confirmed your order and will prepare it soon.',
+    'Preparing': 'Your order is being packed right now.',
+    'Completed': 'Done — your order has been handed over.',
+    'Cancelled': 'This order was cancelled. Contact the branch if that looks wrong.',
+}
+
+
+@user_passes_test(is_customer)
+def my_orders(request):
+    orders = (
+        SalesTransaction.objects.filter(customer=request.user)
+        .select_related('branch')
+        .prefetch_related('billing_record')
+        .order_by('-transaction_date')
+    )
+
+    status_filter = request.GET.get('status', '')
+    counts = {
+        'all': orders.count(),
+        'active': orders.exclude(
+            order_status__in=['Completed', 'Cancelled']
+        ).count(),
+        'completed': orders.filter(order_status='Completed').count(),
+    }
+    if status_filter == 'active':
+        orders = orders.exclude(order_status__in=['Completed', 'Cancelled'])
+    elif status_filter == 'completed':
+        orders = orders.filter(order_status='Completed')
+
+    return render(request, 'orders/my_orders.html', {
+        'orders': orders,
+        'counts': counts,
+        'status_filter': status_filter,
+        'cart_count': sum(request.session.get('cart', {}).values()),
+    })
+
+
+@user_passes_test(is_customer)
+def track_order(request, transaction_id):
+    """Follow one order through its stages."""
+    sale = get_object_or_404(
+        SalesTransaction.objects.select_related('branch'),
+        id=transaction_id, customer=request.user,   # never someone else's
+    )
+
+    cancelled = sale.order_status == 'Cancelled'
+    current = 0 if cancelled else STATUS_STEPS.index(sale.order_status)
+    steps = [
+        {
+            'name': name,
+            'done': (not cancelled) and i < current,
+            'current': (not cancelled) and i == current,
+        }
+        for i, name in enumerate(STATUS_STEPS)
+    ]
+
+    return render(request, 'orders/track_order.html', {
+        'sale': sale,
+        'items': sale.items.select_related('product').all(),
+        'billing': getattr(sale, 'billing_record', None),
+        'steps': steps,
+        'cancelled': cancelled,
+        'blurb': STATUS_BLURB.get(sale.order_status, ''),
+        'cart_count': sum(request.session.get('cart', {}).values()),
+    })
+
+
 @user_passes_test(is_customer)
 def order_confirmation(request, transaction_id):
     sale = get_object_or_404(

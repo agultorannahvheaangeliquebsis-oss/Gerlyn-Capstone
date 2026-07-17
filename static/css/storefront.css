@@ -145,9 +145,7 @@ body.shop { background: #fff; }
   display: flex; align-items: center; justify-content: center; font-size: 32px;
 }
 
-/* free-delivery meter */
-.meter { height: 8px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; }
-.meter > span { display: block; height: 100%; background: var(--brand); border-radius: var(--r-pill); }
+/* .meter (free-delivery bar) now lives in gerlyn.css — shared with the dashboard. */
 
 .summary-line { display: flex; justify-content: space-between; padding: 8px 0; font-size: 15px; }
 .summary-total {

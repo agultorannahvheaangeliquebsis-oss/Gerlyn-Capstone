@@ -75,7 +75,8 @@ def supplier_dashboard(request):
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
         return redirect('login')
-    return render(request, 'accounts/supplier_dashboard.html')
+    # The supplier's real home is their order portal.
+    return redirect('supplier_portal')
 
 
 @login_required(login_url='login')

@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load l10n %}
 {% block title %}Receive {{ procurement.po_number }}{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
@@ -43,8 +44,9 @@
           <td data-label="Ordered" class="num">{{ item.quantity_ordered }}</td>
           <td data-label="Cost Price" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
           <td data-label="Quantity Received" class="num">
+            {# unlocalize: "1,200" is not a valid number-input value #}
             <input type="number" name="quantity_received" min="0"
-                   value="{{ item.quantity_ordered }}" style="max-width:120px; margin-left:auto;">
+                   value="{{ item.quantity_ordered|unlocalize }}" style="max-width:120px; margin-left:auto;">
           </td>
         </tr>
         {% endfor %}

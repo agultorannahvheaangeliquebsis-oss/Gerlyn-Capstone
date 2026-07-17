@@ -1,4 +1,5 @@
 {% extends 'internal_base.html' %}
+{% load l10n %}
 {% block title %}Approve {{ transfer.slip_number }}{% endblock %}
 {% block content %}
 <div style="padding:8px 4px; max-width:720px;">
@@ -14,7 +15,7 @@
         <td style="padding:8px; border-bottom:1px solid #f2f2f2;">{{ it.product.product_name }}</td>
         <td style="padding:8px; border-bottom:1px solid #f2f2f2;">{{ it.quantity_requested }}</td>
         <td style="padding:8px; border-bottom:1px solid #f2f2f2;">
-          <input type="number" name="quantity_approved" min="0" value="{{ it.quantity_requested }}" style="padding:6px; width:90px;"></td>
+          <input type="number" name="quantity_approved" min="0" value="{{ it.quantity_requested|unlocalize }}" style="padding:6px; width:90px;"></td>
       </tr>
       {% endfor %}
     </table>

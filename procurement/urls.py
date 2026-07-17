@@ -15,7 +15,12 @@ urlpatterns = [
     path('deliveries/<int:pk>/receive/', views.delivery_receive, name='delivery_receive'),
     path('deliveries/history/', views.receiving_history, name='receiving_history'),
 
-    # Suppliers
+    # Supplier's own portal (role = SUPPLIER)
+    path('portal/', views.supplier_portal, name='supplier_portal'),
+    path('portal/<int:pk>/delivery-date/', views.supplier_set_delivery_date,
+         name='supplier_set_delivery_date'),
+
+    # Suppliers (managed by the store)
     path('suppliers/', views.supplier_list, name='supplier_list'),
     path('suppliers/add/', views.supplier_form, name='supplier_add'),
     path('suppliers/<int:pk>/edit/', views.supplier_form, name='supplier_edit'),

@@ -87,9 +87,25 @@ def reports_dashboard(request):
         for inv in inventory_qs if inv.product
     )
 
+    # --- Retail vs wholesale ---
+    # Chapter 1: management had "limited visibility into ... wholesale
+    # transactions across branches". This is that visibility.
+    wholesale_qs = sales_qs.filter(order_type=SalesTransaction.OrderType.WHOLESALE)
+    retail_qs = sales_qs.filter(order_type=SalesTransaction.OrderType.RETAIL)
+    wholesale_sales = wholesale_qs.aggregate(t=Sum('total_amount'))['t'] or 0
+    retail_sales = retail_qs.aggregate(t=Sum('total_amount'))['t'] or 0
+    all_sales = wholesale_sales + retail_sales
+    wholesale_share = round((wholesale_sales / all_sales) * 100, 1) if all_sales else 0
+
     # --- Restock suggestions (same engine as the Alerts Center) ---
     branch_ids = branch_ids_for_user(request.user)
     restock = low_stock_alerts(branch_ids)
+
+    # --- Charts ---
+    # Geometry is computed here, not in the template: SVG coordinate maths in
+    # Django template tags would be unreadable and untestable.
+    trend = _sales_trend(sales_qs, today, days=14)
+    inventory_bars = _inventory_value_bars(inventory_qs)
 
     # --- Breakdown tables ---
     sales_by_branch = sales_qs.values('branch__branch_name').annotate(
@@ -116,16 +132,103 @@ def reports_dashboard(request):
         'open_pos': open_pos,
         'inventory_value': inventory_value,
         'total_products': Product.objects.count(),
+        'retail_sales': retail_sales,
+        'retail_count': retail_qs.count(),
+        'wholesale_sales': wholesale_sales,
+        'wholesale_count': wholesale_qs.count(),
+        'wholesale_share': wholesale_share,
         'low_stock_count': len(restock),
         'restock': restock[:6],
         'sales_by_branch': sales_by_branch,
         'top_products': top_products,
         'recent_orders': recent_orders,
         'total_orders': sales_qs.count(),
+        'trend': trend,
+        'inventory_bars': inventory_bars,
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
         'today': today,
     })
+
+
+# --- chart helpers ---------------------------------------------------------
+# The SVG viewBox is 0 0 100 40 and scales to whatever width the card is.
+CHART_W, CHART_H = 100.0, 40.0
+SERIES_COLOURS = ['#1E7A4F', '#B45309', '#2E9E6B', '#56655D']
+
+
+def _sales_trend(sales_qs, today, days=14):
+    """
+    Daily sales per branch for the last `days`, as ready-to-render polylines.
+
+    Returns {'series': [{name, colour, points, total}], 'labels': [...],
+             'max': Decimal, 'has_data': bool}
+    """
+    start = today - timedelta(days=days - 1)
+    window = [start + timedelta(days=i) for i in range(days)]
+
+    rows = (
+        sales_qs.filter(transaction_date__date__gte=start)
+        .values('branch__branch_name', 'transaction_date__date')
+        .annotate(total=Sum('total_amount'))
+    )
+
+    # branch -> {date: total}
+    by_branch = {}
+    for r in rows:
+        name = r['branch__branch_name'] or '—'
+        by_branch.setdefault(name, {})[r['transaction_date__date']] = r['total'] or 0
+
+    peak = max(
+        (v for daily in by_branch.values() for v in daily.values()),
+        default=0,
+    )
+    if not peak:
+        return {'series': [], 'labels': [], 'max': 0, 'has_data': False}
+
+    step = CHART_W / (days - 1) if days > 1 else CHART_W
+    series = []
+    for i, (name, daily) in enumerate(sorted(by_branch.items())):
+        points = []
+        for x, day in enumerate(window):
+            value = float(daily.get(day, 0))
+            y = CHART_H - (value / float(peak)) * CHART_H
+            points.append(f'{x * step:.2f},{y:.2f}')
+        series.append({
+            'name': name,
+            'colour': SERIES_COLOURS[i % len(SERIES_COLOURS)],
+            'points': ' '.join(points),
+            'total': sum(daily.values()),
+        })
+
+    return {
+        'series': series,
+        'labels': [window[0].strftime('%b %-d'), window[-1].strftime('%b %-d')],
+        'max': peak,
+        'has_data': True,
+    }
+
+
+def _inventory_value_bars(inventory_qs):
+    """Stock value per branch, at cost, as percentage-width bars."""
+    totals = {}
+    for inv in inventory_qs:
+        if not inv.product or not inv.branch:
+            continue
+        cost = inv.product.wholesale_price or inv.product.unit_price or 0
+        totals[inv.branch.branch_name] = (
+            totals.get(inv.branch.branch_name, 0) + inv.quantity_on_hand * cost
+        )
+
+    peak = max(totals.values(), default=0)
+    return [
+        {
+            'name': name,
+            'value': value,
+            'pct': round((float(value) / float(peak)) * 100, 1) if peak else 0,
+        }
+        for name, value in sorted(totals.items(), key=lambda kv: -kv[1])
+    ]
 
 
 # =============================================================================

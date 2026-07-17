@@ -40,6 +40,13 @@
           {% for value, label in payment_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
         </select>
       </div>
+      <div class="field">
+        <label for="order_type">Order Type</label>
+        <select id="order_type" name="order_type" onchange="recalc()">
+          {% for value, label in order_type_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+        <span class="gv-meta" id="type-hint">Retail prices apply.</span>
+      </div>
     </div>
   </div>
 
@@ -57,11 +64,19 @@
           <label>Product</label>
           <select name="product_id" class="js-product" onchange="recalc()">
             {% for p in products %}
-              <option value="{{ p.id }}" data-price="{{ p.unit_price }}">{{ p.product_name }} — ₱{{ p.unit_price }}</option>
+              <option value="{{ p.id }}"
+                      data-retail="{{ p.unit_price }}"
+                      data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
+                      data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="field" style="width:120px;">
+          <label>Unit Price</label>
+          <input type="text" class="js-price" value="₱0.00" readonly tabindex="-1"
+                 style="background:var(--line-soft); border-color:var(--line);">
+        </div>
+        <div class="field" style="width:110px;">
           <label>Quantity</label>
           <input type="number" name="quantity" class="js-qty" min="1" value="1" oninput="recalc()">
         </div>
@@ -102,16 +117,40 @@
   function peso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 
   function recalc() {
+    // Wholesale orders bill at the wholesale price — show that to the cashier
+    // BEFORE the sale is recorded, not after.
+    const wholesale = document.getElementById('order_type').value === 'Wholesale';
     let total = 0;
+    let missing = 0;
+
     rows.querySelectorAll('.item-row').forEach(row => {
-      const sel = row.querySelector('.js-product');
-      const price = parseFloat(sel.options[sel.selectedIndex]?.dataset.price || 0);
+      const opt = row.querySelector('.js-product').selectedOptions[0];
+      if (!opt) return;
+      const price = parseFloat(
+        (wholesale ? opt.dataset.wholesale : opt.dataset.retail) || 0
+      );
+      if (wholesale && opt.dataset.hasWholesale === '0') missing++;
+
       const qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
-      const sub = (price * (qty > 0 ? qty : 0));
+      const sub = price * (qty > 0 ? qty : 0);
+      row.querySelector('.js-price').value = peso(price);
       row.querySelector('.js-sub').value = peso(sub);
       total += sub;
     });
+
     document.getElementById('grand-total').textContent = peso(total);
+
+    const hint = document.getElementById('type-hint');
+    if (!wholesale) {
+      hint.textContent = 'Retail prices apply.';
+      hint.style.color = '';
+    } else if (missing) {
+      hint.textContent = `Wholesale prices apply — ${missing} item(s) have no wholesale price, so they stay at retail.`;
+      hint.style.color = 'var(--warn-fg)';
+    } else {
+      hint.textContent = 'Wholesale prices apply.';
+      hint.style.color = 'var(--ok-fg)';
+    }
   }
 
   addRow();  // start with one row

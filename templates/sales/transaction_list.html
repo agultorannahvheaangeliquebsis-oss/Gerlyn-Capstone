@@ -31,6 +31,11 @@
     <option value="Online" {% if channel_filter == "Online" %}selected{% endif %}>Online</option>
     <option value="Physical" {% if channel_filter == "Physical" %}selected{% endif %}>In-Store</option>
   </select>
+  <select name="type" onchange="this.form.submit()">
+    <option value="">Retail &amp; Wholesale</option>
+    <option value="Retail" {% if type_filter == "Retail" %}selected{% endif %}>Retail only</option>
+    <option value="Wholesale" {% if type_filter == "Wholesale" %}selected{% endif %}>Wholesale only</option>
+  </select>
   <input type="hidden" name="status" value="{{ status_filter }}">
   <button type="submit" class="btn">Search</button>
 </form>
@@ -58,6 +63,7 @@
         <th>Date / Time</th>
         <th>Customer</th>
         <th>Branch</th>
+        <th>Type</th>
         <th class="num">Total</th>
         <th>Payment</th>
         <th>Pay Status</th>
@@ -76,6 +82,10 @@
           {% else %}Walk-in{% endif %}
         </td>
         <td data-label="Branch">{{ t.branch.branch_name }}</td>
+        <td data-label="Type">
+          {% if t.order_type == "Wholesale" %}<span class="pill pill-info">Wholesale</span>
+          {% else %}<span class="pill pill-neutral">Retail</span>{% endif %}
+        </td>
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
         <td data-label="Payment" class="gv-meta">{{ t.mode_of_payment }}</td>
         <td data-label="Pay Status">
@@ -98,7 +108,7 @@
       </tr>
       {% empty %}
       <tr>
-        <td colspan="9">
+        <td colspan="10">
           <div class="empty">
             <span class="glyph">□</span>
             <h3>No orders here</h3>

@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load l10n %}
 {% block title %}{% if product %}Edit{% else %}Add{% endif %} Product{% endblock %}
 {% block page_subtitle %}Catalog{% endblock %}
 
@@ -45,15 +46,17 @@
     </div>
 
     <div class="grid-2">
+      {# unlocalize: a number input can't accept "1,345.50" — the browser blanks
+         it and the price is silently lost on save. #}
       <div class="field">
         <label for="unit_price">Retail Price (₱)</label>
         <input id="unit_price" type="number" step="0.01" min="0" name="unit_price"
-               value="{{ product.unit_price|default:'' }}" required>
+               value="{{ product.unit_price|unlocalize|default:'' }}" required>
       </div>
       <div class="field">
         <label for="wholesale_price">Wholesale Price (₱) <span class="gv-meta">— optional</span></label>
         <input id="wholesale_price" type="number" step="0.01" min="0" name="wholesale_price"
-               value="{{ product.wholesale_price|default:'' }}">
+               value="{{ product.wholesale_price|unlocalize|default:'' }}">
       </div>
     </div>
 

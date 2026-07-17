@@ -55,7 +55,8 @@
   </div>
 
   <div class="row mt-6">
-    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">Continue shopping</a>
+    <a class="btn btn-primary" href="{% url 'orders:track_order' sale.pk %}">Track this order</a>
+    <a class="btn" href="{% url 'orders:catalog' %}">Continue shopping</a>
   </div>
 </div>
 {% endblock %}

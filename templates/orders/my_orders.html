@@ -1,0 +1,61 @@
+{% extends "public_base.html" %}
+{% load shop_extras %}
+{% block title %}My Orders — Gerlyn Variety Store{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section">
+  <div class="section-head">
+    <div>
+      <h2>My Orders</h2>
+      <p class="gv-meta mb-0">{{ counts.all }} order{{ counts.all|pluralize }} · {{ counts.active }} still in progress</p>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <a class="tab {% if not status_filter %}active{% endif %}" href="?">All <span class="count">{{ counts.all }}</span></a>
+    <a class="tab {% if status_filter == 'active' %}active{% endif %}" href="?status=active">In progress <span class="count">{{ counts.active }}</span></a>
+    <a class="tab {% if status_filter == 'completed' %}active{% endif %}" href="?status=completed">Completed <span class="count">{{ counts.completed }}</span></a>
+  </div>
+
+  <div class="stack">
+    {% for o in orders %}
+    <div class="card card-pad">
+      <div class="row-between wrap" style="align-items:flex-start; gap:16px;">
+        <div>
+          <div class="row wrap" style="gap:10px;">
+            <span class="sku" style="font-weight:700; font-size:16px;">{{ o.order_number }}</span>
+            {% if o.order_status == 'Completed' %}<span class="pill pill-ok">Completed</span>
+            {% elif o.order_status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
+            {% elif o.order_status == 'Preparing' %}<span class="pill pill-warn">Being packed</span>
+            {% elif o.order_status == 'Approved' %}<span class="pill pill-info">Confirmed</span>
+            {% else %}<span class="pill pill-neutral">Waiting for the store</span>{% endif %}
+          </div>
+          <div class="gv-meta mt-2">
+            {{ o.transaction_date|date:"F d, Y" }} · {{ o.branch.branch_name }}
+            · {{ o.mode_of_payment }}
+            {% if o.billing_record.status == 'Paid' %}
+              · <span style="color:var(--ok-fg); font-weight:600;">Paid</span>
+            {% else %}
+              · <span style="color:var(--warn-fg); font-weight:600;">Not yet paid</span>
+            {% endif %}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div class="gv-metric" style="color:var(--action); font-size:22px;">₱{{ o.total_amount|floatformat:2 }}</div>
+          <a class="btn btn-sm mt-2" href="{% url 'orders:track_order' o.pk %}">Track order</a>
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="card">
+      <div class="empty">
+        <span class="glyph">🛒</span>
+        <h3>No orders yet</h3>
+        <p>{% if status_filter %}Nothing in this tab — try “All”.{% else %}When you place an order it'll show up here, and you can follow its progress.{% endif %}</p>
+        <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">Start shopping</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

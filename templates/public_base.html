@@ -15,8 +15,11 @@
   <div class="shop-wrap row-between">
     <span>Free delivery within Baliuag on orders over ₱500</span>
     <span class="row" style="gap:16px;">
-      <a href="{% url 'orders:catalog' %}">Track Order</a>
-      {% if not request.user.is_authenticated %}
+      {% if request.user.is_authenticated %}
+        <a href="{% url 'orders:my_orders' %}">Track Order</a>
+      {% else %}
+        {# no account = no orders to track, so send them to log in #}
+        <a href="{% url 'login' %}?next={% url 'orders:my_orders' %}">Track Order</a>
         <a href="{% url 'login' %}">Log in</a>
         <a href="{% url 'register' %}"><strong>Register</strong></a>
       {% endif %}
@@ -34,7 +37,10 @@
 
     <nav class="shop-links">
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
-      <a href="{% url 'orders:catalog' %}" class="{% if '/shop/' in request.path %}active{% endif %}">Products</a>
+      <a href="{% url 'orders:catalog' %}" class="{% if request.path == '/shop/' %}active{% endif %}">Products</a>
+      {% if request.user.is_authenticated and request.user.role == 'CUSTOMER' %}
+        <a href="{% url 'orders:my_orders' %}" class="{% if '/shop/orders' in request.path %}active{% endif %}">My Orders</a>
+      {% endif %}
     </nav>
 
     <form class="shop-search" method="GET" action="{% url 'orders:catalog' %}">

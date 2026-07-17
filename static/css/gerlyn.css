@@ -380,6 +380,11 @@ input::placeholder { color: var(--ink-400); }
   @page { margin: 14mm; }
 }
 
+/* Progress meter — used by the cart's free-delivery bar and the dashboard's
+   retail/wholesale split. Lives here so both layers can use it. */
+.meter { height: 8px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--brand); border-radius: var(--r-pill); }
+
 /* Tabs */
 .tabs { display: flex; gap: 8px; margin-bottom: var(--s4); flex-wrap: wrap; }
 .tab {
