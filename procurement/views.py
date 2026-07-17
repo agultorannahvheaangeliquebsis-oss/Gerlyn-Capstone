@@ -75,7 +75,21 @@ def procurement_list(request):
 
 @login_required(login_url='login')
 def procurement_detail(request, pk):
-    proc  = get_object_or_404(Procurement, pk=pk)
+    proc = get_object_or_404(
+        Procurement.objects.select_related('branch', 'supplier'), pk=pk
+    )
+
+    # Scoping the list is not enough — the detail page must check too, or anyone
+    # can read another branch's (or a rival supplier's) order by editing the URL.
+    if request.user.role == User.Role.SUPPLIER:
+        allowed = proc.supplier_id == request.user.id
+    else:
+        allowed = user_can_access_branch(request.user, proc.branch_id)
+
+    if not allowed:
+        messages.error(request, 'That purchase order is not available to you.')
+        return redirect('procurement_list')
+
     items = proc.items.select_related('product').all()
     return render(request, 'procurement/procurement_detail.html', {
         'procurement': proc, 'items': items
@@ -307,7 +321,85 @@ def receiving_history(request):
 
 
 # =============================================================================
-# SUPPLIERS
+# SUPPLIER PORTAL
+# The Supplier is one of the five documented roles. Per the Context Diagram they
+# "receive procurement requests and provide delivery information" — so they see
+# their own orders and can commit to a delivery date. They deliberately CANNOT
+# mark an order Received: that is the store's receipt validation (business
+# rule 13), and letting a supplier self-confirm would defeat the control.
+# =============================================================================
+
+@login_required(login_url='login')
+def supplier_portal(request):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    orders = Procurement.objects.filter(
+        supplier=request.user
+    ).select_related('branch').prefetch_related('items__product').order_by('-order_date')
+
+    status_filter = request.GET.get('status', '')
+    counts = {
+        'all': orders.count(),
+        'ordered': orders.filter(status=Procurement.Status.ORDERED).count(),
+        'received': orders.filter(status=Procurement.Status.RECEIVED).count(),
+        'cancelled': orders.filter(status=Procurement.Status.CANCELLED).count(),
+    }
+    # A Draft PO hasn't been placed yet — the supplier should never see it.
+    orders = orders.exclude(status=Procurement.Status.DRAFT)
+    if status_filter:
+        orders = orders.filter(status=status_filter)
+
+    today = timezone.now().date()
+    open_orders = [o for o in orders if o.status == Procurement.Status.ORDERED]
+    open_value = sum(o.total_cost for o in open_orders)
+    overdue = sum(
+        1 for o in open_orders if o.delivery_date and o.delivery_date < today
+    )
+
+    return render(request, 'procurement/supplier_portal.html', {
+        'orders': orders,
+        'counts': counts,
+        'status_filter': status_filter,
+        'open_count': len(open_orders),
+        'open_value': open_value,
+        'overdue': overdue,
+        'today': today,
+        'profile': getattr(request.user, 'supplier_profile', None),
+    })
+
+
+@login_required(login_url='login')
+def supplier_set_delivery_date(request, pk):
+    """The supplier commits to (or revises) a delivery date on their own order."""
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    proc = get_object_or_404(Procurement, pk=pk, supplier=request.user)
+
+    if proc.status != Procurement.Status.ORDERED:
+        messages.error(request, f'{proc.po_number} is no longer open.')
+        return redirect('supplier_portal')
+
+    if request.method == 'POST':
+        new_date = request.POST.get('delivery_date')
+        if not new_date:
+            messages.error(request, 'Please choose a delivery date.')
+            return redirect('supplier_portal')
+        proc.delivery_date = new_date
+        proc.save()
+        messages.success(
+            request,
+            f'Thanks — {proc.po_number} is confirmed for delivery on {new_date}.'
+        )
+
+    return redirect('supplier_portal')
+
+
+# =============================================================================
+# SUPPLIERS (managed by the store)
 # =============================================================================
 
 @login_required(login_url='login')

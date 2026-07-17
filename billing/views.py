@@ -5,6 +5,7 @@ from django.utils import timezone
 from .models import BillingRecord
 from sales.models import SalesTransaction
 from accounts.models import User
+from core.scoping import user_can_access_branch
 
 
 @login_required(login_url='login')
@@ -23,6 +24,10 @@ def billing_list(request):
     # Customers only see their own billing records
     elif request.user.role == User.Role.CUSTOMER:
         records = records.filter(transaction__customer=request.user)
+
+    # Suppliers have no business in the store's billing at all.
+    elif request.user.role == User.Role.SUPPLIER:
+        records = records.none()
 
     records = records.order_by('-date_recorded')
 
@@ -51,7 +56,22 @@ def billing_list(request):
 
 @login_required(login_url='login')
 def billing_detail(request, pk):
-    record = get_object_or_404(BillingRecord, pk=pk)
+    record = get_object_or_404(
+        BillingRecord.objects.select_related('transaction', 'transaction__branch'),
+        pk=pk,
+    )
+
+    # The list is scoped, so the detail must be too — otherwise another branch's
+    # billing record is readable just by changing the URL.
+    if request.user.role == User.Role.CUSTOMER:
+        allowed = record.transaction.customer_id == request.user.id
+    else:
+        allowed = user_can_access_branch(request.user, record.transaction.branch_id)
+
+    if not allowed:
+        messages.error(request, 'That billing record is not available to you.')
+        return redirect('billing_list')
+
     return render(request, 'billing/billing_detail.html', {'record': record})
 
 

@@ -13,7 +13,8 @@ from .models import (
 from .alerts import alert_summary
 from accounts.models import User
 from branches.models import Branch
-from core.scoping import branch_ids_for_user
+from core.permissions import INTERNAL_ROLES
+from core.scoping import branch_ids_for_user, user_can_access_branch
 
 
 # ─────────────────────────────────────────────
@@ -37,6 +38,10 @@ def get_user_branch(user):
 
 @login_required(login_url='login')
 def product_list(request):
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
     products = (
         Product.objects.select_related('category')
         .prefetch_related('inventory_records__branch')
@@ -156,6 +161,94 @@ def product_delete(request, pk):
 
 
 # ─────────────────────────────────────────────
+# CATEGORIES
+# Product categories drive the catalog filters and the storefront's
+# "Shop by Category" section, so they need a real management screen.
+# ─────────────────────────────────────────────
+
+@login_required(login_url='login')
+def category_list(request):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    categories = ProductCategory.objects.annotate(
+        product_count=models.Count('products')
+    ).order_by('category_name')
+
+    return render(request, 'inventory/category_list.html', {
+        'categories': categories,
+        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+    })
+
+
+@login_required(login_url='login')
+def category_form(request, pk=None):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to manage categories.')
+        return redirect('category_list')
+
+    category = get_object_or_404(ProductCategory, pk=pk) if pk else None
+
+    if request.method == 'POST':
+        name = request.POST.get('category_name', '').strip()
+        description = request.POST.get('description', '').strip()
+
+        if not name:
+            messages.error(request, 'Category name is required.')
+            return redirect(request.path)
+
+        clash = ProductCategory.objects.filter(category_name__iexact=name)
+        if category:
+            clash = clash.exclude(pk=category.pk)
+        if clash.exists():
+            messages.error(request, f'A category called "{name}" already exists.')
+            return redirect(request.path)
+
+        if category is None:
+            ProductCategory.objects.create(category_name=name, description=description)
+            messages.success(request, f'Category "{name}" created.')
+        else:
+            category.category_name = name
+            category.description = description
+            category.save()
+            messages.success(request, f'Category "{name}" updated.')
+        return redirect('category_list')
+
+    return render(request, 'inventory/category_form.html', {'category': category})
+
+
+@login_required(login_url='login')
+def category_delete(request, pk):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to manage categories.')
+        return redirect('category_list')
+
+    category = get_object_or_404(ProductCategory, pk=pk)
+    product_count = category.products.count()
+
+    if request.method == 'POST':
+        # Products would be orphaned (category is SET_NULL), so make the user
+        # move them first rather than silently uncategorising the catalog.
+        if product_count:
+            messages.error(
+                request,
+                f'Cannot delete "{category.category_name}" — {product_count} '
+                f'product{"s" if product_count != 1 else ""} still use it.'
+            )
+            return redirect('category_list')
+        name = category.category_name
+        category.delete()
+        messages.success(request, f'Category "{name}" deleted.')
+        return redirect('category_list')
+
+    return render(request, 'inventory/category_confirm_delete.html', {
+        'category': category,
+        'product_count': product_count,
+    })
+
+
+# ─────────────────────────────────────────────
 # ALERTS CENTER
 # Low/critical stock + expiry alerts, branch-scoped. Powered by the shared
 # inventory.alerts engine so these numbers match the Dashboard exactly.
@@ -188,6 +281,12 @@ def alerts_center(request):
 @login_required(login_url='login')
 def inventory_list(request):
     """Stock per Branch — real-time levels across branches, with status."""
+    # Suppliers/customers must never reach this: get_user_branch() returns None
+    # for them, which the branch filter below would read as "show everything".
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
     records = Inventory.objects.select_related(
         'product', 'product__category', 'branch'
     ).all()
@@ -460,6 +559,14 @@ def transfer_detail(request, pk):
             'requested_by', 'approved_by'
         ), pk=pk
     )
+
+    # A slip concerns two branches, so either side may view it — but nobody else.
+    # (The list is scoped; without this the detail leaks via the URL.)
+    if not (user_can_access_branch(request.user, transfer.source_branch_id)
+            or user_can_access_branch(request.user, transfer.destination_branch_id)):
+        messages.error(request, 'That withdrawal slip is not available to you.')
+        return redirect('transfer_list')
+
     items = transfer.items.select_related('product').all()
 
     return render(request, 'inventory/transfer_detail.html', {

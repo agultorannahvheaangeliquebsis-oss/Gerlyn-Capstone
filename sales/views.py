@@ -6,11 +6,24 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.models import User
 from branches.models import Branch
-from core.permissions import BRANCH_MANAGER, OWNER, STAFF, role_required
+from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.scoping import branch_ids_for_user, scope_queryset, user_can_access_branch
 from inventory.models import Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
+
+
+def price_for(product, order_type):
+    """
+    The price to charge for a product on this kind of order.
+
+    Chapter 1 describes Gerlyn as a retail AND wholesale business, so a
+    Wholesale order bills at `wholesale_price`. Not every product has one —
+    those fall back to the retail price rather than being sold at ₱0.
+    """
+    if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price:
+        return product.wholesale_price
+    return product.unit_price
 
 
 # ─────────────────────────────────────────────
@@ -20,6 +33,10 @@ from .models import SalesItem, SalesTransaction
 @login_required(login_url='login')
 def transaction_list(request):
     """Order Console — the queue of every order, filterable by status."""
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
     transactions = (
         SalesTransaction.objects
         .select_related('branch', 'staff', 'customer')
@@ -33,6 +50,7 @@ def transaction_list(request):
     status_filter = request.GET.get('status', '')
     channel_filter = request.GET.get('channel', '')
     branch_filter = request.GET.get('branch', '')
+    type_filter = request.GET.get('type', '')
 
     if search_query:
         transactions = transactions.filter(
@@ -45,6 +63,8 @@ def transaction_list(request):
         transactions = transactions.filter(transaction_type=channel_filter)
     if branch_filter:
         transactions = transactions.filter(branch_id=branch_filter)
+    if type_filter:
+        transactions = transactions.filter(order_type=type_filter)
 
     # Counts per tab are computed BEFORE the status filter is applied.
     base = transactions
@@ -67,6 +87,7 @@ def transaction_list(request):
         'status_filter': status_filter,
         'channel_filter': channel_filter,
         'branch_filter': branch_filter,
+        'type_filter': type_filter,
         'branches': Branch.objects.all() if show_branch_filter else [],
         'can_pos': request.user.role in [OWNER, BRANCH_MANAGER, STAFF],
     })
@@ -190,6 +211,9 @@ def transaction_add(request):
             return redirect('transaction_add')
 
         mode_of_payment = request.POST.get('mode_of_payment') or 'Cash'
+        order_type = request.POST.get('order_type') or SalesTransaction.OrderType.RETAIL
+        if order_type not in SalesTransaction.OrderType.values:
+            order_type = SalesTransaction.OrderType.RETAIL
         product_ids = request.POST.getlist('product_id')
         quantities = request.POST.getlist('quantity')
 
@@ -207,6 +231,7 @@ def transaction_add(request):
                 staff=request.user if request.user.role == STAFF else None,
                 transaction_type=SalesTransaction.TransactionType.PHYSICAL,
                 mode_of_payment=mode_of_payment,
+                order_type=order_type,
                 order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
                 total_amount=0,
             )
@@ -214,11 +239,12 @@ def transaction_add(request):
             total = 0
             for product_id, qty in line_items:
                 product = Product.objects.get(pk=product_id)
+                price = price_for(product, order_type)
                 SalesItem.objects.create(
                     transaction=txn, product=product,
-                    quantity_sold=qty, unit_price=product.unit_price,
+                    quantity_sold=qty, unit_price=price,
                 )
-                total += product.unit_price * qty
+                total += price * qty
 
             txn.total_amount = total
             txn.save()
@@ -248,4 +274,5 @@ def transaction_add(request):
             c for c in SalesTransaction.ModeOfPayment.choices
             if c[0] in ['Cash', 'GCash', 'Card']
         ],
+        'order_type_choices': SalesTransaction.OrderType.choices,
     })
