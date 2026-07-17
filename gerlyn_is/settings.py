@@ -75,17 +75,16 @@ INSTALLED_APPS = [
     'billing',
     'reports',
     'orders',
+    # The DRF API (/api/) is served same-origin by this project, so no CORS
+    # layer is needed. (The `frontend-react` branch, which calls it from a Vite
+    # dev server on :5173, re-adds django-cors-headers.)
     "rest_framework",
-    # Needed by the React dev server (npm run dev on :5173), which is a
-    # different origin from Django on :8000.
-    "corsheaders",
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    "corsheaders.middleware.CorsMiddleware",   # must sit above CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -94,16 +93,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# --- React dev server (Vite) ----------------------------------------------
-# The SPA runs on :5173 and calls Django on :8000, so it needs CORS + CSRF
-# trust. Session auth is cookie-based, hence ALLOW_CREDENTIALS.
-CORS_ALLOWED_ORIGINS = env_list(
-    'DJANGO_CORS_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173'
-)
-CORS_ALLOW_CREDENTIALS = True
-CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
-# The SPA reads the CSRF cookie in JS, so it must not be HttpOnly.
-CSRF_COOKIE_HTTPONLY = False
+# Trust the deployed origin for POSTs (set once the app has a real URL),
+# e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
+CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
 
 
 
