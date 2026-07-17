@@ -85,6 +85,9 @@ AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise serves static files in production. Without it, DEBUG=False
+    # means Django serves NO CSS and the whole site renders unstyled.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -96,6 +99,22 @@ MIDDLEWARE = [
 # Trust the deployed origin for POSTs (set once the app has a real URL),
 # e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
+
+# --- Production hardening --------------------------------------------------
+# Only applied when DEBUG is off, so local development over plain HTTP still
+# works. Set DJANGO_SECURE_SSL=False if the host does not terminate TLS.
+if not DEBUG:
+    SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL', True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # Railway/Render sit behind a proxy that terminates TLS; without this
+    # Django sees plain HTTP and redirect-loops forever.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_HSTS_SECONDS = 31536000          # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
 
 
 
@@ -184,6 +203,17 @@ USE_THOUSAND_SEPARATOR = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+# collectstatic gathers everything here for WhiteNoise to serve.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        # Compresses + fingerprints filenames for long-lived caching.
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
