@@ -152,13 +152,20 @@ The system must be reachable by evaluators before Phase 4 can start.
 ₱140 each** across 6 members. Don't burn a week trying to avoid it.
 
 ### Deployment checklist
-- [ ] Push to GitHub (private repo).
-- [ ] Create the Railway project, add a MySQL database (one click).
-- [ ] Set env vars: `DJANGO_SECRET_KEY` (new one!), `DJANGO_DEBUG=False`,
-      `DJANGO_ALLOWED_HOSTS=<your-app>.up.railway.app`, and the DB vars.
-- [ ] Add `gunicorn` + `whitenoise` to `requirements.txt` (needed for static files
-      when `DEBUG=False` — the dev server won't serve them).
-- [ ] Run `migrate` and `seed_demo` on the server.
+
+**The code is already prepared and tested** — see **[docs/deployment.md](docs/deployment.md)**
+for the step-by-step. gunicorn, WhiteNoise, `collectstatic`, the media route,
+the security settings, `Procfile` and `railway.json` are all done and were
+verified by running the app in production mode locally. Django's
+`check --deploy` reports **0 warnings**.
+
+What's left is the account work:
+- [ ] Create the Railway project + add MySQL (one click).
+- [ ] Set the env vars (table in the deployment doc). **Don't forget
+      `DJANGO_CSRF_TRUSTED`** — without it, login itself fails.
+- [ ] **Mount a volume at `/app/media`** — Railway's filesystem is ephemeral, so
+      uploaded payment proofs vanish on every redeploy without it.
+- [ ] Run `seed_demo --reset` on the server.
 - [ ] **Test the live URL from a phone on mobile data** — not your wifi.
 - [ ] Write the URL + logins into `README.md`.
 
