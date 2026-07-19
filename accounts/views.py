@@ -298,14 +298,15 @@ def register_view(request):
             role=User.Role.CUSTOMER,
         )
 
-        from .models import CustomerProfile
-        CustomerProfile.objects.create(
-            user=user,
-            first_name=first_name,
-            last_name=last_name,
-            contact_number=contact_number,
-            address=address,
-        )
+        # create_user() above already triggered the post_save signal, which
+        # auto-created a placeholder CustomerProfile — fill it in rather than
+        # creating a second one (that collides on the OneToOne user_id).
+        profile = user.customer_profile
+        profile.first_name = first_name
+        profile.last_name = last_name
+        profile.contact_number = contact_number
+        profile.address = address
+        profile.save()
 
         login(request, user)
         messages.success(request, 'Account created successfully. Welcome!')

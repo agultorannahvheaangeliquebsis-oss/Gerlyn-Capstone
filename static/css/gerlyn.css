@@ -121,7 +121,7 @@ input[type=date], input[type=password], input[type=email], select, textarea {
   font: 400 15px/1.4 system-ui, sans-serif;
   width: 100%;
 }
-textarea { padding: 10px 14px; min-height: 80px; }
+textarea { padding: 10px 14px; min-height: 80px; resize: vertical; max-width: 100%; }
 input::placeholder { color: var(--ink-400); }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-700); }

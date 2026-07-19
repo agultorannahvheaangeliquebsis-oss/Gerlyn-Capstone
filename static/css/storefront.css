@@ -76,7 +76,7 @@ body.shop { background: #fff; }
   padding: 64px 0;
 }
 .hero h1 {
-  font: 800 40px/1.15 system-ui, sans-serif;
+  font: 800 40px/1.15 'Inter', system-ui, sans-serif;
   color: #fff; margin: 0 0 12px; white-space: nowrap;
 }
 .hero p { font-size: 17px; line-height: 1.5; opacity: .92; margin: 0 0 24px; white-space: nowrap; }
