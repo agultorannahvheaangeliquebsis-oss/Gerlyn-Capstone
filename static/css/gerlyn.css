@@ -300,6 +300,53 @@ input::placeholder { color: var(--ink-400); }
 .nav-link.danger { color: var(--danger-fg); }
 .nav-link.danger:hover { background: var(--danger-bg); }
 
+/* --------------------------------------------------- grouped nav dropdowns */
+.nav-group { border-radius: var(--r-input); }
+
+/* Category header = <summary>. Reset the native disclosure triangle. */
+.nav-group-head {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--touch); padding: 0 12px;
+  border-radius: var(--r-input); cursor: pointer;
+  color: var(--ink-700); font: 600 14.5px/1 system-ui, sans-serif;
+  list-style: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.nav-group-head::-webkit-details-marker { display: none; }
+.nav-group-head:hover { background: var(--line-soft); color: var(--ink-900); }
+.nav-group-icon { width: 18px; height: 18px; flex: none; }
+
+/* Chevron sits at the far right and rotates down when the group is open. */
+.nav-chevron {
+  width: 16px; height: 16px; flex: none; margin-left: auto;
+  color: var(--ink-400); transition: transform .18s ease;
+}
+.nav-group[open] > .nav-group-head .nav-chevron { transform: rotate(90deg); }
+
+/* A count badge on the header shares the row with the chevron. */
+.nav-badge-head { margin-left: auto; }
+.nav-badge-head + .nav-chevron { margin-left: 8px; }
+
+/* Active-parent cue: when a child link is active, tint the category header and
+   run a green accent rail down its sub-items so the open branch reads clearly.
+   :has() is the no-JS path; older engines simply fall back to the [open] cue. */
+.nav-group:has(.nav-link.active) > .nav-group-head {
+  color: var(--action-700);
+}
+.nav-group:has(.nav-link.active) > .nav-group-head .nav-group-icon { color: var(--action); }
+
+/* Sub-item list: indented under the header with a connecting rail. */
+.nav-sub {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 2px 0 2px 22px; padding-left: 10px;
+  border-left: 1.5px solid var(--line);
+}
+.nav-sub .nav-link {
+  min-height: 38px; font-weight: 500; color: var(--ink-600);
+}
+.nav-sub .nav-link:hover { color: var(--ink-900); }
+.nav-sub .nav-link.active { font-weight: 600; }
+.nav-group:has(.nav-link.active) > .nav-sub { border-left-color: var(--green-300); }
+
 .main { margin-left: 248px; min-height: 100vh; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s4);

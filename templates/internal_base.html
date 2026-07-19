@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
-  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=3">
   {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -36,68 +36,91 @@
     </div>
 
     <nav class="nav">
+      {# Dashboard stays a top-level anchor — it's the home target, not a category. #}
       <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="{{ dash_url }}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
         Dashboard
       </a>
-      <a class="nav-link {% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-        Sales &amp; Orders
-      </a>
-      <a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="{% url 'product_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
-        Product Master List
-      </a>
-      <a class="nav-link {% if active_page == 'categories' %}active{% endif %}" href="{% url 'category_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        Categories
-      </a>
-      <a class="nav-link {% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
-        Stock per Branch
-      </a>
-      <a class="nav-link {% if active_page == 'withdrawals' %}active{% endif %}" href="{% url 'transfer_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 10h8M8 14h5"/></svg>
-        Withdrawal Slips
-      </a>
-      <a class="nav-link {% if active_page == 'procurement' %}active{% endif %}" href="{% url 'procurement_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
-        Purchase Orders
-      </a>
-      <a class="nav-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8l-9-5-9 5v8l9 5z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
-        Deliveries
-      </a>
-      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
-      <a class="nav-link {% if active_page == 'suppliers' %}active{% endif %}" href="{% url 'supplier_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
-        Suppliers
-      </a>
-      {% endif %}
-      <a class="nav-link {% if active_page == 'billing' %}active{% endif %}" href="{% url 'billing_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
-        Billing
-      </a>
-      <a class="nav-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-        Reports
-      </a>
-      <a class="nav-link {% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
-        Alerts
-        {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
-      </a>
 
+      {# ---------------------------------------------------------- Inventory #}
+      <details class="nav-group" data-group="inventory"
+        {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+          <span>Inventory</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="{% url 'product_list' %}">Product Master List</a>
+          <a class="nav-link {% if active_page == 'categories' %}active{% endif %}" href="{% url 'category_list' %}">Categories</a>
+          <a class="nav-link {% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">Stock per Branch</a>
+          <a class="nav-link {% if active_page == 'withdrawals' %}active{% endif %}" href="{% url 'transfer_list' %}">Withdrawal Slips</a>
+        </div>
+      </details>
+
+      {# -------------------------------------------------------- Procurement #}
+      <details class="nav-group" data-group="procurement"
+        {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+          <span>Procurement</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+          <a class="nav-link {% if active_page == 'suppliers' %}active{% endif %}" href="{% url 'supplier_list' %}">Suppliers</a>
+          {% endif %}
+          <a class="nav-link {% if active_page == 'procurement' %}active{% endif %}" href="{% url 'procurement_list' %}">Purchase Orders</a>
+          <a class="nav-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
+        </div>
+      </details>
+
+      {# --------------------------------------------------------- Financials #}
+      <details class="nav-group" data-group="financials"
+        {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
+          <span>Financials</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">Sales &amp; Orders</a>
+          <a class="nav-link {% if active_page == 'billing' %}active{% endif %}" href="{% url 'billing_list' %}">Billing</a>
+        </div>
+      </details>
+
+      {# -------------------------------------------------- System / Monitoring #}
+      <details class="nav-group" data-group="monitoring"
+        {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2 6 4-14 2 8h6"/></svg>
+          <span>System &amp; Monitoring</span>
+          {% if alert_count %}<span class="nav-badge nav-badge-head">{{ alert_count }}</span>{% endif %}
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
+          <a class="nav-link {% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
+            Alerts
+            {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+          </a>
+        </div>
+      </details>
+
+      {# ------------------------------------------------------ Administration #}
       {% if request.user.role == 'OWNER' %}
-      <div class="nav-section gv-label">Administration</div>
-      <a class="nav-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 21v-5h6v5"/></svg>
-        Branch Management
-      </a>
-      <a class="nav-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'user_list' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
-        User Management
-      </a>
+      <details class="nav-group" data-group="administration"
+        {% if active_page == 'branches' or active_page == 'users' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
+          <span>Administration</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">Branch Management</a>
+          <a class="nav-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'user_list' %}">User Management</a>
+        </div>
+      </details>
       {% endif %}
     </nav>
 
@@ -160,6 +183,28 @@
   </nav>
 
 </div>
+<script>
+/* Sidebar dropdowns: remember which categories the user opened across page
+   loads. The group holding the active page is always forced open (server adds
+   `open`), so this only restores the *extra* groups a user chose to expand.
+   Pure progressive enhancement — with JS off, the server-rendered `open`
+   attribute still expands the active category. */
+(function () {
+  var KEY = 'gv-nav-open';
+  var groups = document.querySelectorAll('.nav-group[data-group]');
+  if (!groups.length || !window.localStorage) return;
+  var saved;
+  try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { saved = {}; }
+  groups.forEach(function (g) {
+    var id = g.getAttribute('data-group');
+    if (saved[id] === true) g.open = true;        // restore user's choice
+    g.addEventListener('toggle', function () {
+      saved[id] = g.open;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+    });
+  });
+})();
+</script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>

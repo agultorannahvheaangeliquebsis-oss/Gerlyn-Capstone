@@ -3,6 +3,66 @@ from core.permissions import INTERNAL_ROLES
 from core.scoping import branch_ids_for_user
 
 
+# Maps the resolved URL name of the current request to the sidebar's
+# `active_page` key. Keyed by URL name (not path) so it survives URL edits.
+# List, detail and form views of one feature all point at the same key, so the
+# sidebar highlights — and the containing dropdown auto-expands — on every page
+# of that feature, not just its landing page.
+_ACTIVE_PAGE_BY_URL_NAME = {
+    # Dashboard (top-level)
+    "owner_dashboard": "dashboard",
+    "manager_dashboard": "dashboard",
+    "staff_dashboard": "dashboard",
+    # Inventory
+    "product_list": "products", "product_add": "products", "product_edit": "products",
+    "product_delete": "products", "product_detail": "products",
+    "category_list": "categories", "category_add": "categories",
+    "category_edit": "categories", "category_delete": "categories",
+    "inventory_list": "stock", "warehouse_stock_list": "stock",
+    "transfer_list": "withdrawals", "transfer_create": "withdrawals",
+    "transfer_detail": "withdrawals", "transfer_approve": "withdrawals",
+    "transfer_complete": "withdrawals", "transfer_confirm_receipt": "withdrawals",
+    "transfer_flag_discrepancy": "withdrawals",
+    # Procurement
+    "supplier_list": "suppliers", "supplier_add": "suppliers",
+    "supplier_edit": "suppliers", "supplier_delete": "suppliers",
+    "procurement_list": "procurement", "procurement_add": "procurement",
+    "procurement_detail": "procurement", "procurement_update_status": "procurement",
+    "delivery_list": "deliveries", "delivery_receive": "deliveries",
+    "receiving_history": "deliveries",
+    # Financials
+    "transaction_list": "orders", "transaction_add": "orders",
+    "transaction_detail": "orders", "transaction_set_status": "orders",
+    "billing_list": "billing", "billing_create": "billing",
+    "billing_detail": "billing", "billing_confirm": "billing",
+    # System & Monitoring
+    "reports_dashboard": "reports", "sales_report": "reports",
+    "inventory_report": "reports", "procurement_report": "reports",
+    "billing_report": "reports", "export_csv": "reports",
+    "alerts_center": "alerts",
+    # Administration
+    "branch_list": "branches", "branch_add": "branches",
+    "branch_edit": "branches", "branch_delete": "branches",
+    "user_list": "users", "user_add": "users",
+    "user_edit": "users", "user_toggle_active": "users",
+}
+
+
+def active_nav(request):
+    """
+    Expose `active_page` for the sidebar on every internal page.
+
+    Derived from the resolved URL name so the highlight and the auto-expanding
+    dropdown work across list/detail/form views without each view having to set
+    it. A view may still pass its own `active_page` in context to override this.
+    Fail-safe: never raises, just yields no active page.
+    """
+    match = getattr(request, "resolver_match", None)
+    url_name = getattr(match, "url_name", None) if match else None
+    page = _ACTIVE_PAGE_BY_URL_NAME.get(url_name)
+    return {"active_page": page} if page else {}
+
+
 def alerts(request):
     """
     Expose `alert_count` for the sidebar/bottom-nav badge.
