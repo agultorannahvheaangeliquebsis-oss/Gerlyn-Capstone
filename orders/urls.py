@@ -6,6 +6,7 @@ app_name = 'orders'
 urlpatterns = [
     # Browsing (open to guests)
     path('', customer_views.product_catalog, name='catalog'),
+    path('search/suggest/', customer_views.search_suggestions, name='search_suggestions'),
     path('product/<int:product_id>/', customer_views.product_detail, name='product_detail'),
     path('branch/', customer_views.select_branch, name='select_branch'),
     path('branch/<int:branch_id>/', customer_views.set_branch, name='set_branch'),

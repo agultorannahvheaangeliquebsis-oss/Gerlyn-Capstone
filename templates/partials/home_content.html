@@ -87,7 +87,7 @@
           <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
           <span class="unit">per {{ p.unit_of_measure|lower }}</span>
         </div>
-        <a class="btn btn-primary" href="{% url 'orders:product_detail' p.id %}">View product</a>
+        <a class="btn btn-primary cta" href="{% url 'orders:product_detail' p.id %}">View product</a>
       </div>
     </div>
     {% empty %}

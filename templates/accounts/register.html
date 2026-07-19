@@ -1,10 +1,11 @@
 {% extends "public_base.html" %}
+{% load static %}
 {% block title %}Create Account — Gerlyn Variety Store{% endblock %}
 
 {% block content %}
 <div class="shop-wrap section" style="max-width:480px;">
   <div style="text-align:center; margin-bottom:24px;">
-    <span class="brand-mark" style="width:56px; height:56px; border-radius:16px; font-size:26px; margin:0 auto 12px;">G</span>
+    <span class="brand-mark" style="width:56px; height:56px; border-radius:16px; margin:0 auto 12px;"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
     <h2>Create your account</h2>
     <p class="gv-meta mb-0">Shop online and track your orders.</p>
   </div>

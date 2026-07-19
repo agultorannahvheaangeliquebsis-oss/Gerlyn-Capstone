@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
-  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}">
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=2">
   {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -20,7 +20,7 @@
   <!-- ============================ SIDEBAR (desktop) ==================== -->
   <aside class="sidebar">
     <div class="brand">
-      <span class="brand-mark">G</span>
+      <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
       <span>
         <span class="brand-name">Gerlyn Variety Store</span><br>
         <span class="brand-sub">Internal System</span>

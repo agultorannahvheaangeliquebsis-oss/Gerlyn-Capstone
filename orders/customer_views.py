@@ -3,11 +3,17 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
 from django.db import transaction
+from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from branches.models import Branch
 from inventory.models import Inventory, Product, ProductCategory
 from sales.models import SalesItem, SalesTransaction
+
+# Cap on how many rows the live-search dropdown shows at once.
+SEARCH_SUGGESTION_LIMIT = 8
 
 # Free delivery threshold shown on the cart meter.
 FREE_DELIVERY_OVER = Decimal('500')
@@ -77,6 +83,31 @@ def product_catalog(request):
         'category_filter': category_filter,
         'cart_count': sum(request.session.get('cart', {}).values()),
     })
+
+
+def search_suggestions(request):
+    """JSON endpoint backing the header's live-search dropdown."""
+    query = request.GET.get('q', '').strip()
+    if len(query) < 2:
+        return JsonResponse({'results': []})
+
+    products = (
+        Product.objects.select_related('category')
+        .filter(Q(product_name__icontains=query) | Q(sku_code__icontains=query))
+        .order_by('product_name')[:SEARCH_SUGGESTION_LIMIT]
+    )
+
+    results = [
+        {
+            'id': product.id,
+            'name': product.product_name,
+            'category': product.category.category_name if product.category else '',
+            'price': str(product.unit_price),
+            'url': reverse('orders:product_detail', args=[product.id]),
+        }
+        for product in products
+    ]
+    return JsonResponse({'results': results})
 
 
 def product_detail(request, product_id):
