@@ -47,8 +47,8 @@ def owner_dashboard(request):
         messages.error(request, 'Access denied.')
         return redirect('login')
 
-    from reports.views import reports_dashboard
-    return reports_dashboard(request)
+    from reports.views import operational_dashboard
+    return operational_dashboard(request)
 
 
 @login_required(login_url='login')
@@ -57,8 +57,8 @@ def manager_dashboard(request):
         messages.error(request, 'Access denied.')
         return redirect('login')
     # Same Dashboard as the Owner — the view scopes it to the manager's branch.
-    from reports.views import reports_dashboard
-    return reports_dashboard(request)
+    from reports.views import operational_dashboard
+    return operational_dashboard(request)
 
 
 @login_required(login_url='login')
@@ -66,8 +66,8 @@ def staff_dashboard(request):
     if request.user.role != User.Role.STAFF:
         messages.error(request, 'Access denied.')
         return redirect('login')
-    from reports.views import reports_dashboard
-    return reports_dashboard(request)
+    from reports.views import operational_dashboard
+    return operational_dashboard(request)
 
 
 @login_required(login_url='login')

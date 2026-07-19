@@ -61,35 +61,53 @@
   </div>
 </div>
 
-{# --------- retail vs wholesale: the visibility Chapter 1 says was missing --- #}
-<div class="card card-pad mb-6">
-  <div class="row-between mb-4">
-    <h3>Retail vs Wholesale</h3>
-    <span class="gv-meta">{{ wholesale_share }}% of sales value is wholesale</span>
-  </div>
-  <div class="grid-2" style="grid-template-columns:1fr 1fr;">
-    <div>
-      <div class="row-between">
-        <span><span class="pill pill-neutral">Retail</span></span>
-        <span class="num strong">₱{{ retail_sales|floatformat:2 }}</span>
+{# ---------------------- branch status: 3-second scan row -------------------- #}
+{% if branch_status %}
+<div class="row wrap mb-6" style="gap:14px;">
+  {% for b in branch_status %}
+  <div class="card card-pad" style="flex:1 1 240px;">
+    <div class="row-between">
+      <div>
+        <div style="font-weight:600;">{{ b.branch.branch_name }}</div>
+        <div class="gv-meta">{{ b.branch.location }}</div>
       </div>
-      <div class="gv-meta mt-2">{{ retail_count }} order{{ retail_count|pluralize }}</div>
+      {% if b.status == 'ok' %}<span class="pill pill-ok">Good</span>
+      {% elif b.status == 'watch' %}<span class="pill pill-warn">Watch</span>
+      {% else %}<span class="pill pill-danger">Critical</span>{% endif %}
     </div>
-    <div>
-      <div class="row-between">
-        <span><span class="pill pill-info">Wholesale</span></span>
-        <span class="num strong">₱{{ wholesale_sales|floatformat:2 }}</span>
-      </div>
-      <div class="gv-meta mt-2">{{ wholesale_count }} order{{ wholesale_count|pluralize }}</div>
+
+    <div style="font:700 24px/1.3 system-ui, sans-serif; margin-top:12px; font-variant-numeric:tabular-nums;">
+      ₱{{ b.today_sales|floatformat:2 }}
+    </div>
+    {% if b.delta_pct is not None %}
+      {% if b.delta_pct >= 0 %}
+        <span class="trend-up">▲ +{{ b.delta_pct }}% vs yesterday</span>
+      {% else %}
+        <span class="trend-down">▼ {{ b.delta_pct }}% vs yesterday</span>
+      {% endif %}
+    {% else %}
+      <span class="gv-meta">No sales yesterday to compare</span>
+    {% endif %}
+
+    <div class="meter mt-2"><span style="width:{{ b.share_pct }}%;"></span></div>
+    <div class="row-between gv-meta mt-2">
+      <span>Share of today's sales</span><span>{{ b.share_pct }}%</span>
+    </div>
+
+    <div class="row-between mt-4" style="padding-top:12px; border-top:1px solid var(--line-soft);">
+      <span class="gv-meta">
+        {% if b.low_stock_count %}
+          <span class="pill {% if b.critical_count %}pill-danger{% else %}pill-warn{% endif %}">{{ b.low_stock_count }}</span> low stock
+        {% else %}
+          <span class="pill pill-ok">0</span> low stock
+        {% endif %}
+      </span>
+      <a class="gv-meta" href="{% url 'alerts_center' %}">View alerts &rarr;</a>
     </div>
   </div>
-  <div class="meter mt-4" style="height:10px; background:var(--line-soft);">
-    <span style="width:{{ wholesale_share }}%; background:var(--brand);"></span>
-  </div>
-  <p class="gv-meta mt-2 mb-0">
-    <a href="{% url 'transaction_list' %}?type=Wholesale">View wholesale orders &rarr;</a>
-  </p>
+  {% endfor %}
 </div>
+{% endif %}
 
 {# ---------------------------- restock suggestions --------------------------- #}
 {% if restock %}
@@ -134,124 +152,6 @@
   </div>
 </div>
 {% endif %}
-
-{# ------------------------------ charts ------------------------------ #}
-<div class="grid-2 mb-6">
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);">
-      <h3>Sales Trend — last 14 days</h3>
-      {% if trend.has_data %}
-      <p class="gv-meta mb-0">Peak day: ₱{{ trend.max|floatformat:2 }}</p>
-      {% endif %}
-    </div>
-    <div class="card-pad">
-      {% if trend.has_data %}
-        <svg viewBox="0 0 100 40" preserveAspectRatio="none"
-             style="width:100%; height:180px; overflow:visible;" role="img"
-             aria-label="Daily sales per branch over the last 14 days">
-          <line x1="0" y1="40" x2="100" y2="40" stroke="var(--line)" stroke-width="0.4"/>
-          <line x1="0" y1="20" x2="100" y2="20" stroke="var(--line-soft)" stroke-width="0.4"/>
-          <line x1="0" y1="0"  x2="100" y2="0"  stroke="var(--line-soft)" stroke-width="0.4"/>
-          {% for s in trend.series %}
-            <polyline points="{{ s.points }}" fill="none" stroke="{{ s.colour }}"
-                      stroke-width="0.9" vector-effect="non-scaling-stroke"
-                      stroke-linejoin="round" stroke-linecap="round"/>
-          {% endfor %}
-        </svg>
-        <div class="row-between gv-meta mt-2">
-          <span>{{ trend.labels.0 }}</span><span>{{ trend.labels.1 }}</span>
-        </div>
-        {# legend: colour + name, so it never depends on colour alone #}
-        <div class="row wrap mt-4" style="gap:16px;">
-          {% for s in trend.series %}
-          <span class="row" style="gap:6px;">
-            <span style="width:10px; height:10px; border-radius:2px; background:{{ s.colour }};"></span>
-            <span class="gv-meta">{{ s.name }} — ₱{{ s.total|floatformat:2 }}</span>
-          </span>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="empty">
-          <span class="glyph">📈</span>
-          <h3>No sales in the last 14 days</h3>
-          <p>The trend appears once orders are recorded.</p>
-        </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);">
-      <h3>Inventory Value per Branch</h3>
-      <p class="gv-meta mb-0">Stock on hand, valued at cost</p>
-    </div>
-    <div class="card-pad">
-      {% if inventory_bars %}
-        <div class="stack">
-          {% for b in inventory_bars %}
-          <div>
-            <div class="row-between">
-              <span style="font-weight:600;">{{ b.name }}</span>
-              <span class="num strong">₱{{ b.value|floatformat:2 }}</span>
-            </div>
-            <div class="meter mt-2"><span style="width:{{ b.pct }}%;"></span></div>
-          </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="empty">
-          <span class="glyph">□</span>
-          <h3>No stock recorded</h3>
-        </div>
-      {% endif %}
-    </div>
-  </div>
-</div>
-
-<div class="grid-2 mb-6">
-  {# ------------------------- top products ------------------------- #}
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Top-Selling Products</h3></div>
-    <div class="table-wrap">
-      <table class="gv-table">
-        <thead><tr><th>Product</th><th class="num">Units</th><th class="num">Revenue</th></tr></thead>
-        <tbody>
-          {% for p in top_products %}
-          <tr>
-            <td data-label="Product" class="strong">{{ p.product__product_name }}</td>
-            <td data-label="Units" class="num">{{ p.total_qty }}</td>
-            <td data-label="Revenue" class="num strong">₱{{ p.total_revenue|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="3"><div class="empty"><h3>No sales yet</h3>
-            <p>Top sellers appear once orders are recorded.</p></div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  {# ------------------------- sales by branch ------------------------- #}
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Sales by Branch</h3></div>
-    <div class="table-wrap">
-      <table class="gv-table">
-        <thead><tr><th>Branch</th><th class="num">Orders</th><th class="num">Sales</th></tr></thead>
-        <tbody>
-          {% for b in sales_by_branch %}
-          <tr>
-            <td data-label="Branch" class="strong">{{ b.branch__branch_name }}</td>
-            <td data-label="Orders" class="num">{{ b.count }}</td>
-            <td data-label="Sales" class="num strong">₱{{ b.total|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="3"><div class="empty"><h3>No sales yet</h3></div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
 
 {# ---------------------------- recent orders ---------------------------- #}
 <div class="card">

@@ -31,11 +31,28 @@ def get_user_branch(user):
     return None
 
 
+def _scoped_querysets(user):
+    """Sales/procurement/inventory querysets scoped to user's branch (all, for Owner)."""
+    sales_qs = SalesTransaction.objects.all()
+    procurement_qs = Procurement.objects.all()
+    inventory_qs = Inventory.objects.select_related('product', 'branch').all()
+
+    user_branch = get_user_branch(user)
+    if user_branch:
+        sales_qs = sales_qs.filter(branch=user_branch)
+        procurement_qs = procurement_qs.filter(branch=user_branch)
+        inventory_qs = inventory_qs.filter(branch=user_branch)
+
+    return sales_qs, procurement_qs, inventory_qs, user_branch
+
+
 @login_required(login_url='login')
-def reports_dashboard(request):
+def operational_dashboard(request):
     """
-    The internal Dashboard. Per the redesign: ONE hero metric (today's sales)
-    plus a quiet strip of secondary stats — not eight competing cards.
+    The Dashboard — a live operational snapshot: today's sales, per-branch
+    status, restock alerts, recent orders. Historical/analytical breakdowns
+    (trend, branch & product performance) live on the Reports page instead
+    (see reports_dashboard) so the two pages aren't the same content twice.
     Branch-scoped: managers/staff see only their own branch.
     """
     if request.user.role not in [
@@ -44,15 +61,7 @@ def reports_dashboard(request):
         messages.error(request, 'You do not have permission to view this page.')
         return render(request, 'reports/no_access.html')
 
-    sales_qs = SalesTransaction.objects.all()
-    procurement_qs = Procurement.objects.all()
-    inventory_qs = Inventory.objects.select_related('product', 'branch').all()
-
-    user_branch = get_user_branch(request.user)
-    if user_branch:
-        sales_qs = sales_qs.filter(branch=user_branch)
-        procurement_qs = procurement_qs.filter(branch=user_branch)
-        inventory_qs = inventory_qs.filter(branch=user_branch)
+    sales_qs, procurement_qs, inventory_qs, user_branch = _scoped_querysets(request.user)
 
     now = timezone.localtime()
     today = now.date()
@@ -87,6 +96,55 @@ def reports_dashboard(request):
         for inv in inventory_qs if inv.product
     )
 
+    # --- Restock suggestions (same engine as the Alerts Center) ---
+    branch_ids = branch_ids_for_user(request.user)
+    restock = low_stock_alerts(branch_ids)
+
+    # --- Branch status row: 3-second scan of each branch's sales today ---
+    branches = Branch.objects.all() if branch_ids is None else Branch.objects.filter(id__in=branch_ids)
+    branch_status = _branch_status_rows(branches, sales_qs, restock, today, today_sales)
+
+    recent_orders = sales_qs.select_related('branch', 'customer').order_by(
+        '-transaction_date'
+    )[:6]
+
+    return render(request, 'reports/dashboard.html', {
+        'today_sales': today_sales,
+        'today_orders': today_orders,
+        'delta_pct': delta_pct,
+        'month_sales': month_sales,
+        'pending_online': pending_online,
+        'open_pos': open_pos,
+        'inventory_value': inventory_value,
+        'total_products': Product.objects.count(),
+        'low_stock_count': len(restock),
+        'restock': restock[:6],
+        'branch_status': branch_status,
+        'recent_orders': recent_orders,
+        'is_owner': request.user.role == User.Role.OWNER,
+        'user_branch': user_branch,
+        'today': today,
+        'active_page': 'dashboard',
+    })
+
+
+@login_required(login_url='login')
+def reports_dashboard(request):
+    """
+    The Reports hub — historical/analytical breakdowns (14-day trend, sales
+    by branch, top products, retail vs wholesale) plus an index into the
+    detailed per-process reports (Sales, Inventory, Procurement, Billing)
+    for drill-down and CSV export. Branch-scoped like the Dashboard.
+    """
+    if request.user.role not in [
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+    ]:
+        messages.error(request, 'You do not have permission to view this page.')
+        return render(request, 'reports/no_access.html')
+
+    sales_qs, procurement_qs, inventory_qs, user_branch = _scoped_querysets(request.user)
+    today = timezone.localtime().date()
+
     # --- Retail vs wholesale ---
     # Chapter 1: management had "limited visibility into ... wholesale
     # transactions across branches". This is that visibility.
@@ -96,10 +154,6 @@ def reports_dashboard(request):
     retail_sales = retail_qs.aggregate(t=Sum('total_amount'))['t'] or 0
     all_sales = wholesale_sales + retail_sales
     wholesale_share = round((wholesale_sales / all_sales) * 100, 1) if all_sales else 0
-
-    # --- Restock suggestions (same engine as the Alerts Center) ---
-    branch_ids = branch_ids_for_user(request.user)
-    restock = low_stock_alerts(branch_ids)
 
     # --- Charts ---
     # Geometry is computed here, not in the template: SVG coordinate maths in
@@ -119,35 +173,21 @@ def reports_dashboard(request):
         total_revenue=Sum(F('quantity_sold') * F('unit_price')),
     ).order_by('-total_qty')[:5]
 
-    recent_orders = sales_qs.select_related('branch', 'customer').order_by(
-        '-transaction_date'
-    )[:6]
-
-    return render(request, 'reports/dashboard.html', {
-        'today_sales': today_sales,
-        'today_orders': today_orders,
-        'delta_pct': delta_pct,
-        'month_sales': month_sales,
-        'pending_online': pending_online,
-        'open_pos': open_pos,
-        'inventory_value': inventory_value,
-        'total_products': Product.objects.count(),
+    return render(request, 'reports/reports_home.html', {
         'retail_sales': retail_sales,
         'retail_count': retail_qs.count(),
         'wholesale_sales': wholesale_sales,
         'wholesale_count': wholesale_qs.count(),
         'wholesale_share': wholesale_share,
-        'low_stock_count': len(restock),
-        'restock': restock[:6],
         'sales_by_branch': sales_by_branch,
         'top_products': top_products,
-        'recent_orders': recent_orders,
         'total_orders': sales_qs.count(),
         'trend': trend,
         'inventory_bars': inventory_bars,
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
         'today': today,
+        'active_page': 'reports',
     })
 
 
@@ -207,6 +247,52 @@ def _sales_trend(sales_qs, today, days=14):
         'max': peak,
         'has_data': True,
     }
+
+
+def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales):
+    """
+    Per-branch sales status for the Dashboard's "at a glance" row.
+
+    status: 'critical' (no sales recorded today), 'watch' (sales down vs
+    yesterday), or 'ok'. Kept separate from stock risk — low_stock_count/
+    critical_count are shown alongside but don't drive the sales pill.
+    """
+    yesterday = today - timedelta(days=1)
+    rows = []
+    for branch in branches:
+        b_today_qs = sales_qs.filter(branch=branch, transaction_date__date=today)
+        b_today_sales = b_today_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+        b_today_orders = b_today_qs.count()
+
+        b_yesterday_sales = sales_qs.filter(
+            branch=branch, transaction_date__date=yesterday
+        ).aggregate(total=Sum('total_amount'))['total'] or 0
+        if b_yesterday_sales:
+            delta_pct = round(((b_today_sales - b_yesterday_sales) / b_yesterday_sales) * 100, 1)
+        else:
+            delta_pct = None
+
+        branch_alerts = [r for r in restock if r['branch'] and r['branch'].id == branch.id]
+        critical_count = sum(1 for r in branch_alerts if r['risk'] == 'Critical')
+
+        if b_today_orders == 0:
+            status = 'critical'
+        elif delta_pct is not None and delta_pct < 0:
+            status = 'watch'
+        else:
+            status = 'ok'
+
+        rows.append({
+            'branch': branch,
+            'today_sales': b_today_sales,
+            'delta_pct': delta_pct,
+            'share_pct': round((float(b_today_sales) / float(total_today_sales)) * 100, 1)
+                if total_today_sales else 0,
+            'low_stock_count': len(branch_alerts),
+            'critical_count': critical_count,
+            'status': status,
+        })
+    return rows
 
 
 def _inventory_value_bars(inventory_qs):
