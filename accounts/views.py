@@ -87,7 +87,7 @@ def customer_dashboard(request):
     
     from inventory.models import Product, ProductCategory
     from branches.models import Branch
-    products = Product.objects.all()[:8]
+    products = Product.objects.prefetch_related('images')[:8]
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()
     return render(request, 'accounts/customer_dashboard.html', {
@@ -258,7 +258,7 @@ def user_toggle_active(request, pk):
 
 
 def home_view(request):
-    products = Product.objects.all()[:8]
+    products = Product.objects.prefetch_related('images')[:8]
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()
     return render(request, 'home.html', {'products': products, 'branches': branches, 'categories': categories})

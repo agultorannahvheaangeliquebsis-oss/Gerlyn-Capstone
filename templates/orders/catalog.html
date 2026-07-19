@@ -40,7 +40,7 @@
   <div class="pgrid">
     {% for row in rows %}
     <div class="pcard">
-      <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{{ row.product|product_emoji }}</a>
+      <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{% include "partials/product_thumb.html" with product=row.product %}</a>
       <div class="body">
         <a class="name" href="{% url 'orders:product_detail' row.product.id %}">{{ row.product.product_name }}</a>
         <div class="row-between">

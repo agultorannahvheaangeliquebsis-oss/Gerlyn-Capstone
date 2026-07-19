@@ -31,6 +31,7 @@
   <table class="gv-table">
     <thead>
       <tr>
+        <th>Image</th>
         <th>SKU</th>
         <th>Product Name</th>
         <th>Category</th>
@@ -44,6 +45,16 @@
     <tbody>
       {% for row in rows %}
       <tr>
+        <td data-label="Image">
+          {% with imgs=row.product.images.all %}
+            {% if imgs %}
+              <img src="{{ imgs.0.image.url }}" alt="{{ imgs.0.alt_text }}"
+                   style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
+            {% else %}
+              <span class="gv-meta">—</span>
+            {% endif %}
+          {% endwith %}
+        </td>
         <td data-label="SKU" class="sku">{{ row.product.sku_code }}</td>
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
         <td data-label="Category"><span class="pill pill-neutral">{{ row.product.category.category_name|default:"—" }}</span></td>
@@ -62,7 +73,7 @@
       </tr>
       {% empty %}
       <tr>
-        <td colspan="8">
+        <td colspan="9">
           <div class="empty">
             <span class="glyph">＋</span>
             <h3>No products found</h3>

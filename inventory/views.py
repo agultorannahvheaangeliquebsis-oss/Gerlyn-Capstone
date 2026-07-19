@@ -6,7 +6,7 @@ from django.utils import timezone
 from datetime import date
 
 from .models import (
-    ProductCategory, Product, Inventory,
+    ProductCategory, Product, ProductImage, Inventory,
     Warehouse, WarehouseStock,
     StockTransfer, StockTransferItem, StockMovement
 )
@@ -44,7 +44,7 @@ def product_list(request):
 
     products = (
         Product.objects.select_related('category')
-        .prefetch_related('inventory_records__branch')
+        .prefetch_related('inventory_records__branch', 'images')
         .all()
     )
     categories = ProductCategory.objects.all()
@@ -91,22 +91,32 @@ def product_add(request):
     categories = ProductCategory.objects.all()
 
     if request.method == 'POST':
-        category_id = request.POST.get('category')
-        sku_code = request.POST.get('sku_code')
-        product_name = request.POST.get('product_name')
-        unit_of_measure = request.POST.get('unit_of_measure')
-        unit_price = request.POST.get('unit_price')
-        wholesale_price = request.POST.get('wholesale_price') or None
+        with transaction.atomic():
+            product = Product.objects.create(
+                category_id=request.POST.get('category'),
+                sku_code=request.POST.get('sku_code'),
+                product_name=request.POST.get('product_name'),
+                unit_of_measure=request.POST.get('unit_of_measure'),
+                unit_price=request.POST.get('unit_price'),
+                wholesale_price=request.POST.get('wholesale_price') or None,
+            )
 
-        Product.objects.create(
-            category_id=category_id,
-            sku_code=sku_code,
-            product_name=product_name,
-            unit_of_measure=unit_of_measure,
-            unit_price=unit_price,
-            wholesale_price=wholesale_price,
-        )
-        messages.success(request, 'Product added successfully.')
+            # request.FILES.getlist() returns EVERY file sent under name="images".
+            images = request.FILES.getlist('images')
+            for index, image_file in enumerate(images):
+                ProductImage.objects.create(
+                    product=product,
+                    image=image_file,
+                    is_primary=(index == 0),  # first upload becomes the hero image
+                )
+
+        if images:
+            messages.success(
+                request,
+                f'Product added with {len(images)} image(s).'
+            )
+        else:
+            messages.success(request, 'Product added successfully.')
         return redirect('product_list')
 
     return render(request, 'inventory/product_form.html', {
@@ -125,13 +135,39 @@ def product_edit(request, pk):
         return redirect('product_list')
 
     if request.method == 'POST':
-        product.category_id = request.POST.get('category')
-        product.sku_code = request.POST.get('sku_code')
-        product.product_name = request.POST.get('product_name')
-        product.unit_of_measure = request.POST.get('unit_of_measure')
-        product.unit_price = request.POST.get('unit_price')
-        product.wholesale_price = request.POST.get('wholesale_price') or None
-        product.save()
+        with transaction.atomic():
+            product.category_id = request.POST.get('category')
+            product.sku_code = request.POST.get('sku_code')
+            product.product_name = request.POST.get('product_name')
+            product.unit_of_measure = request.POST.get('unit_of_measure')
+            product.unit_price = request.POST.get('unit_price')
+            product.wholesale_price = request.POST.get('wholesale_price') or None
+            product.save()
+
+            # 1. Delete images the user ticked for removal (file + row).
+            delete_ids = request.POST.getlist('delete_images')
+            if delete_ids:
+                for img in product.images.filter(pk__in=delete_ids):
+                    img.image.delete(save=False)  # remove the file from storage
+                    img.delete()
+
+            # 2. Add any newly uploaded images.
+            for image_file in request.FILES.getlist('images'):
+                ProductImage.objects.create(product=product, image=image_file)
+
+            # 3. Resolve which image is primary. Explicit choice wins; otherwise
+            #    make sure something is primary so the storefront always has a hero
+            #    (e.g. if the old primary was just deleted).
+            primary_id = request.POST.get('primary_image')
+            if primary_id:
+                product.images.update(is_primary=False)
+                product.images.filter(pk=primary_id).update(is_primary=True)
+            elif not product.images.filter(is_primary=True).exists():
+                first = product.images.first()
+                if first:
+                    first.is_primary = True
+                    first.save(update_fields=['is_primary'])
+
         messages.success(request, 'Product updated successfully.')
         return redirect('product_list')
 

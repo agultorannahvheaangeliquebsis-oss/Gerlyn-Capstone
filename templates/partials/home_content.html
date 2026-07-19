@@ -80,7 +80,7 @@
   <div class="pgrid">
     {% for p in products %}
     <div class="pcard">
-      <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{{ p|product_emoji }}</a>
+      <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{% include "partials/product_thumb.html" with product=p %}</a>
       <div class="body">
         <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
         <div class="row-between">

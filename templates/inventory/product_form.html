@@ -12,7 +12,7 @@
 </div>
 
 <div class="card card-pad" style="max-width:640px;">
-  <form method="POST" class="stack">
+  <form method="POST" class="stack" enctype="multipart/form-data">
     {% csrf_token %}
 
     <div class="field">
@@ -58,6 +58,33 @@
         <input id="wholesale_price" type="number" step="0.01" min="0" name="wholesale_price"
                value="{{ product.wholesale_price|unlocalize|default:'' }}">
       </div>
+    </div>
+
+    {% if product and product.images.all %}
+    <div class="field">
+      <label>Current Images</label>
+      <div class="row wrap" style="gap:12px;">
+        {% for img in product.images.all %}
+        <div class="card card-pad" style="width:120px; text-align:center;">
+          <img src="{{ img.image.url }}" alt="{{ img.alt_text }}"
+               style="width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:6px;">
+          <label class="gv-meta" style="display:block; margin-top:6px;">
+            <input type="radio" name="primary_image" value="{{ img.pk }}" {% if img.is_primary %}checked{% endif %}>
+            Main
+          </label>
+          <label class="gv-meta" style="display:block; color:var(--danger);">
+            <input type="checkbox" name="delete_images" value="{{ img.pk }}"> Delete
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="field">
+      <label for="images">{% if product %}Add Images{% else %}Product Images{% endif %}</label>
+      <input id="images" type="file" name="images" accept="image/*" multiple>
+      <small class="gv-meta">You can select several images at once. The first one becomes the main image.</small>
     </div>
 
     <div class="row mt-2">

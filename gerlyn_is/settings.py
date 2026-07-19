@@ -219,4 +219,25 @@ STORAGES = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# --- User-uploaded media storage -------------------------------------------
+# Storage is decided by the environment so no code (models/views/templates)
+# ever changes:
+#   * Local dev / no credentials  -> FileSystemStorage above (MEDIA_ROOT). The
+#     /media/ route in gerlyn_is/urls.py serves it. Nothing extra to install.
+#   * Production with Cloudinary  -> set CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET
+#     and uploads (product images, GCash proofs) go to Cloudinary's CDN. This
+#     survives redeploys on ephemeral hosts (Railway/Render) and scales the
+#     media serving off the app server. `image.url` returns the CDN link.
+USE_CLOUDINARY = bool(os.environ.get('CLOUDINARY_CLOUD_NAME'))
+if USE_CLOUDINARY:
+    INSTALLED_APPS += ['cloudinary', 'cloudinary_storage']
+    STORAGES['default'] = {
+        'BACKEND': 'cloudinary_storage.storage.MediaCloudinaryStorage',
+    }
+    CLOUDINARY_STORAGE = {
+        'CLOUD_NAME': os.environ['CLOUDINARY_CLOUD_NAME'],
+        'API_KEY': os.environ['CLOUDINARY_API_KEY'],
+        'API_SECRET': os.environ['CLOUDINARY_API_SECRET'],
+    }
+
 LOGIN_URL = '/login/'
