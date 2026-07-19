@@ -76,7 +76,7 @@
       {% elif not selected_branch_id %}
         <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
       {% else %}
-        <form method="POST" action="{% url 'orders:add_to_cart' product.id %}" class="row wrap" style="gap:12px;">
+        <form method="POST" action="{% url 'orders:add_to_cart' product.id %}" class="row wrap" style="gap:12px;" data-add-to-cart>
           {% csrf_token %}
           <input type="hidden" name="next" value="{% url 'orders:cart' %}">
           <div class="field" style="width:110px;">

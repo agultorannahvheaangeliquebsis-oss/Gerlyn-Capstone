@@ -74,8 +74,7 @@
   </div>
 </header>
 
-<!-- toasts: Django messages, rendered top-right and dismissed by toast.js -->
-{% if messages %}
+<!-- toasts: Django messages plus any raised live by toast.js (e.g. Add to Cart) -->
 <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="false">
   {% for message in messages %}
   <div class="toast toast-{{ message.level_tag|default:'info' }}" role="status" data-toast
@@ -91,7 +90,6 @@
   </div>
   {% endfor %}
 </div>
-{% endif %}
 
 <main class="shop-main">
   {% block content %}{% endblock %}

@@ -167,26 +167,33 @@ def add_to_cart(request, product_id):
 
     inv = get_object_or_404(Inventory, product_id=product_id, branch_id=branch_id)
     qty = int(request.POST.get('quantity', 1) or 1)
+    is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
 
     cart = request.session.get('cart', {})
     already = cart.get(str(product_id), 0)
 
     if already + qty > inv.quantity_on_hand:
-        messages.error(
-            request,
-            f'Only {inv.quantity_on_hand} of {inv.product.product_name} left at this branch.'
-        )
+        error = f'Only {inv.quantity_on_hand} of {inv.product.product_name} left at this branch.'
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': error}, status=409)
+        messages.error(request, error)
         return redirect('orders:catalog')
 
     cart[str(product_id)] = already + qty
     request.session['cart'] = cart
     # Remember exactly what we just added so the toast's "Undo" can reverse it.
     request.session['last_added'] = {'id': str(product_id), 'qty': qty}
-    messages.success(
-        request,
-        f'Added {inv.product.product_name} to your cart.',
-        extra_tags='undoable',
-    )
+    success = f'Added {inv.product.product_name} to your cart.'
+    if is_ajax:
+        # No redirect — the storefront JS shows the toast in place, so the
+        # customer keeps their scroll position instead of jumping to the top.
+        return JsonResponse({
+            'ok': True,
+            'message': success,
+            'cart_count': len(cart),
+            'undo_url': reverse('orders:undo_add'),
+        })
+    messages.success(request, success, extra_tags='undoable')
     return redirect(request.POST.get('next') or 'orders:catalog')
 
 
