@@ -55,7 +55,9 @@ def product_catalog(request):
     branch_id = request.session.get('branch_id')
     branches = Branch.objects.all()
 
-    stock = Inventory.objects.select_related('product', 'product__category')
+    stock = Inventory.objects.select_related(
+        'product', 'product__category'
+    ).prefetch_related('product__images')
     if branch_id:
         stock = stock.filter(branch_id=branch_id)
 
@@ -126,7 +128,7 @@ def product_detail(request, product_id):
     return render(request, 'orders/product_detail.html', {
         'product': product,
         'branch_stock': branch_stock,
-        'related': Product.objects.filter(category=product.category).exclude(id=product.id)[:6],
+        'related': Product.objects.filter(category=product.category).exclude(id=product.id).prefetch_related('images')[:6],
         'selected_branch_id': request.session.get('branch_id'),
         'cart_count': sum(request.session.get('cart', {}).values()),
     })
@@ -178,8 +180,41 @@ def add_to_cart(request, product_id):
 
     cart[str(product_id)] = already + qty
     request.session['cart'] = cart
-    messages.success(request, f'Added {inv.product.product_name} to your cart.')
+    # Remember exactly what we just added so the toast's "Undo" can reverse it.
+    request.session['last_added'] = {'id': str(product_id), 'qty': qty}
+    messages.success(
+        request,
+        f'Added {inv.product.product_name} to your cart.',
+        extra_tags='undoable',
+    )
     return redirect(request.POST.get('next') or 'orders:catalog')
+
+
+@user_passes_test(is_customer)
+def undo_add(request):
+    """Reverse the most recent Add to Cart — backs the toast's Undo button.
+
+    Called by fetch() from toast.js, so the happy path answers in JSON and the
+    toast dismisses itself with no reload. Falls back to a plain redirect (with
+    a confirmation message) when JavaScript is off or the fetch fails.
+    """
+    if request.method != 'POST':
+        return redirect('orders:catalog')
+
+    last = request.session.pop('last_added', None)
+    cart = request.session.get('cart', {})
+    if last and last['id'] in cart:
+        cart[last['id']] -= last['qty']
+        if cart[last['id']] <= 0:
+            cart.pop(last['id'])
+        request.session['cart'] = cart
+
+    cart_count = sum(cart.values())
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return JsonResponse({'ok': True, 'cart_count': cart_count})
+
+    messages.info(request, 'Removed from your cart.')
+    return redirect(request.META.get('HTTP_REFERER') or 'orders:catalog')
 
 
 @user_passes_test(is_customer)

@@ -136,6 +136,15 @@ body.shop { background: #fff; }
   aspect-ratio: 1 / 1; background: var(--green-50);
   display: flex; align-items: center; justify-content: center;
   font-size: 54px; text-decoration: none; position: relative;
+  overflow: hidden;
+}
+/* Real product photo fills the square thumb; emoji fallback stays centered.
+   Absolute positioning takes the image out of the flex flow so a large upload
+   is clipped to the 1:1 box instead of stretching the whole card. */
+.pcard .thumb img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
 }
 .pcard .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 .pcard .name {
@@ -210,4 +219,60 @@ body.shop { background: #fff; }
 }
 @media (min-width: 761px) {
   .sticky-checkout { display: none; }
+}
+
+/* ---------------------------------------------------------------- toasts */
+/* Rendered from Django messages in public_base.html; animated by toast.js.
+   Fixed top-right, stacked newest-first, auto-dismissing. */
+.toast-stack {
+  position: fixed; top: 16px; right: 16px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 10px;
+  width: calc(100vw - 32px); max-width: 360px;
+  pointer-events: none;               /* clicks pass through the gaps */
+}
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px;
+  background: #fff; color: var(--ink-900);
+  border: 1px solid var(--line); border-left: 4px solid var(--action);
+  border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+  transform: translateX(120%); opacity: 0;
+  transition: transform .35s cubic-bezier(.2,.8,.25,1), opacity .35s ease;
+}
+.toast.is-visible { transform: translateX(0); opacity: 1; }
+.toast.is-leaving { transform: translateX(120%); opacity: 0; }
+
+.toast-dot {
+  flex: none; width: 9px; height: 9px; margin-top: 5px;
+  border-radius: 50%; background: var(--action);
+}
+.toast-body { flex: 1; min-width: 0; }
+.toast-msg { margin: 0; font-size: 14px; line-height: 1.4; }
+.toast-undo {
+  margin-top: 6px; padding: 2px 4px;
+  background: none; border: none; cursor: pointer;
+  font: 700 13px/1 system-ui, sans-serif; color: var(--action);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.toast-undo:hover { color: var(--action-700); }
+.toast-close {
+  flex: none; background: none; border: none; cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 0 2px; color: var(--ink-400);
+}
+.toast-close:hover { color: var(--ink-700); }
+
+/* Accent bar + dot recoloured per message level. */
+.toast-success { border-left-color: var(--ok-dot); }
+.toast-success .toast-dot { background: var(--ok-dot); }
+.toast-error   { border-left-color: var(--danger-dot); }
+.toast-error   .toast-dot { background: var(--danger-dot); }
+.toast-warning { border-left-color: var(--warn-dot); }
+.toast-warning .toast-dot { background: var(--warn-dot); }
+.toast-info    { border-left-color: var(--info-dot); }
+.toast-info    .toast-dot { background: var(--info-dot); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { transition: opacity .2s ease; transform: none; }
+  .toast.is-leaving { transform: none; }
 }
