@@ -176,6 +176,24 @@ body.shop { background: #fff; }
   width: 72px; height: 72px; border-radius: var(--r-input); background: var(--green-50);
   display: flex; align-items: center; justify-content: center; font-size: 32px;
 }
+.qty-stepper { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
+.qty-stepper form { margin: 0; }
+.qty-btn {
+  width: 30px; height: 30px; border: 1px solid var(--line); border-radius: var(--r-input);
+  background: #fff; color: var(--ink-900); font-size: 18px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.qty-btn:hover:not(:disabled) { background: var(--green-50); border-color: var(--action); }
+.qty-btn:disabled { opacity: .4; cursor: not-allowed; }
+.qty-value { min-width: 32px; text-align: center; font-weight: 600; font-size: 15px; }
+.cart-line-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.cart-line-right form { margin: 0; }
+.cart-remove {
+  border: 0; background: none; padding: 4px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-400, #9ca3af); transition: color .15s ease;
+}
+.cart-remove:hover { color: var(--danger, #dc2626); }
 
 /* .meter (free-delivery bar) now lives in gerlyn.css — shared with the dashboard. */
 

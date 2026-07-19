@@ -83,7 +83,7 @@ def product_catalog(request):
         'categories': ProductCategory.objects.all(),
         'search_query': search_query,
         'category_filter': category_filter,
-        'cart_count': sum(request.session.get('cart', {}).values()),
+        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -130,7 +130,7 @@ def product_detail(request, product_id):
         'branch_stock': branch_stock,
         'related': Product.objects.filter(category=product.category).exclude(id=product.id).prefetch_related('images')[:6],
         'selected_branch_id': request.session.get('branch_id'),
-        'cart_count': sum(request.session.get('cart', {}).values()),
+        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -209,12 +209,62 @@ def undo_add(request):
             cart.pop(last['id'])
         request.session['cart'] = cart
 
-    cart_count = sum(cart.values())
+    cart_count = len(cart)
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
         return JsonResponse({'ok': True, 'cart_count': cart_count})
 
     messages.info(request, 'Removed from your cart.')
     return redirect(request.META.get('HTTP_REFERER') or 'orders:catalog')
+
+
+@user_passes_test(is_customer)
+def update_cart(request, product_id):
+    """Bump one line up or down. Floors at 1 and never exceeds branch stock."""
+    if request.method != 'POST':
+        return redirect('orders:cart')
+
+    branch_id = request.session.get('branch_id')
+    cart = request.session.get('cart', {})
+    key = str(product_id)
+    if key not in cart:
+        return redirect('orders:cart')
+
+    inv = Inventory.objects.select_related('product').filter(
+        product_id=product_id, branch_id=branch_id
+    ).first()
+    if not inv:
+        cart.pop(key, None)
+        request.session['cart'] = cart
+        return redirect('orders:cart')
+
+    action = request.POST.get('action')
+    if action == 'increase':
+        if cart[key] >= inv.quantity_on_hand:
+            messages.error(
+                request,
+                f'Only {inv.quantity_on_hand} of {inv.product.product_name} left at this branch.'
+            )
+        else:
+            cart[key] += 1
+    elif action == 'decrease':
+        # Minimum of 1 — use Remove to clear the line entirely.
+        cart[key] = max(cart[key] - 1, 1)
+
+    request.session['cart'] = cart
+    return redirect('orders:cart')
+
+
+@user_passes_test(is_customer)
+def remove_from_cart(request, product_id):
+    """Drop a line from the cart completely."""
+    if request.method != 'POST':
+        return redirect('orders:cart')
+
+    cart = request.session.get('cart', {})
+    if cart.pop(str(product_id), None) is not None:
+        request.session['cart'] = cart
+        messages.info(request, 'Removed from your cart.')
+    return redirect('orders:cart')
 
 
 @user_passes_test(is_customer)
@@ -234,7 +284,7 @@ def view_cart(request):
             ('Pay at Store', 'Pay at Store'),
             ('GCash', 'GCash'),
         ],
-        'cart_count': sum(request.session.get('cart', {}).values()),
+        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -347,7 +397,7 @@ def my_orders(request):
         'orders': orders,
         'counts': counts,
         'status_filter': status_filter,
-        'cart_count': sum(request.session.get('cart', {}).values()),
+        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -377,7 +427,7 @@ def track_order(request, transaction_id):
         'steps': steps,
         'cancelled': cancelled,
         'blurb': STATUS_BLURB.get(sale.order_status, ''),
-        'cart_count': sum(request.session.get('cart', {}).values()),
+        'cart_count': len(request.session.get('cart', {})),
     })
 
 
