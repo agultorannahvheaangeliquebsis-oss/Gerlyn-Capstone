@@ -52,6 +52,9 @@ class BillingRecordListAPIView(APIView):
             qs = qs.filter(transaction__branch=user_branch) if user_branch else qs.none()
         elif request.user.role == User.Role.CUSTOMER:
             qs = qs.filter(transaction__customer=request.user)
+        elif request.user.role == User.Role.SUPPLIER:
+            # Suppliers have no business in the store's billing at all.
+            qs = qs.none()
 
         serializer = BillingRecordSerializer(qs.order_by('-date_recorded'), many=True)
         return Response(serializer.data)

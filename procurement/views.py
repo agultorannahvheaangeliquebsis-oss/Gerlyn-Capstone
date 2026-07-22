@@ -529,15 +529,11 @@ class ProcurementListCreateAPIView(APIView):
         ).prefetch_related('items__product').order_by('-id')
 
         # Role-based filtering — mirrors the original template view logic
-        if user.role == User.Role.BRANCH_MANAGER:
-            try:
-                branch = user.manager_profile.branch
-                return qs.filter(branch=branch)
-            except Exception:
-                return qs.none()
+        if user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+            return scope_queryset(qs, user)
         elif user.role == User.Role.SUPPLIER:
             return qs.filter(supplier=user)
-        # OWNER and STAFF see all
+        # OWNER sees all
         return qs
 
     def get(self, request):
@@ -582,8 +578,18 @@ class ProcurementDetailAPIView(APIView):
             pk=pk
         )
 
+    def _can_access(self, user, proc):
+        if user.role == User.Role.SUPPLIER:
+            return proc.supplier_id == user.id
+        return user_can_access_branch(user, proc.branch_id)
+
     def get(self, request, pk):
-        proc       = self.get_object(pk)
+        proc = self.get_object(pk)
+        if not self._can_access(request.user, proc):
+            return Response(
+                {'detail': 'That purchase order is not available to you.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         serializer = ProcurementReadSerializer(proc)
         return Response(serializer.data)
 
@@ -593,6 +599,11 @@ class ProcurementDetailAPIView(APIView):
         if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
             return Response(
                 {'detail': 'Permission denied.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if not user_can_access_branch(request.user, proc.branch_id):
+            return Response(
+                {'detail': 'That purchase order belongs to another branch.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if proc.status != Procurement.Status.DRAFT:
@@ -609,7 +620,8 @@ class ProcurementStatusUpdateAPIView(APIView):
     """
     PATCH /api/procurement/<pk>/update_status/
 
-    Allowed transitions:
+    Allowed transitions (Owner or Manager only — see business rule 13 in
+    delivery_receive: a supplier must never be able to self-confirm receipt):
         DRAFT      -> ORDERED (Owner or Manager submits the PO to supplier)
         ORDERED    -> RECEIVED (Owner or Manager confirms delivery)
         ORDERED    -> CANCELLED (Owner or Manager cancels)
@@ -633,11 +645,17 @@ class ProcurementStatusUpdateAPIView(APIView):
     def patch(self, request, pk):
         proc = get_object_or_404(Procurement, pk=pk)
 
-        if request.user.role not in [
-            User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.SUPPLIER
-        ]:
+        # Suppliers deliberately have no path here — see business rule 13.
+        # A supplier confirming their own delivery would defeat the store's
+        # receipt-validation control (that's what delivery_receive is for).
+        if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
             return Response(
                 {'detail': 'Permission denied.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if not user_can_access_branch(request.user, proc.branch_id):
+            return Response(
+                {'detail': 'That purchase order belongs to another branch.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 

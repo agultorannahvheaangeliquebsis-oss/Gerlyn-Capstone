@@ -619,6 +619,10 @@ def transfer_approve(request, pk):
 
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
+    if not user_can_access_branch(request.user, transfer.source_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
+
     if transfer.status != StockTransfer.Status.PENDING:
         messages.error(request, 'This transfer has already been processed.')
         return redirect('transfer_detail', pk=pk)
@@ -695,6 +699,10 @@ def transfer_complete(request, pk):
         return redirect('transfer_list')
 
     transfer = get_object_or_404(StockTransfer, pk=pk)
+
+    if not user_can_access_branch(request.user, transfer.source_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.APPROVED:
         messages.error(request, 'Transfer must be approved before it can be released.')
@@ -786,6 +794,10 @@ def transfer_confirm_receipt(request, pk):
 
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
+    if not user_can_access_branch(request.user, transfer.destination_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
+
     if transfer.status != StockTransfer.Status.RELEASED:
         messages.error(request, 'Only released slips can be acknowledged.')
         return redirect('transfer_detail', pk=pk)
@@ -824,6 +836,10 @@ def transfer_flag_discrepancy(request, pk):
         return redirect('transfer_list')
 
     transfer = get_object_or_404(StockTransfer, pk=pk)
+
+    if not user_can_access_branch(request.user, transfer.destination_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.RELEASED:
         messages.error(request, 'Only released slips can be flagged.')

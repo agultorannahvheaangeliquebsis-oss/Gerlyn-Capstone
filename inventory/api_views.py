@@ -29,7 +29,8 @@ from accounts.models import User
 
 # Branch scoping lives in core.scoping so the API and the template views can
 # never drift apart — this is security-critical logic, it gets ONE definition.
-from core.scoping import branch_for_user as get_user_branch  # noqa: E402
+from core.scoping import branch_for_user as get_user_branch, user_can_access_branch  # noqa: E402
+from core.permissions import INTERNAL_ROLES  # OWNER, BRANCH_MANAGER, STAFF
 
 
 class ProductCategoryViewSet(viewsets.ModelViewSet):
@@ -215,6 +216,8 @@ class WarehouseStockViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if self.request.user.role not in INTERNAL_ROLES:
+            return WarehouseStock.objects.none()
         qs = WarehouseStock.objects.select_related(
             'product', 'product__category', 'warehouse', 'warehouse__branch'
         ).all()
@@ -252,6 +255,8 @@ class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if self.request.user.role not in INTERNAL_ROLES:
+            return Inventory.objects.none()
         qs = Inventory.objects.select_related('product', 'branch').all()
         user_branch = get_user_branch(self.request.user)
         if user_branch:
@@ -270,6 +275,8 @@ class BatchViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if self.request.user.role not in INTERNAL_ROLES:
+            return Batch.objects.none()
         qs = Batch.objects.select_related('product', 'branch').all()
         user_branch = get_user_branch(self.request.user)
         if user_branch:
@@ -292,6 +299,9 @@ class StockMovementListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if request.user.role not in INTERNAL_ROLES:
+            return Response([])
+
         qs = StockMovement.objects.select_related(
             'inventory__product', 'inventory__branch',
             'warehouse_stock__product', 'warehouse_stock__warehouse__branch',
@@ -332,6 +342,9 @@ class StockTransferListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if request.user.role not in INTERNAL_ROLES:
+            return Response([])
+
         qs = StockTransfer.objects.select_related(
             'source_branch', 'destination_branch', 'requested_by',
             'approved_by', 'acknowledged_by', 'warehouse',
@@ -385,6 +398,11 @@ class StockTransferDetailAPIView(APIView):
             ).prefetch_related('items__product'),
             pk=pk
         )
+        # A slip concerns two branches, so either side may view it — mirrors
+        # transfer_detail's template-layer check.
+        if not (user_can_access_branch(request.user, transfer.source_branch_id)
+                or user_can_access_branch(request.user, transfer.destination_branch_id)):
+            return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(StockTransferSerializer(transfer).data)
 
 
@@ -405,6 +423,11 @@ class StockTransferApproveAPIView(APIView):
             )
 
         transfer = get_object_or_404(StockTransfer, pk=pk)
+        if not user_can_access_branch(request.user, transfer.source_branch_id):
+            return Response(
+                {'detail': 'That withdrawal slip belongs to another branch.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         if transfer.status != StockTransfer.Status.PENDING:
             return Response(
                 {'detail': 'This transfer has already been processed.'},
@@ -471,6 +494,11 @@ class StockTransferReleaseAPIView(APIView):
             )
 
         transfer = get_object_or_404(StockTransfer, pk=pk)
+        if not user_can_access_branch(request.user, transfer.source_branch_id):
+            return Response(
+                {'detail': 'That withdrawal slip belongs to another branch.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         if transfer.status != StockTransfer.Status.APPROVED:
             return Response(
                 {'detail': 'Transfer must be approved before it can be released.'},
@@ -548,6 +576,11 @@ class StockTransferAcknowledgeAPIView(APIView):
             )
 
         transfer = get_object_or_404(StockTransfer, pk=pk)
+        if not user_can_access_branch(request.user, transfer.destination_branch_id):
+            return Response(
+                {'detail': 'That withdrawal slip belongs to another branch.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         if transfer.status != StockTransfer.Status.RELEASED:
             return Response(
                 {'detail': 'Transfer must be Released before it can be acknowledged.'},

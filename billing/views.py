@@ -79,6 +79,18 @@ def billing_detail(request, pk):
 def billing_create(request, transaction_id):
     txn = get_object_or_404(SalesTransaction, pk=transaction_id)
 
+    # Same scoping rule as billing_detail — otherwise anyone logged in could
+    # create or edit the payment record for someone else's transaction just
+    # by guessing the transaction id in the URL.
+    if request.user.role == User.Role.CUSTOMER:
+        allowed = txn.customer_id == request.user.id
+    else:
+        allowed = user_can_access_branch(request.user, txn.branch_id)
+
+    if not allowed:
+        messages.error(request, 'That transaction is not available to you.')
+        return redirect('billing_list')
+
     # The signal may have already created a pending record.
     # If it exists and is still Pending, let the user fill in payment details.
     # If it's already Paid/Rejected, just show the existing record.
