@@ -1,5 +1,5 @@
 {% extends "public_base.html" %}
-{% load shop_extras %}
+{% load shop_extras static %}
 {% block title %}Products — Gerlyn Variety Store{% endblock %}
 
 {% block content %}
@@ -9,7 +9,7 @@
     <div>
       <h2>Products</h2>
       <p class="gv-meta mb-0">
-        {{ rows|length }} item{{ rows|length|pluralize }}
+        <span id="result-count" data-total="{{ rows|length }}">{{ rows|length }} item{{ rows|length|pluralize }}</span>
         {% if selected_branch_id %}
           {% for b in branches %}{% if b.id == selected_branch_id %}at {{ b.branch_name }}{% endif %}{% endfor %}
         {% else %}across all branches{% endif %}
@@ -26,8 +26,10 @@
     {% endfor %}
   </div>
 
-  <form method="GET" class="toolbar">
-    <input type="search" name="q" class="input grow" placeholder="Search products…" value="{{ search_query }}">
+  <form method="GET" class="toolbar" data-catalog-filter>
+    <input type="search" name="q" id="catalog-search" class="input grow"
+           placeholder="Search products…" value="{{ search_query }}"
+           autocomplete="off" aria-controls="pgrid">
     <select name="category" onchange="this.form.submit()">
       <option value="">All Categories</option>
       {% for c in categories %}
@@ -37,9 +39,9 @@
     <button class="btn" type="submit">Search</button>
   </form>
 
-  <div class="pgrid">
+  <div class="pgrid" id="pgrid">
     {% for row in rows %}
-    <div class="pcard">
+    <div class="pcard" data-name="{{ row.product.product_name|lower }}">
       <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{% include "partials/product_thumb.html" with product=row.product %}</a>
       <div class="body">
         <a class="name" href="{% url 'orders:product_detail' row.product.id %}">{{ row.product.product_name }}</a>
@@ -84,6 +86,19 @@
       </div>
     </div>
     {% endfor %}
+
+    {# Shown by catalog-filter.js when a live search matches none of the rendered cards. #}
+    <div class="card" id="no-matches" hidden style="grid-column: 1 / -1;">
+      <div class="empty">
+        <span class="glyph">🔍</span>
+        <h3>No products found</h3>
+        <p>No products match “<span id="no-matches-query"></span>”. Try a different search.</p>
+      </div>
+    </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/catalog-filter.js' %}"></script>
 {% endblock %}

@@ -424,6 +424,23 @@ input::placeholder { color: var(--ink-400); }
   .row-actions { justify-content: flex-end; }
   .page-head { flex-direction: column; align-items: stretch; }
   .toolbar .input, .toolbar select { min-width: 0; width: 100%; }
+
+  /* Pages set a fixed two-column track via inline style (dashboard hero,
+     retail/wholesale split, supplier form fields, product gallery) — inline
+     styles beat the .grid-2 class rule, so force a single column here. */
+  .grid-2[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+}
+
+/* Key/value info tables (2 plain columns, no header — a label cell + a value
+   cell) opt out of the generic "one field per stacked row" pattern above by
+   adding .kv-table: each row stays a single label-left/value-right line, so
+   the label text already inside the first <td> keeps doing its job instead
+   of being replaced by an empty data-label pseudo-element. */
+@media (max-width: 860px) {
+  .kv-table tr { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); }
+  .kv-table td { display: block; text-align: right; border-bottom: none; height: auto; padding: 8px 0; }
+  .kv-table td::before { content: none; }
+  .kv-table td:first-child { text-align: left; flex: none; }
 }
 
 /* -------------------------------------------------------------- utilities */

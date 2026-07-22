@@ -46,7 +46,7 @@
   <!-- Order info -->
   <div class="card card-pad">
     <h3 class="mb-4">Order Details</h3>
-    <table class="gv-table" style="border:0;">
+    <table class="gv-table kv-table" style="border:0;">
       <tbody>
         <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ transaction.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Channel</td><td style="text-align:right;">
@@ -77,7 +77,7 @@
       {% endif %}
     </div>
     {% if billing %}
-    <table class="gv-table" style="border:0;">
+    <table class="gv-table kv-table" style="border:0;">
       <tbody>
         <tr><td class="gv-meta">Amount due</td><td class="num strong" style="text-align:right;">₱{{ billing.amount_due|floatformat:2 }}</td></tr>
         <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ billing.payment_method }}</td></tr>

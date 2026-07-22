@@ -12,9 +12,21 @@
   .pending-box { border:1px solid #f0dfa0; background:#fffdf5; border-radius:12px; padding:16px; margin-bottom:20px; }
   .pending-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 0; border-bottom:1px solid #f2eecf; }
   .pending-row:last-child { border-bottom:0; }
-  .grow { flex:1; }
+  .pending-row form { flex-wrap:wrap; }
+  .pending-row form input[type=number] { width:70px; flex:0 1 70px; }
+  .pending-row form input[type=text] { width:130px; flex:1 1 100px; min-width:0; }
+  .grow { flex:1 1 220px; }
+  .ws-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
   table.ws { width:100%; border-collapse:collapse; }
   table.ws th, table.ws td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:14px; }
+  @media (max-width: 860px) {
+    table.ws thead { display:none; }
+    table.ws, table.ws tbody, table.ws tr, table.ws td { display:block; width:100%; }
+    table.ws tr { border:1px solid #eee; border-radius:12px; margin-bottom:12px; padding:4px 2px; }
+    table.ws td { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid #f5f5f5; text-align:right; }
+    table.ws td:last-child { border-bottom:0; }
+    table.ws td::before { content:attr(data-label); font-weight:700; font-size:12px; text-transform:uppercase; color:#999; text-align:left; }
+  }
   .btn { padding:7px 14px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; font-weight:600; text-decoration:none; color:#222; }
   .btn.green { background:#128a4f; color:#fff; border-color:#128a4f; }
   .btn.red { color:#c0392b; border-color:#e6b3ae; }
@@ -29,7 +41,7 @@
 
 {% block content %}
 <div style="padding:8px 4px;">
-  <div style="display:flex; justify-content:space-between; align-items:center;">
+  <div class="ws-header">
     <div>
       <h2 style="margin:0;">Withdrawal Slips</h2>
       <p style="color:#888; margin:4px 0 0;">Track stock released from inventory</p>
@@ -57,13 +69,13 @@
         </div>
         <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}" style="display:flex; gap:6px; align-items:center;">
           {% csrf_token %}
-          <label>Received <input type="number" name="received_qty" min="0" style="width:70px;"></label>
+          <label>Received <input type="number" name="received_qty" min="0" inputmode="numeric"></label>
           <button class="btn green" type="submit">✓ Confirm Receipt</button>
         </form>
         <form method="post" action="{% url 'transfer_flag_discrepancy' t.pk %}" style="display:flex; gap:6px; align-items:center;">
           {% csrf_token %}
-          <input type="number" name="received_qty" min="0" placeholder="qty" style="width:60px;">
-          <input type="text" name="flag_reason" placeholder="Reason" style="width:130px;">
+          <input type="number" name="received_qty" min="0" placeholder="qty" inputmode="numeric">
+          <input type="text" name="flag_reason" placeholder="Reason">
           <button class="btn red" type="submit">⚑ Flag Discrepancy</button>
         </form>
       </div>
@@ -78,13 +90,13 @@
     <tbody>
       {% for t in transfers %}
       <tr>
-        <td><strong>{{ t.slip_number }}</strong></td>
-        <td>{{ t.source_branch }} → {{ t.destination_branch|default:"N/A" }}</td>
-        <td>{{ t.requested_by.username|default:"—" }}</td>
-        <td><span class="pill">{{ t.purpose }}</span></td>
-        <td>{{ t.status }}</td>
-        <td>{{ t.transfer_date|date:"Y-m-d" }}</td>
-        <td><a class="btn" href="{% url 'transfer_detail' t.pk %}">View</a></td>
+        <td data-label="Slip ID"><strong>{{ t.slip_number }}</strong></td>
+        <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"N/A" }}</td>
+        <td data-label="Released By">{{ t.requested_by.username|default:"—" }}</td>
+        <td data-label="Purpose"><span class="pill">{{ t.purpose }}</span></td>
+        <td data-label="Status">{{ t.status }}</td>
+        <td data-label="Date">{{ t.transfer_date|date:"Y-m-d" }}</td>
+        <td data-label=""><a class="btn" href="{% url 'transfer_detail' t.pk %}">View</a></td>
       </tr>
       {% empty %}
       <tr><td colspan="7" style="text-align:center; color:#999;">No withdrawal slips yet.</td></tr>

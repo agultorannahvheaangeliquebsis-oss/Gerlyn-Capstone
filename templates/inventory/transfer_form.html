@@ -21,21 +21,25 @@
     </div>
 
     <h3>Items (from warehouse stock)</h3>
-    <table style="width:100%; border-collapse:collapse;">
-      <tr style="text-align:left;"><th style="padding:8px;">Product</th><th style="padding:8px;">Available</th><th style="padding:8px;">Withdraw qty</th></tr>
+    <div class="table-wrap">
+    <table class="gv-table">
+      <thead><tr><th>Product</th><th class="num">Available</th><th>Withdraw qty</th></tr></thead>
+      <tbody>
       {% for ws in warehouse_stock %}
       <tr>
-        <td style="padding:8px; border-bottom:1px solid #f2f2f2;">
+        <td data-label="Product">
           {{ ws.product.product_name }}
           <input type="hidden" name="product_id" value="{{ ws.product.id }}"></td>
-        <td style="padding:8px; border-bottom:1px solid #f2f2f2;">{{ ws.quantity_on_hand }}</td>
-        <td style="padding:8px; border-bottom:1px solid #f2f2f2;">
+        <td class="num" data-label="Available">{{ ws.quantity_on_hand }}</td>
+        <td data-label="Withdraw qty">
           <input type="number" name="quantity_requested" min="0" value="0" style="padding:6px; width:90px;"></td>
       </tr>
       {% empty %}
       <tr><td colspan="3" style="padding:8px; color:#999;">No warehouse stock available.</td></tr>
       {% endfor %}
+      </tbody>
     </table>
+    </div>
 
     <label style="display:block; margin:12px 0;">Notes<br><textarea name="notes" rows="2" style="width:100%; padding:8px;"></textarea></label>
     <button type="submit" style="padding:10px 20px; background:#128a4f; color:#fff; border:0; border-radius:8px;">Create Slip</button>
