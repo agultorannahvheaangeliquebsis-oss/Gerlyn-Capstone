@@ -47,7 +47,7 @@ DEBUG = env_bool('DJANGO_DEBUG', True)
 # Add the server's LAN IP here so other branches can reach the system,
 # e.g. ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.50
 ALLOWED_HOSTS = env_list(
-    'DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1],testserver'
+    'DJANGO_ALLOWED_HOSTS', 'gerlynplus.up.railway.app'
 )
 
 if not DEBUG and SECRET_KEY.startswith('django-insecure'):
@@ -104,7 +104,7 @@ CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
 # Only applied when DEBUG is off, so local development over plain HTTP still
 # works. Set DJANGO_SECURE_SSL=False if the host does not terminate TLS.
 if not DEBUG:
-    SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL', True)
+    SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL', False)
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     # Railway/Render sit behind a proxy that terminates TLS; without this
