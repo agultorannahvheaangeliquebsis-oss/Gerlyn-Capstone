@@ -63,11 +63,65 @@ def manager_dashboard(request):
 
 @login_required(login_url='login')
 def staff_dashboard(request):
+    """
+    Staff's own dashboard — deliberately separate from the Owner/Manager
+    operational_dashboard (reports.views): staff get task-oriented shortcuts
+    and their single branch's stock, not cross-branch sales/revenue figures
+    or purchase-order authoring, which are outside their role.
+    """
     if request.user.role != User.Role.STAFF:
         messages.error(request, 'Access denied.')
         return redirect('login')
-    from reports.views import operational_dashboard
-    return operational_dashboard(request)
+
+    from django.utils import timezone
+    from core.scoping import branch_ids_for_user
+    from inventory.models import Inventory, StockTransfer
+    from inventory.alerts import low_stock_alerts
+    from procurement.models import Procurement
+
+    profile = getattr(request.user, 'staff_profile', None)
+    branch = profile.branch if profile else None
+
+    if not branch:
+        messages.error(
+            request,
+            'Your account is not assigned to a branch yet. Contact your manager or the Owner.'
+        )
+        return render(request, 'accounts/staff_dashboard.html', {
+            'branch': None,
+            'active_page': 'dashboard',
+        })
+
+    branch_ids = branch_ids_for_user(request.user)
+
+    pending_deliveries = Procurement.objects.select_related(
+        'supplier__supplier_profile'
+    ).filter(branch=branch, status=Procurement.Status.ORDERED).order_by('delivery_date')
+
+    pending_receipts = StockTransfer.objects.select_related('source_branch').filter(
+        destination_branch=branch, status=StockTransfer.Status.RELEASED
+    ).order_by('-created_at')
+
+    restock = low_stock_alerts(branch_ids)
+
+    stock = Inventory.objects.select_related(
+        'product', 'product__category'
+    ).filter(branch=branch)
+
+    return render(request, 'accounts/staff_dashboard.html', {
+        'branch': branch,
+        'pending_deliveries': pending_deliveries[:5],
+        'pending_deliveries_count': pending_deliveries.count(),
+        'pending_receipts': pending_receipts[:5],
+        'pending_receipts_count': pending_receipts.count(),
+        'restock': restock[:6],
+        'low_stock_count': len(restock),
+        'task_count': pending_deliveries.count() + pending_receipts.count() + len(restock),
+        'total_products': stock.count(),
+        'stock_preview': stock.order_by('quantity_on_hand')[:8],
+        'today': timezone.localtime().date(),
+        'active_page': 'dashboard',
+    })
 
 
 @login_required(login_url='login')
