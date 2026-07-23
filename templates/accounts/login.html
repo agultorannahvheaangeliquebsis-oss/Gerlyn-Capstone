@@ -14,13 +14,14 @@
     <form method="POST" class="stack">
       {% csrf_token %}
       <div class="field field-float">
-        <input id="username" type="text" name="username" placeholder=" " required autofocus>
+        <input id="username" type="text" name="username" value="{{ username }}" placeholder=" " required autofocus{% if error %} class="is-invalid" aria-invalid="true"{% endif %}>
         <label for="username">Username</label>
       </div>
       <div class="field field-float">
-        <input id="password" type="password" name="password" placeholder=" " required>
+        <input id="password" type="password" name="password" placeholder=" " required{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="password-error"{% endif %}>
         <label for="password">Password</label>
       </div>
+      {% if error %}<p class="field-error" id="password-error" role="alert">{{ error }}</p>{% endif %}
       <button type="submit" class="btn btn-primary" style="width:100%;">Sign In</button>
     </form>
     <p class="gv-meta mt-4" style="text-align:center; margin-bottom:0;">

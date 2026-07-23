@@ -157,6 +157,16 @@ input::placeholder { color: var(--ink-400); }
   color: var(--action);
 }
 
+/* Inline field-level error, shown directly under an invalid input. */
+.field.field-float input.is-invalid {
+  border-color: var(--danger-dot);
+}
+.field-error {
+  margin: calc(-1 * var(--s4) + 6px) 0 0;
+  font: 500 13px/1.4 system-ui, sans-serif;
+  color: var(--danger-fg);
+}
+
 /* ----------------------------------------------------------------- cards */
 .card {
   background: var(--surface);

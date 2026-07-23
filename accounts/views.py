@@ -11,18 +11,21 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect_by_role(request.user)
 
+    error = None
+    username = ''
+
     if request.method == 'POST':
-        username = request.POST.get('username')
-        password = request.POST.get('password')
+        username = request.POST.get('username', '')
+        password = request.POST.get('password', '')
         user = authenticate(request, username=username, password=password)
 
         if user is not None:
             login(request, user)
             return redirect_by_role(user)
         else:
-            messages.error(request, 'Invalid username or password.')
+            error = 'Invalid username or password.'
 
-    return render(request, 'accounts/login.html')
+    return render(request, 'accounts/login.html', {'error': error, 'username': username})
 
 
 def logout_view(request):
