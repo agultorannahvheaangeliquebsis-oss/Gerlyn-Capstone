@@ -7,177 +7,102 @@
 <div class="page-head">
   <div>
     <h1>Reports</h1>
-    <p class="gv-meta mb-0">
-      Historical performance and drill-down — for what's happening right now, see the Dashboard.
-    </p>
+    <p class="gv-meta mb-0">Business performance, inventory, procurement, and billing analytics</p>
   </div>
 </div>
 
-{# ---------------------- detailed reports index ---------------------- #}
-<div class="grid-2 mb-6" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-  <a class="card card-pad" href="{% url 'sales_report' %}" style="display:block;">
-    <h3 class="mb-0">Sales Report</h3>
-    <p class="gv-meta mb-0 mt-2">Every transaction, with CSV / PDF export</p>
-  </a>
-  <a class="card card-pad" href="{% url 'inventory_report' %}" style="display:block;">
-    <h3 class="mb-0">Inventory Report</h3>
-    <p class="gv-meta mb-0 mt-2">Stock on hand per branch, with CSV / PDF export</p>
-  </a>
-  <a class="card card-pad" href="{% url 'procurement_report' %}" style="display:block;">
-    <h3 class="mb-0">Procurement Report</h3>
-    <p class="gv-meta mb-0 mt-2">Purchase orders and deliveries, with CSV / PDF export</p>
-  </a>
-  <a class="card card-pad" href="{% url 'billing_report' %}" style="display:block;">
-    <h3 class="mb-0">Billing Report</h3>
-    <p class="gv-meta mb-0 mt-2">Payment status and collections, with CSV / PDF export</p>
-  </a>
-</div>
+{% include "reports/_tabs.html" with active="sales" %}
 
-{# --------- retail vs wholesale: the visibility Chapter 1 says was missing --- #}
-<div class="card card-pad mb-6">
-  <div class="row-between mb-4">
-    <h3>Retail vs Wholesale</h3>
-    <span class="gv-meta">{{ wholesale_share }}% of sales value is wholesale</span>
+{# ---------------------------- toolbar: filters + export ---------------------------- #}
+<form method="GET" class="toolbar-card no-print">
+  <div class="toolbar-filters">
+    {% if show_branch_filter %}
+    <select name="branch" onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <select name="month" onchange="this.form.submit()">
+      <option value="">All Time</option>
+      {% for m in month_options %}
+        <option value="{{ m.value }}" {% if month_filter == m.value %}selected{% endif %}>{{ m.label }}</option>
+      {% endfor %}
+    </select>
   </div>
-  <div class="grid-2" style="grid-template-columns:1fr 1fr;">
-    <div>
-      <div class="row-between">
-        <span><span class="pill pill-neutral">Retail</span></span>
-        <span class="num strong">₱{{ retail_sales|floatformat:2 }}</span>
-      </div>
-      <div class="gv-meta mt-2">{{ retail_count }} order{{ retail_count|pluralize }}</div>
-    </div>
-    <div>
-      <div class="row-between">
-        <span><span class="pill pill-info">Wholesale</span></span>
-        <span class="num strong">₱{{ wholesale_sales|floatformat:2 }}</span>
-      </div>
-      <div class="gv-meta mt-2">{{ wholesale_count }} order{{ wholesale_count|pluralize }}</div>
-    </div>
+  <div class="toolbar-actions">
+    <a class="btn" href="{% url 'export_csv' 'sales' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
+      Export CSV
+    </a>
+    <button class="btn btn-primary" type="button" onclick="window.print()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
+      Export PDF
+    </button>
   </div>
-  <div class="meter mt-4" style="height:10px; background:var(--line-soft);">
-    <span style="width:{{ wholesale_share }}%; background:var(--brand);"></span>
-  </div>
-  <p class="gv-meta mt-2 mb-0">
-    <a href="{% url 'transaction_list' %}?type=Wholesale">View wholesale orders &rarr;</a>
-  </p>
-</div>
+</form>
 
-{# ------------------------------ charts ------------------------------ #}
-<div class="grid-2 mb-6">
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);">
-      <h3>Sales Trend — last 14 days</h3>
-      {% if trend.has_data %}
-      <p class="gv-meta mb-0">Peak day: ₱{{ trend.max|floatformat:2 }}</p>
-      {% endif %}
+{# ---------------------------- KPI stat cards ---------------------------- #}
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
     </div>
-    <div class="card-pad">
-      {% if trend.has_data %}
-        <svg viewBox="0 0 100 40" preserveAspectRatio="none"
-             style="width:100%; height:180px; overflow:visible;" role="img"
-             aria-label="Daily sales per branch over the last 14 days">
-          <line x1="0" y1="40" x2="100" y2="40" stroke="var(--line)" stroke-width="0.4"/>
-          <line x1="0" y1="20" x2="100" y2="20" stroke="var(--line-soft)" stroke-width="0.4"/>
-          <line x1="0" y1="0"  x2="100" y2="0"  stroke="var(--line-soft)" stroke-width="0.4"/>
-          {% for s in trend.series %}
-            <polyline points="{{ s.points }}" fill="none" stroke="{{ s.colour }}"
-                      stroke-width="0.9" vector-effect="non-scaling-stroke"
-                      stroke-linejoin="round" stroke-linecap="round"/>
-          {% endfor %}
-        </svg>
-        <div class="row-between gv-meta mt-2">
-          <span>{{ trend.labels.0 }}</span><span>{{ trend.labels.1 }}</span>
-        </div>
-        {# legend: colour + name, so it never depends on colour alone #}
-        <div class="row wrap mt-4" style="gap:16px;">
-          {% for s in trend.series %}
-          <span class="row" style="gap:6px;">
-            <span style="width:10px; height:10px; border-radius:2px; background:{{ s.colour }};"></span>
-            <span class="gv-meta">{{ s.name }} — ₱{{ s.total|floatformat:2 }}</span>
-          </span>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="empty">
-          <span class="glyph">📈</span>
-          <h3>No sales in the last 14 days</h3>
-          <p>The trend appears once orders are recorded.</p>
-        </div>
-      {% endif %}
-    </div>
+    <div class="kpi-value">{{ total_orders }}</div>
+    <div class="kpi-label">Total Orders</div>
   </div>
-
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);">
-      <h3>Inventory Value per Branch</h3>
-      <p class="gv-meta mb-0">Stock on hand, valued at cost</p>
+  <div class="kpi-card highlight">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
     </div>
-    <div class="card-pad">
-      {% if inventory_bars %}
-        <div class="stack">
-          {% for b in inventory_bars %}
-          <div>
-            <div class="row-between">
-              <span style="font-weight:600;">{{ b.name }}</span>
-              <span class="num strong">₱{{ b.value|floatformat:2 }}</span>
-            </div>
-            <div class="meter mt-2"><span style="width:{{ b.pct }}%;"></span></div>
-          </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="empty">
-          <span class="glyph">□</span>
-          <h3>No stock recorded</h3>
-        </div>
-      {% endif %}
+    <div class="kpi-value">₱{{ total_sales|floatformat:2 }}</div>
+    <div class="kpi-label">Total Sales</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
     </div>
+    <div class="kpi-value">₱{{ avg_order_value|floatformat:2 }}</div>
+    <div class="kpi-label">Avg Order Value</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>
+    </div>
+    <div class="kpi-value">{{ online_orders }}</div>
+    <div class="kpi-label">Online Orders</div>
   </div>
 </div>
 
-<div class="grid-2 mb-6">
-  {# ------------------------- top products ------------------------- #}
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Top-Selling Products</h3></div>
-    <div class="table-wrap">
-      <table class="gv-table">
-        <thead><tr><th>Product</th><th class="num">Units</th><th class="num">Revenue</th></tr></thead>
-        <tbody>
-          {% for p in top_products %}
-          <tr>
-            <td data-label="Product" class="strong">{{ p.product__product_name }}</td>
-            <td data-label="Units" class="num">{{ p.total_qty }}</td>
-            <td data-label="Revenue" class="num strong">₱{{ p.total_revenue|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="3"><div class="empty"><h3>No sales yet</h3>
-            <p>Top sellers appear once orders are recorded.</p></div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  {# ------------------------- sales by branch ------------------------- #}
-  <div class="card">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Sales by Branch</h3></div>
-    <div class="table-wrap">
-      <table class="gv-table">
-        <thead><tr><th>Branch</th><th class="num">Orders</th><th class="num">Sales</th></tr></thead>
-        <tbody>
-          {% for b in sales_by_branch %}
-          <tr>
-            <td data-label="Branch" class="strong">{{ b.branch__branch_name }}</td>
-            <td data-label="Orders" class="num">{{ b.count }}</td>
-            <td data-label="Sales" class="num strong">₱{{ b.total|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="3"><div class="empty"><h3>No sales yet</h3></div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+{# ---------------------------- sales transactions ---------------------------- #}
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Order ID</th><th>Branch</th><th>Recorded by</th><th>Customer</th>
+          <th>Date</th><th>Channel</th><th class="num">Total</th></tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr>
+        <td data-label="Order ID" class="sku strong">
+          <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
+        <td data-label="Branch">{{ t.branch.branch_name }}</td>
+        <td data-label="Recorded by">{% if t.staff %}{{ t.staff.username }}{% else %}—{% endif %}</td>
+        <td data-label="Customer">
+          {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}{% else %}Walk-in{% endif %}</td>
+        <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
+        <td data-label="Channel">
+          {% if t.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
+          {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td>
+        <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty">
+        <span class="glyph">□</span><h3>No sales recorded</h3>
+        <p>{% if branch_filter or month_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endblock %}
