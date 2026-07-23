@@ -1,48 +1,133 @@
 {% extends "internal_base.html" %}
 {% block title %}Procurement Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
+{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="gv-meta no-print" href="{% url 'reports_dashboard' %}">&larr; Dashboard</a>
-    <h1 class="mt-2">Procurement Report</h1>
-    <p class="gv-meta mb-0">{{ procurements|length }} purchase order{{ procurements|length|pluralize }}</p>
-  </div>
-  <div class="row no-print">
-    <a class="btn" href="{% url 'export_csv' 'procurement' %}">Export CSV</a>
-    <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
+    <h1>Reports</h1>
+    <p class="gv-meta mb-0">Business performance, inventory, procurement, and billing analytics</p>
   </div>
 </div>
 
-<div class="card table-wrap">
-  <table class="gv-table">
-    <thead>
-      <tr><th>PO ID</th><th>Branch</th><th>Supplier</th><th>Order Date</th>
-          <th>Delivery Date</th><th class="num">Total Cost</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-      {% for p in procurements %}
-      <tr>
-        <td data-label="PO ID" class="sku strong">
-          <a href="{% url 'procurement_detail' p.pk %}">{{ p.po_number }}</a></td>
-        <td data-label="Branch">{{ p.branch.branch_name }}</td>
-        <td data-label="Supplier">
-          {{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username|default:"—" }}</td>
-        <td data-label="Order Date" class="gv-meta">{{ p.order_date|date:"Y-m-d" }}</td>
-        <td data-label="Delivery Date" class="gv-meta">{{ p.delivery_date|date:"Y-m-d"|default:"—" }}</td>
-        <td data-label="Total Cost" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
-        <td data-label="Status">
-          {% if p.status == 'Received' %}<span class="pill pill-ok">Received</span>
-          {% elif p.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
-          {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
-          {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="7"><div class="empty">
-        <span class="glyph">□</span><h3>No purchase orders</h3></div></td></tr>
+{% include "reports/_tabs.html" with active="procurement" %}
+
+{# ---------------------------- toolbar: filters + export ---------------------------- #}
+<form method="GET" class="toolbar-card no-print">
+  <div class="toolbar-filters">
+    {% if show_branch_filter %}
+    <select name="branch" onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
       {% endfor %}
-    </tbody>
-  </table>
+    </select>
+    {% endif %}
+    <div class="date-range">
+      <input type="date" name="date_from" value="{{ date_from }}" onchange="this.form.submit()">
+      <span class="gv-meta">to</span>
+      <input type="date" name="date_to" value="{{ date_to }}" onchange="this.form.submit()">
+    </div>
+  </div>
+  <div class="toolbar-actions">
+    <a class="btn" href="{% url 'export_csv' 'procurement' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
+      Export CSV
+    </a>
+    <button class="btn btn-primary" type="button" onclick="window.print()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
+      Export PDF
+    </button>
+  </div>
+</form>
+
+{# ---------------------------- KPI stat cards ---------------------------- #}
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+    </div>
+    <div class="kpi-value">{{ total_pos }}</div>
+    <div class="kpi-label">Total POs</div>
+    <div class="gv-meta">in range</div>
+  </div>
+  <div class="kpi-card highlight">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
+    </div>
+    <div class="kpi-value">₱{{ active_value|floatformat:2 }}</div>
+    <div class="kpi-label">PO Value (Active)</div>
+  </div>
+  <div class="kpi-card highlight">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+    </div>
+    <div class="kpi-value">₱{{ received_value|floatformat:2 }}</div>
+    <div class="kpi-label">Received Value</div>
+  </div>
+  <div class="kpi-card warn">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+    </div>
+    <div class="kpi-value">{{ pending_delivery }}</div>
+    <div class="kpi-label">Pending Delivery</div>
+    <div class="gv-meta">orders</div>
+  </div>
+</div>
+
+{# ---------------------------- status breakdown + PO list ---------------------------- #}
+<div class="grid-2" style="grid-template-columns: minmax(260px, 340px) 1fr;">
+  <div class="card">
+    <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>PO Status Breakdown</h3></div>
+    <div class="card-pad">
+      {% if chart.total %}
+      <div class="pie-wrap">
+        <div class="pie" role="img" aria-label="Purchase order status breakdown: {% for seg in chart.segments %}{{ seg.label }} {{ seg.count }}{% if not forloop.last %}, {% endif %}{% endfor %}"
+             style="background: conic-gradient({{ chart.gradient|safe }});"></div>
+        <ul class="pie-legend">
+          {% for seg in chart.segments %}
+          <li><span class="pie-dot" style="background:{{ seg.colour }};"></span>{{ seg.label }}<span class="pie-count">{{ seg.count }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% else %}
+      <div class="empty">
+        <span class="glyph">□</span>
+        <h3>No purchase orders</h3>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card table-wrap">
+    <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Purchase Orders</h3></div>
+    <table class="gv-table">
+      <thead>
+        <tr><th>PO ID</th><th>Branch</th><th>Supplier</th><th>Date</th><th class="num">Total</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for p in procurements %}
+        <tr>
+          <td data-label="PO ID" class="sku strong">
+            <a href="{% url 'procurement_detail' p.pk %}">{{ p.po_number }}</a></td>
+          <td data-label="Branch">{{ p.branch.branch_name }}</td>
+          <td data-label="Supplier">
+            {{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username|default:"—" }}</td>
+          <td data-label="Date" class="gv-meta">{{ p.order_date|date:"Y-m-d" }}</td>
+          <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
+          <td data-label="Status">
+            {% if p.status == 'Received' %}<span class="pill pill-ok">Received</span>
+            {% elif p.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+            {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
+            {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6"><div class="empty">
+          <span class="glyph">□</span><h3>No purchase orders</h3></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

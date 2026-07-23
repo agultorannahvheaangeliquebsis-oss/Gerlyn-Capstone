@@ -427,6 +427,8 @@ input::placeholder { color: var(--ink-400); }
   .toolbar-card { flex-direction: column; align-items: stretch; }
   .toolbar-card .toolbar-filters, .toolbar-card .toolbar-actions { width: 100%; }
   .toolbar-card .toolbar-filters select, .toolbar-card .toolbar-actions .btn { flex: 1; min-width: 0; }
+  .toolbar-filters .date-range { width: 100%; }
+  .toolbar-filters .date-range input[type=date] { flex: 1; }
   .hbar-row, .hbar-axis { grid-template-columns: 84px 1fr 64px; gap: var(--s2); }
   .hbar-label { font-size: 12.5px; }
   .hbar-value { font-size: 12px; }
@@ -548,6 +550,27 @@ input::placeholder { color: var(--ink-400); }
 .kpi-card.danger { background: var(--danger-bg); border-color: #E6B3AE; }
 .kpi-card.danger .kpi-icon { background: #fff; color: var(--danger-fg); }
 .kpi-card.danger .kpi-value { color: var(--danger-fg); }
+.kpi-card.warn { background: var(--warn-bg); border-color: #EAC97E; }
+.kpi-card.warn .kpi-icon { background: #fff; color: var(--warn-fg); }
+.kpi-card.warn .kpi-value { color: var(--warn-fg); }
+
+/* Toolbar date-range pair (Procurement Report): two date inputs + "to". */
+.toolbar-filters .date-range { display: flex; align-items: center; gap: 8px; }
+.toolbar-filters .date-range input[type=date] { min-width: 0; width: auto; }
+
+/* Status-breakdown pie (Procurement Report) — one status scale, reserved
+   colours, always paired with a legend (dot + label + count), never colour
+   alone. print-color-adjust keeps the slices from vanishing in "Export PDF"
+   when the browser's print dialog defaults background graphics off. */
+.pie-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--s4); }
+.pie {
+  width: 180px; height: 180px; border-radius: 50%; flex: none;
+  print-color-adjust: exact; -webkit-print-color-adjust: exact;
+}
+.pie-legend { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.pie-legend li { display: flex; align-items: center; gap: 8px; font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-700); }
+.pie-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.pie-count { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* Horizontal bar chart — single series (magnitude by branch), so no legend;
    label + value flank a fixed-width track, ticks share the same grid so they
@@ -559,7 +582,10 @@ input::placeholder { color: var(--ink-400); }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .hbar-track { position: relative; height: 22px; background: var(--line-soft); border-radius: 4px; }
-.hbar-fill { position: absolute; left: 0; top: 0; height: 100%; min-width: 4px; background: var(--brand); border-radius: 4px; }
+.hbar-fill {
+  position: absolute; left: 0; top: 0; height: 100%; min-width: 4px; background: var(--brand); border-radius: 4px;
+  print-color-adjust: exact; -webkit-print-color-adjust: exact;
+}
 .hbar-value { font: 600 13.5px/1 system-ui, sans-serif; color: var(--ink-900); font-variant-numeric: tabular-nums; }
 .hbar-axis { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); margin-top: var(--s1); }
 .hbar-axis-ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--line-soft); padding-top: 6px; }

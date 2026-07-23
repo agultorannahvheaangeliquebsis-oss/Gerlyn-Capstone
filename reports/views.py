@@ -292,6 +292,45 @@ def _inventory_value_chart(branch_summary):
     return {'bars': bars, 'ticks': ticks}
 
 
+# Status is a reserved, fixed scale (never re-derived per chart) — distinct
+# from the app's pill colours because pill-info and pill-ok share one green
+# dot (#2E9E6B) in this design system, which would make "Ordered" and
+# "Received" indistinguishable in a pie chart's fill-only encoding. Validated
+# with the dataviz skill's validator (all-pairs, light mode): PASS.
+PROCUREMENT_STATUS_COLOURS = {
+    Procurement.Status.DRAFT: '#8A968F',
+    Procurement.Status.ORDERED: '#3B6FD4',
+    Procurement.Status.RECEIVED: '#2E9E6B',
+    Procurement.Status.CANCELLED: '#B42318',
+}
+
+
+def _procurement_status_chart(status_counts):
+    """
+    PO Status Breakdown pie — one status scale, so a legend (dot + label +
+    count) carries identity; never colour alone. `status_counts` keys must
+    already be in Procurement.Status order (Draft, Ordered, Received,
+    Cancelled) so the legend and the gradient segments line up.
+    """
+    total = sum(status_counts.values())
+    if not total:
+        return {'total': 0, 'segments': [], 'gradient': ''}
+
+    segments = []
+    stops = []
+    cursor = 0.0
+    for status, count in status_counts.items():
+        if not count:
+            continue
+        pct = count / total * 100
+        colour = PROCUREMENT_STATUS_COLOURS.get(status, '#8A968F')
+        stops.append(f'{colour} {cursor:.2f}% {cursor + pct:.2f}%')
+        segments.append({'label': status, 'count': count, 'colour': colour})
+        cursor += pct
+
+    return {'total': total, 'segments': segments, 'gradient': ', '.join(stops)}
+
+
 def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales):
     """
     Per-branch sales status for the Dashboard's "at a glance" row.
@@ -539,10 +578,62 @@ def procurement_report(request):
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 
-    procurement_qs = Procurement.objects.select_related('branch', 'supplier').all()
     user_branch = get_user_branch(request.user)
-    if user_branch:
-        procurement_qs = procurement_qs.filter(branch=user_branch)
+    branch_ids = branch_ids_for_user(request.user)
+    show_branch_filter = branch_ids is None  # Owner only
 
-    procurement_qs = procurement_qs.order_by('-order_date')
-    return render(request, 'reports/procurement.html', {'procurements': procurement_qs})
+    procurement_qs = Procurement.objects.select_related('branch', 'supplier').all()
+    if branch_ids is not None:
+        procurement_qs = procurement_qs.filter(branch_id__in=branch_ids)
+
+    branch_filter = request.GET.get('branch', '')
+    if branch_filter and show_branch_filter:
+        procurement_qs = procurement_qs.filter(branch_id=branch_filter)
+    else:
+        branch_filter = ''
+
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    if date_from:
+        try:
+            procurement_qs = procurement_qs.filter(
+                order_date__gte=datetime.strptime(date_from, '%Y-%m-%d').date()
+            )
+        except ValueError:
+            date_from = ''
+    if date_to:
+        try:
+            procurement_qs = procurement_qs.filter(
+                order_date__lte=datetime.strptime(date_to, '%Y-%m-%d').date()
+            )
+        except ValueError:
+            date_to = ''
+
+    records = list(procurement_qs.order_by('-order_date'))
+
+    active_value = sum(
+        p.total_cost for p in records
+        if p.status in (Procurement.Status.DRAFT, Procurement.Status.ORDERED)
+    )
+    received_value = sum(p.total_cost for p in records if p.status == Procurement.Status.RECEIVED)
+    pending_delivery = sum(1 for p in records if p.status == Procurement.Status.ORDERED)
+
+    status_counts = {choice.value: 0 for choice in Procurement.Status}
+    for p in records:
+        status_counts[p.status] = status_counts.get(p.status, 0) + 1
+
+    return render(request, 'reports/procurement.html', {
+        'procurements': records,
+        'branches': Branch.objects.all() if show_branch_filter else [],
+        'show_branch_filter': show_branch_filter,
+        'branch_filter': branch_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'total_pos': len(records),
+        'active_value': active_value,
+        'received_value': received_value,
+        'pending_delivery': pending_delivery,
+        'chart': _procurement_status_chart(status_counts),
+        'user_branch': user_branch,
+        'active_page': 'reports',
+    })
