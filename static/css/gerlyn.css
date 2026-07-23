@@ -424,6 +424,12 @@ input::placeholder { color: var(--ink-400); }
   .row-actions { justify-content: flex-end; }
   .page-head { flex-direction: column; align-items: stretch; }
   .toolbar .input, .toolbar select { min-width: 0; width: 100%; }
+  .toolbar-card { flex-direction: column; align-items: stretch; }
+  .toolbar-card .toolbar-filters, .toolbar-card .toolbar-actions { width: 100%; }
+  .toolbar-card .toolbar-filters select, .toolbar-card .toolbar-actions .btn { flex: 1; min-width: 0; }
+  .hbar-row, .hbar-axis { grid-template-columns: 84px 1fr 64px; gap: var(--s2); }
+  .hbar-label { font-size: 12.5px; }
+  .hbar-value { font-size: 12px; }
 
   /* Pages set a fixed two-column track via inline style (dashboard hero,
      retail/wholesale split, supplier form fields, product gallery) — inline
@@ -459,6 +465,7 @@ input::placeholder { color: var(--ink-400); }
    file. Keeps the system dependency-free and working offline. */
 @media print {
   .sidebar, .bottom-nav, .topbar, .tabs, .toolbar, .no-print,
+  .report-tabs, .toolbar-card,
   .btn, .row-actions, .banner { display: none !important; }
   .main { margin-left: 0; }
   .content { padding: 0; }
@@ -472,7 +479,7 @@ input::placeholder { color: var(--ink-400); }
   .gv-table tbody tr:nth-child(even) { background: #fff; }
   .pill { border: 1px solid #999; background: #fff !important; color: #000 !important; }
   .pill::before { display: none; }
-  .stat, .stat-hero { background: #fff !important; border: 1px solid #ccc; }
+  .stat, .stat-hero, .kpi-card { background: #fff !important; border: 1px solid #ccc; }
   a[href]::after { content: ""; }  /* don't append URLs */
   @page { margin: 14mm; }
 }
@@ -492,3 +499,68 @@ input::placeholder { color: var(--ink-400); }
 }
 .tab.active { background: var(--action); border-color: var(--action); color: #fff; }
 .tab .count { font-weight: 700; opacity: .85; }
+
+/* Report tabs: green-underline style (the Reports section's own tab bar —
+   a different visual language from the pill .tabs above on purpose). */
+.report-tabs { display: flex; gap: var(--s6); border-bottom: 1.5px solid var(--line); margin-bottom: var(--s6); flex-wrap: wrap; }
+.report-tab {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 0 2px 12px; margin-bottom: -1.5px;
+  font: 600 14.5px/1 system-ui, sans-serif;
+  color: var(--ink-600); text-decoration: none;
+  border-bottom: 2.5px solid transparent;
+  min-height: var(--touch);
+}
+.report-tab svg { width: 16px; height: 16px; flex: none; }
+.report-tab:hover { color: var(--ink-900); }
+.report-tab.active { color: var(--action-700); border-bottom-color: var(--action); }
+
+/* Report toolbar: a white card housing filters (left) and export actions
+   (right), sitting right below the report tabs. */
+.toolbar-card {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
+  flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--s3) var(--s4); margin-bottom: var(--s6);
+}
+.toolbar-card .toolbar-filters { display: flex; gap: var(--s2); flex-wrap: wrap; margin: 0; }
+.toolbar-card .toolbar-filters select { min-width: 160px; width: auto; }
+.toolbar-card .toolbar-actions { display: flex; gap: var(--s2); }
+
+/* KPI stat cards row (Reports > Sales Report). */
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s4); margin-bottom: var(--s6); }
+.kpi-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-card); padding: var(--s4);
+}
+.kpi-card.highlight { background: var(--green-50); border-color: var(--green-300); }
+.kpi-card .kpi-icon {
+  width: 36px; height: 36px; border-radius: var(--r-input);
+  background: var(--line-soft); color: var(--ink-600);
+  display: flex; align-items: center; justify-content: center; margin-bottom: var(--s3);
+}
+.kpi-card .kpi-icon svg { width: 18px; height: 18px; }
+.kpi-card.highlight .kpi-icon { background: #fff; color: var(--action); }
+.kpi-card .kpi-value { font: 700 24px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.kpi-card .kpi-label { font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-600); margin-top: 2px; }
+.kpi-card.highlight .kpi-value { color: var(--action-700); }
+.kpi-card.danger { background: var(--danger-bg); border-color: #E6B3AE; }
+.kpi-card.danger .kpi-icon { background: #fff; color: var(--danger-fg); }
+.kpi-card.danger .kpi-value { color: var(--danger-fg); }
+
+/* Horizontal bar chart — single series (magnitude by branch), so no legend;
+   label + value flank a fixed-width track, ticks share the same grid so they
+   line up under it. */
+.hbar-chart { display: flex; flex-direction: column; gap: var(--s4); }
+.hbar-row { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); align-items: center; }
+.hbar-label {
+  font: 600 14px/1.3 system-ui, sans-serif; color: var(--ink-700); text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hbar-track { position: relative; height: 22px; background: var(--line-soft); border-radius: 4px; }
+.hbar-fill { position: absolute; left: 0; top: 0; height: 100%; min-width: 4px; background: var(--brand); border-radius: 4px; }
+.hbar-value { font: 600 13.5px/1 system-ui, sans-serif; color: var(--ink-900); font-variant-numeric: tabular-nums; }
+.hbar-axis { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); margin-top: var(--s1); }
+.hbar-axis-ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--line-soft); padding-top: 6px; }
+.hbar-axis-ticks span { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-400); font-variant-numeric: tabular-nums; }

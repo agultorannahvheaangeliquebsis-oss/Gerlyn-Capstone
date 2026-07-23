@@ -1,16 +1,17 @@
 import csv
+import math
 
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Sum, Count, F
+from django.db.models import Sum
 from django.http import HttpResponse
 from django.utils import timezone
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from billing.models import BillingRecord
 
-from sales.models import SalesTransaction, SalesItem
+from sales.models import SalesTransaction
 from inventory.models import Inventory, Product
 from inventory.alerts import low_stock_alerts
 from procurement.models import Procurement
@@ -131,10 +132,10 @@ def operational_dashboard(request):
 @login_required(login_url='login')
 def reports_dashboard(request):
     """
-    The Reports hub — historical/analytical breakdowns (14-day trend, sales
-    by branch, top products, retail vs wholesale) plus an index into the
-    detailed per-process reports (Sales, Inventory, Procurement, Billing)
-    for drill-down and CSV export. Branch-scoped like the Dashboard.
+    The Reports hub — opens straight onto the Sales Report: every transaction
+    the user's role can see, filterable by branch (Owner only — a Manager/
+    Staff's own branch is already the whole story) and by month, with the
+    same CSV/print-to-PDF export as the other per-process reports.
     """
     if request.user.role not in [
         User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
@@ -142,111 +143,153 @@ def reports_dashboard(request):
         messages.error(request, 'You do not have permission to view this page.')
         return render(request, 'reports/no_access.html')
 
-    sales_qs, procurement_qs, inventory_qs, user_branch = _scoped_querysets(request.user)
-    today = timezone.localtime().date()
+    user_branch = get_user_branch(request.user)
+    branch_ids = branch_ids_for_user(request.user)
+    show_branch_filter = branch_ids is None  # Owner only
 
-    # --- Retail vs wholesale ---
-    # Chapter 1: management had "limited visibility into ... wholesale
-    # transactions across branches". This is that visibility.
-    wholesale_qs = sales_qs.filter(order_type=SalesTransaction.OrderType.WHOLESALE)
-    retail_qs = sales_qs.filter(order_type=SalesTransaction.OrderType.RETAIL)
-    wholesale_sales = wholesale_qs.aggregate(t=Sum('total_amount'))['t'] or 0
-    retail_sales = retail_qs.aggregate(t=Sum('total_amount'))['t'] or 0
-    all_sales = wholesale_sales + retail_sales
-    wholesale_share = round((wholesale_sales / all_sales) * 100, 1) if all_sales else 0
+    sales_qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer').all()
+    if branch_ids is not None:
+        sales_qs = sales_qs.filter(branch_id__in=branch_ids)
 
-    # --- Charts ---
-    # Geometry is computed here, not in the template: SVG coordinate maths in
-    # Django template tags would be unreadable and untestable.
-    trend = _sales_trend(sales_qs, today, days=14)
-    inventory_bars = _inventory_value_bars(inventory_qs)
+    # Month options are drawn from whatever's actually in the (branch-scoped)
+    # data, so the dropdown never offers a month with nothing to show.
+    # Computed in Python (not queryset.dates()) because MySQL's CONVERT_TZ
+    # under USE_TZ returns NULL when the server has no zoneinfo tables loaded.
+    month_keys = sorted({
+        timezone.localtime(dt).strftime('%Y-%m')
+        for dt in sales_qs.values_list('transaction_date', flat=True)
+    }, reverse=True)
+    month_options = [
+        {'value': key, 'label': datetime.strptime(key, '%Y-%m').strftime('%B %Y')}
+        for key in month_keys
+    ]
 
-    # --- Breakdown tables ---
-    sales_by_branch = sales_qs.values('branch__branch_name').annotate(
-        total=Sum('total_amount'), count=Count('id')
-    ).order_by('-total')
+    branch_filter = request.GET.get('branch', '')
+    month_filter = request.GET.get('month', '')
 
-    top_products = SalesItem.objects.filter(transaction__in=sales_qs).values(
-        'product__product_name'
-    ).annotate(
-        total_qty=Sum('quantity_sold'),
-        total_revenue=Sum(F('quantity_sold') * F('unit_price')),
-    ).order_by('-total_qty')[:5]
+    if branch_filter and show_branch_filter:
+        sales_qs = sales_qs.filter(branch_id=branch_filter)
+    else:
+        branch_filter = ''
+
+    if month_filter:
+        try:
+            year, month = (int(part) for part in month_filter.split('-'))
+            sales_qs = sales_qs.filter(transaction_date__year=year, transaction_date__month=month)
+        except ValueError:
+            month_filter = ''
+
+    sales_qs = sales_qs.order_by('-transaction_date')
+
+    total_orders = sales_qs.count()
+    total_sales = sales_qs.aggregate(t=Sum('total_amount'))['t'] or 0
+    avg_order_value = (total_sales / total_orders) if total_orders else 0
+    online_orders = sales_qs.filter(
+        transaction_type=SalesTransaction.TransactionType.ONLINE
+    ).count()
 
     return render(request, 'reports/reports_home.html', {
-        'retail_sales': retail_sales,
-        'retail_count': retail_qs.count(),
-        'wholesale_sales': wholesale_sales,
-        'wholesale_count': wholesale_qs.count(),
-        'wholesale_share': wholesale_share,
-        'sales_by_branch': sales_by_branch,
-        'top_products': top_products,
-        'total_orders': sales_qs.count(),
-        'trend': trend,
-        'inventory_bars': inventory_bars,
+        'transactions': sales_qs,
+        'total_orders': total_orders,
+        'total_sales': total_sales,
+        'avg_order_value': avg_order_value,
+        'online_orders': online_orders,
+        'branches': Branch.objects.all() if show_branch_filter else [],
+        'show_branch_filter': show_branch_filter,
+        'branch_filter': branch_filter,
+        'month_filter': month_filter,
+        'month_options': month_options,
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
-        'today': today,
         'active_page': 'reports',
     })
 
 
-# --- chart helpers ---------------------------------------------------------
-# The SVG viewBox is 0 0 100 40 and scales to whatever width the card is.
-CHART_W, CHART_H = 100.0, 40.0
-SERIES_COLOURS = ['#1E7A4F', '#B45309', '#2E9E6B', '#56655D']
+def _inventory_unit_cost(inv):
+    """Cost basis for one unit — wholesale price where known, else retail."""
+    if not inv.product:
+        return 0
+    return inv.product.wholesale_price or inv.product.unit_price or 0
 
 
-def _sales_trend(sales_qs, today, days=14):
-    """
-    Daily sales per branch for the last `days`, as ready-to-render polylines.
-
-    Returns {'series': [{name, colour, points, total}], 'labels': [...],
-             'max': Decimal, 'has_data': bool}
-    """
-    start = today - timedelta(days=days - 1)
-    window = [start + timedelta(days=i) for i in range(days)]
-
-    rows = (
-        sales_qs.filter(transaction_date__date__gte=start)
-        .values('branch__branch_name', 'transaction_date__date')
-        .annotate(total=Sum('total_amount'))
-    )
-
-    # branch -> {date: total}
+def _inventory_branch_summary(records):
+    """Per-branch rollup for the Inventory Report's summary table + chart.
+    Expects each `inv` to already carry a `.value` attribute (see inventory_report)."""
     by_branch = {}
-    for r in rows:
-        name = r['branch__branch_name'] or '—'
-        by_branch.setdefault(name, {})[r['transaction_date__date']] = r['total'] or 0
-
-    peak = max(
-        (v for daily in by_branch.values() for v in daily.values()),
-        default=0,
-    )
-    if not peak:
-        return {'series': [], 'labels': [], 'max': 0, 'has_data': False}
-
-    step = CHART_W / (days - 1) if days > 1 else CHART_W
-    series = []
-    for i, (name, daily) in enumerate(sorted(by_branch.items())):
-        points = []
-        for x, day in enumerate(window):
-            value = float(daily.get(day, 0))
-            y = CHART_H - (value / float(peak)) * CHART_H
-            points.append(f'{x * step:.2f},{y:.2f}')
-        series.append({
-            'name': name,
-            'colour': SERIES_COLOURS[i % len(SERIES_COLOURS)],
-            'points': ' '.join(points),
-            'total': sum(daily.values()),
+    for inv in records:
+        if not inv.branch:
+            continue
+        row = by_branch.setdefault(inv.branch.branch_name, {
+            'product_ids': set(), 'units': 0, 'value': 0, 'low_critical': 0,
         })
+        row['product_ids'].add(inv.product_id)
+        row['units'] += inv.quantity_on_hand
+        row['value'] += inv.value
+        if inv.restock:
+            row['low_critical'] += 1
 
-    return {
-        'series': series,
-        'labels': [window[0].strftime('%b %-d'), window[-1].strftime('%b %-d')],
-        'max': peak,
-        'has_data': True,
-    }
+    summary = [
+        {
+            'name': name,
+            'product_lines': len(row['product_ids']),
+            'units': row['units'],
+            'value': row['value'],
+            'low_critical': row['low_critical'],
+        }
+        for name, row in by_branch.items()
+    ]
+    summary.sort(key=lambda r: -r['value'])
+    return summary
+
+
+def _compact_currency(value):
+    """Auto-compact a peso amount: 850 / 30k / 1.2M — for axis ticks."""
+    value = float(value)
+    if value >= 1_000_000:
+        return f'{value / 1_000_000:.1f}M'
+    if value >= 1_000:
+        return f'{value / 1_000:.0f}k'
+    return f'{value:.0f}'
+
+
+def _nice_step(peak, tick_count=4):
+    """Round `peak / tick_count` up to a clean 1/2/5×10^n step (axis ticks)."""
+    raw_step = float(peak) / tick_count
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    residual = raw_step / magnitude
+    if residual > 5:
+        step = 10 * magnitude
+    elif residual > 2:
+        step = 5 * magnitude
+    elif residual > 1:
+        step = 2 * magnitude
+    else:
+        step = magnitude
+    return step, math.ceil(peak / step)
+
+
+def _inventory_value_chart(branch_summary):
+    """
+    Horizontal bar chart geometry for "Inventory Value by Branch" — one
+    series (value), so no legend; bar length is a % of a nice rounded max.
+    """
+    peak = max((row['value'] for row in branch_summary), default=0)
+    if not peak:
+        return {'bars': [], 'ticks': []}
+
+    step, tick_count = _nice_step(peak)
+    chart_max = step * tick_count
+    ticks = [_compact_currency(step * i) for i in range(tick_count + 1)]
+
+    bars = [
+        {
+            'name': row['name'],
+            'value': row['value'],
+            'pct': round((float(row['value']) / float(chart_max)) * 100, 1),
+        }
+        for row in branch_summary
+    ]
+    return {'bars': bars, 'ticks': ticks}
 
 
 def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales):
@@ -293,28 +336,6 @@ def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales):
             'status': status,
         })
     return rows
-
-
-def _inventory_value_bars(inventory_qs):
-    """Stock value per branch, at cost, as percentage-width bars."""
-    totals = {}
-    for inv in inventory_qs:
-        if not inv.product or not inv.branch:
-            continue
-        cost = inv.product.wholesale_price or inv.product.unit_price or 0
-        totals[inv.branch.branch_name] = (
-            totals.get(inv.branch.branch_name, 0) + inv.quantity_on_hand * cost
-        )
-
-    peak = max(totals.values(), default=0)
-    return [
-        {
-            'name': name,
-            'value': value,
-            'pct': round((float(value) / float(peak)) * 100, 1) if peak else 0,
-        }
-        for name, value in sorted(totals.items(), key=lambda kv: -kv[1])
-    ]
 
 
 # =============================================================================
@@ -470,12 +491,46 @@ def inventory_report(request):
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 
-    inventory_qs = Inventory.objects.select_related('product', 'branch').all()
     user_branch = get_user_branch(request.user)
-    if user_branch:
-        inventory_qs = inventory_qs.filter(branch=user_branch)
+    branch_ids = branch_ids_for_user(request.user)
+    show_branch_filter = branch_ids is None  # Owner only
 
-    return render(request, 'reports/inventory_report.html', {'inventory_records': inventory_qs})
+    inventory_qs = Inventory.objects.select_related('product', 'branch').all()
+    if branch_ids is not None:
+        inventory_qs = inventory_qs.filter(branch_id__in=branch_ids)
+
+    branch_filter = request.GET.get('branch', '')
+    if branch_filter and show_branch_filter:
+        inventory_qs = inventory_qs.filter(branch_id=branch_filter)
+    else:
+        branch_filter = ''
+
+    records = list(inventory_qs.order_by('branch__branch_name', 'product__product_name'))
+    for inv in records:
+        inv.value = _inventory_unit_cost(inv) * inv.quantity_on_hand
+
+    total_units = sum(inv.quantity_on_hand for inv in records)
+    total_value = sum(inv.value for inv in records)
+    low_critical_count = sum(1 for inv in records if inv.restock)
+    product_lines = len({inv.product_id for inv in records if inv.product_id})
+
+    branch_summary = _inventory_branch_summary(records)
+    chart = _inventory_value_chart(branch_summary)
+
+    return render(request, 'reports/inventory_report.html', {
+        'inventory_records': records,
+        'branches': Branch.objects.all() if show_branch_filter else [],
+        'show_branch_filter': show_branch_filter,
+        'branch_filter': branch_filter,
+        'total_value': total_value,
+        'total_units': total_units,
+        'low_critical_count': low_critical_count,
+        'product_lines': product_lines,
+        'branch_summary': branch_summary,
+        'chart': chart,
+        'user_branch': user_branch,
+        'active_page': 'reports',
+    })
 
 
 @login_required(login_url='login')

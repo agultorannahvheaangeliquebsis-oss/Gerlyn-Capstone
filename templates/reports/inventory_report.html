@@ -1,37 +1,155 @@
 {% extends "internal_base.html" %}
 {% block title %}Inventory Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
+{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="gv-meta no-print" href="{% url 'reports_dashboard' %}">&larr; Dashboard</a>
-    <h1 class="mt-2">Inventory Report</h1>
-    <p class="gv-meta mb-0">{{ inventory_records|length }} stock record{{ inventory_records|length|pluralize }}</p>
-  </div>
-  <div class="row no-print">
-    <a class="btn" href="{% url 'export_csv' 'inventory' %}">Export CSV</a>
-    <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
+    <h1>Reports</h1>
+    <p class="gv-meta mb-0">Business performance, inventory, procurement, and billing analytics</p>
   </div>
 </div>
 
-<div class="card table-wrap">
+{% include "reports/_tabs.html" with active="inventory" %}
+
+{# ---------------------------- toolbar: filter + export ---------------------------- #}
+<form method="GET" class="toolbar-card no-print">
+  <div class="toolbar-filters">
+    {% if show_branch_filter %}
+    <select name="branch" onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
+  <div class="toolbar-actions">
+    <a class="btn" href="{% url 'export_csv' 'inventory' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
+      Export CSV
+    </a>
+    <button class="btn btn-primary" type="button" onclick="window.print()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
+      Export PDF
+    </button>
+  </div>
+</form>
+
+{# ---------------------------- KPI stat cards ---------------------------- #}
+<div class="kpi-row">
+  <div class="kpi-card highlight">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="6"/><circle cx="16" cy="12" r="6"/></svg>
+    </div>
+    <div class="kpi-value">₱{{ total_value|floatformat:2 }}</div>
+    <div class="kpi-label">Inventory Value</div>
+    <div class="gv-meta">at cost</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg>
+    </div>
+    <div class="kpi-value">{{ total_units }}</div>
+    <div class="kpi-label">Total Units</div>
+    <div class="gv-meta">in stock</div>
+  </div>
+  <div class="kpi-card danger">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
+    </div>
+    <div class="kpi-value">{{ low_critical_count }}</div>
+    <div class="kpi-label">Low / Critical Items</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+    </div>
+    <div class="kpi-value">{{ product_lines }}</div>
+    <div class="kpi-label">Product Lines</div>
+    <div class="gv-meta">tracked SKUs</div>
+  </div>
+</div>
+
+{# ---------------------------- inventory value by branch (chart) ---------------------------- #}
+<div class="card mb-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Inventory Value by Branch (₱ at Cost)</h3>
+  </div>
+  <div class="card-pad">
+    {% if chart.bars %}
+    <div class="hbar-chart">
+      {% for row in chart.bars %}
+      <div class="hbar-row">
+        <span class="hbar-label">{{ row.name }}</span>
+        <div class="hbar-track"><span class="hbar-fill" style="width:{{ row.pct }}%;"></span></div>
+        <span class="hbar-value">₱{{ row.value|floatformat:0 }}</span>
+      </div>
+      {% endfor %}
+      <div class="hbar-axis">
+        <span></span>
+        <div class="hbar-axis-ticks">
+          {% for t in chart.ticks %}<span>₱{{ t }}</span>{% endfor %}
+        </div>
+        <span></span>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>No stock recorded</h3>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---------------------------- inventory summary per branch ---------------------------- #}
+<div class="card table-wrap mb-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Inventory Summary per Branch</h3></div>
   <table class="gv-table">
     <thead>
-      <tr><th>Product</th><th>Branch</th><th class="num">On Hand</th>
-          <th class="num">Reorder Level</th><th>Status</th><th>Last Updated</th></tr>
+      <tr><th>Branch</th><th class="num">Product Lines</th><th class="num">Total Units</th>
+          <th class="num">Inventory Value</th><th>Low/Critical Items</th></tr>
+    </thead>
+    <tbody>
+      {% for row in branch_summary %}
+      <tr>
+        <td data-label="Branch" class="strong">{{ row.name }}</td>
+        <td data-label="Product Lines" class="num">{{ row.product_lines }}</td>
+        <td data-label="Total Units" class="num">{{ row.units }} units</td>
+        <td data-label="Inventory Value" class="num strong">₱{{ row.value|floatformat:2 }}</td>
+        <td data-label="Low/Critical Items">
+          {% if row.low_critical %}<span class="pill pill-danger">{{ row.low_critical }} item{{ row.low_critical|pluralize }}</span>
+          {% else %}<span class="pill pill-ok">0 items</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty"><h3>No stock recorded</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# ---------------------------- stock detail ---------------------------- #}
+<div class="card table-wrap">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Stock Detail</h3></div>
+  <table class="gv-table">
+    <thead>
+      <tr><th>Product</th><th>Branch</th><th class="num">Units</th>
+          <th class="num">Reorder Level</th><th class="num">Inventory Value</th><th>Status</th></tr>
     </thead>
     <tbody>
       {% for i in inventory_records %}
       <tr>
         <td data-label="Product" class="strong">{{ i.product.product_name }}</td>
-        <td data-label="Branch">{{ i.branch.branch_name }}</td>
-        <td data-label="On Hand" class="num strong">{{ i.quantity_on_hand }}</td>
+        <td data-label="Branch" class="gv-meta">{{ i.branch.branch_name }}</td>
+        <td data-label="Units" class="num strong">{{ i.quantity_on_hand }}</td>
         <td data-label="Reorder Level" class="num gv-meta">{{ i.reorder_level }}</td>
+        <td data-label="Inventory Value" class="num strong">₱{{ i.value|floatformat:2 }}</td>
         <td data-label="Status">
-          {% if i.restock %}<span class="pill pill-warn">Needs Restock</span>
+          {% if i.restock %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}</td>
-        <td data-label="Last Updated" class="gv-meta">{{ i.last_stock_update|date:"Y-m-d" }}</td>
       </tr>
       {% empty %}
       <tr><td colspan="6"><div class="empty">
