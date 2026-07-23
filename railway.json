@@ -6,8 +6,6 @@
   },
   "deploy": {
     "startCommand": "python manage.py migrate --noinput && gunicorn gerlyn_is.wsgi --bind 0.0.0.0:$PORT --workers 3 --timeout 60 --log-file -",
-    "healthcheckPath": "/",
-    "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
