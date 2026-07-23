@@ -216,7 +216,7 @@ body.shop { background: #fff; }
 @media (max-width: 760px) {
   .shop-wrap { padding: 0 16px; }
   .shop-nav { flex-wrap: wrap; gap: 12px; padding: 12px 16px; }
-  .shop-search, .shop-links { display: none; }
+  .shop-search, .shop-links, .shop-header-actions { display: none; }
   .hero { padding: 40px 0; }
   .hero h1 { font-size: 30px; white-space: normal; }
   .hero p { white-space: normal; }
