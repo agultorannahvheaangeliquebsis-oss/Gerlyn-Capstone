@@ -556,6 +556,9 @@ input::placeholder { color: var(--ink-400); }
 .report-tab svg { width: 16px; height: 16px; flex: none; }
 .report-tab:hover { color: var(--ink-900); }
 .report-tab.active { color: var(--action-700); border-bottom-color: var(--action); }
+@media (max-width: 860px) {
+  .report-tab-word { display: none; }
+}
 
 /* Report toolbar: a white card housing filters (left) and export actions
    (right), sitting right below the report tabs. */
