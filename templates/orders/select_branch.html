@@ -1,0 +1,35 @@
+{% extends "public_base.html" %}
+{% block title %}Choose a branch — Gerlyn Variety Store{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section" style="max-width:640px;">
+  <div class="section-head">
+    <div>
+      <h2>Choose your branch</h2>
+      <p class="gv-meta mb-0">
+        Stock differs per branch, so we ask first — that way what you see is what's really on the shelf.
+      </p>
+    </div>
+  </div>
+
+  <form method="POST" class="stack">
+    {% csrf_token %}
+    <div class="card card-pad stack">
+      {% for b in branches %}
+      <label class="row" style="gap:12px; cursor:pointer; padding:12px; border:1px solid var(--line); border-radius:var(--r-card);">
+        <input type="radio" name="branch_id" value="{{ b.id }}" required
+               style="width:auto; min-height:auto;" {% if forloop.first %}checked{% endif %}>
+        <span>
+          <span style="font-weight:600;">{{ b.branch_name }}</span><br>
+          <span class="gv-meta">{{ b.location }}</span>
+        </span>
+      </label>
+      {% empty %}
+      <div class="empty"><h3>No branches available</h3></div>
+      {% endfor %}
+    </div>
+    <div class="banner banner-info">Changing branch empties your cart, since stock is per branch.</div>
+    <button type="submit" class="btn btn-primary">Shop this branch</button>
+  </form>
+</div>
+{% endblock %}

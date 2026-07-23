@@ -1,11 +1,17 @@
 from django.contrib import admin
-from .models import ProductCategory, Product, Inventory, StockMovement
+from .models import ProductCategory, Product, ProductImage, Inventory, StockMovement
 
 
 @admin.register(ProductCategory)
 class ProductCategoryAdmin(admin.ModelAdmin):
     list_display = ('category_name', 'description')
     search_fields = ('category_name',)
+
+
+class ProductImageInline(admin.TabularInline):
+    model = ProductImage
+    extra = 1
+    fields = ('image', 'alt_text', 'is_primary')
 
 
 @admin.register(Product)
@@ -16,6 +22,7 @@ class ProductAdmin(admin.ModelAdmin):
     )
     search_fields = ('product_name', 'sku_code')
     list_filter = ('category', 'unit_of_measure')
+    inlines = [ProductImageInline]
 
 
 @admin.register(Inventory)

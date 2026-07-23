@@ -16,16 +16,9 @@ from .serializers import (
 from accounts.models import User
 
 
-def get_user_branch(user):
-    """Same rule used throughout the template views."""
-    try:
-        if user.role == User.Role.BRANCH_MANAGER:
-            return user.manager_profile.branch
-        elif user.role == User.Role.STAFF:
-            return user.staff_profile.branch
-    except Exception:
-        return None
-    return None
+# Branch scoping lives in core.scoping so the API and the template views can
+# never drift apart — this is security-critical logic, it gets ONE definition.
+from core.scoping import branch_for_user as get_user_branch  # noqa: E402
 
 
 def user_can_access_billing_record(user, record):
@@ -59,6 +52,9 @@ class BillingRecordListAPIView(APIView):
             qs = qs.filter(transaction__branch=user_branch) if user_branch else qs.none()
         elif request.user.role == User.Role.CUSTOMER:
             qs = qs.filter(transaction__customer=request.user)
+        elif request.user.role == User.Role.SUPPLIER:
+            # Suppliers have no business in the store's billing at all.
+            qs = qs.none()
 
         serializer = BillingRecordSerializer(qs.order_by('-date_recorded'), many=True)
         return Response(serializer.data)

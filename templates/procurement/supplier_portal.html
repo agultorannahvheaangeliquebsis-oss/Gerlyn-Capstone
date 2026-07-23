@@ -1,0 +1,168 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supplier Portal — Gerlyn Variety Store</title>
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=2">
+  <style>
+    /* Suppliers get a focused shell — no internal sidebar, because none of
+       those screens are theirs to open. */
+    .portal-wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+    .portal-header { background: #fff; border-bottom: 1px solid var(--line); padding: 14px 0; }
+    .portal-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    @media (max-width: 640px) { .portal-wrap { padding: 0 16px; } }
+  </style>
+</head>
+<body>
+
+<header class="portal-header">
+  <div class="portal-wrap portal-nav">
+    <span class="row" style="gap:10px;">
+      <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
+      <span>
+        <span class="brand-name">Gerlyn Variety Store</span><br>
+        <span class="brand-sub">Supplier Portal</span>
+      </span>
+    </span>
+    <span class="row" style="gap:12px;">
+      <span style="text-align:right;">
+        <span class="who-name">{{ profile.supplier_name|default:request.user.username }}</span><br>
+        <span class="who-role">Supplier</span>
+      </span>
+      <a class="btn" href="{% url 'logout' %}">Sign out</a>
+    </span>
+  </div>
+</header>
+
+<main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="page-head">
+    <div>
+      <h1>Your Purchase Orders</h1>
+      <p class="gv-meta mb-0">Orders Gerlyn Variety Store has placed with you.</p>
+    </div>
+  </div>
+
+  <div class="stat-strip mb-6">
+    <div class="stat">
+      <div class="value">{{ open_count }}</div>
+      <div class="label">Open orders to fulfil</div>
+    </div>
+    <div class="stat">
+      <div class="value">₱{{ open_value|floatformat:2 }}</div>
+      <div class="label">Value of open orders</div>
+    </div>
+    <div class="stat" {% if overdue %}style="background:var(--danger-bg); border-color:var(--danger-bg);"{% endif %}>
+      <div class="value" {% if overdue %}style="color:var(--danger-fg);"{% endif %}>{{ overdue }}</div>
+      <div class="label">Past their delivery date</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ counts.received }}</div>
+      <div class="label">Delivered &amp; received</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <a class="tab {% if not status_filter %}active{% endif %}" href="?">All <span class="count">{{ counts.all }}</span></a>
+    <a class="tab {% if status_filter == 'Ordered' %}active{% endif %}" href="?status=Ordered">To fulfil <span class="count">{{ counts.ordered }}</span></a>
+    <a class="tab {% if status_filter == 'Received' %}active{% endif %}" href="?status=Received">Delivered <span class="count">{{ counts.received }}</span></a>
+    <a class="tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?status=Cancelled">Cancelled <span class="count">{{ counts.cancelled }}</span></a>
+  </div>
+
+  <div class="stack">
+    {% for o in orders %}
+    <div class="card card-pad">
+      <div class="row-between wrap" style="align-items:flex-start;">
+        <div>
+          <div class="row" style="gap:10px;">
+            <span class="sku" style="font-weight:700; font-size:16px;">{{ o.po_number }}</span>
+            {% if o.status == 'Received' %}<span class="pill pill-ok">Delivered &amp; received</span>
+            {% elif o.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
+            {% else %}<span class="pill pill-info">To fulfil</span>{% endif %}
+            {% if o.receipt_flag == 'Discrepancy' %}<span class="pill pill-warn">Quantity discrepancy</span>{% endif %}
+          </div>
+          <div class="gv-meta mt-2">
+            Deliver to <strong>{{ o.branch.branch_name }}</strong>
+            · ordered {{ o.order_date|date:"Y-m-d" }}
+            {% if o.delivery_date %}
+              · due
+              {% if o.delivery_date < today and o.status == 'Ordered' %}
+                <strong style="color:var(--danger-fg);">{{ o.delivery_date|date:"Y-m-d" }} (overdue)</strong>
+              {% else %}{{ o.delivery_date|date:"Y-m-d" }}{% endif %}
+            {% else %}· <em>no delivery date agreed yet</em>{% endif %}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div class="gv-label">Order value</div>
+          <div class="gv-metric" style="color:var(--action); font-size:24px;">₱{{ o.total_cost|floatformat:2 }}</div>
+        </div>
+      </div>
+
+      <div class="table-wrap mt-4">
+        <table class="gv-table">
+          <thead>
+            <tr><th>Product</th><th class="num">Qty Ordered</th><th class="num">Unit Cost</th>
+                {% if o.status == 'Received' %}<th class="num">Qty Received</th>{% endif %}</tr>
+          </thead>
+          <tbody>
+            {% for item in o.items.all %}
+            <tr>
+              <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+              <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
+              <td data-label="Unit Cost" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
+              {% if o.status == 'Received' %}
+              <td data-label="Qty Received" class="num
+                  {% if item.quantity_received != item.quantity_ordered %}strong{% endif %}"
+                  {% if item.quantity_received != item.quantity_ordered %}style="color:var(--danger-fg);"{% endif %}>
+                {{ item.quantity_received }}
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if o.status == 'Ordered' %}
+      <form method="POST" action="{% url 'supplier_set_delivery_date' o.pk %}"
+            class="row wrap mt-4" style="gap:12px; align-items:flex-end;">
+        {% csrf_token %}
+        <div class="field" style="max-width:220px;">
+          <label for="dd-{{ o.pk }}">Confirm your delivery date</label>
+          <input id="dd-{{ o.pk }}" type="date" name="delivery_date"
+                 value="{{ o.delivery_date|date:'Y-m-d' }}">
+        </div>
+        <button type="submit" class="btn btn-primary">Confirm date</button>
+      </form>
+      {% elif o.status == 'Received' and o.receipt_flag == 'Discrepancy' %}
+      <div class="banner banner-warning mt-4">
+        The store recorded different quantities from what was ordered. Please check
+        this delivery with them.
+      </div>
+      {% endif %}
+    </div>
+    {% empty %}
+    <div class="card">
+      <div class="empty">
+        <span class="glyph">□</span>
+        <h3>No purchase orders yet</h3>
+        <p>When Gerlyn Variety Store places an order with you, it appears here.</p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="gv-meta mt-6" style="text-align:center;">
+    Deliveries are confirmed by store staff when the goods physically arrive.
+  </p>
+</main>
+
+</body>
+</html>

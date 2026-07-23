@@ -1,26 +1,54 @@
-<!DOCTYPE html>
-<html>
-<head><title>Record Payment</title></head>
-<body>
-    <h2>Record Payment for Transaction #{{ transaction.id }}</h2>
-    <p>Amount Due: {{ transaction.total_amount }}</p>
-    <form method="POST" enctype="multipart/form-data">
-        {% csrf_token %}
-        <label>Payment Method</label>
-        <select name="payment_method">
-            <option value="Cash">Cash</option>
-            <option value="GCash">GCash</option>
-            <option value="Card">Card</option>
-            <option value="Bank Transfer">Bank Transfer</option>
-        </select><br><br>
+{% extends "internal_base.html" %}
+{% block title %}Record Payment{% endblock %}
+{% block page_subtitle %}Billing{% endblock %}
 
-        <label>Reference Number (optional)</label>
-        <input type="text" name="reference_number"><br><br>
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'transaction_detail' transaction.pk %}">&larr; {{ transaction.order_number }}</a>
+    <h1 class="mt-2">Record Payment</h1>
+    <p class="gv-meta mb-0">{{ transaction.order_number }} · {{ transaction.branch.branch_name }}</p>
+  </div>
+</div>
 
-        <label>Proof of Payment (optional)</label>
-        <input type="file" name="proof_of_payment" accept="image/*"><br><br>
+<div class="card card-pad" style="max-width:640px;">
+  <div class="row-between mb-6" style="border-bottom:1px solid var(--line); padding-bottom:16px;">
+    <span class="gv-label">Amount due</span>
+    <span class="gv-metric" style="color:var(--action);">₱{{ transaction.total_amount|floatformat:2 }}</span>
+  </div>
 
-        <button type="submit">Save</button>
-    </form>
-</body>
-</html>
+  <form method="POST" enctype="multipart/form-data" class="stack">
+    {% csrf_token %}
+
+    <div class="field">
+      <label for="payment_method">Payment Method</label>
+      <select id="payment_method" name="payment_method">
+        {% for value, label in payment_choices %}
+          <option value="{{ value }}" {% if record.payment_method == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="reference_number">Reference Number <span class="gv-meta">— for GCash / bank transfers</span></label>
+      <input id="reference_number" type="text" name="reference_number"
+             value="{{ record.reference_number|default:'' }}" placeholder="e.g. GC-2026-0001">
+    </div>
+
+    <div class="field">
+      <label for="proof_of_payment">Proof of Payment <span class="gv-meta">— optional screenshot or photo</span></label>
+      <input id="proof_of_payment" type="file" name="proof_of_payment" accept="image/*" style="padding-top:10px;">
+    </div>
+
+    <div class="banner banner-info mt-2">
+      This records the payment for the audit trail. The system does not process funds —
+      money changes hands outside it.
+    </div>
+
+    <div class="row mt-2">
+      <button type="submit" class="btn btn-primary">Save Payment</button>
+      <a href="{% url 'transaction_detail' transaction.pk %}" class="btn">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

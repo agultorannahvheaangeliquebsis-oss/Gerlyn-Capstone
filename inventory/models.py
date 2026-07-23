@@ -21,6 +21,11 @@ class Product(models.Model):
         SACK = 'Sack', 'Sack'
         KILO = 'Kilo', 'Kilo'
         PIECE = 'Piece', 'Piece'
+        # Retail units used across the catalog/UI.
+        CAN = 'Can', 'Can'
+        PACK = 'Pack', 'Pack'
+        BOTTLE = 'Bottle', 'Bottle'
+        BOX = 'Box', 'Box'
 
     category = models.ForeignKey(
         ProductCategory, on_delete=models.SET_NULL,
@@ -44,6 +49,31 @@ class Product(models.Model):
 
     def __str__(self):
         return f"{self.product_name} ({self.sku_code})"
+
+
+class ProductImage(models.Model):
+    """A single gallery image for a Product. A product can have many."""
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE,
+        related_name='images'
+    )
+    image = models.ImageField(upload_to='products/%Y/%m/')
+    alt_text = models.CharField(
+        max_length=150, blank=True,
+        help_text="Short description for accessibility / when the image fails to load"
+    )
+    is_primary = models.BooleanField(
+        default=False,
+        help_text="The main image shown in listings and as the detail hero"
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Primary first, then oldest-uploaded — gives a stable gallery order.
+        ordering = ['-is_primary', 'uploaded_at']
+
+    def __str__(self):
+        return f"Image for {self.product.product_name}"
 
 
 class Warehouse(models.Model):

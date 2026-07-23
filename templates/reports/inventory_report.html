@@ -1,18 +1,43 @@
-<!DOCTYPE html>
-<html>
-<head><title>Inventory Report</title></head>
-<body>
-    <h2>Full Inventory Report</h2>
-    <table border="1">
-        <tr><th>Product</th><th>Branch</th><th>On Hand</th><th>Reorder Level</th><th>Restock?</th></tr>
-        {% for item in inventory_records %}
-        <tr {% if item.restock %}style="color:red;"{% endif %}>
-            <td>{{ item.product.product_name }}</td><td>{{ item.branch.branch_name }}</td>
-            <td>{{ item.quantity_on_hand }}</td><td>{{ item.reorder_level }}</td>
-            <td>{{ item.restock|yesno:"Yes,No" }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-    <a href="{% url 'reports_dashboard' %}">Back to Dashboard</a>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Inventory Report{% endblock %}
+{% block page_subtitle %}Reports{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta no-print" href="{% url 'reports_dashboard' %}">&larr; Dashboard</a>
+    <h1 class="mt-2">Inventory Report</h1>
+    <p class="gv-meta mb-0">{{ inventory_records|length }} stock record{{ inventory_records|length|pluralize }}</p>
+  </div>
+  <div class="row no-print">
+    <a class="btn" href="{% url 'export_csv' 'inventory' %}">Export CSV</a>
+    <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Product</th><th>Branch</th><th class="num">On Hand</th>
+          <th class="num">Reorder Level</th><th>Status</th><th>Last Updated</th></tr>
+    </thead>
+    <tbody>
+      {% for i in inventory_records %}
+      <tr>
+        <td data-label="Product" class="strong">{{ i.product.product_name }}</td>
+        <td data-label="Branch">{{ i.branch.branch_name }}</td>
+        <td data-label="On Hand" class="num strong">{{ i.quantity_on_hand }}</td>
+        <td data-label="Reorder Level" class="num gv-meta">{{ i.reorder_level }}</td>
+        <td data-label="Status">
+          {% if i.restock %}<span class="pill pill-warn">Needs Restock</span>
+          {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}</td>
+        <td data-label="Last Updated" class="gv-meta">{{ i.last_stock_update|date:"Y-m-d" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty">
+        <span class="glyph">□</span><h3>No stock records</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

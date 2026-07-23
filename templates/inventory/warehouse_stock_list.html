@@ -1,0 +1,37 @@
+{% extends 'internal_base.html' %}
+{% block title %}Warehouse Stock{% endblock %}
+{% block content %}
+<div style="padding:8px 4px;">
+  <h2 style="margin:0 0 4px;">Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% endif %}</h2>
+  <p style="color:#888; margin:0 0 16px;">{{ total_products }} products · {{ low_stock_count }} need restock</p>
+
+  <div class="table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        {% if not warehouse %}<th>Branch</th>{% endif %}
+        <th class="num">On Hand</th>
+        <th class="num">Reorder</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in stock_records %}
+      <tr>
+        <td data-label="Product">{{ s.product.product_name }}</td>
+        {% if not warehouse %}<td data-label="Branch">{{ s.warehouse.branch.branch_name }}</td>{% endif %}
+        <td class="num" data-label="On Hand">{{ s.quantity_on_hand }}</td>
+        <td class="num" data-label="Reorder">{{ s.reorder_level }}</td>
+        <td data-label="Status">
+          {% if s.restock_flag %}<span style="color:#c0392b; font-weight:600;">Low</span>
+          {% else %}<span style="color:#1b7a43;">In stock</span>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" style="padding:10px; color:#999;">No warehouse stock.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

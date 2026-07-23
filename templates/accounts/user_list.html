@@ -1,0 +1,79 @@
+{% extends "internal_base.html" %}
+{% block title %}User Management{% endblock %}
+{% block page_subtitle %}Administration{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>User Management</h1>
+    <p class="gv-meta mb-0">{{ rows|length }} internal account{{ rows|length|pluralize }}</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'user_add' %}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Add User
+  </a>
+</div>
+
+<form method="GET" class="toolbar">
+  <input type="search" name="q" class="input grow" placeholder="Search username…" value="{{ search_query }}">
+  <select name="role" onchange="this.form.submit()">
+    <option value="">All Roles</option>
+    {% for value, label in role_choices %}
+      <option value="{{ value }}" {% if role_filter == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn" type="submit">Search</button>
+</form>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Full Name</th><th>Username / Email</th><th>Role</th>
+          <th>Assigned Branch</th><th>Status</th><th>Last Login</th>
+          <th style="text-align:right;">Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td data-label="Full Name" class="strong">{{ r.full_name }}</td>
+        <td data-label="Username">
+          <span class="sku">{{ r.user.username }}</span><br>
+          <span class="gv-meta">{{ r.user.email|default:"—" }}</span>
+        </td>
+        <td data-label="Role">
+          {% if r.user.role == 'OWNER' %}<span class="pill pill-ok">Owner</span>
+          {% elif r.user.role == 'BRANCH_MANAGER' %}<span class="pill pill-info">Manager</span>
+          {% elif r.user.role == 'SUPPLIER' %}<span class="pill pill-warn">Supplier</span>
+          {% else %}<span class="pill pill-neutral">Staff</span>{% endif %}
+        </td>
+        <td data-label="Branch">{{ r.branch }}</td>
+        <td data-label="Status">
+          {% if r.user.is_active %}<span class="pill pill-ok">Active</span>
+          {% else %}<span class="pill pill-neutral">Inactive</span>{% endif %}
+        </td>
+        <td data-label="Last Login" class="gv-meta">{{ r.user.last_login|date:"Y-m-d H:i"|default:"Never" }}</td>
+        <td data-label="Actions">
+          <span class="row-actions">
+            <a class="btn btn-sm" href="{% url 'user_edit' r.user.pk %}">Edit</a>
+            {% if r.user.pk != request.user.pk %}
+            <form method="POST" action="{% url 'user_toggle_active' r.user.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm {% if r.user.is_active %}btn-danger{% endif %}">
+                {% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}
+              </button>
+            </form>
+            {% endif %}
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty">
+        <span class="glyph">＋</span>
+        <h3>No users match</h3>
+        <p>Try clearing the search or role filter.</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

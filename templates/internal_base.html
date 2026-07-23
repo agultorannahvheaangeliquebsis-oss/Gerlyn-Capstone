@@ -1,138 +1,210 @@
-<!DOCTYPE html>
-<html>
+{% load static %}<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Internal System{% endblock %} - Gerlyn Variety Store</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <style>
-        :root {
-            --gerlyn-green: #3f7f5b;
-            --gerlyn-green-dark: #2d5f43;
-            --gerlyn-bg: #f8f9fb;
-        }
-        body { background-color: var(--gerlyn-bg); }
-        .sidebar {
-            width: 220px;
-            min-height: 100vh;
-            background: #fff;
-            border-right: 1px solid #eee;
-            position: fixed;
-            top: 0; left: 0;
-            padding: 16px 12px;
-        }
-        .sidebar-brand-icon {
-            background-color: var(--gerlyn-green);
-            width: 32px; height: 32px;
-            border-radius: 8px;
-            display: inline-flex; align-items: center; justify-content: center;
-            color: white;
-        }
-        .sidebar .nav-link {
-            color: #444;
-            border-radius: 8px;
-            padding: 8px 12px;
-            margin-bottom: 2px;
-            font-size: 0.92rem;
-        }
-        .sidebar .nav-link.active, .sidebar .nav-link:hover {
-            background-color: #eaf3ee;
-            color: var(--gerlyn-green-dark);
-            font-weight: 600;
-        }
-        .sidebar .nav-link i { width: 18px; }
-        .main-content { margin-left: 220px; padding: 24px 32px; }
-        .role-badge {
-            background-color: #eaf3ee;
-            color: var(--gerlyn-green-dark);
-            font-size: 0.72rem;
-            padding: 2px 8px;
-            border-radius: 10px;
-        }
-        .stat-card { border-radius: 12px; border: 1px solid #eee; }
-        .text-gerlyn { color: var(--gerlyn-green); }
-        .btn-gerlyn { background-color: var(--gerlyn-green); color: white; border: none; }
-        .btn-gerlyn:hover { background-color: var(--gerlyn-green-dark); color: white; }
-    </style>
-    {% block extra_css %}{% endblock %}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=3">
+  {% block extra_css %}{% endblock %}
 </head>
 <body>
 
-<div class="sidebar d-flex flex-column">
-    <div class="d-flex align-items-center gap-2 px-2 mb-4">
-        <span class="sidebar-brand-icon"><i class="fa-solid fa-store"></i></span>
-        <div>
-            <div class="fw-bold small">Gerlyn Variety Store</div>
-            <div class="text-muted" style="font-size: 0.7rem;">Internal System</div>
-        </div>
+{# Role-aware dashboard target #}
+{% if request.user.role == 'OWNER' %}{% url 'owner_dashboard' as dash_url %}
+{% elif request.user.role == 'BRANCH_MANAGER' %}{% url 'manager_dashboard' as dash_url %}
+{% elif request.user.role == 'STAFF' %}{% url 'staff_dashboard' as dash_url %}
+{% else %}{% url 'home' as dash_url %}{% endif %}
+
+<div class="app">
+
+  <!-- ============================ SIDEBAR (desktop) ==================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
+      <span>
+        <span class="brand-name">Gerlyn Variety Store</span><br>
+        <span class="brand-sub">Internal System</span>
+      </span>
     </div>
 
-    <div class="px-2 mb-4 d-flex align-items-center gap-2">
-        <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center"
-             style="width:32px;height:32px;font-size:0.85rem;">
-            {{ request.user.username|slice:":1"|upper }}
-        </div>
-        <div>
-            <div class="fw-semibold small">{{ request.user.username }}</div>
-            <span class="role-badge">{{ request.user.get_role_display }}</span>
-        </div>
+    <div class="who">
+      <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+      <span>
+        <span class="who-name">{{ request.user.get_full_name|default:request.user.username }}</span><br>
+        <span class="who-role">{{ request.user.get_role_display }}</span>
+      </span>
     </div>
 
-    <nav class="nav flex-column flex-grow-1">
-        <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="#">
-            <i class="fa-solid fa-table-cells-large me-2"></i> Dashboard
-        </a>
-        <a class="nav-link" href="{% url 'transaction_list' %}">
-            <i class="fa-solid fa-cart-shopping me-2"></i> Sales &amp; Orders
-        </a>
-        <a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="{% url 'product_list' %}">
-            <i class="fa-solid fa-box me-2"></i> Product Master List
-        </a>
-        <a class="nav-link {% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">
-            <i class="fa-solid fa-warehouse me-2"></i> Stock per Branch
-        </a>
-        <a class="nav-link" href="{% url 'procurement_list' %}">
-            <i class="fa-solid fa-truck me-2"></i> Procurement
-        </a>
-        <a class="nav-link" href="{% url 'reports_dashboard' %}">
-            <i class="fa-solid fa-chart-line me-2"></i> Reports
-        </a>
-        <a class="nav-link" href="{% url 'billing_list' %}">
-            <i class="fa-solid fa-receipt me-2"></i> Billing
-        </a>
+    <nav class="nav">
+      {# Dashboard stays a top-level anchor — it's the home target, not a category. #}
+      <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="{{ dash_url }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        Dashboard
+      </a>
+
+      {# ---------------------------------------------------------- Inventory #}
+      <details class="nav-group" data-group="inventory"
+        {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+          <span>Inventory</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="{% url 'product_list' %}">Product Master List</a>
+          <a class="nav-link {% if active_page == 'categories' %}active{% endif %}" href="{% url 'category_list' %}">Categories</a>
+          <a class="nav-link {% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">Stock per Branch</a>
+          <a class="nav-link {% if active_page == 'withdrawals' %}active{% endif %}" href="{% url 'transfer_list' %}">Withdrawal Slips</a>
+        </div>
+      </details>
+
+      {# -------------------------------------------------------- Procurement #}
+      <details class="nav-group" data-group="procurement"
+        {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+          <span>Procurement</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+          <a class="nav-link {% if active_page == 'suppliers' %}active{% endif %}" href="{% url 'supplier_list' %}">Suppliers</a>
+          {% endif %}
+          <a class="nav-link {% if active_page == 'procurement' %}active{% endif %}" href="{% url 'procurement_list' %}">Purchase Orders</a>
+          <a class="nav-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
+        </div>
+      </details>
+
+      {# --------------------------------------------------------- Financials #}
+      <details class="nav-group" data-group="financials"
+        {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
+          <span>Financials</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">Sales &amp; Orders</a>
+          <a class="nav-link {% if active_page == 'billing' %}active{% endif %}" href="{% url 'billing_list' %}">Billing</a>
+        </div>
+      </details>
+
+      {# -------------------------------------------------- System / Monitoring #}
+      <details class="nav-group" data-group="monitoring"
+        {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2 6 4-14 2 8h6"/></svg>
+          <span>System &amp; Monitoring</span>
+          {% if alert_count %}<span class="nav-badge nav-badge-head">{{ alert_count }}</span>{% endif %}
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
+          <a class="nav-link {% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
+            Alerts
+            {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+          </a>
+        </div>
+      </details>
+
+      {# ------------------------------------------------------ Administration #}
+      {% if request.user.role == 'OWNER' %}
+      <details class="nav-group" data-group="administration"
+        {% if active_page == 'branches' or active_page == 'users' %}open{% endif %}>
+        <summary class="nav-group-head">
+          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
+          <span>Administration</span>
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+          <a class="nav-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">Branch Management</a>
+          <a class="nav-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'user_list' %}">User Management</a>
+        </div>
+      </details>
+      {% endif %}
     </nav>
 
-    <a class="nav-link text-danger" href="{% url 'logout' %}">
-        <i class="fa-solid fa-arrow-right-from-bracket me-2"></i> Logout
+    <a class="nav-link danger" href="{% url 'logout' %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      Logout
     </a>
-</div>
+  </aside>
 
-<div class="main-content">
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
-        <div>
-            <h5 class="mb-0">{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}</h5>
-            <small class="text-muted">{% block page_subtitle %}All Branches{% endblock %}</small>
-        </div>
-        <div class="d-flex align-items-center gap-3">
-            <i class="fa-regular fa-bell text-muted"></i>
-            <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center"
-                 style="width:32px;height:32px;font-size:0.85rem;">
-                {{ request.user.username|slice:":1"|upper }}
-            </div>
-        </div>
-    </div>
+  <!-- ============================== MAIN ============================== -->
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <div class="topbar-title">{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}</div>
+        <div class="topbar-sub">{% block page_subtitle %}All Branches{% endblock %}</div>
+      </div>
+      <div class="row">
+        <span class="branch-chip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          {% block branch_scope %}All Branches{% endblock %}
+        </span>
+        <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+      </div>
+    </header>
 
-    {% if messages %}
+    <main class="content">
+      {% if messages %}
         {% for message in messages %}
-            <div class="alert alert-info">{{ message }}</div>
+          <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>
         {% endfor %}
-    {% endif %}
+      {% endif %}
 
-    {% block content %}{% endblock %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <!-- ========================= BOTTOM NAV (mobile) ==================== -->
+  <nav class="bottom-nav">
+    <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ dash_url }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      Home
+    </a>
+    <a class="{% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+      Orders
+    </a>
+    <a class="{% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
+      Stock
+    </a>
+    <a class="{% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
+      Alerts
+      {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+    </a>
+    <a class="{% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+      Reports
+    </a>
+  </nav>
+
 </div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+<script>
+/* Sidebar dropdowns: remember which categories the user opened across page
+   loads. The group holding the active page is always forced open (server adds
+   `open`), so this only restores the *extra* groups a user chose to expand.
+   Pure progressive enhancement — with JS off, the server-rendered `open`
+   attribute still expands the active category. */
+(function () {
+  var KEY = 'gv-nav-open';
+  var groups = document.querySelectorAll('.nav-group[data-group]');
+  if (!groups.length || !window.localStorage) return;
+  var saved;
+  try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { saved = {}; }
+  groups.forEach(function (g) {
+    var id = g.getAttribute('data-group');
+    if (saved[id] === true) g.open = true;        // restore user's choice
+    g.addEventListener('toggle', function () {
+      saved[id] = g.open;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+    });
+  });
+})();
+</script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>

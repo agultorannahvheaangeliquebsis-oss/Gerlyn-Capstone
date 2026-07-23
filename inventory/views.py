@@ -6,12 +6,15 @@ from django.utils import timezone
 from datetime import date
 
 from .models import (
-    ProductCategory, Product, Inventory,
+    ProductCategory, Product, ProductImage, Inventory,
     Warehouse, WarehouseStock,
     StockTransfer, StockTransferItem, StockMovement
 )
+from .alerts import alert_summary
 from accounts.models import User
 from branches.models import Branch
+from core.permissions import INTERNAL_ROLES
+from core.scoping import branch_ids_for_user, user_can_access_branch
 
 
 # ─────────────────────────────────────────────
@@ -35,7 +38,15 @@ def get_user_branch(user):
 
 @login_required(login_url='login')
 def product_list(request):
-    products = Product.objects.select_related('category').all()
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    products = (
+        Product.objects.select_related('category')
+        .prefetch_related('inventory_records__branch', 'images')
+        .all()
+    )
     categories = ProductCategory.objects.all()
 
     search_query = request.GET.get('q', '')
@@ -49,12 +60,25 @@ def product_list(request):
     if category_filter:
         products = products.filter(category_id=category_filter)
 
+    # Availability = the branches that actually carry the product.
+    branch_total = Branch.objects.count()
+    rows = []
+    for p in products:
+        names = sorted({i.branch.branch_name for i in p.inventory_records.all() if i.branch})
+        if branch_total and len(names) >= branch_total:
+            availability = 'All Branches'
+        else:
+            availability = ', '.join(names) if names else 'Not stocked'
+        rows.append({'product': p, 'availability': availability})
+
     return render(request, 'inventory/product_list.html', {
-        'products': products,
+        'rows': rows,
+        'shown_count': len(rows),
         'categories': categories,
         'search_query': search_query,
         'category_filter': category_filter,
         'total_count': Product.objects.count(),
+        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
     })
 
 
@@ -67,26 +91,37 @@ def product_add(request):
     categories = ProductCategory.objects.all()
 
     if request.method == 'POST':
-        category_id = request.POST.get('category')
-        sku_code = request.POST.get('sku_code')
-        product_name = request.POST.get('product_name')
-        unit_of_measure = request.POST.get('unit_of_measure')
-        unit_price = request.POST.get('unit_price')
-        wholesale_price = request.POST.get('wholesale_price') or None
+        with transaction.atomic():
+            product = Product.objects.create(
+                category_id=request.POST.get('category'),
+                sku_code=request.POST.get('sku_code'),
+                product_name=request.POST.get('product_name'),
+                unit_of_measure=request.POST.get('unit_of_measure'),
+                unit_price=request.POST.get('unit_price'),
+                wholesale_price=request.POST.get('wholesale_price') or None,
+            )
 
-        Product.objects.create(
-            category_id=category_id,
-            sku_code=sku_code,
-            product_name=product_name,
-            unit_of_measure=unit_of_measure,
-            unit_price=unit_price,
-            wholesale_price=wholesale_price,
-        )
-        messages.success(request, 'Product added successfully.')
+            # request.FILES.getlist() returns EVERY file sent under name="images".
+            images = request.FILES.getlist('images')
+            for index, image_file in enumerate(images):
+                ProductImage.objects.create(
+                    product=product,
+                    image=image_file,
+                    is_primary=(index == 0),  # first upload becomes the hero image
+                )
+
+        if images:
+            messages.success(
+                request,
+                f'Product added with {len(images)} image(s).'
+            )
+        else:
+            messages.success(request, 'Product added successfully.')
         return redirect('product_list')
 
     return render(request, 'inventory/product_form.html', {
         'categories': categories,
+        'unit_choices': Product.UnitOfMeasure.choices,
     })
 
 
@@ -100,19 +135,46 @@ def product_edit(request, pk):
         return redirect('product_list')
 
     if request.method == 'POST':
-        product.category_id = request.POST.get('category')
-        product.sku_code = request.POST.get('sku_code')
-        product.product_name = request.POST.get('product_name')
-        product.unit_of_measure = request.POST.get('unit_of_measure')
-        product.unit_price = request.POST.get('unit_price')
-        product.wholesale_price = request.POST.get('wholesale_price') or None
-        product.save()
+        with transaction.atomic():
+            product.category_id = request.POST.get('category')
+            product.sku_code = request.POST.get('sku_code')
+            product.product_name = request.POST.get('product_name')
+            product.unit_of_measure = request.POST.get('unit_of_measure')
+            product.unit_price = request.POST.get('unit_price')
+            product.wholesale_price = request.POST.get('wholesale_price') or None
+            product.save()
+
+            # 1. Delete images the user ticked for removal (file + row).
+            delete_ids = request.POST.getlist('delete_images')
+            if delete_ids:
+                for img in product.images.filter(pk__in=delete_ids):
+                    img.image.delete(save=False)  # remove the file from storage
+                    img.delete()
+
+            # 2. Add any newly uploaded images.
+            for image_file in request.FILES.getlist('images'):
+                ProductImage.objects.create(product=product, image=image_file)
+
+            # 3. Resolve which image is primary. Explicit choice wins; otherwise
+            #    make sure something is primary so the storefront always has a hero
+            #    (e.g. if the old primary was just deleted).
+            primary_id = request.POST.get('primary_image')
+            if primary_id:
+                product.images.update(is_primary=False)
+                product.images.filter(pk=primary_id).update(is_primary=True)
+            elif not product.images.filter(is_primary=True).exists():
+                first = product.images.first()
+                if first:
+                    first.is_primary = True
+                    first.save(update_fields=['is_primary'])
+
         messages.success(request, 'Product updated successfully.')
         return redirect('product_list')
 
     return render(request, 'inventory/product_form.html', {
         'product': product,
         'categories': categories,
+        'unit_choices': Product.UnitOfMeasure.choices,
     })
 
 
@@ -135,21 +197,182 @@ def product_delete(request, pk):
 
 
 # ─────────────────────────────────────────────
+# CATEGORIES
+# Product categories drive the catalog filters and the storefront's
+# "Shop by Category" section, so they need a real management screen.
+# ─────────────────────────────────────────────
+
+@login_required(login_url='login')
+def category_list(request):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    categories = ProductCategory.objects.annotate(
+        product_count=models.Count('products')
+    ).order_by('category_name')
+
+    return render(request, 'inventory/category_list.html', {
+        'categories': categories,
+        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+    })
+
+
+@login_required(login_url='login')
+def category_form(request, pk=None):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to manage categories.')
+        return redirect('category_list')
+
+    category = get_object_or_404(ProductCategory, pk=pk) if pk else None
+
+    if request.method == 'POST':
+        name = request.POST.get('category_name', '').strip()
+        description = request.POST.get('description', '').strip()
+
+        if not name:
+            messages.error(request, 'Category name is required.')
+            return redirect(request.path)
+
+        clash = ProductCategory.objects.filter(category_name__iexact=name)
+        if category:
+            clash = clash.exclude(pk=category.pk)
+        if clash.exists():
+            messages.error(request, f'A category called "{name}" already exists.')
+            return redirect(request.path)
+
+        if category is None:
+            ProductCategory.objects.create(category_name=name, description=description)
+            messages.success(request, f'Category "{name}" created.')
+        else:
+            category.category_name = name
+            category.description = description
+            category.save()
+            messages.success(request, f'Category "{name}" updated.')
+        return redirect('category_list')
+
+    return render(request, 'inventory/category_form.html', {'category': category})
+
+
+@login_required(login_url='login')
+def category_delete(request, pk):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to manage categories.')
+        return redirect('category_list')
+
+    category = get_object_or_404(ProductCategory, pk=pk)
+    product_count = category.products.count()
+
+    if request.method == 'POST':
+        # Products would be orphaned (category is SET_NULL), so make the user
+        # move them first rather than silently uncategorising the catalog.
+        if product_count:
+            messages.error(
+                request,
+                f'Cannot delete "{category.category_name}" — {product_count} '
+                f'product{"s" if product_count != 1 else ""} still use it.'
+            )
+            return redirect('category_list')
+        name = category.category_name
+        category.delete()
+        messages.success(request, f'Category "{name}" deleted.')
+        return redirect('category_list')
+
+    return render(request, 'inventory/category_confirm_delete.html', {
+        'category': category,
+        'product_count': product_count,
+    })
+
+
+# ─────────────────────────────────────────────
+# ALERTS CENTER
+# Low/critical stock + expiry alerts, branch-scoped. Powered by the shared
+# inventory.alerts engine so these numbers match the Dashboard exactly.
+# ─────────────────────────────────────────────
+
+@login_required(login_url='login')
+def alerts_center(request):
+    if request.user.role not in [
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+    ]:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    branch_ids = branch_ids_for_user(request.user)  # None = all branches
+    summary = alert_summary(branch_ids)
+
+    return render(request, 'inventory/alerts_center.html', {
+        'critical_count': summary['critical_count'],
+        'low_count': summary['low_count'],
+        'expiring_count': summary['expiring_count'],
+        'low_stock': summary['low_stock'],
+        'expiry': summary['expiry'],
+    })
+
+
+# ─────────────────────────────────────────────
 # STORE FLOOR INVENTORY VIEW
 # ─────────────────────────────────────────────
 
 @login_required(login_url='login')
 def inventory_list(request):
-    inventory_records = Inventory.objects.select_related(
-        'product', 'branch'
+    """Stock per Branch — real-time levels across branches, with status."""
+    # Suppliers/customers must never reach this: get_user_branch() returns None
+    # for them, which the branch filter below would read as "show everything".
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('home')
+
+    records = Inventory.objects.select_related(
+        'product', 'product__category', 'branch'
     ).all()
 
+    # Managers/staff see only their own branch (server-side, not just the UI).
     user_branch = get_user_branch(request.user)
     if user_branch:
-        inventory_records = inventory_records.filter(branch=user_branch)
+        records = records.filter(branch=user_branch)
+
+    search_query = request.GET.get('q', '')
+    branch_filter = request.GET.get('branch', '')
+    category_filter = request.GET.get('category', '')
+    status_filter = request.GET.get('status', '')
+
+    if search_query:
+        records = records.filter(
+            models.Q(product__product_name__icontains=search_query) |
+            models.Q(product__sku_code__icontains=search_query)
+        )
+    if branch_filter:
+        records = records.filter(branch_id=branch_filter)
+    if category_filter:
+        records = records.filter(product__category_id=category_filter)
+
+    rows = []
+    # Keys are template-safe (no spaces) so they can be used with dot lookup.
+    counts = {'in_stock': 0, 'low': 0, 'critical': 0}
+    key_for = {'Critical': 'critical', 'Low Stock': 'low', 'In Stock': 'in_stock'}
+    for r in records:
+        if r.reorder_level and r.quantity_on_hand <= r.reorder_level * 0.5:
+            status = 'Critical'
+        elif r.restock:
+            status = 'Low Stock'
+        else:
+            status = 'In Stock'
+        counts[key_for[status]] += 1
+        if status_filter and status != status_filter:
+            continue
+        rows.append({'inv': r, 'status': status})
 
     return render(request, 'inventory/inventory_list.html', {
-        'inventory_records': inventory_records,
+        'rows': rows,
+        'counts': counts,
+        'branches': Branch.objects.all() if not user_branch else [],
+        'categories': ProductCategory.objects.all(),
+        'search_query': search_query,
+        'branch_filter': branch_filter,
+        'category_filter': category_filter,
+        'status_filter': status_filter,
+        'user_branch': user_branch,
     })
 
 
@@ -372,6 +595,14 @@ def transfer_detail(request, pk):
             'requested_by', 'approved_by'
         ), pk=pk
     )
+
+    # A slip concerns two branches, so either side may view it — but nobody else.
+    # (The list is scoped; without this the detail leaks via the URL.)
+    if not (user_can_access_branch(request.user, transfer.source_branch_id)
+            or user_can_access_branch(request.user, transfer.destination_branch_id)):
+        messages.error(request, 'That withdrawal slip is not available to you.')
+        return redirect('transfer_list')
+
     items = transfer.items.select_related('product').all()
 
     return render(request, 'inventory/transfer_detail.html', {
@@ -387,6 +618,10 @@ def transfer_approve(request, pk):
         return redirect('transfer_list')
 
     transfer = get_object_or_404(StockTransfer, pk=pk)
+
+    if not user_can_access_branch(request.user, transfer.source_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.PENDING:
         messages.error(request, 'This transfer has already been processed.')
@@ -465,6 +700,10 @@ def transfer_complete(request, pk):
 
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
+    if not user_can_access_branch(request.user, transfer.source_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
+
     if transfer.status != StockTransfer.Status.APPROVED:
         messages.error(request, 'Transfer must be approved before it can be released.')
         return redirect('transfer_detail', pk=pk)
@@ -535,4 +774,126 @@ def transfer_complete(request, pk):
         )
         return redirect('transfer_detail', pk=pk)
 
+    return redirect('transfer_detail', pk=pk)
+
+
+# ─────────────────────────────────────────────
+# WITHDRAWAL SLIP: ACKNOWLEDGMENT (receiving side)
+# The destination branch confirms it received the released stock, or flags
+# a discrepancy if the received quantity differs from what was released.
+# ─────────────────────────────────────────────
+
+@login_required(login_url='login')
+def transfer_confirm_receipt(request, pk):
+    """Destination-branch staff confirms receipt of a RELEASED slip."""
+    if request.user.role not in [
+        User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
+    ]:
+        messages.error(request, 'You do not have permission to confirm receipt.')
+        return redirect('transfer_list')
+
+    transfer = get_object_or_404(StockTransfer, pk=pk)
+
+    if not user_can_access_branch(request.user, transfer.destination_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
+
+    if transfer.status != StockTransfer.Status.RELEASED:
+        messages.error(request, 'Only released slips can be acknowledged.')
+        return redirect('transfer_detail', pk=pk)
+
+    if request.method != 'POST':
+        return redirect('transfer_detail', pk=pk)
+
+    # Optional received_qty override; defaults to the total approved quantity.
+    approved_total = sum(i.quantity_approved for i in transfer.items.all())
+    received_qty = int(request.POST.get('received_qty') or approved_total)
+
+    with transaction.atomic():
+        transfer.status = StockTransfer.Status.ACKNOWLEDGED
+        transfer.acknowledged_by = request.user
+        transfer.received_qty = received_qty
+        transfer.save()
+
+    messages.success(
+        request,
+        f'Receipt confirmed for {transfer.slip_number} ({received_qty} received).'
+    )
+    return redirect('transfer_detail', pk=pk)
+
+
+@login_required(login_url='login')
+def transfer_flag_discrepancy(request, pk):
+    """
+    Destination-branch staff flags a discrepancy: the quantity actually
+    received differs from what was released. The floor inventory is corrected
+    by the difference and an ADJUSTMENT stock movement is logged for the trail.
+    """
+    if request.user.role not in [
+        User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
+    ]:
+        messages.error(request, 'You do not have permission to flag a discrepancy.')
+        return redirect('transfer_list')
+
+    transfer = get_object_or_404(StockTransfer, pk=pk)
+
+    if not user_can_access_branch(request.user, transfer.destination_branch_id):
+        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        return redirect('transfer_list')
+
+    if transfer.status != StockTransfer.Status.RELEASED:
+        messages.error(request, 'Only released slips can be flagged.')
+        return redirect('transfer_detail', pk=pk)
+
+    if request.method != 'POST':
+        return redirect('transfer_detail', pk=pk)
+
+    approved_total = sum(i.quantity_approved for i in transfer.items.all())
+    received_qty = int(request.POST.get('received_qty') or 0)
+    reason = request.POST.get('flag_reason', '').strip()
+
+    if not reason:
+        messages.error(request, 'A reason is required to flag a discrepancy.')
+        return redirect('transfer_detail', pk=pk)
+
+    shortfall = approved_total - received_qty  # >0 means fewer units arrived
+
+    with transaction.atomic():
+        # Correct the destination floor stock by the shortfall (single-item
+        # slips are the common case; for multi-item slips the correction is
+        # applied to the first item's inventory record and detailed in notes).
+        if transfer.destination_branch and shortfall != 0:
+            first_item = transfer.items.select_related('product').first()
+            if first_item:
+                inv, _ = Inventory.objects.get_or_create(
+                    product=first_item.product,
+                    branch=transfer.destination_branch,
+                    defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+                )
+                qty_before = inv.quantity_on_hand
+                inv.quantity_on_hand = max(inv.quantity_on_hand - shortfall, 0)
+                inv.save()
+                StockMovement.objects.create(
+                    inventory=inv,
+                    location_type=StockMovement.LocationType.FLOOR,
+                    movement_type=StockMovement.MovementType.ADJUSTMENT,
+                    quantity_change=inv.quantity_on_hand - qty_before,
+                    quantity_before=qty_before,
+                    quantity_after=inv.quantity_on_hand,
+                    reference_id=transfer.pk,
+                    notes=f'Discrepancy on {transfer.slip_number}: {reason}',
+                    created_by=request.user,
+                )
+
+        transfer.status = StockTransfer.Status.DISCREPANCY
+        transfer.acknowledged_by = request.user
+        transfer.received_qty = received_qty
+        transfer.flag_reason = reason
+        transfer.save()
+
+    messages.warning(
+        request,
+        f'Discrepancy flagged on {transfer.slip_number} '
+        f'(released {approved_total}, received {received_qty}).'
+    )
     return redirect('transfer_detail', pk=pk)

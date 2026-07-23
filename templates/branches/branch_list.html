@@ -1,0 +1,52 @@
+{% extends "internal_base.html" %}
+{% block title %}Branch Management{% endblock %}
+{% block page_subtitle %}Administration{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Branch Management</h1>
+    <p class="gv-meta mb-0">{{ rows|length }} branch{{ rows|length|pluralize:"es" }}</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'branch_add' %}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Add Branch
+  </a>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Branch Name</th><th>Location</th><th>Manager</th>
+          <th class="num">Staff</th><th class="num">Products Stocked</th>
+          <th style="text-align:right;">Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td data-label="Branch" class="strong">{{ r.branch.branch_name }}</td>
+        <td data-label="Location" class="gv-meta">{{ r.branch.location|default:"—" }}</td>
+        <td data-label="Manager">
+          {% if r.manager %}{{ r.manager }}{% else %}<span class="pill pill-warn">No manager</span>{% endif %}
+        </td>
+        <td data-label="Staff" class="num">{{ r.staff_count }}</td>
+        <td data-label="Products Stocked" class="num">{{ r.product_count }}</td>
+        <td data-label="Actions">
+          <span class="row-actions">
+            <a class="btn btn-sm" href="{% url 'branch_edit' r.branch.pk %}">Edit</a>
+            <a class="btn btn-sm btn-danger" href="{% url 'branch_delete' r.branch.pk %}">Delete</a>
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty">
+        <span class="glyph">＋</span>
+        <h3>No branches yet</h3>
+        <p>A branch is a physical store. Each one gets its own stock and warehouse.</p>
+        <a class="btn btn-primary mt-2" href="{% url 'branch_add' %}">Add Branch</a>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

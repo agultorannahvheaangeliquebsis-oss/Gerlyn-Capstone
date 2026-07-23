@@ -1,0 +1,62 @@
+{% extends "public_base.html" %}
+{% load shop_extras %}
+{% block title %}Order {{ sale.order_number }} — Gerlyn Variety Store{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section" style="max-width:760px;">
+
+  <div class="card card-pad" style="text-align:center;">
+    <div class="empty" style="padding-bottom:16px;">
+      <span class="glyph" style="background:var(--ok-bg); color:var(--ok-fg);">✓</span>
+      <h3>Thank you — your order is placed!</h3>
+      <p>We've sent it to {{ sale.branch.branch_name }}. Staff will confirm it shortly.</p>
+    </div>
+    <div class="row" style="justify-content:center; gap:8px;">
+      <span class="gv-label">Order number</span>
+      <span class="sku" style="font-weight:700; font-size:18px;">{{ sale.order_number }}</span>
+    </div>
+  </div>
+
+  <div class="card card-pad mt-4">
+    <h3 class="mb-4">Order Details</h3>
+    <table class="gv-table kv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Status</td><td style="text-align:right;"><span class="pill pill-neutral">{{ sale.order_status }}</span></td></tr>
+        <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
+        <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
+        {% if sale.delivery_address %}
+        <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ sale.delivery_address }}</td></tr>
+        {% else %}
+        <tr><td class="gv-meta">Collection</td><td style="text-align:right;">Pick up in store</td></tr>
+        {% endif %}
+        <tr><td class="gv-meta">Placed</td><td style="text-align:right;">{{ sale.transaction_date|date:"F d, Y — g:i A" }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card mt-4 table-wrap">
+    <table class="gv-table">
+      <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Subtotal</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td data-label="Item"><span style="margin-right:8px;">{{ item.product|product_emoji }}</span>{{ item.product.product_name }}</td>
+          <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
+          <td data-label="Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
+          <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="card-pad row-between" style="border-top:1px solid var(--line);">
+      <span class="gv-label">Total</span>
+      <span class="gv-metric" style="color:var(--action);">₱{{ sale.total_amount|floatformat:2 }}</span>
+    </div>
+  </div>
+
+  <div class="row mt-6">
+    <a class="btn btn-primary" href="{% url 'orders:track_order' sale.pk %}">Track this order</a>
+    <a class="btn" href="{% url 'orders:catalog' %}">Continue shopping</a>
+  </div>
+</div>
+{% endblock %}

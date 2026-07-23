@@ -1,0 +1,13 @@
+{% load shop_extras %}
+{% comment %}
+  Renders a product's primary image, falling back to the emoji placeholder
+  when the product has no uploaded photos. Expects `product` in context.
+  Use inside an element styled as `.thumb` (see storefront.css).
+{% endcomment %}
+{% with imgs=product.images.all %}
+  {% if imgs %}
+    <img src="{{ imgs.0.image.url }}" alt="{{ imgs.0.alt_text|default:product.product_name }}">
+  {% else %}
+    {{ product|product_emoji }}
+  {% endif %}
+{% endwith %}

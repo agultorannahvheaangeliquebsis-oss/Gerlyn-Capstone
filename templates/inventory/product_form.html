@@ -1,55 +1,96 @@
 {% extends "internal_base.html" %}
+{% load l10n %}
 {% block title %}{% if product %}Edit{% else %}Add{% endif %} Product{% endblock %}
+{% block page_subtitle %}Catalog{% endblock %}
 
 {% block content %}
-<h4 class="fw-bold mb-4">{% if product %}Edit{% else %}Add{% endif %} Product</h4>
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'product_list' %}">&larr; Product Master List</a>
+    <h1 class="mt-2">{% if product %}Edit{% else %}Add{% endif %} Product</h1>
+  </div>
+</div>
 
-<div class="stat-card bg-white p-4" style="max-width: 600px;">
-    <form method="POST">
-        {% csrf_token %}
-        <div class="mb-3">
-            <label class="form-label fw-semibold">SKU Code</label>
-            <input type="text" name="sku_code" class="form-control" value="{{ product.sku_code|default:'' }}" required>
-        </div>
-        <div class="mb-3">
-            <label class="form-label fw-semibold">Product Name</label>
-            <input type="text" name="product_name" class="form-control" value="{{ product.product_name|default:'' }}" required>
-        </div>
-        <div class="mb-3">
-            <label class="form-label fw-semibold">Category</label>
-            <select name="category" class="form-select">
-                {% for category in categories %}
-                <option value="{{ category.id }}" {% if product.category_id == category.id %}selected{% endif %}>
-                    {{ category.category_name }}
-                </option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="mb-3">
-            <label class="form-label fw-semibold">Unit of Measure</label>
-            <select name="unit_of_measure" class="form-select">
-                <option value="Sack" {% if product.unit_of_measure == "Sack" %}selected{% endif %}>Sack</option>
-                <option value="Kilo" {% if product.unit_of_measure == "Kilo" %}selected{% endif %}>Kilo</option>
-                <option value="Piece" {% if product.unit_of_measure == "Piece" %}selected{% endif %}>Piece</option>
-            </select>
-        </div>
-     <div class="mb-4">
-    <label class="form-label fw-semibold">Unit Price</label>
-        <div class="input-group">
-            <span class="input-group-text">₱</span>
-            <input type="number" step="0.01" name="unit_price" class="form-control" value="{{ product.unit_price|default:'' }}" required>
-        </div>
+<div class="card card-pad" style="max-width:640px;">
+  <form method="POST" class="stack" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <div class="field">
+      <label for="sku_code">SKU Code</label>
+      <input id="sku_code" type="text" name="sku_code" value="{{ product.sku_code|default:'' }}" required>
     </div>
 
-    <div class="mb-4">
-        <label class="form-label fw-semibold">Wholesale Price (optional)</label>
-        <div class="input-group">
-            <span class="input-group-text">₱</span>
-            <input type="number" step="0.01" name="wholesale_price" class="form-control" value="{{ product.wholesale_price|default:'' }}">
-        </div>
+    <div class="field">
+      <label for="product_name">Product Name</label>
+      <input id="product_name" type="text" name="product_name" value="{{ product.product_name|default:'' }}" required>
     </div>
-        <button type="submit" class="btn btn-gerlyn px-4">Save</button>
-        <a href="{% url 'product_list' %}" class="btn btn-outline-secondary px-4">Cancel</a>
-    </form>
+
+    <div class="field">
+      <label for="category">Category</label>
+      <select id="category" name="category">
+        {% for category in categories %}
+          <option value="{{ category.id }}" {% if product.category_id == category.id %}selected{% endif %}>
+            {{ category.category_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="unit_of_measure">Unit of Measure</label>
+      <select id="unit_of_measure" name="unit_of_measure">
+        {% for value, label in unit_choices %}
+          <option value="{{ value }}" {% if product.unit_of_measure == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="grid-2">
+      {# unlocalize: a number input can't accept "1,345.50" — the browser blanks
+         it and the price is silently lost on save. #}
+      <div class="field">
+        <label for="unit_price">Retail Price (₱)</label>
+        <input id="unit_price" type="number" step="0.01" min="0" name="unit_price"
+               value="{{ product.unit_price|unlocalize|default:'' }}" required>
+      </div>
+      <div class="field">
+        <label for="wholesale_price">Wholesale Price (₱) <span class="gv-meta">— optional</span></label>
+        <input id="wholesale_price" type="number" step="0.01" min="0" name="wholesale_price"
+               value="{{ product.wholesale_price|unlocalize|default:'' }}">
+      </div>
+    </div>
+
+    {% if product and product.images.all %}
+    <div class="field">
+      <label>Current Images</label>
+      <div class="row wrap" style="gap:12px;">
+        {% for img in product.images.all %}
+        <div class="card card-pad" style="width:120px; text-align:center;">
+          <img src="{{ img.image.url }}" alt="{{ img.alt_text }}"
+               style="width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:6px;">
+          <label class="gv-meta" style="display:block; margin-top:6px;">
+            <input type="radio" name="primary_image" value="{{ img.pk }}" {% if img.is_primary %}checked{% endif %}>
+            Main
+          </label>
+          <label class="gv-meta" style="display:block; color:var(--danger);">
+            <input type="checkbox" name="delete_images" value="{{ img.pk }}"> Delete
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="field">
+      <label for="images">{% if product %}Add Images{% else %}Product Images{% endif %}</label>
+      <input id="images" type="file" name="images" accept="image/*" multiple>
+      <small class="gv-meta">You can select several images at once. The first one becomes the main image.</small>
+    </div>
+
+    <div class="row mt-2">
+      <button type="submit" class="btn btn-primary">Save Product</button>
+      <a href="{% url 'product_list' %}" class="btn">Cancel</a>
+    </div>
+  </form>
 </div>
 {% endblock %}

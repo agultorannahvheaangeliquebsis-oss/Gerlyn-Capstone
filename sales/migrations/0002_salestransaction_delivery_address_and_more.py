@@ -20,23 +20,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # delivery_address is ALREADY in the database from the partial
-        # first run — we only record it in Django's state here without
-        # touching the actual table (state_operations vs operations).
-        # This is the standard Django pattern for recovering from a
-        # partially applied migration.
-        migrations.SeparateDatabaseAndState(
-            database_operations=[],   # don't touch the DB — column exists
-            state_operations=[
-                migrations.AddField(
-                    model_name='salestransaction',
-                    name='delivery_address',
-                    field=models.TextField(
-                        blank=True,
-                        help_text='Required for Online orders; blank for Physical'
-                    ),
-                ),
-            ],
+        # Add delivery_address to the table. (Previously this used
+        # SeparateDatabaseAndState with no database_operations to recover
+        # from a partially-applied migration on one machine; that made the
+        # migration fail on every fresh database because the column was
+        # never actually created. A normal AddField is correct for all
+        # clean installs.)
+        migrations.AddField(
+            model_name='salestransaction',
+            name='delivery_address',
+            field=models.TextField(
+                blank=True,
+                help_text='Required for Online orders; blank for Physical'
+            ),
         ),
 
         # order_status — not in DB yet, add normally

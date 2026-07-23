@@ -1,18 +1,47 @@
-<!DOCTYPE html>
-<html>
-<head><title>Sales Report</title></head>
-<body>
-    <h2>Full Sales Report</h2>
-    <table border="1">
-        <tr><th>ID</th><th>Branch</th><th>Staff</th><th>Customer</th><th>Date</th><th>Total</th><th>Type</th></tr>
-        {% for txn in transactions %}
-        <tr>
-            <td>{{ txn.id }}</td><td>{{ txn.branch }}</td><td>{{ txn.staff|default:"-" }}</td>
-            <td>{{ txn.customer|default:"-" }}</td><td>{{ txn.transaction_date }}</td>
-            <td>{{ txn.total_amount }}</td><td>{{ txn.transaction_type }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-    <a href="{% url 'reports_dashboard' %}">Back to Dashboard</a>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Sales Report{% endblock %}
+{% block page_subtitle %}Reports{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta no-print" href="{% url 'reports_dashboard' %}">&larr; Dashboard</a>
+    <h1 class="mt-2">Sales Report</h1>
+    <p class="gv-meta mb-0">{{ transactions|length }} transaction{{ transactions|length|pluralize }}</p>
+  </div>
+  <div class="row no-print">
+    <a class="btn" href="{% url 'export_csv' 'sales' %}">Export CSV</a>
+    <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Order ID</th><th>Branch</th><th>Recorded by</th><th>Customer</th>
+          <th>Date</th><th>Channel</th><th class="num">Total</th></tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr>
+        <td data-label="Order ID" class="sku strong">
+          <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
+        <td data-label="Branch">{{ t.branch.branch_name }}</td>
+        <td data-label="Recorded by">{% if t.staff %}{{ t.staff.username }}{% else %}—{% endif %}</td>
+        <td data-label="Customer">
+          {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}{% else %}Walk-in{% endif %}</td>
+        <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
+        <td data-label="Channel">
+          {% if t.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
+          {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td>
+        <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty">
+        <span class="glyph">□</span><h3>No sales recorded</h3>
+        <p>Sales appear here once orders are completed.</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

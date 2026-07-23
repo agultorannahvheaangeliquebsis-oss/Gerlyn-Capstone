@@ -1,0 +1,66 @@
+{% extends "internal_base.html" %}
+{% block title %}Categories{% endblock %}
+{% block page_subtitle %}Catalog{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'product_list' %}">&larr; Product Master List</a>
+    <h1 class="mt-2">Manage Categories</h1>
+    <p class="gv-meta mb-0">{{ categories|length }} categor{{ categories|length|pluralize:"y,ies" }} · used across the catalog and storefront</p>
+  </div>
+  {% if can_edit %}
+  <a class="btn btn-primary" href="{% url 'category_add' %}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Add Category
+  </a>
+  {% endif %}
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Category Name</th>
+        <th>Description</th>
+        <th class="num">Products</th>
+        {% if can_edit %}<th style="text-align:right;">Actions</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td data-label="Category" class="strong">{{ c.category_name }}</td>
+        <td data-label="Description" class="gv-meta">{{ c.description|default:"—"|truncatechars:60 }}</td>
+        <td data-label="Products" class="num">
+          {% if c.product_count %}
+            <a href="{% url 'product_list' %}?category={{ c.id }}">{{ c.product_count }}</a>
+          {% else %}
+            <span class="gv-meta">0</span>
+          {% endif %}
+        </td>
+        {% if can_edit %}
+        <td data-label="Actions">
+          <span class="row-actions">
+            <a class="btn btn-sm" href="{% url 'category_edit' c.pk %}">Edit</a>
+            <a class="btn btn-sm btn-danger" href="{% url 'category_delete' c.pk %}">Delete</a>
+          </span>
+        </td>
+        {% endif %}
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="4">
+          <div class="empty">
+            <span class="glyph">＋</span>
+            <h3>No categories yet</h3>
+            <p>Categories group products in the catalog and power the storefront's "Shop by Category".</p>
+            {% if can_edit %}<a class="btn btn-primary mt-2" href="{% url 'category_add' %}">Add Category</a>{% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

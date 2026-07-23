@@ -14,6 +14,9 @@ class BillingRecord(models.Model):
         GCASH = 'GCash', 'GCash'
         CARD = 'Card', 'Card'
         BANK_TRANSFER = 'Bank Transfer', 'Bank Transfer'
+        # Recorded only — funds move outside the system (Chapter 1, Limitation 1).
+        COD = 'Cash on Delivery', 'Cash on Delivery'
+        PAY_AT_STORE = 'Pay at Store', 'Pay at Store'
 
     transaction = models.OneToOneField(
         SalesTransaction, on_delete=models.CASCADE,

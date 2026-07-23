@@ -19,10 +19,13 @@ class SalesTransaction(models.Model):
         PHYSICAL = 'Physical', 'Physical'
 
     class ModeOfPayment(models.TextChoices):
-        # Original — unchanged
         CASH = 'Cash', 'Cash'
         GCASH = 'GCash', 'GCash'
         CARD = 'Card', 'Card'
+        # Online-order options. The system only RECORDS these — no payment
+        # gateway is integrated (see Chapter 1, Limitation 1).
+        COD = 'Cash on Delivery', 'Cash on Delivery'
+        PAY_AT_STORE = 'Pay at Store', 'Pay at Store'
 
     class OrderType(models.TextChoices):        # <-- new: pricing tier
         RETAIL = 'Retail', 'Retail'
@@ -59,7 +62,7 @@ class SalesTransaction(models.Model):
         default=TransactionType.PHYSICAL
     )
     mode_of_payment = models.CharField(
-        max_length=10, choices=ModeOfPayment.choices,
+        max_length=20, choices=ModeOfPayment.choices,
         default=ModeOfPayment.CASH
     )
 

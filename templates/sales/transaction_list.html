@@ -1,64 +1,124 @@
 {% extends "internal_base.html" %}
-{% block title %}Sales & Orders{% endblock %}
-{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+{% block title %}Order Console{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-        <h4 class="fw-bold mb-0">Sales & Orders</h4>
-        <p class="text-muted small">All recorded transactions</p>
-    </div>
-    <a href="{% url 'transaction_add' %}" class="btn btn-gerlyn px-3">
-        <i class="fa-solid fa-plus me-1"></i> Record Sale
-    </a>
+<div class="page-head">
+  <div>
+    <h1>Order Management Console</h1>
+    <p class="gv-meta mb-0">{{ counts.all }} total order{{ counts.all|pluralize }}</p>
+  </div>
+  {% if can_pos %}
+  <a href="{% url 'transaction_add' %}" class="btn btn-primary">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    New Walk-in Sale
+  </a>
+  {% endif %}
 </div>
 
-{% if messages %}
-    {% for message in messages %}
-        <div class="alert alert-info">{{ message }}</div>
+<form method="GET" class="toolbar">
+  <input type="search" name="q" class="input grow" placeholder="Search order ID or customer…" value="{{ search_query }}">
+  {% if branches %}
+  <select name="branch" onchange="this.form.submit()">
+    <option value="">All Branches</option>
+    {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
     {% endfor %}
-{% endif %}
+  </select>
+  {% endif %}
+  <select name="channel" onchange="this.form.submit()">
+    <option value="">All Channels</option>
+    <option value="Online" {% if channel_filter == "Online" %}selected{% endif %}>Online</option>
+    <option value="Physical" {% if channel_filter == "Physical" %}selected{% endif %}>In-Store</option>
+  </select>
+  <select name="type" onchange="this.form.submit()">
+    <option value="">Retail &amp; Wholesale</option>
+    <option value="Retail" {% if type_filter == "Retail" %}selected{% endif %}>Retail only</option>
+    <option value="Wholesale" {% if type_filter == "Wholesale" %}selected{% endif %}>Wholesale only</option>
+  </select>
+  <input type="hidden" name="status" value="{{ status_filter }}">
+  <button type="submit" class="btn">Search</button>
+</form>
 
-<div class="stat-card bg-white p-0">
-    <table class="table table-hover mb-0">
-        <thead class="table-light">
-            <tr>
-                <th>#</th>
-                <th>Branch</th>
-                <th>Staff</th>
-                <th>Customer</th>
-                <th>Date</th>
-                <th>Total</th>
-                <th>Type</th>
-                <th>Payment</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for txn in transactions %}
-            <tr>
-                <td class="text-muted">{{ txn.id }}</td>
-                <td>{{ txn.branch }}</td>
-                <td>{{ txn.staff|default:"-" }}</td>
-                <td>{{ txn.customer|default:"-" }}</td>
-                <td>{{ txn.transaction_date|date:"M d, Y" }}</td>
-                <td class="fw-semibold">₱{{ txn.total_amount }}</td>
-                <td>
-                    <span class="badge {% if txn.transaction_type == 'Online' %}bg-primary{% else %}bg-secondary{% endif %}">
-                        {{ txn.transaction_type }}
-                    </span>
-                </td>
-                <td>{{ txn.mode_of_payment }}</td>
-                <td>
-                    <a href="{% url 'transaction_detail' txn.pk %}" class="text-muted">
-                        <i class="fa-solid fa-eye"></i>
-                    </a>
-                </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="9" class="text-center text-muted py-4">No transactions recorded yet.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div class="tabs">
+  <a class="tab {% if not status_filter %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}">All <span class="count">{{ counts.all }}</span></a>
+  <a class="tab {% if status_filter == 'Pending' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Pending">Pending <span class="count">{{ counts.pending }}</span></a>
+  <a class="tab {% if status_filter == 'Approved' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Approved">Approved <span class="count">{{ counts.approved }}</span></a>
+  <a class="tab {% if status_filter == 'Preparing' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Preparing">Preparing <span class="count">{{ counts.preparing }}</span></a>
+  <a class="tab {% if status_filter == 'Completed' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Completed">Completed <span class="count">{{ counts.completed }}</span></a>
+  <a class="tab {% if status_filter == 'Cancelled' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Cancelled">Cancelled <span class="count">{{ counts.cancelled }}</span></a>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Order ID</th>
+        <th>Date / Time</th>
+        <th>Customer</th>
+        <th>Branch</th>
+        <th>Type</th>
+        <th class="num">Total</th>
+        <th>Payment</th>
+        <th>Pay Status</th>
+        <th>Order Status</th>
+        <th style="text-align:right;">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr>
+        <td data-label="Order ID" class="sku strong">{{ t.order_number }}</td>
+        <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
+        <td data-label="Customer">
+          {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}
+            <span class="pill pill-info">Online</span>
+          {% else %}Walk-in{% endif %}
+        </td>
+        <td data-label="Branch">{{ t.branch.branch_name }}</td>
+        <td data-label="Type">
+          {% if t.order_type == "Wholesale" %}<span class="pill pill-info">Wholesale</span>
+          {% else %}<span class="pill pill-neutral">Retail</span>{% endif %}
+        </td>
+        <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
+        <td data-label="Payment" class="gv-meta">{{ t.mode_of_payment }}</td>
+        <td data-label="Pay Status">
+          {% if t.billing_record.status == "Paid" %}<span class="pill pill-ok">Paid</span>
+          {% elif t.billing_record.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+          {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+        </td>
+        <td data-label="Order Status">
+          {% if t.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>
+          {% elif t.order_status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>
+          {% elif t.order_status == "Preparing" %}<span class="pill pill-warn">Preparing</span>
+          {% elif t.order_status == "Approved" %}<span class="pill pill-info">Approved</span>
+          {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}
+        </td>
+        <td data-label="Action">
+          <span class="row-actions">
+            <a class="btn btn-sm" href="{% url 'transaction_detail' t.pk %}">View</a>
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="10">
+          <div class="empty">
+            <span class="glyph">□</span>
+            <h3>No orders here</h3>
+            <p>{% if status_filter or search_query %}Nothing matches this filter — try “All”.{% else %}Orders appear as customers buy online or staff record walk-in sales.{% endif %}</p>
+            {% if can_pos %}<a class="btn btn-primary mt-2" href="{% url 'transaction_add' %}">New Walk-in Sale</a>{% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endblock %}

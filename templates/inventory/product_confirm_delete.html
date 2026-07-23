@@ -1,0 +1,13 @@
+{% extends 'internal_base.html' %}
+{% block title %}Delete Product{% endblock %}
+{% block content %}
+<div style="padding:8px 4px; max-width:520px;">
+  <h2>Delete product?</h2>
+  <p>You are about to delete <strong>{{ product.product_name }}</strong> ({{ product.sku_code }}).
+     This cannot be undone.</p>
+  <form method="post" style="display:flex; gap:10px;">{% csrf_token %}
+    <button type="submit" style="padding:10px 20px; background:#c0392b; color:#fff; border:0; border-radius:8px;">Delete</button>
+    <a href="{% url 'product_list' %}" style="padding:10px 20px; border:1px solid #ddd; border-radius:8px; text-decoration:none; color:#222;">Cancel</a>
+  </form>
+</div>
+{% endblock %}

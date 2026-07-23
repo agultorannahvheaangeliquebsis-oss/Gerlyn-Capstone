@@ -1,7 +1,17 @@
-<!DOCTYPE html>
-<html>
-<head><title>Access Denied</title></head>
-<body>
-    <h2>You do not have permission to view this page.</h2>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Access Denied{% endblock %}
+{% block page_subtitle %}Access Denied{% endblock %}
+
+{% block content %}
+<div class="card card-pad">
+  <div class="empty">
+    <span class="glyph" style="background:var(--danger-bg); color:var(--danger-fg);">!</span>
+    <h3>You don't have access to this page</h3>
+    <p>
+      Your role ({{ request.user.get_role_display }}) can't view this report.
+      If you think this is a mistake, ask the Owner to check your account.
+    </p>
+    <a class="btn btn-primary mt-2" href="{% url 'home' %}">Back to safety</a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,144 @@
+# Deploying GerlynPLUS
+
+**Target: live by early September 2026** — this is the gate before User
+Evaluation. The three IT experts and the store staff cannot evaluate a system
+that only runs on our laptops.
+
+Recommended host: **Railway** (~$5/month). It gives MySQL in one click and
+deploys straight from GitHub.
+
+> ⚠️ **Do not follow old tutorials for PythonAnywhere's free tier.** It moved
+> MySQL to a paid tier for new accounts in **January 2026**. Blog posts saying
+> "free MySQL" are out of date.
+
+The repo is already prepared: `Procfile`, `railway.json`, gunicorn, WhiteNoise,
+`collectstatic`, and env-based settings are all in place and were tested in
+production mode locally.
+
+---
+
+## Steps
+
+### 1. Push to GitHub
+Already done — `main` on `Gerlyn-Capstone`. Railway deploys from there.
+
+### 2. Create the Railway project
+1. railway.app → **New Project** → **Deploy from GitHub repo** → pick the repo.
+2. Add **MySQL**: *New* → *Database* → *Add MySQL*. One click.
+
+### 3. Set the environment variables
+
+In the service → **Variables**:
+
+| Variable | Value |
+|---|---|
+| `DJANGO_SECRET_KEY` | Generate a NEW one (never reuse the dev key) |
+| `DJANGO_DEBUG` | `False` |
+| `DJANGO_ALLOWED_HOSTS` | `<your-app>.up.railway.app` |
+| `DJANGO_CSRF_TRUSTED` | `https://<your-app>.up.railway.app` |
+| `DB_NAME` | `${{MySQL.MYSQL_DATABASE}}` |
+| `DB_USER` | `${{MySQL.MYSQLUSER}}` |
+| `DB_PASSWORD` | `${{MySQL.MYSQLPASSWORD}}` |
+| `DB_HOST` | `${{MySQL.MYSQLHOST}}` |
+| `DB_PORT` | `${{MySQL.MYSQLPORT}}` |
+
+The `${{MySQL.*}}` syntax pulls values from the database service — don't paste
+credentials by hand.
+
+Generate the secret key with:
+```bash
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+```
+
+> `DJANGO_CSRF_TRUSTED` is easy to forget. Without it every form POST — including
+> **login** — fails with a CSRF error, and the site looks completely broken.
+
+### 4. Add a volume for uploads (important)
+
+Railway's filesystem is **ephemeral**: anything written at runtime is wiped on
+every redeploy. GCash **payment proofs** are uploaded at runtime, so without a
+volume they disappear — and those images are the evidence behind our billing
+audit trail.
+
+Service → **Settings** → **Volumes** → mount at **`/app/media`**.
+
+### 5. Deploy + seed
+Railway builds and runs migrations automatically (`railway.json`). Then, once:
+
+```bash
+railway run python manage.py seed_demo --reset
+```
+
+Or use Railway's shell. This creates the demo data and the logins.
+
+### 6. Test the live site — properly
+- [ ] Open the URL. Log in as `gerlyn` / `demo1234`.
+- [ ] **CSS loads** (if the page looks like plain text, `collectstatic` failed).
+- [ ] Log in as `carlo` — he must see **Tarcan only**.
+- [ ] Record a walk-in sale; check stock drops.
+- [ ] **Open it on a phone using mobile data, not your wifi.** This is the only
+      test that proves it's really reachable from outside.
+- [ ] Upload a payment proof, redeploy, and confirm the image still loads
+      (proves the volume works).
+
+### 7. Write the URL into `README.md` and tell the team.
+
+---
+
+## Gotchas already handled in the code
+
+Each of these was found by running the app in production mode locally, not by
+guessing:
+
+| Problem | Handled by |
+|---|---|
+| `DEBUG=False` serves **no CSS** — the whole site renders unstyled | WhiteNoise + `collectstatic` + `STATIC_ROOT` |
+| Uploaded payment proofs **404** in production (`static()` is a no-op when `DEBUG=False`) | explicit media route in `gerlyn_is/urls.py` |
+| Infinite redirect loop behind the host's TLS proxy | `SECURE_PROXY_SSL_HEADER` |
+| App boots with an insecure default `SECRET_KEY` | startup guard raises `RuntimeError` |
+| Django's own `check --deploy` raised 5 security warnings | HSTS, secure cookies, nosniff, `X_FRAME_OPTIONS` — now **0 warnings** |
+
+Verify anytime with:
+```bash
+DJANGO_DEBUG=False DJANGO_SECRET_KEY=<a-real-key> python manage.py check --deploy
+```
+
+---
+
+## Test it in production mode locally first
+
+Do this **before** deploying — it catches nearly everything:
+
+```bash
+python manage.py collectstatic --noinput
+
+export DJANGO_SECRET_KEY="$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')"
+export DJANGO_DEBUG=False
+export DJANGO_ALLOWED_HOSTS="localhost,127.0.0.1"
+export DJANGO_SECURE_SSL=False        # no TLS locally, so don't force the redirect
+
+gunicorn gerlyn_is.wsgi --bind 127.0.0.1:8000
+```
+
+Open <http://127.0.0.1:8000/>. If the CSS loads and you can log in, the deploy
+will almost certainly work.
+
+---
+
+## Always keep the local fallback
+
+Keep `./run.sh` working. On defense day have **three** ways to demo:
+
+1. the live URL,
+2. a laptop running locally,
+3. a screen recording.
+
+Never depend on the venue's wifi.
+
+---
+
+## Cost
+
+~$5/month ≈ ₱280. For September–November that's roughly **₱850 total**, about
+**₱140 each** across six members. Don't spend a week trying to avoid it — the
+deployment date is what protects the evaluation phase.

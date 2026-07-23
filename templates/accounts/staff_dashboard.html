@@ -1,8 +1,155 @@
-<!DOCTYPE html>
-<html>
-<head><title>Staff Dashboard</title></head>
-<body>
-    <h2>Welcome, {{ request.user.username }} (Staff)</h2>
-    <a href="{% url 'logout' %}">Logout</a>
-</body>
-</html>
+{% extends "internal_base.html" %}
+{% block title %}Staff Dashboard{% endblock %}
+{% block page_subtitle %}Dashboard{% endblock %}
+{% block branch_scope %}{{ branch.branch_name|default:"No branch assigned" }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>My Dashboard</h1>
+    <p class="gv-meta mb-0">
+      Good day, {{ request.user.get_full_name|default:request.user.username }}! Here's what needs
+      your attention{% if branch %} at {{ branch.branch_name }}{% endif %} — {{ today|date:"F d, Y" }}.
+    </p>
+  </div>
+</div>
+
+{% if not branch %}
+<div class="card card-pad">
+  <div class="empty">
+    <span class="glyph">!</span>
+    <h3>No branch assigned</h3>
+    <p>Ask your manager or the Owner to assign your account to a branch.</p>
+  </div>
+</div>
+{% else %}
+
+{# ---------------------------- quick actions ---------------------------- #}
+<div class="grid-2 mb-6">
+  <a class="card card-pad" href="{% url 'inventory_list' %}" style="display:block; text-decoration:none; color:inherit;">
+    <div class="row-between">
+      <div>
+        <div style="font-weight:600; font-size:16px;">Check Inventory</div>
+        <p class="gv-meta mb-0" style="margin-top:4px;">View current stock at {{ branch.branch_name }}</p>
+      </div>
+      <span class="pill pill-info">{{ total_products }} item{{ total_products|pluralize }}</span>
+    </div>
+  </a>
+  <a class="card card-pad" href="{% url 'delivery_list' %}" style="display:block; text-decoration:none; color:inherit;">
+    <div class="row-between">
+      <div>
+        <div style="font-weight:600; font-size:16px;">Receive Stock</div>
+        <p class="gv-meta mb-0" style="margin-top:4px;">Record deliveries against a purchase order</p>
+      </div>
+      {% if pending_deliveries_count %}
+        <span class="pill pill-warn">{{ pending_deliveries_count }} waiting</span>
+      {% else %}
+        <span class="pill pill-ok">0 waiting</span>
+      {% endif %}
+    </div>
+  </a>
+</div>
+
+{# ------------------------------- my tasks -------------------------------- #}
+<div class="card mb-6">
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+    <h3>My Tasks</h3>
+    <span class="gv-meta">{{ task_count }} item{{ task_count|pluralize }} need{{ task_count|pluralize:"s," }} attention</span>
+  </div>
+
+  {% if pending_deliveries or pending_receipts or restock %}
+  <div class="table-wrap">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Task</th><th>Details</th><th>Due / Risk</th><th style="text-align:right;">Action</th></tr>
+      </thead>
+      <tbody>
+        {% for p in pending_deliveries %}
+        <tr>
+          <td data-label="Task" class="strong">Receive delivery</td>
+          <td data-label="Details">{{ p.po_number }} &middot;
+            {{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}</td>
+          <td data-label="Due / Risk">
+            {% if p.delivery_date %}{{ p.delivery_date|date:"M d" }}
+            {% else %}<span class="gv-meta">No date set</span>{% endif %}
+          </td>
+          <td data-label="Action" style="text-align:right;">
+            <a class="btn btn-sm btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive</a>
+          </td>
+        </tr>
+        {% endfor %}
+        {% for t in pending_receipts %}
+        <tr>
+          <td data-label="Task" class="strong">Confirm receipt</td>
+          <td data-label="Details">{{ t.slip_number }} from {{ t.source_branch.branch_name }}</td>
+          <td data-label="Due / Risk"><span class="pill pill-info">Released</span></td>
+          <td data-label="Action" style="text-align:right;">
+            <a class="btn btn-sm btn-primary" href="{% url 'transfer_detail' t.pk %}">Confirm</a>
+          </td>
+        </tr>
+        {% endfor %}
+        {% for row in restock %}
+        <tr>
+          <td data-label="Task" class="strong">Low stock</td>
+          <td data-label="Details">{{ row.product.product_name }} &mdash;
+            {{ row.quantity_on_hand }} on hand (reorder at {{ row.reorder_level }})</td>
+          <td data-label="Due / Risk">
+            {% if row.risk == 'Critical' %}<span class="pill pill-danger">Critical</span>
+            {% elif row.risk == 'High' %}<span class="pill pill-warn">High</span>
+            {% else %}<span class="pill pill-neutral">Moderate</span>{% endif %}
+          </td>
+          <td data-label="Action" style="text-align:right;">
+            <a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}">Request Stock</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <span class="glyph">&check;</span>
+    <h3>All caught up</h3>
+    <p>No deliveries, receipts, or low-stock items need your attention right now.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# ---------------------------- branch stock -------------------------------- #}
+<div class="card">
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+    <div>
+      <h3>{{ branch.branch_name }} — Current Stock</h3>
+      <p class="gv-meta mb-0">Lowest stock first &middot; {{ total_products }} product{{ total_products|pluralize }} tracked</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'inventory_list' %}">Check Full Inventory &rarr;</a>
+  </div>
+  <div class="table-wrap">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Product</th><th>Category</th><th class="num">On Hand</th><th class="num">Reorder Level</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for inv in stock_preview %}
+        <tr>
+          <td data-label="Product" class="strong">{{ inv.product.product_name }}</td>
+          <td data-label="Category">{{ inv.product.category.category_name|default:"—" }}</td>
+          <td data-label="On Hand" class="num strong">{{ inv.quantity_on_hand }}</td>
+          <td data-label="Reorder Level" class="num gv-meta">{{ inv.reorder_level }}</td>
+          <td data-label="Status">
+            {% if inv.restock %}<span class="pill pill-warn">Low</span>
+            {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><div class="empty">
+          <span class="glyph">□</span><h3>No stock records yet</h3>
+          <p>Stock will appear here once inventory is set up for this branch.</p>
+        </div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

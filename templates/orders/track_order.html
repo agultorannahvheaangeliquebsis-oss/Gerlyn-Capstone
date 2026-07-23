@@ -1,0 +1,116 @@
+{% extends "public_base.html" %}
+{% load shop_extras %}
+{% block title %}{{ sale.order_number }} — Gerlyn Variety Store{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* Status tracker — dot + label per step, so it reads without relying on colour */
+  .track { display: flex; gap: 0; margin: 8px 0 4px; }
+  .track-step { flex: 1; text-align: center; position: relative; }
+  .track-step .dot {
+    width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--line); color: var(--ink-400);
+    font: 700 13px/1 system-ui, sans-serif; position: relative; z-index: 1;
+  }
+  .track-step.done .dot { background: var(--brand); color: #fff; }
+  .track-step.current .dot { background: var(--action); color: #fff;
+    box-shadow: 0 0 0 5px var(--green-50); }
+  /* the connecting line */
+  .track-step::before {
+    content: ""; position: absolute; top: 13px; left: 0; right: 50%;
+    height: 2px; background: var(--line);
+  }
+  .track-step::after {
+    content: ""; position: absolute; top: 13px; left: 50%; right: 0;
+    height: 2px; background: var(--line);
+  }
+  .track-step:first-child::before, .track-step:last-child::after { display: none; }
+  .track-step.done::after, .track-step.done::before { background: var(--brand); }
+  .track-step.current::before { background: var(--brand); }
+  .track-label { font: 600 13px/1.3 system-ui, sans-serif; color: var(--ink-600); }
+  .track-step.current .track-label { color: var(--action-700); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section" style="max-width:760px;">
+  <p class="gv-meta"><a href="{% url 'orders:my_orders' %}">&larr; My Orders</a></p>
+
+  <div class="card card-pad">
+    <div class="row-between wrap">
+      <div>
+        <h2>{{ sale.order_number }}</h2>
+        <p class="gv-meta mb-0">Placed {{ sale.transaction_date|date:"F d, Y — g:i A" }}</p>
+      </div>
+      <div style="text-align:right;">
+        <div class="gv-label">Total</div>
+        <div class="gv-metric" style="color:var(--action);">₱{{ sale.total_amount|floatformat:2 }}</div>
+      </div>
+    </div>
+
+    <hr style="border:0; border-top:1px solid var(--line); margin:24px 0;">
+
+    {% if cancelled %}
+      <div class="banner banner-error">
+        <span><strong>This order was cancelled.</strong><br>{{ blurb }}</span>
+      </div>
+    {% else %}
+      <div class="track">
+        {% for s in steps %}
+        <div class="track-step {% if s.done %}done{% endif %} {% if s.current %}current{% endif %}">
+          <span class="dot">{% if s.done %}✓{% else %}{{ forloop.counter }}{% endif %}</span>
+          <span class="track-label">
+            {% if s.name == 'Pending' %}Placed
+            {% elif s.name == 'Approved' %}Confirmed
+            {% elif s.name == 'Preparing' %}Packing
+            {% else %}Ready{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="gv-meta mt-4" style="text-align:center;">{{ blurb }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card card-pad mt-4">
+    <h3 class="mb-4">Details</h3>
+    <table class="gv-table kv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
+        <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
+        <tr><td class="gv-meta">Payment status</td><td style="text-align:right;">
+          {% if billing.status == 'Paid' %}<span class="pill pill-ok">Paid</span>
+          {% elif billing.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
+          {% else %}<span class="pill pill-warn">Not yet paid</span>{% endif %}</td></tr>
+        {% if sale.delivery_address %}
+        <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ sale.delivery_address }}</td></tr>
+        {% else %}
+        <tr><td class="gv-meta">Collection</td><td style="text-align:right;">Pick up in store</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card mt-4 table-wrap">
+    <table class="gv-table">
+      <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Subtotal</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td data-label="Item"><span style="margin-right:8px;">{{ item.product|product_emoji }}</span>{{ item.product.product_name }}</td>
+          <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
+          <td data-label="Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
+          <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="row mt-6">
+    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">Continue shopping</a>
+    <a class="btn" href="{% url 'orders:my_orders' %}">My orders</a>
+  </div>
+</div>
+{% endblock %}

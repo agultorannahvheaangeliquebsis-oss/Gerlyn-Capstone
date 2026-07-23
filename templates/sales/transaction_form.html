@@ -1,87 +1,158 @@
 {% extends "internal_base.html" %}
-{% block title %}Record Sale{% endblock %}
-{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}
+{% block title %}Walk-in POS{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
-<h4 class="fw-bold mb-4">Record a Sale</h4>
-
-<div class="stat-card bg-white p-4">
-    <form method="POST">
-        {% csrf_token %}
-        <div class="row g-3 mb-4">
-            {% if request.user.role == 'OWNER' %}
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Branch</label>
-                <select name="branch" class="form-select" required>
-                    {% for branch in branches %}
-                    <option value="{{ branch.id }}">{{ branch.branch_name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            {% endif %}
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Transaction Type</label>
-                <select name="transaction_type" class="form-select">
-                    <option value="Physical">Physical</option>
-                    <option value="Online">Online</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Mode of Payment</label>
-                <select name="mode_of_payment" class="form-select">
-                    <option value="Cash">Cash</option>
-                    <option value="GCash">GCash</option>
-                    <option value="Card">Card</option>
-                </select>
-            </div>
-        </div>
-
-        <h6 class="fw-bold mb-3">Items</h6>
-        <div id="item-rows">
-            <div class="item-row row g-2 mb-2 align-items-center">
-                <div class="col-md-7">
-                    <select name="product_id" class="form-select">
-                        {% for product in products %}
-                        <option value="{{ product.id }}">{{ product.product_name }} (₱{{ product.unit_price }})</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <input type="number" name="quantity" class="form-control" placeholder="Quantity" min="1" required>
-                </div>
-                <div class="col-md-2">
-                    <button type="button" class="btn btn-outline-danger w-100" onclick="removeRow(this)">
-                        <i class="fa-solid fa-trash"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <button type="button" class="btn btn-outline-secondary btn-sm mb-4" onclick="addRow()">
-            <i class="fa-solid fa-plus me-1"></i> Add Another Item
-        </button>
-
-        <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-gerlyn px-4">Save Transaction</button>
-            <a href="{% url 'transaction_list' %}" class="btn btn-outline-secondary px-4">Cancel</a>
-        </div>
-    </form>
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'transaction_list' %}">&larr; Order Console</a>
+    <h1 class="mt-2">Walk-in Sale</h1>
+    <p class="gv-meta mb-0">
+      Recorded as completed and paid — stock leaves
+      {% if user_branch %}{{ user_branch.branch_name }}{% else %}the selected branch{% endif %} immediately.
+    </p>
+  </div>
 </div>
+
+<form method="POST" id="pos-form">
+  {% csrf_token %}
+  <div class="card card-pad mb-4">
+    <div class="grid-2">
+      {% if user_branch %}
+        <div class="field">
+          <label>Branch</label>
+          <div class="row"><span class="pill pill-info">{{ user_branch.branch_name }}</span>
+            <span class="gv-meta">your assigned branch</span></div>
+        </div>
+      {% else %}
+        <div class="field">
+          <label for="branch">Branch</label>
+          <select id="branch" name="branch" required>
+            <option value="">— Choose a branch —</option>
+            {% for b in branches %}<option value="{{ b.id }}">{{ b.branch_name }}</option>{% endfor %}
+          </select>
+        </div>
+      {% endif %}
+      <div class="field">
+        <label for="mode_of_payment">Mode of Payment</label>
+        <select id="mode_of_payment" name="mode_of_payment">
+          {% for value, label in payment_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="order_type">Order Type</label>
+        <select id="order_type" name="order_type" onchange="recalc()">
+          {% for value, label in order_type_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+        <span class="gv-meta" id="type-hint">Retail prices apply.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card card-pad mb-4">
+    <div class="row-between mb-4">
+      <h3>Items</h3>
+      <button type="button" class="btn btn-sm" onclick="addRow()">+ Add Item</button>
+    </div>
+
+    <div id="item-rows" class="stack"></div>
+
+    <template id="row-template">
+      <div class="item-row row wrap" style="gap:12px; align-items:flex-end;">
+        <div class="field grow" style="min-width:220px;">
+          <label>Product</label>
+          <select name="product_id" class="js-product" onchange="recalc()">
+            {% for p in products %}
+              <option value="{{ p.id }}"
+                      data-retail="{{ p.unit_price }}"
+                      data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
+                      data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" style="width:120px;">
+          <label>Unit Price</label>
+          <input type="text" class="js-price" value="₱0.00" readonly tabindex="-1"
+                 style="background:var(--line-soft); border-color:var(--line);">
+        </div>
+        <div class="field" style="width:110px;">
+          <label>Quantity</label>
+          <input type="number" name="quantity" class="js-qty" min="1" value="1" oninput="recalc()">
+        </div>
+        <div class="field" style="width:120px;">
+          <label>Subtotal</label>
+          <input type="text" class="js-sub" value="₱0.00" readonly tabindex="-1"
+                 style="background:var(--line-soft); border-color:var(--line);">
+        </div>
+        <button type="button" class="btn btn-danger" onclick="removeRow(this)">Remove</button>
+      </div>
+    </template>
+
+    <div class="row-between mt-6" style="border-top:1px solid var(--line); padding-top:16px;">
+      <span class="gv-label">Total</span>
+      <span class="gv-metric" id="grand-total" style="color:var(--action);">₱0.00</span>
+    </div>
+  </div>
+
+  <div class="row">
+    <button type="submit" class="btn btn-primary">Record Sale</button>
+    <a href="{% url 'transaction_list' %}" class="btn">Cancel</a>
+  </div>
+</form>
+{% endblock %}
 
 {% block extra_js %}
 <script>
-    function addRow() {
-        const container = document.getElementById('item-rows');
-        const row = container.children[0].cloneNode(true);
-        row.querySelectorAll('input').forEach(input => input.value = '');
-        container.appendChild(row);
+  const rows = document.getElementById('item-rows');
+  const tpl = document.getElementById('row-template');
+
+  function addRow() {
+    rows.appendChild(tpl.content.cloneNode(true));
+    recalc();
+  }
+  function removeRow(btn) {
+    if (rows.children.length > 1) { btn.closest('.item-row').remove(); recalc(); }
+  }
+  function peso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+
+  function recalc() {
+    // Wholesale orders bill at the wholesale price — show that to the cashier
+    // BEFORE the sale is recorded, not after.
+    const wholesale = document.getElementById('order_type').value === 'Wholesale';
+    let total = 0;
+    let missing = 0;
+
+    rows.querySelectorAll('.item-row').forEach(row => {
+      const opt = row.querySelector('.js-product').selectedOptions[0];
+      if (!opt) return;
+      const price = parseFloat(
+        (wholesale ? opt.dataset.wholesale : opt.dataset.retail) || 0
+      );
+      if (wholesale && opt.dataset.hasWholesale === '0') missing++;
+
+      const qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
+      const sub = price * (qty > 0 ? qty : 0);
+      row.querySelector('.js-price').value = peso(price);
+      row.querySelector('.js-sub').value = peso(sub);
+      total += sub;
+    });
+
+    document.getElementById('grand-total').textContent = peso(total);
+
+    const hint = document.getElementById('type-hint');
+    if (!wholesale) {
+      hint.textContent = 'Retail prices apply.';
+      hint.style.color = '';
+    } else if (missing) {
+      hint.textContent = `Wholesale prices apply — ${missing} item(s) have no wholesale price, so they stay at retail.`;
+      hint.style.color = 'var(--warn-fg)';
+    } else {
+      hint.textContent = 'Wholesale prices apply.';
+      hint.style.color = 'var(--ok-fg)';
     }
-    function removeRow(btn) {
-        const container = document.getElementById('item-rows');
-        if (container.children.length > 1) {
-            btn.closest('.item-row').remove();
-        }
-    }
+  }
+
+  addRow();  // start with one row
 </script>
-{% endblock %}
 {% endblock %}

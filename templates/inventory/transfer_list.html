@@ -1,0 +1,107 @@
+{% extends 'internal_base.html' %}
+{% block title %}Withdrawal Slips{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ws-cards { display:flex; gap:16px; flex-wrap:wrap; margin:16px 0 20px; }
+  .ws-card { flex:1 1 200px; border-radius:12px; padding:16px 20px; border:1px solid #eee; }
+  .ws-card .num { font-size:26px; font-weight:700; }
+  .ws-card.ok { background:#eaf7ef; border-color:#bfe6cd; }
+  .ws-card.warn { background:#fff8e1; border-color:#f0dfa0; }
+  .ws-card.bad { background:#fdecea; border-color:#f5c2c0; }
+  .pending-box { border:1px solid #f0dfa0; background:#fffdf5; border-radius:12px; padding:16px; margin-bottom:20px; }
+  .pending-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 0; border-bottom:1px solid #f2eecf; }
+  .pending-row:last-child { border-bottom:0; }
+  .pending-row form { flex-wrap:wrap; }
+  .pending-row form input[type=number] { width:70px; flex:0 1 70px; }
+  .pending-row form input[type=text] { width:130px; flex:1 1 100px; min-width:0; }
+  .grow { flex:1 1 220px; }
+  .ws-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  table.ws { width:100%; border-collapse:collapse; }
+  table.ws th, table.ws td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:14px; }
+  @media (max-width: 860px) {
+    table.ws thead { display:none; }
+    table.ws, table.ws tbody, table.ws tr, table.ws td { display:block; width:100%; }
+    table.ws tr { border:1px solid #eee; border-radius:12px; margin-bottom:12px; padding:4px 2px; }
+    table.ws td { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid #f5f5f5; text-align:right; }
+    table.ws td:last-child { border-bottom:0; }
+    table.ws td::before { content:attr(data-label); font-weight:700; font-size:12px; text-transform:uppercase; color:#999; text-align:left; }
+  }
+  .btn { padding:7px 14px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; font-weight:600; text-decoration:none; color:#222; }
+  .btn.green { background:#128a4f; color:#fff; border-color:#128a4f; }
+  .btn.red { color:#c0392b; border-color:#e6b3ae; }
+  .pill { padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:#eef; color:#334; }
+  .msg { padding:10px 14px; border-radius:8px; margin:8px 0; }
+  .msg.success { background:#eaf7ef; color:#1b7a43; }
+  .msg.error { background:#fdecea; color:#c0392b; }
+  .msg.warning { background:#fff8e1; color:#8a6d00; }
+  input[type=number], input[type=text] { padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="padding:8px 4px;">
+  <div class="ws-header">
+    <div>
+      <h2 style="margin:0;">Withdrawal Slips</h2>
+      <p style="color:#888; margin:4px 0 0;">Track stock released from inventory</p>
+    </div>
+    <a class="btn green" href="{% url 'transfer_create' %}">+ New Withdrawal Slip</a>
+  </div>
+
+  {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
+
+  <div class="ws-cards">
+    <div class="ws-card ok"><div class="num">{{ total_released_this_month }}</div><div>Released This Month</div></div>
+    <div class="ws-card warn"><div class="num">{{ pending_acknowledgment }}</div><div>Pending Acknowledgment</div></div>
+    <div class="ws-card bad"><div class="num">{{ flagged_discrepancies }}</div><div>Flagged Discrepancies</div></div>
+  </div>
+
+  {% if pending_acknowledgment %}
+  <div class="pending-box">
+    <h3 style="margin:0 0 8px;">⚠ Pending Acknowledgment</h3>
+    {% for t in transfers %}{% if t.status == 'Released' %}
+      <div class="pending-row">
+        <div class="grow">
+          <strong>{{ t.slip_number }}</strong> ·
+          {{ t.source_branch }} → {{ t.destination_branch|default:"N/A" }}
+          <span class="pill">{{ t.purpose }}</span>
+        </div>
+        <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}" style="display:flex; gap:6px; align-items:center;">
+          {% csrf_token %}
+          <label>Received <input type="number" name="received_qty" min="0" inputmode="numeric"></label>
+          <button class="btn green" type="submit">✓ Confirm Receipt</button>
+        </form>
+        <form method="post" action="{% url 'transfer_flag_discrepancy' t.pk %}" style="display:flex; gap:6px; align-items:center;">
+          {% csrf_token %}
+          <input type="number" name="received_qty" min="0" placeholder="qty" inputmode="numeric">
+          <input type="text" name="flag_reason" placeholder="Reason">
+          <button class="btn red" type="submit">⚑ Flag Discrepancy</button>
+        </form>
+      </div>
+    {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+
+  <table class="ws">
+    <thead>
+      <tr><th>Slip ID</th><th>From → To</th><th>Released By</th><th>Purpose</th><th>Status</th><th>Date</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for t in transfers %}
+      <tr>
+        <td data-label="Slip ID"><strong>{{ t.slip_number }}</strong></td>
+        <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"N/A" }}</td>
+        <td data-label="Released By">{{ t.requested_by.username|default:"—" }}</td>
+        <td data-label="Purpose"><span class="pill">{{ t.purpose }}</span></td>
+        <td data-label="Status">{{ t.status }}</td>
+        <td data-label="Date">{{ t.transfer_date|date:"Y-m-d" }}</td>
+        <td data-label=""><a class="btn" href="{% url 'transfer_detail' t.pk %}">View</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" style="text-align:center; color:#999;">No withdrawal slips yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,296 @@
+/* ==========================================================================
+   Storefront layer — builds on gerlyn.css tokens.
+   Same green identity, warmer voice for shoppers. One clean hero,
+   44px add-to-cart targets, honest stock signals, mobile sticky checkout.
+   ========================================================================== */
+
+body.shop { background: #fff; }
+
+.shop-wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+/* ------------------------------------------------------------- announce */
+.shop-announce {
+  background: var(--action);
+  color: #fff;
+  font: 400 13px/1 system-ui, sans-serif;
+  padding: 9px 0;
+}
+.shop-announce a { color: #fff; text-decoration: none; }
+.shop-announce a:hover { text-decoration: underline; }
+
+/* --------------------------------------------------------------- header */
+.shop-header { background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+.shop-nav { display: flex; align-items: center; gap: 20px; padding: 14px 24px; max-width: 1200px; margin: 0 auto; }
+.shop-brand {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  font-size: 16px; text-decoration: none; color: var(--ink-900);
+}
+.shop-links { display: flex; gap: 4px; flex: none; }
+.shop-links a {
+  height: var(--touch); display: inline-flex; align-items: center; padding: 0 14px;
+  font: 600 14.5px/1 system-ui, sans-serif; color: var(--ink-700);
+  border-radius: var(--r-input); text-decoration: none;
+}
+.shop-links a:hover { background: var(--line-soft); }
+.shop-links a.active { background: var(--green-50); color: var(--action-700); font-weight: 650; }
+
+.shop-search { display: flex; gap: 8px; flex: 1; min-width: 0; }
+.shop-search input { border-radius: var(--r-pill); background: var(--bg); width: 100%; }
+
+.search-box { position: relative; flex: 1; min-width: 0; }
+.search-dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-hero); overflow: hidden; z-index: 20;
+  max-height: 360px; overflow-y: auto;
+}
+.search-result {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; text-decoration: none; color: var(--ink-900);
+  border-bottom: 1px solid var(--line-soft);
+}
+.search-result:last-child { border-bottom: 0; }
+.search-result:hover, .search-result.is-active { background: var(--green-50); }
+.search-result-name { font: 600 14px/1.3 system-ui, sans-serif; }
+.search-result-meta { display: flex; align-items: center; gap: 8px; flex: none; }
+.search-result-category { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-700); }
+.search-result-price { font: 700 13.5px/1 system-ui, sans-serif; color: var(--action-700); }
+.search-empty { padding: 14px; font: 400 13.5px/1.4 system-ui, sans-serif; color: var(--ink-700); }
+
+.cart-btn { position: relative; }
+.cart-badge {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: var(--r-pill); background: #B45309; color: #fff;
+  font: 700 11.5px/20px system-ui, sans-serif; text-align: center;
+  border: 2px solid #fff;
+}
+
+.shop-main { min-height: 60vh; }
+
+/* ----------------------------------------------------------------- hero
+   ONE headline layer — no ghosted/overlapping text. */
+.hero {
+  background: linear-gradient(135deg, var(--action) 0%, var(--action-700) 100%);
+  color: #fff;
+  padding: 64px 0;
+}
+.hero h1 {
+  font: 800 40px/1.15 'Inter', system-ui, sans-serif;
+  color: #fff; margin: 0 0 12px; white-space: nowrap;
+}
+.hero p { font-size: 17px; line-height: 1.5; opacity: .92; margin: 0 0 24px; white-space: nowrap; }
+.hero .eyebrow {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 600 13.5px/1 system-ui, sans-serif; opacity: .9; margin-bottom: 14px;
+}
+.hero .btn-hero {
+  background: #fff; color: var(--action-700); border-color: #fff; font-weight: 700;
+}
+.hero .btn-hero:hover { background: var(--green-50); color: var(--action-700); }
+.hero .btn-hero-ghost { background: transparent; color: #fff; border-color: rgba(255,255,255,.7); }
+.hero .btn-hero-ghost:hover { background: rgba(255,255,255,.12); color: #fff; }
+
+/* --------------------------------------------------------- value props */
+.props { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: -32px 0 40px; }
+.prop {
+  background: var(--green-50); border: 1px solid var(--green-100);
+  border-radius: var(--r-card); padding: 16px 20px;
+  display: flex; align-items: center; gap: 14px;
+}
+.prop .ic {
+  width: 40px; height: 40px; border-radius: 50%; background: #fff; flex: none;
+  display: flex; align-items: center; justify-content: center; color: var(--action);
+}
+.prop .t { font: 650 14.5px/1.2 system-ui, sans-serif; }
+.prop .s { font: 400 13px/1.3 system-ui, sans-serif; color: var(--ink-600); }
+
+/* ------------------------------------------------------------ sections */
+.section { padding: 32px 0; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
+.section-head h2 { font: 700 22px/1.2 system-ui, sans-serif; }
+
+/* categories */
+.cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
+.cat {
+  border: 1px solid var(--line); border-radius: var(--r-card); background: #fff;
+  padding: 16px 8px; text-align: center; text-decoration: none; color: var(--ink-900);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  min-height: var(--touch);
+}
+.cat:hover { border-color: var(--brand); box-shadow: 0 2px 8px rgba(46,158,107,.12); color: var(--ink-900); }
+.cat .ring {
+  width: 52px; height: 52px; border-radius: 50%; background: var(--green-50);
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+}
+.cat .nm { font: 600 13px/1.25 system-ui, sans-serif; }
+
+/* ------------------------------------------------------- product cards */
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+.pcard {
+  border: 1px solid var(--line); border-radius: var(--r-card); background: #fff;
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.pcard:hover { box-shadow: 0 3px 12px rgba(23,37,30,.10); }
+.pcard .thumb {
+  aspect-ratio: 1 / 1; background: var(--green-50);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 54px; text-decoration: none; position: relative;
+  overflow: hidden;
+}
+/* Real product photo fills the square thumb; emoji fallback stays centered.
+   Absolute positioning takes the image out of the flex flow so a large upload
+   is clipped to the 1:1 box instead of stretching the whole card. */
+.pcard .thumb img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
+.pcard .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.pcard .name {
+  font: 600 15px/1.35 system-ui, sans-serif; color: var(--ink-900);
+  text-decoration: none; display: block;
+}
+.pcard .name:hover { color: var(--action); }
+.pcard .price { font: 700 18px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.pcard .unit { font: 400 13px/1 system-ui, sans-serif; color: var(--ink-400); }
+/* .cta marks whichever element is the card's call-to-action (form, link,
+   or disabled button) so it always docks to the bottom, keeping buttons
+   aligned across a row even when product names wrap to two lines. */
+.pcard .cta { margin-top: auto; }
+.pcard .btn { width: 100%; }
+
+/* Honest stock signals — never hide a shortage. */
+.stock-ok   { font: 600 13px/1.4 system-ui, sans-serif; color: var(--ok-fg); }
+.stock-low  { font: 600 13px/1.4 system-ui, sans-serif; color: var(--warn-fg); }
+.stock-out  { font: 600 13px/1.4 system-ui, sans-serif; color: var(--danger-fg); }
+
+/* ------------------------------------------------------------ cart page */
+.cart-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+.cart-row {
+  display: grid; grid-template-columns: 72px 1fr auto; gap: 14px; align-items: center;
+  padding: 16px 0; border-bottom: 1px solid var(--line-soft);
+}
+.cart-row:last-child { border-bottom: 0; }
+.cart-thumb {
+  width: 72px; height: 72px; border-radius: var(--r-input); background: var(--green-50);
+  display: flex; align-items: center; justify-content: center; font-size: 32px;
+}
+.qty-stepper { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
+.qty-stepper form { margin: 0; }
+.qty-btn {
+  width: 30px; height: 30px; border: 1px solid var(--line); border-radius: var(--r-input);
+  background: #fff; color: var(--ink-900); font-size: 18px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.qty-btn:hover:not(:disabled) { background: var(--green-50); border-color: var(--action); }
+.qty-btn:disabled { opacity: .4; cursor: not-allowed; }
+.qty-value { min-width: 32px; text-align: center; font-weight: 600; font-size: 15px; }
+.cart-line-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.cart-line-right form { margin: 0; }
+.cart-remove {
+  border: 0; background: none; padding: 4px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-400, #9ca3af); transition: color .15s ease;
+}
+.cart-remove:hover { color: var(--danger, #dc2626); }
+
+/* .meter (free-delivery bar) now lives in gerlyn.css — shared with the dashboard. */
+
+.summary-line { display: flex; justify-content: space-between; padding: 8px 0; font-size: 15px; }
+.summary-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-top: 14px; margin-top: 8px; border-top: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------------- footer */
+.shop-footer {
+  border-top: 1px solid var(--line); margin-top: 48px; padding: 28px 0;
+  text-align: center; color: var(--ink-600); font-size: 14px;
+}
+
+/* ----------------------------------------------------------- responsive */
+@media (max-width: 900px) {
+  .cart-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .shop-wrap { padding: 0 16px; }
+  .shop-nav { flex-wrap: wrap; gap: 12px; padding: 12px 16px; }
+  .shop-search { order: 3; flex-basis: 100%; }
+  .shop-links { order: 2; margin-left: auto; }
+  .hero { padding: 40px 0; }
+  .hero h1 { font-size: 30px; white-space: normal; }
+  .hero p { white-space: normal; }
+  .props { margin-top: 24px; }
+  .pgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+
+  /* Sticky checkout bar — the running total is always visible. */
+  .sticky-checkout {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+    background: #fff; border-top: 1px solid var(--line);
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 -2px 10px rgba(23,37,30,.08);
+  }
+  .sticky-checkout .btn { flex: 1; }
+  .shop-main.has-sticky { padding-bottom: 88px; }
+}
+@media (min-width: 761px) {
+  .sticky-checkout { display: none; }
+}
+
+/* ---------------------------------------------------------------- toasts */
+/* Rendered from Django messages in public_base.html; animated by toast.js.
+   Fixed top-right, stacked newest-first, auto-dismissing. */
+.toast-stack {
+  position: fixed; top: 16px; right: 16px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 10px;
+  width: calc(100vw - 32px); max-width: 360px;
+  pointer-events: none;               /* clicks pass through the gaps */
+}
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px;
+  background: #fff; color: var(--ink-900);
+  border: 1px solid var(--line); border-left: 4px solid var(--action);
+  border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+  transform: translateX(120%); opacity: 0;
+  transition: transform .35s cubic-bezier(.2,.8,.25,1), opacity .35s ease;
+}
+.toast.is-visible { transform: translateX(0); opacity: 1; }
+.toast.is-leaving { transform: translateX(120%); opacity: 0; }
+
+.toast-dot {
+  flex: none; width: 9px; height: 9px; margin-top: 5px;
+  border-radius: 50%; background: var(--action);
+}
+.toast-body { flex: 1; min-width: 0; }
+.toast-msg { margin: 0; font-size: 14px; line-height: 1.4; }
+.toast-undo {
+  margin-top: 6px; padding: 2px 4px;
+  background: none; border: none; cursor: pointer;
+  font: 700 13px/1 system-ui, sans-serif; color: var(--action);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.toast-undo:hover { color: var(--action-700); }
+.toast-close {
+  flex: none; background: none; border: none; cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 0 2px; color: var(--ink-400);
+}
+.toast-close:hover { color: var(--ink-700); }
+
+/* Accent bar + dot recoloured per message level. */
+.toast-success { border-left-color: var(--ok-dot); }
+.toast-success .toast-dot { background: var(--ok-dot); }
+.toast-error   { border-left-color: var(--danger-dot); }
+.toast-error   .toast-dot { background: var(--danger-dot); }
+.toast-warning { border-left-color: var(--warn-dot); }
+.toast-warning .toast-dot { background: var(--warn-dot); }
+.toast-info    { border-left-color: var(--info-dot); }
+.toast-info    .toast-dot { background: var(--info-dot); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { transition: opacity .2s ease; transform: none; }
+  .toast.is-leaving { transform: none; }
+}
