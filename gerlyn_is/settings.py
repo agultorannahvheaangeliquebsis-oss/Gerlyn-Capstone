@@ -150,6 +150,13 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '3306'),
+        # Reuse the MySQL connection across requests instead of paying a full
+        # TCP+auth handshake on every single page load (the main cause of
+        # per-page slowness on Railway). Django verifies the connection is
+        # still alive before reusing it, so a dropped connection can't cause
+        # silent failures.
+        'CONN_MAX_AGE': 60,
+        'CONN_HEALTH_CHECKS': True,
     }
 }
 
