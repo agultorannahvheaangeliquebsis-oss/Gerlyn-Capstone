@@ -331,6 +331,27 @@ def _procurement_status_chart(status_counts):
     return {'total': total, 'segments': segments, 'gradient': ', '.join(stops)}
 
 
+def _billing_payment_breakdown(completed_records, total_revenue):
+    """Revenue-by-payment-method rows for the Billing Report (completed orders only)."""
+    by_method = {}
+    for r in completed_records:
+        row = by_method.setdefault(r.payment_method, {'count': 0, 'total': 0})
+        row['count'] += 1
+        row['total'] += r.amount_due
+
+    rows = [
+        {
+            'method': method,
+            'count': row['count'],
+            'total': row['total'],
+            'pct': round((float(row['total']) / float(total_revenue)) * 100, 1) if total_revenue else 0,
+        }
+        for method, row in by_method.items()
+    ]
+    rows.sort(key=lambda r: -r['total'])
+    return rows
+
+
 def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales):
     """
     Per-branch sales status for the Dashboard's "at a glance" row.
@@ -487,25 +508,68 @@ def billing_report(request):
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 
-    records = BillingRecord.objects.select_related('transaction', 'transaction__branch')
     user_branch = get_user_branch(request.user)
-    if user_branch:
-        records = records.filter(transaction__branch=user_branch)
+    branch_ids = branch_ids_for_user(request.user)
+    show_branch_filter = branch_ids is None  # Owner only
 
-    records = records.order_by('-date_recorded')
-    outstanding = sum(
-        r.amount_due for r in records
-        if r.status == BillingRecord.PaymentStatus.PENDING
-    )
-    collected = sum(
-        r.amount_due for r in records
-        if r.status == BillingRecord.PaymentStatus.PAID
-    )
+    records_qs = BillingRecord.objects.select_related('transaction', 'transaction__branch')
+    if branch_ids is not None:
+        records_qs = records_qs.filter(transaction__branch_id__in=branch_ids)
+
+    branch_filter = request.GET.get('branch', '')
+    if branch_filter and show_branch_filter:
+        records_qs = records_qs.filter(transaction__branch_id=branch_filter)
+    else:
+        branch_filter = ''
+
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    if date_from:
+        try:
+            records_qs = records_qs.filter(
+                date_recorded__date__gte=datetime.strptime(date_from, '%Y-%m-%d').date()
+            )
+        except ValueError:
+            date_from = ''
+    if date_to:
+        try:
+            records_qs = records_qs.filter(
+                date_recorded__date__lte=datetime.strptime(date_to, '%Y-%m-%d').date()
+            )
+        except ValueError:
+            date_to = ''
+
+    records = list(records_qs.order_by('-date_recorded'))
+
+    pending_records = [r for r in records if r.status == BillingRecord.PaymentStatus.PENDING]
+    outstanding = sum(r.amount_due for r in pending_records)
+    collected_records = [r for r in records if r.status == BillingRecord.PaymentStatus.PAID]
+    collected = sum(r.amount_due for r in collected_records)
+
+    completed_records = [
+        r for r in records
+        if r.transaction and r.transaction.order_status == SalesTransaction.OrderStatus.COMPLETED
+    ]
+    total_revenue = sum(r.amount_due for r in completed_records)
+
+    payment_breakdown = _billing_payment_breakdown(completed_records, total_revenue)
 
     return render(request, 'reports/billing_report.html', {
         'records': records,
-        'outstanding': outstanding,
+        'branches': Branch.objects.all() if show_branch_filter else [],
+        'show_branch_filter': show_branch_filter,
+        'branch_filter': branch_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'completed_count': len(completed_records),
+        'total_revenue': total_revenue,
         'collected': collected,
+        'collected_count': len(collected_records),
+        'outstanding': outstanding,
+        'pending_count': len(pending_records),
+        'payment_breakdown': payment_breakdown,
+        'user_branch': user_branch,
+        'active_page': 'reports',
     })
 
 
