@@ -257,14 +257,26 @@ input::placeholder { color: var(--ink-400); }
 .banner-info    { background: var(--info-bg);   color: var(--info-fg); }
 
 /* ---------------------------------------------------------------- layout */
-.app { min-height: 100vh; }
+.app { min-height: 100vh; --sidebar-w: 272px; }
+.app.sidebar-collapsed { --sidebar-w: 80px; }
 .sidebar {
-  position: fixed; inset: 0 auto 0 0; width: 248px;
+  position: fixed; inset: 0 auto 0 0; width: var(--sidebar-w);
   background: var(--surface); border-right: 1px solid var(--line);
   display: flex; flex-direction: column; padding: var(--s4) var(--s3);
-  overflow-y: auto;
+  overflow-y: auto; overflow-x: hidden;
+  transition: width .18s ease;
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px var(--s4); }
+.sidebar-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s2); }
+.sidebar-toggle {
+  flex: none; width: 30px; height: 30px; margin-top: 4px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: var(--r-input);
+  background: var(--surface); color: var(--ink-600); cursor: pointer;
+}
+.sidebar-toggle:hover { background: var(--line-soft); color: var(--ink-900); }
+.sidebar-toggle svg { width: 16px; height: 16px; transition: transform .18s ease; }
+.app.sidebar-collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px var(--s4); min-width: 0; }
 .brand-mark {
   width: 36px; height: 36px; border-radius: 10px; flex: none;
   background: var(--brand); color: #fff;
@@ -357,7 +369,25 @@ input::placeholder { color: var(--ink-400); }
 .nav-sub .nav-link.active { font-weight: 600; }
 .nav-group:has(.nav-link.active) > .nav-sub { border-left-color: var(--green-300); }
 
-.main { margin-left: 248px; min-height: 100vh; }
+/* ------------------------------------------------------- collapsed sidebar
+   Icon-only rail. A module's sub-items have nowhere to go at this width, so
+   they stay hidden — clicking a module's icon expands the sidebar back out
+   instead of showing a flyout (see internal_base.html). */
+.app.sidebar-collapsed .sidebar-top { flex-direction: column; align-items: center; gap: var(--s2); }
+.app.sidebar-collapsed .brand { padding: 4px 0; }
+.app.sidebar-collapsed .brand-name,
+.app.sidebar-collapsed .brand-sub,
+.app.sidebar-collapsed .who-name,
+.app.sidebar-collapsed .who-role,
+.app.sidebar-collapsed .nav-label,
+.app.sidebar-collapsed .nav-chevron,
+.app.sidebar-collapsed .nav-badge-head { display: none; }
+.app.sidebar-collapsed .who { justify-content: center; padding: 10px 6px; }
+.app.sidebar-collapsed .nav-link,
+.app.sidebar-collapsed .nav-group-head { justify-content: center; padding: 0; }
+.app.sidebar-collapsed .nav-sub { display: none; }
+
+.main { margin-left: var(--sidebar-w); min-height: 100vh; transition: margin-left .18s ease; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
   padding: var(--s3) var(--s8);
