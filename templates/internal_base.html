@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
-  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=9">
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=10">
   {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -151,7 +151,23 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
           {% block branch_scope %}All Branches{% endblock %}
         </span>
+        {% if request.user.role == 'OWNER' %}
+        {# On mobile the sidebar (which holds Administration) is hidden, so the
+           header avatar doubles as the entry point to it there. Desktop keeps
+           using the sidebar; the panel below only renders open at <=860px
+           (see .avatar-menu-panel in gerlyn.css). #}
+        <details class="avatar-menu">
+          <summary class="avatar-menu-trigger" aria-label="Administration menu" title="Administration">
+            <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+          </summary>
+          <div class="avatar-menu-panel">
+            <a class="avatar-menu-link" href="{% url 'branch_list' %}">Branch Management</a>
+            <a class="avatar-menu-link" href="{% url 'user_list' %}">User Management</a>
+          </div>
+        </details>
+        {% else %}
         <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+        {% endif %}
       </div>
     </header>
 
@@ -254,6 +270,15 @@
   function persistCollapsed() {
     try { localStorage.setItem(COLLAPSE_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0'); } catch (e) {}
   }
+
+  /* Header avatar menu (mobile Administration entry point): close it when
+     the user taps/clicks anywhere outside, since <details> only closes
+     natively on re-toggle. */
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('.avatar-menu[open]').forEach(function (d) {
+      if (!d.contains(e.target)) d.open = false;
+    });
+  });
 })();
 </script>
 {% block extra_js %}{% endblock %}

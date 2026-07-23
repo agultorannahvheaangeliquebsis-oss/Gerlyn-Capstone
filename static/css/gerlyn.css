@@ -403,6 +403,15 @@ input::placeholder { color: var(--ink-400); }
   border: 1px solid var(--green-300);
   font: 600 13.5px/1 system-ui, sans-serif;
 }
+/* Header avatar menu: on desktop this is just the avatar (Administration
+   already lives in the sidebar there). At <=860px the sidebar is hidden, so
+   the trigger becomes clickable and the panel is allowed to render — see
+   the @media block below. */
+.avatar-menu { position: relative; }
+.avatar-menu-trigger { display: flex; list-style: none; cursor: default; }
+.avatar-menu-trigger::-webkit-details-marker { display: none; }
+.avatar-menu-panel { display: none; }
+
 .content { padding: var(--s6) var(--s8) var(--s12); }
 .page-head {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -439,6 +448,22 @@ input::placeholder { color: var(--ink-400); }
     position: absolute; top: 2px; right: 22%; margin: 0;
     min-width: 16px; height: 16px; font: 700 10px/16px system-ui, sans-serif;
   }
+
+  .avatar-menu-trigger { cursor: pointer; }
+  .avatar-menu-panel {
+    flex-direction: column; gap: 2px;
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+    min-width: 210px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-card); box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  }
+  .avatar-menu[open] .avatar-menu-panel { display: flex; }
+  .avatar-menu-link {
+    display: flex; align-items: center; min-height: 40px; padding: 0 12px;
+    border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
+    font: 600 13.5px/1 system-ui, sans-serif;
+  }
+  .avatar-menu-link:hover { background: var(--line-soft); color: var(--ink-900); }
 
   /* Tables -> stacked cards. Each td carries its header in data-label. */
   .gv-table thead { display: none; }
