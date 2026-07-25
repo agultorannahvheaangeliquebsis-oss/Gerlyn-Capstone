@@ -36,13 +36,13 @@ def logout_view(request):
 
 def redirect_by_role(user):
     role_redirects = {
-        User.Role.OWNER: 'owner_dashboard',
-        User.Role.BRANCH_MANAGER: 'manager_dashboard',
-        User.Role.STAFF: 'staff_dashboard',
-        User.Role.SUPPLIER: 'supplier_dashboard',
-        User.Role.CUSTOMER: 'customer_dashboard',
+        User.Role.OWNER: 'accounts:owner_dashboard',
+        User.Role.BRANCH_MANAGER: 'accounts:manager_dashboard',
+        User.Role.STAFF: 'accounts:staff_dashboard',
+        User.Role.SUPPLIER: 'accounts:supplier_dashboard',
+        User.Role.CUSTOMER: 'accounts:customer_dashboard',
     }
-    return redirect(role_redirects.get(user.role, 'login'))
+    return redirect(role_redirects.get(user.role, 'accounts:login'))
 
 
 @login_required(login_url='login')
@@ -184,7 +184,7 @@ def _profile_for(user):
 def user_list(request):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
-        return redirect('home')
+        redirect('accounts:home')
 
     users = User.objects.exclude(role=User.Role.CUSTOMER).select_related(
         'manager_profile__branch', 'staff_profile__branch', 'owner_profile',
@@ -242,7 +242,7 @@ def user_form(request, pk=None):
 
         if target is None and User.objects.filter(username=username).exists():
             messages.error(request, f'Username "{username}" is already taken.')
-            return redirect('user_add')
+            redirect('accounts:user_add')
 
         if target is None:
             if not password:
@@ -281,7 +281,7 @@ def user_form(request, pk=None):
             profile.save()
 
         messages.success(request, f'User "{username}" saved.')
-        return redirect('user_list')
+        redirect('accounts:user_list')
 
     profile = _profile_for(target) if target else None
     return render(request, 'accounts/user_form.html', {
@@ -501,7 +501,7 @@ def update_profile(request):
 
     user.save()
     messages.success(request, "Profile updated.")
-    return redirect('profile')
+    return redirect('accounts:profile')
 
 
 @login_required(login_url='login')
@@ -512,13 +512,13 @@ def update_avatar(request):
 
     if not file:
         messages.error(request, "No file was uploaded.")
-        return redirect('profile')
+        return redirect('accounts:update_profile')
 
     try:
         _validate_avatar(file)
     except ValidationError as e:
         messages.error(request, e.message)
-        return redirect('profile')
+        return redirect('accounts:update_profile')
 
     # Delete old file from disk before saving new one
     if user.avatar:
@@ -527,7 +527,7 @@ def update_avatar(request):
     user.avatar = file
     user.save(update_fields=['avatar'])
     messages.success(request, "Profile picture updated.")
-    return redirect('profile')
+    return redirect('accounts:profile')
 
 
 @login_required(login_url='login')
@@ -544,11 +544,11 @@ def verify_email(request, token):
         )
     except VerificationToken.DoesNotExist:
         messages.error(request, "Invalid verification link.")
-        return redirect('login')
+        redirect('accounts:login')
 
     if not token_obj.is_valid:
         messages.error(request, "This link has expired. Request a new one below.")
-        return redirect('resend_verification')
+        return redirect('accounts:profile')
 
     token_obj.consume()
     user = token_obj.user
@@ -567,25 +567,25 @@ def verify_email_change(request, token):
         )
     except VerificationToken.DoesNotExist:
         messages.error(request, "Invalid verification link.")
-        return redirect('profile')
+        return redirect('accounts:profile')
 
     if not token_obj.is_valid:
         messages.error(request, "This link has expired. Please update your email again.")
-        return redirect('profile')
+        return redirect('accounts:profile')
 
     token_obj.consume()
     user = token_obj.user
 
     if not user.pending_email:
         messages.error(request, "No pending email change found.")
-        return redirect('profile')
+        return redirect('accounts:profile')
 
     user.email         = user.pending_email
     user.pending_email = None
     user.save(update_fields=['email', 'pending_email'])
 
     messages.success(request, f"Email updated to {user.email}.")
-    return redirect('profile')
+    return redirect('accounts:profile')
 
 
 @login_required(login_url='login')
@@ -593,10 +593,10 @@ def resend_verification(request):
     user = request.user
     if user.is_email_verified:
         messages.info(request, "Your email is already verified.")
-        return redirect('profile')
+        return redirect('accounts:profile')
     try:
         send_verification_email(user, request)
         messages.success(request, "Verification email resent. Check your inbox.")
     except Exception:
         messages.error(request, "Failed to send email. Please try again later.")
-    return redirect('verify_pending')
+    return redirect('accounts:profile')
