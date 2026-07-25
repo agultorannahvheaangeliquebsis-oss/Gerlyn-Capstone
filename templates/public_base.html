@@ -24,10 +24,10 @@
       {% else %}
         {# no account = no orders to track, so send them to log in #}
         <a href="{% url 'login' %}?next={% url 'orders:my_orders' %}">Track Order</a>
-        <%{% comment "" %}
+        {% comment "" %}
         <a href="{% url 'login' %}">Log in</a>
         <a href="{% url 'register' %}"><strong>Register</strong></a>
-        {% endcomment %}%>
+        {% endcomment %}
       {% endif %}
     </span>
   </div>
@@ -85,11 +85,13 @@
                     </span>
                 </li>
                 <li><hr class="dropdown-divider my-1"></li>
+                {% comment "" %}
                 <li>
                     <a class="dropdown-item" href="{% url 'accounts:profile' %}">
                         <i class="fa-solid fa-user fa-sm me-2"></i> My Profile
                     </a>
                 </li>
+                {% endcomment %}
                 <li>
                     <a class="dropdown-item text-danger" href="{% url 'logout' %}">
                         <i class="fa-solid fa-right-from-bracket fa-sm me-2"></i> Sign out
