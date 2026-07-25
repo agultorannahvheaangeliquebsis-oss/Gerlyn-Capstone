@@ -142,6 +142,7 @@ WSGI_APPLICATION = 'gerlyn_is.wsgi.application'
 
 # Database
 
+#Enable/Disable: Run the system in railway (uses MySQL database of railway)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
@@ -159,6 +160,18 @@ DATABASES = {
         'CONN_HEALTH_CHECKS': True,
     }
 }
+
+#Enable/Disable: Locally run the system (uses local database)
+#DATABASES = {
+#    'default': {
+#        'ENGINE': 'django.db.backends.mysql',
+#        'NAME': 'gerlyn_db',
+#        'USER': 'root',
+#        'PASSWORD': 'Freakinnerd02-',
+#        'HOST': 'localhost',
+#        'PORT': '3306',
+#    }
+#}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
