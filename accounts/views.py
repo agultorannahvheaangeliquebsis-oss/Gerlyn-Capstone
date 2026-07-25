@@ -501,7 +501,7 @@ def update_profile(request):
 
     user.save()
     messages.success(request, "Profile updated.")
-    return redirect('accounts:profile')
+    return redirect('profile')
 
 
 @login_required(login_url='login')
@@ -512,13 +512,13 @@ def update_avatar(request):
 
     if not file:
         messages.error(request, "No file was uploaded.")
-        return redirect('accounts:profile')
+        return redirect('profile')
 
     try:
         _validate_avatar(file)
     except ValidationError as e:
         messages.error(request, e.message)
-        return redirect('accounts:profile')
+        return redirect('profile')
 
     # Delete old file from disk before saving new one
     if user.avatar:
@@ -527,7 +527,7 @@ def update_avatar(request):
     user.avatar = file
     user.save(update_fields=['avatar'])
     messages.success(request, "Profile picture updated.")
-    return redirect('accounts:profile')
+    return redirect('profile')
 
 
 @login_required(login_url='login')
@@ -548,7 +548,7 @@ def verify_email(request, token):
 
     if not token_obj.is_valid:
         messages.error(request, "This link has expired. Request a new one below.")
-        return redirect('accounts:resend_verification')
+        return redirect('resend_verification')
 
     token_obj.consume()
     user = token_obj.user
@@ -567,25 +567,25 @@ def verify_email_change(request, token):
         )
     except VerificationToken.DoesNotExist:
         messages.error(request, "Invalid verification link.")
-        return redirect('accounts:profile')
+        return redirect('profile')
 
     if not token_obj.is_valid:
         messages.error(request, "This link has expired. Please update your email again.")
-        return redirect('accounts:profile')
+        return redirect('profile')
 
     token_obj.consume()
     user = token_obj.user
 
     if not user.pending_email:
         messages.error(request, "No pending email change found.")
-        return redirect('accounts:profile')
+        return redirect('profile')
 
     user.email         = user.pending_email
     user.pending_email = None
     user.save(update_fields=['email', 'pending_email'])
 
     messages.success(request, f"Email updated to {user.email}.")
-    return redirect('accounts:profile')
+    return redirect('profile')
 
 
 @login_required(login_url='login')
@@ -593,10 +593,10 @@ def resend_verification(request):
     user = request.user
     if user.is_email_verified:
         messages.info(request, "Your email is already verified.")
-        return redirect('accounts:profile')
+        return redirect('profile')
     try:
         send_verification_email(user, request)
         messages.success(request, "Verification email resent. Check your inbox.")
     except Exception:
         messages.error(request, "Failed to send email. Please try again later.")
-    return redirect('accounts:verify_pending')
+    return redirect('verify_pending')

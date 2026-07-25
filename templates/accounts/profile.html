@@ -363,7 +363,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   <nav class="breadcrumb" aria-label="breadcrumb">
     <a href="/">Home</a>
     <span class="sep">›</span>
-    <a href="{% url 'accounts:profile' %}">Account</a>
+    <a href="{% url 'profile' %}">Account</a>
     <span class="sep">›</span>
     <span class="current">Profile</span>
   </nav>
@@ -375,7 +375,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 
     <!-- ── Left sidebar ── -->
     <aside class="account-sidebar">
-      <a href="{% url 'accounts:profile' %}" class="account-nav-link active">
+      <a href="{% url 'profile' %}" class="account-nav-link active">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
         Profile
       </a>
@@ -410,7 +410,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           Your email address is not verified. Some features may be limited.
         </span>
-        <a href="{% url 'accounts:resend_verification' %}" class="btn btn-sm" style="white-space:nowrap;">Resend link</a>
+        <a href="{% url 'resend_verification' %}" class="btn btn-sm" style="white-space:nowrap;">Resend link</a>
       </div>
       {% endif %}
 
@@ -426,7 +426,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
       <div class="account-card" style="border-radius: var(--r-card);">
 
         <!-- Avatar upload form (hidden input, triggered by pencil button) -->
-        <form method="post" action="{% url 'accounts:update_avatar' %}" enctype="multipart/form-data" id="avatar-form">
+        <form method="post" action="{% url 'update_avatar' %}" enctype="multipart/form-data" id="avatar-form">
           {% csrf_token %}
           <input type="file" name="avatar" id="avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none;">
         </form>
@@ -570,7 +570,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 
         <!-- Edit form (toggle) -->
         <div class="edit-form {% if errors %}is-open{% endif %}" id="edit-form">
-          <form method="post" action="{% url 'accounts:update_profile' %}">
+          <form method="post" action="{% url 'update_profile' %}">
             {% csrf_token %}
             <div class="edit-grid">
               <div class="field">

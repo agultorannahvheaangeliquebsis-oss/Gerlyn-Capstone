@@ -22,7 +22,7 @@ def send_verification_email(user, request):
     token = VerificationToken.objects.create(
         user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY
     )
-    url = _build_url(request, 'accounts:verify_email', token)
+    url = _build_url(request, 'verify_email', token)
 
     send_mail(
         subject="Verify your Gerlyn Variety Store email",
@@ -55,7 +55,7 @@ def send_email_change_verification(user, new_email, request):
     token = VerificationToken.objects.create(
         user=user, purpose=VerificationToken.PURPOSE_EMAIL_CHANGE
     )
-    url = _build_url(request, 'accounts:verify_email_change', token)
+    url = _build_url(request, 'verify_email_change', token)
 
     send_mail(
         subject="Confirm your new email — Gerlyn Variety Store",
