@@ -24,8 +24,10 @@
       {% else %}
         {# no account = no orders to track, so send them to log in #}
         <a href="{% url 'login' %}?next={% url 'orders:my_orders' %}">Track Order</a>
+        <%{% comment "" %}
         <a href="{% url 'login' %}">Log in</a>
         <a href="{% url 'register' %}"><strong>Register</strong></a>
+        {% endcomment %}%>
       {% endif %}
     </span>
   </div>
@@ -66,10 +68,38 @@
         {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
       </a>
       {% if request.user.is_authenticated %}
-        <a class="btn" href="{% url 'logout' %}">Sign out</a>
-      {% else %}
+        <div class="dropdown">
+            <button 
+                class="btn rounded-circle d-flex align-items-center justify-content-center fw-bold text-white"
+                style="width: 38px; height: 38px; background-color: var(--gerlyn-green); border: none;"
+                type="button" 
+                data-bs-toggle="dropdown" 
+                aria-expanded="false"
+            >
+                {{ request.user.get_full_name|first|upper|default:request.user.username|first|upper }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-1">
+                <li>
+                    <span class="dropdown-item-text small text-muted px-3">
+                        {{ request.user.get_full_name|default:request.user.username }}
+                    </span>
+                </li>
+                <li><hr class="dropdown-divider my-1"></li>
+                <li>
+                    <a class="dropdown-item" href="{% url 'accounts:profile' %}">
+                        <i class="fa-solid fa-user fa-sm me-2"></i> My Profile
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item text-danger" href="{% url 'logout' %}">
+                        <i class="fa-solid fa-right-from-bracket fa-sm me-2"></i> Sign out
+                    </a>
+                </li>
+            </ul>
+        </div>
+    {% else %}
         <a class="btn" href="{% url 'login' %}">Log in</a>
-      {% endif %}
+    {% endif %}
     </div>
   </div>
 </header>
