@@ -4,6 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
+    CustomerProfile, SupplierProfile,
 )
 
 
@@ -370,3 +371,232 @@ def register_view(request):
         return redirect('customer_dashboard')
 
     return render(request, 'accounts/register.html')
+
+# ============================================================
+# PROFILE SYSTEM — add to bottom of accounts/views.py
+# ============================================================
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.views.decorators.http import require_POST
+from .models import VerificationToken
+from .services import send_verification_email, send_email_change_verification
+
+
+def _validate_avatar(file):
+    """Validates file size and real image type using Pillow."""
+    from PIL import Image
+    max_bytes = settings.AVATAR_MAX_MB * 1024 * 1024
+    if file.size > max_bytes:
+        raise ValidationError(f"Image must be under {settings.AVATAR_MAX_MB} MB.")
+    try:
+        file.seek(0)
+        img = Image.open(file)
+        img.verify()          # Confirms it is a real image, not a renamed file
+        file.seek(0)
+        if img.format.lower() not in ('jpeg', 'png', 'webp'):
+            raise ValidationError("Only JPEG, PNG, and WEBP images are allowed.")
+    except ValidationError:
+        raise
+    except Exception:
+        raise ValidationError("The uploaded file is not a valid image.")
+    finally:
+        file.seek(0)
+
+
+def _profile_context(user):
+    """Builds the context dict the profile template expects."""
+    role_profile = user.get_role_profile()
+    contact_number = getattr(role_profile, 'contact_number', '')
+
+    return {
+        'username'          : user.username,
+        'first_name'        : user.first_name,
+        'last_name'         : user.last_name,
+        'full_name'         : user.get_full_name(),
+        'initials'          : user.get_initials(),
+        'email'             : user.email,
+        'is_email_verified' : user.is_email_verified,
+        'pending_email'     : user.pending_email,
+        'avatar_url'        : user.avatar.url if user.avatar else None,
+        'contact_number'    : contact_number,
+        'role'              : user.get_role_display(),
+    }
+
+
+@login_required(login_url='login')
+def profile_view(request):
+    return render(request, 'accounts/profile.html', _profile_context(request.user))
+
+
+@login_required(login_url='login')
+@require_POST
+def update_profile(request):
+    user   = request.user
+    errors = {}
+
+    new_username   = request.POST.get('username', '').strip()
+    new_first_name = request.POST.get('first_name', '').strip()
+    new_last_name  = request.POST.get('last_name', '').strip()
+    new_email      = request.POST.get('email', '').strip().lower()
+    new_phone      = request.POST.get('contact_number', '').strip()
+
+    # --- Username uniqueness (exclude self) ---
+    if new_username and new_username != user.username:
+        if User.objects.filter(username__iexact=new_username).exclude(pk=user.pk).exists():
+            errors['username'] = "That username is already taken."
+        else:
+            user.username = new_username
+
+    # --- Email change flow ---
+    if new_email and new_email != user.email:
+        email_taken = (
+            User.objects.filter(email=new_email).exclude(pk=user.pk).exists()
+            or User.objects.filter(pending_email=new_email).exclude(pk=user.pk).exists()
+        )
+        if email_taken:
+            errors['email'] = "That email is already associated with another account."
+        else:
+            try:
+                send_email_change_verification(user, new_email, request)
+                messages.info(
+                    request,
+                    f"A verification link has been sent to {new_email}. "
+                    f"Your email won't change until you click it."
+                )
+            except Exception:
+                errors['email'] = "Failed to send verification email. Please try again."
+
+    # --- Name fields (no uniqueness constraint) ---
+    if new_first_name:
+        user.first_name = new_first_name
+    if new_last_name:
+        user.last_name = new_last_name
+
+    # --- Contact number (update on role profile) ---
+    if new_phone:
+        role_profile = user.get_role_profile()
+        if role_profile and hasattr(role_profile, 'contact_number'):
+            # Check uniqueness across all profile tables
+            phone_taken = any([
+                BranchManagerProfile.objects.filter(contact_number=new_phone)
+                    .exclude(user=user).exists(),
+                StaffProfile.objects.filter(contact_number=new_phone)
+                    .exclude(user=user).exists(),
+                CustomerProfile.objects.filter(contact_number=new_phone)
+                    .exclude(user=user).exists(),
+                OwnerProfile.objects.filter(contact_number=new_phone)
+                    .exclude(user=user).exists(),
+                SupplierProfile.objects.filter(contact_number=new_phone)
+                    .exclude(user=user).exists(),
+            ])
+            if phone_taken:
+                errors['contact_number'] = "That contact number is already in use."
+            else:
+                role_profile.contact_number = new_phone
+                role_profile.save(update_fields=['contact_number'])
+
+    if errors:
+        context = {**_profile_context(user), 'errors': errors}
+        return render(request, 'accounts/profile.html', context)
+
+    user.save()
+    messages.success(request, "Profile updated.")
+    return redirect('accounts:profile')
+
+
+@login_required(login_url='login')
+@require_POST
+def update_avatar(request):
+    user = request.user
+    file = request.FILES.get('avatar')
+
+    if not file:
+        messages.error(request, "No file was uploaded.")
+        return redirect('accounts:profile')
+
+    try:
+        _validate_avatar(file)
+    except ValidationError as e:
+        messages.error(request, e.message)
+        return redirect('accounts:profile')
+
+    # Delete old file from disk before saving new one
+    if user.avatar:
+        user.avatar.delete(save=False)
+
+    user.avatar = file
+    user.save(update_fields=['avatar'])
+    messages.success(request, "Profile picture updated.")
+    return redirect('accounts:profile')
+
+
+@login_required(login_url='login')
+def verify_pending(request):
+    """Page shown after registration asking user to check their email."""
+    return render(request, 'accounts/verify_pending.html')
+
+
+def verify_email(request, token):
+    """Handles the initial registration verification link."""
+    try:
+        token_obj = VerificationToken.objects.select_related('user').get(
+            token=token, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY
+        )
+    except VerificationToken.DoesNotExist:
+        messages.error(request, "Invalid verification link.")
+        return redirect('login')
+
+    if not token_obj.is_valid:
+        messages.error(request, "This link has expired. Request a new one below.")
+        return redirect('accounts:resend_verification')
+
+    token_obj.consume()
+    user = token_obj.user
+    user.is_email_verified = True
+    user.save(update_fields=['is_email_verified'])
+
+    messages.success(request, "Email verified! You can now log in.")
+    return redirect('login')
+
+
+def verify_email_change(request, token):
+    """Handles the email-change verification link. Moves pending_email → email."""
+    try:
+        token_obj = VerificationToken.objects.select_related('user').get(
+            token=token, purpose=VerificationToken.PURPOSE_EMAIL_CHANGE
+        )
+    except VerificationToken.DoesNotExist:
+        messages.error(request, "Invalid verification link.")
+        return redirect('accounts:profile')
+
+    if not token_obj.is_valid:
+        messages.error(request, "This link has expired. Please update your email again.")
+        return redirect('accounts:profile')
+
+    token_obj.consume()
+    user = token_obj.user
+
+    if not user.pending_email:
+        messages.error(request, "No pending email change found.")
+        return redirect('accounts:profile')
+
+    user.email         = user.pending_email
+    user.pending_email = None
+    user.save(update_fields=['email', 'pending_email'])
+
+    messages.success(request, f"Email updated to {user.email}.")
+    return redirect('accounts:profile')
+
+
+@login_required(login_url='login')
+def resend_verification(request):
+    user = request.user
+    if user.is_email_verified:
+        messages.info(request, "Your email is already verified.")
+        return redirect('accounts:profile')
+    try:
+        send_verification_email(user, request)
+        messages.success(request, "Verification email resent. Check your inbox.")
+    except Exception:
+        messages.error(request, "Failed to send email. Please try again later.")
+    return redirect('accounts:verify_pending')

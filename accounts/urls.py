@@ -20,5 +20,16 @@ urlpatterns = [
     path('manage/users/add/', views.user_form, name='user_add'),
     path('manage/users/<int:pk>/edit/', views.user_form, name='user_edit'),
     path('manage/users/<int:pk>/toggle/', views.user_toggle_active, name='user_toggle_active'),
+
+    # --- New: Profile ---
+    path('profile/', views.profile_view, name='profile'),
+    path('profile/update/', views.update_profile, name='update_profile'),
+    path('profile/update-avatar/', views.update_avatar, name='update_avatar'),
+
+    # --- New: Email verification ---
+    path('verify-email/pending/', views.verify_pending, name='verify_pending'),
+    path('verify-email/resend/', views.resend_verification, name='resend_verification'),
+    path('verify-email/<uuid:token>/', views.verify_email, name='verify_email'),
+    path('verify-email-change/<uuid:token>/', views.verify_email_change, name='verify_email_change'),
 ]
 
