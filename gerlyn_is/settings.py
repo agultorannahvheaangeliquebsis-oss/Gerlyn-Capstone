@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -33,6 +35,19 @@ def env_bool(name, default=False):
 
 def env_list(name, default=''):
     return [v.strip() for v in os.environ.get(name, default).split(',') if v.strip()]
+
+
+def _require_env(name):
+    value = os.environ.get(name)
+    if not value:
+        raise ImproperlyConfigured(
+            f"Required environment variable {name!r} is not set. "
+            "Locally: copy .env.example to .env and fill it in. "
+            "On Railway: set it under the web service's Variables tab "
+            "(DB_HOST/DB_NAME/DB_USER/DB_PASSWORD should reference the "
+            "MySQL plugin, e.g. DB_HOST=${{MySQL.MYSQLHOST}})."
+        )
+    return value
 
 
 # SECURITY: never commit a real key. Falls back to the old dev key so the
@@ -141,15 +156,19 @@ WSGI_APPLICATION = 'gerlyn_is.wsgi.application'
 
 
 # Database
-
-#Enable/Disable: Run the system in railway (uses MySQL database of railway)
+#
+# NAME/USER/PASSWORD/HOST are required — there is no safe default to fall
+# back to (a missing DB_HOST silently connecting to "localhost" is exactly
+# what caused a confusing ConnectionRefusedError in production instead of a
+# clear startup error). Locally these come from .env; on Railway they must
+# be set on the web service's Variables tab, referencing the MySQL plugin.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'gerlyn_db'),
-        'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'NAME': _require_env('DB_NAME'),
+        'USER': _require_env('DB_USER'),
+        'PASSWORD': _require_env('DB_PASSWORD'),
+        'HOST': _require_env('DB_HOST'),
         'PORT': os.environ.get('DB_PORT', '3306'),
         # Reuse the MySQL connection across requests instead of paying a full
         # TCP+auth handshake on every single page load (the main cause of
@@ -160,18 +179,6 @@ DATABASES = {
         'CONN_HEALTH_CHECKS': True,
     }
 }
-
-#Enable/Disable: Locally run the system (uses local database)
-#DATABASES = {
-#    'default': {
-#        'ENGINE': 'django.db.backends.mysql',
-#        'NAME': 'gerlyn_db',
-#        'USER': 'root',
-#        'PASSWORD': 'Freakinnerd02-',
-#        'HOST': 'localhost',
-#        'PORT': '3306',
-#    }
-#}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
