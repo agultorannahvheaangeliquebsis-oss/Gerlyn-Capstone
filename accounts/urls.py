@@ -13,6 +13,10 @@ urlpatterns = [
     path('dashboard/customer/', views.customer_dashboard, name='customer_dashboard'),
     path('dashboard/owner/', views.owner_dashboard, name='owner_dashboard'),
     path('register/', views.register_view, name='register'),
+    path('profile/change-password/', views.change_password, name='change_password'),
+    path('profile/two-factor/toggle/', views.toggle_two_factor, name='toggle_two_factor'),
+    path('profile/change-password/request-email/', views.request_password_change_email, name='request_password_change_email'),
+    path('password-change/confirm/<uuid:token>/', views.confirm_password_change, name='confirm_password_change'),
 
     # Administration — User Management (Owner only).
     # NOTE: not under /admin/ — that prefix belongs to django.contrib.admin,

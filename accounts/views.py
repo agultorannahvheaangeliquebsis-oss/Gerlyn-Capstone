@@ -1,7 +1,8 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, password_validation, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
     CustomerProfile, SupplierProfile,
@@ -45,17 +46,17 @@ def redirect_by_role(user):
     return redirect(role_redirects.get(user.role, 'accounts:login'))
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def owner_dashboard(request):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Access denied.')
-        return redirect('login')
+        return redirect('accounts:login')
 
     from reports.views import operational_dashboard
     return operational_dashboard(request)
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def manager_dashboard(request):
     if request.user.role != User.Role.BRANCH_MANAGER:
         messages.error(request, 'Access denied.')
@@ -65,7 +66,7 @@ def manager_dashboard(request):
     return operational_dashboard(request)
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def staff_dashboard(request):
     """
     Staff's own dashboard — deliberately separate from the Owner/Manager
@@ -128,7 +129,7 @@ def staff_dashboard(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def supplier_dashboard(request):
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
@@ -137,7 +138,7 @@ def supplier_dashboard(request):
     return redirect('supplier_portal')
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def customer_dashboard(request):
     if request.user.role != User.Role.CUSTOMER:
         messages.error(request, 'Access denied.')
@@ -180,7 +181,7 @@ def _profile_for(user):
     )
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def user_list(request):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
@@ -220,7 +221,7 @@ def user_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def user_form(request, pk=None):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
@@ -293,7 +294,7 @@ def user_form(request, pk=None):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def user_toggle_active(request, pk):
     """Deactivate/reactivate an account without deleting its audit history."""
     if request.user.role != User.Role.OWNER:
@@ -339,6 +340,13 @@ def register_view(request):
             messages.error(request, 'Passwords do not match.')
             return render(request, 'accounts/register.html')
 
+        try:
+            password_validation.validate_password(password1)
+        except ValidationError as e:
+            for error in e.messages:
+                messages.error(request, error)
+            return render(request, 'accounts/register.html')
+
         if User.objects.filter(username=username).exists():
             messages.error(request, 'Username already taken.')
             return render(request, 'accounts/register.html')
@@ -368,7 +376,7 @@ def register_view(request):
 
         login(request, user)
         messages.success(request, 'Account created successfully. Welcome!')
-        return redirect('customer_dashboard')
+        return redirect('accounts:customer_dashboard')
 
     return render(request, 'accounts/register.html')
 
@@ -376,10 +384,12 @@ def register_view(request):
 # PROFILE SYSTEM — add to bottom of accounts/views.py
 # ============================================================
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.views.decorators.http import require_POST
 from .models import VerificationToken
-from .services import send_verification_email, send_email_change_verification
+from .services import (
+    send_verification_email, send_email_change_verification,
+    send_password_change_verification,
+)
 
 
 def _validate_avatar(file):
@@ -420,15 +430,16 @@ def _profile_context(user):
         'avatar_url'        : user.avatar.url if user.avatar else None,
         'contact_number'    : contact_number,
         'role'              : user.get_role_display(),
+        'two_factor_enabled': user.two_factor_enabled,
     }
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def profile_view(request):
     return render(request, 'accounts/profile.html', _profile_context(request.user))
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 @require_POST
 def update_profile(request):
     user   = request.user
@@ -504,7 +515,7 @@ def update_profile(request):
     return redirect('accounts:profile')
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 @require_POST
 def update_avatar(request):
     user = request.user
@@ -530,7 +541,7 @@ def update_avatar(request):
     return redirect('accounts:profile')
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def verify_pending(request):
     """Page shown after registration asking user to check their email."""
     return render(request, 'accounts/verify_pending.html')
@@ -556,7 +567,7 @@ def verify_email(request, token):
     user.save(update_fields=['is_email_verified'])
 
     messages.success(request, "Email verified! You can now log in.")
-    return redirect('login')
+    return redirect('accounts:login')
 
 
 def verify_email_change(request, token):
@@ -588,7 +599,7 @@ def verify_email_change(request, token):
     return redirect('accounts:profile')
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def resend_verification(request):
     user = request.user
     if user.is_email_verified:
@@ -596,7 +607,141 @@ def resend_verification(request):
         return redirect('accounts:profile')
     try:
         send_verification_email(user, request)
-        messages.success(request, "Verification email resent. Check your inbox.")
-    except Exception:
-        messages.error(request, "Failed to send email. Please try again later.")
+        messages.success(request, "Verification email sent. Check your inbox.")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Email send failed: {e}")
+        messages.error(request, f"Failed to send email: {e}")
     return redirect('accounts:profile')
+
+@login_required(login_url='accounts:login')
+@require_POST
+def change_password(request):
+    user = request.user
+
+    # With Two-Factor Authentication on, password changes must go through
+    # the emailed confirmation link instead of this direct form.
+    if user.two_factor_enabled:
+        messages.error(request, "Two-factor authentication is enabled. Use \"Change\" to request a secure email link instead.")
+        return redirect('accounts:profile')
+
+    current  = request.POST.get('current_password', '')
+    new_pwd  = request.POST.get('new_password', '')
+    confirm  = request.POST.get('confirm_password', '')
+
+    if not user.check_password(current):
+        messages.error(request, "Current password is incorrect.")
+        return redirect('accounts:profile')
+
+    if new_pwd != confirm:
+        messages.error(request, "New passwords do not match.")
+        return redirect('accounts:profile')
+
+    try:
+        password_validation.validate_password(new_pwd, user)
+    except ValidationError as e:
+        for error in e.messages:
+            messages.error(request, error)
+        return redirect('accounts:profile')
+
+    user.set_password(new_pwd)
+    user.save()
+    # Re-authenticate so the session stays valid
+    update_session_auth_hash(request, user)
+    messages.success(request, "Password updated successfully.")
+    return redirect('accounts:profile')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def toggle_two_factor(request):
+    """Flips Two-Factor Authentication on/off. Requires the current password
+    as proof before changing this security-sensitive setting."""
+    user = request.user
+    password = request.POST.get('password', '')
+
+    if not user.check_password(password):
+        messages.error(request, "Incorrect password. Two-factor authentication was not changed.")
+        return redirect('accounts:profile')
+
+    user.two_factor_enabled = not user.two_factor_enabled
+    user.save(update_fields=['two_factor_enabled'])
+
+    state = "enabled" if user.two_factor_enabled else "disabled"
+    messages.success(request, f"Two-factor authentication {state}.")
+    return redirect('accounts:profile')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def request_password_change_email(request):
+    """Entry point for changing password when Two-Factor Authentication is
+    enabled — sends a confirmation link instead of changing it directly."""
+    user = request.user
+    if not user.two_factor_enabled:
+        return redirect('accounts:profile')
+
+    try:
+        send_password_change_verification(user, request)
+        messages.success(request, "We've emailed you a secure link to confirm your password change.")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Email send failed: {e}")
+        messages.error(request, f"Failed to send email: {e}")
+    return redirect('accounts:profile')
+
+
+def confirm_password_change(request, token):
+    """Landing page for the emailed password-change confirmation link.
+    Not login-gated — the token identifies the account, and the current
+    password (re-entered here) proves it's really the account owner."""
+    try:
+        token_obj = VerificationToken.objects.select_related('user').get(
+            token=token, purpose=VerificationToken.PURPOSE_PASSWORD_CHANGE
+        )
+    except VerificationToken.DoesNotExist:
+        messages.error(request, "Invalid password change link.")
+        return redirect('accounts:login')
+
+    if not token_obj.is_valid:
+        messages.error(request, "This link has expired or was already used. Request a new one from your profile.")
+        return redirect('accounts:login')
+
+    user = token_obj.user
+
+    if request.method == 'POST':
+        current = request.POST.get('current_password', '')
+        new_pwd = request.POST.get('new_password', '')
+        confirm = request.POST.get('confirm_password', '')
+
+        if not user.check_password(current):
+            blocked = token_obj.register_failed_attempt()
+            if blocked:
+                messages.error(request, "Too many incorrect attempts. Please request a new password change email.")
+                return redirect('accounts:login')
+            remaining = VerificationToken.MAX_ATTEMPTS - token_obj.attempts
+            messages.error(request, f"Current password is incorrect. {remaining} attempt(s) left.")
+            return render(request, 'accounts/confirm_password_change.html', {'token': token})
+
+        if new_pwd != confirm:
+            messages.error(request, "New passwords do not match.")
+            return render(request, 'accounts/confirm_password_change.html', {'token': token})
+
+        try:
+            password_validation.validate_password(new_pwd, user)
+        except ValidationError as e:
+            for error in e.messages:
+                messages.error(request, error)
+            return render(request, 'accounts/confirm_password_change.html', {'token': token})
+
+        user.set_password(new_pwd)
+        user.save(update_fields=['password'])
+        token_obj.consume()
+
+        if request.user.is_authenticated and request.user.pk == user.pk:
+            update_session_auth_hash(request, user)
+
+        messages.success(request, "Password updated successfully.")
+        return redirect('accounts:profile')
+
+    return render(request, 'accounts/confirm_password_change.html', {'token': token})

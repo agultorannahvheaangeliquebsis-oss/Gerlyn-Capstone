@@ -22,7 +22,7 @@ def send_verification_email(user, request):
     token = VerificationToken.objects.create(
         user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY
     )
-    url = _build_url(request, 'verify_email', token)
+    url = _build_url(request, 'accounts:verify_email', token)
 
     send_mail(
         subject="Verify your Gerlyn Variety Store email",
@@ -32,6 +32,39 @@ def send_verification_email(user, request):
             f"It expires in {VerificationToken.EXPIRY_HOURS} hours.\n\n"
             f"{url}\n\n"
             f"If you didn't create an account, ignore this email.\n\n"
+            f"— Gerlyn Variety Store"
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+
+def send_password_change_verification(user, request):
+    """
+    Sends a confirmation link the user must click before their password
+    change (requested while Two-Factor Authentication is enabled) takes effect.
+    """
+    VerificationToken.objects.filter(
+        user=user, purpose=VerificationToken.PURPOSE_PASSWORD_CHANGE, is_used=False
+    ).delete()
+
+    token = VerificationToken.objects.create(
+        user=user, purpose=VerificationToken.PURPOSE_PASSWORD_CHANGE
+    )
+    url = _build_url(request, 'accounts:confirm_password_change', token)
+
+    send_mail(
+        subject="Confirm your password change — Gerlyn Variety Store",
+        message=(
+            f"Hi {user.get_full_name() or user.username},\n\n"
+            f"We received a request to change your account password. "
+            f"Two-factor authentication is enabled on your account, so we need "
+            f"you to confirm this change here:\n\n"
+            f"{url}\n\n"
+            f"This link expires in {VerificationToken.EXPIRY_HOURS} hours and can "
+            f"only be used once.\n\n"
+            f"If you didn't request this, ignore this email — your password will not change.\n\n"
             f"— Gerlyn Variety Store"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
@@ -55,7 +88,7 @@ def send_email_change_verification(user, new_email, request):
     token = VerificationToken.objects.create(
         user=user, purpose=VerificationToken.PURPOSE_EMAIL_CHANGE
     )
-    url = _build_url(request, 'verify_email_change', token)
+    url = _build_url(request, 'accounts:verify_email_change', token)
 
     send_mail(
         subject="Confirm your new email — Gerlyn Variety Store",

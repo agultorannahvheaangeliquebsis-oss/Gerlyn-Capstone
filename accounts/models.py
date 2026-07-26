@@ -29,6 +29,7 @@ class User(AbstractUser):
     )
     is_email_verified = models.BooleanField(default=False)
     pending_email     = models.EmailField(null=True, blank=True)
+    two_factor_enabled = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
@@ -55,13 +56,16 @@ class User(AbstractUser):
 
 class VerificationToken(models.Model):
     """Single-use, time-limited tokens for email verification."""
-    PURPOSE_EMAIL_VERIFY = 'EMAIL_VERIFY'
-    PURPOSE_EMAIL_CHANGE = 'EMAIL_CHANGE'
+    PURPOSE_EMAIL_VERIFY    = 'EMAIL_VERIFY'
+    PURPOSE_EMAIL_CHANGE    = 'EMAIL_CHANGE'
+    PURPOSE_PASSWORD_CHANGE = 'PASSWORD_CHANGE'
     PURPOSE_CHOICES = [
         (PURPOSE_EMAIL_VERIFY, 'Initial email verification'),
         (PURPOSE_EMAIL_CHANGE, 'Email change verification'),
+        (PURPOSE_PASSWORD_CHANGE, 'Password change verification'),
     ]
     EXPIRY_HOURS = 24
+    MAX_ATTEMPTS = 3
 
     user       = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='tokens'
@@ -69,6 +73,7 @@ class VerificationToken(models.Model):
     token      = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     purpose    = models.CharField(max_length=20, choices=PURPOSE_CHOICES)
     is_used    = models.BooleanField(default=False)
+    attempts   = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
 
@@ -84,6 +89,15 @@ class VerificationToken(models.Model):
     def consume(self):
         self.is_used = True
         self.save(update_fields=['is_used'])
+
+    def register_failed_attempt(self):
+        """Records a failed attempt; blocks (consumes) the token once MAX_ATTEMPTS is hit.
+        Returns True if the token is now blocked."""
+        self.attempts += 1
+        if self.attempts >= self.MAX_ATTEMPTS:
+            self.is_used = True
+        self.save(update_fields=['attempts', 'is_used'])
+        return self.is_used
 
     def __str__(self):
         return f"{self.purpose} for {self.user.username}"

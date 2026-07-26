@@ -41,7 +41,13 @@
       </div>
       <div class="field">
         <label for="password1">Password</label>
-        <input id="password1" type="password" name="password1" placeholder="Enter your password" required>
+        <input id="password1" type="password" name="password1" placeholder="Enter your password"
+          pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
+          title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
+          required>
+        <div class="gv-meta" style="margin-top:4px;">
+          Must include an uppercase letter, a number, and a special character (e.g. Juan2000- or Juan2000*).
+        </div>
       </div>
       <div class="field">
         <label for="password2">Confirm Password</label>
