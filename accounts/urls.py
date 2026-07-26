@@ -36,5 +36,9 @@ urlpatterns = [
     path('verify-email/resend/', views.resend_verification, name='resend_verification'),
     path('verify-email/<uuid:token>/', views.verify_email, name='verify_email'),
     path('verify-email-change/<uuid:token>/', views.verify_email_change, name='verify_email_change'),
+
+    # --- New: Notifications ---
+    path('notifications/', views.notifications_view, name='notifications'),
+    path('notifications/<int:pk>/read/', views.mark_notification_read, name='mark_notification_read'),
 ]
 

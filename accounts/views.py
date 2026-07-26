@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
-    CustomerProfile, SupplierProfile,
+    CustomerProfile, SupplierProfile, Notification,
 )
 
 
@@ -745,3 +745,25 @@ def confirm_password_change(request, token):
         return redirect('accounts:profile')
 
     return render(request, 'accounts/confirm_password_change.html', {'token': token})
+
+@login_required(login_url='accounts:login')
+def notifications_view(request):
+    """
+    Displays all notifications for the logged-in user ordered by latest.
+    """
+    notifications = request.user.notifications.all().order_by('-created_at')
+    return render(request, 'accounts/notifications.html', {
+        'notifications': notifications,
+        'active_page': 'notifications',
+    })
+
+
+@login_required(login_url='accounts:login')
+def mark_notification_read(request, pk):
+    """
+    Marks a specific notification as read and redirects back.
+    """
+    notification = get_object_or_404(Notification, pk=pk, user=request.user)
+    notification.is_read = True
+    notification.save()
+    return redirect('accounts:notifications')
