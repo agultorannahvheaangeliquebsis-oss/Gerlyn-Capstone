@@ -100,13 +100,13 @@
               <span class="user-menu-email">{{ request.user.email }}</span>
             </div>
             <div class="user-menu-divider"></div>
-            <a href="{% url 'accounts:profile' %}" class="user-menu-item">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-              My Profile
-            </a>
               <a href="{% url 'orders:my_orders' %}" class="user-menu-item">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
               My Orders
+            </a>
+              <a href="{% url 'accounts:profile' %}" class="user-menu-item">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Settings
             </a>
             <div class="user-menu-divider"></div>
             <a href="{% url 'accounts:logout' %}" class="user-menu-item user-menu-item--danger">
@@ -214,76 +214,10 @@ document.addEventListener('click', function(e) {
   }
 });
 </script>
-</body>
-</html>
 
 <script src="{% static 'js/live-search.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
+{% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
-
-<style>
-.user-menu { position: relative; }
-.user-menu-trigger {
-  display: flex; align-items: center; gap: 8px;
-  background: none; border: 1.5px solid var(--line);
-  border-radius: var(--r-pill); padding: 4px 10px 4px 4px;
-  cursor: pointer; font: 600 14px/1 system-ui, sans-serif;
-  color: var(--ink-900); min-height: 40px;
-  transition: background .12s ease, border-color .12s ease;
-}
-.user-menu-trigger:hover { background: var(--line-soft); border-color: var(--input-line); }
-.user-avatar {
-  width: 30px; height: 30px; border-radius: 50%;
-  background: var(--action); color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  font: 700 13px/1 system-ui, sans-serif; flex: none;
-}
-.user-menu-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-menu-caret { color: var(--ink-400); transition: transform .18s ease; flex: none; }
-.user-menu-trigger[aria-expanded="true"] .user-menu-caret { transform: rotate(180deg); }
-.user-menu-panel {
-  display: none; position: absolute; top: calc(100% + 8px); right: 0;
-  min-width: 220px; background: var(--surface);
-  border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: 0 8px 24px rgba(23,37,30,.12); z-index: 100;
-  padding: 6px; animation: menuIn .15s ease;
-}
-.user-menu-panel.is-open { display: flex; flex-direction: column; }
-@keyframes menuIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.user-menu-header { display: flex; flex-direction: column; padding: 8px 12px 10px; gap: 3px; }
-.user-menu-fullname { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-900); }
-.user-menu-email { font: 400 12.5px/1.2 system-ui, sans-serif; color: var(--ink-400); }
-.user-menu-divider { height: 1px; background: var(--line-soft); margin: 4px 0; }
-.user-menu-item {
-  display: flex; align-items: center; gap: 10px;
-  min-height: 40px; padding: 0 12px;
-  border-radius: var(--r-input); color: var(--ink-700);
-  text-decoration: none; font: 600 14px/1 system-ui, sans-serif;
-  transition: background .1s ease;
-}
-.user-menu-item:hover { background: var(--line-soft); color: var(--ink-900); }
-.user-menu-item--danger { color: var(--danger-fg); }
-.user-menu-item--danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
-</style>
-
-<script>
-function toggleUserMenu(e) {
-  e.stopPropagation();
-  const trigger = document.getElementById('user-menu').querySelector('.user-menu-trigger');
-  const panel   = document.getElementById('user-menu-panel');
-  const isOpen  = panel.classList.toggle('is-open');
-  trigger.setAttribute('aria-expanded', isOpen);
-}
-document.addEventListener('click', function(e) {
-  const menu = document.getElementById('user-menu');
-  if (menu && !menu.contains(e.target)) {
-    document.getElementById('user-menu-panel').classList.remove('is-open');
-    menu.querySelector('.user-menu-trigger').setAttribute('aria-expanded', 'false');
-  }
-});
-</script>
 </body>
 </html>

@@ -94,11 +94,25 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Backs the idle-timeout / back-button auth guard: blocks the browser
+    # from serving a cached authenticated page after logout or session expiry.
+    'accounts.middleware.NoCacheForAuthenticatedMiddleware',
 ]
 
 # Trust the deployed origin for POSTs (set once the app has a real URL),
 # e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
+
+# --- Idle-timeout: 30 minutes of inactivity signs the user out ------------
+# SESSION_SAVE_EVERY_REQUEST re-saves (and re-stamps the expiry of) the
+# session cookie on every request, so the 30-minute clock only ever measures
+# time since the user's LAST request — i.e. idle time, not absolute session
+# age. This is the backend backstop; idle_timeout.js (included in the base
+# templates) additionally tracks client-side inactivity and proactively
+# redirects to login the moment the 30 minutes elapse, rather than waiting
+# for the user's next click to discover the session is gone.
+SESSION_COOKIE_AGE = 30 * 60
+SESSION_SAVE_EVERY_REQUEST = True
 
 # --- Production hardening --------------------------------------------------
 # Only applied when DEBUG is off, so local development over plain HTTP still

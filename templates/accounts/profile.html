@@ -4,393 +4,7 @@
 {% block title %}My Account — Gerlyn Variety Store{% endblock %}
 
 {% block extra_css %}
-<style>
-/* ── Account layout ────────────────────────────────────────────── */
-.account-wrap {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 32px 24px 64px;
-}
-.account-grid {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 24px;
-  align-items: start;
-}
-
-/* ── Breadcrumb ────────────────────────────────────────────────── */
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: 400 13.5px/1 system-ui, sans-serif;
-  color: var(--ink-400);
-  margin-bottom: 12px;
-}
-.breadcrumb a { color: var(--ink-400); text-decoration: none; }
-.breadcrumb a:hover { color: var(--action); }
-.breadcrumb .sep { font-size: 12px; }
-.breadcrumb .current { color: var(--ink-700); font-weight: 600; }
-
-/* ── Sidebar ───────────────────────────────────────────────────── */
-.account-sidebar {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-card);
-  padding: 8px;
-}
-.account-nav-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: var(--r-input);
-  color: var(--ink-700);
-  text-decoration: none;
-  font: 600 14.5px/1 system-ui, sans-serif;
-  transition: background .12s ease, color .12s ease;
-}
-.account-nav-link svg { width: 17px; height: 17px; flex: none; color: var(--ink-400); }
-.account-nav-link:hover { background: var(--line-soft); color: var(--ink-900); }
-.account-nav-link.active {
-  background: var(--action);
-  color: #fff;
-}
-.account-nav-link.active svg { color: #fff; }
-
-/* ── Profile hero card ─────────────────────────────────────────── */
-.profile-hero {
-  background: linear-gradient(135deg, var(--action) 0%, var(--action-700) 100%);
-  border-radius: var(--r-card) var(--r-card) 0 0;
-  padding: 28px 28px 20px;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  position: relative;
-}
-.profile-avatar-wrap { position: relative; flex: none; }
-.profile-avatar {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: rgba(255,255,255,.25);
-  border: 3px solid rgba(255,255,255,.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font: 700 26px/1 system-ui, sans-serif;
-  color: #fff;
-  overflow: hidden;
-}
-.profile-avatar img {
-  width: 100%; height: 100%; object-fit: cover; display: block;
-}
-.avatar-upload-btn {
-  position: absolute;
-  bottom: 0; right: 0;
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  background: #fff;
-  border: 2px solid var(--action);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-  color: var(--action);
-  transition: background .12s;
-}
-.avatar-upload-btn:hover { background: var(--green-50); }
-.avatar-upload-btn svg { width: 13px; height: 13px; }
-.profile-hero-info { flex: 1; min-width: 0; }
-.profile-hero-name {
-  font: 700 22px/1.2 system-ui, sans-serif;
-  color: #fff;
-  margin: 0 0 4px;
-}
-.profile-hero-email {
-  font: 400 14px/1 system-ui, sans-serif;
-  color: rgba(255,255,255,.8);
-  margin: 0 0 10px;
-}
-.profile-hero-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.role-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: rgba(255,255,255,.2);
-  color: #fff;
-  font: 600 12.5px/1.5 system-ui, sans-serif;
-  border: 1px solid rgba(255,255,255,.3);
-}
-.member-since {
-  font: 400 13px/1 system-ui, sans-serif;
-  color: rgba(255,255,255,.75);
-}
-
-/* ── Stats row ─────────────────────────────────────────────────── */
-.profile-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
-}
-.profile-stat {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-}
-.profile-stat + .profile-stat {
-  border-left: 1px solid var(--line);
-}
-.profile-stat-icon {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  background: var(--green-50);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--action);
-  flex: none;
-}
-.profile-stat-icon svg { width: 17px; height: 17px; }
-.profile-stat-value {
-  font: 700 22px/1.1 system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-900);
-}
-.profile-stat-label {
-  font: 400 13px/1.2 system-ui, sans-serif;
-  color: var(--ink-600);
-}
-
-/* ── Section cards ─────────────────────────────────────────────── */
-.account-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-.account-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 24px;
-  border-bottom: 1px solid var(--line-soft);
-}
-.account-card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font: 600 16px/1.2 system-ui, sans-serif;
-  color: var(--ink-900);
-}
-.account-card-title svg { width: 17px; height: 17px; color: var(--ink-600); }
-.account-card-body { padding: 20px 24px; }
-
-/* ── Info grid ─────────────────────────────────────────────────── */
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px 32px;
-}
-.info-field label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: 400 13px/1 system-ui, sans-serif;
-  color: var(--ink-400);
-  margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  font-size: 12px;
-  font-weight: 700;
-}
-.info-field label svg { width: 13px; height: 13px; }
-.info-field .val {
-  font: 500 15px/1.4 system-ui, sans-serif;
-  color: var(--ink-900);
-}
-.verified-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 600 12.5px/1 system-ui, sans-serif;
-  color: var(--ok-fg);
-  margin-left: 8px;
-}
-.verified-badge svg { width: 14px; height: 14px; }
-.unverified-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 600 12.5px/1 system-ui, sans-serif;
-  color: var(--warn-fg);
-  margin-left: 8px;
-}
-
-/* ── Edit form (hidden by default) ────────────────────────────── */
-.edit-form { display: none; padding: 20px 24px; border-top: 1px solid var(--line-soft); }
-.edit-form.is-open { display: block; }
-.edit-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.edit-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 20px;
-  justify-content: flex-end;
-}
-
-/* ── Security items ────────────────────────────────────────────── */
-.security-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-.security-item:last-child { border-bottom: 0; }
-.security-item-info { display: flex; align-items: center; gap: 12px; }
-.security-item-icon {
-  width: 34px; height: 34px;
-  border-radius: var(--r-input);
-  background: var(--line-soft);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--ink-600);
-  flex: none;
-}
-.security-item-icon svg { width: 16px; height: 16px; }
-.security-item-label {
-  font: 600 14.5px/1.2 system-ui, sans-serif;
-  color: var(--ink-900);
-}
-.security-item-sub {
-  font: 400 13px/1.3 system-ui, sans-serif;
-  color: var(--ink-400);
-  margin-top: 2px;
-}
-
-/* ── Toggle switch ─────────────────────────────────────────────── */
-.toggle {
-  position: relative;
-  width: 44px; height: 26px;
-  flex: none;
-}
-.toggle input { opacity: 0; width: 0; height: 0; }
-.toggle-track {
-  position: absolute;
-  inset: 0;
-  border-radius: var(--r-pill);
-  background: var(--line);
-  cursor: pointer;
-  transition: background .2s ease;
-}
-.toggle input:checked + .toggle-track { background: var(--action); }
-.toggle input:disabled + .toggle-track { cursor: not-allowed; opacity: .5; }
-.toggle-track::after {
-  content: "";
-  position: absolute;
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  background: #fff;
-  top: 3px; left: 3px;
-  box-shadow: 0 1px 3px rgba(0,0,0,.2);
-  transition: transform .2s ease;
-}
-.toggle input:checked + .toggle-track::after { transform: translateX(18px); }
-
-/* ── Email verification banner ─────────────────────────────────── */
-.verify-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--warn-bg);
-  border: 1px solid #EAC97E;
-  border-radius: var(--r-input);
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-.verify-banner-text {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font: 500 14px/1.4 system-ui, sans-serif;
-  color: var(--warn-fg);
-}
-.verify-banner-text svg { width: 16px; height: 16px; flex: none; }
-
-/* ── Pending email notice ──────────────────────────────────────── */
-.pending-notice {
-  font: 400 13px/1.4 system-ui, sans-serif;
-  color: var(--warn-fg);
-  margin-top: 4px;
-}
-
-/* ── Error messages ────────────────────────────────────────────── */
-.field-err {
-  font: 500 13px/1.4 system-ui, sans-serif;
-  color: var(--danger-fg);
-  margin-top: 4px;
-}
-input.is-invalid { border-color: var(--danger-dot) !important; }
-
-/* ── Confirm-password modal (2FA toggle) ──────────────────────────── */
-.modal-overlay {
-  display: none;
-  position: fixed; inset: 0;
-  background: rgba(23,37,30,.45);
-  align-items: center; justify-content: center;
-  padding: 16px;
-  z-index: 100;
-}
-.modal-overlay.is-open { display: flex; }
-.modal-card {
-  background: var(--surface);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-hero);
-  width: 100%; max-width: 420px;
-}
-.modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--line);
-}
-.modal-head h2 { font: 650 18px/1.25 system-ui, sans-serif; margin: 0; }
-.modal-close {
-  display: inline-flex; align-items: center; justify-content: center;
-  flex: none;
-  width: 28px; height: 28px; padding: 0; margin: 0; line-height: 0;
-  border: none; background: none;
-  color: var(--ink-600); cursor: pointer; border-radius: var(--r-input);
-}
-.modal-close:hover { color: var(--ink-900); }
-.modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-.modal-foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--line);
-}
-
-/* ── Responsive ────────────────────────────────────────────────── */
-@media (max-width: 760px) {
-  .account-grid { grid-template-columns: 1fr; }
-  .info-grid { grid-template-columns: 1fr; }
-  .edit-grid { grid-template-columns: 1fr; }
-  .profile-hero { flex-direction: column; text-align: center; align-items: center; }
-  .profile-hero-meta { justify-content: center; }
-  .account-wrap { padding: 20px 16px 48px; }
-}
-</style>
+<link rel="stylesheet" href="{% static 'css/account.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -400,44 +14,17 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   <nav class="breadcrumb" aria-label="breadcrumb">
     <a href="/">Home</a>
     <span class="sep">›</span>
-    <a href="{% url 'accounts:profile' %}">Account</a>
+    <a href="{% url 'accounts:profile' %}">Settings</a>
     <span class="sep">›</span>
-    <span class="current">Profile</span>
+    <span class="current">My Profile</span>
   </nav>
 
-  <h1 class="gv-page-title" style="margin-bottom:4px;">My Account</h1>
+  <h1 class="gv-page-title" style="margin-bottom:4px;">Settings</h1>
   <p class="gv-meta" style="margin-bottom:24px;">Manage your profile, addresses, and preferences</p>
 
   <div class="account-grid">
 
-    <!-- ── Left sidebar ── -->
-    <aside class="account-sidebar">
-      <a href="{% url 'accounts:profile' %}" class="account-nav-link active">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-        Profile
-      </a>
-        {% comment "" %}
-        <a href="{% url 'orders:my_orders' %}" class="account-nav-link">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-        Orders
-      </a>
-        {% endcomment %}
-      {# Addresses — page not yet built, placeholder link #}
-      <span class="account-nav-link" style="cursor:default; opacity:.5;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
-        Addresses
-      </span>
-      {# Payment Methods — page not yet built, placeholder link #}
-      <span class="account-nav-link" style="cursor:default; opacity:.5;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
-        Payment Methods
-      </span>
-      {# Notifications — page not yet built, placeholder link #}
-      <span class="account-nav-link" style="cursor:default; opacity:.5;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        Notifications
-      </span>
-    </aside>
+    {% include "accounts/_account_sidebar.html" %}
 
     <!-- ── Right content ── -->
     <div class="stack" style="gap:16px;">
@@ -507,15 +94,17 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
               <div class="profile-stat-label">Total Orders</div>
             </div>
           </div>
+          {% comment "" %}
           <div class="profile-stat">
             <div class="profile-stat-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
             </div>
             <div>
               <div class="profile-stat-value">—</div>
-              <div class="profile-stat-label">Loyalty Points</div>
+              <div class="profile-stat-label">Loyalty Points</div>{#  #}
             </div>
           </div>
+          {% endcomment %}
         </div>
       </div>
 
@@ -598,15 +187,13 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
                 Delivery Address
               </label>
-              {% with profile=request.user.customer_profile %}
-                {% if profile and profile.address %}
-                  <div class="val">{{ profile.address }}</div>
-                {% else %}
-                  <div class="val" style="color:var(--ink-400);">No address saved</div>
-                {% endif %}
-              {% endwith %}
+              {% if default_address %}
+                <div class="val">{{ default_address.text }}</div>
+              {% else %}
+                <div class="val" style="color:var(--ink-400);">No address saved</div>
+              {% endif %}
             </div>
-            <a href="#" class="btn btn-sm btn-quiet" style="margin-top:10px; color:var(--action); gap:4px;" onclick="return false;">
+            <a href="{% url 'accounts:addresses' %}" class="btn btn-sm btn-quiet" style="margin-top:10px; color:var(--action); gap:4px;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add another address
             </a>
@@ -762,7 +349,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
                       </button>
                     </div>
                     <div class="gv-meta" style="margin-top:4px;">
-                      Must include an uppercase letter, a number, and a special character (e.g. Juan2000- or Juan2000*).
+                      Must include an uppercase letter, a number, and a special character.
                     </div>
                   </div>
 

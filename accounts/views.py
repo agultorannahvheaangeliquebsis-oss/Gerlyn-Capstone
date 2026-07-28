@@ -334,7 +334,7 @@ def register_view(request):
         first_name = request.POST.get('first_name')
         last_name = request.POST.get('last_name')
         contact_number = request.POST.get('contact_number')
-        address = request.POST.get('address')
+        address = request.POST.get('address', '').strip()
 
         if password1 != password2:
             messages.error(request, 'Passwords do not match.')
@@ -374,6 +374,11 @@ def register_view(request):
         profile.address = address
         profile.save()
 
+        if address:
+            picker_fields = _address_fields_from_post(request)
+            picker_fields['text'] = address
+            Address.objects.create(user=user, is_default=True, **picker_fields)
+
         login(request, user)
         messages.success(request, 'Account created successfully. Welcome!')
         return redirect('accounts:customer_dashboard')
@@ -385,7 +390,7 @@ def register_view(request):
 # ============================================================
 from django.conf import settings
 from django.views.decorators.http import require_POST
-from .models import VerificationToken
+from .models import VerificationToken, Address, NotificationPreference
 from .services import (
     send_verification_email, send_email_change_verification,
     send_password_change_verification,
@@ -431,6 +436,8 @@ def _profile_context(user):
         'contact_number'    : contact_number,
         'role'              : user.get_role_display(),
         'two_factor_enabled': user.two_factor_enabled,
+        'default_address'   : user.addresses.filter(is_default=True).first(),
+        'active_page'       : 'profile',
     }
 
 
@@ -767,3 +774,178 @@ def mark_notification_read(request, pk):
     notification.is_read = True
     notification.save()
     return redirect('accounts:notifications')
+
+
+# ============================================================
+# ADDRESSES
+# ============================================================
+
+@login_required(login_url='accounts:login')
+def addresses_view(request):
+    return render(request, 'accounts/addresses.html', {
+        'addresses': request.user.addresses.all(),
+        'active_page': 'addresses',
+    })
+
+
+def _address_fields_from_post(request):
+    """Pulls the map picker's fields off a POST — structured PSGC codes plus
+    the pin's coordinates and whatever text the user confirmed/edited."""
+    from decimal import Decimal, InvalidOperation
+
+    addr_type = request.POST.get('type', Address.Type.HOME)
+    if addr_type not in Address.Type.values:
+        addr_type = Address.Type.HOME
+
+    def _decimal(name):
+        raw = request.POST.get(name, '').strip()
+        if not raw:
+            return None
+        try:
+            return Decimal(raw)
+        except InvalidOperation:
+            return None
+
+    return {
+        'type': addr_type,
+        'region': request.POST.get('region', '').strip(),
+        'province': request.POST.get('province', '').strip(),
+        'city': request.POST.get('city', '').strip(),
+        'barangay': request.POST.get('barangay', '').strip(),
+        'street_detail': request.POST.get('street_detail', '').strip(),
+        'text': request.POST.get('text', '').strip(),
+        'latitude': _decimal('latitude'),
+        'longitude': _decimal('longitude'),
+    }
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def address_create(request):
+    fields = _address_fields_from_post(request)
+
+    if not fields['text']:
+        fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
+
+    if not fields['text']:
+        messages.error(request, "Please enter an address.")
+        return redirect('accounts:addresses')
+
+    is_first = not request.user.addresses.exists()
+    Address.objects.create(user=request.user, is_default=is_first, **fields)
+    messages.success(request, "Address added.")
+    return redirect('accounts:addresses')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def address_edit(request, pk):
+    address = get_object_or_404(Address, pk=pk, user=request.user)
+    if address.is_default:
+        messages.error(request, "Your default address can't be edited. Add a new address and set it as default instead.")
+        return redirect('accounts:addresses')
+
+    fields = _address_fields_from_post(request)
+
+    if not fields['text']:
+        fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
+
+    if not fields['text']:
+        messages.error(request, "Please enter an address.")
+        return redirect('accounts:addresses')
+
+    for key, value in fields.items():
+        setattr(address, key, value)
+    address.save()
+    messages.success(request, "Address updated.")
+    return redirect('accounts:addresses')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def address_delete(request, pk):
+    address = get_object_or_404(Address, pk=pk, user=request.user)
+    if address.is_default:
+        messages.error(request, "You can't delete your default address. Set a different one as default first.")
+        return redirect('accounts:addresses')
+    address.delete()
+    messages.success(request, "Address deleted.")
+    return redirect('accounts:addresses')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def address_set_default(request, pk):
+    address = get_object_or_404(Address, pk=pk, user=request.user)
+    address.set_as_default()
+    messages.success(request, "Default address updated.")
+    return redirect('accounts:addresses')
+
+
+# ============================================================
+# NOTIFICATION PREFERENCES
+# ============================================================
+
+@login_required(login_url='accounts:login')
+def notification_preferences_view(request):
+    prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
+    return render(request, 'accounts/notification_preferences.html', {
+        'prefs': prefs,
+        'active_page': 'notification_preferences',
+    })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def notification_preferences_update(request):
+    prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
+
+    field = request.POST.get('field')
+    valid_fields = {'order_updates', 'promotions', 'delivery_reminders', 'newsletter'}
+    if field in valid_fields:
+        setattr(prefs, field, request.POST.get('value') == 'on')
+        prefs.save(update_fields=[field])
+
+    return redirect('accounts:notification_preferences')
+
+
+# ============================================================
+# SETTINGS — Sessions / Privacy & Data / Language
+# (placeholders: each needs real backend work — session listing/revocation,
+# data export/account deletion, and an actual i18n setup respectively —
+# that hasn't been built yet. Wired up now so the Settings nav is complete.)
+# ============================================================
+
+_SETTINGS_PLACEHOLDER_PAGES = {
+    'sessions': {
+        'page_title': 'Sessions',
+        'active_page': 'sessions',
+        'description': "See and manage devices that are signed in to your account.",
+    },
+    'privacy': {
+        'page_title': 'Privacy & Data',
+        'active_page': 'privacy',
+        'description': "Control what data we keep, download a copy of it, or delete your account.",
+    },
+    'language': {
+        'page_title': 'Language',
+        'active_page': 'language',
+        'description': "Choose the language you'd like to use across the store.",
+    },
+}
+
+
+@login_required(login_url='accounts:login')
+def settings_placeholder_view(request, page):
+    context = _SETTINGS_PLACEHOLDER_PAGES[page]
+    return render(request, 'accounts/settings_placeholder.html', context)
+
+
+@login_required(login_url='accounts:login')
+def help_center_view(request):
+    return render(request, 'accounts/help_center.html', {'active_page': 'help_center'})
+
+
+@login_required(login_url='accounts:login')
+def about_view(request):
+    return render(request, 'accounts/about.html', {'active_page': 'about'})

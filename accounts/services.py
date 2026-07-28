@@ -2,12 +2,25 @@
 from django.core.mail import send_mail
 from django.conf import settings
 from django.urls import reverse
-from .models import VerificationToken
+from .models import VerificationToken, NotificationPreference
 
 
 def _build_url(request, view_name, token):
     relative = reverse(view_name, kwargs={'token': str(token.token)})
     return request.build_absolute_uri(relative)
+
+
+def should_notify(user, kind):
+    """Gate for any outbound notification (email/push/SMS) tied to a user
+    preference toggle. `kind` is one of: 'order_updates', 'promotions',
+    'delivery_reminders', 'newsletter'.
+
+    Call this before sending — e.g.:
+        if should_notify(user, 'promotions'):
+            send_promo_email(user)
+    """
+    prefs, _ = NotificationPreference.objects.get_or_create(user=user)
+    return getattr(prefs, kind, True)
 
 
 def send_verification_email(user, request):

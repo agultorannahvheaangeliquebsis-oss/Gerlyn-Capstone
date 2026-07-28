@@ -162,6 +162,81 @@ class CustomerProfile(models.Model):
         return f"{self.first_name} {self.last_name}"
 
 
+class Address(models.Model):
+    """A saved delivery address. Exactly one per user is ever marked default
+    (enforced in Address.objects.set_default, not at the DB level)."""
+    class Type(models.TextChoices):
+        HOME  = 'HOME', 'Home'
+        WORK  = 'WORK', 'Work'
+        OTHER = 'OTHER', 'Other'
+
+    user       = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='addresses'
+    )
+    type       = models.CharField(max_length=10, choices=Type.choices, default=Type.HOME)
+    text       = models.TextField()
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Structured location, captured by the map picker. PSGC codes rather than
+    # names — names are looked up on demand via accounts.geo, which keeps
+    # these in sync with the bundled dataset instead of freezing a copy.
+    region        = models.CharField(max_length=10, blank=True)
+    province      = models.CharField(max_length=10, blank=True)
+    city          = models.CharField(max_length=10, blank=True)
+    barangay      = models.CharField(max_length=15, blank=True)
+    street_detail = models.CharField(max_length=255, blank=True)
+
+    # Pin location, for the map thumbnail and precise delivery routing.
+    # `text` (above) stays the source of truth for the human-readable
+    # address shown everywhere — never the raw coordinates.
+    latitude  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-is_default', '-created_at']
+
+    def __str__(self):
+        return f"{self.get_type_display()} — {self.text[:40]}"
+
+    def set_as_default(self):
+        """Makes this the user's one default address, unsetting any other."""
+        Address.objects.filter(user=self.user, is_default=True).exclude(pk=self.pk).update(is_default=False)
+        if not self.is_default:
+            self.is_default = True
+            self.save(update_fields=['is_default'])
+
+    def compose_text(self):
+        """Builds a human-readable address from the structured PSGC fields —
+        the fallback used when the picker's text field is left untouched."""
+        from . import geo
+        parts = [self.street_detail]
+        if self.barangay:
+            parts.append(f"Brgy. {geo.barangay_name(self.barangay)}")
+        if self.city:
+            parts.append(geo.city_name(self.city))
+        if self.province:
+            parts.append(geo.province_name(self.province))
+        return ", ".join(p for p in parts if p)
+
+    @property
+    def has_pin(self):
+        return self.latitude is not None and self.longitude is not None
+
+
+class NotificationPreference(models.Model):
+    user               = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='notification_preference'
+    )
+    order_updates      = models.BooleanField(default=True)
+    promotions         = models.BooleanField(default=True)
+    delivery_reminders = models.BooleanField(default=True)
+    newsletter         = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Notification preferences for {self.user.username}"
+
+
 class SupplierProfile(models.Model):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='supplier_profile'

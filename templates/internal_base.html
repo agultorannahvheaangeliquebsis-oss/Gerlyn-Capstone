@@ -10,10 +10,10 @@
 <body>
 
 {# Role-aware dashboard target #}
-{% if request.user.role == 'OWNER' %}{% url 'owner_dashboard' as dash_url %}
-{% elif request.user.role == 'BRANCH_MANAGER' %}{% url 'manager_dashboard' as dash_url %}
-{% elif request.user.role == 'STAFF' %}{% url 'staff_dashboard' as dash_url %}
-{% else %}{% url 'home' as dash_url %}{% endif %}
+{% if request.user.role == 'OWNER' %}{% url 'accounts:owner_dashboard' as dash_url %}
+{% elif request.user.role == 'BRANCH_MANAGER' %}{% url 'accounts:manager_dashboard' as dash_url %}
+{% elif request.user.role == 'STAFF' %}{% url 'accounts:staff_dashboard' as dash_url %}
+{% else %}{% url 'accounts:home' as dash_url %}{% endif %}
 
 <div class="app">
 
@@ -123,7 +123,7 @@
         </summary>
         <div class="nav-sub">
           <a class="nav-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">Branch Management</a>
-          <a class="nav-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'user_list' %}">User Management</a>
+          <a class="nav-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'accounts:user_list' %}">User Management</a>
         </div>
       </details>
       {% endif %}
@@ -133,7 +133,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9M3 9v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9M3 9h18M9 21v-6h6v6"/></svg>
       <span class="nav-label">View Store</span>
     </a>
-    <a class="nav-link danger" href="{% url 'logout' %}" title="Logout">
+    <a class="nav-link danger" href="{% url 'accounts:logout' %}" title="Logout">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
       <span class="nav-label">Logout</span>
     </a>
@@ -162,7 +162,7 @@
           </summary>
           <div class="avatar-menu-panel">
             <a class="avatar-menu-link" href="{% url 'branch_list' %}">Branch Management</a>
-            <a class="avatar-menu-link" href="{% url 'user_list' %}">User Management</a>
+            <a class="avatar-menu-link" href="{% url 'accounts:user_list' %}">User Management</a>
           </div>
         </details>
         {% else %}
@@ -281,6 +281,7 @@
   });
 })();
 </script>
+{% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
 </body>
 </html>

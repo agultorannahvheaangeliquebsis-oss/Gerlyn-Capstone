@@ -1,0 +1,80 @@
+<!-- ── Shared address picker: cascading Region/Province/City/Barangay,
+     street search with suggestions, and a draggable map pin. Reused by the
+     Addresses page (add + edit) and the registration form. One instance
+     per page — openAddressPicker() re-targets it per use. ── -->
+<div class="modal-overlay" id="address-picker-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="address-picker-title" style="max-width:640px;">
+    <div class="modal-head">
+      <h2 id="address-picker-title">Add Address</h2>
+      <button type="button" class="modal-close" onclick="closeAddressPicker()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <form method="post" id="address-picker-form">
+      {% csrf_token %}
+      <div class="modal-body">
+
+        <div class="type-pill-group">
+          <input type="hidden" name="type" id="ap-type-input" value="HOME">
+          <button type="button" class="type-pill is-selected" data-type="HOME" onclick="AddressPicker.selectType(this)">Home</button>
+          <button type="button" class="type-pill" data-type="WORK" onclick="AddressPicker.selectType(this)">Work</button>
+          <button type="button" class="type-pill" data-type="OTHER" onclick="AddressPicker.selectType(this)">Other</button>
+        </div>
+
+        <div class="edit-grid">
+          <div class="field">
+            <label for="ap-region">Region</label>
+            <select name="region" id="ap-region"><option value="">Select region…</option></select>
+          </div>
+          <div class="field">
+            <label for="ap-province">Province</label>
+            <select name="province" id="ap-province" disabled><option value="">Select province…</option></select>
+          </div>
+          <div class="field">
+            <label for="ap-city">City / Municipality</label>
+            <select name="city" id="ap-city" disabled><option value="">Select city/municipality…</option></select>
+          </div>
+          <div class="field">
+            <label for="ap-barangay">Barangay</label>
+            <select name="barangay" id="ap-barangay" disabled><option value="">Select barangay…</option></select>
+          </div>
+        </div>
+
+        <div class="field ap-street-field">
+          <label for="ap-street-input">Street name, Building, House No.</label>
+          <input type="text" name="street_detail" id="ap-street-input" placeholder="Select a barangay first" disabled autocomplete="off">
+          <div class="search-dropdown" id="ap-suggestions" hidden></div>
+        </div>
+
+        <div id="ap-map" class="ap-map"></div>
+        <p class="gv-meta" style="margin-top:6px;">Tap or drag the pin to mark the exact spot — the address below updates to match.</p>
+
+        <input type="hidden" name="latitude" id="ap-latitude-input">
+        <input type="hidden" name="longitude" id="ap-longitude-input">
+
+        <div class="field" style="margin-top:10px;">
+          <label for="ap-text-input">Full Address</label>
+          <textarea name="text" id="ap-text-input" rows="2" placeholder="Confirm or edit the full address" required></textarea>
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button type="button" class="btn btn-sm" onclick="closeAddressPicker()">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="AddressPicker.save()">Save Address</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+window.ADDRESS_PICKER_URLS = {
+  regions: "{% url 'accounts:geo_regions' %}",
+  provinces: "{% url 'accounts:geo_provinces' %}",
+  cities: "{% url 'accounts:geo_cities' %}",
+  barangays: "{% url 'accounts:geo_barangays' %}",
+  search: "{% url 'accounts:geo_search' %}",
+  reverse: "{% url 'accounts:geo_reverse' %}"
+};
+function closeAddressPicker() { AddressPicker.close(); }
+</script>
