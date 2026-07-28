@@ -1,0 +1,77 @@
+{% extends "public_base.html" %}
+{% load static %}
+{% load i18n_extra %}
+
+{% block title %}Sessions — Gerlyn Variety Store{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="account-wrap">
+
+  <!-- Breadcrumb -->
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">{% t "Home" %}</a>
+    <span class="sep">›</span>
+    <a href="{% url 'accounts:profile' %}">{% t "Settings" %}</a>
+    <span class="sep">›</span>
+    <span class="current">{% t "Sessions" %}</span>
+  </nav>
+
+  <h1 class="gv-page-title" style="margin-bottom:4px;">{% t "Settings" %}</h1>
+  <p class="gv-meta" style="margin-bottom:24px;">{% t "Manage your profile, addresses, and preferences" %}</p>
+
+  <div class="account-grid">
+
+    {% include "accounts/_account_sidebar.html" %}
+
+    <!-- ── Right content ── -->
+    <div class="account-card">
+      <div class="account-card-head">
+        <span class="account-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          {% t "Sessions" %}
+        </span>
+        {% if sessions|length > 1 %}
+          <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0;" onsubmit="return confirm('{% t "Log out of all other sessions?" %}');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">{% t "Log out all other sessions" %}</button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="account-card-body">
+        {% for s in sessions %}
+          <div class="security-item">
+            <div class="security-item-info">
+              <div class="security-item-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+              </div>
+              <div>
+                <div class="security-item-label">
+                  {{ s.device_label }}
+                  {% if s.session_key == current_session_key %}<span class="default-badge">{% t "This device" %}</span>{% endif %}
+                </div>
+                <div class="security-item-sub">
+                  {{ s.ip_address|default:"—" }} · {% t "Last active" %} {{ s.last_active|timesince }} {% t "ago" %}
+                </div>
+              </div>
+            </div>
+            {% if s.session_key != current_session_key %}
+              <form method="post" action="{% url 'accounts:session_revoke' s.pk %}" style="margin:0;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">{% t "Log out" %}</button>
+              </form>
+            {% endif %}
+          </div>
+        {% empty %}
+          <p class="account-empty">{% t "No other active sessions." %}</p>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

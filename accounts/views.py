@@ -389,11 +389,13 @@ def register_view(request):
 # PROFILE SYSTEM — add to bottom of accounts/views.py
 # ============================================================
 from django.conf import settings
+from django.utils import timezone
 from django.views.decorators.http import require_POST
-from .models import VerificationToken, Address, NotificationPreference
+from .models import VerificationToken, Address, NotificationPreference, UserSession
 from .services import (
     send_verification_email, send_email_change_verification,
-    send_password_change_verification,
+    send_password_change_verification, revoke_other_sessions,
+    send_account_deactivation_verification, deactivate_account,
 )
 
 
@@ -655,6 +657,9 @@ def change_password(request):
     user.save()
     # Re-authenticate so the session stays valid
     update_session_auth_hash(request, user)
+    # A changed password should actually lock out anyone else still holding
+    # a valid session on this account, not just leave them until it expires.
+    revoke_other_sessions(user, keep_session_key=request.session.session_key)
     messages.success(request, "Password updated successfully.")
     return redirect('accounts:profile')
 
@@ -673,6 +678,7 @@ def toggle_two_factor(request):
 
     user.two_factor_enabled = not user.two_factor_enabled
     user.save(update_fields=['two_factor_enabled'])
+    revoke_other_sessions(user, keep_session_key=request.session.session_key)
 
     state = "enabled" if user.two_factor_enabled else "disabled"
     messages.success(request, f"Two-factor authentication {state}.")
@@ -747,6 +753,11 @@ def confirm_password_change(request, token):
 
         if request.user.is_authenticated and request.user.pk == user.pk:
             update_session_auth_hash(request, user)
+            revoke_other_sessions(user, keep_session_key=request.session.session_key)
+        else:
+            # Confirmed from a device that wasn't logged in as this user —
+            # nothing here to "keep", so every existing session gets cut.
+            revoke_other_sessions(user, keep_session_key=None)
 
         messages.success(request, "Password updated successfully.")
         return redirect('accounts:profile')
@@ -916,31 +927,6 @@ def notification_preferences_update(request):
 # that hasn't been built yet. Wired up now so the Settings nav is complete.)
 # ============================================================
 
-_SETTINGS_PLACEHOLDER_PAGES = {
-    'sessions': {
-        'page_title': 'Sessions',
-        'active_page': 'sessions',
-        'description': "See and manage devices that are signed in to your account.",
-    },
-    'privacy': {
-        'page_title': 'Privacy & Data',
-        'active_page': 'privacy',
-        'description': "Control what data we keep, download a copy of it, or delete your account.",
-    },
-    'language': {
-        'page_title': 'Language',
-        'active_page': 'language',
-        'description': "Choose the language you'd like to use across the store.",
-    },
-}
-
-
-@login_required(login_url='accounts:login')
-def settings_placeholder_view(request, page):
-    context = _SETTINGS_PLACEHOLDER_PAGES[page]
-    return render(request, 'accounts/settings_placeholder.html', context)
-
-
 @login_required(login_url='accounts:login')
 def help_center_view(request):
     return render(request, 'accounts/help_center.html', {'active_page': 'help_center'})
@@ -949,3 +935,164 @@ def help_center_view(request):
 @login_required(login_url='accounts:login')
 def about_view(request):
     return render(request, 'accounts/about.html', {'active_page': 'about'})
+
+
+@login_required(login_url='accounts:login')
+def language_view(request):
+    if request.method == 'POST':
+        language = request.POST.get('language')
+        if language in User.Language.values:
+            request.user.language = language
+            request.user.save(update_fields=['language'])
+            request.session['language'] = language
+            messages.success(request, "Language updated.")
+        return redirect('accounts:language')
+
+    return render(request, 'accounts/language.html', {'active_page': 'language'})
+
+
+# ============================================================
+# SESSIONS
+# ============================================================
+
+@login_required(login_url='accounts:login')
+def sessions_view(request):
+    from django.contrib.sessions.models import Session as DjangoSession
+
+    rows = list(request.user.sessions.all())
+    live_keys = set(
+        DjangoSession.objects.filter(
+            session_key__in=[r.session_key for r in rows],
+            expire_date__gt=timezone.now(),
+        ).values_list('session_key', flat=True)
+    )
+    live_rows = [r for r in rows if r.session_key in live_keys]
+
+    # Tracking rows whose real session already expired (idle timeout, natural
+    # expiry) are just dead weight — drop them the next time anyone looks.
+    stale_ids = [r.pk for r in rows if r.session_key not in live_keys]
+    if stale_ids:
+        UserSession.objects.filter(pk__in=stale_ids).delete()
+
+    return render(request, 'accounts/sessions.html', {
+        'sessions': live_rows,
+        'current_session_key': request.session.session_key,
+        'active_page': 'sessions',
+    })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def session_revoke(request, pk):
+    from django.contrib.sessions.models import Session as DjangoSession
+
+    target = get_object_or_404(UserSession, pk=pk, user=request.user)
+    if target.session_key == request.session.session_key:
+        messages.error(request, "That's your current session — use Sign out for that instead.")
+        return redirect('accounts:sessions')
+
+    DjangoSession.objects.filter(session_key=target.session_key).delete()
+    target.delete()
+    messages.success(request, "Session logged out.")
+    return redirect('accounts:sessions')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def session_logout_all_others(request):
+    revoke_other_sessions(request.user, keep_session_key=request.session.session_key)
+    messages.success(request, "Logged out of all other sessions.")
+    return redirect('accounts:sessions')
+
+
+# ============================================================
+# PRIVACY & DATA — Account deactivation
+# ============================================================
+
+@login_required(login_url='accounts:login')
+def privacy_view(request):
+    return render(request, 'accounts/privacy.html', {'active_page': 'privacy'})
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def deactivate_account_request(request):
+    """Entry point when Two-Factor Authentication is on — sends a
+    confirmation link instead of deactivating right away."""
+    user = request.user
+    if not user.two_factor_enabled:
+        return redirect('accounts:privacy')
+
+    try:
+        send_account_deactivation_verification(user, request)
+        messages.success(request, "We've emailed you a secure link to confirm account deactivation.")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Email send failed: {e}")
+        messages.error(request, f"Failed to send email: {e}")
+    return redirect('accounts:privacy')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def deactivate_account_confirm(request):
+    """Direct deactivation path when Two-Factor Authentication is off —
+    password confirmation happens right here on the Privacy page, gated by
+    a JS confirm() pop-up before the form even submits."""
+    user = request.user
+    if user.two_factor_enabled:
+        messages.error(request, "Two-factor authentication is enabled. Use \"Deactivate Account\" to request a secure email link instead.")
+        return redirect('accounts:privacy')
+
+    password = request.POST.get('password', '')
+    if not user.check_password(password):
+        messages.error(request, "Incorrect password. Your account was not deactivated.")
+        return redirect('accounts:privacy')
+
+    deactivate_account(user)
+    logout(request)
+    messages.success(request, "Your account has been deactivated. We're sorry to see you go.")
+    return redirect('accounts:login')
+
+
+def confirm_account_deactivation(request, token):
+    """Landing page for the emailed account-deactivation link. Not
+    login-gated — the token identifies the account, and the password
+    re-entered here proves it's really the account owner. Same 3-attempt
+    lockout as the password-change confirmation flow."""
+    try:
+        token_obj = VerificationToken.objects.select_related('user').get(
+            token=token, purpose=VerificationToken.PURPOSE_ACCOUNT_DEACTIVATE
+        )
+    except VerificationToken.DoesNotExist:
+        messages.error(request, "Invalid account deactivation link.")
+        return redirect('accounts:login')
+
+    if not token_obj.is_valid:
+        messages.error(request, "This link has expired or was already used. Request a new one from Settings.")
+        return redirect('accounts:login')
+
+    user = token_obj.user
+
+    if request.method == 'POST':
+        password = request.POST.get('password', '')
+
+        if not user.check_password(password):
+            blocked = token_obj.register_failed_attempt()
+            if blocked:
+                messages.error(request, "Too many incorrect attempts. Please request a new deactivation email.")
+                return redirect('accounts:login')
+            remaining = VerificationToken.MAX_ATTEMPTS - token_obj.attempts
+            messages.error(request, f"Incorrect password. {remaining} attempt(s) left.")
+            return render(request, 'accounts/confirm_account_deactivation.html', {'token': token})
+
+        token_obj.consume()
+        deactivate_account(user)
+
+        if request.user.is_authenticated and request.user.pk == user.pk:
+            logout(request)
+
+        messages.success(request, "Your account has been deactivated. We're sorry to see you go.")
+        return redirect('accounts:login')
+
+    return render(request, 'accounts/confirm_account_deactivation.html', {'token': token})

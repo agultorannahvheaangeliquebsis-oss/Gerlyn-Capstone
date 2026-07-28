@@ -1,5 +1,6 @@
 {% extends "public_base.html" %}
 {% load static %}
+{% load i18n_extra %}
 
 {% block title %}Help Center — Gerlyn Variety Store{% endblock %}
 
@@ -26,15 +27,15 @@
 
   <!-- Breadcrumb -->
   <nav class="breadcrumb" aria-label="breadcrumb">
-    <a href="/">Home</a>
+    <a href="/">{% t "Home" %}</a>
     <span class="sep">›</span>
-    <a href="{% url 'accounts:profile' %}">Settings</a>
+    <a href="{% url 'accounts:profile' %}">{% t "Settings" %}</a>
     <span class="sep">›</span>
-    <span class="current">Help Center</span>
+    <span class="current">{% t "Help Center" %}</span>
   </nav>
 
-  <h1 class="gv-page-title" style="margin-bottom:4px;">Settings</h1>
-  <p class="gv-meta" style="margin-bottom:24px;">Manage your profile, addresses, and preferences</p>
+  <h1 class="gv-page-title" style="margin-bottom:4px;">{% t "Settings" %}</h1>
+  <p class="gv-meta" style="margin-bottom:24px;">{% t "Manage your profile, addresses, and preferences" %}</p>
 
   <div class="account-grid">
 
@@ -43,43 +44,43 @@
     <!-- ── Right content ── -->
     <div class="account-card">
       <div class="account-card-head">
-        <span class="account-card-title">Help Center</span>
+        <span class="account-card-title">{% t "Help Center" %}</span>
       </div>
       <div class="account-card-body">
 
         <details class="faq-item" open>
-          <summary>How do I change my password?</summary>
-          <p>Go to Settings → My Profile → Password &amp; Security → Change. If Two-Factor Authentication is on, we'll email you a secure link to confirm the change instead of changing it right away.</p>
+          <summary>{% t "How do I change my password?" %}</summary>
+          <p>{% t "Go to Settings → My Profile → Password & Security → Change. If Two-Factor Authentication is on, we'll email you a secure link to confirm the change instead of changing it right away." %}</p>
         </details>
 
         <details class="faq-item">
-          <summary>What is Two-Factor Authentication and how do I turn it on?</summary>
-          <p>It's an extra security step: once enabled, password changes must be confirmed via a link sent to your email, not just the current-password form. Toggle it from Settings → My Profile → Password &amp; Security — you'll be asked to confirm your current password first.</p>
+          <summary>{% t "What is Two-Factor Authentication and how do I turn it on?" %}</summary>
+          <p>{% t "It's an extra security step: once enabled, password changes must be confirmed via a link sent to your email, not just the current-password form. Toggle it from Settings → My Profile → Password & Security — you'll be asked to confirm your current password first." %}</p>
         </details>
 
         <details class="faq-item">
-          <summary>How do I add or change my delivery address?</summary>
-          <p>Go to Settings → Addresses → Add Address. Pick your Region, Province, City/Municipality, and Barangay, then drag the pin on the map to your exact spot — the address text updates to match. Your default address is the one used for delivery; to change it, add a new address and set it as default.</p>
+          <summary>{% t "How do I add or change my delivery address?" %}</summary>
+          <p>{% t "Go to Settings → Addresses → Add Address. Pick your Region, Province, City/Municipality, and Barangay, then drag the pin on the map to your exact spot — the address text updates to match. Your default address is the one used for delivery; to change it, add a new address and set it as default." %}</p>
         </details>
 
         <details class="faq-item">
-          <summary>What payment methods do you accept?</summary>
-          <p>Cash, GCash, Card, Bank Transfer, Cash on Delivery, and Pay at Store.</p>
+          <summary>{% t "What payment methods do you accept?" %}</summary>
+          <p>{% t "Cash, GCash, Card, Bank Transfer, Cash on Delivery, and Pay at Store." %}</p>
         </details>
 
         <details class="faq-item">
-          <summary>Do you deliver outside Baliuag?</summary>
-          <p>Delivery is free within Baliuag on orders over ₱500. For areas outside Baliuag, please reach out to your nearest branch (see the About page) to confirm coverage and delivery fees.</p>
+          <summary>{% t "Do you deliver outside Baliuag?" %}</summary>
+          <p>{% t "Delivery is free within Baliuag on orders over ₱500. For areas outside Baliuag, please reach out to your nearest branch (see the About page) to confirm coverage and delivery fees." %}</p>
         </details>
 
         <details class="faq-item">
-          <summary>How do I control what notifications I get?</summary>
-          <p>Go to Settings → Notifications to turn order updates, promotions, delivery reminders, and the newsletter on or off individually.</p>
+          <summary>{% t "How do I control what notifications I get?" %}</summary>
+          <p>{% t "Go to Settings → Notifications to turn order updates, promotions, delivery reminders, and the newsletter on or off individually." %}</p>
         </details>
 
         <details class="faq-item">
-          <summary>Still need help?</summary>
-          <p>Visit or call your nearest Gerlyn Variety Store branch — Tarcan, Makinabang, or Tiaong Baliwag Mini Mart — listed on the About page.</p>
+          <summary>{% t "Still need help?" %}</summary>
+          <p>{% t "Visit or call your nearest Gerlyn Variety Store branch — Tarcan, Makinabang, or Tiaong Baliwag Mini Mart — listed on the About page." %}</p>
         </details>
 
       </div>

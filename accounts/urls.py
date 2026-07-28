@@ -62,9 +62,14 @@ urlpatterns = [
     path('profile/notification-preferences/update/', views.notification_preferences_update, name='notification_preferences_update'),
 
     # --- New: Settings hub — Sessions / Privacy & Data / Language / Help / About ---
-    path('profile/sessions/', views.settings_placeholder_view, {'page': 'sessions'}, name='sessions'),
-    path('profile/privacy/', views.settings_placeholder_view, {'page': 'privacy'}, name='privacy'),
-    path('profile/language/', views.settings_placeholder_view, {'page': 'language'}, name='language'),
+    path('profile/sessions/', views.sessions_view, name='sessions'),
+    path('profile/sessions/<int:pk>/revoke/', views.session_revoke, name='session_revoke'),
+    path('profile/sessions/logout-others/', views.session_logout_all_others, name='session_logout_all_others'),
+    path('profile/privacy/', views.privacy_view, name='privacy'),
+    path('profile/privacy/deactivate/', views.deactivate_account_confirm, name='deactivate_account_confirm'),
+    path('profile/privacy/deactivate/request-email/', views.deactivate_account_request, name='deactivate_account_request'),
+    path('account-deactivation/confirm/<uuid:token>/', views.confirm_account_deactivation, name='confirm_account_deactivation'),
+    path('profile/language/', views.language_view, name='language'),
     path('help-center/', views.help_center_view, name='help_center'),
     path('about/', views.about_view, name='about'),
 ]

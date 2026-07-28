@@ -18,6 +18,10 @@ class User(AbstractUser):
         SUPPLIER       = 'SUPPLIER', 'Supplier'
         CUSTOMER       = 'CUSTOMER', 'Customer'
 
+    class Language(models.TextChoices):
+        ENGLISH  = 'en', 'English'
+        FILIPINO = 'fil', 'Filipino'
+
     role = models.CharField(
         max_length=20, choices=Role.choices, default=Role.CUSTOMER
     )
@@ -30,6 +34,9 @@ class User(AbstractUser):
     is_email_verified = models.BooleanField(default=False)
     pending_email     = models.EmailField(null=True, blank=True)
     two_factor_enabled = models.BooleanField(default=False)
+    language = models.CharField(
+        max_length=8, choices=Language.choices, default=Language.ENGLISH
+    )
 
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
@@ -59,10 +66,12 @@ class VerificationToken(models.Model):
     PURPOSE_EMAIL_VERIFY    = 'EMAIL_VERIFY'
     PURPOSE_EMAIL_CHANGE    = 'EMAIL_CHANGE'
     PURPOSE_PASSWORD_CHANGE = 'PASSWORD_CHANGE'
+    PURPOSE_ACCOUNT_DEACTIVATE = 'ACCOUNT_DEACTIVATE'
     PURPOSE_CHOICES = [
         (PURPOSE_EMAIL_VERIFY, 'Initial email verification'),
         (PURPOSE_EMAIL_CHANGE, 'Email change verification'),
         (PURPOSE_PASSWORD_CHANGE, 'Password change verification'),
+        (PURPOSE_ACCOUNT_DEACTIVATE, 'Account deactivation verification'),
     ]
     EXPIRY_HOURS = 24
     MAX_ATTEMPTS = 3
@@ -235,6 +244,34 @@ class NotificationPreference(models.Model):
 
     def __str__(self):
         return f"Notification preferences for {self.user.username}"
+
+
+class UserSession(models.Model):
+    """Tracks one row per active login (per Django session), so Settings >
+    Sessions can list and individually revoke them. Django's own session
+    store has no user->sessions index, so this is what makes that
+    queryable without scanning every session in the table.
+
+    Rows are created on login and deleted on logout (both regular and the
+    idle-timeout logout), and pruned lazily on read against whichever
+    django_session rows are still unexpired — no separate cleanup job.
+    """
+    user         = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sessions')
+    session_key  = models.CharField(max_length=40, unique=True)
+    ip_address   = models.GenericIPAddressField(null=True, blank=True)
+    user_agent   = models.CharField(max_length=255, blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+    last_active  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-last_active']
+
+    def __str__(self):
+        return f"Session for {self.user.username} ({self.session_key[:8]}…)"
+
+    def device_label(self):
+        from .device_info import describe_user_agent
+        return describe_user_agent(self.user_agent)
 
 
 class SupplierProfile(models.Model):

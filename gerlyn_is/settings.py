@@ -92,6 +92,12 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Sets request.LANGUAGE for the {% t %} template tag, from the user's
+    # saved Settings > Language preference (or session, for anonymous users).
+    'accounts.middleware.LanguageMiddleware',
+    # Keeps accounts.UserSession in sync with real Django sessions, for
+    # Settings > Sessions (list/revoke active logins).
+    'accounts.middleware.SessionTrackingMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Backs the idle-timeout / back-button auth guard: blocks the browser
