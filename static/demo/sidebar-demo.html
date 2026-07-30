@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sidebar redesign — demo</title>
+<link rel="stylesheet" href="sidebar-demo.css">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" defer></script>
+</head>
+<body>
+
+<div class="demo-page">
+
+  <!-- ============================================================ SIDEBAR
+       data-state toggles between "expanded" and "collapsed" — see
+       sidebar-demo.css for the visual rules and sidebar-demo.js for the
+       toggle + tree interaction logic. -->
+  <aside class="sb" id="sb" data-state="expanded">
+
+    <div class="sb-head">
+      <div class="sb-logo">
+        <span class="sb-logo-mark"><i data-lucide="boxes"></i></span>
+        <span class="sb-logo-text">Gerlyn<span class="accent">PLUS</span></span>
+      </div>
+      <button type="button" class="sb-toggle" id="sbToggle" aria-label="Collapse sidebar" aria-expanded="true">
+        <i data-lucide="chevron-left"></i>
+      </button>
+    </div>
+
+    <button type="button" class="sb-add" title="Add New">
+      <i data-lucide="plus"></i>
+      <span class="sb-label">Add New</span>
+    </button>
+
+    <nav class="sb-nav" aria-label="Primary">
+      <a class="sb-item" href="#" title="Home">
+        <i data-lucide="home"></i>
+        <span class="sb-label">Home</span>
+      </a>
+
+      <div class="sb-tree-root">
+        <button type="button" class="sb-tree-toggle" data-target="tree-mydrive" data-active="true" aria-expanded="true" title="My Drive">
+          <i data-lucide="hard-drive"></i>
+          <span class="sb-label">My Drive</span>
+          <i class="sb-chevron" data-lucide="chevron-right"></i>
+        </button>
+        <ul class="sb-tree open" id="tree-mydrive">
+          <li class="sb-tree-inner">
+
+            <div class="sb-tree-branch">
+              <button type="button" class="sb-tree-toggle" data-target="tree-exdep" aria-expanded="true">
+                <i class="sb-tree-icon" data-lucide="folder"></i>
+                <span class="sb-label">Ex / Dependency</span>
+                <i class="sb-chevron" data-lucide="chevron-right"></i>
+              </button>
+              <ul class="sb-tree open" id="tree-exdep">
+                <li class="sb-tree-inner">
+
+                  <div class="sb-tree-branch">
+                    <button type="button" class="sb-tree-toggle" data-target="tree-babel" aria-expanded="false">
+                      <i class="sb-tree-icon" data-lucide="folder"></i>
+                      <span class="sb-label">Babel</span>
+                      <i class="sb-chevron" data-lucide="chevron-right"></i>
+                    </button>
+                    <ul class="sb-tree" id="tree-babel">
+                      <li class="sb-tree-inner">
+                        <a class="sb-tree-file" href="#">
+                          <i class="sb-tree-icon" data-lucide="file-code"></i>
+                          <span class="sb-label">preset-env.js</span>
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <a class="sb-tree-file sb-tree-file--active" href="#">
+                    <i class="sb-tree-icon" data-lucide="file-image"></i>
+                    <span class="sb-label">Rules.png</span>
+                  </a>
+                  <a class="sb-tree-file" href="#">
+                    <i class="sb-tree-icon" data-lucide="file-code"></i>
+                    <span class="sb-label">webpack.config.js</span>
+                  </a>
+                  <a class="sb-tree-file" href="#">
+                    <i class="sb-tree-icon" data-lucide="file-code"></i>
+                    <span class="sb-label">package-lock.js</span>
+                  </a>
+
+                </li>
+              </ul>
+            </div>
+
+            <div class="sb-tree-branch">
+              <button type="button" class="sb-tree-toggle" data-target="tree-database" aria-expanded="false">
+                <i class="sb-tree-icon" data-lucide="folder"></i>
+                <span class="sb-label">Database</span>
+                <i class="sb-chevron" data-lucide="chevron-right"></i>
+              </button>
+              <ul class="sb-tree" id="tree-database">
+                <li class="sb-tree-inner">
+                  <a class="sb-tree-file" href="#">
+                    <i class="sb-tree-icon" data-lucide="file-code"></i>
+                    <span class="sb-label">schema.sql</span>
+                  </a>
+                  <a class="sb-tree-file" href="#">
+                    <i class="sb-tree-icon" data-lucide="file-code"></i>
+                    <span class="sb-label">seed.sql</span>
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+          </li>
+        </ul>
+      </div>
+
+      <a class="sb-item" href="#" title="Computer">
+        <i data-lucide="monitor"></i>
+        <span class="sb-label">Computer</span>
+      </a>
+      <a class="sb-item" href="#" title="Recent">
+        <i data-lucide="history"></i>
+        <span class="sb-label">Recent</span>
+      </a>
+      <a class="sb-item" href="#" title="Trash">
+        <i data-lucide="trash-2"></i>
+        <span class="sb-label">Trash</span>
+      </a>
+    </nav>
+
+    <div class="sb-channel">
+      <span class="sb-label">Channel / QuaCreative</span>
+      <i data-lucide="repeat-2"></i>
+    </div>
+
+    <nav class="sb-nav" aria-label="Secondary">
+      <a class="sb-item" href="#" title="Starred">
+        <i data-lucide="star"></i>
+        <span class="sb-label">Starred</span>
+      </a>
+      <a class="sb-item" href="#" title="Timeline">
+        <i data-lucide="activity"></i>
+        <span class="sb-label">Timeline</span>
+      </a>
+    </nav>
+
+  </aside>
+
+  <!-- ======================================================== DEMO CONTENT
+       Not part of the component — just context for reviewing it in place. -->
+  <main class="demo-main">
+    <div class="demo-card">
+      <h1>Sidebar redesign — review demo</h1>
+      <p>Standalone preview of the new floating-card sidebar, styled to match the reference screenshot. This is not wired into the app yet — once approved, this markup/CSS/JS gets folded into <code>templates/internal_base.html</code> and <code>static/css/gerlyn.css</code>, with the tree content swapped for real nav (Inventory, Procurement, Financials, etc.).</p>
+      <p class="demo-kbd">Click the chevron in the sidebar header to toggle <strong>collapsed</strong> / <strong>expanded</strong>. Click <strong>My Drive</strong>, <strong>Ex / Dependency</strong>, <strong>Babel</strong>, or <strong>Database</strong> to expand/collapse that branch.</p>
+    </div>
+    <div class="demo-card">
+      <h1 style="font-size:15px;">Event log</h1>
+      <div class="demo-log" id="demoLog"></div>
+    </div>
+  </main>
+
+</div>
+
+<script src="sidebar-demo.js" defer></script>
+<script defer>
+  window.addEventListener('DOMContentLoaded', function () {
+    if (window.lucide) lucide.createIcons();
+  });
+</script>
+</body>
+</html>

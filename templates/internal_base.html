@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
-  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=10">
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=12">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" defer></script>
   {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -18,124 +19,134 @@
 <div class="app">
 
   <!-- ============================ SIDEBAR (desktop) ==================== -->
-  <aside class="sidebar">
-    <div class="sidebar-top">
-      <div class="brand">
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-head">
+      <div class="sb-logo">
         <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
-        <span>
-          <span class="brand-name">Gerlyn Variety Store</span><br>
-          <span class="brand-sub">Internal System</span>
+        <span class="sb-logo-text">
+          <span class="sb-label sb-logo-name">Gerlyn Variety Store</span>
+          <span class="sb-label sb-logo-sub">Internal System</span>
         </span>
       </div>
-      <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Collapse sidebar" title="Collapse sidebar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M14 10l-2 2 2 2"/></svg>
+      <button type="button" class="sb-toggle" id="sidebarToggle" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+        <i data-lucide="chevron-left"></i>
       </button>
     </div>
 
-    <div class="who">
+    <div class="sb-who">
       <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
-      <span>
-        <span class="who-name">{{ request.user.get_full_name|default:request.user.username }}</span><br>
-        <span class="who-role">{{ request.user.get_role_display }}</span>
+      <span class="sb-who-text">
+        <span class="sb-label sb-who-name">{{ request.user.get_full_name|default:request.user.username }}</span>
+        <span class="sb-label sb-who-role">{{ request.user.get_role_display }}</span>
       </span>
     </div>
 
-    <nav class="nav">
+    <nav class="sb-nav" aria-label="Primary">
       {# Dashboard stays a top-level anchor — it's the home target, not a category. #}
-      <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="{{ dash_url }}" title="Dashboard">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-        <span class="nav-label">Dashboard</span>
+      <a class="sb-item {% if active_page == 'dashboard' %}sb-item--active{% endif %}" href="{{ dash_url }}" title="Dashboard">
+        <i data-lucide="layout-dashboard"></i>
+        <span class="sb-label">Dashboard</span>
       </a>
 
       {# ---------------------------------------------------------- Inventory #}
-      <details class="nav-group" data-group="inventory"
-        {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}open{% endif %}>
-        <summary class="nav-group-head" title="Inventory">
-          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
-          <span class="nav-label">Inventory</span>
-          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
-        </summary>
-        <div class="nav-sub">
-          <a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="{% url 'product_list' %}">Product Master List</a>
-          <a class="nav-link {% if active_page == 'categories' %}active{% endif %}" href="{% url 'category_list' %}">Categories</a>
-          <a class="nav-link {% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">Stock per Branch</a>
-          <a class="nav-link {% if active_page == 'withdrawals' %}active{% endif %}" href="{% url 'transfer_list' %}">Withdrawal Slips</a>
-        </div>
-      </details>
+      <div class="sb-tree-root">
+        <button type="button" class="sb-tree-toggle" data-target="tree-inventory" title="Inventory"
+          aria-expanded="{% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}true{% else %}false{% endif %}">
+          <i data-lucide="package"></i>
+          <span class="sb-label">Inventory</span>
+          <i class="sb-chevron" data-lucide="chevron-right"></i>
+        </button>
+        <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}open{% endif %}" id="tree-inventory">
+          <li class="sb-tree-inner">
+            <a class="sb-tree-file {% if active_page == 'products' %}sb-tree-file--active{% endif %}" href="{% url 'product_list' %}"><span class="sb-label">Product Master List</span></a>
+            <a class="sb-tree-file {% if active_page == 'categories' %}sb-tree-file--active{% endif %}" href="{% url 'category_list' %}"><span class="sb-label">Categories</span></a>
+            <a class="sb-tree-file {% if active_page == 'stock' %}sb-tree-file--active{% endif %}" href="{% url 'inventory_list' %}"><span class="sb-label">Stock per Branch</span></a>
+            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Withdrawal Slips</span></a>
+          </li>
+        </ul>
+      </div>
 
       {# -------------------------------------------------------- Procurement #}
-      <details class="nav-group" data-group="procurement"
-        {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}>
-        <summary class="nav-group-head" title="Procurement">
-          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
-          <span class="nav-label">Procurement</span>
-          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
-        </summary>
-        <div class="nav-sub">
-          {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
-          <a class="nav-link {% if active_page == 'suppliers' %}active{% endif %}" href="{% url 'supplier_list' %}">Suppliers</a>
-          {% endif %}
-          <a class="nav-link {% if active_page == 'procurement' %}active{% endif %}" href="{% url 'procurement_list' %}">Purchase Orders</a>
-          <a class="nav-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
-        </div>
-      </details>
+      <div class="sb-tree-root">
+        <button type="button" class="sb-tree-toggle" data-target="tree-procurement" title="Procurement"
+          aria-expanded="{% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}true{% else %}false{% endif %}">
+          <i data-lucide="truck"></i>
+          <span class="sb-label">Procurement</span>
+          <i class="sb-chevron" data-lucide="chevron-right"></i>
+        </button>
+        <ul class="sb-tree {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}" id="tree-procurement">
+          <li class="sb-tree-inner">
+            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            <a class="sb-tree-file {% if active_page == 'suppliers' %}sb-tree-file--active{% endif %}" href="{% url 'supplier_list' %}"><span class="sb-label">Suppliers</span></a>
+            {% endif %}
+            <a class="sb-tree-file {% if active_page == 'procurement' %}sb-tree-file--active{% endif %}" href="{% url 'procurement_list' %}"><span class="sb-label">Purchase Orders</span></a>
+            <a class="sb-tree-file {% if active_page == 'deliveries' %}sb-tree-file--active{% endif %}" href="{% url 'delivery_list' %}"><span class="sb-label">Deliveries</span></a>
+          </li>
+        </ul>
+      </div>
 
       {# --------------------------------------------------------- Financials #}
-      <details class="nav-group" data-group="financials"
-        {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}>
-        <summary class="nav-group-head" title="Financials">
-          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
-          <span class="nav-label">Financials</span>
-          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
-        </summary>
-        <div class="nav-sub">
-          <a class="nav-link {% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">Sales &amp; Orders</a>
-          <a class="nav-link {% if active_page == 'billing' %}active{% endif %}" href="{% url 'billing_list' %}">Billing</a>
-        </div>
-      </details>
+      <div class="sb-tree-root">
+        <button type="button" class="sb-tree-toggle" data-target="tree-financials" title="Financials"
+          aria-expanded="{% if active_page == 'orders' or active_page == 'billing' %}true{% else %}false{% endif %}">
+          <i data-lucide="receipt"></i>
+          <span class="sb-label">Financials</span>
+          <i class="sb-chevron" data-lucide="chevron-right"></i>
+        </button>
+        <ul class="sb-tree {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}" id="tree-financials">
+          <li class="sb-tree-inner">
+            <a class="sb-tree-file {% if active_page == 'orders' %}sb-tree-file--active{% endif %}" href="{% url 'transaction_list' %}"><span class="sb-label">Sales &amp; Orders</span></a>
+            <a class="sb-tree-file {% if active_page == 'billing' %}sb-tree-file--active{% endif %}" href="{% url 'billing_list' %}"><span class="sb-label">Billing</span></a>
+          </li>
+        </ul>
+      </div>
 
       {# -------------------------------------------------- System / Monitoring #}
-      <details class="nav-group" data-group="monitoring"
-        {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}>
-        <summary class="nav-group-head" title="System &amp; Monitoring">
-          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2 6 4-14 2 8h6"/></svg>
-          <span class="nav-label">System &amp; Monitoring</span>
-          {% if alert_count %}<span class="nav-badge nav-badge-head">{{ alert_count }}</span>{% endif %}
-          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
-        </summary>
-        <div class="nav-sub">
-          <a class="nav-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
-          <a class="nav-link {% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
-            Alerts
-            {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
-          </a>
-        </div>
-      </details>
+      <div class="sb-tree-root">
+        <button type="button" class="sb-tree-toggle" data-target="tree-monitoring" title="System &amp; Monitoring"
+          aria-expanded="{% if active_page == 'reports' or active_page == 'alerts' %}true{% else %}false{% endif %}">
+          <i data-lucide="activity"></i>
+          <span class="sb-label">System &amp; Monitoring</span>
+          {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+          <i class="sb-chevron" data-lucide="chevron-right"></i>
+        </button>
+        <ul class="sb-tree {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}" id="tree-monitoring">
+          <li class="sb-tree-inner">
+            <a class="sb-tree-file {% if active_page == 'reports' %}sb-tree-file--active{% endif %}" href="{% url 'reports_dashboard' %}"><span class="sb-label">Reports</span></a>
+            <a class="sb-tree-file {% if active_page == 'alerts' %}sb-tree-file--active{% endif %}" href="{% url 'alerts_center' %}">
+              <span class="sb-label">Alerts</span>
+              {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+            </a>
+          </li>
+        </ul>
+      </div>
 
       {# ------------------------------------------------------ Administration #}
       {% if request.user.role == 'OWNER' %}
-      <details class="nav-group" data-group="administration"
-        {% if active_page == 'branches' or active_page == 'users' %}open{% endif %}>
-        <summary class="nav-group-head" title="Administration">
-          <svg class="nav-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
-          <span class="nav-label">Administration</span>
-          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
-        </summary>
-        <div class="nav-sub">
-          <a class="nav-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">Branch Management</a>
-          <a class="nav-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'accounts:user_list' %}">User Management</a>
-        </div>
-      </details>
+      <div class="sb-tree-root">
+        <button type="button" class="sb-tree-toggle" data-target="tree-administration" title="Administration"
+          aria-expanded="{% if active_page == 'branches' or active_page == 'users' %}true{% else %}false{% endif %}">
+          <i data-lucide="shield"></i>
+          <span class="sb-label">Administration</span>
+          <i class="sb-chevron" data-lucide="chevron-right"></i>
+        </button>
+        <ul class="sb-tree {% if active_page == 'branches' or active_page == 'users' %}open{% endif %}" id="tree-administration">
+          <li class="sb-tree-inner">
+            <a class="sb-tree-file {% if active_page == 'branches' %}sb-tree-file--active{% endif %}" href="{% url 'branch_list' %}"><span class="sb-label">Branch Management</span></a>
+            <a class="sb-tree-file {% if active_page == 'users' %}sb-tree-file--active{% endif %}" href="{% url 'accounts:user_list' %}"><span class="sb-label">User Management</span></a>
+          </li>
+        </ul>
+      </div>
       {% endif %}
     </nav>
 
-    <a class="nav-link" href="{% url 'orders:catalog' %}" target="_blank" rel="noopener noreferrer" title="View Store">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9M3 9v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9M3 9h18M9 21v-6h6v6"/></svg>
-      <span class="nav-label">View Store</span>
+    <a class="sb-item" href="{% url 'orders:catalog' %}" target="_blank" rel="noopener noreferrer" title="View Store">
+      <i data-lucide="store"></i>
+      <span class="sb-label">View Store</span>
     </a>
-    <a class="nav-link danger" href="{% url 'accounts:logout' %}" title="Logout">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
-      <span class="nav-label">Logout</span>
+    <a class="sb-item sb-item--danger" href="{% url 'accounts:logout' %}" title="Logout">
+      <i data-lucide="log-out"></i>
+      <span class="sb-label">Logout</span>
     </a>
   </aside>
 
@@ -152,10 +163,12 @@
           {% block branch_scope %}All Branches{% endblock %}
         </span>
         {% if request.user.role == 'OWNER' %}
-        {# On mobile the sidebar (which holds Administration) is hidden, so the
-           header avatar doubles as the entry point to it there. Desktop keeps
-           using the sidebar; the panel below only renders open at <=860px
-           (see .avatar-menu-panel in gerlyn.css). #}
+        {% comment %}
+          On mobile the sidebar (which holds Administration) is hidden, so the
+          header avatar doubles as the entry point to it there. Desktop keeps
+          using the sidebar; the panel below only renders open at <=860px
+          (see .avatar-menu-panel in gerlyn.css).
+        {% endcomment %}
         <details class="avatar-menu">
           <summary class="avatar-menu-trigger" aria-label="Administration menu" title="Administration">
             <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
@@ -208,79 +221,7 @@
   </nav>
 
 </div>
-<script>
-(function () {
-  var app = document.querySelector('.app');
-  if (!app) return;
-  var groups = document.querySelectorAll('.nav-group[data-group]');
-
-  /* Sidebar dropdowns: remember which categories the user opened across page
-     loads. The group holding the active page is always forced open (server
-     adds `open`), so this only restores the *extra* groups a user chose to
-     expand. Pure progressive enhancement — with JS off, the server-rendered
-     `open` attribute still expands the active category. */
-  var OPEN_KEY = 'gv-nav-open';
-  var savedOpen;
-  try { savedOpen = JSON.parse(localStorage.getItem(OPEN_KEY)) || {}; } catch (e) { savedOpen = {}; }
-  groups.forEach(function (g) {
-    var id = g.getAttribute('data-group');
-    if (savedOpen[id] === true) g.open = true;     // restore user's choice
-    g.addEventListener('toggle', function () {
-      savedOpen[id] = g.open;
-      try { localStorage.setItem(OPEN_KEY, JSON.stringify(savedOpen)); } catch (e) {}
-    });
-  });
-
-  /* Sidebar collapse: remembers the collapsed/expanded state across page
-     loads. A collapsed module has nowhere to show its sub-items, so clicking
-     its icon expands the sidebar back out (smooth width transition, see
-     gerlyn.css) and opens that module, instead of a flyout. */
-  var COLLAPSE_KEY = 'gv-nav-collapsed';
-  var toggle = document.getElementById('sidebarToggle');
-  var collapsed = false;
-  try { collapsed = localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (e) {}
-  applyCollapsed(collapsed);
-
-  if (toggle) {
-    toggle.addEventListener('click', function () {
-      applyCollapsed(!app.classList.contains('sidebar-collapsed'));
-      persistCollapsed();
-    });
-  }
-
-  groups.forEach(function (g) {
-    var head = g.querySelector('.nav-group-head');
-    if (!head) return;
-    head.addEventListener('click', function (e) {
-      if (!app.classList.contains('sidebar-collapsed')) return;
-      e.preventDefault();          // don't let <details> toggle open in place
-      applyCollapsed(false);
-      persistCollapsed();
-      groups.forEach(function (other) { other.open = (other === g); });
-    });
-  });
-
-  function applyCollapsed(isCollapsed) {
-    app.classList.toggle('sidebar-collapsed', isCollapsed);
-    if (toggle) {
-      toggle.setAttribute('aria-label', isCollapsed ? 'Expand sidebar' : 'Collapse sidebar');
-      toggle.setAttribute('title', isCollapsed ? 'Expand sidebar' : 'Collapse sidebar');
-    }
-  }
-  function persistCollapsed() {
-    try { localStorage.setItem(COLLAPSE_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0'); } catch (e) {}
-  }
-
-  /* Header avatar menu (mobile Administration entry point): close it when
-     the user taps/clicks anywhere outside, since <details> only closes
-     natively on re-toggle. */
-  document.addEventListener('click', function (e) {
-    document.querySelectorAll('.avatar-menu[open]').forEach(function (d) {
-      if (!d.contains(e.target)) d.open = false;
-    });
-  });
-})();
-</script>
+<script src="{% static 'js/sidebar.js' %}" defer></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
 </body>
