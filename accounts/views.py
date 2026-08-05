@@ -225,7 +225,7 @@ def user_list(request):
 def user_form(request, pk=None):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     target = get_object_or_404(User, pk=pk) if pk else None
 
@@ -243,7 +243,7 @@ def user_form(request, pk=None):
 
         if target is None and User.objects.filter(username=username).exists():
             messages.error(request, f'Username "{username}" is already taken.')
-            redirect('accounts:user_add')
+            return redirect('accounts:user_add')
 
         if target is None:
             if not password:
@@ -282,7 +282,7 @@ def user_form(request, pk=None):
             profile.save()
 
         messages.success(request, f'User "{username}" saved.')
-        redirect('accounts:user_list')
+        return redirect('accounts:user_list')
 
     profile = _profile_for(target) if target else None
     return render(request, 'accounts/user_form.html', {
@@ -299,7 +299,7 @@ def user_toggle_active(request, pk):
     """Deactivate/reactivate an account without deleting its audit history."""
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     target = get_object_or_404(User, pk=pk)
 
@@ -564,7 +564,7 @@ def verify_email(request, token):
         )
     except VerificationToken.DoesNotExist:
         messages.error(request, "Invalid verification link.")
-        redirect('accounts:login')
+        return redirect('accounts:login')
 
     if not token_obj.is_valid:
         messages.error(request, "This link has expired. Request a new one below.")
