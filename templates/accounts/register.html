@@ -2,6 +2,11 @@
 {% load static %}
 {% block title %}Create Account — Gerlyn Variety Store{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+{% endblock %}
+
 {% block content %}
 <div class="shop-wrap section" style="max-width:480px;">
   <div style="text-align:center; margin-bottom:24px;">
@@ -36,12 +41,33 @@
         <input id="contact_number" type="text" name="contact_number" placeholder="09XX XXX XXXX">
       </div>
       <div class="field">
-        <label for="address">Address</label>
-        <textarea id="address" name="address" rows="2" placeholder="Baliuag, Bulacan"></textarea>
+        <label>Delivery Address</label>
+        <div id="address-summary" class="gv-meta" style="border:1px dashed var(--line); border-radius:var(--r-input); padding:10px 12px; min-height:20px;">
+          No address set yet.
+        </div>
+        <button type="button" class="btn btn-sm" style="margin-top:6px;"
+          onclick="AddressPicker.open({title: 'Set Delivery Address', onConfirm: applyRegisterAddress})">
+          Pin your address on the map
+        </button>
+        <input type="hidden" name="type" id="reg-address-type" value="HOME">
+        <input type="hidden" name="region" id="reg-region">
+        <input type="hidden" name="province" id="reg-province">
+        <input type="hidden" name="city" id="reg-city">
+        <input type="hidden" name="barangay" id="reg-barangay">
+        <input type="hidden" name="street_detail" id="reg-street-detail">
+        <input type="hidden" name="address" id="reg-address-text">
+        <input type="hidden" name="latitude" id="reg-latitude">
+        <input type="hidden" name="longitude" id="reg-longitude">
       </div>
       <div class="field">
         <label for="password1">Password</label>
-        <input id="password1" type="password" name="password1" placeholder="Enter your password" required>
+        <input id="password1" type="password" name="password1" placeholder="Enter your password"
+          pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
+          title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
+          required>
+        <div class="gv-meta" style="margin-top:4px;">
+          Must include an uppercase letter, a number, and a special character.
+        </div>
       </div>
       <div class="field">
         <label for="password2">Confirm Password</label>
@@ -50,8 +76,29 @@
       <button type="submit" class="btn btn-primary" style="width:100%;">Create Account</button>
     </form>
     <p class="gv-meta mt-4" style="text-align:center; margin-bottom:0;">
-      Already have an account? <a href="{% url 'login' %}">Sign in</a>
+      Already have an account? <a href="{% url 'accounts:login' %}">Sign in</a>
     </p>
   </div>
 </div>
+
+{% include "accounts/_address_picker_modal.html" %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{% static 'js/address-picker.js' %}"></script>
+<script>
+function applyRegisterAddress(data) {
+  document.getElementById('reg-address-type').value = data.type;
+  document.getElementById('reg-region').value = data.region;
+  document.getElementById('reg-province').value = data.province;
+  document.getElementById('reg-city').value = data.city;
+  document.getElementById('reg-barangay').value = data.barangay;
+  document.getElementById('reg-street-detail').value = data.street_detail;
+  document.getElementById('reg-address-text').value = data.text;
+  document.getElementById('reg-latitude').value = data.latitude;
+  document.getElementById('reg-longitude').value = data.longitude;
+  document.getElementById('address-summary').textContent = data.text;
+}
+</script>
 {% endblock %}

@@ -383,7 +383,9 @@ class AcceptanceTests(TestCase):
         product.refresh_from_db()
 
         client = self.login('gerlyn')
-        html = client.get(f'/inventory/products/edit/{product.pk}/').content.decode()
+        # GET on the edit URL redirects to the Edit Product modal on the
+        # product list page — follow it to reach the rendered form.
+        html = client.get(f'/inventory/products/edit/{product.pk}/', follow=True).content.decode()
         self.assertIn('value="1345.50"', html, 'number input must not be localised')
         self.assertNotIn('value="1,345.50"', html)
 

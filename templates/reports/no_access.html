@@ -11,7 +11,7 @@
       Your role ({{ request.user.get_role_display }}) can't view this report.
       If you think this is a mistake, ask the Owner to check your account.
     </p>
-    <a class="btn btn-primary mt-2" href="{% url 'home' %}">Back to safety</a>
+    <a class="btn btn-primary mt-2" href="{% url 'accounts:home' %}">Back to safety</a>
   </div>
 </div>
 {% endblock %}

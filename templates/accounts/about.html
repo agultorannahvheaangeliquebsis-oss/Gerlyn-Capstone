@@ -1,0 +1,71 @@
+{% extends "public_base.html" %}
+{% load static %}
+{% load i18n_extra %}
+
+{% block title %}About — Gerlyn Variety Store{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="account-wrap">
+
+  <!-- Breadcrumb -->
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">{% t "Home" %}</a>
+    <span class="sep">›</span>
+    <a href="{% url 'accounts:profile' %}">{% t "Settings" %}</a>
+    <span class="sep">›</span>
+    <span class="current">{% t "About" %}</span>
+  </nav>
+
+  <h1 class="gv-page-title" style="margin-bottom:4px;">{% t "Settings" %}</h1>
+  <p class="gv-meta" style="margin-bottom:24px;">{% t "Manage your profile, addresses, and preferences" %}</p>
+
+  <div class="account-grid">
+
+    {% include "accounts/_account_sidebar.html" %}
+
+    <!-- ── Right content ── -->
+    <div class="account-card">
+      <div class="account-card-head">
+        <span class="account-card-title">{% t "About Gerlyn Variety Store" %}</span>
+      </div>
+      <div class="account-card-body">
+        <div class="stack" style="gap:20px;">
+          <div style="text-align:center;">
+            <span class="brand-mark" style="width:64px; height:64px; border-radius:16px; margin:0 auto 12px;">
+              <img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store" style="width:100%; height:100%; border-radius:16px; object-fit:cover;">
+            </span>
+            <p class="gv-meta" style="margin:0;">{% t "Serving Baliuag, Bulacan and nearby communities." %}</p>
+          </div>
+
+          <div class="info-field">
+            <label>{% t "Our Branches" %}</label>
+            <div class="val">Tarcan &middot; Makinabang &middot; Tiaong Baliwag Mini Mart</div>
+          </div>
+
+          <div class="info-field">
+            <label>{% t "Delivery" %}</label>
+            <div class="val">{% t "Free delivery within Baliuag on orders over ₱500." %}</div>
+          </div>
+
+          <div class="info-field">
+            <label>{% t "Payment Methods" %}</label>
+            <div class="val">Cash, GCash, Card, Bank Transfer, Cash on Delivery, Pay at Store</div>
+          </div>
+
+          <div class="info-field">
+            <label>{% t "Need Help?" %}</label>
+            <div class="val">{% t "Visit our" %} <a href="{% url 'accounts:help_center' %}">{% t "Help Center" %}</a> {% t "or drop by any branch above." %}</div>
+          </div>
+
+          <p class="gv-meta" style="margin:0;">{% t "© 2026 Gerlyn Variety Store · Baliuag, Bulacan · All rights reserved." %}</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

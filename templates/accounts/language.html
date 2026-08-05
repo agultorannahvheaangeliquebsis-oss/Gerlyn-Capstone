@@ -1,0 +1,62 @@
+{% extends "public_base.html" %}
+{% load static %}
+{% load i18n_extra %}
+
+{% block title %}{% t "Language" %} — Gerlyn Variety Store{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="account-wrap">
+
+  <!-- Breadcrumb -->
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">{% t "Home" %}</a>
+    <span class="sep">›</span>
+    <a href="{% url 'accounts:profile' %}">{% t "Settings" %}</a>
+    <span class="sep">›</span>
+    <span class="current">{% t "Language" %}</span>
+  </nav>
+
+  <h1 class="gv-page-title" style="margin-bottom:4px;">{% t "Settings" %}</h1>
+  <p class="gv-meta" style="margin-bottom:24px;">{% t "Manage your profile, addresses, and preferences" %}</p>
+
+  <div class="account-grid">
+
+    {% include "accounts/_account_sidebar.html" %}
+
+    <!-- ── Right content ── -->
+    <div class="account-card">
+      <div class="account-card-head">
+        <span class="account-card-title">{% t "Language" %}</span>
+      </div>
+      <div class="account-card-body">
+        <p class="gv-meta" style="margin-bottom:16px;">{% t "Choose the language you'd like to use across the store." %}</p>
+
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="language" id="language-input" value="{{ request.user.language }}">
+          <div class="type-pill-group" style="margin-bottom:20px;">
+            <button type="button" class="type-pill{% if request.user.language == 'en' %} is-selected{% endif %}" data-lang="en" onclick="selectLanguage(this)">{% t "English" %}</button>
+            <button type="button" class="type-pill{% if request.user.language == 'fil' %} is-selected{% endif %}" data-lang="fil" onclick="selectLanguage(this)">{% t "Filipino" %}</button>
+          </div>
+          <button type="submit" class="btn btn-primary">{% t "Save" %}</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function selectLanguage(btn) {
+  document.querySelectorAll('.type-pill').forEach(function (p) { p.classList.remove('is-selected'); });
+  btn.classList.add('is-selected');
+  document.getElementById('language-input').value = btn.dataset.lang;
+}
+</script>
+{% endblock %}

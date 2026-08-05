@@ -16,7 +16,7 @@
     <div class="row wrap">
       <a class="btn btn-hero" href="{% url 'orders:catalog' %}">Shop Now &rarr;</a>
       {% if not request.user.is_authenticated %}
-        <a class="btn btn-hero-ghost" href="{% url 'register' %}">Create Account</a>
+        <a class="btn btn-hero-ghost" href="{% url 'accounts:register' %}">Create Account</a>
       {% endif %}
     </div>
   </div>

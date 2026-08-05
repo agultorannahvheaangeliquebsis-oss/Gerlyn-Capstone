@@ -46,9 +46,21 @@ class Product(models.Model):
         null=True, blank=True,
         help_text="Price for bulk/wholesale orders"
     )
+    description = models.TextField(blank=True)
 
     def __str__(self):
         return f"{self.product_name} ({self.sku_code})"
+
+    @classmethod
+    def next_sku_code(cls):
+        """Next SKU-### in sequence, based on the highest existing numeric suffix."""
+        prefix = 'SKU-'
+        max_num = 0
+        for code in cls.objects.filter(sku_code__startswith=prefix).values_list('sku_code', flat=True):
+            suffix = code[len(prefix):]
+            if suffix.isdigit():
+                max_num = max(max_num, int(suffix))
+        return f'{prefix}{max_num + 1:03d}'
 
 
 class ProductImage(models.Model):

@@ -1,9 +1,11 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db import models, transaction
+from django.db import models, transaction, IntegrityError
 from django.utils import timezone
 from datetime import date
+from decimal import InvalidOperation as DecimalException
 
 from .models import (
     ProductCategory, Product, ProductImage, Inventory,
@@ -36,12 +38,7 @@ def get_user_branch(user):
 # PRODUCT VIEWS
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
-def product_list(request):
-    if request.user.role not in INTERNAL_ROLES:
-        messages.error(request, 'Access denied.')
-        return redirect('home')
-
+def _product_list_context(request):
     products = (
         Product.objects.select_related('category')
         .prefetch_related('inventory_records__branch', 'images')
@@ -71,7 +68,7 @@ def product_list(request):
             availability = ', '.join(names) if names else 'Not stocked'
         rows.append({'product': p, 'availability': availability})
 
-    return render(request, 'inventory/product_list.html', {
+    return {
         'rows': rows,
         'shown_count': len(rows),
         'categories': categories,
@@ -79,7 +76,51 @@ def product_list(request):
         'category_filter': category_filter,
         'total_count': Product.objects.count(),
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
-    })
+        'unit_choices': Product.UnitOfMeasure.choices,
+        'next_sku': Product.next_sku_code(),
+        'branches': Branch.objects.all(),
+        'add_selected_branches': None,  # None = fresh modal, default all branches checked
+    }
+
+
+def _edit_modal_values(product, form_data=None):
+    """Field values for the Edit Product modal: posted values win (so a
+    validation error redisplays what the user typed), otherwise fall back
+    to the product's current values (fresh open from the list page)."""
+    def pick(field, product_value):
+        posted = form_data.get(field) if form_data else None
+        return posted if posted not in (None, '') else product_value
+
+    return {
+        'sku_code': product.sku_code,  # locked — never editable via this form
+        'product_name': pick('product_name', product.product_name),
+        'category_id': pick('category', str(product.category_id or '')),
+        'unit_of_measure': pick('unit_of_measure', product.unit_of_measure),
+        'unit_price': pick('unit_price', product.unit_price),
+        'wholesale_price': pick('wholesale_price', product.wholesale_price),
+        'description': pick('description', product.description),
+    }
+
+
+@login_required(login_url='login')
+def product_list(request):
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    context = _product_list_context(request)
+
+    edit_pk = request.GET.get('edit')
+    if edit_pk and context['can_edit']:
+        product = Product.objects.filter(pk=edit_pk).first()
+        if product:
+            context.update({
+                'show_edit_modal': True,
+                'edit_product': product,
+                'edit_values': _edit_modal_values(product),
+            })
+
+    return render(request, 'inventory/product_list.html', context)
 
 
 @login_required(login_url='login')
@@ -88,94 +129,143 @@ def product_add(request):
         messages.error(request, 'You do not have permission to add products.')
         return redirect('product_list')
 
-    categories = ProductCategory.objects.all()
+    if request.method != 'POST':
+        # The add flow lives in a modal on the product list page now — send
+        # anyone who lands here directly (bookmark, back button) there with
+        # a flag so the page JS opens the modal on load.
+        return redirect(f"{reverse('product_list')}?add=1")
 
-    if request.method == 'POST':
-        with transaction.atomic():
-            product = Product.objects.create(
-                category_id=request.POST.get('category'),
-                sku_code=request.POST.get('sku_code'),
-                product_name=request.POST.get('product_name'),
-                unit_of_measure=request.POST.get('unit_of_measure'),
-                unit_price=request.POST.get('unit_price'),
-                wholesale_price=request.POST.get('wholesale_price') or None,
-            )
+    product_name = request.POST.get('product_name', '').strip()
+    unit_price = request.POST.get('unit_price', '').strip()
+    wholesale_price = request.POST.get('wholesale_price', '').strip()
+    description = request.POST.get('description', '').strip()
+    branch_ids = request.POST.getlist('branches')
 
-            # request.FILES.getlist() returns EVERY file sent under name="images".
-            images = request.FILES.getlist('images')
-            for index, image_file in enumerate(images):
-                ProductImage.objects.create(
-                    product=product,
-                    image=image_file,
-                    is_primary=(index == 0),  # first upload becomes the hero image
+    errors = []
+    if not product_name:
+        errors.append('Product name is required.')
+    if not unit_price:
+        errors.append('Retail price is required.')
+
+    images = request.FILES.getlist('images')
+
+    if not errors:
+        try:
+            with transaction.atomic():
+                product = Product.objects.create(
+                    category_id=request.POST.get('category') or None,
+                    sku_code=Product.next_sku_code(),
+                    product_name=product_name,
+                    unit_of_measure=request.POST.get('unit_of_measure'),
+                    unit_price=unit_price,
+                    wholesale_price=wholesale_price or None,
+                    description=description,
                 )
-
-        if images:
-            messages.success(
-                request,
-                f'Product added with {len(images)} image(s).'
-            )
+                # request.FILES.getlist() returns EVERY file sent under name="images".
+                for index, image_file in enumerate(images):
+                    ProductImage.objects.create(
+                        product=product,
+                        image=image_file,
+                        is_primary=(index == 0),  # first upload becomes the hero image
+                    )
+                # Availability: a checked branch gets a zero-qty floor Inventory
+                # row so it shows up as stocked and ready for a withdrawal slip.
+                for branch_id in branch_ids:
+                    Inventory.objects.create(product=product, branch_id=branch_id)
+        except (ValueError, TypeError, IntegrityError, DecimalException):
+            errors.append('Could not save the product — check that the prices are valid numbers.')
         else:
-            messages.success(request, 'Product added successfully.')
-        return redirect('product_list')
+            if images:
+                messages.success(request, f'Product added with {len(images)} image(s).')
+            else:
+                messages.success(request, 'Product added successfully.')
+            return redirect('product_list')
 
-    return render(request, 'inventory/product_form.html', {
-        'categories': categories,
-        'unit_choices': Product.UnitOfMeasure.choices,
+    context = _product_list_context(request)
+    context.update({
+        'show_add_modal': True,
+        'add_errors': errors,
+        'add_form_data': request.POST,
+        'add_selected_branches': branch_ids,
     })
+    return render(request, 'inventory/product_list.html', context)
 
 
 @login_required(login_url='login')
 def product_edit(request, pk):
     product = get_object_or_404(Product, pk=pk)
-    categories = ProductCategory.objects.all()
 
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to edit products.')
         return redirect('product_list')
 
-    if request.method == 'POST':
-        with transaction.atomic():
-            product.category_id = request.POST.get('category')
-            product.sku_code = request.POST.get('sku_code')
-            product.product_name = request.POST.get('product_name')
-            product.unit_of_measure = request.POST.get('unit_of_measure')
-            product.unit_price = request.POST.get('unit_price')
-            product.wholesale_price = request.POST.get('wholesale_price') or None
-            product.save()
+    if request.method != 'POST':
+        # The edit flow lives in a modal on the product list page now — send
+        # anyone who lands here directly (bookmark, back button) there with
+        # a flag so the page JS opens the modal on load.
+        return redirect(f"{reverse('product_list')}?edit={pk}")
 
-            # 1. Delete images the user ticked for removal (file + row).
-            delete_ids = request.POST.getlist('delete_images')
-            if delete_ids:
-                for img in product.images.filter(pk__in=delete_ids):
-                    img.image.delete(save=False)  # remove the file from storage
-                    img.delete()
+    product_name = request.POST.get('product_name', '').strip()
+    unit_price = request.POST.get('unit_price', '').strip()
+    wholesale_price = request.POST.get('wholesale_price', '').strip()
+    description = request.POST.get('description', '').strip()
 
-            # 2. Add any newly uploaded images.
-            for image_file in request.FILES.getlist('images'):
-                ProductImage.objects.create(product=product, image=image_file)
+    errors = []
+    if not product_name:
+        errors.append('Product name is required.')
+    if not unit_price:
+        errors.append('Retail price is required.')
 
-            # 3. Resolve which image is primary. Explicit choice wins; otherwise
-            #    make sure something is primary so the storefront always has a hero
-            #    (e.g. if the old primary was just deleted).
-            primary_id = request.POST.get('primary_image')
-            if primary_id:
-                product.images.update(is_primary=False)
-                product.images.filter(pk=primary_id).update(is_primary=True)
-            elif not product.images.filter(is_primary=True).exists():
-                first = product.images.first()
-                if first:
-                    first.is_primary = True
-                    first.save(update_fields=['is_primary'])
+    if not errors:
+        try:
+            with transaction.atomic():
+                product.category_id = request.POST.get('category') or None
+                # sku_code is locked in the edit modal — never trust a posted
+                # value for it, so it can't be tampered with client-side.
+                product.product_name = product_name
+                product.unit_of_measure = request.POST.get('unit_of_measure')
+                product.unit_price = unit_price
+                product.wholesale_price = wholesale_price or None
+                product.description = description
+                product.save()
 
-        messages.success(request, 'Product updated successfully.')
-        return redirect('product_list')
+                # 1. Delete images the user ticked for removal (file + row).
+                delete_ids = request.POST.getlist('delete_images')
+                if delete_ids:
+                    for img in product.images.filter(pk__in=delete_ids):
+                        img.image.delete(save=False)  # remove the file from storage
+                        img.delete()
 
-    return render(request, 'inventory/product_form.html', {
-        'product': product,
-        'categories': categories,
-        'unit_choices': Product.UnitOfMeasure.choices,
+                # 2. Add any newly uploaded images.
+                for image_file in request.FILES.getlist('images'):
+                    ProductImage.objects.create(product=product, image=image_file)
+
+                # 3. Resolve which image is primary. Explicit choice wins; otherwise
+                #    make sure something is primary so the storefront always has a hero
+                #    (e.g. if the old primary was just deleted).
+                primary_id = request.POST.get('primary_image')
+                if primary_id:
+                    product.images.update(is_primary=False)
+                    product.images.filter(pk=primary_id).update(is_primary=True)
+                elif not product.images.filter(is_primary=True).exists():
+                    first = product.images.first()
+                    if first:
+                        first.is_primary = True
+                        first.save(update_fields=['is_primary'])
+        except (ValueError, TypeError, IntegrityError, DecimalException):
+            errors.append('Could not save the product — check that the prices are valid numbers.')
+        else:
+            messages.success(request, 'Product updated successfully.')
+            return redirect('product_list')
+
+    context = _product_list_context(request)
+    context.update({
+        'show_edit_modal': True,
+        'edit_product': product,
+        'edit_errors': errors,
+        'edit_values': _edit_modal_values(product, request.POST),
     })
+    return render(request, 'inventory/product_list.html', context)
 
 
 @login_required(login_url='login')
@@ -206,7 +296,7 @@ def product_delete(request, pk):
 def category_list(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     categories = ProductCategory.objects.annotate(
         product_count=models.Count('products')
@@ -315,7 +405,7 @@ def inventory_list(request):
     # for them, which the branch filter below would read as "show everything".
     if request.user.role not in INTERNAL_ROLES:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     records = Inventory.objects.select_related(
         'product', 'product__category', 'branch'
@@ -380,7 +470,7 @@ def warehouse_stock_list(request):
         User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
     ]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     # Get the warehouse for this user's branch
     user_branch = get_user_branch(request.user)

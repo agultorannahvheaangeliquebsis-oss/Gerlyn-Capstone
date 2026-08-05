@@ -1,0 +1,30 @@
+{% extends "public_base.html" %}
+{% load static %}
+{% block title %}Confirm Account Deactivation — Gerlyn Variety Store{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section" style="max-width:420px;">
+  <div style="text-align:center; margin-bottom:24px;">
+    <span class="brand-mark" style="width:56px; height:56px; border-radius:16px; margin:0 auto 12px;"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
+    <h2>Confirm Account Deactivation</h2>
+    <p class="gv-meta mb-0">For your security, enter your password to continue.</p>
+  </div>
+
+  <div class="card card-pad">
+    <div class="gv-meta" style="background:var(--danger-bg); color:var(--danger-fg); border-radius:var(--r-input); padding:10px 12px; margin-bottom:16px;">
+      This deactivates your account: you'll be signed out everywhere, your profile info is scrubbed, and you won't be able to log back in. It cannot be easily undone.
+    </div>
+    <form method="POST" class="stack" onsubmit="return confirm('Are you absolutely sure you want to deactivate your account? This cannot be easily undone.');">
+      {% csrf_token %}
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" name="password" placeholder="Enter your password" required autofocus>
+      </div>
+      <div class="row" style="gap:10px; margin-top:4px;">
+        <a href="{% url 'accounts:profile' %}" class="btn" style="flex:1; text-align:center;">Cancel</a>
+        <button type="submit" class="btn btn-danger-solid" style="flex:1;">Deactivate Account</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

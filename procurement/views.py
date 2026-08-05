@@ -204,7 +204,7 @@ def delivery_list(request):
     """Pick a purchase order to receive."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     pending = scope_queryset(
         Procurement.objects.select_related('branch', 'supplier')
@@ -223,7 +223,7 @@ def delivery_receive(request, pk):
     """Record the quantities actually delivered against a PO."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     proc = get_object_or_404(
         Procurement.objects.select_related('branch', 'supplier'), pk=pk
@@ -310,7 +310,7 @@ def receiving_history(request):
     """Everything already received, newest first."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     received = scope_queryset(
         Procurement.objects.select_related('branch', 'supplier')
@@ -334,7 +334,7 @@ def receiving_history(request):
 def supplier_portal(request):
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     orders = Procurement.objects.filter(
         supplier=request.user
@@ -376,7 +376,7 @@ def supplier_set_delivery_date(request, pk):
     """The supplier commits to (or revises) a delivery date on their own order."""
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     proc = get_object_or_404(Procurement, pk=pk, supplier=request.user)
 
@@ -407,7 +407,7 @@ def supplier_set_delivery_date(request, pk):
 def supplier_list(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     suppliers = User.objects.filter(role=User.Role.SUPPLIER).select_related(
         'supplier_profile'

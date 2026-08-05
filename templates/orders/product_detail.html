@@ -72,7 +72,7 @@
       </div>
 
       {% if not request.user.is_authenticated %}
-        <a class="btn btn-primary" href="{% url 'login' %}">Log in to buy</a>
+        <a class="btn btn-primary" href="{% url 'accounts:login' %}">Log in to buy</a>
       {% elif not selected_branch_id %}
         <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
       {% else %}

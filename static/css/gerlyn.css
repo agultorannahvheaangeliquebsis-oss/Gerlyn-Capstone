@@ -157,6 +157,16 @@ input::placeholder { color: var(--ink-400); }
   color: var(--action);
 }
 
+/* Inline field-level error, shown directly under an invalid input. */
+.field.field-float input.is-invalid {
+  border-color: var(--danger-dot);
+}
+.field-error {
+  margin: calc(-1 * var(--s4) + 6px) 0 0;
+  font: 500 13px/1.4 system-ui, sans-serif;
+  color: var(--danger-fg);
+}
+
 /* ----------------------------------------------------------------- cards */
 .card {
   background: var(--surface);
@@ -262,14 +272,33 @@ input::placeholder { color: var(--ink-400); }
 .banner-info    { background: var(--info-bg);   color: var(--info-fg); }
 
 /* ---------------------------------------------------------------- layout */
-.app { min-height: 100vh; }
+.app { min-height: 100vh; --sidebar-gap: 16px; --sidebar-w: 304px; }
+.app.sidebar-collapsed { --sidebar-w: 80px; }
+
+/* Floating card rail — inset from the viewport edges (vs. the old flush,
+   full-height panel) with a soft shadow, per the redesign reference. */
 .sidebar {
-  position: fixed; inset: 0 auto 0 0; width: 248px;
-  background: var(--surface); border-right: 1px solid var(--line);
+  position: fixed; top: var(--sidebar-gap); left: var(--sidebar-gap); bottom: var(--sidebar-gap);
+  width: var(--sidebar-w); z-index: 10;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 8px 28px rgba(23, 37, 30, .10), 0 1px 3px rgba(23, 37, 30, .06);
   display: flex; flex-direction: column; padding: var(--s4) var(--s3);
-  overflow-y: auto;
+  overflow: hidden;
+  transition: width .26s cubic-bezier(.4, 0, .2, 1);
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px var(--s4); }
+.sb-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s2); }
+.sb-toggle {
+  flex: none; width: 30px; height: 30px; margin-top: 4px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 9999px;
+  background: var(--surface); color: var(--ink-600); cursor: pointer;
+}
+.sb-toggle:hover { background: var(--line-soft); color: var(--ink-900); }
+.sb-toggle svg { width: 16px; height: 16px; transition: transform .22s ease; }
+.app.sidebar-collapsed .sb-toggle svg { transform: rotate(180deg); }
+
+.sb-logo { display: flex; align-items: center; gap: 10px; padding: 4px 8px var(--s4); min-width: 0; }
 .brand-mark {
   width: 36px; height: 36px; border-radius: 10px; flex: none;
   background: var(--brand); color: #fff;
@@ -278,10 +307,16 @@ input::placeholder { color: var(--ink-400); }
   overflow: hidden;
 }
 .brand-mark img { max-width: 100%; max-height: 40px; width: 100%; height: 100%; object-fit: cover; display: block; }
-.brand-name { font: 750 15px/1.2 system-ui, sans-serif; }
-.brand-sub { font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-400); }
+/* min-width: 0 on the wrapper lets it shrink inside the .sb-logo flex row;
+   display: block on the labels themselves is required for their inherited
+   .sb-label overflow/text-overflow rules to apply — those are no-ops on a
+   plain inline <span>, which is what let long store names get hard-clipped
+   by the sidebar instead of ellipsizing. */
+.sb-logo-text { min-width: 0; flex: 1 1 auto; }
+.sb-logo-name { display: block; font: 750 15px/1.2 system-ui, sans-serif; }
+.sb-logo-sub { display: block; font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-400); }
 
-.who {
+.sb-who {
   display: flex; align-items: center; gap: 10px;
   padding: 10px; margin-bottom: var(--s4);
   background: var(--green-50); border-radius: var(--r-card);
@@ -292,77 +327,169 @@ input::placeholder { color: var(--ink-400); }
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px;
 }
-.who-name { font: 600 14px/1.2 system-ui, sans-serif; }
-.who-role { font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-600); }
+.sb-who-text { min-width: 0; flex: 1 1 auto; }
+.sb-who-name { display: block; font: 600 14px/1.2 system-ui, sans-serif; }
+.sb-who-role { display: block; font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-600); }
 
-.nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-.nav-section { padding: var(--s4) 8px 6px; }
-.nav-link {
-  display: flex; align-items: center; gap: 10px;
-  min-height: var(--touch); padding: 0 12px;
-  border-radius: var(--r-input);
-  color: var(--ink-700); text-decoration: none;
-  font: 600 14.5px/1 system-ui, sans-serif;
+/* --------------------------------------------------------------- nav rows
+   Shared row look for top-level links, tree-group headers, and tree files. */
+/* flex: 1 + min-height: 0 lets this be the ONLY part of the sidebar that
+   scrolls — the logo/user block above and View Store/Logout below stay
+   pinned in view no matter how many groups are expanded, instead of the
+   whole rail scrolling and cutting a row off mid-height at the edge. */
+.sb-nav {
+  display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
 }
-.nav-link:hover { background: var(--line-soft); color: var(--ink-900); }
-.nav-link.active { background: var(--green-50); color: var(--action-700); }
-.nav-link svg { width: 18px; height: 18px; flex: none; }
+.sb-nav + .sb-nav { margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line); }
+
+.sb-item, .sb-tree-toggle, .sb-tree-file {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: var(--touch); padding: 0 12px;
+  border: 0; border-radius: 9999px;
+  background: transparent; color: var(--ink-700); text-decoration: none;
+  font: 600 14.5px/1.3 system-ui, sans-serif; cursor: pointer; text-align: left;
+}
+.sb-item:hover, .sb-tree-toggle:hover, .sb-tree-file:hover { background: var(--line-soft); color: var(--ink-900); }
+.sb-item svg, .sb-tree-toggle > svg:first-child { width: 18px; height: 18px; flex: none; }
+
+/* Active/selected item: solid dark-forest-green pill, white text for AA
+   contrast. The explicit :hover pairing keeps it from reverting to the
+   grey hover style (equal-specificity tie would otherwise let :hover win). */
+.sb-item--active,
+.sb-item--active:hover {
+  background: var(--action-700); color: #fff;
+}
+.sb-item--danger { color: var(--danger-fg); }
+.sb-item--danger:hover { background: var(--danger-bg); }
+
 .nav-badge {
-  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px;
+  flex: none; margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px;
   border-radius: var(--r-pill); background: var(--danger-dot); color: #fff;
   font: 700 11.5px/20px system-ui, sans-serif; text-align: center;
 }
-.nav-link.danger { color: var(--danger-fg); }
-.nav-link.danger:hover { background: var(--danger-bg); }
 
-/* --------------------------------------------------- grouped nav dropdowns */
-.nav-group { border-radius: var(--r-input); }
+/* --------------------------------------------------- grouped nav dropdowns
+   Each group is a button header + a collapsible <ul> of sub-links, animated
+   with a CSS grid 0fr->1fr trick (no JS height measuring needed). */
+.sb-tree-root { display: flex; flex-direction: column; gap: 2px; }
 
-/* Category header = <summary>. Reset the native disclosure triangle. */
-.nav-group-head {
-  display: flex; align-items: center; gap: 10px;
-  min-height: var(--touch); padding: 0 12px;
-  border-radius: var(--r-input); cursor: pointer;
-  color: var(--ink-700); font: 600 14.5px/1 system-ui, sans-serif;
-  list-style: none; user-select: none; -webkit-tap-highlight-color: transparent;
-}
-.nav-group-head::-webkit-details-marker { display: none; }
-.nav-group-head:hover { background: var(--line-soft); color: var(--ink-900); }
-.nav-group-icon { width: 18px; height: 18px; flex: none; }
+.sb-chevron { margin-left: auto; width: 16px; height: 16px; flex: none; color: var(--ink-400); transition: transform .22s ease; }
+.nav-badge + .sb-chevron { margin-left: 8px; }
+.sb-tree-toggle[aria-expanded="true"] .sb-chevron { transform: rotate(90deg); }
 
-/* Chevron sits at the far right and rotates down when the group is open. */
-.nav-chevron {
-  width: 16px; height: 16px; flex: none; margin-left: auto;
-  color: var(--ink-400); transition: transform .18s ease;
-}
-.nav-group[open] > .nav-group-head .nav-chevron { transform: rotate(90deg); }
+/* Active-branch cue: when a child link is active, tint the group header and
+   run a green accent rail down its sub-items so the open branch reads clearly. */
+.sb-tree-root:has(.sb-tree-file--active) > .sb-tree-toggle { color: var(--action-700); }
+.sb-tree-root:has(.sb-tree-file--active) > .sb-tree-toggle > svg:first-child { color: var(--action); }
+.sb-tree-root:has(.sb-tree-file--active) > .sb-tree { border-left-color: var(--green-300); }
 
-/* A count badge on the header shares the row with the chevron. */
-.nav-badge-head { margin-left: auto; }
-.nav-badge-head + .nav-chevron { margin-left: 8px; }
-
-/* Active-parent cue: when a child link is active, tint the category header and
-   run a green accent rail down its sub-items so the open branch reads clearly.
-   :has() is the no-JS path; older engines simply fall back to the [open] cue. */
-.nav-group:has(.nav-link.active) > .nav-group-head {
-  color: var(--action-700);
-}
-.nav-group:has(.nav-link.active) > .nav-group-head .nav-group-icon { color: var(--action); }
-
-/* Sub-item list: indented under the header with a connecting rail. */
-.nav-sub {
-  display: flex; flex-direction: column; gap: 2px;
-  margin: 2px 0 2px 22px; padding-left: 10px;
+.sb-tree {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows .22s ease;
+  margin: 0 0 0 22px; padding: 0 0 0 10px; list-style: none;
   border-left: 1.5px solid var(--line);
 }
-.nav-sub .nav-link {
-  min-height: 38px; font-weight: 500; color: var(--ink-600);
+.sb-tree.open { grid-template-rows: 1fr; }
+.sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+.sb-tree-file { min-height: 38px; font-weight: 500; color: var(--ink-600); }
+.sb-tree-file:hover { color: var(--ink-900); }
+.sb-tree-file--active,
+.sb-tree-file--active:hover {
+  background: var(--action-700); color: #fff; font-weight: 600;
 }
-.nav-sub .nav-link:hover { color: var(--ink-900); }
-.nav-sub .nav-link.active { font-weight: 600; }
-.nav-group:has(.nav-link.active) > .nav-sub { border-left-color: var(--green-300); }
 
-.main { margin-left: 248px; min-height: 100vh; }
+/* min-width: 0 lets the label actually shrink inside its flex row instead of
+   overflowing past the icon/badge/chevron and getting hard-clipped by the
+   sidebar's overflow-x: hidden — that hard clip is what read as "halved" text. */
+.sb-label { display: block; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------------------- collapsed sidebar
+   Icon-only rail. A group's sub-items have nowhere to go at this width, so
+   they stay hidden — clicking a group's icon expands the sidebar back out
+   and opens that group, instead of a flyout (see sidebar.js). */
+.app.sidebar-collapsed .sb-head { flex-direction: column; align-items: center; gap: var(--s3); }
+.app.sidebar-collapsed .sb-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+  margin: 0 auto;
+}
+.app.sidebar-collapsed .brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+.app.sidebar-collapsed .sb-toggle {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto;
+  border-radius: 50%;
+}
+.app.sidebar-collapsed .sb-toggle svg { width: 14px; height: 14px; }
+.app.sidebar-collapsed .sb-logo-text,
+.app.sidebar-collapsed .sb-who-text,
+.app.sidebar-collapsed .sb-logo-name,
+.app.sidebar-collapsed .sb-logo-sub,
+.app.sidebar-collapsed .sb-who-name,
+.app.sidebar-collapsed .sb-who-role,
+.app.sidebar-collapsed .sb-label,
+.app.sidebar-collapsed .sb-chevron,
+.app.sidebar-collapsed .sb-tree-toggle .nav-badge { display: none; }
+.app.sidebar-collapsed .sb-who {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0 auto var(--s4);
+  background: var(--green-50);
+  border-radius: 50%;
+}
+.app.sidebar-collapsed .sb-item,
+.app.sidebar-collapsed .sb-tree-toggle {
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border-radius: 50%;
+}
+.app.sidebar-collapsed .sb-item svg,
+.app.sidebar-collapsed .sb-tree-toggle > svg:first-child {
+  margin: 0;
+}
+.app.sidebar-collapsed .sb-item.sb-item--active,
+.app.sidebar-collapsed .sb-tree-toggle.sb-item--active,
+.app.sidebar-collapsed .sb-tree-toggle.sb-tree-toggle--active,
+.app.sidebar-collapsed .sb-tree-toggle[aria-expanded="true"] {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--action-700);
+  color: #fff;
+}
+.app.sidebar-collapsed .sb-item.sb-item--active svg,
+.app.sidebar-collapsed .sb-tree-toggle.sb-item--active svg,
+.app.sidebar-collapsed .sb-tree-toggle[aria-expanded="true"] svg {
+  color: #fff;
+}
+.app.sidebar-collapsed .sb-tree { display: none; }
+/* scrollbar-gutter: stable on .sb-nav reserves space on the right side only,
+   which off-centers the icon-only rows relative to the logo/avatar/logout
+   above and below (those live outside .sb-nav and don't have the gutter). */
+.app.sidebar-collapsed .sb-nav { scrollbar-gutter: auto; }
+
+.main {
+  margin-left: calc(var(--sidebar-w) + var(--sidebar-gap) * 2); min-height: 100vh;
+  transition: margin-left .26s cubic-bezier(.4, 0, .2, 1);
+}
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
   padding: var(--s3) var(--s8);
@@ -378,6 +505,15 @@ input::placeholder { color: var(--ink-400); }
   border: 1px solid var(--green-300);
   font: 600 13.5px/1 system-ui, sans-serif;
 }
+/* Header avatar menu: on desktop this is just the avatar (Administration
+   already lives in the sidebar there). At <=860px the sidebar is hidden, so
+   the trigger becomes clickable and the panel is allowed to render — see
+   the @media block below. */
+.avatar-menu { position: relative; }
+.avatar-menu-trigger { display: flex; list-style: none; cursor: default; }
+.avatar-menu-trigger::-webkit-details-marker { display: none; }
+.avatar-menu-panel { display: none; }
+
 .content { padding: var(--s6) var(--s8) var(--s12); }
 .page-head {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -414,6 +550,22 @@ input::placeholder { color: var(--ink-400); }
     position: absolute; top: 2px; right: 22%; margin: 0;
     min-width: 16px; height: 16px; font: 700 10px/16px system-ui, sans-serif;
   }
+
+  .avatar-menu-trigger { cursor: pointer; }
+  .avatar-menu-panel {
+    flex-direction: column; gap: 2px;
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+    min-width: 210px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-card); box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  }
+  .avatar-menu[open] .avatar-menu-panel { display: flex; }
+  .avatar-menu-link {
+    display: flex; align-items: center; min-height: 40px; padding: 0 12px;
+    border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
+    font: 600 13.5px/1 system-ui, sans-serif;
+  }
+  .avatar-menu-link:hover { background: var(--line-soft); color: var(--ink-900); }
 
   /* Tables -> stacked cards. Each td carries its header in data-label. */
   .gv-table thead { display: none; }
@@ -531,6 +683,9 @@ input::placeholder { color: var(--ink-400); }
 .report-tab svg { width: 16px; height: 16px; flex: none; }
 .report-tab:hover { color: var(--ink-900); }
 .report-tab.active { color: var(--action-700); border-bottom-color: var(--action); }
+@media (max-width: 860px) {
+  .report-tab-word { display: none; }
+}
 
 /* Report toolbar: a white card housing filters (left) and export actions
    (right), sitting right below the report tabs. */

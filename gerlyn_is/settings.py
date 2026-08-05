@@ -47,7 +47,7 @@ DEBUG = env_bool('DJANGO_DEBUG', True)
 # Add the server's LAN IP here so other branches can reach the system,
 # e.g. ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.50
 ALLOWED_HOSTS = env_list(
-    'DJANGO_ALLOWED_HOSTS', 'gerlynplus.up.railway.app'
+    'DJANGO_ALLOWED_HOSTS', 'gerlynplus.up.railway.app,localhost,127.0.0.1'
 )
 
 if not DEBUG and SECRET_KEY.startswith('django-insecure'):
@@ -92,13 +92,33 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Sets request.LANGUAGE for the {% t %} template tag, from the user's
+    # saved Settings > Language preference (or session, for anonymous users).
+    'accounts.middleware.LanguageMiddleware',
+    # Keeps accounts.UserSession in sync with real Django sessions, for
+    # Settings > Sessions (list/revoke active logins).
+    'accounts.middleware.SessionTrackingMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Backs the idle-timeout / back-button auth guard: blocks the browser
+    # from serving a cached authenticated page after logout or session expiry.
+    'accounts.middleware.NoCacheForAuthenticatedMiddleware',
 ]
 
 # Trust the deployed origin for POSTs (set once the app has a real URL),
 # e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
+
+# --- Idle-timeout: 30 minutes of inactivity signs the user out ------------
+# SESSION_SAVE_EVERY_REQUEST re-saves (and re-stamps the expiry of) the
+# session cookie on every request, so the 30-minute clock only ever measures
+# time since the user's LAST request — i.e. idle time, not absolute session
+# age. This is the backend backstop; idle_timeout.js (included in the base
+# templates) additionally tracks client-side inactivity and proactively
+# redirects to login the moment the 30 minutes elapse, rather than waiting
+# for the user's next click to discover the session is gone.
+SESSION_COOKIE_AGE = 30 * 60
+SESSION_SAVE_EVERY_REQUEST = True
 
 # --- Production hardening --------------------------------------------------
 # Only applied when DEBUG is off, so local development over plain HTTP still
@@ -147,9 +167,16 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': os.environ.get('DB_NAME', 'gerlyn_db'),
         'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'Freakinnerd02-'),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '3306'),
+        # Reuse the MySQL connection across requests instead of paying a full
+        # TCP+auth handshake on every single page load (the main cause of
+        # per-page slowness on Railway). Django verifies the connection is
+        # still alive before reusing it, so a dropped connection can't cause
+        # silent failures.
+        'CONN_MAX_AGE': 60,
+        'CONN_HEALTH_CHECKS': True,
     }
 }
 
@@ -178,6 +205,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+    {
+        'NAME': 'accounts.validators.StrongPasswordValidator',
     },
 ]
 
@@ -241,3 +271,17 @@ if USE_CLOUDINARY:
     }
 
 LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/profile/'
+
+# --- Email -------------------------------------------------------------------
+EMAIL_BACKEND       = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST          = 'smtp.gmail.com'
+EMAIL_PORT          = 587
+EMAIL_USE_TLS       = True
+EMAIL_HOST_USER     = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL  = os.environ.get('EMAIL_HOST_USER', 'noreply@gerlynstore.com')
+
+# Avatar upload validation
+AVATAR_MAX_MB        = 2
+AVATAR_ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp'}

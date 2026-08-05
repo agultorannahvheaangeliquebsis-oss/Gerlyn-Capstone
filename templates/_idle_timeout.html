@@ -1,0 +1,31 @@
+<script>
+// 30-minute idle auto-logout. Any of these interaction events resets the
+// clock, so it's measuring time since the user's LAST action, not since
+// page load. On timeout we invalidate the session server-side (fetch to
+// logout) and immediately push the user to the login page ourselves,
+// rather than leaving a dead session on screen until their next click
+// fails against a protected route.
+(function () {
+  var IDLE_LIMIT_MS = 30 * 60 * 1000;
+  var LOGOUT_URL = "{% url 'accounts:logout' %}";
+  var LOGIN_URL = "{% url 'accounts:login' %}";
+  var idleTimer = null;
+
+  function onIdleTimeout() {
+    fetch(LOGOUT_URL, { credentials: 'same-origin' }).finally(function () {
+      window.location.href = LOGIN_URL;
+    });
+  }
+
+  function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(onIdleTimeout, IDLE_LIMIT_MS);
+  }
+
+  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(function (evt) {
+    document.addEventListener(evt, resetIdleTimer, { passive: true });
+  });
+
+  resetIdleTimer();
+})();
+</script>

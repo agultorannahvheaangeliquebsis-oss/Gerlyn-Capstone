@@ -1,5 +1,5 @@
-{% load static %}<!DOCTYPE html>
-<html lang="en">
+{% load static %}{% load i18n_extra %}<!DOCTYPE html>
+<html lang="{{ request.LANGUAGE|default:'en' }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,16 +17,18 @@
 <!-- announcement -->
 <div class="shop-announce">
   <div class="shop-wrap row-between">
-    <span>Free delivery within Baliuag on orders over ₱500</span>
+    <span>{% t "Free delivery within Baliuag on orders over ₱500" %}</span>
     <span class="row" style="gap:16px;">
+{% comment "" %}
       {% if request.user.is_authenticated %}
         <a href="{% url 'orders:my_orders' %}">Track Order</a>
       {% else %}
         {# no account = no orders to track, so send them to log in #}
-        <a href="{% url 'login' %}?next={% url 'orders:my_orders' %}">Track Order</a>
-        <a href="{% url 'login' %}">Log in</a>
-        <a href="{% url 'register' %}"><strong>Register</strong></a>
+        <a href="{% url 'accounts:login' %}?next={% url 'orders:my_orders' %}">Track Order</a>
+        <a href="{% url 'accounts:login' %}">Log in</a>
+        <a href="{% url 'accounts:register' %}"><strong>Register</strong></a>
       {% endif %}
+      {% endcomment %}
     </span>
   </div>
 </div>
@@ -40,35 +42,81 @@
     </a>
 
     <nav class="shop-links">
-      <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
-      <a href="{% url 'orders:catalog' %}" class="{% if request.path == '/shop/' %}active{% endif %}">Products</a>
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">{% t "Home" %}</a>
+      <a href="{% url 'orders:catalog' %}" class="{% if request.path == '/shop/' %}active{% endif %}">{% t "Products" %}</a>
+      {% comment "" %}
       {% if request.user.is_authenticated and request.user.role == 'CUSTOMER' %}
         <a href="{% url 'orders:my_orders' %}" class="{% if '/shop/orders' in request.path %}active{% endif %}">My Orders</a>
       {% endif %}
+      {% endcomment %}
     </nav>
 
-    <form class="shop-search" method="GET" action="{% url 'orders:catalog' %}" role="search" autocomplete="off">
-      <div class="search-box">
+    <form class="shop-search {% if '/shop/' in request.path %}hidden{% endif %}" method="GET" action="{% url 'orders:catalog' %}" role="search" autocomplete="off">
+  <div class="search-box" style="
+    display: flex;
+    align-items: center;
+    background: #fff;
+    border: 1.5px solid var(--input-line);
+    border-radius: var(--r-pill);
+    padding: 0 6px 0 14px;
+    gap: 8px;
+    flex: 1;
+    min-height: 42px;
+  ">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-400)" stroke-width="2" style="flex:none;">
+      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
         <input
           type="search" name="q" id="live-search-input"
-          placeholder="Search products, brands…" value="{{ search_query|default:'' }}"
+          placeholder="{% t 'Search products, brands…' %}"
+          value="{{ search_query|default:'' }}"
           data-suggest-url="{% url 'orders:search_suggestions' %}"
-          role="combobox" aria-expanded="false" aria-controls="live-search-results" aria-autocomplete="list">
+          role="combobox" aria-expanded="false" aria-controls="live-search-results" aria-autocomplete="list"
+          style="border:none; background:transparent; outline:none; flex:1; font:400 15px/1 system-ui,sans-serif; color:var(--ink-900); min-width:0; padding:0;"
+        >
         <div class="search-dropdown" id="live-search-results" role="listbox" hidden></div>
+        <button class="btn btn-primary" type="submit" style="border-radius:var(--r-pill); min-height:34px; padding:0 18px; font-size:14px;">{% t "Search" %}</button>
       </div>
-      <button class="btn btn-primary" type="submit">Search</button>
     </form>
 
-    <div class="row" style="gap:10px;">
+    <div class="row shop-header-actions" style="gap:10px; margin-left:auto;">
       <a class="cart-btn btn btn-primary" href="{% url 'orders:cart' %}">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-        Cart
+        {% t "Cart" %}
         {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
       </a>
       {% if request.user.is_authenticated %}
-        <a class="btn" href="{% url 'logout' %}">Sign out</a>
+        <div class="user-menu" id="user-menu">
+          <button class="user-menu-trigger" onclick="toggleUserMenu(event)" aria-expanded="false" aria-haspopup="true">
+            <span class="user-avatar">
+              {{ request.user.get_full_name|first|upper|default:request.user.username|first|upper }}
+            </span>
+            <span class="user-menu-name">{{ request.user.first_name|default:request.user.username }}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="user-menu-caret"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="user-menu-panel" id="user-menu-panel">
+            <div class="user-menu-header">
+              <span class="user-menu-fullname">{{ request.user.get_full_name|default:request.user.username }}</span>
+              <span class="user-menu-email">{{ request.user.email }}</span>
+            </div>
+            <div class="user-menu-divider"></div>
+              <a href="{% url 'orders:my_orders' %}" class="user-menu-item">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+              {% t "My Orders" %}
+            </a>
+              <a href="{% url 'accounts:profile' %}" class="user-menu-item">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              {% t "Settings" %}
+            </a>
+            <div class="user-menu-divider"></div>
+            <a href="{% url 'accounts:logout' %}" class="user-menu-item user-menu-item--danger">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              {% t "Sign out" %}
+            </a>
+          </div>
+        </div>
       {% else %}
-        <a class="btn" href="{% url 'login' %}">Log in</a>
+        <a class="btn" href="{% url 'accounts:login' %}">{% t "Log in" %}</a>
       {% endif %}
     </div>
   </div>
@@ -97,13 +145,79 @@
 
 <footer class="shop-footer">
   <div class="shop-wrap">
-    <p class="mb-2">&copy; 2026 Gerlyn Variety Store · Baliuag, Bulacan · All rights reserved.</p>
+    <p class="mb-2">{% t "© 2026 Gerlyn Variety Store · Baliuag, Bulacan · All rights reserved." %}</p>
     <p class="gv-meta mb-0">Tarcan · Makinabang · Tiaong Baliwag Mini Mart</p>
   </div>
 </footer>
 
+<style>
+.user-menu { position: relative; }
+.user-menu-trigger {
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: 1.5px solid var(--line);
+  border-radius: var(--r-pill); padding: 4px 10px 4px 4px;
+  cursor: pointer; font: 600 14px/1 system-ui, sans-serif;
+  color: var(--ink-900); min-height: 40px;
+  transition: background .12s ease, border-color .12s ease;
+}
+.user-menu-trigger:hover { background: var(--line-soft); border-color: var(--input-line); }
+.user-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--action); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 13px/1 system-ui, sans-serif; flex: none;
+}
+.user-menu-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-menu-caret { color: var(--ink-400); transition: transform .18s ease; flex: none; }
+.user-menu-trigger[aria-expanded="true"] .user-menu-caret { transform: rotate(180deg); }
+.user-menu-panel {
+  display: none; position: absolute; top: calc(100% + 8px); right: 0;
+  min-width: 220px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: 0 8px 24px rgba(23,37,30,.12); z-index: 100;
+  padding: 6px; animation: menuIn .15s ease;
+}
+.user-menu-panel.is-open { display: flex; flex-direction: column; }
+@keyframes menuIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.user-menu-header { display: flex; flex-direction: column; padding: 8px 12px 10px; gap: 3px; }
+.user-menu-fullname { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-900); }
+.user-menu-email { font: 400 12.5px/1.2 system-ui, sans-serif; color: var(--ink-400); }
+.user-menu-divider { height: 1px; background: var(--line-soft); margin: 4px 0; }
+.user-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 40px; padding: 0 12px;
+  border-radius: var(--r-input); color: var(--ink-700);
+  text-decoration: none; font: 600 14px/1 system-ui, sans-serif;
+  transition: background .1s ease;
+}
+.user-menu-item:hover { background: var(--line-soft); color: var(--ink-900); }
+.user-menu-item--danger { color: var(--danger-fg); }
+.user-menu-item--danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
+</style>
+
+<script>
+function toggleUserMenu(e) {
+  e.stopPropagation();
+  const trigger = document.getElementById('user-menu').querySelector('.user-menu-trigger');
+  const panel   = document.getElementById('user-menu-panel');
+  const isOpen  = panel.classList.toggle('is-open');
+  trigger.setAttribute('aria-expanded', isOpen);
+}
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('user-menu');
+  if (menu && !menu.contains(e.target)) {
+    document.getElementById('user-menu-panel').classList.remove('is-open');
+    menu.querySelector('.user-menu-trigger').setAttribute('aria-expanded', 'false');
+  }
+});
+</script>
+
 <script src="{% static 'js/live-search.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
+{% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
 </body>
 </html>

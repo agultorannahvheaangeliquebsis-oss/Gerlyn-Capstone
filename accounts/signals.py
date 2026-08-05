@@ -1,8 +1,9 @@
+from django.contrib.auth.signals import user_logged_out
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import (
     User, OwnerProfile, BranchManagerProfile,
-    StaffProfile, CustomerProfile, SupplierProfile
+    StaffProfile, CustomerProfile, SupplierProfile, UserSession
 )
 
 
@@ -27,3 +28,14 @@ def create_user_profile(sender, instance, created, **kwargs):
 
     elif role == User.Role.CUSTOMER and not hasattr(instance, 'customer_profile'):
         CustomerProfile.objects.create(user=instance, first_name=instance.username, last_name='')
+
+
+@receiver(user_logged_out)
+def cleanup_session_tracking(sender, request, user, **kwargs):
+    """Drops the UserSession row for whichever session is being logged out.
+    Fires before logout() flushes the session, so session_key here is still
+    the real one being destroyed — covers manual "Sign out" and the
+    idle-timeout logout alike, since both go through this same signal."""
+    session_key = request.session.session_key
+    if session_key:
+        UserSession.objects.filter(session_key=session_key).delete()
