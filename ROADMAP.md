@@ -129,18 +129,19 @@ the correct fix is to amend Chapter 3 + the ERD *first*, then build it.
 
 **Done when:** a week passes with no new bugs found, and the tests still pass.
 
-### Found during the sidebar-redesign merge (6 Aug) — not yet fixed
+### Found during the sidebar-redesign merge (6 Aug)
 
-- [ ] `accounts/views.py` — `verify_email`, invalid-token branch. Missing `return`
+- [x] `accounts/views.py` — `verify_email`, invalid-token branch. Missing `return`
       after a `redirect(...)` (same class of bug as the `user_list` fix from this
-      merge, but this one can raise `UnboundLocalError` since a variable used
-      later in that branch is never assigned). Not exercised by current tests.
-      Needs its own look — don't bundle into another commit.
-- [ ] `accounts/views.py` — two more bare `redirect(...)` missing `return`, lower
+      merge, but this one could raise `UnboundLocalError` since a variable used
+      later in that branch is never assigned). Not exercised by current tests, so
+      it slipped through review — fixed independently by a teammate the same day
+      (449cf63) and merged in.
+- [x] `accounts/views.py` — two more bare `redirect(...)` missing `return`, lower
       severity than `verify_email` (don't crash, just don't stop execution as
-      intended): line ~246 (duplicate-username check in `user_form` — doesn't
-      stop account creation from proceeding) and line ~285 (post-save in
-      `user_form` — skips the redirect back to the list).
+      intended): duplicate-username check in `user_form` (didn't stop account
+      creation from proceeding) and post-save in `user_form` (skipped the
+      redirect back to the list). Also fixed in 449cf63.
 - [ ] Seeded Staff users have no branch assigned (`piladmin01`, `storestaffmisty`,
       `mistystaff01`). Harmless today, but it means Staff Dashboard's "pending
       deliveries" list is silently empty for every real Staff login — the
