@@ -51,14 +51,19 @@
           <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
         </summary>
         <div class="nav-sub">
+          {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
           <a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="{% url 'product_list' %}">Product Master List</a>
           <a class="nav-link {% if active_page == 'categories' %}active{% endif %}" href="{% url 'category_list' %}">Categories</a>
+          {% endif %}
           <a class="nav-link {% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">Stock per Branch</a>
+          {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
           <a class="nav-link {% if active_page == 'withdrawals' %}active{% endif %}" href="{% url 'transfer_list' %}">Stock Adjustments</a>
+          {% endif %}
         </div>
       </details>
 
       {# -------------------------------------------------------- Procurement #}
+      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
       <details class="nav-group" data-group="procurement"
         {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}>
         <summary class="nav-group-head">
@@ -74,6 +79,7 @@
           <a class="nav-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
         </div>
       </details>
+      {% endif %}
 
       {# --------------------------------------------------------- Financials #}
       <details class="nav-group" data-group="financials"
@@ -85,11 +91,14 @@
         </summary>
         <div class="nav-sub">
           <a class="nav-link {% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">Sales &amp; Orders</a>
+          {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
           <a class="nav-link {% if active_page == 'billing' %}active{% endif %}" href="{% url 'billing_list' %}">Billing</a>
+          {% endif %}
         </div>
       </details>
 
       {# -------------------------------------------------- System / Monitoring #}
+      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
       <details class="nav-group" data-group="monitoring"
         {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}>
         <summary class="nav-group-head">
@@ -106,6 +115,7 @@
           </a>
         </div>
       </details>
+      {% endif %}
 
       {# ------------------------------------------------------ Administration #}
       {% if request.user.role == 'OWNER' %}
@@ -171,6 +181,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
       Stock
     </a>
+    {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
     <a class="{% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
       Alerts
@@ -180,6 +191,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
       Reports
     </a>
+    {% endif %}
   </nav>
 
 </div>
