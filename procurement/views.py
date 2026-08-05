@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 
 from core.scoping import scope_queryset, user_can_access_branch
+from core.permissions import OWNER, BRANCH_MANAGER, SUPPLIER, role_required
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -32,7 +33,7 @@ from accounts.models import User
 # These still work for any admin/template-based pages.
 # =============================================================================
 
-@login_required(login_url='login')
+@role_required(OWNER, BRANCH_MANAGER, SUPPLIER)
 def procurement_list(request):
     procurements = Procurement.objects.select_related('branch', 'supplier', 'owner').all()
 

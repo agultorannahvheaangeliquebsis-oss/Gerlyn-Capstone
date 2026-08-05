@@ -13,7 +13,7 @@ from .models import (
 from .alerts import alert_summary
 from accounts.models import User
 from branches.models import Branch
-from core.permissions import INTERNAL_ROLES
+from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, role_required
 from core.scoping import branch_ids_for_user, user_can_access_branch
 
 
@@ -290,14 +290,8 @@ def category_delete(request, pk):
 # inventory.alerts engine so these numbers match the Dashboard exactly.
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
+@role_required(OWNER, BRANCH_MANAGER)
 def alerts_center(request):
-    if request.user.role not in [
-        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
-    ]:
-        messages.error(request, 'Access denied.')
-        return redirect('home')
-
     branch_ids = branch_ids_for_user(request.user)  # None = all branches
     summary = alert_summary(branch_ids)
 
@@ -426,14 +420,8 @@ def warehouse_stock_list(request):
 # WITHDRAWAL SLIP (STOCK TRANSFER) VIEWS
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
+@role_required(OWNER, BRANCH_MANAGER)
 def transfer_list(request):
-    if request.user.role not in [
-        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
-    ]:
-        messages.error(request, 'Access denied.')
-        return redirect('home')
-
     transfers = StockTransfer.objects.select_related(
         'source_branch', 'destination_branch',
         'requested_by', 'warehouse'

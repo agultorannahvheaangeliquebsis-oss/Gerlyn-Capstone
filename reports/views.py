@@ -18,6 +18,7 @@ from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
 from core.scoping import branch_ids_for_user
+from core.permissions import OWNER, BRANCH_MANAGER, role_required
 
 
 def get_user_branch(user):
@@ -129,20 +130,14 @@ def operational_dashboard(request):
     })
 
 
-@login_required(login_url='login')
+@role_required(OWNER, BRANCH_MANAGER)
 def reports_dashboard(request):
     """
     The Reports hub — opens straight onto the Sales Report: every transaction
-    the user's role can see, filterable by branch (Owner only — a Manager/
-    Staff's own branch is already the whole story) and by month, with the
+    the user's role can see, filterable by branch (Owner only — a Manager's
+    own branch is already the whole story) and by month, with the
     same CSV/print-to-PDF export as the other per-process reports.
     """
-    if request.user.role not in [
-        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
-    ]:
-        messages.error(request, 'You do not have permission to view this page.')
-        return render(request, 'reports/no_access.html')
-
     user_branch = get_user_branch(request.user)
     branch_ids = branch_ids_for_user(request.user)
     show_branch_filter = branch_ids is None  # Owner only
