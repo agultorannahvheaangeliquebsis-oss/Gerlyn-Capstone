@@ -14,9 +14,9 @@
   </div>
 </div>
 
-{# ---------- Hero row: 4 rich KPI cards with sparklines (DESIGN.md Section 2, #2/#2a) ---------- #}
+{# ---------- Hero row: 4 rich KPI cards with sparklines, click-to-expand into the shared graph panel below (DESIGN.md Section 2, #2/#2a) ---------- #}
 <div class="kpi-row mb-6">
-  <div class="stat-hero">
+  <div class="stat-hero active" data-kpi-key="total_sales" role="button" tabindex="0" aria-pressed="true">
     <div class="label">Total Sales</div>
     <div class="value" style="color:var(--action);">₱{{ total_sales_alltime|floatformat:2 }}</div>
     <div class="mt-2">
@@ -26,19 +26,13 @@
       </svg>
     </div>
     <div class="mt-2">
-      {% if total_sales_delta is not None %}
-        {% if total_sales_delta >= 0 %}
-          <span class="trend-up">▲ +{{ total_sales_delta }}% vs last 7 days</span>
-        {% else %}
-          <span class="trend-down">▼ {{ total_sales_delta }}% vs last 7 days</span>
-        {% endif %}
-      {% else %}
-        <span class="gv-meta">No prior data to compare</span>
-      {% endif %}
+      {% if total_sales_delta.direction == 'up' %}<span class="trend-up">{{ total_sales_delta.text }}</span>
+      {% elif total_sales_delta.direction == 'down' %}<span class="trend-down">{{ total_sales_delta.text }}</span>
+      {% else %}<span class="gv-meta">{{ total_sales_delta.text }}</span>{% endif %}
     </div>
   </div>
 
-  <div class="stat-hero">
+  <div class="stat-hero" data-kpi-key="recent_sales" role="button" tabindex="0" aria-pressed="false">
     <div class="label">Recent Sales (30 days)</div>
     <div class="value" style="color:var(--action);">₱{{ recent_sales_30d|floatformat:2 }}</div>
     <div class="mt-2">
@@ -48,19 +42,13 @@
       </svg>
     </div>
     <div class="mt-2">
-      {% if recent_sales_delta is not None %}
-        {% if recent_sales_delta >= 0 %}
-          <span class="trend-up">▲ +{{ recent_sales_delta }}% vs previous 30 days</span>
-        {% else %}
-          <span class="trend-down">▼ {{ recent_sales_delta }}% vs previous 30 days</span>
-        {% endif %}
-      {% else %}
-        <span class="gv-meta">No prior data to compare</span>
-      {% endif %}
+      {% if recent_sales_delta.direction == 'up' %}<span class="trend-up">{{ recent_sales_delta.text }}</span>
+      {% elif recent_sales_delta.direction == 'down' %}<span class="trend-down">{{ recent_sales_delta.text }}</span>
+      {% else %}<span class="gv-meta">{{ recent_sales_delta.text }}</span>{% endif %}
     </div>
   </div>
 
-  <div class="stat-hero">
+  <div class="stat-hero" data-kpi-key="procurement_cost" role="button" tabindex="0" aria-pressed="false">
     <div class="label">Procurement Cost</div>
     <div class="value">₱{{ total_procurement_cost|floatformat:2 }}</div>
     <div class="mt-2">
@@ -70,19 +58,13 @@
       </svg>
     </div>
     <div class="mt-2">
-      {% if procurement_cost_delta is not None %}
-        {% if procurement_cost_delta >= 0 %}
-          <span class="trend-up">▲ +{{ procurement_cost_delta }}% vs last 7 days</span>
-        {% else %}
-          <span class="trend-down">▼ {{ procurement_cost_delta }}% vs last 7 days</span>
-        {% endif %}
-      {% else %}
-        <span class="gv-meta">No prior data to compare</span>
-      {% endif %}
+      {% if procurement_cost_delta.direction == 'up' %}<span class="trend-up">{{ procurement_cost_delta.text }}</span>
+      {% elif procurement_cost_delta.direction == 'down' %}<span class="trend-down">{{ procurement_cost_delta.text }}</span>
+      {% else %}<span class="gv-meta">{{ procurement_cost_delta.text }}</span>{% endif %}
     </div>
   </div>
 
-  <div class="stat-hero">
+  <div class="stat-hero" data-kpi-key="total_transactions" role="button" tabindex="0" aria-pressed="false">
     <div class="label">Total Transactions</div>
     <div class="value">{{ total_transactions_alltime }}</div>
     <div class="mt-2">
@@ -92,16 +74,32 @@
       </svg>
     </div>
     <div class="mt-2">
-      {% if total_transactions_delta is not None %}
-        {% if total_transactions_delta >= 0 %}
-          <span class="trend-up">▲ +{{ total_transactions_delta }}% vs last 7 days</span>
-        {% else %}
-          <span class="trend-down">▼ {{ total_transactions_delta }}% vs last 7 days</span>
-        {% endif %}
-      {% else %}
-        <span class="gv-meta">No prior data to compare</span>
-      {% endif %}
+      {% if total_transactions_delta.direction == 'up' %}<span class="trend-up">{{ total_transactions_delta.text }}</span>
+      {% elif total_transactions_delta.direction == 'down' %}<span class="trend-down">{{ total_transactions_delta.text }}</span>
+      {% else %}<span class="gv-meta">{{ total_transactions_delta.text }}</span>{% endif %}
     </div>
+  </div>
+</div>
+
+{# ---------- Shared graph panel: the 4 cards above act as tabs into this one panel (click or Enter/Space) — see extra_js below. Server-rendered with the Total Sales series so it shows real content before JS runs. ---------- #}
+<div class="kpi-graph-panel mb-6">
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+    <div>
+      <h3 id="kpi-graph-label">Total Sales</h3>
+      <p class="gv-meta mb-0" id="kpi-graph-value">₱{{ total_sales_alltime|floatformat:2 }}</p>
+    </div>
+    <span id="kpi-graph-delta">
+      {% if total_sales_delta.direction == 'up' %}<span class="trend-up">{{ total_sales_delta.text }}</span>
+      {% elif total_sales_delta.direction == 'down' %}<span class="trend-down">{{ total_sales_delta.text }}</span>
+      {% else %}<span class="gv-meta">{{ total_sales_delta.text }}</span>{% endif %}
+    </span>
+  </div>
+  <div class="card-pad">
+    <svg id="kpi-graph-svg" viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none">
+      <path id="kpi-graph-area" d="{{ default_kpi_graph.area }}" fill="var(--green-50)" stroke="none"/>
+      <polyline id="kpi-graph-line" points="{{ default_kpi_graph.polyline }}" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <g id="kpi-graph-points"></g>
+    </svg>
   </div>
 </div>
 
@@ -257,4 +255,105 @@
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script id="kpi-graph-data" type="application/json">{{ kpi_graph_data|safe }}</script>
+<script>
+/* KPI hero cards act as tabs into the one shared graph panel below them
+   (DESIGN.md Section 2, #2a). The four series + their polyline/area paths
+   are precomputed server-side (reports/views.py) and handed over as one
+   JSON blob so switching cards is a client-side redraw, not a new request. */
+(function () {
+  var dataEl = document.getElementById('kpi-graph-data');
+  var svg = document.getElementById('kpi-graph-svg');
+  if (!dataEl || !svg) return;
+
+  var data;
+  try {
+    data = JSON.parse(dataEl.textContent);
+  } catch (e) {
+    return;
+  }
+
+  var cards = document.querySelectorAll('.stat-hero[data-kpi-key]');
+  var areaEl = document.getElementById('kpi-graph-area');
+  var lineEl = document.getElementById('kpi-graph-line');
+  var pointsEl = document.getElementById('kpi-graph-points');
+  var labelEl = document.getElementById('kpi-graph-label');
+  var valueEl = document.getElementById('kpi-graph-value');
+  var deltaEl = document.getElementById('kpi-graph-delta');
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function formatPointValue(unit, value) {
+    var opts = { minimumFractionDigits: unit === 'currency' ? 2 : 0, maximumFractionDigits: unit === 'currency' ? 2 : 0 };
+    var formatted = Number(value).toLocaleString('en-US', opts);
+    return unit === 'currency' ? ('₱' + formatted) : formatted;
+  }
+
+  function renderPoints(entry) {
+    pointsEl.innerHTML = '';
+    entry.points.forEach(function (p) {
+      var circle = document.createElementNS(SVG_NS, 'circle');
+      circle.setAttribute('cx', p.x);
+      circle.setAttribute('cy', p.y);
+      circle.setAttribute('r', 3);
+      circle.setAttribute('fill', entry.stroke);
+      var title = document.createElementNS(SVG_NS, 'title');
+      title.textContent = p.date + ': ' + formatPointValue(entry.unit, p.value);
+      circle.appendChild(title);
+      pointsEl.appendChild(circle);
+    });
+  }
+
+  function renderDelta(container, delta) {
+    container.innerHTML = '';
+    var span = document.createElement('span');
+    span.className = delta.direction === 'up' ? 'trend-up'
+      : delta.direction === 'down' ? 'trend-down' : 'gv-meta';
+    span.textContent = delta.text;
+    container.appendChild(span);
+  }
+
+  function activate(key) {
+    var entry = data[key];
+    if (!entry) return;
+
+    cards.forEach(function (card) {
+      var isActive = card.getAttribute('data-kpi-key') === key;
+      card.classList.toggle('active', isActive);
+      card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+
+    areaEl.setAttribute('d', entry.area);
+    areaEl.setAttribute('fill', entry.stroke === 'var(--brand)' ? 'var(--green-50)' : 'var(--line-soft)');
+    lineEl.setAttribute('points', entry.polyline);
+    lineEl.setAttribute('stroke', entry.stroke);
+    renderPoints(entry);
+
+    labelEl.textContent = entry.label;
+    valueEl.textContent = entry.valueDisplay;
+    renderDelta(deltaEl, entry.delta);
+  }
+
+  cards.forEach(function (card) {
+    var key = card.getAttribute('data-kpi-key');
+    card.addEventListener('click', function () { activate(key); });
+    card.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        activate(key);
+      }
+    });
+  });
+
+  // Seed point markers/tooltips for the server-rendered default card —
+  // everything else about its initial state is already in the HTML.
+  var defaultCard = document.querySelector('.stat-hero.active[data-kpi-key]');
+  if (defaultCard) {
+    var defaultEntry = data[defaultCard.getAttribute('data-kpi-key')];
+    if (defaultEntry) renderPoints(defaultEntry);
+  }
+})();
+</script>
 {% endblock %}
