@@ -106,7 +106,7 @@ def _edit_modal_values(product, form_data=None):
 def product_list(request):
     if request.user.role not in INTERNAL_ROLES:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     context = _product_list_context(request)
 
@@ -296,7 +296,7 @@ def product_delete(request, pk):
 def category_list(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     categories = ProductCategory.objects.annotate(
         product_count=models.Count('products')
@@ -386,7 +386,7 @@ def alerts_center(request):
         User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
     ]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     branch_ids = branch_ids_for_user(request.user)  # None = all branches
     summary = alert_summary(branch_ids)
@@ -411,7 +411,7 @@ def inventory_list(request):
     # for them, which the branch filter below would read as "show everything".
     if request.user.role not in INTERNAL_ROLES:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     records = Inventory.objects.select_related(
         'product', 'product__category', 'branch'
@@ -476,7 +476,7 @@ def warehouse_stock_list(request):
         User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
     ]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     # Get the warehouse for this user's branch
     user_branch = get_user_branch(request.user)
@@ -522,7 +522,7 @@ def transfer_list(request):
         User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
     ]:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     transfers = StockTransfer.objects.select_related(
         'source_branch', 'destination_branch',

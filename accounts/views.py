@@ -60,7 +60,7 @@ def owner_dashboard(request):
 def manager_dashboard(request):
     if request.user.role != User.Role.BRANCH_MANAGER:
         messages.error(request, 'Access denied.')
-        return redirect('login')
+        return redirect('accounts:login')
     # Same Dashboard as the Owner — the view scopes it to the manager's branch.
     from reports.views import operational_dashboard
     return operational_dashboard(request)
@@ -76,7 +76,7 @@ def staff_dashboard(request):
     """
     if request.user.role != User.Role.STAFF:
         messages.error(request, 'Access denied.')
-        return redirect('login')
+        return redirect('accounts:login')
 
     from django.utils import timezone
     from core.scoping import branch_ids_for_user
@@ -133,7 +133,7 @@ def staff_dashboard(request):
 def supplier_dashboard(request):
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
-        return redirect('login')
+        return redirect('accounts:login')
     # The supplier's real home is their order portal.
     return redirect('supplier_portal')
 
@@ -142,7 +142,7 @@ def supplier_dashboard(request):
 def customer_dashboard(request):
     if request.user.role != User.Role.CUSTOMER:
         messages.error(request, 'Access denied.')
-        return redirect('login')
+        return redirect('accounts:login')
     
     from inventory.models import Product, ProductCategory
     from branches.models import Branch
@@ -185,7 +185,7 @@ def _profile_for(user):
 def user_list(request):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
-        redirect('accounts:home')
+        return redirect('accounts:home')
 
     users = User.objects.exclude(role=User.Role.CUSTOMER).select_related(
         'manager_profile__branch', 'staff_profile__branch', 'owner_profile',
@@ -225,7 +225,7 @@ def user_list(request):
 def user_form(request, pk=None):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     target = get_object_or_404(User, pk=pk) if pk else None
 
@@ -243,12 +243,12 @@ def user_form(request, pk=None):
 
         if target is None and User.objects.filter(username=username).exists():
             messages.error(request, f'Username "{username}" is already taken.')
-            redirect('accounts:user_add')
+            return redirect('accounts:user_add')
 
         if target is None:
             if not password:
                 messages.error(request, 'A password is required for a new user.')
-                return redirect('user_add')
+                return redirect('accounts:user_add')
             target = User.objects.create_user(
                 username=username, email=request.POST.get('email', ''),
                 password=password, role=role,
@@ -282,7 +282,7 @@ def user_form(request, pk=None):
             profile.save()
 
         messages.success(request, f'User "{username}" saved.')
-        redirect('accounts:user_list')
+        return redirect('accounts:user_list')
 
     profile = _profile_for(target) if target else None
     return render(request, 'accounts/user_form.html', {
@@ -299,13 +299,13 @@ def user_toggle_active(request, pk):
     """Deactivate/reactivate an account without deleting its audit history."""
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     target = get_object_or_404(User, pk=pk)
 
     if target.pk == request.user.pk:
         messages.error(request, "You can't deactivate your own account.")
-        return redirect('user_list')
+        return redirect('accounts:user_list')
 
     if request.method == 'POST':
         target.is_active = not target.is_active
@@ -313,7 +313,7 @@ def user_toggle_active(request, pk):
         state = 'reactivated' if target.is_active else 'deactivated'
         messages.success(request, f'{target.username} {state}.')
 
-    return redirect('user_list')
+    return redirect('accounts:user_list')
 
 
 def home_view(request):
@@ -564,7 +564,7 @@ def verify_email(request, token):
         )
     except VerificationToken.DoesNotExist:
         messages.error(request, "Invalid verification link.")
-        redirect('accounts:login')
+        return redirect('accounts:login')
 
     if not token_obj.is_valid:
         messages.error(request, "This link has expired. Request a new one below.")
