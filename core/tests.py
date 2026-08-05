@@ -246,11 +246,18 @@ class AcceptanceTests(TestCase):
         client = Client()
         client.force_login(User.objects.get(username='century'))
         for url in ['/sales/', '/inventory/stock/', '/inventory/products/',
-                    '/inventory/alerts/', '/manage/users/']:
+                    '/manage/users/']:
             self.assertEqual(
                 client.get(url).status_code, 302,
                 f'a supplier must not reach {url}',
             )
+        # /inventory/alerts/ was migrated to @role_required in 11daab1, which
+        # raises PermissionDenied (403) instead of the inline-check redirect
+        # the other URLs above still use.
+        self.assertEqual(
+            client.get('/inventory/alerts/').status_code, 403,
+            'a supplier must not reach /inventory/alerts/',
+        )
 
     def test_supplier_portal_shows_only_their_own_orders(self):
         supplier = User.objects.get(username='century')

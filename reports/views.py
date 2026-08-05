@@ -48,13 +48,84 @@ def _scoped_querysets(user):
     return sales_qs, procurement_qs, inventory_qs, user_branch
 
 
+# --- Dashboard hero-card sparklines ------------------------------------
+# `SalesTransaction.transaction_date` is a DateTimeField, so day-bucketing
+# happens in Python (not TruncDate/`.dates()`) — MySQL's CONVERT_TZ returns
+# NULL under USE_TZ when the server has no zoneinfo tables loaded, same
+# constraint already documented on `month_keys` in reports_dashboard above.
+# `Procurement.order_date` is a plain DateField with no tz component, so it
+# doesn't need this and is bucketed directly (see operational_dashboard).
+
+def _daily_sales_series(qs, value_field=None, days=7):
+    """
+    Day-bucketed totals (or counts, if `value_field` is None) from
+    `transaction_date` for the last `days` days, oldest first, zero-filled
+    for days with no rows.
+    """
+    today = timezone.localtime().date()
+    start = today - timedelta(days=days - 1)
+    boundary = timezone.make_aware(datetime.combine(start, datetime.min.time()))
+    buckets = {start + timedelta(n): 0 for n in range(days)}
+
+    fields = ['transaction_date'] + ([value_field] if value_field else [])
+    for row in qs.filter(transaction_date__gte=boundary).values_list(*fields):
+        day = timezone.localtime(row[0]).date()
+        if day in buckets:
+            buckets[day] += (row[1] or 0) if value_field else 1
+
+    return [buckets[start + timedelta(n)] for n in range(days)]
+
+
+def _sales_period_delta_pct(qs, value_field=None, days=7):
+    """% change between the last `days` days and the `days` before that."""
+    end = timezone.localtime()
+    start_current = end - timedelta(days=days)
+    start_prev = start_current - timedelta(days=days)
+
+    def _agg(gte, lt):
+        filtered = qs.filter(transaction_date__gte=gte, transaction_date__lt=lt)
+        if value_field:
+            return filtered.aggregate(total=Sum(value_field))['total'] or 0
+        return filtered.count()
+
+    current, previous = _agg(start_current, end), _agg(start_prev, start_current)
+    return round(((current - previous) / previous) * 100, 1) if previous else None
+
+
+def _sparkline_points(series, width=64, height=24, pad=3):
+    """
+    Maps a numeric series onto an SVG polyline's `points` attribute, scaled
+    into a width x height box, plus the trailing point for an end-dot. A
+    flat series (all equal values) renders as a horizontal midline instead
+    of dividing by zero.
+    """
+    if not series:
+        return {'points': '', 'dot_x': 0, 'dot_y': height / 2}
+
+    lo, hi = min(series), max(series)
+    span = hi - lo
+    n = len(series)
+    step = width / (n - 1) if n > 1 else 0
+
+    def y_for(v):
+        if span == 0:
+            return height / 2
+        return pad + (1 - (v - lo) / span) * (height - 2 * pad)
+
+    coords = [(round(i * step, 1), round(y_for(v), 1)) for i, v in enumerate(series)]
+    dot_x, dot_y = coords[-1]
+    return {'points': ' '.join(f'{x},{y}' for x, y in coords), 'dot_x': dot_x, 'dot_y': dot_y}
+
+
 @login_required(login_url='login')
 def operational_dashboard(request):
     """
-    The Dashboard — a live operational snapshot: today's sales, per-branch
-    status, restock alerts, recent orders. Historical/analytical breakdowns
-    (trend, branch & product performance) live on the Reports page instead
-    (see reports_dashboard) so the two pages aren't the same content twice.
+    The Dashboard — a live operational snapshot: hero KPI cards (with a
+    short trend sparkline each), per-branch status, restock alerts, recent
+    orders. Deeper historical/analytical breakdowns (branch & product
+    performance, filterable by month) still live on the Reports page
+    instead (see reports_dashboard) — the hero sparklines are a short,
+    fixed recent-trend glance, not a substitute for that analysis.
     Branch-scoped: managers/staff see only their own branch.
     """
     if request.user.role not in [
@@ -68,34 +139,67 @@ def operational_dashboard(request):
     now = timezone.localtime()
     today = now.date()
 
-    # --- Hero metric: today's sales ---
-    today_qs = sales_qs.filter(transaction_date__date=today)
-    today_sales = today_qs.aggregate(total=Sum('total_amount'))['total'] or 0
-    today_orders = today_qs.count()
-
-    yesterday_sales = sales_qs.filter(
-        transaction_date__date=today - timedelta(days=1)
+    # today_sales feeds _branch_status_rows below (each branch's share of
+    # today's total), even though it's no longer its own hero card.
+    today_sales = sales_qs.filter(
+        transaction_date__date=today
     ).aggregate(total=Sum('total_amount'))['total'] or 0
-    if yesterday_sales:
-        delta_pct = round(((today_sales - yesterday_sales) / yesterday_sales) * 100, 1)
-    else:
-        delta_pct = None
 
     # --- Quiet strip ---
-    month_sales = sales_qs.filter(
-        transaction_date__year=today.year, transaction_date__month=today.month
-    ).aggregate(total=Sum('total_amount'))['total'] or 0
-
     pending_online = sales_qs.filter(
         transaction_type=SalesTransaction.TransactionType.ONLINE,
         order_status=SalesTransaction.OrderStatus.PENDING,
     ).count()
-    open_pos = procurement_qs.filter(status='Ordered').count()
 
     # Inventory value at cost (wholesale price where known).
     inventory_value = sum(
         inv.quantity_on_hand * (inv.product.wholesale_price or inv.product.unit_price or 0)
         for inv in inventory_qs if inv.product
+    )
+
+    # --- Hero-row cards: Total Sales, Recent Sales, Procurement Cost,
+    # Total Transactions (DESIGN.md Section 2, improvement #2/#2a) ---
+    total_sales_alltime = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_sales_spark = _sparkline_points(_daily_sales_series(sales_qs, 'total_amount', days=7))
+    total_sales_delta = _sales_period_delta_pct(sales_qs, 'total_amount', days=7)
+
+    recent_30d_boundary = now - timedelta(days=30)
+    recent_sales_30d = sales_qs.filter(
+        transaction_date__gte=recent_30d_boundary
+    ).aggregate(total=Sum('total_amount'))['total'] or 0
+    recent_sales_spark = _sparkline_points(
+        _daily_sales_series(sales_qs, 'total_amount', days=30), width=90
+    )
+    recent_sales_delta = _sales_period_delta_pct(sales_qs, 'total_amount', days=30)
+
+    total_transactions_alltime = sales_qs.count()
+    total_transactions_spark = _sparkline_points(_daily_sales_series(sales_qs, days=7))
+    total_transactions_delta = _sales_period_delta_pct(sales_qs, days=7)
+
+    # order_date is a plain DateField (no tz component), so it's bucketed
+    # directly rather than through _daily_sales_series/_sales_period_delta_pct.
+    proc_start = today - timedelta(days=6)
+    proc_buckets = {proc_start + timedelta(n): 0 for n in range(7)}
+    for day, cost in procurement_qs.filter(
+        order_date__gte=proc_start
+    ).values_list('order_date', 'total_cost'):
+        if day in proc_buckets:
+            proc_buckets[day] += cost or 0
+    procurement_cost_spark = _sparkline_points(
+        [proc_buckets[proc_start + timedelta(n)] for n in range(7)]
+    )
+
+    total_procurement_cost = procurement_qs.aggregate(total=Sum('total_cost'))['total'] or 0
+    proc_prev_start = proc_start - timedelta(days=7)
+    proc_current_cost = procurement_qs.filter(
+        order_date__gte=proc_start
+    ).aggregate(total=Sum('total_cost'))['total'] or 0
+    proc_previous_cost = procurement_qs.filter(
+        order_date__gte=proc_prev_start, order_date__lt=proc_start
+    ).aggregate(total=Sum('total_cost'))['total'] or 0
+    procurement_cost_delta = (
+        round(((proc_current_cost - proc_previous_cost) / proc_previous_cost) * 100, 1)
+        if proc_previous_cost else None
     )
 
     # --- Restock suggestions (same engine as the Alerts Center) ---
@@ -111,12 +215,19 @@ def operational_dashboard(request):
     )[:6]
 
     return render(request, 'reports/dashboard.html', {
-        'today_sales': today_sales,
-        'today_orders': today_orders,
-        'delta_pct': delta_pct,
-        'month_sales': month_sales,
+        'total_sales_alltime': total_sales_alltime,
+        'total_sales_spark': total_sales_spark,
+        'total_sales_delta': total_sales_delta,
+        'recent_sales_30d': recent_sales_30d,
+        'recent_sales_spark': recent_sales_spark,
+        'recent_sales_delta': recent_sales_delta,
+        'total_procurement_cost': total_procurement_cost,
+        'procurement_cost_spark': procurement_cost_spark,
+        'procurement_cost_delta': procurement_cost_delta,
+        'total_transactions_alltime': total_transactions_alltime,
+        'total_transactions_spark': total_transactions_spark,
+        'total_transactions_delta': total_transactions_delta,
         'pending_online': pending_online,
-        'open_pos': open_pos,
         'inventory_value': inventory_value,
         'total_products': Product.objects.count(),
         'low_stock_count': len(restock),

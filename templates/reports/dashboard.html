@@ -14,50 +14,114 @@
   </div>
 </div>
 
-{# ---------- ONE hero metric + a quiet strip (not 8 competing cards) ---------- #}
-<div class="grid-2 mb-6" style="grid-template-columns: minmax(280px, 380px) 1fr;">
+{# ---------- Hero row: 4 rich KPI cards with sparklines (DESIGN.md Section 2, #2/#2a) ---------- #}
+<div class="kpi-row mb-6">
   <div class="stat-hero">
-    <div class="label">Today's sales</div>
-    <div class="value" style="color:var(--action);">₱{{ today_sales|floatformat:2 }}</div>
-    <div class="row mt-2">
-      {% if delta_pct is not None %}
-        {% if delta_pct >= 0 %}
-          <span class="trend-up">▲ +{{ delta_pct }}% vs yesterday</span>
+    <div class="label">Total Sales</div>
+    <div class="value" style="color:var(--action);">₱{{ total_sales_alltime|floatformat:2 }}</div>
+    <div class="mt-2">
+      <svg viewBox="0 0 64 24" width="64" height="24" preserveAspectRatio="none">
+        <polyline points="{{ total_sales_spark.points }}" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="{{ total_sales_spark.dot_x }}" cy="{{ total_sales_spark.dot_y }}" r="2.5" fill="var(--brand)"/>
+      </svg>
+    </div>
+    <div class="mt-2">
+      {% if total_sales_delta is not None %}
+        {% if total_sales_delta >= 0 %}
+          <span class="trend-up">▲ +{{ total_sales_delta }}% vs last 7 days</span>
         {% else %}
-          <span class="trend-down">▼ {{ delta_pct }}% vs yesterday</span>
+          <span class="trend-down">▼ {{ total_sales_delta }}% vs last 7 days</span>
         {% endif %}
       {% else %}
-        <span class="gv-meta">No sales yesterday to compare</span>
+        <span class="gv-meta">No prior data to compare</span>
       {% endif %}
     </div>
-    <div class="gv-meta mt-2">{{ today_orders }} order{{ today_orders|pluralize }} today</div>
   </div>
 
-  <div class="stat-strip">
-    <div class="stat">
-      <div class="value">{{ low_stock_count }}</div>
-      <div class="label">Low / critical stock</div>
+  <div class="stat-hero">
+    <div class="label">Recent Sales (30 days)</div>
+    <div class="value" style="color:var(--action);">₱{{ recent_sales_30d|floatformat:2 }}</div>
+    <div class="mt-2">
+      <svg viewBox="0 0 90 24" width="90" height="24" preserveAspectRatio="none">
+        <polyline points="{{ recent_sales_spark.points }}" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="{{ recent_sales_spark.dot_x }}" cy="{{ recent_sales_spark.dot_y }}" r="2.5" fill="var(--brand)"/>
+      </svg>
     </div>
-    <div class="stat">
-      <div class="value">{{ pending_online }}</div>
-      <div class="label">Pending online orders</div>
+    <div class="mt-2">
+      {% if recent_sales_delta is not None %}
+        {% if recent_sales_delta >= 0 %}
+          <span class="trend-up">▲ +{{ recent_sales_delta }}% vs previous 30 days</span>
+        {% else %}
+          <span class="trend-down">▼ {{ recent_sales_delta }}% vs previous 30 days</span>
+        {% endif %}
+      {% else %}
+        <span class="gv-meta">No prior data to compare</span>
+      {% endif %}
     </div>
-    <div class="stat">
-      <div class="value">{{ open_pos }}</div>
-      <div class="label">Open purchase orders</div>
+  </div>
+
+  <div class="stat-hero">
+    <div class="label">Procurement Cost</div>
+    <div class="value">₱{{ total_procurement_cost|floatformat:2 }}</div>
+    <div class="mt-2">
+      <svg viewBox="0 0 64 24" width="64" height="24" preserveAspectRatio="none">
+        <polyline points="{{ procurement_cost_spark.points }}" fill="none" stroke="var(--ink-400)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="{{ procurement_cost_spark.dot_x }}" cy="{{ procurement_cost_spark.dot_y }}" r="2.5" fill="var(--ink-400)"/>
+      </svg>
     </div>
-    <div class="stat">
-      <div class="value">₱{{ inventory_value|floatformat:0 }}</div>
-      <div class="label">Inventory value at cost</div>
+    <div class="mt-2">
+      {% if procurement_cost_delta is not None %}
+        {% if procurement_cost_delta >= 0 %}
+          <span class="trend-up">▲ +{{ procurement_cost_delta }}% vs last 7 days</span>
+        {% else %}
+          <span class="trend-down">▼ {{ procurement_cost_delta }}% vs last 7 days</span>
+        {% endif %}
+      {% else %}
+        <span class="gv-meta">No prior data to compare</span>
+      {% endif %}
     </div>
-    <div class="stat">
-      <div class="value">₱{{ month_sales|floatformat:0 }}</div>
-      <div class="label">This month's sales</div>
+  </div>
+
+  <div class="stat-hero">
+    <div class="label">Total Transactions</div>
+    <div class="value">{{ total_transactions_alltime }}</div>
+    <div class="mt-2">
+      <svg viewBox="0 0 64 24" width="64" height="24" preserveAspectRatio="none">
+        <polyline points="{{ total_transactions_spark.points }}" fill="none" stroke="var(--ink-400)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="{{ total_transactions_spark.dot_x }}" cy="{{ total_transactions_spark.dot_y }}" r="2.5" fill="var(--ink-400)"/>
+      </svg>
     </div>
-    <div class="stat">
-      <div class="value">{{ total_products }}</div>
-      <div class="label">Products in catalog</div>
+    <div class="mt-2">
+      {% if total_transactions_delta is not None %}
+        {% if total_transactions_delta >= 0 %}
+          <span class="trend-up">▲ +{{ total_transactions_delta }}% vs last 7 days</span>
+        {% else %}
+          <span class="trend-down">▼ {{ total_transactions_delta }}% vs last 7 days</span>
+        {% endif %}
+      {% else %}
+        <span class="gv-meta">No prior data to compare</span>
+      {% endif %}
     </div>
+  </div>
+</div>
+
+{# ---------- Secondary strip: remaining operational counts, no longer hero-worthy ---------- #}
+<div class="stat-strip mb-6">
+  <div class="stat">
+    <div class="value">{{ low_stock_count }}</div>
+    <div class="label">Low / critical stock</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{ pending_online }}</div>
+    <div class="label">Pending online orders</div>
+  </div>
+  <div class="stat">
+    <div class="value">₱{{ inventory_value|floatformat:0 }}</div>
+    <div class="label">Inventory value at cost</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{ total_products }}</div>
+    <div class="label">Products in catalog</div>
   </div>
 </div>
 
