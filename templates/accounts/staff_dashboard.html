@@ -68,7 +68,7 @@
         <tr>
           <td data-label="Task" class="strong">Receive delivery</td>
           <td data-label="Details">{{ p.po_number }} &middot;
-            {{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}</td>
+            {% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</td>
           <td data-label="Due / Risk">
             {% if p.delivery_date %}{{ p.delivery_date|date:"M d" }}
             {% else %}<span class="gv-meta">No date set</span>{% endif %}

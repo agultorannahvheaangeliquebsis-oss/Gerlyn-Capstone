@@ -47,7 +47,7 @@
       <tbody>
         <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ procurement.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Supplier</td><td style="text-align:right;">
-          {{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username|default:"—" }}</td></tr>
+          {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
         <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
