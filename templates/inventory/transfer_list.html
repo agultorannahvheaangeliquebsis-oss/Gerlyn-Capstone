@@ -1,5 +1,5 @@
 {% extends 'internal_base.html' %}
-{% block title %}Withdrawal Slips{% endblock %}
+{% block title %}Stock Adjustments{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -43,10 +43,10 @@
 <div style="padding:8px 4px;">
   <div class="ws-header">
     <div>
-      <h2 style="margin:0;">Withdrawal Slips</h2>
+      <h2 style="margin:0;">Stock Adjustments</h2>
       <p style="color:#888; margin:4px 0 0;">Track stock released from inventory</p>
     </div>
-    <a class="btn green" href="{% url 'transfer_create' %}">+ New Withdrawal Slip</a>
+    <a class="btn green" href="{% url 'transfer_create' %}">+ New Stock Adjustment</a>
   </div>
 
   {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}

@@ -1,9 +1,9 @@
 {% extends 'internal_base.html' %}
-{% block title %}New Withdrawal Slip{% endblock %}
+{% block title %}New Stock Adjustment{% endblock %}
 {% block content %}
 <div style="padding:8px 4px; max-width:760px;">
-  <a href="{% url 'transfer_list' %}">&larr; Withdrawal Slips</a>
-  <h2 style="margin:8px 0;">New Withdrawal Slip</h2>
+  <a href="{% url 'transfer_list' %}">&larr; Stock Adjustments</a>
+  <h2 style="margin:8px 0;">New Stock Adjustment</h2>
   {% for m in messages %}<div style="padding:10px 14px; border-radius:8px; background:#fdecea; color:#c0392b; margin:6px 0;">{{ m }}</div>{% endfor %}
 
   <form method="post">{% csrf_token %}
