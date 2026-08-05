@@ -129,6 +129,49 @@ the correct fix is to amend Chapter 3 + the ERD *first*, then build it.
 
 **Done when:** a week passes with no new bugs found, and the tests still pass.
 
+### Where we actually are with DESIGN.md (6 Aug)
+
+Checked every item in `docs/DESIGN.md` — the 11-item task order, Section 1's
+other named pieces (Alerts Center tabs, Sales & Orders vs. Billing, Admin
+gating), and Section 2's improvements 1 and 3–6 — against the real files, not
+memory. Evidence is file:line so it can be re-checked in ten seconds if it
+drifts.
+
+**Done**
+- **#1 Rename "Withdrawal Slips" → "Stock Adjustments".** `templates/internal_base.html:67`; zero remaining occurrences of "Withdrawal Slips" anywhere under `templates/`.
+- **#2 "View all alerts →" link.** `templates/reports/dashboard.html:166` (branch-status card) and `:212` (restock suggestions card), both → `alerts_center`.
+- **#3 Owner Dashboard migrated off Bootstrap.** Zero Bootstrap utility classes (`row`, `col-*`, `fs-*`, `fw-bold`, `stat-card`, `table-sm`) anywhere in `templates/reports/dashboard.html`; built entirely from `.stat-hero`, `.kpi-row`, `.stat-strip`, `.gv-table`, `.kpi-card`, `.card`. (Same item as Section 2 improvement #1.)
+- **#4 Staff role nav visibility tightened.** `templates/internal_base.html` gates Products/Categories/Stock Adjustments (lines 61, 66), Procurement (74), Billing (84), System & Monitoring (105, 113), Administration to Owner-only (135), and the bottom mobile nav's Alerts/Reports (222). Matches DESIGN.md's role matrix exactly (Staff: Dashboard + Sales & Orders + Stock per Branch only; Manager: everything but Administration; Owner: everything) — confirmed by rendering the sidebar for both an Owner and a Staff login.
+- **#5 Rich KPI cards with sparklines.** `reports/views.py` — `_sparkline_points()` (line 96), `_sales_period_delta_pct()`; `templates/reports/dashboard.html:19-81` — all four hero cards (Total Sales, Recent Sales, Procurement Cost, Total Transactions) have an inline SVG sparkline with end-dot plus a delta callout.
+- **#6 Click-to-expand (2a).** `reports/views.py` — `_kpi_graph_series()` (162), `_delta_display()` (198); `templates/reports/dashboard.html:85-104` (shared graph panel) and its `activate()` JS (318) — one shared panel, cards act as tabs, keyboard-accessible, exactly one `.active` at a time. Verified end-to-end earlier this session.
+- **Section 2 #3, status color rule.** `.btn-primary` uses `var(--action)` (green) exclusively — `static/css/gerlyn.css:100-101`. No amber/warn-colored action-button class exists anywhere.
+- **Alerts Center's two tabs.** Low Stock Alerts and Expiry Alerts both present — `templates/inventory/alerts_center.html:29-140`. The Low Stock tab has exactly the Qty/Reorder/Suggested/Risk columns plus per-row "Create PO" DESIGN.md specifies (lines 39-87).
+- **Sales & Orders vs. Billing distinction.** Genuinely separate, matching the workflow-vs-ledger split: Sales & Orders drives `order_status` transitions (`sales/views.py`, `transaction_set_status`); Billing records are created automatically (`billing/signals.py:15`) and only change via `billing_confirm` (`billing/views.py:139`) — no manual-edit path found.
+- **Administration gating (Owner only).** `templates/internal_base.html:135`.
+
+**Partially done**
+- **Dashboard's "Sales by Branch."** Exists, but as a row of per-branch `.kpi-card`s (today's sales, trend, share %, low-stock count) rather than a literal `.gv-table` — `reports/views.py:584` (`_branch_status_rows`), `templates/reports/dashboard.html:127-170`. Functionally equivalent to what Section 1 asks for; flagging only because the doc says "table."
+- **#8 / 2e Standardized date-range control.** A raw two-date-input `.date-range` pair exists, but only in 2 of the 4 Reports tabs (Billing Report, Procurement Report — `static/css/gerlyn.css:727-729`); Sales Report, Inventory Report, and Alerts Center have no date filter at all. Not the preset-based component (Today / Last 7 days / Last 30 days / This month / Custom) DESIGN.md specifies.
+- **Billing's "Outstanding Balances" view.** An aggregate total is shown (`billing/views.py:45`, `templates/billing/billing_list.html:9`) and there's a "Pending" status tab, but no view scoped specifically to wholesale/credit customers as DESIGN.md's Financials section calls for.
+
+**Not started**
+- **#7 / 2b "Needs attention" list.** No formalized `.card` component linking out to Alerts/POs/Orders/Billing anywhere on the Dashboard.
+- **#9 / Section 2 #6 Breadcrumbs (internal system).** None found under the internal topbar. There *is* an unrelated `.breadcrumb` component, but it's on the customer-facing Settings pages (`templates/accounts/profile.html:15`, extends `public_base.html`) — a different, already-shipped feature for a different area, not what DESIGN.md asks for here.
+- **#11 / 2c+2d Reports multi-panel row and Sales & Orders funnel.** No donut/funnel markup anywhere. DESIGN.md itself flags both as lower-priority/optional.
+- **Dashboard's "Top-Selling Products" list.** Named in Section 1's Dashboard bullet list; not found anywhere in `reports/views.py` or `templates/reports/dashboard.html`.
+
+**Not applicable / deliberately deferred**
+- **#10 Fold Categories into Products.** DESIGN.md itself says "when team is ready" — Categories is still its own nav item (`templates/internal_base.html:63`). Correctly deferred, not a gap.
+- **Section 2 #4, Typography (Inter).** DESIGN.md: "not a priority — only change if actively wanted." Still `system-ui`. No action needed.
+- **Section 2 #5, sidebar flyout-on-hover.** DESIGN.md: "not a v1 requirement." The team deliberately built a different pattern instead — a collapsed group expands the sidebar and opens just that group, rather than a hover flyout — documented in code comments at `static/js/sidebar.js:37-40` and `static/css/gerlyn.css:410`.
+
+**Recommended next session** (priority order, weighing both DESIGN.md's own order and this roadmap's Phase 2 priorities)
+1. **Bug bash** — Phase 2's own first task, and it's already next in this roadmap. Do this before more feature work, per the "freeze features after this phase" rule below.
+2. **Style the Supplier portal** — this roadmap's gap #2 (still open; today's session only touched it for a URL/crash fix, not its styling). It's a documented promise (Chapter 3 names Supplier as 1 of 5 roles), so it outranks any remaining DESIGN.md polish item.
+3. **#7 Needs-attention list (2b)** — cheapest of the three remaining task-order items and the one most directly tied to the Dashboard's actual purpose; reuses existing `.card` and alert-data patterns.
+4. **#8 date-range control, then #9 breadcrumbs** — real but lower-value polish; DESIGN.md itself ranks breadcrumbs last, and the date-range control already has partial ad hoc coverage.
+5. **Decide explicitly whether #7–#9 happen before or after this Phase 2's feature freeze** — don't let that default happen silently; the bug-bash checklist below says no new features once it's done.
+
 ### Found during the sidebar-redesign merge (6 Aug)
 
 - [x] `accounts/views.py` — `verify_email`, invalid-token branch. Missing `return`
@@ -148,17 +191,36 @@ the correct fix is to amend Chapter 3 + the ERD *first*, then build it.
       branch-scoped query never matches. Assign real branches once real branch
       data exists.
 
-### Remaining DESIGN.md items (not started, tracked for later)
+### Placeholder/demo data currently in the dev DB
 
-- [ ] **Formalize "Needs attention" list** (2b) on Dashboard as a distinct `.card`
-      component, linking out to Alerts/POs/Orders/Billing.
-- [ ] **Build standardized date-range control** (2e) and wire into Reports +
-      Alerts toolbars.
-- [ ] **Add breadcrumbs** under topbar for deep routes.
-- [ ] **Fold Categories into Products** as a filter/tab — explicitly "when team
-      is ready" per DESIGN.md, not urgent.
-- [ ] *(Lower priority, optional per DESIGN.md)* **Reports multi-panel row** (2c)
-      and **Sales & Orders funnel** (2d).
+Checked directly against the database, not assumed. The dev DB right now has
+exactly **1 branch** ("Main Branch") and **3 products** (`DEMO-001` Rice Sack,
+`DEMO-002` Cooking Oil, `DEMO-003` Canned Sardines) — none of it matches the
+tracked `accounts/management/commands/seed_demo.py` command's data (real
+Baliuag branches: Tarcan, Makinabang, Tiaong Baliwag Mini Mart; a `SKU-011`-style
+product catalog), so that command has apparently never been run against this
+DB. On top of that generic base sits 30 `ORD-DEMO-*` SalesTransaction rows
+from the untracked `seed_dashboard_demo.py` script at the repo root — a
+one-off tool written this session to eyeball dashboard sparklines against
+non-empty data (its own docstring has the cleanup queries).
+
+- [ ] Before deploying, run `seed_demo --reset` (already in Phase 3's
+      deployment checklist below) on the deploy target — `_reset()` wipes
+      Branch/Product/etc. unconditionally, so this *does* clear "Main Branch"
+      and the `DEMO-00X` products, replacing them with the real-branch-named
+      catalog. Don't skip straight to production without it, and don't copy
+      this local dev DB's current state over as if it were ready to ship.
+- [ ] Decide what to do with `seed_dashboard_demo.py` before it's committed —
+      delete it (cleanup queries are in its own header comment) or move it
+      somewhere clearly marked as a dev-only scratch tool, so it can't get
+      mistaken for part of the real seed pipeline or accidentally run
+      against a live database.
+- [ ] Worth a team check: is `seed_demo.py`'s Tarcan/Makinabang/Tiaong Baliwag
+      Mini Mart catalog the store's actual real branch/product/pricing data,
+      or is it also a nicer-looking placeholder meant only to carry the
+      system through the evaluation phase? This roadmap's Phase 3 treats
+      running it as the final pre-launch data step, so it's worth confirming
+      that's actually the intent before evaluators log in.
 
 ---
 
