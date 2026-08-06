@@ -183,6 +183,21 @@ input::placeholder { color: var(--ink-400); }
   padding: var(--s6);
 }
 .stat-hero .value { font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+
+/* Dashboard hero cards double as click-to-expand tabs into the KPI graph
+   panel (DESIGN.md Section 2, #2a) — active state is a green tint, never a
+   dark highlight, so it reads as "selected" rather than "alert". */
+.stat-hero[data-kpi-key] { cursor: pointer; }
+.stat-hero[data-kpi-key]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.stat-hero.active { background: var(--green-50); border-color: var(--green-300); }
+
+/* Shared graph panel the hero cards render into on click (DESIGN.md
+   Section 2, #2a) — same surface/line/radius/shadow tokens as .card. */
+.kpi-graph-panel {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-card);
+}
+.kpi-graph-panel svg { display: block; width: 100%; height: auto; }
 .stat {
   background: var(--line-soft); border: 1px solid var(--line);
   border-radius: var(--r-card); padding: var(--s4) var(--s4);
@@ -452,7 +467,7 @@ input::placeholder { color: var(--ink-400); }
 .app.sidebar-collapsed .sb-item.sb-item--active,
 .app.sidebar-collapsed .sb-tree-toggle.sb-item--active,
 .app.sidebar-collapsed .sb-tree-toggle.sb-tree-toggle--active,
-.app.sidebar-collapsed .sb-tree-toggle[aria-expanded="true"] {
+.app.sidebar-collapsed .sb-tree-root:has(.sb-tree-file--active) > .sb-tree-toggle {
   width: 44px;
   height: 44px;
   margin: 0 auto;
@@ -462,7 +477,7 @@ input::placeholder { color: var(--ink-400); }
 }
 .app.sidebar-collapsed .sb-item.sb-item--active svg,
 .app.sidebar-collapsed .sb-tree-toggle.sb-item--active svg,
-.app.sidebar-collapsed .sb-tree-toggle[aria-expanded="true"] svg {
+.app.sidebar-collapsed .sb-tree-root:has(.sb-tree-file--active) > .sb-tree-toggle svg {
   color: #fff;
 }
 .app.sidebar-collapsed .sb-tree { display: none; }

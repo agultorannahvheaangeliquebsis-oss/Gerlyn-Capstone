@@ -35,7 +35,7 @@ def transaction_list(request):
     """Order Console — the queue of every order, filterable by status."""
     if request.user.role not in INTERNAL_ROLES:
         messages.error(request, 'Access denied.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     transactions = (
         SalesTransaction.objects

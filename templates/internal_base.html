@@ -61,15 +61,20 @@
         </button>
         <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}open{% endif %}" id="tree-inventory">
           <li class="sb-tree-inner">
+            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
             <a class="sb-tree-file {% if active_page == 'products' %}sb-tree-file--active{% endif %}" href="{% url 'product_list' %}"><span class="sb-label">Product Master List</span></a>
             <a class="sb-tree-file {% if active_page == 'categories' %}sb-tree-file--active{% endif %}" href="{% url 'category_list' %}"><span class="sb-label">Categories</span></a>
+            {% endif %}
             <a class="sb-tree-file {% if active_page == 'stock' %}sb-tree-file--active{% endif %}" href="{% url 'inventory_list' %}"><span class="sb-label">Stock per Branch</span></a>
-            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Withdrawal Slips</span></a>
+            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Adjustments</span></a>
+            {% endif %}
           </li>
         </ul>
       </div>
 
       {# -------------------------------------------------------- Procurement #}
+      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-procurement" title="Procurement"
           aria-expanded="{% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}true{% else %}false{% endif %}">
@@ -87,6 +92,7 @@
           </li>
         </ul>
       </div>
+      {% endif %}
 
       {# --------------------------------------------------------- Financials #}
       <div class="sb-tree-root">
@@ -99,12 +105,15 @@
         <ul class="sb-tree {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}" id="tree-financials">
           <li class="sb-tree-inner">
             <a class="sb-tree-file {% if active_page == 'orders' %}sb-tree-file--active{% endif %}" href="{% url 'transaction_list' %}"><span class="sb-label">Sales &amp; Orders</span></a>
+            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
             <a class="sb-tree-file {% if active_page == 'billing' %}sb-tree-file--active{% endif %}" href="{% url 'billing_list' %}"><span class="sb-label">Billing</span></a>
+            {% endif %}
           </li>
         </ul>
       </div>
 
       {# -------------------------------------------------- System / Monitoring #}
+      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-monitoring" title="System &amp; Monitoring"
           aria-expanded="{% if active_page == 'reports' or active_page == 'alerts' %}true{% else %}false{% endif %}">
@@ -123,6 +132,7 @@
           </li>
         </ul>
       </div>
+      {% endif %}
 
       {# ------------------------------------------------------ Administration #}
       {% if request.user.role == 'OWNER' %}
@@ -220,6 +230,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
       Stock
     </a>
+    {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
     <a class="{% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
       Alerts
@@ -229,6 +240,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
       Reports
     </a>
+    {% endif %}
   </nav>
 
 </div>

@@ -41,7 +41,7 @@
       <tr>
         <td data-label="PO ID" class="sku strong">{{ p.po_number }}</td>
         <td data-label="Branch">{{ p.branch.branch_name }}</td>
-        <td data-label="Supplier">{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username|default:"—" }}</td>
+        <td data-label="Supplier">{% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</td>
         <td data-label="Order Date" class="gv-meta">{{ p.order_date|date:"Y-m-d" }}</td>
         <td data-label="Expected Delivery">
           {% if p.delivery_date %}

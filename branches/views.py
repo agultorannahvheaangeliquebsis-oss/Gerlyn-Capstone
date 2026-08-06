@@ -14,7 +14,7 @@ from .models import Branch
 def branch_list(request):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage branches.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     branches = Branch.objects.annotate(
         staff_count=Count('staff', distinct=True),
@@ -38,7 +38,7 @@ def branch_list(request):
 def branch_form(request, pk=None):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage branches.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     branch = get_object_or_404(Branch, pk=pk) if pk else None
 
@@ -73,7 +73,7 @@ def branch_form(request, pk=None):
 def branch_delete(request, pk):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can delete branches.')
-        return redirect('home')
+        return redirect('accounts:home')
 
     branch = get_object_or_404(Branch, pk=pk)
     stock_on_hand = Inventory.objects.filter(branch=branch).aggregate(

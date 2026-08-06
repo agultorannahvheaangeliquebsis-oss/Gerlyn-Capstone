@@ -8,7 +8,7 @@
     <h1>User Management</h1>
     <p class="gv-meta mb-0">{{ rows|length }} internal account{{ rows|length|pluralize }}</p>
   </div>
-  <a class="btn btn-primary" href="{% url 'user_add' %}">
+  <a class="btn btn-primary" href="{% url 'accounts:user_add' %}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Add User
   </a>
@@ -54,9 +54,9 @@
         <td data-label="Last Login" class="gv-meta">{{ r.user.last_login|date:"Y-m-d H:i"|default:"Never" }}</td>
         <td data-label="Actions">
           <span class="row-actions">
-            <a class="btn btn-sm" href="{% url 'user_edit' r.user.pk %}">Edit</a>
+            <a class="btn btn-sm" href="{% url 'accounts:user_edit' r.user.pk %}">Edit</a>
             {% if r.user.pk != request.user.pk %}
-            <form method="POST" action="{% url 'user_toggle_active' r.user.pk %}" style="display:inline;">
+            <form method="POST" action="{% url 'accounts:user_toggle_active' r.user.pk %}" style="display:inline;">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm {% if r.user.is_active %}btn-danger{% endif %}">
                 {% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}

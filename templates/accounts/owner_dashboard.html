@@ -95,5 +95,6 @@
             {% if not low_stock %}<tr><td colspan="4" class="text-muted">No items need restocking.</td></tr>{% endif %}
         </tbody>
     </table>
+    <a href="{% url 'alerts_center' %}" class="small fw-bold text-decoration-none">View all alerts &rarr;</a>
 </div>
 {% endblock %}

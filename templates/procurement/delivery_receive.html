@@ -10,7 +10,7 @@
     <a class="gv-meta" href="{% url 'delivery_list' %}">&larr; Receive Delivery</a>
     <h1 class="mt-2">Receive {{ procurement.po_number }}</h1>
     <p class="gv-meta mb-0">
-      {{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}
+      {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}
       · {{ procurement.branch.branch_name }}
     </p>
   </div>

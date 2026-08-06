@@ -1,4 +1,5 @@
 import csv
+import json
 import math
 
 from django.shortcuts import render, redirect
@@ -18,6 +19,7 @@ from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
 from core.scoping import branch_ids_for_user
+from core.permissions import OWNER, BRANCH_MANAGER, role_required
 
 
 def get_user_branch(user):
@@ -47,13 +49,176 @@ def _scoped_querysets(user):
     return sales_qs, procurement_qs, inventory_qs, user_branch
 
 
+# --- Dashboard hero-card sparklines ------------------------------------
+# `SalesTransaction.transaction_date` is a DateTimeField, so day-bucketing
+# happens in Python (not TruncDate/`.dates()`) — MySQL's CONVERT_TZ returns
+# NULL under USE_TZ when the server has no zoneinfo tables loaded, same
+# constraint already documented on `month_keys` in reports_dashboard above.
+# `Procurement.order_date` is a plain DateField with no tz component, so it
+# doesn't need this and is bucketed directly (see operational_dashboard).
+
+def _daily_sales_series(qs, value_field=None, days=7):
+    """
+    Day-bucketed totals (or counts, if `value_field` is None) from
+    `transaction_date` for the last `days` days, oldest first, zero-filled
+    for days with no rows.
+    """
+    today = timezone.localtime().date()
+    start = today - timedelta(days=days - 1)
+    boundary = timezone.make_aware(datetime.combine(start, datetime.min.time()))
+    buckets = {start + timedelta(n): 0 for n in range(days)}
+
+    fields = ['transaction_date'] + ([value_field] if value_field else [])
+    for row in qs.filter(transaction_date__gte=boundary).values_list(*fields):
+        day = timezone.localtime(row[0]).date()
+        if day in buckets:
+            buckets[day] += (row[1] or 0) if value_field else 1
+
+    return [buckets[start + timedelta(n)] for n in range(days)]
+
+
+def _sales_period_delta_pct(qs, value_field=None, days=7):
+    """% change between the last `days` days and the `days` before that."""
+    end = timezone.localtime()
+    start_current = end - timedelta(days=days)
+    start_prev = start_current - timedelta(days=days)
+
+    def _agg(gte, lt):
+        filtered = qs.filter(transaction_date__gte=gte, transaction_date__lt=lt)
+        if value_field:
+            return filtered.aggregate(total=Sum(value_field))['total'] or 0
+        return filtered.count()
+
+    current, previous = _agg(start_current, end), _agg(start_prev, start_current)
+    return round(((current - previous) / previous) * 100, 1) if previous else None
+
+
+def _sparkline_points(series, width=64, height=24, pad=3):
+    """
+    Maps a numeric series onto an SVG polyline's `points` attribute, scaled
+    into a width x height box, plus the trailing point for an end-dot. A
+    flat series (all equal values) renders as a horizontal midline instead
+    of dividing by zero.
+    """
+    if not series:
+        return {'points': '', 'dot_x': 0, 'dot_y': height / 2}
+
+    lo, hi = min(series), max(series)
+    span = hi - lo
+    n = len(series)
+    step = width / (n - 1) if n > 1 else 0
+
+    def y_for(v):
+        if span == 0:
+            return height / 2
+        return pad + (1 - (v - lo) / span) * (height - 2 * pad)
+
+    coords = [(round(i * step, 1), round(y_for(v), 1)) for i, v in enumerate(series)]
+    dot_x, dot_y = coords[-1]
+    return {'points': ' '.join(f'{x},{y}' for x, y in coords), 'dot_x': dot_x, 'dot_y': dot_y}
+
+
+def _daily_procurement_series(qs, value_field, days=7):
+    """
+    Day-bucketed totals from `order_date` for the last `days` days, oldest
+    first, zero-filled for days with no rows. `order_date` is a plain
+    DateField (no tz component), so — unlike _daily_sales_series — this
+    groups directly without a timezone.localtime() conversion per row.
+    """
+    today = timezone.localtime().date()
+    start = today - timedelta(days=days - 1)
+    buckets = {start + timedelta(n): 0 for n in range(days)}
+
+    for day, value in qs.filter(order_date__gte=start).values_list('order_date', value_field):
+        if day in buckets:
+            buckets[day] += value or 0
+
+    return [buckets[start + timedelta(n)] for n in range(days)]
+
+
+def _procurement_period_delta_pct(qs, value_field, days=7):
+    """% change between the last `days` days and the `days` before that."""
+    start_current = timezone.localtime().date() - timedelta(days=days - 1)
+    start_prev = start_current - timedelta(days=days)
+
+    def _agg(filters):
+        return qs.filter(**filters).aggregate(total=Sum(value_field))['total'] or 0
+
+    current = _agg({'order_date__gte': start_current})
+    previous = _agg({'order_date__gte': start_prev, 'order_date__lt': start_current})
+    return round(((current - previous) / previous) * 100, 1) if previous else None
+
+
+def _date_range_labels(days):
+    """
+    Date labels ('Aug 01') for the last `days` days, oldest first — matches
+    the day-bucket ranges used by _daily_sales_series/_daily_procurement_series.
+    """
+    today = timezone.localtime().date()
+    start = today - timedelta(days=days - 1)
+    return [(start + timedelta(n)).strftime('%b %d') for n in range(days)]
+
+
+def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24, pad_y=24):
+    """
+    Builds the click-to-expand graph panel's polyline, baseline-anchored
+    area-fill path, and day-labeled point list for one KPI's daily series
+    — the same zero-division-safe flat-line handling as _sparkline_points,
+    scaled to the larger graph canvas instead of a card-sized sparkline.
+    """
+    if not daily_values:
+        return {'polyline': '', 'area': '', 'points': []}
+
+    lo, hi = min(daily_values), max(daily_values)
+    span = hi - lo
+    n = len(daily_values)
+    step = (width - 2 * pad_x) / (n - 1) if n > 1 else 0
+    baseline = height - pad_y
+
+    def y_for(v):
+        if span == 0:
+            return height / 2
+        return pad_y + (1 - (v - lo) / span) * (height - 2 * pad_y)
+
+    coords = [
+        (round(pad_x + i * step, 1), round(y_for(v), 1))
+        for i, v in enumerate(daily_values)
+    ]
+    points = [
+        {'x': x, 'y': y, 'date': day_labels[i], 'value': daily_values[i]}
+        for i, (x, y) in enumerate(coords)
+    ]
+    polyline = ' '.join(f'{x},{y}' for x, y in coords)
+    line_path = ' '.join(f'L{x},{y}' for x, y in coords)
+    area = f'M{coords[0][0]},{baseline} {line_path} L{coords[-1][0]},{baseline} Z'
+
+    return {'polyline': polyline, 'area': area, 'points': points}
+
+
+def _delta_display(delta_pct, compare_label):
+    """
+    Formats a period-over-period % into the same "▲ +12.0% vs last 7 days"
+    copy already used on the hero cards, plus a direction flag for the
+    trend-up/trend-down/gv-meta class choice. Shared with the click-to-
+    expand graph panel's header so both surfaces render identical text.
+    """
+    if delta_pct is None:
+        return {'text': 'No prior data to compare', 'direction': None}
+    direction = 'up' if delta_pct >= 0 else 'down'
+    arrow = '▲' if direction == 'up' else '▼'
+    sign = '+' if delta_pct >= 0 else ''
+    return {'text': f'{arrow} {sign}{delta_pct}% vs {compare_label}', 'direction': direction}
+
+
 @login_required(login_url='login')
 def operational_dashboard(request):
     """
-    The Dashboard — a live operational snapshot: today's sales, per-branch
-    status, restock alerts, recent orders. Historical/analytical breakdowns
-    (trend, branch & product performance) live on the Reports page instead
-    (see reports_dashboard) so the two pages aren't the same content twice.
+    The Dashboard — a live operational snapshot: hero KPI cards (with a
+    short trend sparkline each), per-branch status, restock alerts, recent
+    orders. Deeper historical/analytical breakdowns (branch & product
+    performance, filterable by month) still live on the Reports page
+    instead (see reports_dashboard) — the hero sparklines are a short,
+    fixed recent-trend glance, not a substitute for that analysis.
     Branch-scoped: managers/staff see only their own branch.
     """
     if request.user.role not in [
@@ -67,35 +232,93 @@ def operational_dashboard(request):
     now = timezone.localtime()
     today = now.date()
 
-    # --- Hero metric: today's sales ---
-    today_qs = sales_qs.filter(transaction_date__date=today)
-    today_sales = today_qs.aggregate(total=Sum('total_amount'))['total'] or 0
-    today_orders = today_qs.count()
-
-    yesterday_sales = sales_qs.filter(
-        transaction_date__date=today - timedelta(days=1)
+    # today_sales feeds _branch_status_rows below (each branch's share of
+    # today's total), even though it's no longer its own hero card.
+    today_sales = sales_qs.filter(
+        transaction_date__date=today
     ).aggregate(total=Sum('total_amount'))['total'] or 0
-    if yesterday_sales:
-        delta_pct = round(((today_sales - yesterday_sales) / yesterday_sales) * 100, 1)
-    else:
-        delta_pct = None
 
     # --- Quiet strip ---
-    month_sales = sales_qs.filter(
-        transaction_date__year=today.year, transaction_date__month=today.month
-    ).aggregate(total=Sum('total_amount'))['total'] or 0
-
     pending_online = sales_qs.filter(
         transaction_type=SalesTransaction.TransactionType.ONLINE,
         order_status=SalesTransaction.OrderStatus.PENDING,
     ).count()
-    open_pos = procurement_qs.filter(status='Ordered').count()
 
     # Inventory value at cost (wholesale price where known).
     inventory_value = sum(
         inv.quantity_on_hand * (inv.product.wholesale_price or inv.product.unit_price or 0)
         for inv in inventory_qs if inv.product
     )
+
+    # --- Hero-row cards: Total Sales, Recent Sales, Procurement Cost,
+    # Total Transactions (DESIGN.md Section 2, improvement #2/#2a) ---
+    sales_amounts_7d = _daily_sales_series(sales_qs, 'total_amount', days=7)
+    sales_amounts_30d = _daily_sales_series(sales_qs, 'total_amount', days=30)
+    sales_counts_7d = _daily_sales_series(sales_qs, days=7)
+    procurement_costs_7d = _daily_procurement_series(procurement_qs, 'total_cost', days=7)
+
+    total_sales_alltime = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_sales_spark = _sparkline_points(sales_amounts_7d)
+    total_sales_delta = _delta_display(
+        _sales_period_delta_pct(sales_qs, 'total_amount', days=7), 'last 7 days'
+    )
+    total_sales_graph = _kpi_graph_series(sales_amounts_7d, _date_range_labels(7))
+
+    recent_30d_boundary = now - timedelta(days=30)
+    recent_sales_30d = sales_qs.filter(
+        transaction_date__gte=recent_30d_boundary
+    ).aggregate(total=Sum('total_amount'))['total'] or 0
+    recent_sales_spark = _sparkline_points(sales_amounts_30d, width=90)
+    recent_sales_delta = _delta_display(
+        _sales_period_delta_pct(sales_qs, 'total_amount', days=30), 'previous 30 days'
+    )
+    recent_sales_graph = _kpi_graph_series(sales_amounts_30d, _date_range_labels(30))
+
+    total_transactions_alltime = sales_qs.count()
+    total_transactions_spark = _sparkline_points(sales_counts_7d)
+    total_transactions_delta = _delta_display(
+        _sales_period_delta_pct(sales_qs, days=7), 'last 7 days'
+    )
+    total_transactions_graph = _kpi_graph_series(sales_counts_7d, _date_range_labels(7))
+
+    total_procurement_cost = procurement_qs.aggregate(total=Sum('total_cost'))['total'] or 0
+    procurement_cost_spark = _sparkline_points(procurement_costs_7d)
+    procurement_cost_delta = _delta_display(
+        _procurement_period_delta_pct(procurement_qs, 'total_cost', days=7), 'last 7 days'
+    )
+    procurement_cost_graph = _kpi_graph_series(procurement_costs_7d, _date_range_labels(7))
+
+    # One JSON blob for the click-to-expand graph panel — switching cards is
+    # then a client-side redraw (see extra_js in dashboard.html), not a
+    # per-click request. Values may be Decimal (from Sum aggregates), which
+    # json.dumps can't serialize on its own, hence default=float.
+    # valueDisplay uses ',' thousands-separator formatting to match what
+    # Django's template output renders for the SSR'd cards/panel — floatformat
+    # and raw {{ number }} both auto-localize via USE_THOUSAND_SEPARATOR, so
+    # a plain f'{value:.2f}' here would visibly drift ("₱68585.00" vs the
+    # card's "₱68,585.00") the moment JS overwrites the panel on any click.
+    kpi_graph_data = json.dumps({
+        'total_sales': {
+            'label': 'Total Sales', 'unit': 'currency', 'stroke': 'var(--brand)',
+            'valueDisplay': f'₱{total_sales_alltime:,.2f}',
+            'delta': total_sales_delta, **total_sales_graph,
+        },
+        'recent_sales': {
+            'label': 'Recent Sales (30 days)', 'unit': 'currency', 'stroke': 'var(--brand)',
+            'valueDisplay': f'₱{recent_sales_30d:,.2f}',
+            'delta': recent_sales_delta, **recent_sales_graph,
+        },
+        'procurement_cost': {
+            'label': 'Procurement Cost', 'unit': 'currency', 'stroke': 'var(--ink-400)',
+            'valueDisplay': f'₱{total_procurement_cost:,.2f}',
+            'delta': procurement_cost_delta, **procurement_cost_graph,
+        },
+        'total_transactions': {
+            'label': 'Total Transactions', 'unit': 'count', 'stroke': 'var(--ink-400)',
+            'valueDisplay': f'{total_transactions_alltime:,}',
+            'delta': total_transactions_delta, **total_transactions_graph,
+        },
+    }, default=float)
 
     # --- Restock suggestions (same engine as the Alerts Center) ---
     branch_ids = branch_ids_for_user(request.user)
@@ -110,12 +333,24 @@ def operational_dashboard(request):
     )[:6]
 
     return render(request, 'reports/dashboard.html', {
-        'today_sales': today_sales,
-        'today_orders': today_orders,
-        'delta_pct': delta_pct,
-        'month_sales': month_sales,
+        'total_sales_alltime': total_sales_alltime,
+        'total_sales_spark': total_sales_spark,
+        'total_sales_delta': total_sales_delta,
+        'recent_sales_30d': recent_sales_30d,
+        'recent_sales_spark': recent_sales_spark,
+        'recent_sales_delta': recent_sales_delta,
+        'total_procurement_cost': total_procurement_cost,
+        'procurement_cost_spark': procurement_cost_spark,
+        'procurement_cost_delta': procurement_cost_delta,
+        'total_transactions_alltime': total_transactions_alltime,
+        'total_transactions_spark': total_transactions_spark,
+        'total_transactions_delta': total_transactions_delta,
+        # Default graph panel state (Total Sales) — server-rendered so the
+        # panel shows something before extra_js's click handler takes over.
+        'default_kpi_key': 'total_sales',
+        'default_kpi_graph': total_sales_graph,
+        'kpi_graph_data': kpi_graph_data,
         'pending_online': pending_online,
-        'open_pos': open_pos,
         'inventory_value': inventory_value,
         'total_products': Product.objects.count(),
         'low_stock_count': len(restock),
@@ -129,20 +364,14 @@ def operational_dashboard(request):
     })
 
 
-@login_required(login_url='login')
+@role_required(OWNER, BRANCH_MANAGER)
 def reports_dashboard(request):
     """
     The Reports hub — opens straight onto the Sales Report: every transaction
-    the user's role can see, filterable by branch (Owner only — a Manager/
-    Staff's own branch is already the whole story) and by month, with the
+    the user's role can see, filterable by branch (Owner only — a Manager's
+    own branch is already the whole story) and by month, with the
     same CSV/print-to-PDF export as the other per-process reports.
     """
-    if request.user.role not in [
-        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
-    ]:
-        messages.error(request, 'You do not have permission to view this page.')
-        return render(request, 'reports/no_access.html')
-
     user_branch = get_user_branch(request.user)
     branch_ids = branch_ids_for_user(request.user)
     show_branch_filter = branch_ids is None  # Owner only
