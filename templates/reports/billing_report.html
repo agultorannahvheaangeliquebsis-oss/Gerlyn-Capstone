@@ -68,7 +68,12 @@
     <div class="kpi-label">Collected (Paid)</div>
     <div class="gv-meta">{{ collected_count }} order{{ collected_count|pluralize }}</div>
   </div>
-  {% if outstanding %}
+  {% comment %}
+  Branch on the COUNT, not the amount: a pending set that happens to sum to
+  zero is still pending, and reading the all-clear card beside "30 pending"
+  was the contradiction this fixes. ({# #} is single-line only in Django.)
+  {% endcomment %}
+  {% if pending_count %}
   <div class="kpi-card warn">
     <div class="kpi-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
