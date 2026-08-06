@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
+  <link rel="manifest" href="{% static 'manifest.json' %}">
+  <meta name="theme-color" content="#1E7A4F">
+  <link rel="apple-touch-icon" href="{% static 'img/icons/apple-touch-icon-180.png' %}">
   <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=12">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" defer></script>
   {% block extra_css %}{% endblock %}
@@ -144,6 +147,14 @@
       <i data-lucide="store"></i>
       <span class="sb-label">View Store</span>
     </a>
+    <a class="sb-item {% if active_page == 'download' %}sb-item--active{% endif %}" href="{% url 'download' %}" title="Download">
+      <i data-lucide="download"></i>
+      <span class="sb-label">Download</span>
+    </a>
+    <a class="sb-item {% if active_page == 'internal_settings' %}sb-item--active{% endif %}" href="{% url 'internal_settings' %}" title="Settings">
+      <i data-lucide="settings"></i>
+      <span class="sb-label">Settings</span>
+    </a>
     <a class="sb-item sb-item--danger" href="{% url 'accounts:logout' %}" title="Logout">
       <i data-lucide="log-out"></i>
       <span class="sb-label">Logout</span>
@@ -222,6 +233,7 @@
 
 </div>
 <script src="{% static 'js/sidebar.js' %}" defer></script>
+<script src="{% static 'js/pwa.js' %}"></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
 </body>

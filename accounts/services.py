@@ -47,6 +47,32 @@ def revoke_other_sessions(user, keep_session_key=None):
         qs.delete()
 
 
+def get_active_sessions(user):
+    """Returns `user`'s still-live UserSession rows (joined against real,
+    unexpired django_session rows), pruning any tracking rows whose session
+    already expired — idle timeout or otherwise. Shared by the customer
+    Sessions page and the internal Settings page's inline Sessions panel,
+    so both list/revoke against the exact same data."""
+    from django.contrib.sessions.models import Session
+    from django.utils import timezone
+    from .models import UserSession
+
+    rows = list(user.sessions.all())
+    live_keys = set(
+        Session.objects.filter(
+            session_key__in=[r.session_key for r in rows],
+            expire_date__gt=timezone.now(),
+        ).values_list('session_key', flat=True)
+    )
+    live_rows = [r for r in rows if r.session_key in live_keys]
+
+    stale_ids = [r.pk for r in rows if r.session_key not in live_keys]
+    if stale_ids:
+        UserSession.objects.filter(pk__in=stale_ids).delete()
+
+    return live_rows
+
+
 def send_verification_email(user, request):
     """
     Sends initial email verification link after registration.

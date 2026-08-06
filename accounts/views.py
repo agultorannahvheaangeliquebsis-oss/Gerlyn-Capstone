@@ -317,6 +317,17 @@ def user_toggle_active(request, pk):
 
 
 def home_view(request):
+    # "/" is the app's start_url (PWA relaunch, a fresh tab/window, or just
+    # typing the domain) — for a logged-in staff/branch-manager/owner it
+    # must not render the customer storefront, since that's not their
+    # landing experience. CUSTOMER and anonymous visitors are unaffected:
+    # this page already *is* their correct landing page. (SUPPLIER is
+    # deliberately left alone here — see conversation notes: their portal
+    # has its own pre-existing bug unrelated to this fix.)
+    from core.permissions import INTERNAL_ROLES
+    if request.user.is_authenticated and request.user.role in INTERNAL_ROLES:
+        return redirect_by_role(request.user)
+
     products = Product.objects.prefetch_related('images')[:8]
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()
@@ -396,6 +407,7 @@ from .services import (
     send_verification_email, send_email_change_verification,
     send_password_change_verification, revoke_other_sessions,
     send_account_deactivation_verification, deactivate_account,
+    get_active_sessions,
 )
 
 
@@ -623,6 +635,18 @@ def resend_verification(request):
         messages.error(request, f"Failed to send email: {e}")
     return redirect('accounts:profile')
 
+def _profile_redirect(user):
+    """Where to land after an account-security action (password, 2FA)
+    completes — the internal Settings page for staff/branch managers/
+    owners, the customer Settings hub for everyone else. Without this,
+    internal users doing this from Settings > Password get bounced into
+    the customer-chromed profile page regardless of where they started."""
+    from core.permissions import INTERNAL_ROLES
+    if user.role in INTERNAL_ROLES:
+        return redirect('internal_settings')
+    return redirect('accounts:profile')
+
+
 @login_required(login_url='accounts:login')
 @require_POST
 def change_password(request):
@@ -632,7 +656,7 @@ def change_password(request):
     # the emailed confirmation link instead of this direct form.
     if user.two_factor_enabled:
         messages.error(request, "Two-factor authentication is enabled. Use \"Change\" to request a secure email link instead.")
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
 
     current  = request.POST.get('current_password', '')
     new_pwd  = request.POST.get('new_password', '')
@@ -640,18 +664,18 @@ def change_password(request):
 
     if not user.check_password(current):
         messages.error(request, "Current password is incorrect.")
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
 
     if new_pwd != confirm:
         messages.error(request, "New passwords do not match.")
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
 
     try:
         password_validation.validate_password(new_pwd, user)
     except ValidationError as e:
         for error in e.messages:
             messages.error(request, error)
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
 
     user.set_password(new_pwd)
     user.save()
@@ -661,7 +685,7 @@ def change_password(request):
     # a valid session on this account, not just leave them until it expires.
     revoke_other_sessions(user, keep_session_key=request.session.session_key)
     messages.success(request, "Password updated successfully.")
-    return redirect('accounts:profile')
+    return _profile_redirect(user)
 
 
 @login_required(login_url='accounts:login')
@@ -674,7 +698,7 @@ def toggle_two_factor(request):
 
     if not user.check_password(password):
         messages.error(request, "Incorrect password. Two-factor authentication was not changed.")
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
 
     user.two_factor_enabled = not user.two_factor_enabled
     user.save(update_fields=['two_factor_enabled'])
@@ -682,7 +706,7 @@ def toggle_two_factor(request):
 
     state = "enabled" if user.two_factor_enabled else "disabled"
     messages.success(request, f"Two-factor authentication {state}.")
-    return redirect('accounts:profile')
+    return _profile_redirect(user)
 
 
 @login_required(login_url='accounts:login')
@@ -692,7 +716,7 @@ def request_password_change_email(request):
     enabled — sends a confirmation link instead of changing it directly."""
     user = request.user
     if not user.two_factor_enabled:
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
 
     try:
         send_password_change_verification(user, request)
@@ -701,7 +725,7 @@ def request_password_change_email(request):
         import logging
         logging.getLogger(__name__).error(f"Email send failed: {e}")
         messages.error(request, f"Failed to send email: {e}")
-    return redirect('accounts:profile')
+    return _profile_redirect(user)
 
 
 def confirm_password_change(request, token):
@@ -760,7 +784,7 @@ def confirm_password_change(request, token):
             revoke_other_sessions(user, keep_session_key=None)
 
         messages.success(request, "Password updated successfully.")
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
 
     return render(request, 'accounts/confirm_password_change.html', {'token': token})
 
@@ -955,27 +979,19 @@ def language_view(request):
 # SESSIONS
 # ============================================================
 
+def _sessions_redirect(user):
+    """Mirrors _profile_redirect for the Sessions actions — internal users
+    land back on their own Settings page, not the customer Sessions page."""
+    from core.permissions import INTERNAL_ROLES
+    if user.role in INTERNAL_ROLES:
+        return redirect('internal_settings')
+    return redirect('accounts:sessions')
+
+
 @login_required(login_url='accounts:login')
 def sessions_view(request):
-    from django.contrib.sessions.models import Session as DjangoSession
-
-    rows = list(request.user.sessions.all())
-    live_keys = set(
-        DjangoSession.objects.filter(
-            session_key__in=[r.session_key for r in rows],
-            expire_date__gt=timezone.now(),
-        ).values_list('session_key', flat=True)
-    )
-    live_rows = [r for r in rows if r.session_key in live_keys]
-
-    # Tracking rows whose real session already expired (idle timeout, natural
-    # expiry) are just dead weight — drop them the next time anyone looks.
-    stale_ids = [r.pk for r in rows if r.session_key not in live_keys]
-    if stale_ids:
-        UserSession.objects.filter(pk__in=stale_ids).delete()
-
     return render(request, 'accounts/sessions.html', {
-        'sessions': live_rows,
+        'sessions': get_active_sessions(request.user),
         'current_session_key': request.session.session_key,
         'active_page': 'sessions',
     })
@@ -989,12 +1005,12 @@ def session_revoke(request, pk):
     target = get_object_or_404(UserSession, pk=pk, user=request.user)
     if target.session_key == request.session.session_key:
         messages.error(request, "That's your current session — use Sign out for that instead.")
-        return redirect('accounts:sessions')
+        return _sessions_redirect(request.user)
 
     DjangoSession.objects.filter(session_key=target.session_key).delete()
     target.delete()
     messages.success(request, "Session logged out.")
-    return redirect('accounts:sessions')
+    return _sessions_redirect(request.user)
 
 
 @login_required(login_url='accounts:login')
@@ -1002,7 +1018,7 @@ def session_revoke(request, pk):
 def session_logout_all_others(request):
     revoke_other_sessions(request.user, keep_session_key=request.session.session_key)
     messages.success(request, "Logged out of all other sessions.")
-    return redirect('accounts:sessions')
+    return _sessions_redirect(request.user)
 
 
 # ============================================================

@@ -1,0 +1,249 @@
+{% extends "internal_base.html" %}
+{% load static %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block page_subtitle %}Account &amp; system preferences{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p class="gv-meta mb-0">Manage your account security and (soon) store-wide preferences.</p>
+  </div>
+</div>
+
+<div class="card card-pad" style="margin-bottom:20px;">
+  <div class="account-card-title" style="margin-bottom:14px; display:flex; align-items:center; gap:8px; font:600 16px/1.2 system-ui, sans-serif; color:var(--ink-900);">
+    <i data-lucide="shield-check" style="width:18px;height:18px;"></i>
+    Account Security
+  </div>
+
+  <!-- Password -->
+  <div class="security-item">
+    <div class="security-item-info">
+      <div class="security-item-icon"><i data-lucide="key-round" style="width:16px;height:16px;"></i></div>
+      <div>
+        <div class="security-item-label">Password</div>
+        <div class="security-item-sub">
+          {% if two_factor_enabled %}
+            Password changes are confirmed via email while two-factor authentication is on.
+          {% else %}
+            ••••••••••••
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% if two_factor_enabled %}
+      <form method="post" action="{% url 'accounts:request_password_change_email' %}" style="margin:0;">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--action);">Manage</button>
+      </form>
+    {% else %}
+      <button type="button" class="btn btn-sm btn-quiet" id="pwd-toggle-btn" onclick="togglePasswordForm()" style="color:var(--action);">Manage</button>
+    {% endif %}
+  </div>
+
+  {% if not two_factor_enabled %}
+    <!-- Inline change-password form (hidden by default) -->
+    <div class="edit-form" id="pwd-form" style="padding:18px 0 4px;">
+      <form method="post" action="{% url 'accounts:change_password' %}">
+        {% csrf_token %}
+        <div class="stack" style="gap:16px;">
+          <div class="field">
+            <label for="id_current_password">Current Password</label>
+            <div style="position:relative;">
+              <input type="password" id="id_current_password" name="current_password"
+                placeholder="Enter current password" style="padding-right:44px;">
+              <button type="button" onclick="togglePwd('id_current_password', this)"
+                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                <svg id="id_current_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="id_new_password">New Password</label>
+            <div style="position:relative;">
+              <input type="password" id="id_new_password" name="new_password"
+                placeholder="Enter new password"
+                pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
+                title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
+                style="padding-right:44px;">
+              <button type="button" onclick="togglePwd('id_new_password', this)"
+                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                <svg id="id_new_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div class="gv-meta" style="margin-top:4px;">Must include an uppercase letter, a number, and a special character.</div>
+          </div>
+          <div class="field">
+            <label for="id_confirm_password">Confirm New Password</label>
+            <div style="position:relative;">
+              <input type="password" id="id_confirm_password" name="confirm_password"
+                placeholder="Re-enter new password" style="padding-right:44px;">
+              <button type="button" onclick="togglePwd('id_confirm_password', this)"
+                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                <svg id="id_confirm_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="edit-actions" style="margin-top:20px;">
+          <button type="button" class="btn btn-sm" onclick="togglePasswordForm()">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">Save password</button>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+
+  <!-- Two-Factor Authentication -->
+  <div class="security-item">
+    <div class="security-item-info">
+      <div class="security-item-icon"><i data-lucide="shield-check" style="width:16px;height:16px;"></i></div>
+      <div>
+        <div class="security-item-label">Two-Factor Authentication</div>
+        <div class="security-item-sub">Add an extra layer of security to your account</div>
+      </div>
+    </div>
+    <label class="toggle" title="{% if two_factor_enabled %}Disable{% else %}Enable{% endif %} two-factor authentication">
+      <input type="checkbox" id="tfa-checkbox" {% if two_factor_enabled %}checked{% endif %} onclick="event.preventDefault(); openTfaModal();">
+      <span class="toggle-track"></span>
+    </label>
+  </div>
+
+  <!-- Sessions -->
+  <div class="security-item" style="border-bottom:0;">
+    <div class="security-item-info">
+      <div class="security-item-icon"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;"></i></div>
+      <div>
+        <div class="security-item-label">Sessions</div>
+        <div class="security-item-sub">See and log out devices signed in to your account</div>
+      </div>
+    </div>
+    <button type="button" class="btn btn-sm btn-quiet" id="sessions-toggle-btn" onclick="toggleSessionsPanel()" style="color:var(--action);">Manage</button>
+  </div>
+
+  <div class="edit-form" id="sessions-panel" style="padding:16px 0 0;">
+    {% if sessions|length > 1 %}
+      <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0 0 8px; text-align:right;" onsubmit="return confirm('Log out of all other sessions?');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out all other sessions</button>
+      </form>
+    {% endif %}
+    {% for s in sessions %}
+      <div class="security-item">
+        <div class="security-item-info">
+          <div class="security-item-icon"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;"></i></div>
+          <div>
+            <div class="security-item-label">
+              {{ s.device_label }}
+              {% if s.session_key == current_session_key %}<span class="default-badge">This device</span>{% endif %}
+            </div>
+            <div class="security-item-sub">{{ s.ip_address|default:"—" }} · Last active {{ s.last_active|timesince }} ago</div>
+          </div>
+        </div>
+        {% if s.session_key != current_session_key %}
+          <form method="post" action="{% url 'accounts:session_revoke' s.pk %}" style="margin:0;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out</button>
+          </form>
+        {% endif %}
+      </div>
+    {% empty %}
+      <p class="account-empty">No other active sessions.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card card-pad">
+  <div class="account-card-title" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; font:600 16px/1.2 system-ui, sans-serif; color:var(--ink-900);">
+    <i data-lucide="store" style="width:18px;height:18px;"></i>
+    Store Settings
+  </div>
+  <p class="gv-meta" style="margin:0;">
+    Store-wide configuration (branch defaults, low-stock thresholds, receipt details, and similar) isn't built yet —
+    this section is a placeholder until that scope is defined.
+  </p>
+</div>
+
+<!-- ── Confirm-password modal (2FA toggle) ── -->
+<div class="modal-overlay" id="tfa-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title">
+    <div class="modal-head">
+      <h2 id="tfa-modal-title">Confirm Your Password</h2>
+      <button type="button" class="modal-close" onclick="closeTfaModal()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form method="post" action="{% url 'accounts:toggle_two_factor' %}">
+      {% csrf_token %}
+      <div class="modal-body">
+        <p class="gv-meta" style="margin:0;">
+          Enter your password to {% if two_factor_enabled %}disable{% else %}enable{% endif %} two-factor authentication.
+        </p>
+        <div class="field">
+          <label for="tfa-password">Password</label>
+          <div style="position:relative;">
+            <input type="password" id="tfa-password" name="password"
+              placeholder="Enter your password" required autocomplete="current-password"
+              style="padding-right:44px;">
+            <button type="button" onclick="togglePwd('tfa-password', this)"
+              style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+              <svg id="tfa-password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-sm" onclick="closeTfaModal()">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Confirm</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function togglePasswordForm() {
+  const form = document.getElementById('pwd-form');
+  const btn  = document.getElementById('pwd-toggle-btn');
+  const isOpen = form.classList.toggle('is-open');
+  btn.textContent = isOpen ? 'Cancel' : 'Manage';
+}
+
+function toggleSessionsPanel() {
+  const panel = document.getElementById('sessions-panel');
+  const btn   = document.getElementById('sessions-toggle-btn');
+  const isOpen = panel.classList.toggle('is-open');
+  btn.textContent = isOpen ? 'Hide' : 'Manage';
+}
+
+// Toggle visibility of a password input's text
+function togglePwd(inputId, btn) {
+  const input = document.getElementById(inputId);
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+// Confirm-password modal, shown before flipping the Two-Factor Authentication toggle
+function openTfaModal() {
+  document.getElementById('tfa-modal').classList.add('is-open');
+  document.getElementById('tfa-password').focus();
+}
+function closeTfaModal() {
+  document.getElementById('tfa-modal').classList.remove('is-open');
+  document.getElementById('tfa-password').value = '';
+}
+document.getElementById('tfa-modal').addEventListener('click', function (e) {
+  if (e.target === this) closeTfaModal();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && document.getElementById('tfa-modal').classList.contains('is-open')) {
+    closeTfaModal();
+  }
+});
+</script>
+{% endblock %}

@@ -152,6 +152,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.active_nav',
                 'core.context_processors.alerts',
+                'core.context_processors.app_version',
             ],
         },
     },
