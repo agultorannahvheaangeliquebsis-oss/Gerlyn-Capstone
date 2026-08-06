@@ -17,6 +17,7 @@ from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, role_required
 from core.scoping import branch_ids_for_user, user_can_access_branch
+from core.timebounds import local_month_bounds
 
 
 # ─────────────────────────────────────────────
@@ -547,15 +548,20 @@ def transfer_list(request):
     if date_to:
         transfers = transfers.filter(transfer_date__lte=date_to)
 
-    # Summary stats for the top cards
-    from django.utils.timezone import now
-    this_month = now().month
-    this_year = now().year
+    # Summary stats for the top cards.
+    # Half-open aware-datetime bounds, NOT created_at__month=/__year= —
+    # `created_at` is a DateTimeField, so __month= is compiled through
+    # CONVERT_TZ on MySQL and silently matches zero rows here, pinning this
+    # tile to 0 forever. See core.timebounds.
+    # localtime(), not now(): now() is UTC under USE_TZ, so on the 1st or
+    # last day of a month it reports the wrong month for Asia/Manila.
+    today = timezone.localtime().date()
+    month_start, month_end = local_month_bounds(today.year, today.month)
 
     total_released_this_month = transfers.filter(
         status=StockTransfer.Status.RELEASED,
-        created_at__month=this_month,
-        created_at__year=this_year,
+        created_at__gte=month_start,
+        created_at__lt=month_end,
     ).count()
 
     pending_acknowledgment = transfers.filter(

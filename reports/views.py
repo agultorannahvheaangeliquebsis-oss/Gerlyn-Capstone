@@ -20,6 +20,7 @@ from branches.models import Branch
 from accounts.models import User
 from core.scoping import branch_ids_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, role_required
+from core.timebounds import local_day_bounds, local_month_bounds
 
 
 def get_user_branch(user):
@@ -404,7 +405,13 @@ def reports_dashboard(request):
     if month_filter:
         try:
             year, month = (int(part) for part in month_filter.split('-'))
-            sales_qs = sales_qs.filter(transaction_date__year=year, transaction_date__month=month)
+            # Range comparison, NOT __year=/__month= — those go through
+            # CONVERT_TZ on MySQL and silently match nothing here. See
+            # local_month_bounds.
+            month_start, month_end = local_month_bounds(year, month)
+            sales_qs = sales_qs.filter(
+                transaction_date__gte=month_start, transaction_date__lt=month_end
+            )
         except ValueError:
             month_filter = ''
 
@@ -753,18 +760,26 @@ def billing_report(request):
 
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
+    # Half-open aware-datetime bounds, NOT date_recorded__date__gte/__lte —
+    # `date_recorded` is a DateTimeField, so those lookups go through
+    # CONVERT_TZ on MySQL and silently match zero rows here, which made both
+    # date inputs return an empty report for every range. See core.timebounds.
+    # date_to is inclusive of its whole day: take the END of that day and
+    # compare with __lt.
     if date_from:
         try:
-            records_qs = records_qs.filter(
-                date_recorded__date__gte=datetime.strptime(date_from, '%Y-%m-%d').date()
+            from_start, _ = local_day_bounds(
+                datetime.strptime(date_from, '%Y-%m-%d').date()
             )
+            records_qs = records_qs.filter(date_recorded__gte=from_start)
         except ValueError:
             date_from = ''
     if date_to:
         try:
-            records_qs = records_qs.filter(
-                date_recorded__date__lte=datetime.strptime(date_to, '%Y-%m-%d').date()
+            _, to_end = local_day_bounds(
+                datetime.strptime(date_to, '%Y-%m-%d').date()
             )
+            records_qs = records_qs.filter(date_recorded__lt=to_end)
         except ValueError:
             date_to = ''
 
