@@ -7,14 +7,15 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Sum
 from django.http import HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 from datetime import datetime, timedelta
 
 from billing.models import BillingRecord
 
 from sales.models import SalesTransaction
-from inventory.models import Inventory, Product
-from inventory.alerts import low_stock_alerts
+from inventory.models import Batch, Inventory
+from inventory.alerts import alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
@@ -211,6 +212,99 @@ def _delta_display(delta_pct, compare_label):
     return {'text': f'{arrow} {sign}{delta_pct}% vs {compare_label}', 'direction': direction}
 
 
+# --- "Needs attention" list (DESIGN.md Section 2, #2b) -------------------
+# Five routing rows: icon + label + .pill count + chevron. Counts come from
+# the same querysets/engines the destination pages use, so the badge and the
+# page it links to can never disagree.
+
+def _attention_pill(count, escalated=False):
+    """
+    Pill variant for a count badge: nothing outstanding is `ok`, an
+    outstanding count that carries a hard failure (critical stock, already-
+    expired batches) is `danger`, anything else is `warn`.
+    """
+    if not count:
+        return 'pill-ok'
+    return 'pill-danger' if escalated else 'pill-warn'
+
+
+def _needs_attention_rows(summary, procurement_qs, sales_qs):
+    """
+    Build the five Dashboard "needs attention" rows in the DESIGN.md 2b order.
+
+    Definitions, kept deliberately aligned with the destination pages:
+      Low Stock      inventory.alerts.low_stock_alerts — the same engine the
+                     Alerts Center and Restock Suggestions table already use.
+      Expiring Soon  inventory.alerts.expiry_alerts — batches with stock left
+                     that expire within EXPIRY_WINDOW_DAYS (14), plus any
+                     already past expiry. Escalates to danger once a batch has
+                     actually expired.
+      Pending POs    Draft + Ordered, i.e. raised but not yet Received or
+                     Cancelled. Same set procurement_list totals as open_value.
+      Pending Orders Pending + Approved + Preparing, i.e. every order that is
+                     not yet Completed or Cancelled ("unfulfilled").
+      Overdue Bill.  NOT COMPUTABLE YET — BillingRecord has no due_date or
+                     payment-terms field, so there is no date to be overdue
+                     against. Hardcoded 0 rather than silently substituting
+                     the Pending count, which would mean "outstanding", not
+                     "overdue". Swap in a real query when due dates land.
+    """
+    low_count = summary['low_count']
+    expiring_count = summary['expiring_count']
+    expired_count = sum(
+        1 for r in summary['expiry']
+        if r['status'] == Batch.ExpiryStatus.EXPIRED
+    )
+
+    pending_pos = procurement_qs.filter(
+        status__in=[Procurement.Status.DRAFT, Procurement.Status.ORDERED]
+    ).count()
+
+    pending_orders = sales_qs.filter(
+        order_status__in=[
+            SalesTransaction.OrderStatus.PENDING,
+            SalesTransaction.OrderStatus.APPROVED,
+            SalesTransaction.OrderStatus.PREPARING,
+        ]
+    ).count()
+
+    # See docstring — no due-date field exists to compute this against.
+    overdue_billing = 0
+
+    return [
+        {
+            'key': 'low_stock', 'icon': 'alert', 'label': 'Low Stock',
+            'count': low_count,
+            'pill': _attention_pill(low_count, escalated=summary['critical_count'] > 0),
+            'url': reverse('alerts_center') + '#low',
+        },
+        {
+            'key': 'expiring', 'icon': 'clock', 'label': 'Expiring Soon',
+            'count': expiring_count,
+            'pill': _attention_pill(expiring_count, escalated=expired_count > 0),
+            'url': reverse('alerts_center') + '#expiring',
+        },
+        {
+            'key': 'pending_pos', 'icon': 'truck', 'label': 'Pending POs',
+            'count': pending_pos,
+            'pill': _attention_pill(pending_pos),
+            'url': reverse('procurement_list'),
+        },
+        {
+            'key': 'pending_orders', 'icon': 'cart', 'label': 'Unfulfilled Orders',
+            'count': pending_orders,
+            'pill': _attention_pill(pending_orders),
+            'url': reverse('transaction_list'),
+        },
+        {
+            'key': 'overdue_billing', 'icon': 'peso', 'label': 'Overdue Billing',
+            'count': overdue_billing,
+            'pill': _attention_pill(overdue_billing),
+            'url': reverse('billing_list') + f'?status={BillingRecord.PaymentStatus.PENDING}',
+        },
+    ]
+
+
 @login_required(login_url='login')
 def operational_dashboard(request):
     """
@@ -228,28 +322,19 @@ def operational_dashboard(request):
         messages.error(request, 'You do not have permission to view this page.')
         return render(request, 'reports/no_access.html')
 
-    sales_qs, procurement_qs, inventory_qs, user_branch = _scoped_querysets(request.user)
+    sales_qs, procurement_qs, _inventory_qs, user_branch = _scoped_querysets(request.user)
 
     now = timezone.localtime()
     today = now.date()
 
     # today_sales feeds _branch_status_rows below (each branch's share of
     # today's total), even though it's no longer its own hero card.
+    # Range comparison, not __date= — see local_day_bounds for why that
+    # lookup silently returns nothing on this MySQL deployment.
+    _today_start, _today_end = local_day_bounds(today)
     today_sales = sales_qs.filter(
-        transaction_date__date=today
+        transaction_date__gte=_today_start, transaction_date__lt=_today_end
     ).aggregate(total=Sum('total_amount'))['total'] or 0
-
-    # --- Quiet strip ---
-    pending_online = sales_qs.filter(
-        transaction_type=SalesTransaction.TransactionType.ONLINE,
-        order_status=SalesTransaction.OrderStatus.PENDING,
-    ).count()
-
-    # Inventory value at cost (wholesale price where known).
-    inventory_value = sum(
-        inv.quantity_on_hand * (inv.product.wholesale_price or inv.product.unit_price or 0)
-        for inv in inventory_qs if inv.product
-    )
 
     # --- Hero-row cards: Total Sales, Recent Sales, Procurement Cost,
     # Total Transactions (DESIGN.md Section 2, improvement #2/#2a) ---
@@ -321,13 +406,20 @@ def operational_dashboard(request):
         },
     }, default=float)
 
-    # --- Restock suggestions (same engine as the Alerts Center) ---
+    # --- Restock suggestions + "needs attention" list (same engine as the
+    # Alerts Center — one alert_summary() call feeds both) ---
     branch_ids = branch_ids_for_user(request.user)
-    restock = low_stock_alerts(branch_ids)
+    summary = alert_summary(branch_ids)
+    restock = summary['low_stock']
+    needs_attention = _needs_attention_rows(summary, procurement_qs, sales_qs)
 
     # --- Branch status row: 3-second scan of each branch's sales today ---
     branches = Branch.objects.all() if branch_ids is None else Branch.objects.filter(id__in=branch_ids)
-    branch_status = _branch_status_rows(branches, sales_qs, restock, today, today_sales)
+    branch_status = _branch_status_rows(branches, sales_qs, restock, today, today_sales, now=now)
+    # Only surface the tinted status cards when a branch actually tripped a
+    # threshold; otherwise the template falls back to a plain neutral summary
+    # rather than painting a full red row over an uneventful day.
+    branch_alerts_present = any(row['status'] != 'ok' for row in branch_status)
 
     recent_orders = sales_qs.select_related('branch', 'customer').order_by(
         '-transaction_date'
@@ -351,12 +443,14 @@ def operational_dashboard(request):
         'default_kpi_key': 'total_sales',
         'default_kpi_graph': total_sales_graph,
         'kpi_graph_data': kpi_graph_data,
-        'pending_online': pending_online,
-        'inventory_value': inventory_value,
-        'total_products': Product.objects.count(),
+        # low_stock_count still feeds the Restock Suggestions header; the four
+        # quiet stat tiles it used to sit beside are gone (duplicated the Needs
+        # Attention rows / were static catalog facts, not daily decisions).
         'low_stock_count': len(restock),
         'restock': restock[:6],
+        'needs_attention': needs_attention,
         'branch_status': branch_status,
+        'branch_alerts_present': branch_alerts_present,
         'recent_orders': recent_orders,
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
@@ -588,35 +682,64 @@ def _billing_payment_breakdown(completed_records, total_revenue):
     return rows
 
 
-def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales):
-    """
-    Per-branch sales status for the Dashboard's "at a glance" row.
+# --- Per-branch status thresholds ---------------------------------------
+# A branch only goes amber/red on evidence. "No sales recorded yet" is NOT
+# evidence — it is the normal state of every branch at 9am, and the normal
+# state of every branch in a store that has not gone live yet.
+BRANCH_BASELINE_DAYS = 7      # trailing window for the sales baseline (excludes today)
+BRANCH_SLOW_RATIO = 0.5       # today's pace below half the baseline pace = slow
+BRANCH_MIN_DAY_ELAPSED = 0.25  # ignore the sales signal before ~6am local
 
-    status: 'critical' (no sales recorded today), 'watch' (sales down vs
-    yesterday), or 'ok'. Kept separate from stock risk — low_stock_count/
-    critical_count are shown alongside but don't drive the sales pill.
+
+def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales, now=None):
     """
-    yesterday = today - timedelta(days=1)
+    Per-branch status for the Dashboard's "at a glance" row.
+
+    status is driven by two real signals, never by absence of data:
+      'critical'  the branch has stock at/below half its reorder level
+                  (risk == 'Critical' in inventory.alerts).
+      'watch'     the branch has any low-stock row, OR today's sales are
+                  pacing under BRANCH_SLOW_RATIO of its own trailing
+                  BRANCH_BASELINE_DAYS-day average.
+      'ok'        everything else, including "quiet so far today".
+
+    The sales comparison is PRO-RATED by how much of the local day has
+    elapsed, so a branch is not called slow at 8am for having done less than
+    a full day's takings, and is skipped entirely before
+    BRANCH_MIN_DAY_ELAPSED (the ratio is meaningless at 00:05) or when the
+    branch has no trailing history to compare against.
+    """
+    now = now or timezone.localtime()
+    today_start, today_end = local_day_bounds(today)
+    baseline_start, _ = local_day_bounds(today - timedelta(days=BRANCH_BASELINE_DAYS))
+
+    day_elapsed = (now - today_start).total_seconds() / 86400.0
+    day_elapsed = min(max(day_elapsed, 0.0), 1.0)
+
     rows = []
     for branch in branches:
-        b_today_qs = sales_qs.filter(branch=branch, transaction_date__date=today)
-        b_today_sales = b_today_qs.aggregate(total=Sum('total_amount'))['total'] or 0
-        b_today_orders = b_today_qs.count()
-
-        b_yesterday_sales = sales_qs.filter(
-            branch=branch, transaction_date__date=yesterday
+        b_today_sales = sales_qs.filter(
+            branch=branch, transaction_date__gte=today_start, transaction_date__lt=today_end
         ).aggregate(total=Sum('total_amount'))['total'] or 0
-        if b_yesterday_sales:
-            delta_pct = round(((b_today_sales - b_yesterday_sales) / b_yesterday_sales) * 100, 1)
-        else:
-            delta_pct = None
+
+        baseline_total = sales_qs.filter(
+            branch=branch, transaction_date__gte=baseline_start, transaction_date__lt=today_start
+        ).aggregate(total=Sum('total_amount'))['total'] or 0
+        baseline_daily = float(baseline_total) / BRANCH_BASELINE_DAYS
 
         branch_alerts = [r for r in restock if r['branch'] and r['branch'].id == branch.id]
         critical_count = sum(1 for r in branch_alerts if r['risk'] == 'Critical')
 
-        if b_today_orders == 0:
+        # Only a branch with its own trading history can be called slow.
+        sales_slow = (
+            baseline_daily > 0
+            and day_elapsed >= BRANCH_MIN_DAY_ELAPSED
+            and float(b_today_sales) < BRANCH_SLOW_RATIO * baseline_daily * day_elapsed
+        )
+
+        if critical_count:
             status = 'critical'
-        elif delta_pct is not None and delta_pct < 0:
+        elif branch_alerts or sales_slow:
             status = 'watch'
         else:
             status = 'ok'
@@ -624,7 +747,8 @@ def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales):
         rows.append({
             'branch': branch,
             'today_sales': b_today_sales,
-            'delta_pct': delta_pct,
+            'baseline_daily': baseline_daily,
+            'sales_slow': sales_slow,
             'share_pct': round((float(b_today_sales) / float(total_today_sales)) * 100, 1)
                 if total_today_sales else 0,
             'low_stock_count': len(branch_alerts),

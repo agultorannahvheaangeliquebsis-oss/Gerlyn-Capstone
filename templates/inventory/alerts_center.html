@@ -139,5 +139,16 @@
     document.getElementById('tab-low').classList.toggle('active', which === 'low');
     document.getElementById('tab-exp').classList.toggle('active', which === 'exp');
   }
+
+  // Deep-link support so the Dashboard's "Needs attention" rows (DESIGN.md 2b)
+  // can open the right tab: #expiring -> Expiry Alerts, anything else -> Low
+  // Stock. Panel contents are untouched; this only picks which one starts open.
+  (function () {
+    function applyHash() {
+      showTab(window.location.hash === '#expiring' ? 'exp' : 'low');
+    }
+    applyHash();
+    window.addEventListener('hashchange', applyHash);
+  })();
 </script>
 {% endblock %}
