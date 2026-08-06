@@ -73,6 +73,27 @@ def get_active_sessions(user):
     return live_rows
 
 
+VERIFICATION_RESEND_COOLDOWN_SECONDS = 30 * 60
+
+
+def get_verification_resend_wait_seconds(user):
+    """Seconds until `user` may request another verification email, or 0 if
+    they can request one right now. Based on the most recent EMAIL_VERIFY
+    token's created_at, checked BEFORE send_verification_email's
+    delete-then-recreate — that call erases old tokens entirely, so this
+    must run first or the timestamp trail is gone."""
+    from django.utils import timezone
+
+    last = VerificationToken.objects.filter(
+        user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+    ).order_by('-created_at').first()
+    if last is None:
+        return 0
+    elapsed = (timezone.now() - last.created_at).total_seconds()
+    remaining = VERIFICATION_RESEND_COOLDOWN_SECONDS - elapsed
+    return max(0, int(remaining))
+
+
 def send_verification_email(user, request):
     """
     Sends initial email verification link after registration.

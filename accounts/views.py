@@ -407,7 +407,7 @@ from .services import (
     send_verification_email, send_email_change_verification,
     send_password_change_verification, revoke_other_sessions,
     send_account_deactivation_verification, deactivate_account,
-    get_active_sessions,
+    get_active_sessions, get_verification_resend_wait_seconds,
 )
 
 
@@ -445,6 +445,9 @@ def _profile_context(user):
         'initials'          : user.get_initials(),
         'email'             : user.email,
         'is_email_verified' : user.is_email_verified,
+        'verification_resend_wait_seconds': (
+            0 if user.is_email_verified else get_verification_resend_wait_seconds(user)
+        ),
         'pending_email'     : user.pending_email,
         'avatar_url'        : user.avatar.url if user.avatar else None,
         'contact_number'    : contact_number,
@@ -621,19 +624,34 @@ def verify_email_change(request, token):
 
 
 @login_required(login_url='accounts:login')
+@require_POST
 def resend_verification(request):
     user = request.user
     if user.is_email_verified:
         messages.info(request, "Your email is already verified.")
-        return redirect('accounts:profile')
+        return _profile_redirect(user)
+
+    # Whole body wrapped so a second rapid click (or any DB/SMTP hiccup)
+    # always lands on a clean redirect + message, never a raw 500.
     try:
-        send_verification_email(user, request)
-        messages.success(request, "Verification email sent. Check your inbox.")
+        wait_seconds = get_verification_resend_wait_seconds(user)
+        if wait_seconds > 0:
+            wait_minutes = max(1, -(-wait_seconds // 60))  # ceil to whole minutes
+            messages.error(
+                request,
+                f"You can request another verification email in {wait_minutes} minute"
+                f"{'s' if wait_minutes != 1 else ''}."
+            )
+        else:
+            send_verification_email(user, request)
+            messages.success(request, "Verification email sent. Check your inbox.")
     except Exception as e:
         import logging
-        logging.getLogger(__name__).error(f"Email send failed: {e}")
-        messages.error(request, f"Failed to send email: {e}")
-    return redirect('accounts:profile')
+        logging.getLogger(__name__).error(
+            f"Verification email resend failed for user {user.pk}: {e}", exc_info=True
+        )
+        messages.error(request, "We couldn't send the verification email right now. Please try again shortly.")
+    return _profile_redirect(user)
 
 def _profile_redirect(user):
     """Where to land after an account-security action (password, 2FA)
@@ -700,7 +718,17 @@ def toggle_two_factor(request):
         messages.error(request, "Incorrect password. Two-factor authentication was not changed.")
         return _profile_redirect(user)
 
-    user.two_factor_enabled = not user.two_factor_enabled
+    turning_on = not user.two_factor_enabled
+    # 2FA leans on email delivery (password-change confirmation links) —
+    # turning it on with an unverified address would lock the user out of
+    # ever completing that flow. Turning OFF is always allowed regardless,
+    # so an unverified user is never stuck unable to manage their own
+    # security settings.
+    if turning_on and not user.is_email_verified:
+        messages.error(request, "Verify your email address before turning on two-factor authentication — it's how we confirm password changes.")
+        return _profile_redirect(user)
+
+    user.two_factor_enabled = turning_on
     user.save(update_fields=['two_factor_enabled'])
     revoke_other_sessions(user, keep_session_key=request.session.session_key)
 

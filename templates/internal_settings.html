@@ -16,6 +16,42 @@
   </div>
 </div>
 
+{% if not is_email_verified %}
+<div class="verify-banner">
+  <span class="verify-banner-text">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Your email address is not verified. Some features, like Two-Factor Authentication, are limited until it is.
+  </span>
+  <form method="post" action="{% url 'accounts:resend_verification' %}" style="margin:0;" id="resend-verify-form">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-sm" id="resend-verify-btn" style="white-space:nowrap;" {% if verification_resend_wait_seconds > 0 %}disabled{% endif %}>{% if verification_resend_wait_seconds > 0 %}<span id="resend-verify-countdown"></span>{% else %}Resend link{% endif %}</button>
+  </form>
+</div>
+<script>
+(function () {
+  var remaining = {{ verification_resend_wait_seconds|default:0 }};
+  var btn = document.getElementById('resend-verify-btn');
+  var countdownEl = document.getElementById('resend-verify-countdown');
+  if (!btn || remaining <= 0) return;
+  function render() {
+    var m = Math.floor(remaining / 60), s = remaining % 60;
+    countdownEl.textContent = 'Try again in ' + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  render();
+  var interval = setInterval(function () {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(interval);
+      btn.disabled = false;
+      btn.textContent = 'Resend link';
+    } else {
+      render();
+    }
+  }, 1000);
+})();
+</script>
+{% endif %}
+
 <div class="card card-pad" style="margin-bottom:20px;">
   <div class="account-card-title" style="margin-bottom:14px; display:flex; align-items:center; gap:8px; font:600 16px/1.2 system-ui, sans-serif; color:var(--ink-900);">
     <i data-lucide="shield-check" style="width:18px;height:18px;"></i>
@@ -105,13 +141,26 @@
       <div class="security-item-icon"><i data-lucide="shield-check" style="width:16px;height:16px;"></i></div>
       <div>
         <div class="security-item-label">Two-Factor Authentication</div>
-        <div class="security-item-sub">Add an extra layer of security to your account</div>
+        <div class="security-item-sub">
+          {% if not two_factor_enabled and not is_email_verified %}
+            Verify your email address first to enable this
+          {% else %}
+            Add an extra layer of security to your account
+          {% endif %}
+        </div>
       </div>
     </div>
-    <label class="toggle" title="{% if two_factor_enabled %}Disable{% else %}Enable{% endif %} two-factor authentication">
-      <input type="checkbox" id="tfa-checkbox" {% if two_factor_enabled %}checked{% endif %} onclick="event.preventDefault(); openTfaModal();">
-      <span class="toggle-track"></span>
-    </label>
+    {% if not two_factor_enabled and not is_email_verified %}
+      <label class="toggle" title="Verify your email address before enabling two-factor authentication">
+        <input type="checkbox" disabled>
+        <span class="toggle-track"></span>
+      </label>
+    {% else %}
+      <label class="toggle" title="{% if two_factor_enabled %}Disable{% else %}Enable{% endif %} two-factor authentication">
+        <input type="checkbox" id="tfa-checkbox" {% if two_factor_enabled %}checked{% endif %} onclick="event.preventDefault(); openTfaModal();">
+        <span class="toggle-track"></span>
+      </label>
+    {% endif %}
   </div>
 
   <!-- Sessions -->

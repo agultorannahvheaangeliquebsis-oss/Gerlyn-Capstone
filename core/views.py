@@ -37,11 +37,16 @@ def internal_settings_view(request):
     Store-level configuration (branch defaults, thresholds, etc.) is
     intentionally left as a "coming soon" section until that scope is
     defined."""
-    from accounts.services import get_active_sessions
+    from accounts.services import get_active_sessions, get_verification_resend_wait_seconds
 
+    is_email_verified = request.user.is_email_verified
     return render(request, 'internal_settings.html', {
         'active_page': 'internal_settings',
         'two_factor_enabled': request.user.two_factor_enabled,
+        'is_email_verified': is_email_verified,
+        'verification_resend_wait_seconds': (
+            0 if is_email_verified else get_verification_resend_wait_seconds(request.user)
+        ),
         'sessions': get_active_sessions(request.user),
         'current_session_key': request.session.session_key,
     })
