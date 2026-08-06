@@ -458,6 +458,21 @@ def _profile_context(user):
     }
 
 
+def _internal_settings_context(request):
+    """Context for internal_settings.html — shared by
+    core.views.internal_settings_view and update_profile's error path,
+    so re-rendering this template after a validation failure doesn't drop
+    the internal chrome or any of its account-security data."""
+    from accounts.services import get_active_sessions
+    context = {
+        **_profile_context(request.user),
+        'active_page': 'internal_settings',
+        'sessions': get_active_sessions(request.user),
+        'current_session_key': request.session.session_key,
+    }
+    return context
+
+
 @login_required(login_url='accounts:login')
 def profile_view(request):
     return render(request, 'accounts/profile.html', _profile_context(request.user))
@@ -509,7 +524,7 @@ def update_profile(request):
 
     # --- Contact number (update on role profile) ---
     if new_phone:
-        role_profile = user.get_role_profile()
+        role_profile = user.get_or_create_role_profile()
         if role_profile and hasattr(role_profile, 'contact_number'):
             # Check uniqueness across all profile tables
             phone_taken = any([
@@ -531,12 +546,16 @@ def update_profile(request):
                 role_profile.save(update_fields=['contact_number'])
 
     if errors:
+        from core.permissions import INTERNAL_ROLES
+        if user.role in INTERNAL_ROLES:
+            context = {**_internal_settings_context(request), 'errors': errors}
+            return render(request, 'internal_settings.html', context)
         context = {**_profile_context(user), 'errors': errors}
         return render(request, 'accounts/profile.html', context)
 
     user.save()
     messages.success(request, "Profile updated.")
-    return redirect('accounts:profile')
+    return _profile_redirect(user)
 
 
 @login_required(login_url='accounts:login')
@@ -547,13 +566,13 @@ def update_avatar(request):
 
     if not file:
         messages.error(request, "No file was uploaded.")
-        return redirect('accounts:update_profile')
+        return _profile_redirect(user)
 
     try:
         _validate_avatar(file)
     except ValidationError as e:
         messages.error(request, e.message)
-        return redirect('accounts:update_profile')
+        return _profile_redirect(user)
 
     # Delete old file from disk before saving new one
     if user.avatar:
@@ -562,7 +581,7 @@ def update_avatar(request):
     user.avatar = file
     user.save(update_fields=['avatar'])
     messages.success(request, "Profile picture updated.")
-    return redirect('accounts:profile')
+    return _profile_redirect(user)
 
 
 @login_required(login_url='accounts:login')

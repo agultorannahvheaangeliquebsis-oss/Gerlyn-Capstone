@@ -36,13 +36,13 @@
       </button>
     </div>
 
-    <div class="sb-who">
+    <a class="sb-who" href="{% url 'internal_settings' %}" title="My Profile">
       <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
       <span class="sb-who-text">
         <span class="sb-label sb-who-name">{{ request.user.get_full_name|default:request.user.username }}</span>
         <span class="sb-label sb-who-role">{{ request.user.get_role_display }}</span>
       </span>
-    </div>
+    </a>
 
     <nav class="sb-nav" aria-label="Primary">
       {# Dashboard stays a top-level anchor — it's the home target, not a category. #}
@@ -195,12 +195,15 @@
             <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
           </summary>
           <div class="avatar-menu-panel">
+            <a class="avatar-menu-link" href="{% url 'internal_settings' %}">My Profile</a>
             <a class="avatar-menu-link" href="{% url 'branch_list' %}">Branch Management</a>
             <a class="avatar-menu-link" href="{% url 'accounts:user_list' %}">User Management</a>
           </div>
         </details>
         {% else %}
-        <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+        <a href="{% url 'internal_settings' %}" title="My Profile" style="text-decoration:none;">
+          <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+        </a>
         {% endif %}
       </div>
     </header>

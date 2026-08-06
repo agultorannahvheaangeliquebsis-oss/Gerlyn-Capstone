@@ -53,6 +53,128 @@
 {% endif %}
 
 <div class="card card-pad" style="margin-bottom:20px;">
+  <div class="account-card-title" style="margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; font:600 16px/1.2 system-ui, sans-serif; color:var(--ink-900);">
+    <span style="display:flex; align-items:center; gap:8px;">
+      <i data-lucide="user-circle" style="width:18px;height:18px;"></i>
+      My Profile
+    </span>
+    <button type="button" class="btn btn-sm btn-quiet" id="myprofile-toggle-btn" onclick="toggleMyProfileForm()" style="color:var(--action);">Edit</button>
+  </div>
+
+  <!-- Avatar upload form (hidden input, triggered by pencil button) -->
+  <form method="post" action="{% url 'accounts:update_avatar' %}" enctype="multipart/form-data" id="avatar-form">
+    {% csrf_token %}
+    <input type="file" name="avatar" id="avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none;">
+  </form>
+
+  <!-- View mode -->
+  <div id="myprofile-view">
+    <div style="display:flex; align-items:center; gap:16px; padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid var(--line-soft);">
+      <div style="position:relative; flex:none;">
+        <div style="width:56px; height:56px; border-radius:50%; background:var(--action); color:#fff; display:flex; align-items:center; justify-content:center; font:700 20px/1 system-ui, sans-serif; overflow:hidden;">
+          {% if avatar_url %}
+            <img src="{{ avatar_url }}" alt="{{ full_name }}" style="width:100%; height:100%; object-fit:cover;">
+          {% else %}
+            {{ initials }}
+          {% endif %}
+        </div>
+        <button type="button" onclick="document.getElementById('avatar-input').click()" title="Change photo"
+          style="position:absolute; right:-2px; bottom:-2px; width:22px; height:22px; border-radius:50%; background:#fff; border:2px solid var(--action); color:var(--action); display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:11px;height:11px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+      </div>
+      <div style="min-width:0;">
+        <div style="font:600 16px/1.3 system-ui, sans-serif; color:var(--ink-900);">{{ full_name }}</div>
+        <div style="font:400 13px/1.4 system-ui, sans-serif; color:var(--ink-600); margin-bottom:6px;">{{ email }}</div>
+        <span style="display:inline-flex; align-items:center; padding:3px 10px; border-radius:var(--r-pill); background:var(--green-50); color:var(--action-700); border:1px solid var(--green-300); font:600 12px/1.5 system-ui, sans-serif;">{{ role }}</span>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-field">
+        <label>Full Name</label>
+        <div class="val">{{ full_name }}</div>
+      </div>
+      <div class="info-field">
+        <label>Mobile Number</label>
+        <div class="val">
+          {% if contact_number %}{{ contact_number }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
+        </div>
+      </div>
+      <div class="info-field">
+        <label>Email Address</label>
+        <div class="val">
+          {{ email }}
+          {% if is_email_verified %}
+            <span class="verified-badge">Verified</span>
+          {% else %}
+            <span class="unverified-badge">⚠ Unverified</span>
+          {% endif %}
+          {% if pending_email %}<div class="pending-notice">Pending: {{ pending_email }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="info-field">
+        <label>Username</label>
+        <div class="val">@{{ username }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit mode -->
+  <div class="edit-form {% if errors %}is-open{% endif %}" id="myprofile-form">
+    <form method="post" action="{% url 'accounts:update_profile' %}">
+      {% csrf_token %}
+      <div class="edit-grid">
+        <div class="field">
+          <label for="ms_first_name">First Name</label>
+          <input type="text" id="ms_first_name" name="first_name"
+            value="{{ first_name }}"
+            class="{% if errors.first_name %}is-invalid{% endif %}">
+          {% if errors.first_name %}<div class="field-err">{{ errors.first_name }}</div>{% endif %}
+        </div>
+        <div class="field">
+          <label for="ms_last_name">Last Name</label>
+          <input type="text" id="ms_last_name" name="last_name"
+            value="{{ last_name }}"
+            class="{% if errors.last_name %}is-invalid{% endif %}">
+          {% if errors.last_name %}<div class="field-err">{{ errors.last_name }}</div>{% endif %}
+        </div>
+        <div class="field">
+          <label for="ms_username">Username</label>
+          <input type="text" id="ms_username" name="username"
+            value="{{ username }}"
+            class="{% if errors.username %}is-invalid{% endif %}">
+          {% if errors.username %}<div class="field-err">{{ errors.username }}</div>{% endif %}
+        </div>
+        <div class="field">
+          <label for="ms_contact_number">Mobile Number</label>
+          <input type="tel" id="ms_contact_number" name="contact_number"
+            value="{{ contact_number }}"
+            placeholder="+63 9XX XXX XXXX"
+            class="{% if errors.contact_number %}is-invalid{% endif %}">
+          {% if errors.contact_number %}<div class="field-err">{{ errors.contact_number }}</div>{% endif %}
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label for="ms_email">Email Address</label>
+          <input type="email" id="ms_email" name="email"
+            value="{{ email }}"
+            class="{% if errors.email %}is-invalid{% endif %}">
+          {% if errors.email %}
+            <div class="field-err">{{ errors.email }}</div>
+          {% else %}
+            <div class="gv-meta" style="margin-top:4px;">Changing your email will send a verification link to the new address.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="edit-actions">
+        <button type="button" class="btn btn-sm" onclick="toggleMyProfileForm()">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Save changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card card-pad" style="margin-bottom:20px;">
   <div class="account-card-title" style="margin-bottom:14px; display:flex; align-items:center; gap:8px; font:600 16px/1.2 system-ui, sans-serif; color:var(--ink-900);">
     <i data-lucide="shield-check" style="width:18px;height:18px;"></i>
     Account Security
@@ -257,6 +379,22 @@
 
 {% block extra_js %}
 <script>
+// Auto-submit avatar form when a file is picked
+document.getElementById('avatar-input').addEventListener('change', function () {
+  if (this.files && this.files[0]) {
+    document.getElementById('avatar-form').submit();
+  }
+});
+
+function toggleMyProfileForm() {
+  const form = document.getElementById('myprofile-form');
+  const view = document.getElementById('myprofile-view');
+  const btn  = document.getElementById('myprofile-toggle-btn');
+  const isOpen = form.classList.toggle('is-open');
+  view.style.display = isOpen ? 'none' : 'block';
+  btn.textContent = isOpen ? 'Cancel' : 'Edit';
+}
+
 function togglePasswordForm() {
   const form = document.getElementById('pwd-form');
   const btn  = document.getElementById('pwd-toggle-btn');
