@@ -170,6 +170,27 @@ TRANSLATIONS = {
         'Are you absolutely sure you want to deactivate your account? This cannot be easily undone.':
             'Sigurado ka bang gusto mong i-deactivate ang iyong account? Hindi ito madaling maibabalik.',
         'Enter your password': 'Ilagay ang iyong password',
+
+        # ── Download / PWA page ─────────────────────────────────────────
+        'Download App': 'I-download ang App',
+        'Shop online, track orders, and manage your account — right from your home screen.':
+            'Mamili online, subaybayan ang mga order, at pamahalaan ang iyong account — direkta mula sa iyong home screen.',
+        'Version': 'Bersyon',
+        'Download': 'I-download',
+        'Update': 'I-update',
+        'Tap the Share icon in Safari, then tap Add to Home Screen.':
+            'I-tap ang Share icon sa Safari, pagkatapos i-tap ang Add to Home Screen.',
+        "What's New": 'Mga Bagong Update',
+        'Recent updates': 'Mga kamakailang update',
+        'Installed! You can now open this from your home screen.':
+            'Na-install na! Puwede mo na itong buksan mula sa iyong home screen.',
+        'Your browser does not support installing this app, or it is already installed.':
+            'Hindi suportado ng iyong browser ang pag-install ng app na ito, o naka-install na ito.',
+        'Installing…': 'Ini-install…',
+        'Checking for updates…': 'Sinusuri ang mga update…',
+        'Update found — refreshing…': 'May nahanap na update — nire-refresh…',
+        'You are already up to date.': 'Ikaw ay nasa pinakabagong bersyon na.',
+        'Could not check for updates right now.': 'Hindi ma-check ang mga update sa ngayon.',
     },
 }
 

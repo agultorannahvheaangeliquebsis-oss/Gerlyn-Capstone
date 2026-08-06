@@ -60,6 +60,29 @@ class User(AbstractUser):
                 return profile
         return None
 
+    def get_or_create_role_profile(self):
+        """Like get_role_profile(), but creates the profile (with the same
+        defaults accounts.signals.create_user_profile uses) if it's missing.
+        Covers legacy/seed accounts created before that signal existed —
+        without this, code that writes to the role profile (e.g. saving a
+        contact number) silently no-ops for those accounts instead of
+        erroring or succeeding. Reads that don't need to write should keep
+        using get_role_profile() instead, since this can create a row."""
+        profile = self.get_role_profile()
+        if profile is not None:
+            return profile
+        if self.role == self.Role.OWNER:
+            return OwnerProfile.objects.create(user=self, owner_name=self.username)
+        if self.role == self.Role.BRANCH_MANAGER:
+            return BranchManagerProfile.objects.create(user=self, manager_name=self.username)
+        if self.role == self.Role.STAFF:
+            return StaffProfile.objects.create(user=self, staff_name=self.username)
+        if self.role == self.Role.SUPPLIER:
+            return SupplierProfile.objects.create(user=self, supplier_name=self.username)
+        if self.role == self.Role.CUSTOMER:
+            return CustomerProfile.objects.create(user=self, first_name=self.username, last_name='')
+        return None
+
 
 class VerificationToken(models.Model):
     """Single-use, time-limited tokens for email verification."""

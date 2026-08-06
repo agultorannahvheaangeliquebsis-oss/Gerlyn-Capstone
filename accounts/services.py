@@ -47,6 +47,53 @@ def revoke_other_sessions(user, keep_session_key=None):
         qs.delete()
 
 
+def get_active_sessions(user):
+    """Returns `user`'s still-live UserSession rows (joined against real,
+    unexpired django_session rows), pruning any tracking rows whose session
+    already expired — idle timeout or otherwise. Shared by the customer
+    Sessions page and the internal Settings page's inline Sessions panel,
+    so both list/revoke against the exact same data."""
+    from django.contrib.sessions.models import Session
+    from django.utils import timezone
+    from .models import UserSession
+
+    rows = list(user.sessions.all())
+    live_keys = set(
+        Session.objects.filter(
+            session_key__in=[r.session_key for r in rows],
+            expire_date__gt=timezone.now(),
+        ).values_list('session_key', flat=True)
+    )
+    live_rows = [r for r in rows if r.session_key in live_keys]
+
+    stale_ids = [r.pk for r in rows if r.session_key not in live_keys]
+    if stale_ids:
+        UserSession.objects.filter(pk__in=stale_ids).delete()
+
+    return live_rows
+
+
+VERIFICATION_RESEND_COOLDOWN_SECONDS = 30 * 60
+
+
+def get_verification_resend_wait_seconds(user):
+    """Seconds until `user` may request another verification email, or 0 if
+    they can request one right now. Based on the most recent EMAIL_VERIFY
+    token's created_at, checked BEFORE send_verification_email's
+    delete-then-recreate — that call erases old tokens entirely, so this
+    must run first or the timestamp trail is gone."""
+    from django.utils import timezone
+
+    last = VerificationToken.objects.filter(
+        user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+    ).order_by('-created_at').first()
+    if last is None:
+        return 0
+    elapsed = (timezone.now() - last.created_at).total_seconds()
+    remaining = VERIFICATION_RESEND_COOLDOWN_SECONDS - elapsed
+    return max(0, int(remaining))
+
+
 def send_verification_email(user, request):
     """
     Sends initial email verification link after registration.

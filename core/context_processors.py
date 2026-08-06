@@ -1,6 +1,11 @@
 """Template context available on every page."""
 from core.permissions import INTERNAL_ROLES
 from core.scoping import branch_ids_for_user
+from core.version import APP_VERSION
+
+
+def app_version(request):
+    return {"APP_VERSION": APP_VERSION}
 
 
 # Maps the resolved URL name of the current request to the sidebar's

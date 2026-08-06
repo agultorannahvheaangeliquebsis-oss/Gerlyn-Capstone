@@ -320,7 +320,10 @@ input::placeholder { color: var(--ink-400); }
   display: flex; align-items: center; gap: 10px;
   padding: 10px; margin-bottom: var(--s4);
   background: var(--green-50); border-radius: var(--r-card);
+  text-decoration: none; color: inherit;
 }
+.sb-who:hover { color: inherit; }
+.sb-who-name { color: var(--ink-900); }
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
   background: var(--action); color: #fff;

@@ -3,8 +3,15 @@ from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
 
+from core.views import download_view, internal_settings_view, service_worker_view
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Served at the site root (not /static/js/) so the service worker's
+    # default scope covers the whole app instead of just /static/js/.
+    path('sw.js', service_worker_view, name='service_worker'),
+    path('download/', download_view, name='download'),
+    path('internal/settings/', internal_settings_view, name='internal_settings'),
     path('', include('accounts.urls', namespace='accounts')),
     path('inventory/', include('inventory.urls')),
     path('branches/', include('branches.urls')),
