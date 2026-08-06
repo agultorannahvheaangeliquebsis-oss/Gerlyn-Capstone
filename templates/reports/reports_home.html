@@ -75,6 +75,57 @@
   </div>
 </div>
 
+{% comment %}
+Sales by branch + transactions (DESIGN.md 2c). Same .grid-2 split the
+Procurement Report already uses for its status pie: fixed-width chart panel on
+the left, the existing table on the right, stacking below 860px via the shared
+.grid-2 media query.
+{% endcomment %}
+<div class="grid-2" style="grid-template-columns: minmax(260px, 340px) 1fr;">
+
+<div class="card">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Sales by Branch</h3>
+    <p class="gv-meta mb-0">Share of ₱{{ total_sales|floatformat:2 }}{% if month_filter %} this month{% else %} all time{% endif %}</p>
+  </div>
+  <div class="card-pad">
+    {% if branch_chart.total %}
+    <div class="pie-wrap">
+      <svg viewBox="0 0 {{ branch_chart.box }} {{ branch_chart.box }}" width="160" height="160" role="img"
+           aria-label="Sales by branch: {% for seg in branch_chart.segments %}{{ seg.name }} {{ seg.pct }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
+        <g transform="rotate(-90 {{ branch_chart.centre }} {{ branch_chart.centre }})">
+          {% for seg in branch_chart.segments %}
+          <circle cx="{{ branch_chart.centre }}" cy="{{ branch_chart.centre }}" r="{{ branch_chart.radius }}"
+                  fill="none" stroke="{{ seg.colour }}" stroke-width="{{ branch_chart.stroke }}"
+                  stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"/>
+          {% endfor %}
+        </g>
+        <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="-2"
+              style="font: 700 15px/1 system-ui, sans-serif; fill: var(--ink-900);">{{ branch_chart.branch_count }}</text>
+        <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="15"
+              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+          branch{{ branch_chart.branch_count|pluralize:"es" }}</text>
+      </svg>
+      <ul class="pie-legend">
+        {% for seg in branch_chart.segments %}
+        <li>
+          <span class="pie-dot" style="background:{{ seg.colour }};"></span>{{ seg.name }}
+          <span class="pie-count">₱{{ seg.value|floatformat:2 }}
+            <span class="gv-meta">· {{ seg.pct }}%</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>No sales to chart</h3>
+      <p>{% if branch_filter or month_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 {# ---------------------------- sales transactions ---------------------------- #}
 <div class="card table-wrap">
   <table class="gv-table">
@@ -104,5 +155,7 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
 </div>
 {% endblock %}

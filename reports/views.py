@@ -518,8 +518,13 @@ def reports_dashboard(request):
         transaction_type=SalesTransaction.TransactionType.ONLINE
     ).count()
 
+    # Donut panel — built from the same filtered sales_qs as the KPIs/table
+    # above, so branch + month selections carry into it (DESIGN.md 2c).
+    branch_chart = _sales_by_branch_chart(sales_qs)
+
     return render(request, 'reports/reports_home.html', {
         'transactions': sales_qs,
+        'branch_chart': branch_chart,
         'total_orders': total_orders,
         'total_sales': total_sales,
         'avg_order_value': avg_order_value,
@@ -533,6 +538,119 @@ def reports_dashboard(request):
         'user_branch': user_branch,
         'active_page': 'reports',
     })
+
+
+# --- Sales by Branch donut (Reports → Sales tab, DESIGN.md Section 2, #2c) ---
+# One-hue green scale, biggest share first. Identity is carried by the legend
+# (name + ₱ + % on every row), never by colour alone — which is what keeps the
+# scale legible despite the caveat below.
+#
+# Contrast vs the white .card surface, recomputed from the dataviz validator's
+# thresholds (ported to Python — no node on the build box):
+#   --brand      #2E9E6B  3.38:1  PASS
+#   --green-300  #9CCDB4  1.78:1  under the 2.0:1 ordinal light-end floor
+#   --action     #1E7A4F  5.31:1  PASS
+#
+# Slot 3 was --green-100 (#E3F3EB, 1.15:1 — effectively invisible on white);
+# swapping it for --action lifts the worst slot to 1.78:1 and the third
+# segment specifically from 1.15:1 to 5.31:1.
+#
+# Two known, accepted trade-offs of that swap:
+#   1. --green-300 is now the palest step at 1.78:1, still just under the
+#      2.0:1 floor. It is the binding constraint, not slot 3 — no choice of
+#      third colour can clear the floor while slot 2 stays --green-300.
+#   2. The scale is no longer lightness-monotone (L 0.624 / 0.807 / 0.516,
+#      dark→light→dark), so it reads as three distinct steps rather than a
+#      ranked ramp. Harmless here because rank is already stated numerically
+#      in the legend.
+# A fully-passing monotone alternative, if the ramp is ever revisited:
+# --action-700 / --action / --brand (7.59 / 5.31 / 3.38:1, all checks PASS).
+SALES_BRANCH_RAMP = ['var(--brand)', 'var(--green-300)', 'var(--action)']
+SALES_BRANCH_OTHER_COLOUR = 'var(--ink-400)'
+
+# Donut geometry — a stroked circle with a dash pattern, so each segment is one
+# <circle> and no arc-path maths is needed (a 100%-single-segment donut, which
+# is what a one-branch store renders, stays a clean full ring).
+DONUT_RADIUS = 60
+DONUT_STROKE = 26
+DONUT_BOX = 160
+DONUT_GAP = 2.0  # surface-coloured gap between adjacent fills
+
+
+def _sales_by_branch_chart(sales_qs):
+    """
+    "Sales by Branch" donut for the Reports Sales tab.
+
+    Aggregates whatever `sales_qs` the Sales tab has already filtered (branch
+    dropdown + month dropdown), so the donut always describes the same rows as
+    the KPI cards and the transactions table beneath it.
+
+    NOTE: this is a new per-branch rollup, not the Dashboard's. The Dashboard's
+    _branch_status_rows() is hard-scoped to *today* (today vs yesterday delta,
+    share of today's sales, live stock-alert counts) and takes restock/today/
+    total_today_sales as arguments — it cannot answer "sales per branch over
+    the selected month", which is what this panel needs.
+
+    Branches past the ramp's length fold into one "Other branches" segment
+    rather than getting improvised colours.
+    """
+    by_branch = {}
+    for name, amount in sales_qs.values_list('branch__branch_name', 'total_amount'):
+        key = name or 'Unassigned'
+        by_branch[key] = by_branch.get(key, 0) + (amount or 0)
+
+    rows = sorted(by_branch.items(), key=lambda kv: -kv[1])
+    total = sum(by_branch.values())
+    if not total:
+        return {'total': 0, 'segments': [], 'circumference': 0, 'radius': DONUT_RADIUS,
+                'stroke': DONUT_STROKE, 'box': DONUT_BOX, 'centre': DONUT_BOX / 2,
+                'branch_count': 0, 'overflow': 0}
+
+    # With more branches than ramp steps, the last slot becomes a single
+    # "Other branches" aggregate. It has to swallow everything from
+    # limit-1 onwards (not just limit onwards), or the branch sitting in the
+    # last named slot is dropped and the segments stop summing to 100%.
+    limit = len(SALES_BRANCH_RAMP)
+    if len(rows) > limit:
+        folded = rows[limit - 1:]
+        head = rows[:limit - 1] + [('Other branches', sum(v for _, v in folded))]
+    else:
+        folded = []
+        head = rows
+
+    circumference = 2 * math.pi * DONUT_RADIUS
+    gap = DONUT_GAP if len(head) > 1 else 0
+
+    segments = []
+    cursor = 0.0
+    for i, (name, value) in enumerate(head):
+        fraction = float(value) / float(total)
+        arc = fraction * circumference
+        is_other = bool(folded) and i == len(head) - 1
+        segments.append({
+            'name': name,
+            'value': value,
+            'pct': round(fraction * 100, 1),
+            'colour': SALES_BRANCH_OTHER_COLOUR if is_other else SALES_BRANCH_RAMP[i],
+            # "<dash> <rest>" + a negative offset walks each segment round the ring.
+            'dasharray': f'{max(arc - gap, 0.5):.2f} {circumference - max(arc - gap, 0.5):.2f}',
+            'dashoffset': f'{-cursor:.2f}',
+        })
+        cursor += arc
+
+    return {
+        'total': total,
+        'segments': segments,
+        'circumference': round(circumference, 2),
+        'radius': DONUT_RADIUS,
+        'stroke': DONUT_STROKE,
+        'box': DONUT_BOX,
+        'centre': DONUT_BOX / 2,
+        # Real branch count for the donut's centre label — the segment count
+        # understates it once branches are folded into "Other branches".
+        'branch_count': len(rows),
+        'overflow': len(folded),
+    }
 
 
 def _inventory_unit_cost(inv):
