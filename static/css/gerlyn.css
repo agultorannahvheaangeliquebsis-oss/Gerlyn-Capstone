@@ -845,3 +845,37 @@ input::placeholder { color: var(--ink-400); }
 @media (max-width: 520px) {
   .attn-clear-grid { grid-template-columns: 1fr; }
 }
+
+/* -------------------------------------------- dashboard "Recent Activity"
+   DESIGN.md §2f. .row-between is a two-part row; this feed is three-part —
+   a fixed glyph, a middle that must grow and truncate, and a right column
+   stacking amount over timestamp — so it gets its own minimal block rather
+   than a pile of inline overrides on .row-between.
+
+   Every glyph shares one neutral tint. The mockup colour-codes the type
+   badge (amber for POs), but §3 reserves amber for status: a purchase order
+   is a category, not a warning. Type is carried by the glyph itself and
+   named in .feed-sub instead. */
+.feed-row {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: 12px var(--s6); min-height: var(--touch);
+  color: var(--ink-900); text-decoration: none;
+  border-bottom: 1px solid var(--line-soft);
+}
+.feed-row:last-child { border-bottom: none; }
+.feed-row:hover { background: var(--green-50); color: var(--ink-900); }
+.feed-ico {
+  width: 30px; height: 30px; flex: none; border-radius: var(--r-input);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--line-soft); color: var(--ink-600);
+}
+.feed-ico svg { width: 16px; height: 16px; }
+/* min-width:0 so the ellipsis below can actually engage — a flex item's
+   default min-width:auto refuses to shrink past its content. */
+.feed-main { flex: 1; min-width: 0; }
+.feed-title, .feed-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-title { font: 600 13.5px/1.35 system-ui, sans-serif; }
+.feed-sub { font: 400 12.5px/1.35 system-ui, sans-serif; color: var(--ink-600); }
+.feed-right { flex: none; text-align: right; }
+.feed-amount { display: block; font: 700 13.5px/1.35 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.feed-time { display: block; font: 400 12px/1.35 system-ui, sans-serif; color: var(--ink-400); font-variant-numeric: tabular-nums; }

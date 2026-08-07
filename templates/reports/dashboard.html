@@ -166,7 +166,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
   {% if needs_attention.actionable|length == 1 %}
     {% for row in needs_attention.actionable %}
     <a href="{{ row.url }}" class="attn-card">
-      <span class="attn-ico" aria-hidden="true">{% include "reports/_attention_icon.html" with icon=row.icon %}</span>
+      <span class="attn-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=row.icon %}</span>
       <span>
         <span class="attn-card-title">{{ row.label }} <span class="pill {{ row.pill }}">{{ row.count }}</span></span>
         <span class="attn-card-body">{{ row.detail }}</span>
@@ -178,7 +178,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
     {% for row in needs_attention.actionable %}
     <a href="{{ row.url }}" class="attn-row">
       <span class="attn-label">
-        <span class="attn-ico" aria-hidden="true">{% include "reports/_attention_icon.html" with icon=row.icon %}</span>
+        <span class="attn-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=row.icon %}</span>
         {{ row.label }}
       </span>
       <span class="attn-end">
@@ -322,6 +322,49 @@ A quiet day must never render as a wall of red.
   </div>
 </div>
 {% endif %}
+
+{% comment %}
+Recent Activity (DESIGN.md §2f): the latest postings across Sales, Purchase
+Orders and Billing in one feed — the audit-trail glance Chapter 1 asks for.
+
+Unscoped by the date-range control on purpose (§2f): it answers "what just
+happened", so it keeps showing the last real postings no matter how narrow a
+range the KPI rail above is set to. The subtitle says so, because a feed
+sitting under range-scoped cards otherwise looks like it disagrees with them.
+
+Type is carried by the glyph and spelled out in the meta line, NOT by a
+tinted icon — a PO is a category, not a warning, and §3 reserves amber for
+status. Rows are built from reports/views.py::_recent_activity.
+{% endcomment %}
+<div class="card mb-6">
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+    <div>
+      <h3>Recent Activity</h3>
+      <p class="gv-meta mb-0">Latest postings across sales, purchasing and billing — not filtered by the selected range</p>
+    </div>
+  </div>
+  {% for e in recent_activity %}
+  <a href="{{ e.url }}" class="feed-row">
+    <span class="feed-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=e.icon %}</span>
+    <span class="feed-main">
+      <span class="feed-title">{{ e.title }}</span>
+      <span class="feed-sub">{{ e.kind_label }} · {{ e.branch }}{% if e.actor %} · {{ e.actor }}{% endif %}</span>
+    </span>
+    <span class="feed-right">
+      <span class="feed-amount">₱{{ e.amount|floatformat:2 }}</span>
+      <span class="feed-time">{{ e.when_label }}</span>
+    </span>
+  </a>
+  {% empty %}
+  <div class="card-pad">
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>Nothing posted yet</h3>
+      <p>Sales, purchase orders and payments appear here as they are recorded.</p>
+    </div>
+  </div>
+  {% endfor %}
+</div>
 
 {# ---------------------------- recent orders ---------------------------- #}
 <div class="card">

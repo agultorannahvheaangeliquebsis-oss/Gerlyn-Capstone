@@ -1,11 +1,12 @@
 {% comment %}
-The Needs Attention check icons (DESIGN.md §2b), factored out because the
-same set is drawn by both presentations of a check — the compact .attn-row
-and the single-actionable .attn-card. Keeping one copy stops the two from
-drifting apart.
+The Dashboard's shared row glyphs. One copy, because the same set is drawn in
+three places that must not drift apart: the Needs Attention row and its
+single-actionable card (§2b), and the Recent Activity feed (§2f) — where a
+sale is the same cart, a PO the same truck, and a payment the same peso as
+the check that routes to it.
 
-Usage: {% include "reports/_attention_icon.html" with icon=row.icon %}
-Sizing and colour come from the .attn-ico wrapper, not from here.
+Usage: {% include "reports/_row_icon.html" with icon=row.icon %}
+Size and colour come from the wrapper (.attn-ico / .feed-ico), not from here.
 {% endcomment %}
 {% if icon == 'alert' %}
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>

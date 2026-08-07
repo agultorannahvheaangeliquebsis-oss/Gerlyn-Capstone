@@ -518,6 +518,151 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
     }
 
 
+ACTIVITY_FEED_SIZE = 5
+
+
+def _relative_time(when, now):
+    """
+    Compact "5m ago" label for an aware datetime (DESIGN.md §2f).
+
+    Computed in Python, never in SQL. The CONVERT_TZ trap core/timebounds.py
+    works around only bites date-PART lookups pushed down to MySQL (__date,
+    __month); ORDER BY on a raw DateTimeField and reading the column back are
+    untouched by it, and this subtraction happens well after the value is an
+    aware Python datetime. So the feed needs no timebounds helper.
+
+    Past a week it gives an absolute date, where "23d ago" has stopped being
+    easier to read than "Jul 15".
+    """
+    seconds = int((now - when).total_seconds())
+    if seconds < 60:
+        # Also absorbs a small negative delta: auto_now_add stamps the row a
+        # beat after `now` was read, and "-3s ago" would be nonsense.
+        return 'just now'
+    minutes = seconds // 60
+    if minutes < 60:
+        return f'{minutes}m ago'
+    hours = minutes // 60
+    if hours < 24:
+        return f'{hours}h ago'
+    days = hours // 24
+    if days < 7:
+        return f'{days}d ago'
+    # Not strftime('%-d') — that flag doesn't exist on Windows.
+    return f'{when:%b} {when.day}'
+
+
+def _relative_day(day, today):
+    """
+    The same label for a source that only knows a DATE. Procurement.order_date
+    is a plain DateField and the model carries no created_at, so there is no
+    time of day to be relative to — this says "Today" rather than inventing an
+    hour so it can print "6h ago".
+    """
+    delta = (today - day).days
+    if delta <= 0:
+        return 'Today'
+    if delta == 1:
+        return 'Yesterday'
+    if delta < 7:
+        return f'{delta}d ago'
+    return f'{day:%b} {day.day}'
+
+
+def _actor_name(user):
+    """Display name for whoever a posting is attributed to, or None."""
+    if user is None:
+        return None
+    return user.get_full_name() or user.username
+
+
+def _recent_activity(sales_qs, procurement_qs, billing_qs, now, limit=ACTIVITY_FEED_SIZE):
+    """
+    The Recent Activity feed (DESIGN.md §2f) — the latest postings across
+    Sales, Purchase Orders and Billing, merged newest-first.
+
+    Deliberately NOT scoped to the Dashboard's date-range control, per §2f:
+    this answers "what just happened", not "what happened in the selected
+    window", so narrowing the KPI rail to Today must not empty the feed.
+    That's also why it takes the *unfiltered* branch-scoped querysets rather
+    than the range-filtered ones the KPI rail uses.
+
+    All three querysets are injected already branch-scoped — this function
+    does no scoping of its own, so there is exactly one place (the caller)
+    where a branch leak could be introduced, and each source can be stubbed
+    independently when testing the merge.
+
+    Each source contributes its own newest `limit` rows and the three are
+    merged in Python — three small indexed LIMIT queries, rather than a UNION
+    across tables that share neither a timestamp column name nor a shape.
+
+    Timestamps
+    ----------
+    Sales (transaction_date) and Billing (date_recorded) are auto_now_add
+    DateTimeFields. Procurement is NOT: `order_date` is a plain DateField and
+    there is no created_at anywhere on the model. Its sort key is therefore
+    local midnight of that date — the earliest moment the row can prove it
+    existed — so a PO is never floated above a timestamped posting from the
+    same day on the strength of a time nobody recorded. Making it aware also
+    matters mechanically: comparing a naive datetime against the aware ones
+    from the other two sources raises TypeError under USE_TZ.
+
+    Attribution
+    -----------
+    Sale -> staff, PO -> created_by, Billing -> confirmed_by. All three are
+    nullable, and confirmed_by is only populated once a payment is confirmed,
+    so a freshly recorded pending payment carries no attribution rather than
+    borrowing a name from a field that doesn't mean "who posted this".
+    """
+    today = now.date()
+    entries = []
+
+    for sale in sales_qs.select_related('branch', 'staff').order_by('-transaction_date')[:limit]:
+        entries.append({
+            'kind': 'sale', 'kind_label': 'Sale', 'icon': 'cart',
+            'title': sale.order_number or f'Transaction #{sale.pk}',
+            'url': reverse('transaction_detail', args=[sale.pk]),
+            'branch': sale.branch.branch_name if sale.branch else 'Unassigned',
+            'amount': sale.total_amount,
+            'when': sale.transaction_date,
+            'when_label': _relative_time(sale.transaction_date, now),
+            'actor': _actor_name(sale.staff),
+        })
+
+    for po in procurement_qs.select_related('branch', 'created_by').order_by('-order_date', '-id')[:limit]:
+        # See docstring — DateField, so local midnight is the honest sort key.
+        po_when, _ = local_day_bounds(po.order_date)
+        entries.append({
+            'kind': 'procurement', 'kind_label': 'PO', 'icon': 'truck',
+            'title': po.po_number or f'Procurement #{po.pk}',
+            'url': reverse('procurement_detail', args=[po.pk]),
+            'branch': po.branch.branch_name if po.branch else 'Unassigned',
+            'amount': po.total_cost,
+            'when': po_when,
+            'when_label': _relative_day(po.order_date, today),
+            'actor': _actor_name(po.created_by),
+        })
+
+    billings = billing_qs.select_related(
+        'transaction', 'transaction__branch', 'confirmed_by'
+    ).order_by('-date_recorded')[:limit]
+    for bill in billings:
+        branch = bill.transaction.branch if bill.transaction else None
+        entries.append({
+            'kind': 'billing', 'kind_label': 'Bill', 'icon': 'peso',
+            'title': f'Payment #{bill.pk}',
+            'url': reverse('billing_detail', args=[bill.pk]),
+            'branch': branch.branch_name if branch else 'Unassigned',
+            'amount': bill.amount_due,
+            'when': bill.date_recorded,
+            'when_label': _relative_time(bill.date_recorded, now),
+            'actor': _actor_name(bill.confirmed_by),
+        })
+
+    entries.sort(key=lambda e: e['when'], reverse=True)
+    return entries[:limit]
+
+
 @login_required(login_url='login')
 def operational_dashboard(request):
     """
@@ -584,6 +729,22 @@ def operational_dashboard(request):
         '-transaction_date'
     )[:6]
 
+    # Recent Activity (DESIGN.md §2f). Handed the branch-scoped querysets, NOT
+    # the range-filtered ones above — §2f pins this to "what just happened",
+    # independent of whatever range the KPI rail is showing.
+    #
+    # BillingRecord has no branch of its own, so it scopes through the sale it
+    # belongs to. Scoped off the same `user_branch` _scoped_querysets used for
+    # the other two rather than via scope_queryset(): the two helpers disagree
+    # for a staff account with no branch assigned (_scoped_querysets leaves the
+    # queryset unfiltered, branch_ids_for_user returns [] and filters it to
+    # nothing), and the three sources in one feed must at least agree with each
+    # other about what the viewer can see.
+    billing_qs = BillingRecord.objects.all()
+    if user_branch:
+        billing_qs = billing_qs.filter(transaction__branch=user_branch)
+    recent_activity = _recent_activity(sales_qs, procurement_qs, billing_qs, now)
+
     return render(request, 'reports/dashboard.html', {
         # KPI rail + the graph panel they tab into + the Sales-by-Branch
         # donut, all derived from the one resolved range (DESIGN.md §2a/§2c).
@@ -607,6 +768,7 @@ def operational_dashboard(request):
         'branch_status': branch_status,
         'branch_alerts_present': branch_alerts_present,
         'recent_orders': recent_orders,
+        'recent_activity': recent_activity,
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
         'today': today,
