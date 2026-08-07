@@ -15,10 +15,11 @@ Status: settled — adapted to the actual Django codebase (not the Figma prototy
 
 ### Dashboard
 
-- KPI tiles: Total Products, Low/Critical Stock, Total Sales, Recent Sales (30 days), Procurement Cost, Total Transactions
-- Sales by Branch table
+- KPI tiles: Total Products, Low/Critical Stock, Total Sales, Avg. Transaction Value, Procurement Cost, Total Transactions
+- Sales by Branch donut chart (also anchors the Reports multi-panel row, see §2c)
 - Top-Selling Products list
 - Low Stock preview table (compact, read-only) — links to Alerts Center via "View all alerts →" instead of being its own independent implementation
+- Recent Activity feed — latest Sale/PurchaseOrder/BillingRecord postings, unscoped by the date-range control (see §2f)
 
 ---
 
@@ -210,26 +211,29 @@ All other KPI surfaces (Reports, Alerts stat strips) keep the existing simple `.
 Reference: stakeholder-liked pattern where a KPI strip sits above a large graph, and selecting a different KPI swaps the graph below it to match.
 
 Adapt as:
-- Row of `.stat-hero` cards (Total Sales, Recent Sales, Procurement Cost, Total Transactions)
+- Row of `.stat-hero` cards (Total Sales, Avg. Transaction Value, Procurement Cost, Total Transactions)
 - Clicking a card sets it `.active` (green-tinted border/background using `--green-50` / `--brand`, not a dark highlight) and renders its trend in a single graph panel beneath the row
 - Only one graph panel — cards act as tabs into it, not four separate charts
 - Reuses `.card` container + sparkline SVG already planned for #2; no new charting library needed if a simple line/area SVG covers it
+- Avg. Transaction Value's line plots only days with actual transactions — no interpolation, no zero-fill for no-transaction days, no rolling average. The KPI card's value and the chart's displayed total must agree exactly, since both are the same unsmoothed range total.
 
 **2b. "Needs attention" list — formalize existing pattern**
 This already exists conceptually as the Dashboard's low-stock preview and the Alerts Center. Reference inspo showed it as a clean icon + label + count-badge + chevron list.
 
 Adapt as:
 - Dashboard keeps a compact `.card` version, max 5 rows: Low Stock, Expiring Soon, Pending POs, Unfulfilled/Pending Orders, Overdue Billing — each with a `.pill` count badge and trailing chevron
-- Every row links out: Low Stock/Expiring → Alerts Center tabs, Pending POs → Purchase Orders, Pending Orders → Sales & Orders, Overdue Billing → Billing's Outstanding Balances view
+- Zero-count checks collapse into a compact "All clear" chip instead of a full row — only checks with a nonzero count get a full row with icon, label, count badge, chevron, and outbound link
+- Every actionable row links out: Low Stock/Expiring → Alerts Center tabs, Pending POs → Purchase Orders, Pending Orders → Sales & Orders, Overdue Billing → Billing's Outstanding Balances view
 - Retains "View all alerts →" link already specced in Cleanup tasks — this list is that preview, formalized
 - Alerts Center's own Low Stock Alerts tab is the full, non-compact version of this same row pattern (icon, label, count) but with the existing Qty/Reorder/Suggested/Risk columns intact — no change to that table
 
-**2c. Multi-panel "informative" row (Reports only, not Dashboard)**
+**2c. Sales-by-Branch donut (Dashboard) + multi-panel "informative" row (Reports)**
 Reference: donut chart + sparkline + spend-vs-return proportion bar shown together in one dense row.
 
 Adapt as:
-- New optional row for Reports' Sales and Procurement tabs (not Dashboard — too dense for a landing view)
-- Three `.card` panels side by side on desktop, stacking at ≤860px per existing responsive rules: a donut/breakdown (e.g. sales by branch or category), a daily trend sparkline, and a spend-vs-return `.meter` bar
+- The Sales-by-Branch donut lives on the Dashboard (see Section 1), replacing the old "Sales by Branch table" — it's the one chart exception on an otherwise chart-light landing view, justified because a donut reads faster than a table at a glance
+- The same donut also anchors the Reports multi-panel row below, so it isn't a one-off component
+- Reports' Sales and Procurement tabs keep the full three-panel row, not just the donut: three `.card` panels side by side on desktop, stacking at ≤860px per existing responsive rules — the donut/breakdown (sales by branch or category), a daily trend sparkline, and a spend-vs-return `.meter` bar
 - Built from existing primitives (`.card`, `.meter`, sparkline SVG) — no new dependency
 
 **2d. Funnel visualization — Sales & Orders only, optional**
@@ -240,13 +244,21 @@ Adapt as:
 - Light-mode treatment: stacked horizontal bars in `--green-100` → `--brand` gradient steps rather than dark-mode grayscale, with `--ink-900` percentage labels
 - Lower priority than 2a/2b — flag as nice-to-have, not part of the initial task order below
 
-**2e. Date range control — standardize across Reports/Alerts**
+**2e. Date range control — standardize across Dashboard/Reports/Alerts**
 Reference: calendar dropdown with preset ("Last 7 days") + custom range + "Customize" affordance.
 
 Adapt as:
-- Single date-range component added to `.toolbar` / `.toolbar-card`, used by Reports and Alerts consistently (already flagged in Component rules: "All date filtering should use the same date-range control pattern" — this is that component, now specified)
+- Single date-range component added to `.toolbar` / `.toolbar-card`, used by Dashboard, Reports, and Alerts consistently (already flagged in Component rules: "All date filtering should use the same date-range control pattern" — this is that component, now specified)
 - Presets: Today, Last 7 days, Last 30 days, This month, Custom range
 - Calendar dropdown uses `--surface` background, `--brand` for selected day fill, `--green-50` for range-highlight — light equivalent of the dark inspo, not a new visual language
+
+**2f. Recent Activity feed (Dashboard, new)**
+Introduced by the approved mockup, not originally specced. A live feed of the latest postings across Sale, PurchaseOrder, and BillingRecord — icon by type, branch, amount, relative timestamp, staff attribution where available. Directly answers Chapter 1's stated problem of absent digital audit trails.
+
+Adapt as:
+- Compact `.card` panel, ~5 most recent postings, newest first
+- NOT scoped to the Dashboard date-range control — always shows the latest activity regardless of the selected range, since its purpose is "what just happened," not historical reporting
+- Reuses `.tx-row`-equivalent structure built from existing primitives; no new component needed if a simple flex row covers it
 
 **3. Status color rule — enforce consistently**
 The tokens are correct but need a written rule:
@@ -320,7 +332,8 @@ Start small — each task is independently shippable:
 5. **Upgrade top-row Dashboard KPI cards** to rich cards with mini-visualizations
 6. **Add click-to-expand behavior** to Dashboard KPI cards (2a) so the graph panel swaps per selected card
 7. **Formalize "Needs attention" list** (2b) on Dashboard as a distinct `.card` component, linking out to Alerts/POs/Orders/Billing
-8. **Build standardized date-range control** (2e) and wire into Reports + Alerts toolbars
-9. **Add breadcrumbs** under topbar for deep routes
-10. **Fold Categories into Products** as a filter/tab (when team is ready)
-11. *(Lower priority, optional)* **Reports multi-panel row** (2c) and **Sales & Orders funnel** (2d)
+8. **Add Recent Activity feed** (2f) to Dashboard — can run in parallel with tasks 5/6, since it's unscoped by the date-range control and has no dependency on the date-resolver work those tasks need
+9. **Build standardized date-range control** (2e) and wire into Dashboard + Reports + Alerts toolbars
+10. **Add breadcrumbs** under topbar for deep routes
+11. **Fold Categories into Products** as a filter/tab (when team is ready)
+12. *(Lower priority, optional)* **Reports multi-panel row** (2c) and **Sales & Orders funnel** (2d)
