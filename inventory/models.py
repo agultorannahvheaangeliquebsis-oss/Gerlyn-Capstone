@@ -32,6 +32,12 @@ class Product(models.Model):
         null=True, related_name='products'
     )
     sku_code = models.CharField(max_length=50, unique=True)
+    barcode = models.CharField(
+        max_length=64, null=True, blank=True, unique=True,
+        help_text="Manufacturer barcode (UPC/EAN/etc.) as scanned off the "
+                   "physical product — distinct from sku_code, which is our "
+                   "own auto-assigned internal code. Optional."
+    )
     product_name = models.CharField(max_length=150)
     unit_of_measure = models.CharField(
         max_length=20, choices=UnitOfMeasure.choices,

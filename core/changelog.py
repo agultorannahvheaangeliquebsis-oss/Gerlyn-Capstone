@@ -1,7 +1,28 @@
 # Static, hand-maintained changelog for the Download page. Move this to a
 # DB-backed model later if it ever needs editing without a redeploy —
 # not needed yet, so keeping it simple.
+#
+# Each item in a version's `changes` list is either a plain string (shown to
+# everyone) or a dict `{'text': ..., 'internal': True}` (shown only to
+# staff/branch managers/owners — see visible_changelog() below). Use
+# `internal: True` for anything that's only meaningful to internal users
+# (admin-only features) or would be unhelpful/sensitive to expose publicly
+# (e.g. naming a bug that was actually a security-relevant crash). Customers
+# still always see the version number and date, so they know an update
+# shipped even when every change in it is internal-only.
 CHANGELOG = [
+    {
+        'version': '1.3.1',
+        'date': '2026-08-07',
+        'changes': [
+            'Product search now updates instantly as you type, instead of waiting for you to press Search',
+            {'text': "Added barcode scanning to the Walk-in POS and to the Inventory/Products search — scan with the device camera, or with a USB/Bluetooth hardware scanner (which just types the code, so no setup is needed)", 'internal': True},
+            {'text': 'Users, Stock, Products, Suppliers, and Order Console now filter live as you type instead of needing a page reload', 'internal': True},
+            {'text': "Added a My Profile section to the staff/branch manager/owner Settings page, so account info can be edited without leaving the admin panel", 'internal': True},
+            {'text': 'Fixed a crash when requesting a second verification email too soon, and added a 30-minute cooldown between requests', 'internal': True},
+            {'text': 'Fixed an account data issue that could silently prevent saving a mobile number on some older accounts', 'internal': True},
+        ],
+    },
     {
         'version': '1.3.0',
         'date': '2026-07-31',
@@ -63,3 +84,30 @@ CHANGELOG = [
         ],
     },
 ]
+
+# Shown for a version where every change is internal-only, so the audience
+# still sees that something shipped on a given date without any specifics.
+GENERIC_UPDATE_NOTE = 'General improvements and behind-the-scenes fixes.'
+
+
+def visible_changelog(is_internal):
+    """CHANGELOG filtered for the Download page's audience. Internal users
+    (staff/branch managers/owners) see every change; everyone else only
+    sees changes not flagged internal-only. A version keeps appearing (with
+    its real version number and date) even if nothing in it is public —
+    it just falls back to GENERIC_UPDATE_NOTE instead of specifics."""
+    visible = []
+    for entry in CHANGELOG:
+        changes = []
+        for change in entry['changes']:
+            if isinstance(change, dict):
+                if is_internal or not change.get('internal'):
+                    changes.append(change['text'])
+            else:
+                changes.append(change)
+        visible.append({
+            'version': entry['version'],
+            'date': entry['date'],
+            'changes': changes or [GENERIC_UPDATE_NOTE],
+        })
+    return visible

@@ -107,35 +107,37 @@
 
   // Intercept Add-to-Cart submissions: POST over fetch and toast in place so
   // the page keeps its scroll position instead of reloading to the top.
-  document.querySelectorAll('form[data-add-to-cart]').forEach((form) => {
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const btn = form.querySelector('button[type="submit"]');
-      if (btn) btn.disabled = true;
-      try {
-        const res = await fetch(form.action, {
-          method: 'POST',
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRFToken': csrfToken,
-          },
-          body: new FormData(form),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          showToast({ message: data.error || 'Could not add to cart.', level: 'error' });
-          return;
-        }
-        updateCartBadge(data.cart_count);
-        showToast({ message: data.message, undoUrl: data.undo_url });
-      } catch (err) {
-        // Network/JSON failure — fall back to a normal form submit so the add
-        // still goes through (accepting the reload) rather than silently dropping.
-        form.submit();
+  // Delegated on `document` (not queried once at load) so cards the catalog
+  // page swaps in later via live search still get the same behavior.
+  document.addEventListener('submit', async (e) => {
+    const form = e.target.closest('form[data-add-to-cart]');
+    if (!form) return;
+    e.preventDefault();
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': csrfToken,
+        },
+        body: new FormData(form),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showToast({ message: data.error || 'Could not add to cart.', level: 'error' });
         return;
-      } finally {
-        if (btn) btn.disabled = false;
       }
-    });
+      updateCartBadge(data.cart_count);
+      showToast({ message: data.message, undoUrl: data.undo_url });
+    } catch (err) {
+      // Network/JSON failure — fall back to a normal form submit so the add
+      // still goes through (accepting the reload) rather than silently dropping.
+      form.submit();
+      return;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   });
 })();

@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load l10n %}
+{% load l10n static %}
 {% block title %}Product Master List{% endblock %}
 {% block page_subtitle %}Catalog{% endblock %}
 
@@ -134,8 +134,9 @@
   {% endif %}
 </div>
 
-<form method="GET" class="toolbar">
-  <input type="search" name="q" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}">
+<form method="GET" class="toolbar" data-live-filter="#product-table tbody tr[data-filter-text]" data-filter-empty-target="#product-no-matches">
+  <input type="search" name="q" id="product-search-input" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off">
+  <button type="button" class="btn" id="product-scan-btn" title="Scan a barcode to search">📷 Scan</button>
   <select name="category" onchange="this.form.submit()">
     <option value="">All Categories</option>
     {% for c in categories %}
@@ -146,7 +147,7 @@
 </form>
 
 <div class="card table-wrap">
-  <table class="gv-table">
+  <table class="gv-table" id="product-table">
     <thead>
       <tr>
         <th>Image</th>
@@ -162,7 +163,7 @@
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr>
+      <tr data-filter-text="{{ row.product.product_name }} {{ row.product.sku_code }}">
         <td data-label="Image">
           {% with imgs=row.product.images.all %}
             {% if imgs %}
@@ -201,6 +202,16 @@
         </td>
       </tr>
       {% endfor %}
+      {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
+      <tr id="product-no-matches" hidden>
+        <td colspan="9">
+          <div class="empty">
+            <span class="glyph">＋</span>
+            <h3>No products found</h3>
+            <p>No products match "<span data-filter-empty-query></span>". Try a different search.</p>
+          </div>
+        </td>
+      </tr>
     </tbody>
   </table>
 </div>
@@ -236,6 +247,18 @@
           <span class="dropzone-filename" id="add-dropzone-filename"></span>
         </label>
         <input type="file" id="add-images" name="images" accept="image/*" multiple class="sr-only">
+      </div>
+
+      <div class="field">
+        <label for="add-barcode">Barcode</label>
+        <div class="row" style="gap:8px;">
+          <input type="text" id="add-barcode" name="barcode" class="input grow"
+                 placeholder="Scan a barcode, or type one and press Enter" autocomplete="off"
+                 value="{{ add_form_data.barcode|default:'' }}">
+          <button type="button" class="btn" id="add-barcode-scan-btn" title="Scan with camera">📷 Scan</button>
+        </div>
+        <span class="barcode-status" id="add-barcode-status"></span>
+        <div id="add-barcode-match" class="banner banner-info" style="display:none; margin-top:8px;"></div>
       </div>
 
       <div class="field">
@@ -567,6 +590,49 @@
     });
     syncMasterCheckbox();
   }
+})();
+</script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/barcode-scanner.js' %}"></script>
+<script>
+(function () {
+  var input = document.getElementById('product-search-input');
+  var btn = document.getElementById('product-scan-btn');
+  if (!input || !btn) return;
+  GerlynBarcodeScanner.attach(input, {
+    cameraBtn: btn,
+    onScan: function (code) {
+      input.value = code;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    },
+  });
+})();
+</script>
+<script>
+(function () {
+  var input = document.getElementById('add-barcode');
+  var btn = document.getElementById('add-barcode-scan-btn');
+  var status = document.getElementById('add-barcode-status');
+  var matchBanner = document.getElementById('add-barcode-match');
+  if (!input) return;
+
+  GerlynBarcodeScanner.attachBarcodeField(input, {
+    lookupUrl: '{% url "barcode_lookup" %}',
+    cameraBtn: btn,
+    statusEl: status,
+    notFoundMessage: 'No existing product matches this code — fill in the details below to add it as new.',
+    onFound: function (product) {
+      matchBanner.style.display = 'block';
+      matchBanner.innerHTML =
+        'A product with this barcode already exists: <strong>' +
+        product.product_name.replace(/</g, '&lt;') +
+        '</strong> — did you mean to <a href="' + product.edit_url + '">edit that product</a> ' +
+        'or add stock for it instead, rather than create a duplicate?';
+    },
+    onNotFound: function () {
+      matchBanner.style.display = 'none';
+    },
+  });
 })();
 </script>
 {% endblock %}

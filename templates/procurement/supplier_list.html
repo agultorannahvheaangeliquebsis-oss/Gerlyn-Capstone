@@ -16,13 +16,13 @@
   {% endif %}
 </div>
 
-<form method="GET" class="toolbar">
-  <input type="search" name="q" class="input grow" placeholder="Search suppliers…" value="{{ search_query }}">
+<form method="GET" class="toolbar" data-live-filter="#supplier-table tbody tr[data-filter-text]" data-filter-empty-target="#supplier-no-matches">
+  <input type="search" name="q" class="input grow" placeholder="Search suppliers…" value="{{ search_query }}" autocomplete="off">
   <button class="btn" type="submit">Search</button>
 </form>
 
 <div class="card table-wrap">
-  <table class="gv-table">
+  <table class="gv-table" id="supplier-table">
     <thead>
       <tr><th>Supplier</th><th>Category</th><th>Contact Person</th>
           <th>Contact Number</th><th>Email</th><th>Address</th>
@@ -30,7 +30,7 @@
     </thead>
     <tbody>
       {% for s in suppliers %}
-      <tr>
+      <tr data-filter-text="{{ s.supplier_profile.supplier_name }}">
         <td data-label="Supplier" class="strong">{{ s.supplier_profile.supplier_name|default:s.username }}</td>
         <td data-label="Category">
           {% if s.supplier_profile.supplier_category %}
@@ -58,6 +58,12 @@
         {% if can_edit %}<a class="btn btn-primary mt-2" href="{% url 'supplier_add' %}">Add Supplier</a>{% endif %}
       </div></td></tr>
       {% endfor %}
+      {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
+      <tr id="supplier-no-matches" hidden><td colspan="7"><div class="empty">
+        <span class="glyph">＋</span>
+        <h3>No suppliers match</h3>
+        <p>No suppliers match "<span data-filter-empty-query></span>". Try a different search.</p>
+      </div></td></tr>
     </tbody>
   </table>
 </div>

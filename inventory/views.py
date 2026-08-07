@@ -3,6 +3,7 @@ from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models, transaction, IntegrityError
+from django.http import JsonResponse
 from django.utils import timezone
 from datetime import date
 from decimal import InvalidOperation as DecimalException
@@ -125,6 +126,41 @@ def product_list(request):
 
 
 @login_required(login_url='login')
+def barcode_lookup(request):
+    """AJAX: resolve a scanned/typed code to product details for the shared
+    barcode field on Add Product and Stock Adjustment. Checks the real
+    `barcode` field first, falling back to `sku_code` (covers codes that
+    were only ever assigned internally). Returns {'found': False} for no
+    match — an expected, handled outcome here, not an error."""
+    if request.user.role not in INTERNAL_ROLES:
+        return JsonResponse({'found': False}, status=403)
+
+    code = request.GET.get('code', '').strip()
+    if not code:
+        return JsonResponse({'found': False})
+
+    product = (
+        Product.objects.filter(barcode__iexact=code).first()
+        or Product.objects.filter(sku_code__iexact=code).first()
+    )
+    if not product:
+        return JsonResponse({'found': False})
+
+    return JsonResponse({
+        'found': True,
+        'id': product.id,
+        'sku_code': product.sku_code,
+        'barcode': product.barcode or '',
+        'product_name': product.product_name,
+        'category_id': product.category_id,
+        'unit_of_measure': product.unit_of_measure,
+        'unit_price': str(product.unit_price),
+        'wholesale_price': str(product.wholesale_price) if product.wholesale_price else '',
+        'edit_url': reverse('product_edit', args=[product.id]),
+    })
+
+
+@login_required(login_url='login')
 def product_add(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to add products.')
@@ -137,6 +173,7 @@ def product_add(request):
         return redirect(f"{reverse('product_list')}?add=1")
 
     product_name = request.POST.get('product_name', '').strip()
+    barcode = request.POST.get('barcode', '').strip() or None
     unit_price = request.POST.get('unit_price', '').strip()
     wholesale_price = request.POST.get('wholesale_price', '').strip()
     description = request.POST.get('description', '').strip()
@@ -147,6 +184,8 @@ def product_add(request):
         errors.append('Product name is required.')
     if not unit_price:
         errors.append('Retail price is required.')
+    if barcode and Product.objects.filter(barcode__iexact=barcode).exists():
+        errors.append(f'Barcode "{barcode}" is already assigned to another product.')
 
     images = request.FILES.getlist('images')
 
@@ -156,6 +195,7 @@ def product_add(request):
                 product = Product.objects.create(
                     category_id=request.POST.get('category') or None,
                     sku_code=Product.next_sku_code(),
+                    barcode=barcode,
                     product_name=product_name,
                     unit_of_measure=request.POST.get('unit_of_measure'),
                     unit_price=unit_price,
@@ -399,15 +439,7 @@ def alerts_center(request):
 # STORE FLOOR INVENTORY VIEW
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
-def inventory_list(request):
-    """Stock per Branch — real-time levels across branches, with status."""
-    # Suppliers/customers must never reach this: get_user_branch() returns None
-    # for them, which the branch filter below would read as "show everything".
-    if request.user.role not in INTERNAL_ROLES:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
-
+def _inventory_list_context(request):
     records = Inventory.objects.select_related(
         'product', 'product__category', 'branch'
     ).all()
@@ -448,7 +480,7 @@ def inventory_list(request):
             continue
         rows.append({'inv': r, 'status': status})
 
-    return render(request, 'inventory/inventory_list.html', {
+    return {
         'rows': rows,
         'counts': counts,
         'branches': Branch.objects.all() if not user_branch else [],
@@ -458,7 +490,86 @@ def inventory_list(request):
         'category_filter': category_filter,
         'status_filter': status_filter,
         'user_branch': user_branch,
-    })
+        'can_adjust': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        'adjust_products': Product.objects.order_by('product_name'),
+    }
+
+
+@login_required(login_url='login')
+def inventory_list(request):
+    """Stock per Branch — real-time levels across branches, with status."""
+    # Suppliers/customers must never reach this: get_user_branch() returns None
+    # for them, which the branch filter below would read as "show everything".
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    return render(request, 'inventory/inventory_list.html', _inventory_list_context(request))
+
+
+@login_required(login_url='login')
+def stock_adjustment_add(request):
+    """Direct floor-stock correction — bumps Inventory.quantity_on_hand
+    without going through the normal Warehouse -> StockTransfer chain, so
+    it's restricted to Owner/Branch Manager and exists for corrections,
+    spot-counts, and initial seeding, not as a substitute for withdrawal
+    slips. Every adjustment is logged as a StockMovement for the same
+    traceability the transfer flow gets."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Only the Owner or a Branch Manager can make a stock adjustment.')
+        return redirect('inventory_list')
+
+    if request.method != 'POST':
+        return redirect('inventory_list')
+
+    user_branch = get_user_branch(request.user)
+    product_id = request.POST.get('product_id', '').strip()
+    branch_id = user_branch.id if user_branch else request.POST.get('branch_id', '').strip()
+    quantity = request.POST.get('quantity', '').strip()
+    expiry_date = request.POST.get('expiry_date', '').strip()
+
+    product = Product.objects.filter(pk=product_id).first() if product_id else None
+    branch = Branch.objects.filter(pk=branch_id).first() if branch_id else None
+
+    errors = []
+    if not product:
+        errors.append('Choose a valid product — scan a barcode or pick one from the list.')
+    if not branch:
+        errors.append('Choose a valid branch.')
+    if not quantity.isdigit() or int(quantity) <= 0:
+        errors.append('Enter a quantity greater than zero.')
+
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        context = _inventory_list_context(request)
+        context.update({
+            'show_adjust_modal': True,
+            'adjust_form_data': request.POST,
+        })
+        return render(request, 'inventory/inventory_list.html', context)
+
+    with transaction.atomic():
+        inv, _created = Inventory.objects.get_or_create(product=product, branch=branch)
+        qty_before = inv.quantity_on_hand
+        inv.quantity_on_hand += int(quantity)
+        if expiry_date:
+            inv.expiry_date = expiry_date
+        inv.save()
+
+        StockMovement.objects.create(
+            inventory=inv,
+            location_type=StockMovement.LocationType.FLOOR,
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+            quantity_change=int(quantity),
+            quantity_before=qty_before,
+            quantity_after=inv.quantity_on_hand,
+            notes=f'Manual stock adjustment by {request.user.get_full_name() or request.user.username}',
+            created_by=request.user,
+        )
+
+    messages.success(request, f'Added {quantity} to {product.product_name} at {branch.branch_name}.')
+    return redirect('inventory_list')
 
 
 # ─────────────────────────────────────────────
