@@ -22,7 +22,7 @@ from core.scoping import branch_ids_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, role_required
 from core.timebounds import (
     local_day_bounds, local_month_bounds, local_range_bounds,
-    parse_iso_date, resolve_date_range,
+    parse_iso_date, range_from_request, resolve_date_range,
 )
 
 
@@ -700,16 +700,11 @@ def operational_dashboard(request):
     # --- Date-range-scoped KPI rail, graph panel and donut (DESIGN.md §2a/
     # §2c). All three read one _dashboard_metrics bundle for the resolved
     # range, so a card, the graph it opens, and the donut can never disagree.
-    # The range control itself is DESIGN.md §2e — until it ships these params
-    # have no UI, and an absent or malformed one falls back to the last 30
-    # days. (Referenced by section, not task number: inserting §2g renumbered
-    # the task list once already.)
-    range_start, range_end, active_range = resolve_date_range(
-        request.GET.get('range'),
-        parse_iso_date(request.GET.get('date_from')),
-        parse_iso_date(request.GET.get('date_to')),
-        today=today,
-    )
+    # The range comes from the shared §2e control in the page head; an absent
+    # or malformed selection falls back to the session, then to the last 30
+    # days. Branch Status (§2h) and Recent Activity (§2f) are deliberately NOT
+    # scoped by it — they answer "right now", not "over the selected window".
+    range_start, range_end, active_range = range_from_request(request, today=today)
     metrics = _dashboard_metrics(sales_qs, procurement_qs, range_start, range_end)
     kpi_cards, kpi_graphs = _dashboard_kpi_payload(metrics, range_start, range_end)
     branch_breakdown = metrics['branch_breakdown']
@@ -769,6 +764,9 @@ def operational_dashboard(request):
         'range_start': range_start,
         'range_end': range_end,
         'active_range': active_range,
+        # The Dashboard has no other filters to preserve when the range
+        # changes, so the control carries nothing (DESIGN.md §2e).
+        'daterange_carry': [],
         # low_stock_count still feeds the Restock Suggestions header; the four
         # quiet stat tiles it used to sit beside are gone (duplicated the Needs
         # Attention rows / were static catalog facts, not daily decisions).

@@ -858,6 +858,55 @@ input::placeholder { color: var(--ink-400); }
   .attn-clear-grid { grid-template-columns: 1fr; }
 }
 
+/* ------------------------------------------------- shared date-range control
+   DESIGN.md §2e. A <details> popover like .avatar-menu — no JS, so the
+   disclosure, keyboard handling and SR semantics come from the element.
+   Presets reuse the .avatar-menu-link row idiom; the selected one takes the
+   same --green-50 / --action treatment as .stat-hero.active. */
+.daterange { position: relative; }
+.daterange-trigger {
+  display: inline-flex; align-items: center; gap: 8px; list-style: none;
+  min-height: 40px; padding: 0 14px; border-radius: var(--r-input);
+  border: 1.5px solid var(--input-line); background: var(--surface);
+  color: var(--ink-900); font: 600 14px/1 system-ui, sans-serif; cursor: pointer;
+}
+.daterange-trigger::-webkit-details-marker { display: none; }
+.daterange-trigger:hover { border-color: var(--brand); }
+.daterange[open] .daterange-trigger { border-color: var(--brand); }
+.daterange-caret { color: var(--ink-600); font-size: 11px; }
+.daterange-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  display: flex; flex-direction: column; gap: 2px; min-width: 240px;
+  padding: var(--s2); background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-hero);
+}
+.daterange-preset {
+  display: block; width: 100%; text-align: left;
+  min-height: 38px; padding: 0 12px; border-radius: var(--r-input);
+  border: none; background: none; color: var(--ink-700);
+  font: 500 14px/1 system-ui, sans-serif; cursor: pointer;
+}
+.daterange-preset:hover { background: var(--line-soft); color: var(--ink-900); }
+.daterange-preset.is-active { background: var(--green-50); color: var(--action-700); font-weight: 650; }
+.daterange-custom {
+  display: flex; flex-direction: column; gap: var(--s2);
+  margin-top: var(--s2); padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+}
+.daterange-custom-head {
+  font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--ink-400); padding: 0 12px;
+}
+.daterange-field { display: flex; align-items: center; gap: var(--s2); padding: 0 12px; }
+.daterange-field > span { width: 38px; font: 400 13px/1 system-ui, sans-serif; color: var(--ink-600); }
+.daterange-field input[type=date] { flex: 1; min-width: 0; width: auto; }
+.daterange-custom .btn-primary { margin: 0 12px; }
+@media (max-width: 520px) {
+  /* Anchored right, so on a narrow screen it would otherwise overflow. */
+  .daterange-panel { right: auto; left: 0; min-width: 0; width: max-content; max-width: 90vw; }
+}
+
 /* ---------------------------------------------- dashboard "Branch Status"
    DESIGN.md §2h. The status pill with the signal that tripped it named
    underneath, right-aligned under the pill. Without it an amber card sitting

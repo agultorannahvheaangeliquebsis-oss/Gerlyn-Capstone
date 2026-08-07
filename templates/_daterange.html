@@ -1,0 +1,66 @@
+{% comment %}
+The shared date-range control (DESIGN.md §2e) — one component for the
+Dashboard and every Reports tab that has a date axis.
+
+Built on <details>/<summary> like the topbar avatar menu, so it needs no
+JavaScript: the disclosure behaviour, keyboard handling and screen-reader
+semantics all come from the element. It therefore still works on a page
+whose JS failed to load.
+
+Presets are submit buttons in one GET form rather than links — only the
+clicked button contributes its `range` value, so presets and the custom
+Apply share a single mechanism, and the whole form serialises in one place.
+
+Context expected:
+  active_range     the preset actually applied, from range_from_request
+  range_start/end  resolved dates, used to seed the custom inputs
+  daterange_carry  list of (name, value) pairs for the page's OTHER filters,
+                   so choosing a range never silently drops the branch or
+                   search the user already set
+
+NOTE: like the avatar menu, this does not close on outside-click without JS.
+That matches the existing component rather than introducing a new behaviour.
+{% endcomment %}
+<details class="daterange">
+  <summary class="daterange-trigger" aria-label="Change date range">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>
+    </svg>
+    <span class="daterange-label">
+      {% if active_range == 'today' %}Today
+      {% elif active_range == '7' %}Last 7 days
+      {% elif active_range == 'this_month' %}This month
+      {% elif active_range == 'custom' %}{{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}
+      {% else %}Last 30 days{% endif %}
+    </span>
+    <span class="daterange-caret" aria-hidden="true">&#9662;</span>
+  </summary>
+
+  <form method="get" class="daterange-panel">
+    {% for name, value in daterange_carry %}
+      {% if value %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}
+    {% endfor %}
+
+    <button type="submit" name="range" value="today"
+            class="daterange-preset{% if active_range == 'today' %} is-active{% endif %}">Today</button>
+    <button type="submit" name="range" value="7"
+            class="daterange-preset{% if active_range == '7' %} is-active{% endif %}">Last 7 days</button>
+    <button type="submit" name="range" value="30"
+            class="daterange-preset{% if active_range == '30' %} is-active{% endif %}">Last 30 days</button>
+    <button type="submit" name="range" value="this_month"
+            class="daterange-preset{% if active_range == 'this_month' %} is-active{% endif %}">This month</button>
+
+    <div class="daterange-custom">
+      <span class="daterange-custom-head">Custom range</span>
+      <label class="daterange-field">
+        <span>From</span>
+        <input type="date" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+      </label>
+      <label class="daterange-field">
+        <span>To</span>
+        <input type="date" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+      </label>
+      <button type="submit" name="range" value="custom" class="btn btn-primary">Apply</button>
+    </div>
+  </form>
+</details>

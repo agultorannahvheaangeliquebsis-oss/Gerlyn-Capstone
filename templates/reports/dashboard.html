@@ -13,6 +13,13 @@
       what's happening — {{ today|date:"F d, Y" }}.
     </p>
   </div>
+  {% comment %}
+  The §2e range control. .page-head is already a space-between flex row, so it
+  needs no toolbar of its own. Scopes the KPI rail, the trend panel and the
+  donut — NOT Branch Status (§2h) or Recent Activity (§2f), both of which
+  answer "right now" by design.
+  {% endcomment %}
+  {% include "_daterange.html" %}
 </div>
 
 {% comment %}
