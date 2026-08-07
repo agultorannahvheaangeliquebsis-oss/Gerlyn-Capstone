@@ -83,7 +83,7 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
 </div>
 
 {# ---------- Sales by Branch donut (DESIGN.md §2c) — same range as the rail ---------- #}
-<div class="card">
+<div class="card donut-card">
   <div class="card-pad" style="border-bottom:1px solid var(--line);">
     <h3>Sales by Branch</h3>
     <p class="gv-meta mb-0">Share of ₱{{ branch_chart.total|floatformat:2 }} · {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}</p>

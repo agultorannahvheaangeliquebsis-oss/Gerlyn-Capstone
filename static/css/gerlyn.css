@@ -203,7 +203,11 @@ input::placeholder { color: var(--ink-400); }
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-card); box-shadow: var(--shadow-card);
 }
-.kpi-graph-panel svg { display: block; width: 100%; height: auto; }
+/* height:auto keeps the 760x220 viewBox proportional, so on a wide screen the
+   panel balloons to match. The cap holds the page's vertical rhythm; the SVG
+   carries preserveAspectRatio="none", so it compresses to fit rather than
+   cropping anything. */
+.kpi-graph-panel svg { display: block; width: 100%; height: auto; max-height: 280px; }
 /* Same specificity trap as .empty[hidden]: the rule above is a class-plus-
    descendant selector, so it outranks the browser's `[hidden] { display: none }`
    and the chart stayed on screen behind the "Nothing to chart" state. Paired
@@ -765,7 +769,23 @@ input::placeholder { color: var(--ink-400); }
 /* The Dashboard's donut legend carries a per-branch status pill as well as
    the amount (DESIGN.md §2c); in that narrower column the row needs to wrap
    rather than squeeze the branch name. */
-.pie-legend.with-status li { flex-wrap: wrap; row-gap: 4px; }
+.pie-legend.with-status li { flex-wrap: wrap; row-gap: 2px; }
+/* The amount takes its own line, aligned under the branch name rather than
+   pushed to the far edge. `margin-left:auto` was flinging it 162px right of
+   the dot the moment the row wrapped, leaving a hole under the name and a
+   ragged right edge. flex-basis 100% makes the two-line block deliberate
+   instead of a side effect of whether the row happened to fit; the indent is
+   the dot's width plus the row gap, so the figure lines up with the name. */
+.pie-legend.with-status .pie-count { margin-left: 0; flex: 0 0 100%; padding-left: 18px; }
+
+/* Dashboard only. The donut card stretches to its grid sibling's height, and
+   used to pin the chart to the top with all the slack pooling underneath;
+   growing the body and centring in it splits that slack evenly.
+   Deliberately NOT applied to the Reports Sales tab, where the sibling is an
+   unbounded transactions table — centring inside a card that tall strands the
+   donut hundreds of pixels down with an empty gap above it. */
+.donut-card { display: flex; flex-direction: column; }
+.donut-card > .card-pad:last-child { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 
 /* Horizontal bar chart — single series (magnitude by branch), so no legend;
    label + value flank a fixed-width track, ticks share the same grid so they
@@ -807,7 +827,9 @@ input::placeholder { color: var(--ink-400); }
   color: var(--ink-900); text-decoration: none;
   border-bottom: 1px solid var(--line-soft);
 }
-.attn-row:last-child { border-bottom: none; }
+/* Same gutter as .feed-row:last-child — only applies when no all-clear block
+   follows, since that block brings its own padding. */
+.attn-row:last-child { border-bottom: none; padding-bottom: var(--s6); }
 .attn-row:hover { background: var(--green-50); color: var(--ink-900); }
 .attn-label { display: flex; align-items: center; gap: var(--s3); font-weight: 600; }
 .attn-end { display: flex; align-items: center; gap: var(--s3); }
@@ -923,7 +945,11 @@ input::placeholder { color: var(--ink-400); }
   color: var(--ink-900); text-decoration: none;
   border-bottom: 1px solid var(--line-soft);
 }
-.feed-row:last-child { border-bottom: none; }
+/* The last row would otherwise leave only its own 12px against the card's
+   bottom edge, against ~40px under the Needs Attention list it sits beside.
+   Padding on the row rather than the card so the hover highlight still covers
+   the full row; that makes the last row taller than its siblings by design. */
+.feed-row:last-child { border-bottom: none; padding-bottom: var(--s6); }
 .feed-row:hover { background: var(--green-50); color: var(--ink-900); }
 .feed-ico {
   width: 30px; height: 30px; flex: none; border-radius: var(--r-input);

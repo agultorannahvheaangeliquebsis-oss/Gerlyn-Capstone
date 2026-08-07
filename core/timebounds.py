@@ -79,7 +79,7 @@ def local_range_bounds(start_day, end_day):
 
 
 # Shared across Dashboard/Reports (DESIGN.md Section 2, #2e).
-DATE_RANGE_PRESETS = ('today', '7', '30', 'this_month', 'all', 'custom')
+DATE_RANGE_PRESETS = ('today', '7', '30', 'all', 'custom')
 
 
 def resolve_date_range(preset, date_from=None, date_to=None, today=None):
@@ -96,10 +96,11 @@ def resolve_date_range(preset, date_from=None, date_to=None, today=None):
     Returns (start, end, preset) — `preset` echoes back the preset actually
     applied, so a caller can tell when a bad 'custom' request fell back.
 
-    'all' returns a start of None, meaning "no lower bound". Callers must skip
-    their `__gte` term rather than substituting a date. Deliberately NOT a
-    MIN() across the tables: nothing needs to know the earliest record just to
-    show unbounded history, and that query would cost a full scan per surface.
+    'all' returns a start of None, meaning "no lower bound". Callers that only
+    filter must skip their `__gte` term rather than substituting a date -- no
+    MIN() across the tables, since nothing needs the earliest record just to
+    show unbounded history. A caller that buckets per day (the Dashboard's
+    chart) genuinely cannot work without a lower edge, and resolves one itself.
     """
     today = today or timezone.localtime().date()
 
@@ -109,8 +110,6 @@ def resolve_date_range(preset, date_from=None, date_to=None, today=None):
         return None, today, 'all'
     if preset == '7':
         return today - timedelta(days=6), today, '7'
-    if preset == 'this_month':
-        return today.replace(day=1), today, 'this_month'
     if preset == 'custom' and date_from and date_to and date_from <= date_to:
         return date_from, date_to, 'custom'
     return today - timedelta(days=29), today, '30'
@@ -158,7 +157,7 @@ def month_as_range(value):
         return None
 
 
-def range_from_request(request, today=None, allow_all=True):
+def range_from_request(request, today=None):
     """
     Resolve the shared date range for a request (DESIGN.md §2e).
 
@@ -173,17 +172,6 @@ def range_from_request(request, today=None, allow_all=True):
     next page without params continues where they left off. Note a relative
     preset is re-resolved against *today* each time rather than being pinned
     to the dates it produced, so "Last 7 days" keeps rolling.
-
-    `allow_all=False` is for surfaces that cannot render an unbounded range —
-    the Dashboard buckets one entry per day across the range and compares it
-    against a previous window of equal length, neither of which is defined
-    without a lower bound. Those surfaces fall back to the default window.
-    The guard is here rather than in the template because hiding the button
-    would still leave a hand-typed `?range=all` reaching the day-bucketing.
-
-    Crucially the clamp does NOT overwrite what the user picked: the stored
-    selection stays 'all', so moving Reports -> Dashboard -> Reports still
-    comes back to All time instead of being quietly downgraded en route.
 
     Returns (start, end, preset) exactly like resolve_date_range; `start` is
     None for 'all', and callers must drop their lower-bound term rather than
@@ -211,8 +199,5 @@ def range_from_request(request, today=None, allow_all=True):
         'date_from': start.isoformat() if start else '',
         'date_to': end.isoformat(),
     }
-
-    if active == 'all' and not allow_all:
-        start, end, active = resolve_date_range(None, today=today)
 
     return start, end, active

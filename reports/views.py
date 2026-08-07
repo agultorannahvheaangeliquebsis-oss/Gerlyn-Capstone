@@ -4,7 +4,7 @@ import math
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Sum
+from django.db.models import Min, Sum
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
@@ -695,16 +695,28 @@ def operational_dashboard(request):
     # or malformed selection falls back to the session, then to the last 30
     # days. Recent Activity (§2f) is deliberately NOT scoped by it — it
     # answers "right now", not "over the selected window".
+    range_start, range_end, active_range = range_from_request(request, today=today)
+
+    # 'All time' hands back a None start — no lower bound — which the filtering
+    # surfaces simply drop from their query. This view cannot: it pre-allocates
+    # one bucket per day across the range and compares against a previous
+    # window of equal length, so it needs a real lower edge. It resolves one
+    # here from the earliest posting on record.
     #
-    # allow_all=False: this view buckets one entry per day across the range
-    # (_dashboard_daily_series) and compares it against a previous window of
-    # equal length, neither of which is defined without a lower bound. An
-    # 'all' selection carried in from Reports — or hand-typed as ?range=all —
-    # falls back to the default window here, without disturbing what the user
-    # picked, so returning to Reports still shows All time.
-    range_start, range_end, active_range = range_from_request(
-        request, today=today, allow_all=False
-    )
+    # This is the MIN() that §2e's resolver deliberately avoids, and the
+    # distinction matters: the resolver skips it because filtering never needs
+    # to know the earliest record, whereas a per-day chart cannot be drawn
+    # without one. Two indexed aggregates, only on the 'all' branch.
+    if range_start is None:
+        first_sale = sales_qs.aggregate(m=Min('transaction_date'))['m']
+        first_po = procurement_qs.aggregate(m=Min('order_date'))['m']
+        candidates = [d for d in (
+            timezone.localtime(first_sale).date() if first_sale else None,
+            first_po,
+        ) if d]
+        # No postings at all: collapse to a single day rather than an
+        # unbounded span, which would bucket from year zero.
+        range_start = min(candidates) if candidates else range_end
     metrics = _dashboard_metrics(sales_qs, procurement_qs, range_start, range_end)
     kpi_cards, kpi_graphs = _dashboard_kpi_payload(metrics, range_start, range_end)
     branch_breakdown = metrics['branch_breakdown']
@@ -759,8 +771,6 @@ def operational_dashboard(request):
         # The Dashboard has no other filters to preserve when the range
         # changes, so the control carries nothing (DESIGN.md §2e).
         'daterange_carry': [],
-        # No "All time" chip here — see allow_all above.
-        'daterange_hide_all': True,
         # low_stock_count still feeds the Restock Suggestions header; the four
         # quiet stat tiles it used to sit beside are gone (duplicated the Needs
         # Attention rows / were static catalog facts, not daily decisions).
