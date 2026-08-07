@@ -688,22 +688,13 @@ def operational_dashboard(request):
     now = timezone.localtime()
     today = now.date()
 
-    # today_sales feeds _branch_status_rows below (each branch's share of
-    # today's total), even though it's no longer its own hero card.
-    # Range comparison, not __date= — see local_day_bounds for why that
-    # lookup silently returns nothing on this MySQL deployment.
-    _today_start, _today_end = local_day_bounds(today)
-    today_sales = sales_qs.filter(
-        transaction_date__gte=_today_start, transaction_date__lt=_today_end
-    ).aggregate(total=Sum('total_amount'))['total'] or 0
-
     # --- Date-range-scoped KPI rail, graph panel and donut (DESIGN.md §2a/
     # §2c). All three read one _dashboard_metrics bundle for the resolved
     # range, so a card, the graph it opens, and the donut can never disagree.
     # The range comes from the shared §2e control in the page head; an absent
     # or malformed selection falls back to the session, then to the last 30
-    # days. Branch Status (§2h) and Recent Activity (§2f) are deliberately NOT
-    # scoped by it — they answer "right now", not "over the selected window".
+    # days. Recent Activity (§2f) is deliberately NOT scoped by it — it
+    # answers "right now", not "over the selected window".
     #
     # allow_all=False: this view buckets one entry per day across the range
     # (_dashboard_daily_series) and compares it against a previous window of
@@ -725,14 +716,6 @@ def operational_dashboard(request):
     summary = alert_summary(branch_ids)
     restock = summary['low_stock']
     needs_attention = _needs_attention_rows(summary, procurement_qs, sales_qs)
-
-    # --- Branch status row: 3-second scan of each branch's sales today ---
-    branches = Branch.objects.all() if branch_ids is None else Branch.objects.filter(id__in=branch_ids)
-    branch_status = _branch_status_rows(branches, sales_qs, restock, today, today_sales, now=now)
-    # Only surface the tinted status cards when a branch actually tripped a
-    # threshold; otherwise the template falls back to a plain neutral summary
-    # rather than painting a full red row over an uneventful day.
-    branch_alerts_present = any(row['status'] != 'ok' for row in branch_status)
 
     # Open Orders (DESIGN.md §2g) — the workflow panel, deliberately NOT a
     # "latest orders" list. Non-terminal statuses only, oldest first, so the
@@ -784,8 +767,6 @@ def operational_dashboard(request):
         'low_stock_count': len(restock),
         'restock': restock[:6],
         'needs_attention': needs_attention,
-        'branch_status': branch_status,
-        'branch_alerts_present': branch_alerts_present,
         'open_orders': open_orders,
         'recent_activity': recent_activity,
         'is_owner': request.user.role == User.Role.OWNER,
@@ -941,14 +922,8 @@ def _sales_by_branch_chart(sales_qs):
     "Sales by Branch" donut for the Reports Sales tab.
 
     Aggregates whatever `sales_qs` the Sales tab has already filtered (branch
-    dropdown + month dropdown), so the donut always describes the same rows as
+    dropdown + §2e date range), so the donut always describes the same rows as
     the KPI cards and the transactions table beneath it.
-
-    NOTE: this is a new per-branch rollup, not the Dashboard's. The Dashboard's
-    _branch_status_rows() is hard-scoped to *today* (today vs yesterday delta,
-    share of today's sales, live stock-alert counts) and takes restock/today/
-    total_today_sales as arguments — it cannot answer "sales per branch over
-    the selected month", which is what this panel needs.
 
     Branches past the ramp's length fold into one "Other branches" segment
     rather than getting improvised colours.
@@ -1162,103 +1137,6 @@ def _billing_payment_breakdown(completed_records, total_revenue):
         for method, row in by_method.items()
     ]
     rows.sort(key=lambda r: -r['total'])
-    return rows
-
-
-# --- Per-branch status thresholds ---------------------------------------
-# A branch only goes amber/red on evidence. "No sales recorded yet" is NOT
-# evidence — it is the normal state of every branch at 9am, and the normal
-# state of every branch in a store that has not gone live yet.
-BRANCH_BASELINE_DAYS = 7      # trailing window for the sales baseline (excludes today)
-BRANCH_SLOW_RATIO = 0.5       # today's pace below half the baseline pace = slow
-BRANCH_MIN_DAY_ELAPSED = 0.25  # ignore the sales signal before ~6am local
-
-
-def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales, now=None):
-    """
-    Per-branch status for the Dashboard's "at a glance" row.
-
-    status is driven by two real signals, never by absence of data:
-      'critical'  the branch has stock at/below half its reorder level
-                  (risk == 'Critical' in inventory.alerts).
-      'watch'     the branch has any low-stock row, OR today's sales are
-                  pacing under BRANCH_SLOW_RATIO of its own trailing
-                  BRANCH_BASELINE_DAYS-day average.
-      'ok'        everything else, including "quiet so far today".
-
-    The sales comparison is PRO-RATED by how much of the local day has
-    elapsed, so a branch is not called slow at 8am for having done less than
-    a full day's takings, and is skipped entirely before
-    BRANCH_MIN_DAY_ELAPSED (the ratio is meaningless at 00:05) or when the
-    branch has no trailing history to compare against.
-    """
-    now = now or timezone.localtime()
-    today_start, today_end = local_day_bounds(today)
-    baseline_start, _ = local_day_bounds(today - timedelta(days=BRANCH_BASELINE_DAYS))
-
-    day_elapsed = (now - today_start).total_seconds() / 86400.0
-    day_elapsed = min(max(day_elapsed, 0.0), 1.0)
-
-    rows = []
-    for branch in branches:
-        b_today_sales = sales_qs.filter(
-            branch=branch, transaction_date__gte=today_start, transaction_date__lt=today_end
-        ).aggregate(total=Sum('total_amount'))['total'] or 0
-
-        baseline_total = sales_qs.filter(
-            branch=branch, transaction_date__gte=baseline_start, transaction_date__lt=today_start
-        ).aggregate(total=Sum('total_amount'))['total'] or 0
-        baseline_daily = float(baseline_total) / BRANCH_BASELINE_DAYS
-
-        branch_alerts = [r for r in restock if r['branch'] and r['branch'].id == branch.id]
-        critical_count = sum(1 for r in branch_alerts if r['risk'] == 'Critical')
-
-        # Only a branch with its own trading history can be called slow.
-        sales_slow = (
-            baseline_daily > 0
-            and day_elapsed >= BRANCH_MIN_DAY_ELAPSED
-            and float(b_today_sales) < BRANCH_SLOW_RATIO * baseline_daily * day_elapsed
-        )
-
-        if critical_count:
-            status = 'critical'
-        elif branch_alerts or sales_slow:
-            status = 'watch'
-        else:
-            status = 'ok'
-
-        # Names which signal actually tripped, alongside the status pill
-        # (DESIGN.md §2h). The panel's axis is "is this branch keeping up
-        # with itself today", not "here is another thing to action", and a
-        # bare amber pill next to Needs Attention reads as a 6th unlisted
-        # check without this.
-        #
-        # Note a watch is NOT always about pace — branch_alerts trips it too
-        # — so this reports the real cause rather than labelling the whole
-        # panel "pace" and mislabelling every stock-driven card.
-        if critical_count:
-            signal_label = 'Critical stock on hand'
-        elif branch_alerts and sales_slow:
-            signal_label = 'Behind pace · low stock'
-        elif sales_slow:
-            signal_label = 'Pace vs. 7-day baseline'
-        elif branch_alerts:
-            signal_label = 'Low stock on hand'
-        else:
-            signal_label = 'Keeping pace'
-
-        rows.append({
-            'branch': branch,
-            'today_sales': b_today_sales,
-            'baseline_daily': baseline_daily,
-            'sales_slow': sales_slow,
-            'share_pct': round((float(b_today_sales) / float(total_today_sales)) * 100, 1)
-                if total_today_sales else 0,
-            'low_stock_count': len(branch_alerts),
-            'critical_count': critical_count,
-            'status': status,
-            'signal_label': signal_label,
-        })
     return rows
 
 

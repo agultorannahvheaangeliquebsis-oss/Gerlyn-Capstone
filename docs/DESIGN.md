@@ -21,7 +21,6 @@ Status: settled — adapted to the actual Django codebase (not the Figma prototy
 - Low Stock preview table (compact, read-only) — links to Alerts Center via "View all alerts →" instead of being its own independent implementation
 - Recent Activity feed — latest Sale/PurchaseOrder/BillingRecord postings, unscoped by the date-range control (see §2f)
 - Open Orders table *(reframed from "Recent Orders")* — non-terminal orders only, oldest-first, so it answers "what needs action" rather than repeating §2f's recent sales (see §2g)
-- Branch Status panel — today's pace against each branch's own 7-day baseline plus stock on hand; a live reading on a different axis from Needs Attention, not another checklist (see §2h)
 
 ---
 
@@ -265,7 +264,7 @@ Adapt as:
 **Surfaces exempt, and why.** §2e originally said "Dashboard, Reports and Alerts". Two of those have no date axis to control, so the control is deliberately absent rather than inert:
 - **Alerts Center** — low stock is *current* quantity vs. reorder level and expiry is a fixed `EXPIRY_WINDOW_DAYS` lookahead. Neither is a historical range, so a Today/7/30 control would either do nothing or silently redefine what "low stock" means
 - **Reports → Inventory** — point-in-time stock levels, same reasoning
-- **Branch Status (§2h)** and **Recent Activity (§2f)** on the Dashboard are also unscoped by it, per their own sections: both answer "right now", not "over the selected window"
+- **Recent Activity (§2f)** on the Dashboard is also unscoped by it, per its own section: it answers "right now", not "over the selected window"
 
 **2f. Recent Activity feed (Dashboard, new)**
 Introduced by the approved mockup, not originally specced. A live feed of the latest postings across Sale, PurchaseOrder, and BillingRecord — icon by type, branch, amount, relative timestamp, staff attribution where available. Directly answers Chapter 1's stated problem of absent digital audit trails.
@@ -285,22 +284,12 @@ Adapt as:
 - Capped at 8 rows — a dashboard preview, not the full list
 - Zero open orders is a real success state, not an empty table: use the `.empty` component (glyph, heading, description)
 
-**2h. Branch Status (Dashboard)**
-Two-mode panel (tinted alert cards / plain neutral list) driven by `_branch_status_rows()` — today's sales vs. a trailing 7-day baseline, plus low-stock counts reused from the restock query. Deliberately disjoint from Needs Attention (different signals, no shared query) and from the branch donut (today+baseline vs. the selected date range, matching the reasoning already in reports/views.py:954). Its tinted state is a live pace-or-stock reading, not an actionable checklist item — labeled as such to avoid reading as a 6th unlisted Needs Attention check.
+**2h. Branch Status (Dashboard) — REMOVED**
+Built, then removed from the Dashboard on request. It showed each branch's takings today against that branch's own trailing 7-day baseline, plus stock on hand, in a two-mode panel (tinted alert cards / plain neutral list).
 
-Adapt as:
-- Both modes carry the same "Branch Status" heading and a subtitle naming the axis, so the panel is identifiable in either state
-- Each tinted card names the signal that actually tripped it beneath the status pill. This is **not one fixed caption**: `watch` has two independent triggers (`branch_alerts or sales_slow`), so a branch can go amber on stock alone with its pace perfectly healthy, and a blanket "pace" caption would mislabel every one of those cards. `_branch_status_rows()` resolves `signal_label` to one of five, in priority order:
+Why it went: sitting beside Needs Attention it read as a sixth unlisted check, and labelling the signal that tripped it (five arms: critical stock / behind pace + low stock / pace / low stock / keeping pace) narrowed but did not close that gap. A branch with no sales *yet today* is the normal state at 9am, so the panel's most common amber was a pace reading that needed explaining rather than acting on.
 
-| Condition | Status | Label |
-|---|---|---|
-| `critical_count` | `critical` | Critical stock on hand |
-| `sales_slow` **and** low stock | `watch` | Behind pace · low stock |
-| `sales_slow` only | `watch` | Pace vs. 7-day baseline |
-| low stock only | `watch` | Low stock on hand |
-| neither | `ok` | Keeping pace |
-
-- The sales comparison is pro-rated by how much of the local day has elapsed and suppressed before ~6am, so a branch is never called slow at 8am for not having taken a full day's sales. That suppression is also the only way the "low stock only" and "Keeping pace" arms are reachable for a branch whose trailing baseline exceeds its takings so far
+If per-branch pace is wanted again, it belongs somewhere with room to state its own axis — not adjacent to an actionable checklist. `_branch_status_rows()` and the `BRANCH_*` thresholds were deleted with the panel; recover them from history rather than rewriting from scratch.
 
 **3. Status color rule — enforce consistently**
 The tokens are correct but need a written rule:

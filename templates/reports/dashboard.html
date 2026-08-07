@@ -136,19 +136,60 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
 </div>{# closes the trend + donut .grid-2 #}
 
 {% comment %}
-Needs Attention + Branches sit side by side in the same .grid-2 split used by
-the Reports Sales tab and the Procurement Report, collapsing to one column at
-<=860px via the shared .grid-2 media query.
+Recent Activity and Needs Attention share one .grid-2 row: "what just
+happened" on the left, "what still needs doing" on the right. Collapses to a
+single column at <=860px via the shared .grid-2 media query.
 
-The wrapper is opened/closed inside {% templatetag openblock %} if branch_status {% templatetag closeblock %} rather than
-around it: with no branches there is only one child, and a two-column grid
-would leave Needs Attention stranded at half width. Cards carry no mb-6 of
-their own in here — the grid's gap and the wrapper's mb-6 do that spacing,
-and keeping both would double it.
+DOM order matches visual order rather than using CSS `order`, so keyboard tab
+order follows what is on screen. That does mean the stacked mobile layout
+leads with Recent Activity.
+
+Neither card carries mb-6 in here — the grid gap and the wrapper's mb-6 do
+that spacing, and keeping both would double it.
 {% endcomment %}
-{% if branch_status %}
 <div class="grid-2 mb-6" style="grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);">
-{% endif %}
+{% comment %}
+Recent Activity (DESIGN.md §2f): the latest postings across Sales, Purchase
+Orders and Billing in one feed — the audit-trail glance Chapter 1 asks for.
+
+Unscoped by the date-range control on purpose (§2f): it answers "what just
+happened", so it keeps showing the last real postings no matter how narrow a
+range the KPI rail above is set to. The subtitle says so, because a feed
+sitting under range-scoped cards otherwise looks like it disagrees with them.
+
+Type is carried by the glyph and spelled out in the meta line, NOT by a
+tinted icon — a PO is a category, not a warning, and §3 reserves amber for
+status. Rows are built from reports/views.py::_recent_activity.
+{% endcomment %}
+<div class="card">
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+    <div>
+      <h3>Recent Activity</h3>
+      <p class="gv-meta mb-0">Latest postings across sales, purchasing and billing — not filtered by the selected range</p>
+    </div>
+  </div>
+  {% for e in recent_activity %}
+  <a href="{{ e.url }}" class="feed-row">
+    <span class="feed-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=e.icon %}</span>
+    <span class="feed-main">
+      <span class="feed-title">{{ e.title }}</span>
+      <span class="feed-sub">{{ e.kind_label }} · {{ e.branch }}{% if e.actor %} · {{ e.actor }}{% endif %}</span>
+    </span>
+    <span class="feed-right">
+      <span class="feed-amount">₱{{ e.amount|floatformat:2 }}</span>
+      <span class="feed-time">{{ e.when_label }}</span>
+    </span>
+  </a>
+  {% empty %}
+  <div class="card-pad">
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>Nothing posted yet</h3>
+      <p>Sales, purchase orders and payments appear here as they are recorded.</p>
+    </div>
+  </div>
+  {% endfor %}
+</div>
 
 {% comment %}
 Needs attention: the compact max-5-check routing panel (DESIGN.md §2b).
@@ -167,7 +208,7 @@ green, per the rule in §3.
 NOTE: {# #} is single-line only in Django — a multi-line one renders as visible
 text. Anything spanning lines must use {% templatetag openblock %} comment {% templatetag closeblock %}.
 {% endcomment %}
-<div class="card{% if not branch_status %} mb-6{% endif %}">
+<div class="card">
   <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
     <div>
       <h3>Needs Attention</h3>
@@ -218,100 +259,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
   </div>
   {% endif %}
 </div>
-
-{% comment %}
-Branch status (DESIGN.md §2h). Two modes, decided server-side by
-branch_alerts_present: tinted status cards ONLY when a branch actually
-tripped a threshold (reports/views.py::_branch_status_rows), otherwise a
-plain neutral summary. A quiet day must never render as a wall of red.
-
-This panel and Needs Attention beside it are two different axes, not a
-disagreement: this one asks "is each branch keeping up with itself today"
-(today's takings against that branch's own trailing 7-day baseline, plus
-stock on hand), Needs Attention asks "what operational items need action".
-They share no query. The header and the per-card signal line below say so
-outright, so an amber card here doesn't read as a 6th unlisted check.
-{% endcomment %}
-{% if branch_status %}
-{% if branch_alerts_present %}
-<div>
-  <div class="mb-4">
-    <h3>Branch Status</h3>
-    <p class="gv-meta mb-0">Pace vs. each branch's own 7-day baseline, and stock on hand — today only</p>
-  </div>
-<div class="kpi-row">
-  {% for b in branch_status %}
-  <div class="kpi-card {% if b.status == 'critical' %}danger{% elif b.status == 'watch' %}warn{% endif %}">
-    <div class="row-between">
-      <div>
-        <div style="font-weight:600;">{{ b.branch.branch_name }}</div>
-        <div class="gv-meta">{{ b.branch.location }}</div>
-      </div>
-      {% comment %}
-      Pill + the signal that tripped it. Named server-side because a watch
-      is not always about pace — low stock trips it too — so a blanket
-      "pace" caption would mislabel every stock-driven card.
-      {% endcomment %}
-      <div class="branch-signal">
-        {% if b.status == 'ok' %}<span class="pill pill-ok">Good</span>
-        {% elif b.status == 'watch' %}<span class="pill pill-warn">Watch</span>
-        {% else %}<span class="pill pill-danger">Critical</span>{% endif %}
-        <span class="branch-signal-label">{{ b.signal_label }}</span>
-      </div>
-    </div>
-
-    <div class="kpi-value mt-2">₱{{ b.today_sales|floatformat:2 }}</div>
-    <div class="kpi-label">Today's sales</div>
-    {% if b.baseline_daily %}
-      {% if b.sales_slow %}
-        <span class="trend-down">▼ behind its ₱{{ b.baseline_daily|floatformat:2 }}/day 7-day average</span>
-      {% else %}
-        <span class="gv-meta">7-day average ₱{{ b.baseline_daily|floatformat:2 }}/day</span>
-      {% endif %}
-    {% else %}
-      <span class="gv-meta">No trading history yet to compare</span>
-    {% endif %}
-
-    <div class="row-between mt-4" style="padding-top:12px; border-top:1px solid var(--line-soft);">
-      <span class="gv-meta">
-        {% if b.low_stock_count %}
-          <span class="pill {% if b.critical_count %}pill-danger{% else %}pill-warn{% endif %}">{{ b.low_stock_count }}</span> low stock
-        {% else %}
-          <span class="pill pill-ok">0</span> low stock
-        {% endif %}
-      </span>
-      <a class="gv-meta" href="{% url 'alerts_center' %}">View alerts &rarr;</a>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-</div>
-
-{% else %}
-<div class="card">
-  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
-    <div>
-      <h3>Branch Status</h3>
-      <p class="gv-meta mb-0">Every branch keeping pace with its own 7-day baseline, no stock thresholds tripped</p>
-    </div>
-    <span class="pill pill-ok">All clear</span>
-  </div>
-  {% for b in branch_status %}
-  <div class="row-between" style="padding:12px var(--s6);
-       {% if not forloop.last %}border-bottom:1px solid var(--line-soft);{% endif %}">
-    <span>
-      <span style="font-weight:600;">{{ b.branch.branch_name }}</span>
-      <span class="gv-meta"> · {{ b.branch.location }}</span>
-    </span>
-    <span class="gv-meta">
-      <span class="strong" style="color:var(--ink-900);">₱{{ b.today_sales|floatformat:2 }}</span> today
-    </span>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-</div>{# closes .grid-2 opened above the Needs Attention card #}
-{% endif %}
+</div>{# closes the activity + attention .grid-2 #}
 
 {# ---------------------------- restock suggestions --------------------------- #}
 {% if restock %}
@@ -356,49 +304,6 @@ outright, so an amber card here doesn't read as a 6th unlisted check.
   </div>
 </div>
 {% endif %}
-
-{% comment %}
-Recent Activity (DESIGN.md §2f): the latest postings across Sales, Purchase
-Orders and Billing in one feed — the audit-trail glance Chapter 1 asks for.
-
-Unscoped by the date-range control on purpose (§2f): it answers "what just
-happened", so it keeps showing the last real postings no matter how narrow a
-range the KPI rail above is set to. The subtitle says so, because a feed
-sitting under range-scoped cards otherwise looks like it disagrees with them.
-
-Type is carried by the glyph and spelled out in the meta line, NOT by a
-tinted icon — a PO is a category, not a warning, and §3 reserves amber for
-status. Rows are built from reports/views.py::_recent_activity.
-{% endcomment %}
-<div class="card mb-6">
-  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
-    <div>
-      <h3>Recent Activity</h3>
-      <p class="gv-meta mb-0">Latest postings across sales, purchasing and billing — not filtered by the selected range</p>
-    </div>
-  </div>
-  {% for e in recent_activity %}
-  <a href="{{ e.url }}" class="feed-row">
-    <span class="feed-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=e.icon %}</span>
-    <span class="feed-main">
-      <span class="feed-title">{{ e.title }}</span>
-      <span class="feed-sub">{{ e.kind_label }} · {{ e.branch }}{% if e.actor %} · {{ e.actor }}{% endif %}</span>
-    </span>
-    <span class="feed-right">
-      <span class="feed-amount">₱{{ e.amount|floatformat:2 }}</span>
-      <span class="feed-time">{{ e.when_label }}</span>
-    </span>
-  </a>
-  {% empty %}
-  <div class="card-pad">
-    <div class="empty">
-      <span class="glyph">□</span>
-      <h3>Nothing posted yet</h3>
-      <p>Sales, purchase orders and payments appear here as they are recorded.</p>
-    </div>
-  </div>
-  {% endfor %}
-</div>
 
 {% comment %}
 Open Orders (DESIGN.md §2g), reframed from the old "Recent Orders" table.
