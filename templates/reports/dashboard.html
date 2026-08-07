@@ -213,13 +213,25 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
 </div>
 
 {% comment %}
-Branch status. Two modes, decided server-side by branch_alerts_present:
-tinted status cards ONLY when a branch actually tripped a threshold
-(reports/views.py::_branch_status_rows), otherwise a plain neutral summary.
-A quiet day must never render as a wall of red.
+Branch status (DESIGN.md §2h). Two modes, decided server-side by
+branch_alerts_present: tinted status cards ONLY when a branch actually
+tripped a threshold (reports/views.py::_branch_status_rows), otherwise a
+plain neutral summary. A quiet day must never render as a wall of red.
+
+This panel and Needs Attention beside it are two different axes, not a
+disagreement: this one asks "is each branch keeping up with itself today"
+(today's takings against that branch's own trailing 7-day baseline, plus
+stock on hand), Needs Attention asks "what operational items need action".
+They share no query. The header and the per-card signal line below say so
+outright, so an amber card here doesn't read as a 6th unlisted check.
 {% endcomment %}
 {% if branch_status %}
 {% if branch_alerts_present %}
+<div>
+  <div class="mb-4">
+    <h3>Branch Status</h3>
+    <p class="gv-meta mb-0">Pace vs. each branch's own 7-day baseline, and stock on hand — today only</p>
+  </div>
 <div class="kpi-row">
   {% for b in branch_status %}
   <div class="kpi-card {% if b.status == 'critical' %}danger{% elif b.status == 'watch' %}warn{% endif %}">
@@ -228,9 +240,17 @@ A quiet day must never render as a wall of red.
         <div style="font-weight:600;">{{ b.branch.branch_name }}</div>
         <div class="gv-meta">{{ b.branch.location }}</div>
       </div>
-      {% if b.status == 'ok' %}<span class="pill pill-ok">Good</span>
-      {% elif b.status == 'watch' %}<span class="pill pill-warn">Watch</span>
-      {% else %}<span class="pill pill-danger">Critical</span>{% endif %}
+      {% comment %}
+      Pill + the signal that tripped it. Named server-side because a watch
+      is not always about pace — low stock trips it too — so a blanket
+      "pace" caption would mislabel every stock-driven card.
+      {% endcomment %}
+      <div class="branch-signal">
+        {% if b.status == 'ok' %}<span class="pill pill-ok">Good</span>
+        {% elif b.status == 'watch' %}<span class="pill pill-warn">Watch</span>
+        {% else %}<span class="pill pill-danger">Critical</span>{% endif %}
+        <span class="branch-signal-label">{{ b.signal_label }}</span>
+      </div>
     </div>
 
     <div class="kpi-value mt-2">₱{{ b.today_sales|floatformat:2 }}</div>
@@ -258,13 +278,14 @@ A quiet day must never render as a wall of red.
   </div>
   {% endfor %}
 </div>
+</div>
 
 {% else %}
 <div class="card">
   <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
     <div>
-      <h3>Branches</h3>
-      <p class="gv-meta mb-0">No stock or sales thresholds tripped today</p>
+      <h3>Branch Status</h3>
+      <p class="gv-meta mb-0">Every branch keeping pace with its own 7-day baseline, no stock thresholds tripped</p>
     </div>
     <span class="pill pill-ok">All clear</span>
   </div>

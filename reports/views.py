@@ -1233,6 +1233,26 @@ def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales, n
         else:
             status = 'ok'
 
+        # Names which signal actually tripped, alongside the status pill
+        # (DESIGN.md §2h). The panel's axis is "is this branch keeping up
+        # with itself today", not "here is another thing to action", and a
+        # bare amber pill next to Needs Attention reads as a 6th unlisted
+        # check without this.
+        #
+        # Note a watch is NOT always about pace — branch_alerts trips it too
+        # — so this reports the real cause rather than labelling the whole
+        # panel "pace" and mislabelling every stock-driven card.
+        if critical_count:
+            signal_label = 'Critical stock on hand'
+        elif branch_alerts and sales_slow:
+            signal_label = 'Behind pace · low stock'
+        elif sales_slow:
+            signal_label = 'Pace vs. 7-day baseline'
+        elif branch_alerts:
+            signal_label = 'Low stock on hand'
+        else:
+            signal_label = 'Keeping pace'
+
         rows.append({
             'branch': branch,
             'today_sales': b_today_sales,
@@ -1243,6 +1263,7 @@ def _branch_status_rows(branches, sales_qs, restock, today, total_today_sales, n
             'low_stock_count': len(branch_alerts),
             'critical_count': critical_count,
             'status': status,
+            'signal_label': signal_label,
         })
     return rows
 
