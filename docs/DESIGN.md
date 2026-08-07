@@ -250,13 +250,21 @@ Adapt as:
 - Light-mode treatment: stacked horizontal bars in `--green-100` → `--brand` gradient steps rather than dark-mode grayscale, with `--ink-900` percentage labels
 - Lower priority than 2a/2b — flag as nice-to-have, not part of the initial task order below
 
-**2e. Date range control — standardize across Dashboard/Reports/Alerts**
+**2e. Date range control — standardize across Dashboard and Reports**
 Reference: calendar dropdown with preset ("Last 7 days") + custom range + "Customize" affordance.
 
 Adapt as:
-- Single date-range component added to `.toolbar` / `.toolbar-card`, used by Dashboard, Reports, and Alerts consistently (already flagged in Component rules: "All date filtering should use the same date-range control pattern" — this is that component, now specified)
+- Single date-range component (`templates/_daterange.html`) added to `.page-head` or `.toolbar-card`, used by Dashboard and the Reports tabs that have a date axis (already flagged in Component rules: "All date filtering should use the same date-range control pattern" — this is that component, now specified)
 - Presets: Today, Last 7 days, Last 30 days, This month, Custom range
-- Calendar dropdown uses `--surface` background, `--brand` for selected day fill, `--green-50` for range-highlight — light equivalent of the dark inspo, not a new visual language
+- Built on `<details>`/`<summary>` like the topbar avatar menu, so it needs no JavaScript — disclosure, keyboard handling and screen-reader semantics come from the element, and the control still works if JS fails. Presets are submit buttons in one GET form, so presets and the custom Apply share one mechanism
+- Custom range uses native `<input type="date">` rather than a hand-built calendar grid. The inspo's styled month grid would be ~200 lines of new JS and a new component with no precedent in this codebase; the native control brings its own calendar, keyboard and locale handling, and already appears in the Procurement/Billing toolbars. This is a deliberate deviation from the reference
+- Selection persists per session (`session['date_range']`), mirroring the existing `session['language']` / `session['branch_id']` precedent. URL params always win over the stored value, so a copied link reproduces exactly what the sender saw
+- Legacy `?month=YYYY-MM` links are aliased to that month's equivalent custom range rather than falling through to the default window — a silent wrong-figures failure otherwise
+
+**Surfaces exempt, and why.** §2e originally said "Dashboard, Reports and Alerts". Two of those have no date axis to control, so the control is deliberately absent rather than inert:
+- **Alerts Center** — low stock is *current* quantity vs. reorder level and expiry is a fixed `EXPIRY_WINDOW_DAYS` lookahead. Neither is a historical range, so a Today/7/30 control would either do nothing or silently redefine what "low stock" means
+- **Reports → Inventory** — point-in-time stock levels, same reasoning
+- **Branch Status (§2h)** and **Recent Activity (§2f)** on the Dashboard are also unscoped by it, per their own sections: both answer "right now", not "over the selected window"
 
 **2f. Recent Activity feed (Dashboard, new)**
 Introduced by the approved mockup, not originally specced. A live feed of the latest postings across Sale, PurchaseOrder, and BillingRecord — icon by type, branch, amount, relative timestamp, staff attribution where available. Directly answers Chapter 1's stated problem of absent digital audit trails.

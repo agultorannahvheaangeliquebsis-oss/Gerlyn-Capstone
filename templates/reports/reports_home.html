@@ -13,23 +13,34 @@
 
 {% include "reports/_tabs.html" with active="sales" %}
 
-{# ---------------------------- toolbar: filters + export ---------------------------- #}
-<form method="GET" class="toolbar-card no-print">
+{% comment %}
+Toolbar: filters + export. The month dropdown is gone — the shared §2e
+date-range control replaces it, and a legacy ?month= link is aliased to that
+month's exact range server-side.
+
+The toolbar is a plain <div>, not a <form>, because the range control brings
+its own form and HTML forbids nesting them. Branch is therefore its own small
+form, and each side carries the other's state in hidden inputs so changing one
+filter never silently resets the other.
+{% endcomment %}
+<div class="toolbar-card no-print">
   <div class="toolbar-filters">
     {% if show_branch_filter %}
-    <select name="branch" onchange="this.form.submit()">
-      <option value="">All Branches</option>
-      {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-      {% endfor %}
-    </select>
+    <form method="GET">
+      <input type="hidden" name="range" value="{{ active_range }}">
+      {% if active_range == 'custom' %}
+        <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+      {% endif %}
+      <select name="branch" onchange="this.form.submit()">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+        {% endfor %}
+      </select>
+    </form>
     {% endif %}
-    <select name="month" onchange="this.form.submit()">
-      <option value="">All Time</option>
-      {% for m in month_options %}
-        <option value="{{ m.value }}" {% if month_filter == m.value %}selected{% endif %}>{{ m.label }}</option>
-      {% endfor %}
-    </select>
+    {% include "_daterange.html" %}
   </div>
   <div class="toolbar-actions">
     <a class="btn" href="{% url 'export_csv' 'sales' %}">
@@ -41,7 +52,7 @@
       Export PDF
     </button>
   </div>
-</form>
+</div>
 
 {# ---------------------------- KPI stat cards ---------------------------- #}
 <div class="kpi-row">
@@ -86,7 +97,7 @@ the left, the existing table on the right, stacking below 860px via the shared
 <div class="card">
   <div class="card-pad" style="border-bottom:1px solid var(--line);">
     <h3>Sales by Branch</h3>
-    <p class="gv-meta mb-0">Share of ₱{{ total_sales|floatformat:2 }}{% if month_filter %} this month{% else %} all time{% endif %}</p>
+    <p class="gv-meta mb-0">Share of ₱{{ total_sales|floatformat:2 }} · {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}</p>
   </div>
   <div class="card-pad">
     {% if branch_chart.total %}
@@ -125,7 +136,7 @@ the left, the existing table on the right, stacking below 860px via the shared
     <div class="empty">
       <span class="glyph">□</span>
       <h3>No sales to chart</h3>
-      <p>{% if branch_filter or month_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p>
+      <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p>
     </div>
     {% endif %}
   </div>
@@ -156,7 +167,7 @@ the left, the existing table on the right, stacking below 860px via the shared
       {% empty %}
       <tr><td colspan="7"><div class="empty">
         <span class="glyph">□</span><h3>No sales recorded</h3>
-        <p>{% if branch_filter or month_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p></div></td></tr>
+        <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

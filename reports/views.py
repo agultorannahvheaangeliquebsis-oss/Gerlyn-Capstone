@@ -800,39 +800,24 @@ def reports_dashboard(request):
     if branch_ids is not None:
         sales_qs = sales_qs.filter(branch_id__in=branch_ids)
 
-    # Month options are drawn from whatever's actually in the (branch-scoped)
-    # data, so the dropdown never offers a month with nothing to show.
-    # Computed in Python (not queryset.dates()) because MySQL's CONVERT_TZ
-    # under USE_TZ returns NULL when the server has no zoneinfo tables loaded.
-    month_keys = sorted({
-        timezone.localtime(dt).strftime('%Y-%m')
-        for dt in sales_qs.values_list('transaction_date', flat=True)
-    }, reverse=True)
-    month_options = [
-        {'value': key, 'label': datetime.strptime(key, '%Y-%m').strftime('%B %Y')}
-        for key in month_keys
-    ]
-
     branch_filter = request.GET.get('branch', '')
-    month_filter = request.GET.get('month', '')
-
     if branch_filter and show_branch_filter:
         sales_qs = sales_qs.filter(branch_id=branch_filter)
     else:
         branch_filter = ''
 
-    if month_filter:
-        try:
-            year, month = (int(part) for part in month_filter.split('-'))
-            # Range comparison, NOT __year=/__month= — those go through
-            # CONVERT_TZ on MySQL and silently match nothing here. See
-            # local_month_bounds.
-            month_start, month_end = local_month_bounds(year, month)
-            sales_qs = sales_qs.filter(
-                transaction_date__gte=month_start, transaction_date__lt=month_end
-            )
-        except ValueError:
-            month_filter = ''
+    # The shared §2e control replaces the old month dropdown. A legacy
+    # ?month=YYYY-MM is aliased to that month's exact range inside
+    # range_from_request, so bookmarked month links land on the same rows
+    # rather than silently falling back to the default window.
+    #
+    # Range comparison, NOT __year=/__month= — those compile to CONVERT_TZ on
+    # MySQL and silently match nothing here. See core/timebounds.
+    range_start, range_end, active_range = range_from_request(request)
+    period_start, period_end = local_range_bounds(range_start, range_end)
+    sales_qs = sales_qs.filter(
+        transaction_date__gte=period_start, transaction_date__lt=period_end
+    )
 
     sales_qs = sales_qs.order_by('-transaction_date')
 
@@ -857,8 +842,12 @@ def reports_dashboard(request):
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
-        'month_filter': month_filter,
-        'month_options': month_options,
+        'range_start': range_start,
+        'range_end': range_end,
+        'active_range': active_range,
+        # Branch must survive a range change, or picking a preset would
+        # silently widen the report back to every branch (DESIGN.md §2e).
+        'daterange_carry': [('branch', branch_filter)],
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
         'active_page': 'reports',
@@ -1383,30 +1372,17 @@ def billing_report(request):
     else:
         branch_filter = ''
 
-    date_from = request.GET.get('date_from', '')
-    date_to = request.GET.get('date_to', '')
-    # Half-open aware-datetime bounds, NOT date_recorded__date__gte/__lte —
-    # `date_recorded` is a DateTimeField, so those lookups go through
-    # CONVERT_TZ on MySQL and silently match zero rows here, which made both
-    # date inputs return an empty report for every range. See core.timebounds.
-    # date_to is inclusive of its whole day: take the END of that day and
-    # compare with __lt.
-    if date_from:
-        try:
-            from_start, _ = local_day_bounds(
-                datetime.strptime(date_from, '%Y-%m-%d').date()
-            )
-            records_qs = records_qs.filter(date_recorded__gte=from_start)
-        except ValueError:
-            date_from = ''
-    if date_to:
-        try:
-            _, to_end = local_day_bounds(
-                datetime.strptime(date_to, '%Y-%m-%d').date()
-            )
-            records_qs = records_qs.filter(date_recorded__lt=to_end)
-        except ValueError:
-            date_to = ''
+    # Shared §2e range, replacing the bare from/to pair. Half-open aware
+    # bounds, NOT date_recorded__date__gte/__lte — `date_recorded` is a
+    # DateTimeField, so those lookups go through CONVERT_TZ on MySQL and
+    # silently match zero rows here, which once made both date inputs return
+    # an empty report for every range. local_range_bounds keeps the end
+    # inclusive of its whole day. See core.timebounds.
+    range_start, range_end, active_range = range_from_request(request)
+    period_start, period_end = local_range_bounds(range_start, range_end)
+    records_qs = records_qs.filter(
+        date_recorded__gte=period_start, date_recorded__lt=period_end
+    )
 
     records = list(records_qs.order_by('-date_recorded'))
 
@@ -1428,8 +1404,10 @@ def billing_report(request):
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
-        'date_from': date_from,
-        'date_to': date_to,
+        'range_start': range_start,
+        'range_end': range_end,
+        'active_range': active_range,
+        'daterange_carry': [('branch', branch_filter)],
         'completed_count': len(completed_records),
         'total_revenue': total_revenue,
         'collected': collected,
@@ -1525,22 +1503,13 @@ def procurement_report(request):
     else:
         branch_filter = ''
 
-    date_from = request.GET.get('date_from', '')
-    date_to = request.GET.get('date_to', '')
-    if date_from:
-        try:
-            procurement_qs = procurement_qs.filter(
-                order_date__gte=datetime.strptime(date_from, '%Y-%m-%d').date()
-            )
-        except ValueError:
-            date_from = ''
-    if date_to:
-        try:
-            procurement_qs = procurement_qs.filter(
-                order_date__lte=datetime.strptime(date_to, '%Y-%m-%d').date()
-            )
-        except ValueError:
-            date_to = ''
+    # Shared §2e range, replacing the bare from/to pair. `order_date` is a
+    # plain DateField with no tz component, so it compares against the dates
+    # directly — no local_range_bounds needed here (see core/timebounds).
+    range_start, range_end, active_range = range_from_request(request)
+    procurement_qs = procurement_qs.filter(
+        order_date__gte=range_start, order_date__lte=range_end
+    )
 
     records = list(procurement_qs.order_by('-order_date'))
 
@@ -1560,8 +1529,10 @@ def procurement_report(request):
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
-        'date_from': date_from,
-        'date_to': date_to,
+        'range_start': range_start,
+        'range_end': range_end,
+        'active_range': active_range,
+        'daterange_carry': [('branch', branch_filter)],
         'total_pos': len(records),
         'active_value': active_value,
         'received_value': received_value,

@@ -13,22 +13,33 @@
 
 {% include "reports/_tabs.html" with active="procurement" %}
 
-{# ---------------------------- toolbar: filters + export ---------------------------- #}
-<form method="GET" class="toolbar-card no-print">
+{% comment %}
+Toolbar: filters + export. The bare from/to date pair is replaced by the
+shared §2e range control, which adds presets on top of the same custom range.
+
+The toolbar is a plain <div>, not a <form>, because the range control brings
+its own form and HTML forbids nesting them. Branch is its own small form, and
+each side carries the other's state in hidden inputs so changing one filter
+never silently resets the other.
+{% endcomment %}
+<div class="toolbar-card no-print">
   <div class="toolbar-filters">
     {% if show_branch_filter %}
-    <select name="branch" onchange="this.form.submit()">
-      <option value="">All Branches</option>
-      {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-      {% endfor %}
-    </select>
+    <form method="GET">
+      <input type="hidden" name="range" value="{{ active_range }}">
+      {% if active_range == 'custom' %}
+        <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+      {% endif %}
+      <select name="branch" onchange="this.form.submit()">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+        {% endfor %}
+      </select>
+    </form>
     {% endif %}
-    <div class="date-range">
-      <input type="date" name="date_from" value="{{ date_from }}" onchange="this.form.submit()">
-      <span class="gv-meta">to</span>
-      <input type="date" name="date_to" value="{{ date_to }}" onchange="this.form.submit()">
-    </div>
+    {% include "_daterange.html" %}
   </div>
   <div class="toolbar-actions">
     <a class="btn" href="{% url 'export_csv' 'procurement' %}">
@@ -40,7 +51,7 @@
       Export PDF
     </button>
   </div>
-</form>
+</div>
 
 {# ---------------------------- KPI stat cards ---------------------------- #}
 <div class="kpi-row">
