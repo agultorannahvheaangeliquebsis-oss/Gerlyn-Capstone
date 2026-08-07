@@ -398,6 +398,21 @@ def _attention_pill(count, escalated=False):
     return 'pill-danger' if escalated else 'pill-warn'
 
 
+# An order is "open" until it reaches a terminal status — Completed and
+# Cancelled are the only two ends of the lifecycle. Shared by the Needs
+# Attention "Unfulfilled Orders" count (§2b) and the Open Orders table (§2g)
+# so the panel's count and the table below it can never disagree about what
+# counts as open.
+OPEN_ORDER_STATUSES = [
+    SalesTransaction.OrderStatus.PENDING,
+    SalesTransaction.OrderStatus.APPROVED,
+    SalesTransaction.OrderStatus.PREPARING,
+]
+
+# A dashboard preview, not the full list (§2g).
+OPEN_ORDERS_LIMIT = 8
+
+
 def _needs_attention_rows(summary, procurement_qs, sales_qs):
     """
     Build the five Dashboard "needs attention" checks in the DESIGN.md §2b
@@ -421,8 +436,9 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
                      actually expired.
       Pending POs    Draft + Ordered, i.e. raised but not yet Received or
                      Cancelled. Same set procurement_list totals as open_value.
-      Pending Orders Pending + Approved + Preparing, i.e. every order that is
-                     not yet Completed or Cancelled ("unfulfilled").
+      Pending Orders OPEN_ORDER_STATUSES, i.e. every order not yet Completed
+                     or Cancelled ("unfulfilled") — the same set the §2g Open
+                     Orders table below lists, sharing one constant.
       Overdue Bill.  NOT COMPUTABLE YET — BillingRecord has no due_date or
                      payment-terms field, so there is no date to be overdue
                      against. Hardcoded 0 rather than silently substituting
@@ -440,13 +456,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
         status__in=[Procurement.Status.DRAFT, Procurement.Status.ORDERED]
     ).count()
 
-    pending_orders = sales_qs.filter(
-        order_status__in=[
-            SalesTransaction.OrderStatus.PENDING,
-            SalesTransaction.OrderStatus.APPROVED,
-            SalesTransaction.OrderStatus.PREPARING,
-        ]
-    ).count()
+    pending_orders = sales_qs.filter(order_status__in=OPEN_ORDER_STATUSES).count()
 
     # See docstring — no due-date field exists to compute this against.
     overdue_billing = 0
@@ -697,8 +707,10 @@ def operational_dashboard(request):
     # --- Date-range-scoped KPI rail, graph panel and donut (DESIGN.md §2a/
     # §2c). All three read one _dashboard_metrics bundle for the resolved
     # range, so a card, the graph it opens, and the donut can never disagree.
-    # The range control itself is task 9 — until it ships these params have
-    # no UI, and an absent or malformed one falls back to the last 30 days.
+    # The range control itself is DESIGN.md §2e — until it ships these params
+    # have no UI, and an absent or malformed one falls back to the last 30
+    # days. (Referenced by section, not task number: inserting §2g renumbered
+    # the task list once already.)
     range_start, range_end, active_range = resolve_date_range(
         request.GET.get('range'),
         _parse_iso_date(request.GET.get('date_from')),
@@ -725,9 +737,14 @@ def operational_dashboard(request):
     # rather than painting a full red row over an uneventful day.
     branch_alerts_present = any(row['status'] != 'ok' for row in branch_status)
 
-    recent_orders = sales_qs.select_related('branch', 'customer').order_by(
-        '-transaction_date'
-    )[:6]
+    # Open Orders (DESIGN.md §2g) — the workflow panel, deliberately NOT a
+    # "latest orders" list. Non-terminal statuses only, oldest first, so the
+    # order that has been waiting longest leads. Recent sales are Recent
+    # Activity's job (§2f); this answers "what still needs action", which is
+    # why the two panels no longer overlap.
+    open_orders = sales_qs.filter(
+        order_status__in=OPEN_ORDER_STATUSES
+    ).select_related('branch', 'customer').order_by('transaction_date')[:OPEN_ORDERS_LIMIT]
 
     # Recent Activity (DESIGN.md §2f). Handed the branch-scoped querysets, NOT
     # the range-filtered ones above — §2f pins this to "what just happened",
@@ -767,7 +784,7 @@ def operational_dashboard(request):
         'needs_attention': needs_attention,
         'branch_status': branch_status,
         'branch_alerts_present': branch_alerts_present,
-        'recent_orders': recent_orders,
+        'open_orders': open_orders,
         'recent_activity': recent_activity,
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,

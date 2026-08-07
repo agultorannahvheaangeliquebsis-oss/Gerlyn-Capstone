@@ -20,6 +20,7 @@ Status: settled — adapted to the actual Django codebase (not the Figma prototy
 - Top-Selling Products list
 - Low Stock preview table (compact, read-only) — links to Alerts Center via "View all alerts →" instead of being its own independent implementation
 - Recent Activity feed — latest Sale/PurchaseOrder/BillingRecord postings, unscoped by the date-range control (see §2f)
+- Open Orders table *(reframed from "Recent Orders")* — non-terminal orders only, oldest-first, so it answers "what needs action" rather than repeating §2f's recent sales (see §2g)
 
 ---
 
@@ -264,6 +265,16 @@ Adapt as:
 - NOT scoped to the Dashboard date-range control — always shows the latest activity regardless of the selected range, since its purpose is "what just happened," not historical reporting
 - Reuses `.tx-row`-equivalent structure built from existing primitives; no new component needed if a simple flex row covers it
 
+**2g. Open Orders (Dashboard, reframed from Recent Orders)**
+Originally a plain "last 6 orders" table, which duplicated Recent Activity's (§2f) coverage of recent sales without adding anything beyond order status. Reframed to filter to non-terminal statuses and sort oldest-first, so it answers "what needs action" rather than "what happened recently" — those are now two distinct, non-overlapping panels instead of one redundant with the other.
+
+Adapt as:
+- Filter to non-terminal statuses only: Pending, Approved, Preparing — never Completed or Cancelled
+- Sort oldest-first: the longest-waiting order is the most actionable signal in a workflow view, so it leads
+- Columns and both links unchanged from the table it replaces — customer, branch, Channel pill, total, Status pill; header "View all →" to Sales & Orders, order number to the order detail
+- Capped at 8 rows — a dashboard preview, not the full list
+- Zero open orders is a real success state, not an empty table: use the `.empty` component (glyph, heading, description)
+
 **3. Status color rule — enforce consistently**
 The tokens are correct but need a written rule:
 
@@ -337,7 +348,8 @@ Start small — each task is independently shippable:
 6. **Add click-to-expand behavior** to Dashboard KPI cards (2a) so the graph panel swaps per selected card
 7. **Formalize "Needs attention" list** (2b) on Dashboard as a distinct `.card` component, linking out to Alerts/POs/Orders/Billing
 8. **Add Recent Activity feed** (2f) to Dashboard — can run in parallel with tasks 5/6, since it's unscoped by the date-range control and has no dependency on the date-resolver work those tasks need
-9. **Build standardized date-range control** (2e) and wire into Dashboard + Reports + Alerts toolbars
-10. **Add breadcrumbs** under topbar for deep routes
-11. **Fold Categories into Products** as a filter/tab (when team is ready)
-12. *(Lower priority, optional)* **Reports multi-panel row** (2c) and **Sales & Orders funnel** (2d)
+9. **Reframe Recent Orders as Open Orders** (2g) — depends on task 8, since the reframe is what stops the two panels overlapping
+10. **Build standardized date-range control** (2e) and wire into Dashboard + Reports + Alerts toolbars
+11. **Add breadcrumbs** under topbar for deep routes
+12. **Fold Categories into Products** as a filter/tab (when team is ready)
+13. *(Lower priority, optional)* **Reports multi-panel row** (2c) and **Sales & Orders funnel** (2d)

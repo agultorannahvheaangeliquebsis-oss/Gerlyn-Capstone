@@ -366,12 +366,27 @@ status. Rows are built from reports/views.py::_recent_activity.
   {% endfor %}
 </div>
 
-{# ---------------------------- recent orders ---------------------------- #}
+{% comment %}
+Open Orders (DESIGN.md §2g), reframed from the old "Recent Orders" table.
+
+Non-terminal statuses only and OLDEST first, so the order that has been
+waiting longest leads — this is the workflow panel answering "what needs
+action". Recent sales are Recent Activity's job (§2f) directly above; the
+two used to overlap, and the reframe is what separates them.
+
+Columns and both links are unchanged from the table this replaces. Filtering
+and ordering are server-side in reports/views.py::operational_dashboard, on
+the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
+{% endcomment %}
 <div class="card">
   <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
-    <h3>Recent Orders</h3>
+    <div>
+      <h3>Open Orders</h3>
+      <p class="gv-meta mb-0">Not yet completed or cancelled — longest waiting first</p>
+    </div>
     <a href="{% url 'transaction_list' %}">View all &rarr;</a>
   </div>
+  {% if open_orders %}
   <div class="table-wrap">
     <table class="gv-table">
       <thead>
@@ -379,7 +394,7 @@ status. Rows are built from reports/views.py::_recent_activity.
             <th class="num">Total</th><th>Status</th></tr>
       </thead>
       <tbody>
-        {% for t in recent_orders %}
+        {% for t in open_orders %}
         <tr>
           <td data-label="Order ID" class="sku strong">
             <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
@@ -398,14 +413,24 @@ status. Rows are built from reports/views.py::_recent_activity.
             {% elif t.order_status == "Approved" %}<span class="pill pill-info">Approved</span>
             {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}</td>
         </tr>
-        {% empty %}
-        <tr><td colspan="6"><div class="empty">
-          <span class="glyph">□</span><h3>No orders yet</h3>
-          <p>Orders appear here as they come in.</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  {% comment %}
+  Zero open orders is a success state, not a missing-data state — everything
+  raised has been completed or cancelled. Worded so it reads that way rather
+  than as "no orders exist", which the old table's empty row implied.
+  {% endcomment %}
+  <div class="card-pad">
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>No open orders</h3>
+      <p>Every order has been completed or cancelled. New ones appear here while they wait on action.</p>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
