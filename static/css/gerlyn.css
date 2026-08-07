@@ -204,6 +204,12 @@ input::placeholder { color: var(--ink-400); }
   border-radius: var(--r-card); box-shadow: var(--shadow-card);
 }
 .kpi-graph-panel svg { display: block; width: 100%; height: auto; }
+/* Same specificity trap as .empty[hidden]: the rule above is a class-plus-
+   descendant selector, so it outranks the browser's `[hidden] { display: none }`
+   and the chart stayed on screen behind the "Nothing to chart" state. Paired
+   with dashboard-kpi.js using toggleAttribute — `.hidden` is an HTMLElement
+   property that SVGSVGElement doesn't implement, so neither half works alone. */
+.kpi-graph-panel svg[hidden] { display: none; }
 .stat {
   background: var(--line-soft); border: 1px solid var(--line);
   border-radius: var(--r-card); padding: var(--s4) var(--s4);

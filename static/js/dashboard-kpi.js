@@ -80,7 +80,10 @@
     // Value over a range with no transactions at all omits every day rather
     // than drawing a fabricated zero line, so the panel says so instead.
     var hasSeries = entry.points.length > 0;
-    svg.hidden = !hasSeries;
+    // toggleAttribute, not `.hidden` — `hidden` is an HTMLElement property and
+    // this is an SVGSVGElement, which does not implement it, so the assignment
+    // set a stray JS property and never wrote the attribute at all.
+    svg.toggleAttribute('hidden', !hasSeries);
     if (emptyEl) emptyEl.hidden = hasSeries;
 
     if (hasSeries) {
