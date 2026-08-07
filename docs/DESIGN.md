@@ -207,6 +207,10 @@ The current dashboard cards are basic (icon + label + number). For the top 3–4
 
 All other KPI surfaces (Reports, Alerts stat strips) keep the existing simple `.kpi-card` / `.stat` pattern. Rich cards are Dashboard-only.
 
+**Superseded for the four top-row hero metrics (Total Sales, Avg. Transaction Value, Procurement Cost, Total Transactions):** §2a's shared single-graph panel replaces per-card mini-visualizations for these four. No sparkline is embedded in the cards themselves — each card carries its figure, a delta pill, and a one-line context note, and the trend lives in the one panel below that the cards tab into. This follows the same reasoning as §2a's "cards act as tabs into it, not four separate charts": a sparkline on every card plus the shared graph would be five renderings of the same series.
+
+The mini-visual table above still governs any KPI surface *outside* the click-to-expand pattern — a card that has no shared panel to open still earns its own inline sparkline, bar, or proportion bar by metric type.
+
 **2a. KPI → own-graph pattern (Dashboard, click-to-expand)**
 Reference: stakeholder-liked pattern where a KPI strip sits above a large graph, and selecting a different KPI swaps the graph below it to match.
 
