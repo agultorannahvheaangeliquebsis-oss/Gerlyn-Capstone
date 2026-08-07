@@ -16,8 +16,8 @@
   {% endif %}
 </div>
 
-<form method="GET" class="toolbar">
-  <input type="search" name="q" class="input grow" placeholder="Search order ID or customer…" value="{{ search_query }}">
+<form method="GET" class="toolbar" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
+  <input type="search" name="q" class="input grow" placeholder="Search order ID or customer…" value="{{ search_query }}" autocomplete="off">
   {% if branches %}
   <select name="branch" onchange="this.form.submit()">
     <option value="">All Branches</option>
@@ -56,7 +56,7 @@
 </div>
 
 <div class="card table-wrap">
-  <table class="gv-table">
+  <table class="gv-table" id="transaction-table">
     <thead>
       <tr>
         <th>Order ID</th>
@@ -73,7 +73,7 @@
     </thead>
     <tbody>
       {% for t in transactions %}
-      <tr>
+      <tr data-filter-text="{{ t.order_number }} {% if t.customer %}{{ t.customer.first_name }} {{ t.customer.last_name }} {{ t.customer.username }}{% endif %}">
         <td data-label="Order ID" class="sku strong">{{ t.order_number }}</td>
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
         <td data-label="Customer">
@@ -118,6 +118,16 @@
         </td>
       </tr>
       {% endfor %}
+      {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
+      <tr id="transaction-no-matches" hidden>
+        <td colspan="10">
+          <div class="empty">
+            <span class="glyph">□</span>
+            <h3>No orders match</h3>
+            <p>No orders match "<span data-filter-empty-query></span>". Try a different search.</p>
+          </div>
+        </td>
+      </tr>
     </tbody>
   </table>
 </div>

@@ -8,12 +8,7 @@
   <div class="section-head">
     <div>
       <h2>Products</h2>
-      <p class="gv-meta mb-0">
-        <span id="result-count" data-total="{{ rows|length }}">{{ rows|length }} item{{ rows|length|pluralize }}</span>
-        {% if selected_branch_id %}
-          {% for b in branches %}{% if b.id == selected_branch_id %}at {{ b.branch_name }}{% endif %}{% endfor %}
-        {% else %}across all branches{% endif %}
-      </p>
+      <p class="gv-meta mb-0" id="result-summary">{% include "partials/catalog_result_summary.html" %}</p>
     </div>
   </div>
 
@@ -26,11 +21,10 @@
     {% endfor %}
   </div>
 
-  <form method="GET" class="toolbar" data-catalog-filter>
-    <input type="search" name="q" id="catalog-search" class="input grow"
-           placeholder="Search products…" value="{{ search_query }}"
-           autocomplete="off" aria-controls="pgrid">
-    <select name="category" onchange="this.form.submit()">
+  <form method="GET" class="toolbar" data-catalog-live>
+    <input type="search" name="q" class="input grow"
+           placeholder="Search products…" value="{{ search_query }}">
+    <select name="category">
       <option value="">All Categories</option>
       {% for c in categories %}
         <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
@@ -39,66 +33,10 @@
     <button class="btn" type="submit">Search</button>
   </form>
 
-  <div class="pgrid" id="pgrid">
-    {% for row in rows %}
-    <div class="pcard" data-name="{{ row.product.product_name|lower }}">
-      <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{% include "partials/product_thumb.html" with product=row.product %}</a>
-      <div class="body">
-        <a class="name" href="{% url 'orders:product_detail' row.product.id %}">{{ row.product.product_name }}</a>
-        <div class="row-between">
-          <span class="price">₱{{ row.product.unit_price|floatformat:2 }}</span>
-          <span class="unit">per {{ row.product.unit_of_measure|lower }}</span>
-        </div>
-
-        {# Honest stock signals — never hide a shortage. #}
-        {% if row.qty == 0 %}
-          <span class="stock-out">Out of stock</span>
-        {% elif row.qty <= 10 %}
-          <span class="stock-low">Only {{ row.qty }} left</span>
-        {% else %}
-          <span class="stock-ok">In stock</span>
-        {% endif %}
-
-        {% if row.qty == 0 %}
-          <button class="btn cta" disabled>Out of stock</button>
-        {% elif not request.user.is_authenticated %}
-          <a class="btn btn-primary cta" href="{% url 'accounts:login' %}">Log in to buy</a>
-        {% elif not selected_branch_id %}
-          <a class="btn btn-primary cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
-        {% else %}
-          <form class="cta" method="POST" action="{% url 'orders:add_to_cart' row.product.id %}" data-add-to-cart>
-            {% csrf_token %}
-            <input type="hidden" name="quantity" value="1">
-            <button class="btn btn-primary" type="submit">Add to Cart</button>
-          </form>
-        {% endif %}
-      </div>
-    </div>
-    {% empty %}
-    <div style="grid-column: 1 / -1;">
-      <div class="card">
-        <div class="empty">
-          <span class="glyph">🔍</span>
-          <h3>No products found</h3>
-          <p>Try a different search, or browse all categories.</p>
-          <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">Show everything</a>
-        </div>
-      </div>
-    </div>
-    {% endfor %}
-
-    {# Shown by catalog-filter.js when a live search matches none of the rendered cards. #}
-    <div class="card" id="no-matches" hidden style="grid-column: 1 / -1;">
-      <div class="empty">
-        <span class="glyph">🔍</span>
-        <h3>No products found</h3>
-        <p>No products match “<span id="no-matches-query"></span>”. Try a different search.</p>
-      </div>
-    </div>
-  </div>
+  <div class="pgrid" id="pgrid">{% include "partials/catalog_grid.html" %}</div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/catalog-filter.js' %}"></script>
+<script src="{% static 'js/catalog-live.js' %}"></script>
 {% endblock %}

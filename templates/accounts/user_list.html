@@ -14,8 +14,8 @@
   </a>
 </div>
 
-<form method="GET" class="toolbar">
-  <input type="search" name="q" class="input grow" placeholder="Search username…" value="{{ search_query }}">
+<form method="GET" class="toolbar" data-live-filter="#user-table tbody tr[data-filter-text]" data-filter-empty-target="#user-no-matches">
+  <input type="search" name="q" class="input grow" placeholder="Search username…" value="{{ search_query }}" autocomplete="off">
   <select name="role" onchange="this.form.submit()">
     <option value="">All Roles</option>
     {% for value, label in role_choices %}
@@ -26,7 +26,7 @@
 </form>
 
 <div class="card table-wrap">
-  <table class="gv-table">
+  <table class="gv-table" id="user-table">
     <thead>
       <tr><th>Full Name</th><th>Username / Email</th><th>Role</th>
           <th>Assigned Branch</th><th>Status</th><th>Last Login</th>
@@ -34,7 +34,7 @@
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr>
+      <tr data-filter-text="{{ r.user.username }}">
         <td data-label="Full Name" class="strong">{{ r.full_name }}</td>
         <td data-label="Username">
           <span class="sku">{{ r.user.username }}</span><br>
@@ -73,6 +73,12 @@
         <p>Try clearing the search or role filter.</p>
       </div></td></tr>
       {% endfor %}
+      {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
+      <tr id="user-no-matches" hidden><td colspan="7"><div class="empty">
+        <span class="glyph">＋</span>
+        <h3>No users match</h3>
+        <p>No users match "<span data-filter-empty-query></span>". Try a different search.</p>
+      </div></td></tr>
     </tbody>
   </table>
 </div>

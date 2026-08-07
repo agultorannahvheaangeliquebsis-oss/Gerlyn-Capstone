@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 
 from branches.models import Branch
@@ -76,7 +77,7 @@ def product_catalog(request):
         if key not in rows or inv.quantity_on_hand > rows[key]['qty']:
             rows[key] = {'product': inv.product, 'qty': inv.quantity_on_hand}
 
-    return render(request, 'orders/catalog.html', {
+    context = {
         'rows': sorted(rows.values(), key=lambda r: r['product'].product_name),
         'branches': branches,
         'selected_branch_id': branch_id,
@@ -84,7 +85,18 @@ def product_catalog(request):
         'search_query': search_query,
         'category_filter': category_filter,
         'cart_count': len(request.session.get('cart', {})),
-    })
+    }
+
+    # Live search (catalog-live.js) asks for just the two regions that
+    # change — avoids re-fetching/re-rendering the whole page (branch tabs,
+    # category list, chrome) on every keystroke.
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({
+            'summary_html': render_to_string('partials/catalog_result_summary.html', context, request=request),
+            'grid_html': render_to_string('partials/catalog_grid.html', context, request=request),
+        })
+
+    return render(request, 'orders/catalog.html', context)
 
 
 def search_suggestions(request):

@@ -8,6 +8,7 @@ urlpatterns = [
     path('products/add/', views.product_add, name='product_add'),
     path('products/edit/<int:pk>/', views.product_edit, name='product_edit'),
     path('products/delete/<int:pk>/', views.product_delete, name='product_delete'),
+    path('barcode-lookup/', views.barcode_lookup, name='barcode_lookup'),
 
     # Categories
     path('categories/', views.category_list, name='category_list'),
@@ -17,6 +18,7 @@ urlpatterns = [
 
     # Stock
     path('stock/', views.inventory_list, name='inventory_list'),
+    path('stock/adjust/', views.stock_adjustment_add, name='stock_adjustment_add'),
     path('warehouse/', views.warehouse_stock_list, name='warehouse_stock_list'),
 
     # Alerts Center

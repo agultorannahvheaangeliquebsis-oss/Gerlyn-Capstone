@@ -2,7 +2,7 @@ from django.shortcuts import render
 
 from core.permissions import INTERNAL_ROLES, role_required
 
-from .changelog import CHANGELOG
+from .changelog import visible_changelog
 from .version import APP_VERSION
 
 
@@ -17,11 +17,12 @@ def download_view(request):
     templates/partials/download_*.html) rendered with whichever chrome
     fits the visitor: internal admin panel for staff/branch managers/
     owners, storefront chrome for everyone else."""
+    is_internal = request.user.is_authenticated and request.user.role in INTERNAL_ROLES
     context = {
-        'changelog': CHANGELOG,
+        'changelog': visible_changelog(is_internal),
         'current_version': APP_VERSION,
     }
-    if request.user.is_authenticated and request.user.role in INTERNAL_ROLES:
+    if is_internal:
         context['active_page'] = 'download'
         return render(request, 'download_internal.html', context)
     return render(request, 'download.html', context)

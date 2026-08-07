@@ -1,0 +1,4 @@
+<span id="result-count">{{ rows|length }} item{{ rows|length|pluralize }}</span>
+{% if selected_branch_id %}
+  {% for b in branches %}{% if b.id == selected_branch_id %}at {{ b.branch_name }}{% endif %}{% endfor %}
+{% else %}across all branches{% endif %}

@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load static %}
 {% block title %}Walk-in POS{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
@@ -56,6 +57,16 @@
       <button type="button" class="btn btn-sm" onclick="addRow()">+ Add Item</button>
     </div>
 
+    <div class="field mb-4" style="max-width:480px;">
+      <label for="pos-scan-input">Scan or type barcode / SKU</label>
+      <div class="row" style="gap:8px;">
+        <input type="text" id="pos-scan-input" class="input grow"
+               placeholder="Scan a barcode, or type a SKU and press Enter" autocomplete="off">
+        <button type="button" class="btn" id="pos-scan-camera-btn" title="Scan with camera">📷 Scan</button>
+      </div>
+      <span class="gv-meta" id="pos-scan-status"></span>
+    </div>
+
     <div id="item-rows" class="stack"></div>
 
     <template id="row-template">
@@ -63,8 +74,10 @@
         <div class="field grow" style="min-width:220px;">
           <label>Product</label>
           <select name="product_id" class="js-product" onchange="recalc()">
+            <option value="">— Select a product —</option>
             {% for p in products %}
               <option value="{{ p.id }}"
+                      data-sku="{{ p.sku_code|lower }}"
                       data-retail="{{ p.unit_price }}"
                       data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
                       data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
@@ -103,6 +116,8 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script>
   const rows = document.getElementById('item-rows');
   const tpl = document.getElementById('row-template');
@@ -154,5 +169,45 @@
   }
 
   addRow();  // start with one row
+
+  // Barcode / SKU scanning — finds the matching product option (by
+  // data-sku, case-insensitive) among the row-template's options, then
+  // either bumps an existing row's quantity or adds a new row for it.
+  // Works identically whether the code arrives from a USB/Bluetooth
+  // hardware scanner (which just types + Enter) or the in-app camera.
+  function findProductOptionBySku(code) {
+    const needle = code.trim().toLowerCase();
+    if (!needle) return null;
+    return tpl.content.querySelector('option[data-sku="' + CSS.escape(needle) + '"]');
+  }
+
+  function handleScan(code) {
+    const status = document.getElementById('pos-scan-status');
+    const match = findProductOptionBySku(code);
+    if (!match) {
+      status.textContent = `No product matches "${code}".`;
+      status.style.color = 'var(--danger-fg)';
+      return;
+    }
+
+    const existingRow = Array.from(rows.querySelectorAll('.item-row')).find(
+      row => row.querySelector('.js-product').value === match.value
+    );
+    if (existingRow) {
+      const qtyInput = existingRow.querySelector('.js-qty');
+      qtyInput.value = parseInt(qtyInput.value || 0, 10) + 1;
+    } else {
+      addRow();
+      rows.lastElementChild.querySelector('.js-product').value = match.value;
+    }
+    recalc();
+    status.textContent = `Added: ${match.textContent}`;
+    status.style.color = 'var(--ok-fg)';
+  }
+
+  GerlynBarcodeScanner.attach(document.getElementById('pos-scan-input'), {
+    onScan: handleScan,
+    cameraBtn: document.getElementById('pos-scan-camera-btn'),
+  });
 </script>
 {% endblock %}

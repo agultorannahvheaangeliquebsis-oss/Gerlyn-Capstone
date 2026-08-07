@@ -53,6 +53,15 @@
 /* ------------------------------------------------------------------ base */
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+
+/* The `hidden` attribute only maps to a low-specificity `display:none` in
+   the browser's own stylesheet — any component class that declares its own
+   `display` (.pcard { display:flex }, .gv-table tr { display:block } on
+   mobile, etc.) silently wins the cascade and defeats it, so the element
+   stays visible even with `hidden` set. Live-filter features (catalog-
+   filter.js, live-filter.js) toggle `.hidden` to actually hide rows/cards,
+   so this must always win regardless of what else targets `display`. */
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);
@@ -763,3 +772,61 @@ input::placeholder { color: var(--ink-400); }
 .hbar-axis { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); margin-top: var(--s1); }
 .hbar-axis-ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--line-soft); padding-top: 6px; }
 .hbar-axis-ticks span { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-400); font-variant-numeric: tabular-nums; }
+
+/* In-app camera barcode scanner overlay (static/js/barcode-scanner.js). In
+   gerlyn.css rather than account.css/storefront.css since it's used from
+   internal admin pages (POS, Inventory, Products) that don't load those. */
+.barcode-scan-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(23,37,30,.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--s4);
+}
+.barcode-scan-panel {
+  background: var(--surface); border-radius: var(--r-card);
+  box-shadow: var(--shadow-hero);
+  width: 100%; max-width: 420px;
+  overflow: hidden;
+}
+.barcode-scan-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--line);
+  font: 650 16px/1.2 system-ui, sans-serif; color: var(--ink-900);
+}
+.barcode-scan-close {
+  border: none; background: none; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--ink-600); padding: 0 4px;
+}
+.barcode-scan-close:hover { color: var(--ink-900); }
+/* html5-qrcode renders its own video/canvas/controls into this div. */
+#barcode-scan-reader {
+  width: 100%; min-height: 280px; background: #000;
+}
+.barcode-scan-hint {
+  margin: 0; padding: 12px 18px; font: 400 13px/1.4 system-ui, sans-serif;
+  color: var(--ink-600); text-align: center;
+}
+
+/* Shared "Barcode" field status line (Add Product / Stock Adjustment) —
+   static/js/barcode-scanner.js's attachBarcodeField() sets both the text
+   and one of these modifier classes after every lookup. */
+.barcode-status {
+  display: block; margin-top: 6px;
+  font: 600 13px/1.4 system-ui, sans-serif;
+  min-height: 18px;
+}
+.barcode-status-pending { color: var(--ink-400); font-weight: 400; }
+.barcode-status-success { color: var(--ok-fg); }
+.barcode-status-info { color: var(--warn-fg); }
+.barcode-status-error { color: var(--danger-fg); }
+/* A scanner-speed match gets a brief flash on top of the normal success
+   color, so a genuine scan feels distinctly more "instant" than a typed
+   entry — per the fast-keystroke detection in attachBarcodeField(). */
+.barcode-status-success-scan {
+  color: var(--ok-fg);
+  animation: barcode-scan-flash .5s ease-out;
+}
+@keyframes barcode-scan-flash {
+  0% { background: var(--ok-bg); }
+  100% { background: transparent; }
+}
