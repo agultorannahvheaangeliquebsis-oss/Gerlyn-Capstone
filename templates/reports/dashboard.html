@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load static %}
 {% block title %}Dashboard{% endblock %}
 {% block page_subtitle %}Dashboard{% endblock %}
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
@@ -14,94 +15,112 @@
   </div>
 </div>
 
-{# ---------- Hero row: 4 rich KPI cards with sparklines, click-to-expand into the shared graph panel below (DESIGN.md Section 2, #2/#2a) ---------- #}
+{% comment %}
+KPI rail (DESIGN.md Section 2, #2a): four real <button>s, so keyboard and
+screen-reader support comes from the element itself rather than a
+role="button" + keydown reimplementation. Each is a tab into the single
+graph panel below; aria-pressed carries the selected state.
+
+Every figure here is scoped to the resolved date range, and its headline
+string is the same one the graph panel shows for that metric — both come
+from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
+{% endcomment %}
 <div class="kpi-row mb-6">
-  <div class="stat-hero active" data-kpi-key="total_sales" role="button" tabindex="0" aria-pressed="true">
-    <div class="label">Total Sales</div>
-    <div class="value" style="color:var(--action);">₱{{ total_sales_alltime|floatformat:2 }}</div>
-    <div class="mt-2">
-      <svg viewBox="0 0 64 24" width="64" height="24" preserveAspectRatio="none">
-        <polyline points="{{ total_sales_spark.points }}" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="{{ total_sales_spark.dot_x }}" cy="{{ total_sales_spark.dot_y }}" r="2.5" fill="var(--brand)"/>
-      </svg>
-    </div>
-    <div class="mt-2">
-      {% if total_sales_delta.direction == 'up' %}<span class="trend-up">{{ total_sales_delta.text }}</span>
-      {% elif total_sales_delta.direction == 'down' %}<span class="trend-down">{{ total_sales_delta.text }}</span>
-      {% else %}<span class="gv-meta">{{ total_sales_delta.text }}</span>{% endif %}
-    </div>
-  </div>
-
-  <div class="stat-hero" data-kpi-key="recent_sales" role="button" tabindex="0" aria-pressed="false">
-    <div class="label">Recent Sales (30 days)</div>
-    <div class="value" style="color:var(--action);">₱{{ recent_sales_30d|floatformat:2 }}</div>
-    <div class="mt-2">
-      <svg viewBox="0 0 90 24" width="90" height="24" preserveAspectRatio="none">
-        <polyline points="{{ recent_sales_spark.points }}" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="{{ recent_sales_spark.dot_x }}" cy="{{ recent_sales_spark.dot_y }}" r="2.5" fill="var(--brand)"/>
-      </svg>
-    </div>
-    <div class="mt-2">
-      {% if recent_sales_delta.direction == 'up' %}<span class="trend-up">{{ recent_sales_delta.text }}</span>
-      {% elif recent_sales_delta.direction == 'down' %}<span class="trend-down">{{ recent_sales_delta.text }}</span>
-      {% else %}<span class="gv-meta">{{ recent_sales_delta.text }}</span>{% endif %}
-    </div>
-  </div>
-
-  <div class="stat-hero" data-kpi-key="procurement_cost" role="button" tabindex="0" aria-pressed="false">
-    <div class="label">Procurement Cost</div>
-    <div class="value">₱{{ total_procurement_cost|floatformat:2 }}</div>
-    <div class="mt-2">
-      <svg viewBox="0 0 64 24" width="64" height="24" preserveAspectRatio="none">
-        <polyline points="{{ procurement_cost_spark.points }}" fill="none" stroke="var(--ink-400)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="{{ procurement_cost_spark.dot_x }}" cy="{{ procurement_cost_spark.dot_y }}" r="2.5" fill="var(--ink-400)"/>
-      </svg>
-    </div>
-    <div class="mt-2">
-      {% if procurement_cost_delta.direction == 'up' %}<span class="trend-up">{{ procurement_cost_delta.text }}</span>
-      {% elif procurement_cost_delta.direction == 'down' %}<span class="trend-down">{{ procurement_cost_delta.text }}</span>
-      {% else %}<span class="gv-meta">{{ procurement_cost_delta.text }}</span>{% endif %}
-    </div>
-  </div>
-
-  <div class="stat-hero" data-kpi-key="total_transactions" role="button" tabindex="0" aria-pressed="false">
-    <div class="label">Total Transactions</div>
-    <div class="value">{{ total_transactions_alltime }}</div>
-    <div class="mt-2">
-      <svg viewBox="0 0 64 24" width="64" height="24" preserveAspectRatio="none">
-        <polyline points="{{ total_transactions_spark.points }}" fill="none" stroke="var(--ink-400)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="{{ total_transactions_spark.dot_x }}" cy="{{ total_transactions_spark.dot_y }}" r="2.5" fill="var(--ink-400)"/>
-      </svg>
-    </div>
-    <div class="mt-2">
-      {% if total_transactions_delta.direction == 'up' %}<span class="trend-up">{{ total_transactions_delta.text }}</span>
-      {% elif total_transactions_delta.direction == 'down' %}<span class="trend-down">{{ total_transactions_delta.text }}</span>
-      {% else %}<span class="gv-meta">{{ total_transactions_delta.text }}</span>{% endif %}
-    </div>
-  </div>
+  {% for card in kpi_cards %}
+  <button type="button" class="stat-hero{% if forloop.first %} active{% endif %}"
+          data-kpi-key="{{ card.key }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">
+    <span class="label">{{ card.label }}</span>
+    <span class="value">{{ card.value_display }}</span>
+    <span class="mt-2" style="display:block;"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
+    <span class="gv-meta mt-2" style="display:block;">{{ card.foot }}</span>
+  </button>
+  {% endfor %}
 </div>
 
-{# ---------- Shared graph panel: the 4 cards above act as tabs into this one panel (click or Enter/Space) — see extra_js below. Server-rendered with the Total Sales series so it shows real content before JS runs. ---------- #}
-<div class="kpi-graph-panel mb-6">
+{% comment %}
+Trend panel + Sales-by-Branch donut share one row (DESIGN.md §2a/§2c),
+collapsing to a single column at <=860px via the shared .grid-2 rule.
+
+The graph panel is server-rendered with the first card's series, so it holds
+real content before dashboard-kpi.js runs; the script only swaps it on click.
+{% endcomment %}
+<div class="grid-2 mb-6" style="grid-template-columns: minmax(0, 1.6fr) minmax(260px, 340px);">
+
+<div class="kpi-graph-panel">
   <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
     <div>
-      <h3 id="kpi-graph-label">Total Sales</h3>
-      <p class="gv-meta mb-0" id="kpi-graph-value">₱{{ total_sales_alltime|floatformat:2 }}</p>
+      <h3 id="kpi-graph-label">{{ default_kpi_graph.label }}</h3>
+      <p class="mb-0" id="kpi-graph-value" style="font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums;">{{ default_kpi_graph.valueDisplay }}</p>
+      <p class="gv-meta mb-0" id="kpi-graph-foot">{{ default_kpi_graph.foot }}</p>
     </div>
-    <span id="kpi-graph-delta">
-      {% if total_sales_delta.direction == 'up' %}<span class="trend-up">{{ total_sales_delta.text }}</span>
-      {% elif total_sales_delta.direction == 'down' %}<span class="trend-down">{{ total_sales_delta.text }}</span>
-      {% else %}<span class="gv-meta">{{ total_sales_delta.text }}</span>{% endif %}
-    </span>
+    <span id="kpi-graph-delta"><span class="pill {{ default_kpi_graph.delta.pill }}">{{ default_kpi_graph.delta.text }}</span></span>
   </div>
   <div class="card-pad">
-    <svg id="kpi-graph-svg" viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none">
+    <svg id="kpi-graph-svg" viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none"
+         {% if not default_kpi_graph.points %}hidden{% endif %}>
       <path id="kpi-graph-area" d="{{ default_kpi_graph.area }}" fill="var(--green-50)" stroke="none"/>
       <polyline id="kpi-graph-line" points="{{ default_kpi_graph.polyline }}" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       <g id="kpi-graph-points"></g>
     </svg>
+    {% comment %}
+    Shown when the selected metric has nothing to plot — Avg. Transaction
+    Value over a range with no transactions omits every day rather than
+    drawing a fabricated zero line.
+    {% endcomment %}
+    <div class="empty" id="kpi-graph-empty" {% if default_kpi_graph.points %}hidden{% endif %}>
+      <span class="glyph">□</span>
+      <h3>Nothing to chart</h3>
+      <p>No activity for this metric in {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}.</p>
+    </div>
   </div>
 </div>
+
+{# ---------- Sales by Branch donut (DESIGN.md §2c) — same range as the rail ---------- #}
+<div class="card">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Sales by Branch</h3>
+    <p class="gv-meta mb-0">Share of ₱{{ branch_chart.total|floatformat:2 }} · {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}</p>
+  </div>
+  <div class="card-pad">
+    {% if branch_chart.total %}
+    <div class="pie-wrap">
+      <svg viewBox="0 0 {{ branch_chart.box }} {{ branch_chart.box }}" width="160" height="160" role="img"
+           aria-label="Sales by branch: {% for seg in branch_legend %}{{ seg.name }} {{ seg.pct }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
+        <g transform="rotate(-90 {{ branch_chart.centre }} {{ branch_chart.centre }})">
+          {% for seg in branch_legend %}
+          <circle cx="{{ branch_chart.centre }}" cy="{{ branch_chart.centre }}" r="{{ branch_chart.radius }}"
+                  fill="none" stroke="{{ seg.colour }}" stroke-width="{{ branch_chart.stroke }}"
+                  stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"/>
+          {% endfor %}
+        </g>
+        <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="-2"
+              style="font: 700 15px/1 system-ui, sans-serif; fill: var(--ink-900);">{{ branch_chart.branch_count }}</text>
+        <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="15"
+              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+          branch{{ branch_chart.branch_count|pluralize:"es" }}</text>
+      </svg>
+      <ul class="pie-legend with-status">
+        {% for seg in branch_legend %}
+        <li>
+          <span class="pie-dot" style="background:{{ seg.colour }};"></span>{{ seg.name }}
+          {% if seg.status %}<span class="pill {{ seg.status.pill }}">{{ seg.status.label }}</span>{% endif %}
+          <span class="pie-count">₱{{ seg.value|floatformat:2 }}
+            <span class="gv-meta">· {{ seg.pct }}%</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>No sales to chart</h3>
+      <p>Nothing recorded between {{ range_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+</div>{# closes the trend + donut .grid-2 #}
 
 {% comment %}
 Needs Attention + Branches sit side by side in the same .grid-2 split used by
@@ -323,102 +342,6 @@ A quiet day must never render as a wall of red.
 {% endblock %}
 
 {% block extra_js %}
-<script id="kpi-graph-data" type="application/json">{{ kpi_graph_data|safe }}</script>
-<script>
-/* KPI hero cards act as tabs into the one shared graph panel below them
-   (DESIGN.md Section 2, #2a). The four series + their polyline/area paths
-   are precomputed server-side (reports/views.py) and handed over as one
-   JSON blob so switching cards is a client-side redraw, not a new request. */
-(function () {
-  var dataEl = document.getElementById('kpi-graph-data');
-  var svg = document.getElementById('kpi-graph-svg');
-  if (!dataEl || !svg) return;
-
-  var data;
-  try {
-    data = JSON.parse(dataEl.textContent);
-  } catch (e) {
-    return;
-  }
-
-  var cards = document.querySelectorAll('.stat-hero[data-kpi-key]');
-  var areaEl = document.getElementById('kpi-graph-area');
-  var lineEl = document.getElementById('kpi-graph-line');
-  var pointsEl = document.getElementById('kpi-graph-points');
-  var labelEl = document.getElementById('kpi-graph-label');
-  var valueEl = document.getElementById('kpi-graph-value');
-  var deltaEl = document.getElementById('kpi-graph-delta');
-  var SVG_NS = 'http://www.w3.org/2000/svg';
-
-  function formatPointValue(unit, value) {
-    var opts = { minimumFractionDigits: unit === 'currency' ? 2 : 0, maximumFractionDigits: unit === 'currency' ? 2 : 0 };
-    var formatted = Number(value).toLocaleString('en-US', opts);
-    return unit === 'currency' ? ('₱' + formatted) : formatted;
-  }
-
-  function renderPoints(entry) {
-    pointsEl.innerHTML = '';
-    entry.points.forEach(function (p) {
-      var circle = document.createElementNS(SVG_NS, 'circle');
-      circle.setAttribute('cx', p.x);
-      circle.setAttribute('cy', p.y);
-      circle.setAttribute('r', 3);
-      circle.setAttribute('fill', entry.stroke);
-      var title = document.createElementNS(SVG_NS, 'title');
-      title.textContent = p.date + ': ' + formatPointValue(entry.unit, p.value);
-      circle.appendChild(title);
-      pointsEl.appendChild(circle);
-    });
-  }
-
-  function renderDelta(container, delta) {
-    container.innerHTML = '';
-    var span = document.createElement('span');
-    span.className = delta.direction === 'up' ? 'trend-up'
-      : delta.direction === 'down' ? 'trend-down' : 'gv-meta';
-    span.textContent = delta.text;
-    container.appendChild(span);
-  }
-
-  function activate(key) {
-    var entry = data[key];
-    if (!entry) return;
-
-    cards.forEach(function (card) {
-      var isActive = card.getAttribute('data-kpi-key') === key;
-      card.classList.toggle('active', isActive);
-      card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-
-    areaEl.setAttribute('d', entry.area);
-    areaEl.setAttribute('fill', entry.stroke === 'var(--brand)' ? 'var(--green-50)' : 'var(--line-soft)');
-    lineEl.setAttribute('points', entry.polyline);
-    lineEl.setAttribute('stroke', entry.stroke);
-    renderPoints(entry);
-
-    labelEl.textContent = entry.label;
-    valueEl.textContent = entry.valueDisplay;
-    renderDelta(deltaEl, entry.delta);
-  }
-
-  cards.forEach(function (card) {
-    var key = card.getAttribute('data-kpi-key');
-    card.addEventListener('click', function () { activate(key); });
-    card.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-        e.preventDefault();
-        activate(key);
-      }
-    });
-  });
-
-  // Seed point markers/tooltips for the server-rendered default card —
-  // everything else about its initial state is already in the HTML.
-  var defaultCard = document.querySelector('.stat-hero.active[data-kpi-key]');
-  if (defaultCard) {
-    var defaultEntry = data[defaultCard.getAttribute('data-kpi-key')];
-    if (defaultEntry) renderPoints(defaultEntry);
-  }
-})();
-</script>
+{{ kpi_graphs|json_script:"dashboard-kpi-data" }}
+<script src="{% static 'js/dashboard-kpi.js' %}"></script>
 {% endblock %}

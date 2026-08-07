@@ -186,10 +186,16 @@ input::placeholder { color: var(--ink-400); }
 
 /* Dashboard hero cards double as click-to-expand tabs into the KPI graph
    panel (DESIGN.md Section 2, #2a) — active state is a green tint, never a
-   dark highlight, so it reads as "selected" rather than "alert". */
-.stat-hero[data-kpi-key] { cursor: pointer; }
+   dark highlight, so it reads as "selected" rather than "alert".
+   They are real <button>s, so the shared padding/surface rules above need
+   the usual button resets to keep them looking like the cards they are. */
+.stat-hero[data-kpi-key] {
+  cursor: pointer; width: 100%; text-align: left;
+  font: inherit; color: inherit; display: block;
+}
+.stat-hero[data-kpi-key] .value { display: block; margin-top: 2px; }
 .stat-hero[data-kpi-key]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.stat-hero.active { background: var(--green-50); border-color: var(--green-300); }
+.stat-hero.active { background: var(--green-50); border-color: var(--brand); }
 
 /* Shared graph panel the hero cards render into on click (DESIGN.md
    Section 2, #2a) — same surface/line/radius/shadow tokens as .card. */
@@ -744,6 +750,10 @@ input::placeholder { color: var(--ink-400); }
 .pie-legend li { display: flex; align-items: center; gap: 8px; font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-700); }
 .pie-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .pie-count { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* The Dashboard's donut legend carries a per-branch status pill as well as
+   the amount (DESIGN.md §2c); in that narrower column the row needs to wrap
+   rather than squeeze the branch name. */
+.pie-legend.with-status li { flex-wrap: wrap; row-gap: 4px; }
 
 /* Horizontal bar chart — single series (magnitude by branch), so no legend;
    label + value flank a fixed-width track, ticks share the same grid so they

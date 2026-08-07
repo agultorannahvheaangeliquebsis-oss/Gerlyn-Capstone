@@ -63,3 +63,46 @@ def local_month_bounds(year, month):
     start = timezone.make_aware(datetime(year, month, 1))
     end_year, end_month = (year + 1, 1) if month == 12 else (year, month + 1)
     return start, timezone.make_aware(datetime(end_year, end_month, 1))
+
+
+def local_range_bounds(start_day, end_day):
+    """
+    Aware [start, end) datetimes spanning a local calendar date range,
+    inclusive of both `start_day` and `end_day`. Composes local_day_bounds
+    for each endpoint — see its docstring for why plain date lookups on a
+    DateTimeField don't work on this deployment.
+    """
+    start, _ = local_day_bounds(start_day)
+    _, end = local_day_bounds(end_day)
+    return start, end
+
+
+# Shared across Dashboard/Reports/Alerts (DESIGN.md Section 2, #2e).
+DATE_RANGE_PRESETS = ('today', '7', '30', 'this_month', 'custom')
+
+
+def resolve_date_range(preset, date_from=None, date_to=None, today=None):
+    """
+    Resolves a date-range preset to a concrete [start, end] pair of
+    `datetime.date`s, inclusive of both ends.
+
+    `preset` is one of DATE_RANGE_PRESETS. For 'custom', `date_from`/
+    `date_to` must already be parsed `datetime.date` objects — this function
+    does not parse request strings, callers do that first so a parse error
+    is theirs to handle. Falls back to the last 30 days for any other
+    preset value, including 'custom' with a missing or inverted bound.
+
+    Returns (start, end, preset) — `preset` echoes back the preset actually
+    applied, so a caller can tell when a bad 'custom' request fell back.
+    """
+    today = today or timezone.localtime().date()
+
+    if preset == 'today':
+        return today, today, 'today'
+    if preset == '7':
+        return today - timedelta(days=6), today, '7'
+    if preset == 'this_month':
+        return today.replace(day=1), today, 'this_month'
+    if preset == 'custom' and date_from and date_to and date_from <= date_to:
+        return date_from, date_to, 'custom'
+    return today - timedelta(days=29), today, '30'

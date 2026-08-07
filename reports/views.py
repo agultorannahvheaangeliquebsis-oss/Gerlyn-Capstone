@@ -1,5 +1,4 @@
 import csv
-import json
 import math
 
 from django.shortcuts import render, redirect
@@ -21,7 +20,7 @@ from branches.models import Branch
 from accounts.models import User
 from core.scoping import branch_ids_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, role_required
-from core.timebounds import local_day_bounds, local_month_bounds
+from core.timebounds import local_day_bounds, local_month_bounds, local_range_bounds, resolve_date_range
 
 
 def get_user_branch(user):
@@ -51,122 +50,38 @@ def _scoped_querysets(user):
     return sales_qs, procurement_qs, inventory_qs, user_branch
 
 
-# --- Dashboard hero-card sparklines ------------------------------------
+# --- Dashboard KPI graph geometry --------------------------------------
 # `SalesTransaction.transaction_date` is a DateTimeField, so day-bucketing
 # happens in Python (not TruncDate/`.dates()`) — MySQL's CONVERT_TZ returns
 # NULL under USE_TZ when the server has no zoneinfo tables loaded, same
-# constraint already documented on `month_keys` in reports_dashboard above.
+# constraint already documented on `month_keys` in reports_dashboard below.
 # `Procurement.order_date` is a plain DateField with no tz component, so it
-# doesn't need this and is bucketed directly (see operational_dashboard).
+# doesn't need this and is bucketed directly (see _dashboard_daily_series).
 
-def _daily_sales_series(qs, value_field=None, days=7):
-    """
-    Day-bucketed totals (or counts, if `value_field` is None) from
-    `transaction_date` for the last `days` days, oldest first, zero-filled
-    for days with no rows.
-    """
-    today = timezone.localtime().date()
-    start = today - timedelta(days=days - 1)
-    boundary = timezone.make_aware(datetime.combine(start, datetime.min.time()))
-    buckets = {start + timedelta(n): 0 for n in range(days)}
-
-    fields = ['transaction_date'] + ([value_field] if value_field else [])
-    for row in qs.filter(transaction_date__gte=boundary).values_list(*fields):
-        day = timezone.localtime(row[0]).date()
-        if day in buckets:
-            buckets[day] += (row[1] or 0) if value_field else 1
-
-    return [buckets[start + timedelta(n)] for n in range(days)]
+def _parse_iso_date(value):
+    """A YYYY-MM-DD request param as a date, or None if absent/malformed."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except ValueError:
+        return None
 
 
-def _sales_period_delta_pct(qs, value_field=None, days=7):
-    """% change between the last `days` days and the `days` before that."""
-    end = timezone.localtime()
-    start_current = end - timedelta(days=days)
-    start_prev = start_current - timedelta(days=days)
-
-    def _agg(gte, lt):
-        filtered = qs.filter(transaction_date__gte=gte, transaction_date__lt=lt)
-        if value_field:
-            return filtered.aggregate(total=Sum(value_field))['total'] or 0
-        return filtered.count()
-
-    current, previous = _agg(start_current, end), _agg(start_prev, start_current)
-    return round(((current - previous) / previous) * 100, 1) if previous else None
-
-
-def _sparkline_points(series, width=64, height=24, pad=3):
-    """
-    Maps a numeric series onto an SVG polyline's `points` attribute, scaled
-    into a width x height box, plus the trailing point for an end-dot. A
-    flat series (all equal values) renders as a horizontal midline instead
-    of dividing by zero.
-    """
-    if not series:
-        return {'points': '', 'dot_x': 0, 'dot_y': height / 2}
-
-    lo, hi = min(series), max(series)
-    span = hi - lo
-    n = len(series)
-    step = width / (n - 1) if n > 1 else 0
-
-    def y_for(v):
-        if span == 0:
-            return height / 2
-        return pad + (1 - (v - lo) / span) * (height - 2 * pad)
-
-    coords = [(round(i * step, 1), round(y_for(v), 1)) for i, v in enumerate(series)]
-    dot_x, dot_y = coords[-1]
-    return {'points': ' '.join(f'{x},{y}' for x, y in coords), 'dot_x': dot_x, 'dot_y': dot_y}
-
-
-def _daily_procurement_series(qs, value_field, days=7):
-    """
-    Day-bucketed totals from `order_date` for the last `days` days, oldest
-    first, zero-filled for days with no rows. `order_date` is a plain
-    DateField (no tz component), so — unlike _daily_sales_series — this
-    groups directly without a timezone.localtime() conversion per row.
-    """
-    today = timezone.localtime().date()
-    start = today - timedelta(days=days - 1)
-    buckets = {start + timedelta(n): 0 for n in range(days)}
-
-    for day, value in qs.filter(order_date__gte=start).values_list('order_date', value_field):
-        if day in buckets:
-            buckets[day] += value or 0
-
-    return [buckets[start + timedelta(n)] for n in range(days)]
-
-
-def _procurement_period_delta_pct(qs, value_field, days=7):
-    """% change between the last `days` days and the `days` before that."""
-    start_current = timezone.localtime().date() - timedelta(days=days - 1)
-    start_prev = start_current - timedelta(days=days)
-
-    def _agg(filters):
-        return qs.filter(**filters).aggregate(total=Sum(value_field))['total'] or 0
-
-    current = _agg({'order_date__gte': start_current})
-    previous = _agg({'order_date__gte': start_prev, 'order_date__lt': start_current})
-    return round(((current - previous) / previous) * 100, 1) if previous else None
-
-
-def _date_range_labels(days):
-    """
-    Date labels ('Aug 01') for the last `days` days, oldest first — matches
-    the day-bucket ranges used by _daily_sales_series/_daily_procurement_series.
-    """
-    today = timezone.localtime().date()
-    start = today - timedelta(days=days - 1)
-    return [(start + timedelta(n)).strftime('%b %d') for n in range(days)]
-
-
-def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24, pad_y=24):
+def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24, pad_y=24,
+                      x_fractions=None):
     """
     Builds the click-to-expand graph panel's polyline, baseline-anchored
     area-fill path, and day-labeled point list for one KPI's daily series
-    — the same zero-division-safe flat-line handling as _sparkline_points,
-    scaled to the larger graph canvas instead of a card-sized sparkline.
+    — with flat-series (all-equal values) handling that renders a horizontal
+    midline rather than dividing by zero.
+
+    `x_fractions` (one 0..1 position per value) places points along the real
+    time axis instead of spacing them evenly by index. The Avg. Transaction
+    Value line needs this: it omits days with no transactions entirely
+    (DESIGN.md §2a), so even spacing would draw a 5-day gap and a 1-day gap
+    identically. Series covering every day in the range pass None and get
+    even spacing, which for them is the same thing.
     """
     if not daily_values:
         return {'polyline': '', 'area': '', 'points': []}
@@ -174,8 +89,14 @@ def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24,
     lo, hi = min(daily_values), max(daily_values)
     span = hi - lo
     n = len(daily_values)
-    step = (width - 2 * pad_x) / (n - 1) if n > 1 else 0
+    plot_width = width - 2 * pad_x
     baseline = height - pad_y
+
+    if x_fractions is None:
+        step = plot_width / (n - 1) if n > 1 else 0
+        xs = [pad_x + i * step for i in range(n)]
+    else:
+        xs = [pad_x + f * plot_width for f in x_fractions]
 
     def y_for(v):
         if span == 0:
@@ -183,8 +104,8 @@ def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24,
         return pad_y + (1 - (v - lo) / span) * (height - 2 * pad_y)
 
     coords = [
-        (round(pad_x + i * step, 1), round(y_for(v), 1))
-        for i, v in enumerate(daily_values)
+        (round(x, 1), round(y_for(v), 1))
+        for x, v in zip(xs, daily_values)
     ]
     points = [
         {'x': x, 'y': y, 'date': day_labels[i], 'value': daily_values[i]}
@@ -197,19 +118,268 @@ def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24,
     return {'polyline': polyline, 'area': area, 'points': points}
 
 
-def _delta_display(delta_pct, compare_label):
+# --- Dashboard date-range query layer (DESIGN.md Section 2, #2a/#2e) -----
+# The KPI rail, its click-to-expand graph panel, and the Sales-by-Branch
+# donut are all range-scoped views of one daily series — see
+# _dashboard_metrics, the single entry point that builds all of it. The
+# fixed 7/30-day hero-card helpers this replaced are gone: every figure on
+# those surfaces now comes from the resolved range, so nothing is left
+# computing a window of its own.
+
+def _dashboard_daily_series(sales_qs, procurement_qs, start, end):
     """
-    Formats a period-over-period % into the same "▲ +12.0% vs last 7 days"
-    copy already used on the hero cards, plus a direction flag for the
-    trend-up/trend-down/gv-meta class choice. Shared with the click-to-
-    expand graph panel's header so both surfaces render identical text.
+    Per-day {date, sales, txn_count, procurement_cost} for every calendar
+    day in [start, end] inclusive, zero-filled for days with no rows.
+
+    transaction_date is a DateTimeField, so its local day is taken via
+    timezone.localtime() per row rather than a __date= lookup — see
+    core/timebounds for why that lookup silently matches nothing on this
+    MySQL deployment. order_date is a plain DateField with no tz component
+    and buckets directly, with no per-row conversion.
     """
-    if delta_pct is None:
-        return {'text': 'No prior data to compare', 'direction': None}
-    direction = 'up' if delta_pct >= 0 else 'down'
-    arrow = '▲' if direction == 'up' else '▼'
-    sign = '+' if delta_pct >= 0 else ''
-    return {'text': f'{arrow} {sign}{delta_pct}% vs {compare_label}', 'direction': direction}
+    n_days = (end - start).days + 1
+    buckets = {
+        start + timedelta(n): {'sales': 0, 'txn_count': 0, 'procurement_cost': 0}
+        for n in range(n_days)
+    }
+
+    range_start, range_end = local_range_bounds(start, end)
+    sales_rows = sales_qs.filter(
+        transaction_date__gte=range_start, transaction_date__lt=range_end
+    ).values_list('transaction_date', 'total_amount')
+    for transaction_date, amount in sales_rows:
+        day = timezone.localtime(transaction_date).date()
+        if day in buckets:
+            buckets[day]['sales'] += amount or 0
+            buckets[day]['txn_count'] += 1
+
+    procurement_rows = procurement_qs.filter(
+        order_date__gte=start, order_date__lte=end
+    ).values_list('order_date', 'total_cost')
+    for order_date, cost in procurement_rows:
+        if order_date in buckets:
+            buckets[order_date]['procurement_cost'] += cost or 0
+
+    return [
+        {'date': start + timedelta(n), **buckets[start + timedelta(n)]}
+        for n in range(n_days)
+    ]
+
+
+def _dashboard_range_totals(daily_series):
+    """
+    Sums a daily series into range totals, plus the range-wide Avg.
+    Transaction Value (total sales ÷ total transaction count — one ratio
+    over the whole range, not an average of daily averages). DESIGN.md
+    §2a requires the KPI card and the chart's displayed total to agree
+    exactly, so both must read this same number.
+    """
+    sales = sum(d['sales'] for d in daily_series)
+    txn_count = sum(d['txn_count'] for d in daily_series)
+    procurement_cost = sum(d['procurement_cost'] for d in daily_series)
+    atv = (sales / txn_count) if txn_count else 0
+    return {'sales': sales, 'txn_count': txn_count, 'procurement_cost': procurement_cost, 'atv': atv}
+
+
+def _dashboard_atv_points(daily_series):
+    """
+    Per-day Avg. Transaction Value for the click-to-expand chart's ATV
+    line only. DESIGN.md §2a: days with zero transactions are skipped
+    entirely — no interpolation, no zero-fill, no rolling average — so the
+    line connects only real per-day averages.
+    """
+    return [
+        {'date': d['date'], 'value': d['sales'] / d['txn_count']}
+        for d in daily_series if d['txn_count']
+    ]
+
+
+def _dashboard_metrics(sales_qs, procurement_qs, start, end):
+    """
+    The single data source for the Dashboard's date-range-scoped surfaces
+    (DESIGN.md §2a hero cards + graph, §2c donut): a daily series for the
+    selected range, range totals for the KPI cards, per-day points for the
+    Avg. Transaction Value chart line, the previous equal-length window's
+    totals (for the hero cards' delta %), and sales grouped by branch.
+    Everything those surfaces render is derived from this, not re-queried.
+    """
+    daily = _dashboard_daily_series(sales_qs, procurement_qs, start, end)
+    totals = _dashboard_range_totals(daily)
+    atv_points = _dashboard_atv_points(daily)
+
+    period_days = (end - start).days + 1
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=period_days - 1)
+    prev_totals = _dashboard_range_totals(
+        _dashboard_daily_series(sales_qs, procurement_qs, prev_start, prev_end)
+    )
+
+    range_start, range_end = local_range_bounds(start, end)
+    branch_breakdown = _sales_by_branch_chart(
+        sales_qs.filter(transaction_date__gte=range_start, transaction_date__lt=range_end)
+    )
+
+    # Per-branch totals for the previous window, so each donut legend row can
+    # show a real trend pill instead of a rule invented from its share alone.
+    # Accumulated in Python the same way _sales_by_branch_chart does, keeping
+    # the two sides of the comparison built identically.
+    prev_range_start, prev_range_end = local_range_bounds(prev_start, prev_end)
+    prev_branch_totals = {}
+    prev_rows = sales_qs.filter(
+        transaction_date__gte=prev_range_start, transaction_date__lt=prev_range_end
+    ).values_list('branch__branch_name', 'total_amount')
+    for name, amount in prev_rows:
+        key = name or 'Unassigned'
+        prev_branch_totals[key] = prev_branch_totals.get(key, 0) + (amount or 0)
+
+    return {
+        'daily': daily,
+        'totals': totals,
+        'atv_points': atv_points,
+        'prev_totals': prev_totals,
+        'period_days': period_days,
+        'branch_breakdown': branch_breakdown,
+        'prev_branch_totals': prev_branch_totals,
+    }
+
+
+def _delta_pill(current, previous, compare_label):
+    """
+    Period-over-period change as a status pill (DESIGN.md §2a) — the shared
+    .pill-ok/.pill-danger/.pill-neutral trio, not a bespoke up/down/flat set.
+
+    Direction is reported uniformly (up = ok) across all four KPIs, matching
+    both the approved mockup and the cards this replaces. Note that reads as
+    "rising" rather than "good" on Procurement Cost; giving that card an
+    inverted polarity is a product decision, not a rendering one.
+    """
+    if not previous:
+        return {'text': f'No {compare_label} to compare', 'pill': 'pill-neutral'}
+    pct = round(((float(current) - float(previous)) / float(previous)) * 100, 1)
+    rising = pct >= 0
+    return {
+        'text': f'{"▲" if rising else "▼"} {"+" if rising else ""}{pct}% vs {compare_label}',
+        'pill': 'pill-ok' if rising else 'pill-danger',
+    }
+
+
+def _plural(n, suffix='s'):
+    return suffix if n != 1 else ''
+
+
+def _dashboard_kpi_payload(metrics, start, end):
+    """
+    The four KPI cards (DESIGN.md §2a) and the graph series each one swaps
+    into the shared panel, built together from a single metrics bundle.
+
+    Built as one structure on purpose: §2a requires a card's headline figure
+    and the graph panel's total for that same metric to agree exactly, so
+    both read the identical value here rather than being computed twice.
+
+    Values are cast to float because this is handed to the template through
+    |json_script — Decimal is not JSON-serializable, and DjangoJSONEncoder
+    would stringify it, leaving the client formatting "68585.00" as text.
+    """
+    totals, prev, daily = metrics['totals'], metrics['prev_totals'], metrics['daily']
+    period_days = metrics['period_days']
+    compare_label = f'previous {period_days} day{_plural(period_days)}'
+    txn_count = totals['txn_count']
+
+    def x_fraction(day):
+        return 0.0 if period_days <= 1 else (day - start).days / (period_days - 1)
+
+    every_day_labels = [d['date'].isoformat() for d in daily]
+    atv_points = metrics['atv_points']
+
+    specs = [
+        {
+            'key': 'total_sales', 'label': 'Total Sales', 'unit': 'currency',
+            'stroke': 'var(--brand)',
+            'value_display': f'₱{totals["sales"]:,.2f}',
+            'foot': f'{period_days} day{_plural(period_days)} · {txn_count} transaction{_plural(txn_count)}',
+            'delta': _delta_pill(totals['sales'], prev['sales'], compare_label),
+            'values': [float(d['sales']) for d in daily],
+            'labels': every_day_labels,
+            'x_fractions': None,
+        },
+        {
+            'key': 'avg_transaction_value', 'label': 'Avg. Transaction Value',
+            'unit': 'currency', 'stroke': 'var(--brand)',
+            'value_display': f'₱{totals["atv"]:,.2f}',
+            'foot': f'₱{totals["sales"]:,.2f} ÷ {txn_count} transaction{_plural(txn_count)}',
+            'delta': _delta_pill(totals['atv'], prev['atv'], compare_label),
+            # Days with no transactions are absent entirely, and the x
+            # positions keep the remaining ones on the real time axis.
+            'values': [float(p['value']) for p in atv_points],
+            'labels': [p['date'].isoformat() for p in atv_points],
+            'x_fractions': [x_fraction(p['date']) for p in atv_points],
+        },
+        {
+            'key': 'procurement_cost', 'label': 'Procurement Cost', 'unit': 'currency',
+            'stroke': 'var(--ink-400)',
+            'value_display': f'₱{totals["procurement_cost"]:,.2f}',
+            'foot': f'{period_days} day{_plural(period_days)} of supplier spend',
+            'delta': _delta_pill(totals['procurement_cost'], prev['procurement_cost'], compare_label),
+            'values': [float(d['procurement_cost']) for d in daily],
+            'labels': every_day_labels,
+            'x_fractions': None,
+        },
+        {
+            'key': 'total_transactions', 'label': 'Total Transactions', 'unit': 'count',
+            'stroke': 'var(--ink-400)',
+            'value_display': f'{txn_count:,}',
+            'foot': f'across {period_days} day{_plural(period_days)}',
+            'delta': _delta_pill(txn_count, prev['txn_count'], compare_label),
+            'values': [float(d['txn_count']) for d in daily],
+            'labels': every_day_labels,
+            'x_fractions': None,
+        },
+    ]
+
+    cards, graphs = [], {}
+    for spec in specs:
+        graph = _kpi_graph_series(spec['values'], spec['labels'], x_fractions=spec['x_fractions'])
+        cards.append({
+            'key': spec['key'], 'label': spec['label'],
+            'value_display': spec['value_display'], 'foot': spec['foot'],
+            'delta': spec['delta'],
+        })
+        graphs[spec['key']] = {
+            'label': spec['label'], 'unit': spec['unit'], 'stroke': spec['stroke'],
+            'valueDisplay': spec['value_display'], 'foot': spec['foot'],
+            'delta': spec['delta'], **graph,
+        }
+    return cards, graphs
+
+
+def _branch_legend_rows(breakdown, prev_branch_totals):
+    """
+    Donut legend rows with a per-branch status pill (DESIGN.md §2c).
+
+    Status compares a branch's sales in the selected range against the same
+    branch over the previous equal-length window — a real trend. The mockup's
+    placeholder rule (share below 25% = "Watch") is deliberately not carried
+    over: it would flag a perfectly healthy branch simply for being one of
+    four, and would flag every branch once a fifth opened.
+
+    The folded "Other branches" aggregate gets no pill at all — which
+    branches it contains can differ between the two windows, so a trend on it
+    would not describe a stable set.
+    """
+    rows = []
+    for seg in breakdown['segments']:
+        is_other = bool(breakdown['overflow']) and seg['name'] == 'Other branches'
+        previous = prev_branch_totals.get(seg['name'])
+        if is_other:
+            status = None
+        elif not previous:
+            status = {'pill': 'pill-neutral', 'label': 'No prior data'}
+        elif float(seg['value']) < float(previous):
+            status = {'pill': 'pill-warn', 'label': 'Down'}
+        else:
+            status = {'pill': 'pill-ok', 'label': 'On track'}
+        rows.append({**seg, 'status': status})
+    return rows
 
 
 # --- "Needs attention" list (DESIGN.md Section 2, #2b) -------------------
@@ -336,75 +506,21 @@ def operational_dashboard(request):
         transaction_date__gte=_today_start, transaction_date__lt=_today_end
     ).aggregate(total=Sum('total_amount'))['total'] or 0
 
-    # --- Hero-row cards: Total Sales, Recent Sales, Procurement Cost,
-    # Total Transactions (DESIGN.md Section 2, improvement #2/#2a) ---
-    sales_amounts_7d = _daily_sales_series(sales_qs, 'total_amount', days=7)
-    sales_amounts_30d = _daily_sales_series(sales_qs, 'total_amount', days=30)
-    sales_counts_7d = _daily_sales_series(sales_qs, days=7)
-    procurement_costs_7d = _daily_procurement_series(procurement_qs, 'total_cost', days=7)
-
-    total_sales_alltime = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
-    total_sales_spark = _sparkline_points(sales_amounts_7d)
-    total_sales_delta = _delta_display(
-        _sales_period_delta_pct(sales_qs, 'total_amount', days=7), 'last 7 days'
+    # --- Date-range-scoped KPI rail, graph panel and donut (DESIGN.md §2a/
+    # §2c). All three read one _dashboard_metrics bundle for the resolved
+    # range, so a card, the graph it opens, and the donut can never disagree.
+    # The range control itself is task 9 — until it ships these params have
+    # no UI, and an absent or malformed one falls back to the last 30 days.
+    range_start, range_end, active_range = resolve_date_range(
+        request.GET.get('range'),
+        _parse_iso_date(request.GET.get('date_from')),
+        _parse_iso_date(request.GET.get('date_to')),
+        today=today,
     )
-    total_sales_graph = _kpi_graph_series(sales_amounts_7d, _date_range_labels(7))
-
-    recent_30d_boundary = now - timedelta(days=30)
-    recent_sales_30d = sales_qs.filter(
-        transaction_date__gte=recent_30d_boundary
-    ).aggregate(total=Sum('total_amount'))['total'] or 0
-    recent_sales_spark = _sparkline_points(sales_amounts_30d, width=90)
-    recent_sales_delta = _delta_display(
-        _sales_period_delta_pct(sales_qs, 'total_amount', days=30), 'previous 30 days'
-    )
-    recent_sales_graph = _kpi_graph_series(sales_amounts_30d, _date_range_labels(30))
-
-    total_transactions_alltime = sales_qs.count()
-    total_transactions_spark = _sparkline_points(sales_counts_7d)
-    total_transactions_delta = _delta_display(
-        _sales_period_delta_pct(sales_qs, days=7), 'last 7 days'
-    )
-    total_transactions_graph = _kpi_graph_series(sales_counts_7d, _date_range_labels(7))
-
-    total_procurement_cost = procurement_qs.aggregate(total=Sum('total_cost'))['total'] or 0
-    procurement_cost_spark = _sparkline_points(procurement_costs_7d)
-    procurement_cost_delta = _delta_display(
-        _procurement_period_delta_pct(procurement_qs, 'total_cost', days=7), 'last 7 days'
-    )
-    procurement_cost_graph = _kpi_graph_series(procurement_costs_7d, _date_range_labels(7))
-
-    # One JSON blob for the click-to-expand graph panel — switching cards is
-    # then a client-side redraw (see extra_js in dashboard.html), not a
-    # per-click request. Values may be Decimal (from Sum aggregates), which
-    # json.dumps can't serialize on its own, hence default=float.
-    # valueDisplay uses ',' thousands-separator formatting to match what
-    # Django's template output renders for the SSR'd cards/panel — floatformat
-    # and raw {{ number }} both auto-localize via USE_THOUSAND_SEPARATOR, so
-    # a plain f'{value:.2f}' here would visibly drift ("₱68585.00" vs the
-    # card's "₱68,585.00") the moment JS overwrites the panel on any click.
-    kpi_graph_data = json.dumps({
-        'total_sales': {
-            'label': 'Total Sales', 'unit': 'currency', 'stroke': 'var(--brand)',
-            'valueDisplay': f'₱{total_sales_alltime:,.2f}',
-            'delta': total_sales_delta, **total_sales_graph,
-        },
-        'recent_sales': {
-            'label': 'Recent Sales (30 days)', 'unit': 'currency', 'stroke': 'var(--brand)',
-            'valueDisplay': f'₱{recent_sales_30d:,.2f}',
-            'delta': recent_sales_delta, **recent_sales_graph,
-        },
-        'procurement_cost': {
-            'label': 'Procurement Cost', 'unit': 'currency', 'stroke': 'var(--ink-400)',
-            'valueDisplay': f'₱{total_procurement_cost:,.2f}',
-            'delta': procurement_cost_delta, **procurement_cost_graph,
-        },
-        'total_transactions': {
-            'label': 'Total Transactions', 'unit': 'count', 'stroke': 'var(--ink-400)',
-            'valueDisplay': f'{total_transactions_alltime:,}',
-            'delta': total_transactions_delta, **total_transactions_graph,
-        },
-    }, default=float)
+    metrics = _dashboard_metrics(sales_qs, procurement_qs, range_start, range_end)
+    kpi_cards, kpi_graphs = _dashboard_kpi_payload(metrics, range_start, range_end)
+    branch_breakdown = metrics['branch_breakdown']
+    branch_legend = _branch_legend_rows(branch_breakdown, metrics['prev_branch_totals'])
 
     # --- Restock suggestions + "needs attention" list (same engine as the
     # Alerts Center — one alert_summary() call feeds both) ---
@@ -426,23 +542,19 @@ def operational_dashboard(request):
     )[:6]
 
     return render(request, 'reports/dashboard.html', {
-        'total_sales_alltime': total_sales_alltime,
-        'total_sales_spark': total_sales_spark,
-        'total_sales_delta': total_sales_delta,
-        'recent_sales_30d': recent_sales_30d,
-        'recent_sales_spark': recent_sales_spark,
-        'recent_sales_delta': recent_sales_delta,
-        'total_procurement_cost': total_procurement_cost,
-        'procurement_cost_spark': procurement_cost_spark,
-        'procurement_cost_delta': procurement_cost_delta,
-        'total_transactions_alltime': total_transactions_alltime,
-        'total_transactions_spark': total_transactions_spark,
-        'total_transactions_delta': total_transactions_delta,
-        # Default graph panel state (Total Sales) — server-rendered so the
-        # panel shows something before extra_js's click handler takes over.
+        # KPI rail + the graph panel they tab into + the Sales-by-Branch
+        # donut, all derived from the one resolved range (DESIGN.md §2a/§2c).
+        'kpi_cards': kpi_cards,
+        'kpi_graphs': kpi_graphs,
+        # Default panel state (Total Sales) — server-rendered so the panel
+        # holds real content before dashboard-kpi.js takes over on click.
         'default_kpi_key': 'total_sales',
-        'default_kpi_graph': total_sales_graph,
-        'kpi_graph_data': kpi_graph_data,
+        'default_kpi_graph': kpi_graphs['total_sales'],
+        'branch_chart': branch_breakdown,
+        'branch_legend': branch_legend,
+        'range_start': range_start,
+        'range_end': range_end,
+        'active_range': active_range,
         # low_stock_count still feeds the Restock Suggestions header; the four
         # quiet stat tiles it used to sit beside are gone (duplicated the Needs
         # Attention rows / were static catalog facts, not daily decisions).
