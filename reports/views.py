@@ -14,7 +14,7 @@ from billing.models import BillingRecord
 
 from sales.models import SalesTransaction
 from inventory.models import Batch, Inventory
-from inventory.alerts import alert_summary
+from inventory.alerts import EXPIRY_WINDOW_DAYS, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
@@ -400,7 +400,17 @@ def _attention_pill(count, escalated=False):
 
 def _needs_attention_rows(summary, procurement_qs, sales_qs):
     """
-    Build the five Dashboard "needs attention" rows in the DESIGN.md 2b order.
+    Build the five Dashboard "needs attention" checks in the DESIGN.md §2b
+    order, already split into the two groups the panel renders differently:
+
+      actionable  nonzero count — a full row (icon, label, count badge,
+                  chevron) linking to the page that owns the work.
+      all_clear   zero count — collapses into a compact "All clear" chip,
+                  per §2b. Still linked, so the check is reachable, but it
+                  never takes a full row and never carries a count.
+
+    Split here rather than in the template so the template is two plain
+    loops: §2b's two presentations are a data distinction, not markup logic.
 
     Definitions, kept deliberately aligned with the destination pages:
       Low Stock      inventory.alerts.low_stock_alerts — the same engine the
@@ -441,38 +451,71 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
     # See docstring — no due-date field exists to compute this against.
     overdue_billing = 0
 
-    return [
+    rows = [
         {
             'key': 'low_stock', 'icon': 'alert', 'label': 'Low Stock',
             'count': low_count,
             'pill': _attention_pill(low_count, escalated=summary['critical_count'] > 0),
+            'detail': (
+                f'{low_count} product{_plural(low_count)} at or below the reorder level '
+                f'across your branches.'
+            ),
             'url': reverse('alerts_center') + '#low',
         },
         {
             'key': 'expiring', 'icon': 'clock', 'label': 'Expiring Soon',
             'count': expiring_count,
             'pill': _attention_pill(expiring_count, escalated=expired_count > 0),
+            'detail': (
+                f'{expiring_count} batch{"es" if expiring_count != 1 else ""} expiring within '
+                f'{EXPIRY_WINDOW_DAYS} days or already past expiry.'
+            ),
             'url': reverse('alerts_center') + '#expiring',
         },
         {
             'key': 'pending_pos', 'icon': 'truck', 'label': 'Pending POs',
             'count': pending_pos,
             'pill': _attention_pill(pending_pos),
+            'detail': (
+                f'{pending_pos} purchase order{_plural(pending_pos)} raised but not yet '
+                f'received from the supplier.'
+            ),
             'url': reverse('procurement_list'),
         },
         {
             'key': 'pending_orders', 'icon': 'cart', 'label': 'Unfulfilled Orders',
             'count': pending_orders,
             'pill': _attention_pill(pending_orders),
+            'detail': (
+                f'{pending_orders} order{_plural(pending_orders)} still pending, approved or '
+                f'preparing — none completed yet.'
+            ),
             'url': reverse('transaction_list'),
         },
         {
             'key': 'overdue_billing', 'icon': 'peso', 'label': 'Overdue Billing',
             'count': overdue_billing,
             'pill': _attention_pill(overdue_billing),
+            'detail': (
+                f'{overdue_billing} billing record{_plural(overdue_billing)} past its due date.'
+            ),
             'url': reverse('billing_list') + f'?status={BillingRecord.PaymentStatus.PENDING}',
         },
     ]
+
+    actionable = [r for r in rows if r['count']]
+    checks = len(rows)
+    if actionable:
+        needs = 'needs' if len(actionable) == 1 else 'need'
+        subtitle = f'{len(actionable)} of {checks} checks {needs} action right now'
+    else:
+        subtitle = f'All {checks} checks clear — nothing needs action right now'
+
+    return {
+        'actionable': actionable,
+        'all_clear': [r for r in rows if not r['count']],
+        'subtitle': subtitle,
+    }
 
 
 @login_required(login_url='login')

@@ -138,9 +138,19 @@ and keeping both would double it.
 {% endif %}
 
 {% comment %}
-Needs attention: the compact 5-row routing list (DESIGN.md Section 2, #2b).
-Icon + label + .pill count + chevron; each row links to the page that owns the
-work. Counts are computed server-side in reports/views.py::_needs_attention_rows.
+Needs attention: the compact max-5-check routing panel (DESIGN.md §2b).
+_needs_attention_rows has already split the checks into .actionable (nonzero
+count) and .all_clear (zero), so this is two plain loops — the zero/nonzero
+decision is not re-made here.
+
+Presentation, per §2b: every actionable check gets a full row (icon, label,
+.pill count, chevron) linking to the page that owns the work; every all-clear
+check collapses into a compact chip instead of a full row. The one exception
+is a single actionable check, which is promoted to the mockup's status-tinted
+.attn-card so the lone open item reads as a headline rather than an orphaned
+row. That card's amber is status only — its "Review" link stays --action
+green, per the rule in §3.
+
 NOTE: {# #} is single-line only in Django — a multi-line one renders as visible
 text. Anything spanning lines must use {% templatetag openblock %} comment {% templatetag closeblock %}.
 {% endcomment %}
@@ -148,37 +158,52 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
   <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
     <div>
       <h3>Needs Attention</h3>
-      <p class="gv-meta mb-0">Open items across stock, purchasing, orders and billing</p>
+      <p class="gv-meta mb-0">{{ needs_attention.subtitle }}</p>
     </div>
     <a href="{% url 'alerts_center' %}">View all alerts &rarr;</a>
   </div>
 
-  {% for row in needs_attention %}
-  <a href="{{ row.url }}" class="row-between"
-     style="padding:12px var(--s6); color:var(--ink-900); text-decoration:none;
-            {% if not forloop.last %}border-bottom:1px solid var(--line-soft);{% endif %}">
-    <span style="display:flex; align-items:center; gap:var(--s3);">
-      <span style="display:flex; color:var(--ink-600);" aria-hidden="true">
-        {% if row.icon == 'alert' %}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
-        {% elif row.icon == 'clock' %}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
-        {% elif row.icon == 'truck' %}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 16V5h11v11"/><path d="M14 9h4l3 3.5V16h-7"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg>
-        {% elif row.icon == 'cart' %}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-        {% else %}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 20V4h5a4 4 0 0 1 0 8H6"/><path d="M6 16h8"/></svg>
-        {% endif %}
+  {% if needs_attention.actionable|length == 1 %}
+    {% for row in needs_attention.actionable %}
+    <a href="{{ row.url }}" class="attn-card">
+      <span class="attn-ico" aria-hidden="true">{% include "reports/_attention_icon.html" with icon=row.icon %}</span>
+      <span>
+        <span class="attn-card-title">{{ row.label }} <span class="pill {{ row.pill }}">{{ row.count }}</span></span>
+        <span class="attn-card-body">{{ row.detail }}</span>
       </span>
-      <span style="font-weight:600;">{{ row.label }}</span>
-    </span>
-    <span style="display:flex; align-items:center; gap:var(--s3);">
-      <span class="pill {{ row.pill }}">{{ row.count }}</span>
-      <span aria-hidden="true" style="color:var(--ink-600); font-size:18px; line-height:1;">&rsaquo;</span>
-    </span>
-  </a>
-  {% endfor %}
+      <span class="attn-card-go">Review &rarr;</span>
+    </a>
+    {% endfor %}
+  {% else %}
+    {% for row in needs_attention.actionable %}
+    <a href="{{ row.url }}" class="attn-row">
+      <span class="attn-label">
+        <span class="attn-ico" aria-hidden="true">{% include "reports/_attention_icon.html" with icon=row.icon %}</span>
+        {{ row.label }}
+      </span>
+      <span class="attn-end">
+        <span class="pill {{ row.pill }}">{{ row.count }}</span>
+        <span class="attn-chevron" aria-hidden="true">&rsaquo;</span>
+      </span>
+    </a>
+    {% endfor %}
+  {% endif %}
+
+  {% if needs_attention.all_clear %}
+  <div class="attn-clear">
+    <div class="attn-clear-head">
+      <span class="attn-clear-label">All clear</span>
+      <span class="attn-clear-rule"></span>
+    </div>
+    <div class="attn-clear-grid">
+      {% for row in needs_attention.all_clear %}
+      <a href="{{ row.url }}" class="attn-chip">
+        <span class="attn-check" aria-hidden="true">&check;</span>{{ row.label }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {% comment %}

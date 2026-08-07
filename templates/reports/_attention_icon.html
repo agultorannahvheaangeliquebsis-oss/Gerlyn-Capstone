@@ -1,0 +1,20 @@
+{% comment %}
+The Needs Attention check icons (DESIGN.md §2b), factored out because the
+same set is drawn by both presentations of a check — the compact .attn-row
+and the single-actionable .attn-card. Keeping one copy stops the two from
+drifting apart.
+
+Usage: {% include "reports/_attention_icon.html" with icon=row.icon %}
+Sizing and colour come from the .attn-ico wrapper, not from here.
+{% endcomment %}
+{% if icon == 'alert' %}
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
+{% elif icon == 'clock' %}
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+{% elif icon == 'truck' %}
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 16V5h11v11"/><path d="M14 9h4l3 3.5V16h-7"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg>
+{% elif icon == 'cart' %}
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+{% else %}
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 20V4h5a4 4 0 0 1 0 8H6"/><path d="M6 16h8"/></svg>
+{% endif %}

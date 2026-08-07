@@ -773,3 +773,75 @@ input::placeholder { color: var(--ink-400); }
 .hbar-axis { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); margin-top: var(--s1); }
 .hbar-axis-ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--line-soft); padding-top: 6px; }
 .hbar-axis-ticks span { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-400); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------ dashboard "Needs Attention"
+   DESIGN.md §2b. Three presentations of the same check, chosen server-side
+   by _needs_attention_rows so the template stays two plain loops:
+
+     .attn-row    one actionable check among several — icon, label, count
+                  badge, chevron, whole row is the link
+     .attn-card   the single-actionable case — the same check promoted to a
+                  status-tinted card with a sentence of context
+     .attn-chip   an all-clear check, collapsed so it costs one grid cell
+                  instead of a full row
+
+   The amber on .attn-card is status, never action (§3): it says "this is a
+   warning", not "click here". Its call to action stays --action green like
+   every other primary affordance, which is also why the count badge there is
+   the shared .pill and not a bespoke amber-filled dot. */
+.attn-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  padding: 12px var(--s6); min-height: var(--touch);
+  color: var(--ink-900); text-decoration: none;
+  border-bottom: 1px solid var(--line-soft);
+}
+.attn-row:last-child { border-bottom: none; }
+.attn-row:hover { background: var(--green-50); color: var(--ink-900); }
+.attn-label { display: flex; align-items: center; gap: var(--s3); font-weight: 600; }
+.attn-end { display: flex; align-items: center; gap: var(--s3); }
+.attn-ico { display: flex; flex: none; color: var(--ink-600); }
+.attn-ico svg { width: 18px; height: 18px; }
+.attn-chevron { color: var(--ink-400); font-size: 18px; line-height: 1; }
+
+.attn-card {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: var(--s3);
+  margin: var(--s4) var(--s6); padding: 13px var(--s4);
+  background: var(--warn-bg); border: 1px solid #EAC97E;
+  border-left: 4px solid var(--warn-dot); border-radius: 11px;
+  color: var(--ink-900); text-decoration: none;
+}
+.attn-card:hover { box-shadow: var(--shadow-card); color: var(--ink-900); }
+.attn-card .attn-ico {
+  width: 32px; height: 32px; border-radius: var(--r-input);
+  background: var(--surface); border: 1px solid #EAC97E; color: var(--warn-fg);
+  align-items: center; justify-content: center;
+}
+.attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 system-ui, sans-serif; color: var(--warn-fg); }
+.attn-card-body { font: 400 13px/1.5 system-ui, sans-serif; color: var(--ink-700); margin-top: 3px; }
+.attn-card-go { align-self: center; white-space: nowrap; font: 700 13.5px/1 system-ui, sans-serif; color: var(--action); }
+.attn-card:hover .attn-card-go { color: var(--action-700); }
+
+.attn-clear { padding: var(--s4) var(--s6); }
+.attn-clear-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
+.attn-clear-label {
+  font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--ink-400); white-space: nowrap;
+}
+.attn-clear-rule { height: 1px; flex: 1; background: var(--line); }
+.attn-clear-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.attn-chip {
+  display: flex; align-items: center; gap: var(--s2); min-height: var(--touch);
+  padding: var(--s2) 11px; font: 400 13.5px/1.3 system-ui, sans-serif;
+  color: var(--ink-600); text-decoration: none;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-input);
+}
+.attn-chip:hover { border-color: var(--input-line); color: var(--ink-900); }
+.attn-check {
+  width: 16px; height: 16px; flex: none; border-radius: var(--r-pill);
+  background: var(--ok-bg); color: var(--ok-fg);
+  display: flex; align-items: center; justify-content: center;
+  font: 700 10px/1 system-ui, sans-serif;
+}
+@media (max-width: 520px) {
+  .attn-clear-grid { grid-template-columns: 1fr; }
+}
