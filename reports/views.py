@@ -704,7 +704,16 @@ def operational_dashboard(request):
     # or malformed selection falls back to the session, then to the last 30
     # days. Branch Status (§2h) and Recent Activity (§2f) are deliberately NOT
     # scoped by it — they answer "right now", not "over the selected window".
-    range_start, range_end, active_range = range_from_request(request, today=today)
+    #
+    # allow_all=False: this view buckets one entry per day across the range
+    # (_dashboard_daily_series) and compares it against a previous window of
+    # equal length, neither of which is defined without a lower bound. An
+    # 'all' selection carried in from Reports — or hand-typed as ?range=all —
+    # falls back to the default window here, without disturbing what the user
+    # picked, so returning to Reports still shows All time.
+    range_start, range_end, active_range = range_from_request(
+        request, today=today, allow_all=False
+    )
     metrics = _dashboard_metrics(sales_qs, procurement_qs, range_start, range_end)
     kpi_cards, kpi_graphs = _dashboard_kpi_payload(metrics, range_start, range_end)
     branch_breakdown = metrics['branch_breakdown']
@@ -767,6 +776,8 @@ def operational_dashboard(request):
         # The Dashboard has no other filters to preserve when the range
         # changes, so the control carries nothing (DESIGN.md §2e).
         'daterange_carry': [],
+        # No "All time" chip here — see allow_all above.
+        'daterange_hide_all': True,
         # low_stock_count still feeds the Restock Suggestions header; the four
         # quiet stat tiles it used to sit beside are gone (duplicated the Needs
         # Attention rows / were static catalog facts, not daily decisions).
@@ -814,10 +825,13 @@ def reports_dashboard(request):
     # Range comparison, NOT __year=/__month= — those compile to CONVERT_TZ on
     # MySQL and silently match nothing here. See core/timebounds.
     range_start, range_end, active_range = range_from_request(request)
-    period_start, period_end = local_range_bounds(range_start, range_end)
-    sales_qs = sales_qs.filter(
-        transaction_date__gte=period_start, transaction_date__lt=period_end
-    )
+    _, period_end = local_range_bounds(range_end, range_end)
+    sales_qs = sales_qs.filter(transaction_date__lt=period_end)
+    # 'All time' resolves to a None start — no lower bound at all, rather than
+    # a substituted sentinel date that would quietly clamp real history.
+    if range_start is not None:
+        period_start, _ = local_range_bounds(range_start, range_start)
+        sales_qs = sales_qs.filter(transaction_date__gte=period_start)
 
     sales_qs = sales_qs.order_by('-transaction_date')
 
@@ -1379,10 +1393,12 @@ def billing_report(request):
     # an empty report for every range. local_range_bounds keeps the end
     # inclusive of its whole day. See core.timebounds.
     range_start, range_end, active_range = range_from_request(request)
-    period_start, period_end = local_range_bounds(range_start, range_end)
-    records_qs = records_qs.filter(
-        date_recorded__gte=period_start, date_recorded__lt=period_end
-    )
+    _, period_end = local_range_bounds(range_end, range_end)
+    records_qs = records_qs.filter(date_recorded__lt=period_end)
+    # See the Sales tab: 'All time' means no lower bound, not a sentinel date.
+    if range_start is not None:
+        period_start, _ = local_range_bounds(range_start, range_start)
+        records_qs = records_qs.filter(date_recorded__gte=period_start)
 
     records = list(records_qs.order_by('-date_recorded'))
 
@@ -1507,9 +1523,10 @@ def procurement_report(request):
     # plain DateField with no tz component, so it compares against the dates
     # directly — no local_range_bounds needed here (see core/timebounds).
     range_start, range_end, active_range = range_from_request(request)
-    procurement_qs = procurement_qs.filter(
-        order_date__gte=range_start, order_date__lte=range_end
-    )
+    procurement_qs = procurement_qs.filter(order_date__lte=range_end)
+    # See the Sales tab: 'All time' means no lower bound, not a sentinel date.
+    if range_start is not None:
+        procurement_qs = procurement_qs.filter(order_date__gte=range_start)
 
     records = list(procurement_qs.order_by('-order_date'))
 

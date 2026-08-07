@@ -17,6 +17,12 @@ Context expected:
   daterange_carry  list of (name, value) pairs for the page's OTHER filters,
                    so choosing a range never silently drops the branch or
                    search the user already set
+  daterange_hide_all
+                   True hides the "All time" chip on surfaces that cannot
+                   render an unbounded range (the Dashboard buckets per day
+                   and needs a previous window of equal length). The server
+                   enforces this too — see range_from_request(allow_all=) —
+                   so hiding the chip is presentation, not the guard.
 
 NOTE: like the avatar menu, this does not close on outside-click without JS.
 That matches the existing component rather than introducing a new behaviour.
@@ -30,6 +36,7 @@ That matches the existing component rather than introducing a new behaviour.
       {% if active_range == 'today' %}Today
       {% elif active_range == '7' %}Last 7 days
       {% elif active_range == 'this_month' %}This month
+      {% elif active_range == 'all' %}All time
       {% elif active_range == 'custom' %}{{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}
       {% else %}Last 30 days{% endif %}
     </span>
@@ -49,6 +56,15 @@ That matches the existing component rather than introducing a new behaviour.
             class="daterange-preset{% if active_range == '30' %} is-active{% endif %}">Last 30 days</button>
     <button type="submit" name="range" value="this_month"
             class="daterange-preset{% if active_range == 'this_month' %} is-active{% endif %}">This month</button>
+    {% comment %}
+    Negative flag on purpose: a missing context variable resolves falsy in
+    Django, so pages that say nothing get the chip, and only a page that
+    explicitly opts out loses it.
+    {% endcomment %}
+    {% if not daterange_hide_all %}
+    <button type="submit" name="range" value="all"
+            class="daterange-preset{% if active_range == 'all' %} is-active{% endif %}">All time</button>
+    {% endif %}
 
     <div class="daterange-custom">
       <span class="daterange-custom-head">Custom range</span>
