@@ -20,7 +20,10 @@ from branches.models import Branch
 from accounts.models import User
 from core.scoping import branch_ids_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, role_required
-from core.timebounds import local_day_bounds, local_month_bounds, local_range_bounds, resolve_date_range
+from core.timebounds import (
+    local_day_bounds, local_month_bounds, local_range_bounds,
+    parse_iso_date, resolve_date_range,
+)
 
 
 def get_user_branch(user):
@@ -57,16 +60,6 @@ def _scoped_querysets(user):
 # constraint already documented on `month_keys` in reports_dashboard below.
 # `Procurement.order_date` is a plain DateField with no tz component, so it
 # doesn't need this and is bucketed directly (see _dashboard_daily_series).
-
-def _parse_iso_date(value):
-    """A YYYY-MM-DD request param as a date, or None if absent/malformed."""
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, '%Y-%m-%d').date()
-    except ValueError:
-        return None
-
 
 def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24, pad_y=24,
                       x_fractions=None):
@@ -713,8 +706,8 @@ def operational_dashboard(request):
     # the task list once already.)
     range_start, range_end, active_range = resolve_date_range(
         request.GET.get('range'),
-        _parse_iso_date(request.GET.get('date_from')),
-        _parse_iso_date(request.GET.get('date_to')),
+        parse_iso_date(request.GET.get('date_from')),
+        parse_iso_date(request.GET.get('date_to')),
         today=today,
     )
     metrics = _dashboard_metrics(sales_qs, procurement_qs, range_start, range_end)

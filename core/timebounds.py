@@ -32,7 +32,8 @@ Fields declared as plain DateField (e.g. Procurement.order_date) carry no
 timezone component and are NOT affected; `__month=` is correct on those and
 they do not need these helpers.
 """
-from datetime import datetime, timedelta
+import calendar
+from datetime import date, datetime, timedelta
 
 from django.utils import timezone
 
@@ -106,3 +107,88 @@ def resolve_date_range(preset, date_from=None, date_to=None, today=None):
     if preset == 'custom' and date_from and date_to and date_from <= date_to:
         return date_from, date_to, 'custom'
     return today - timedelta(days=29), today, '30'
+
+
+# The date range the whole back office shares (DESIGN.md §2e). Persisted per
+# session so the selection survives navigation, the same way session['language']
+# and the storefront's session['branch_id'] already work.
+DATE_RANGE_SESSION_KEY = 'date_range'
+
+
+def parse_iso_date(value):
+    """A YYYY-MM-DD request param as a date, or None if absent/malformed."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except ValueError:
+        return None
+
+
+def month_as_range(value):
+    """
+    A legacy `?month=YYYY-MM` param as the (first, last) dates of that month,
+    or None if absent/malformed.
+
+    Reports' Sales tab filtered by month before the shared range control
+    existed (DESIGN.md §2e), and those URLs are still in bookmarks and in the
+    wild. Mapping the param onto its equivalent custom range keeps them
+    landing on the same data instead of silently falling back to the default
+    30 days — a wrong-figures failure that never raises.
+
+    The equivalence is exact, not approximate: `local_range_bounds` composes
+    `local_day_bounds` at each endpoint, so first-of-month 00:00 through
+    first-of-next-month 00:00 — byte-identical to what `local_month_bounds`
+    returns for the same month.
+    """
+    if not value:
+        return None
+    try:
+        year, month = (int(part) for part in value.split('-'))
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, 1), date(year, month, last_day)
+    except (ValueError, TypeError, calendar.IllegalMonthError):
+        return None
+
+
+def range_from_request(request, today=None):
+    """
+    Resolve the shared date range for a request (DESIGN.md §2e).
+
+    Precedence, deliberately in this order:
+      1. URL params (`range`, plus `date_from`/`date_to` for custom) — so a
+         copied link always reproduces exactly what the sender saw.
+      2. Legacy `?month=YYYY-MM`, mapped onto its equivalent custom range.
+      3. The session's last selection, so the choice survives navigation.
+      4. resolve_date_range's own fallback (last 30 days).
+
+    The resolved selection is written back to the session on every call, so
+    the next page without params continues where the user left off. Note a
+    relative preset is re-resolved against *today* each time rather than
+    being pinned to the dates it produced, so "Last 7 days" keeps rolling.
+
+    Returns (start, end, preset) exactly like resolve_date_range.
+    """
+    preset = request.GET.get('range')
+    date_from = parse_iso_date(request.GET.get('date_from'))
+    date_to = parse_iso_date(request.GET.get('date_to'))
+
+    if not preset:
+        legacy = month_as_range(request.GET.get('month'))
+        if legacy:
+            preset, date_from, date_to = 'custom', legacy[0], legacy[1]
+
+    if not preset:
+        stored = request.session.get(DATE_RANGE_SESSION_KEY) or {}
+        preset = stored.get('range')
+        date_from = date_from or parse_iso_date(stored.get('date_from'))
+        date_to = date_to or parse_iso_date(stored.get('date_to'))
+
+    start, end, active = resolve_date_range(preset, date_from, date_to, today=today)
+
+    request.session[DATE_RANGE_SESSION_KEY] = {
+        'range': active,
+        'date_from': start.isoformat(),
+        'date_to': end.isoformat(),
+    }
+    return start, end, active
