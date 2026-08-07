@@ -92,7 +92,7 @@ the left, the existing table on the right, stacking below 860px via the shared
     {% if branch_chart.total %}
     <div class="pie-wrap">
       <svg viewBox="0 0 {{ branch_chart.box }} {{ branch_chart.box }}" width="160" height="160" role="img"
-           aria-label="Sales by branch: {% for seg in branch_chart.segments %}{{ seg.name }} {{ seg.pct }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
+           aria-label="Sales by branch, {{ branch_chart.total_display }} total: {% for seg in branch_chart.segments %}{{ seg.name }} {{ seg.pct }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
         <g transform="rotate(-90 {{ branch_chart.centre }} {{ branch_chart.centre }})">
           {% for seg in branch_chart.segments %}
           <circle cx="{{ branch_chart.centre }}" cy="{{ branch_chart.centre }}" r="{{ branch_chart.radius }}"
@@ -100,11 +100,16 @@ the left, the existing table on the right, stacking below 860px via the shared
                   stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"/>
           {% endfor %}
         </g>
+        {% comment %}
+        Same centre treatment as the Dashboard's donut (DESIGN.md §2c keeps
+        the two identical): peso total as the headline, branch count as the
+        secondary line.
+        {% endcomment %}
         <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="-2"
-              style="font: 700 15px/1 system-ui, sans-serif; fill: var(--ink-900);">{{ branch_chart.branch_count }}</text>
-        <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="15"
+              style="font: 700 17px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ branch_chart.total_display }}</text>
+        <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="14"
               style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
-          branch{{ branch_chart.branch_count|pluralize:"es" }}</text>
+          {{ branch_chart.branch_count }} branch{{ branch_chart.branch_count|pluralize:"es" }}</text>
       </svg>
       <ul class="pie-legend">
         {% for seg in branch_chart.segments %}

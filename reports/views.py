@@ -911,6 +911,37 @@ DONUT_BOX = 160
 DONUT_GAP = 2.0  # surface-coloured gap between adjacent fills
 
 
+def _compact_peso(amount):
+    """
+    A peso figure short enough to sit inside the donut's centre hole.
+
+    The hole is only (RADIUS - STROKE/2) * 2 = 94 user units across, so a
+    full "₱1,234,567.89" would run out over the ring. Thousands stay exact
+    and comma-separated (₱68,585); only millions and up abbreviate, where
+    the trailing digits carry no decision value at a glance. Nothing is
+    lost either way — the panel subtitle still prints the exact figure to
+    two decimals, and this is the same number, tightened to fit.
+    """
+    value = float(amount or 0)
+
+    # Compared on the ROUNDED value, not the raw one: 999,999.60 would print
+    # as "1,000,000" — a glyph wider than the exact form is allowed to get —
+    # so it belongs in the abbreviated branch despite being under a million.
+    rounded = round(value)
+    if rounded < 1_000_000:
+        return f'₱{rounded:,.0f}'
+
+    # Each unit is chosen by what it would actually PRINT at two decimals,
+    # not by a raw threshold. Testing the raw value instead lets 999,999,999
+    # fail the billion check, fall through to millions, and render the
+    # self-contradicting "₱1000.00M".
+    for divisor, suffix in ((1_000_000_000, 'B'), (1_000_000, 'M')):
+        scaled = value / divisor
+        if round(scaled, 2) >= 1:
+            return f'₱{scaled:.2f}{suffix}'
+    return f'₱{rounded:,.0f}'  # unreachable; keeps every path returning a string
+
+
 def _sales_by_branch_chart(sales_qs):
     """
     "Sales by Branch" donut for the Reports Sales tab.
@@ -936,7 +967,8 @@ def _sales_by_branch_chart(sales_qs):
     rows = sorted(by_branch.items(), key=lambda kv: -kv[1])
     total = sum(by_branch.values())
     if not total:
-        return {'total': 0, 'segments': [], 'circumference': 0, 'radius': DONUT_RADIUS,
+        return {'total': 0, 'total_display': _compact_peso(0), 'segments': [],
+                'circumference': 0, 'radius': DONUT_RADIUS,
                 'stroke': DONUT_STROKE, 'box': DONUT_BOX, 'centre': DONUT_BOX / 2,
                 'branch_count': 0, 'overflow': 0}
 
@@ -974,14 +1006,19 @@ def _sales_by_branch_chart(sales_qs):
 
     return {
         'total': total,
+        # The donut's headline figure: the amount the ring divides up, which
+        # is what the panel subtitle already states. The branch count reads
+        # as the secondary line beneath it — a donut's centre answers "how
+        # much", and the ring and legend already answer "across how many".
+        'total_display': _compact_peso(total),
         'segments': segments,
         'circumference': round(circumference, 2),
         'radius': DONUT_RADIUS,
         'stroke': DONUT_STROKE,
         'box': DONUT_BOX,
         'centre': DONUT_BOX / 2,
-        # Real branch count for the donut's centre label — the segment count
-        # understates it once branches are folded into "Other branches".
+        # Real branch count for the donut's secondary label — the segment
+        # count understates it once branches fold into "Other branches".
         'branch_count': len(rows),
         'overflow': len(folded),
     }
