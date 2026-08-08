@@ -17,10 +17,10 @@
   align-items: center;
   gap: 6px;
   font: 400 13.5px/1 system-ui, sans-serif;
-  color: var(--ink-400);
+  color: var(--ink-500);
   margin-bottom: 12px;
 }
-.breadcrumb a { color: var(--ink-400); text-decoration: none; }
+.breadcrumb a { color: var(--ink-500); text-decoration: none; }
 .breadcrumb a:hover { color: var(--action); }
 .breadcrumb .sep { font-size: 12px; }
 .breadcrumb .current { color: var(--ink-700); font-weight: 600; }
@@ -197,7 +197,7 @@
   align-items: center;
   gap: 6px;
   font: 400 13px/1 system-ui, sans-serif;
-  color: var(--ink-400);
+  color: var(--ink-500);
   margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: .04em;
@@ -267,7 +267,7 @@
 }
 .security-item-sub {
   font: 400 13px/1.3 system-ui, sans-serif;
-  color: var(--ink-400);
+  color: var(--ink-500);
   margin-top: 2px;
 }
 
@@ -473,7 +473,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .account-empty {
   text-align: center;
   padding: 32px 16px;
-  color: var(--ink-400);
+  color: var(--ink-500);
   font: 400 14px/1.4 system-ui, sans-serif;
 }
 
