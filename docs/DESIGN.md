@@ -362,7 +362,18 @@ And the internal routes it was meant for already have the affordance. Thirteen d
 
 Converting the thirteen working back-links to `›` trails would be churn that also duplicates every `<h1>`. Not planned. The component stays available for chains that earn it.
 
-**Known gap, not a styling one.** `billing/billing_form.html` is reachable from two parents — `transaction_detail` and `billing_detail`'s "Edit payment details"/"Upload proof" — but its back-link is hardcoded to `transaction_detail`. Arriving from Billing, "← ORD-…" navigates to Sales & Orders instead of back to the record, and the page's own `page_subtitle` says "Billing" while its back-link disagrees. A breadcrumb does not fix this on its own: a static trail is equally wrong for one of the two paths. Needs a decision about which parent the page claims, or a trail derived from how it was reached.
+**The one route that earns the component: `billing/billing_form.html`.** It is reachable from two parents — `transaction_detail`, and `billing_detail`'s "Edit payment details"/"Upload proof" — and carried a single hardcoded back-link to the order, so anyone arriving from Billing was moved into Sales & Orders on the way back while the page header still said "Billing".
+
+A static trail would have been equally wrong for one of the two paths, so the entry links state where they came from and `billing_create` builds the trail from that:
+
+| Entry | Trail |
+|---|---|
+| Order detail *(no flag)* | Sales & Orders › ORD-… › Record payment |
+| Billing record *(`?from=billing`)* | Billing › ORD-… › Record payment |
+
+A `from` flag rather than `?next=<url>` on purpose: the choice is only ever between two known routes, and a flag cannot be pointed somewhere arbitrary, so there is no redirect target to validate. Anything unrecognised falls through to the order — the older path, and the safe default.
+
+This is also the shape the rule above predicts: three levels with a record in the middle, where both the section and the record are invisible without a trail. The order number came out of the subtitle at the same time, since the trail now names it and the branch was the only other thing that line carried.
 
 ---
 
@@ -421,6 +432,6 @@ Start small — each task is independently shippable:
 8. **Add Recent Activity feed** (2f) to Dashboard — can run in parallel with tasks 5/6, since it's unscoped by the date-range control and has no dependency on the date-resolver work those tasks need
 9. **Reframe Recent Orders as Open Orders** (2g) — depends on task 8, since the reframe is what stops the two panels overlapping
 10. **Build standardized date-range control** (2e) and wire into Dashboard + Reports + Alerts toolbars
-11. ~~**Add breadcrumbs** under topbar for deep routes~~ — mostly moot, see §2's "Breadcrumbs". The component moved to `gerlyn.css`; the internal routes already carry `← Parent` links and are not being converted. What remains is the `billing_form` two-parent problem, which is a navigation decision rather than a component to build
+11. ~~**Add breadcrumbs** under topbar for deep routes~~ — done, though not as written. See §2's "Breadcrumbs": the component moved to `gerlyn.css`, the thirteen internal `← Parent` links stay as they are, and the one route that genuinely needed a trail (`billing_form`, two parents) has one
 12. **Fold Categories into Products** as a filter/tab (when team is ready)
 13. *(Lower priority, optional)* **Reports multi-panel row** (2c) and **Sales & Orders funnel** (2d)

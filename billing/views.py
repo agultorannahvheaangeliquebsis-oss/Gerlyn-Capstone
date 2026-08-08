@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.urls import reverse
 from django.utils import timezone
 from .models import BillingRecord
 from sales.models import SalesTransaction
@@ -128,10 +129,37 @@ def billing_create(request, transaction_id):
         messages.success(request, 'Billing record saved.')
         return redirect('billing_detail', pk=record.pk)
 
+    # This page has two front doors — the order's own detail page, and the
+    # billing record's "Edit payment details" / "Upload proof". It used to
+    # carry one hardcoded back-link to the order, so anyone who arrived from
+    # Billing was quietly moved into Sales & Orders on the way back, while
+    # the page header still said "Billing".
+    #
+    # The entry links state where they came from. A `from` flag rather than a
+    # `?next=<url>`: this only ever chooses between two known routes, and a
+    # flag cannot be pointed at an arbitrary destination, so there is nothing
+    # to validate. Anything unrecognised falls through to the order, which is
+    # the older of the two paths and the safe default.
+    #
+    # Three levels deep with a record in the middle is the case DESIGN.md's
+    # breadcrumb rule reserves the component for: the section and the record
+    # are both invisible otherwise.
+    if request.GET.get('from') == 'billing' and existing is not None:
+        trail = [
+            ('Billing', reverse('billing_list')),
+            (txn.order_number, reverse('billing_detail', args=[existing.pk])),
+        ]
+    else:
+        trail = [
+            ('Sales & Orders', reverse('transaction_list')),
+            (txn.order_number, reverse('transaction_detail', args=[txn.pk])),
+        ]
+
     return render(request, 'billing/billing_form.html', {
         'transaction': txn,
         'record': existing,  # Pass to template so it can pre-fill payment_method if desired
         'payment_choices': BillingRecord.PaymentMethod.choices,
+        'breadcrumb': trail,
     })
 
 

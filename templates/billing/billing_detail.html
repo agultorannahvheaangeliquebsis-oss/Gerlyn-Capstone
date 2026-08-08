@@ -51,7 +51,7 @@
       </tbody>
     </table>
     {% if record.status != "Paid" %}
-      <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}">Edit payment details</a>
+      <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Edit payment details</a>
     {% endif %}
   </div>
 
@@ -65,7 +65,7 @@
         <span class="glyph">□</span>
         <h3>No proof uploaded</h3>
         <p>GCash or bank payments can attach a screenshot as evidence.</p>
-        <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}">Upload proof</a>
+        <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
       </div>
     {% endif %}
   </div>

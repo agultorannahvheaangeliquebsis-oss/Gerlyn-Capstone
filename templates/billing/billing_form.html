@@ -5,9 +5,24 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="gv-meta" href="{% url 'transaction_detail' transaction.pk %}">&larr; {{ transaction.order_number }}</a>
-    <h1 class="mt-2">Record Payment</h1>
-    <p class="gv-meta mb-0">{{ transaction.order_number }} · {{ transaction.branch.branch_name }}</p>
+    {% comment %}
+    A breadcrumb rather than this page's old "← ORD-…" back-link, because the
+    page has two front doors and that link only ever named one of them. The
+    trail is built in billing.views.billing_create from the `from` flag the
+    entry links carry, so both paths get told the truth.
+
+    The order number moves out of the subtitle below: the trail now names it,
+    and the branch is what the subtitle was adding on top of that.
+    {% endcomment %}
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      {% for label, url in breadcrumb %}
+      <a href="{{ url }}">{{ label }}</a>
+      <span class="sep" aria-hidden="true">&rsaquo;</span>
+      {% endfor %}
+      <span class="current" aria-current="page">Record payment</span>
+    </nav>
+    <h1>Record Payment</h1>
+    <p class="gv-meta mb-0">{{ transaction.branch.branch_name }}</p>
   </div>
 </div>
 
