@@ -225,18 +225,27 @@ def _dashboard_metrics(sales_qs, procurement_qs, start, end):
         key = name or 'Unassigned'
         prev_branch_totals[key] = prev_branch_totals.get(key, 0) + (amount or 0)
 
+    # Whether the previous window holds anything at all is a property of the
+    # RANGE, not of any one metric — when it is empty every KPI is equally
+    # uncomparable. Resolved once here so the cards can state it once instead
+    # of four cards each rendering the same "nothing to compare" pill.
+    prev_window_empty = not any(
+        prev_totals[k] for k in ('sales', 'procurement_cost', 'txn_count')
+    )
+
     return {
         'daily': daily,
         'totals': totals,
         'atv_points': atv_points,
         'prev_totals': prev_totals,
+        'prev_window_empty': prev_window_empty,
         'period_days': period_days,
         'branch_breakdown': branch_breakdown,
         'prev_branch_totals': prev_branch_totals,
     }
 
 
-def _delta_pill(current, previous, compare_label):
+def _delta_pill(current, previous, compare_label, prev_window_empty=False):
     """
     Period-over-period change as a status pill (DESIGN.md §2a) — the shared
     .pill-ok/.pill-danger/.pill-neutral trio, not a bespoke up/down/flat set.
@@ -245,9 +254,24 @@ def _delta_pill(current, previous, compare_label):
     both the approved mockup and the cards this replaces. Note that reads as
     "rising" rather than "good" on Procurement Cost; giving that card an
     inverted polarity is a product decision, not a rendering one.
+
+    Returns None when there is nothing to compare against at all. A bare
+    `if not previous` used to answer that, which conflated two unrelated
+    facts under one string:
+
+      * the previous window is empty  — true of the RANGE, so it is true of
+        all four metrics at once. Four cards each saying "No previous 24 days
+        to compare" says nothing four times, in the most prominent slot on
+        every card. The caller states it once instead, and gets None here.
+      * the previous window has data but THIS metric was zero — true of one
+        metric. The old string was simply false in that case: a previous
+        window did exist. Percentage change from zero is undefined, so the
+        pill names the fact rather than inventing a number.
     """
+    if prev_window_empty:
+        return None
     if not previous:
-        return {'text': f'No {compare_label} to compare', 'pill': 'pill-neutral'}
+        return {'text': f'None in the {compare_label}', 'pill': 'pill-neutral'}
     pct = round(((float(current) - float(previous)) / float(previous)) * 100, 1)
     rising = pct >= 0
     return {
@@ -290,6 +314,38 @@ KPI_TIERS = {
 KPI_POINT_RADIUS = 3
 
 
+def _kpi_format(value, unit):
+    return f'₱{value:,.2f}' if unit == 'currency' else f'{int(value):,}'
+
+
+def _series_peak(values, labels, unit):
+    """
+    The series' high point, for the graph panel's subtitle.
+
+    Replaces the foot line the panel used to carry, which was the selected
+    card's foot repeated verbatim a few pixels below it. The peak is the one
+    thing about the plotted line that nothing else on the page states: the
+    chart has no y-axis, so without it the shape is readable but its
+    magnitude is not.
+
+    Two empty states, and they are not the same one:
+
+      * no values at all — Avg. Transaction Value drops days with no
+        transactions, so an inactive range leaves it with nothing to plot.
+        The panel already renders its own "Nothing to chart" state for that,
+        so this returns nothing and lets the chart do the talking.
+      * values present but every one of them zero — the chart still draws,
+        as a flat line on the midline, so something has to say what it is
+        sitting at. "Peak ₱0.00" is technically true and completely useless.
+    """
+    if not values:
+        return ''
+    hi = max(values)
+    if not hi:
+        return 'No activity in this range'
+    return f'Peak {_kpi_format(hi, unit)} · {labels[values.index(hi)]}'
+
+
 def _dashboard_kpi_payload(metrics, start, end):
     """
     The four KPI cards (DESIGN.md §2a) and the graph series each one swaps
@@ -307,6 +363,15 @@ def _dashboard_kpi_payload(metrics, start, end):
     period_days = metrics['period_days']
     compare_label = f'previous {period_days} day{_plural(period_days)}'
     txn_count = totals['txn_count']
+    prev_empty = metrics['prev_window_empty']
+
+    # Said once, above the rail, instead of once per card. Empty string when a
+    # comparison exists, so the template renders nothing rather than a box
+    # explaining that everything is normal.
+    compare_note = (
+        f'Nothing was recorded in the {compare_label}, so there is no change to show yet.'
+        if prev_empty else ''
+    )
 
     def x_fraction(day):
         return 0.0 if period_days <= 1 else (day - start).days / (period_days - 1)
@@ -320,7 +385,7 @@ def _dashboard_kpi_payload(metrics, start, end):
             'tier': 'primary',
             'value_display': f'₱{totals["sales"]:,.2f}',
             'foot': f'{period_days} day{_plural(period_days)} · {txn_count} transaction{_plural(txn_count)}',
-            'delta': _delta_pill(totals['sales'], prev['sales'], compare_label),
+            'delta': _delta_pill(totals['sales'], prev['sales'], compare_label, prev_empty),
             'values': [float(d['sales']) for d in daily],
             'labels': every_day_labels,
             'x_fractions': None,
@@ -330,7 +395,7 @@ def _dashboard_kpi_payload(metrics, start, end):
             'unit': 'currency', 'tier': 'primary',
             'value_display': f'₱{totals["atv"]:,.2f}',
             'foot': f'₱{totals["sales"]:,.2f} ÷ {txn_count} transaction{_plural(txn_count)}',
-            'delta': _delta_pill(totals['atv'], prev['atv'], compare_label),
+            'delta': _delta_pill(totals['atv'], prev['atv'], compare_label, prev_empty),
             # Days with no transactions are absent entirely, and the x
             # positions keep the remaining ones on the real time axis.
             'values': [float(p['value']) for p in atv_points],
@@ -342,7 +407,7 @@ def _dashboard_kpi_payload(metrics, start, end):
             'tier': 'secondary',
             'value_display': f'₱{totals["procurement_cost"]:,.2f}',
             'foot': f'{period_days} day{_plural(period_days)} of supplier spend',
-            'delta': _delta_pill(totals['procurement_cost'], prev['procurement_cost'], compare_label),
+            'delta': _delta_pill(totals['procurement_cost'], prev['procurement_cost'], compare_label, prev_empty),
             'values': [float(d['procurement_cost']) for d in daily],
             'labels': every_day_labels,
             'x_fractions': None,
@@ -352,7 +417,7 @@ def _dashboard_kpi_payload(metrics, start, end):
             'tier': 'secondary',
             'value_display': f'{txn_count:,}',
             'foot': f'across {period_days} day{_plural(period_days)}',
-            'delta': _delta_pill(txn_count, prev['txn_count'], compare_label),
+            'delta': _delta_pill(txn_count, prev['txn_count'], compare_label, prev_empty),
             'values': [float(d['txn_count']) for d in daily],
             'labels': every_day_labels,
             'x_fractions': None,
@@ -368,6 +433,13 @@ def _dashboard_kpi_payload(metrics, start, end):
             'delta': spec['delta'],
         })
         tier = KPI_TIERS[spec['tier']]
+        # No 'foot' and no 'delta' here: both were the selected card's own
+        # strings repeated a few pixels below it, and the card is tinted
+        # .active while its panel is open. 'valueDisplay' does stay — it is
+        # what the aria-live region announces on a card click, and a panel
+        # that announced only its own title would answer nothing. 'peak' is
+        # the replacement subtitle, and is the only line here that says
+        # something the card does not.
         graphs[spec['key']] = {
             'label': spec['label'], 'unit': spec['unit'],
             'stroke': KPI_LINE, 'fill': KPI_AREA,
@@ -375,10 +447,11 @@ def _dashboard_kpi_payload(metrics, start, end):
             'strokeWidth': tier['stroke_width'],
             'areaOpacity': tier['area_opacity'],
             'pointRadius': KPI_POINT_RADIUS,
-            'valueDisplay': spec['value_display'], 'foot': spec['foot'],
-            'delta': spec['delta'], **graph,
+            'valueDisplay': spec['value_display'],
+            'peak': _series_peak(spec['values'], spec['labels'], spec['unit']),
+            **graph,
         }
-    return cards, graphs
+    return cards, graphs, compare_note
 
 
 def _branch_legend_rows(breakdown, prev_branch_totals):
@@ -754,7 +827,9 @@ def operational_dashboard(request):
         # unbounded span, which would bucket from year zero.
         range_start = min(candidates) if candidates else range_end
     metrics = _dashboard_metrics(sales_qs, procurement_qs, range_start, range_end)
-    kpi_cards, kpi_graphs = _dashboard_kpi_payload(metrics, range_start, range_end)
+    kpi_cards, kpi_graphs, kpi_compare_note = _dashboard_kpi_payload(
+        metrics, range_start, range_end
+    )
     branch_breakdown = metrics['branch_breakdown']
     branch_legend = _branch_legend_rows(branch_breakdown, metrics['prev_branch_totals'])
 
@@ -795,6 +870,7 @@ def operational_dashboard(request):
         # donut, all derived from the one resolved range (DESIGN.md §2a/§2c).
         'kpi_cards': kpi_cards,
         'kpi_graphs': kpi_graphs,
+        'kpi_compare_note': kpi_compare_note,
         # Default panel state (Total Sales) — server-rendered so the panel
         # holds real content before dashboard-kpi.js takes over on click.
         'default_kpi_key': 'total_sales',

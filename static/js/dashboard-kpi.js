@@ -28,8 +28,7 @@
   var emptyEl = document.getElementById('kpi-graph-empty');
   var labelEl = document.getElementById('kpi-graph-label');
   var valueEl = document.getElementById('kpi-graph-value');
-  var footEl = document.getElementById('kpi-graph-foot');
-  var deltaEl = document.getElementById('kpi-graph-delta');
+  var peakEl = document.getElementById('kpi-graph-peak');
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
   function formatValue(unit, value) {
@@ -56,14 +55,6 @@
       circle.appendChild(title);
       pointsEl.appendChild(circle);
     });
-  }
-
-  function renderDelta(delta) {
-    deltaEl.textContent = '';
-    var span = document.createElement('span');
-    span.className = 'pill ' + delta.pill;
-    span.textContent = delta.text;
-    deltaEl.appendChild(span);
   }
 
   function activate(key) {
@@ -105,10 +96,11 @@
       renderPoints(entry);
     }
 
+    // The panel no longer restates the card's foot or delta pill — the card
+    // is tinted .active while its panel is open, so it already says both.
     labelEl.textContent = entry.label;
     valueEl.textContent = entry.valueDisplay;
-    if (footEl) footEl.textContent = entry.foot;
-    renderDelta(entry.delta);
+    if (peakEl) peakEl.textContent = entry.peak;
   }
 
   Array.prototype.forEach.call(cards, function (card) {

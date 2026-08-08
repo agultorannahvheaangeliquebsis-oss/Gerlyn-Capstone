@@ -32,16 +32,31 @@ Every figure here is scoped to the resolved date range, and its headline
 string is the same one the graph panel shows for that metric — both come
 from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
 {% endcomment %}
-<div class="kpi-row mb-6">
-  {% for card in kpi_cards %}
-  <button type="button" class="stat-hero{% if forloop.first %} active{% endif %}"
-          data-kpi-key="{{ card.key }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">
-    <span class="label">{{ card.label }}</span>
-    <span class="value">{{ card.value_display }}</span>
-    <span class="mt-2" style="display:block;"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
-    <span class="gv-meta mt-2" style="display:block;">{{ card.foot }}</span>
-  </button>
-  {% endfor %}
+<div class="mb-6">
+  <div class="kpi-row">
+    {% for card in kpi_cards %}
+    <button type="button" class="stat-hero{% if forloop.first %} active{% endif %}"
+            data-kpi-key="{{ card.key }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">
+      <span class="label">{{ card.label }}</span>
+      <span class="value">{{ card.value_display }}</span>
+      {% comment %}
+      No pill when there is nothing to compare against. _delta_pill returns
+      None for that, rather than a pill reading "No previous 24 days to
+      compare" — which every card rendered identically, in the most prominent
+      slot each one has, pushing the actual figure into second place. The
+      reason is a property of the range, not of four separate metrics, so it
+      is stated once below the rail instead.
+      {% endcomment %}
+      {% if card.delta %}
+      <span class="mt-2" style="display:block;"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
+      {% endif %}
+      <span class="gv-meta mt-2" style="display:block;">{{ card.foot }}</span>
+    </button>
+    {% endfor %}
+  </div>
+  {% if kpi_compare_note %}
+  <p class="kpi-compare-note">{{ kpi_compare_note }}</p>
+  {% endif %}
 </div>
 
 {% comment %}
@@ -55,20 +70,24 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
 
 <div class="kpi-graph-panel">
   {% comment %}
-  aria-live: clicking a KPI card rewrites the label, value, foot and delta
-  below via dashboard-kpi.js. Without a live region the button announces
-  "pressed" and nothing else, so the one thing the interaction exists to do
-  goes unannounced. aria-atomic re-reads the whole block — "₱12,345" on its
-  own, with no metric name attached, is not an answer.
+  aria-live: clicking a KPI card rewrites this block via dashboard-kpi.js.
+  Without a live region the button announces "pressed" and nothing else, so
+  the one thing the interaction exists to do goes unannounced. aria-atomic
+  re-reads the whole block — "₱12,345" on its own, with no metric name
+  attached, is not an answer.
+
+  The foot line and the delta pill used to sit here too, both repeating the
+  selected card verbatim about forty pixels below it. They are gone: the card
+  is tinted .active while its panel is open, so it is already doing that job.
+  The value stays because this region is what announces the change, and the
+  peak line replaces the foot as the one thing here the card does not say —
+  the chart has no y-axis, so nothing else gives the line a magnitude.
   {% endcomment %}
-  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);"
+  <div class="card-pad" style="border-bottom:1px solid var(--line);"
        aria-live="polite" aria-atomic="true">
-    <div>
-      <h3 id="kpi-graph-label">{{ default_kpi_graph.label }}</h3>
-      <p class="mb-0" id="kpi-graph-value" style="font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums;">{{ default_kpi_graph.valueDisplay }}</p>
-      <p class="gv-meta mb-0" id="kpi-graph-foot">{{ default_kpi_graph.foot }}</p>
-    </div>
-    <span id="kpi-graph-delta"><span class="pill {{ default_kpi_graph.delta.pill }}">{{ default_kpi_graph.delta.text }}</span></span>
+    <h3 id="kpi-graph-label">{{ default_kpi_graph.label }}</h3>
+    <p class="mb-0" id="kpi-graph-value" style="font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums;">{{ default_kpi_graph.valueDisplay }}</p>
+    <p class="gv-meta mb-0" id="kpi-graph-peak">{{ default_kpi_graph.peak }}</p>
   </div>
   <div class="card-pad">
     <svg id="kpi-graph-svg" viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none"
