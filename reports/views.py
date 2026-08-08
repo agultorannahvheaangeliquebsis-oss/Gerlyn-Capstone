@@ -260,6 +260,36 @@ def _plural(n, suffix='s'):
     return suffix if n != 1 else ''
 
 
+# One hue for all four KPI series. Procurement Cost and Total Transactions
+# used to be stroked --ink-400, the muted non-text grey, so they rendered as if
+# disabled rather than secondary. Defined once so the four cannot drift apart.
+KPI_LINE = 'var(--brand)'
+KPI_AREA = 'var(--green-50)'
+
+# Primary/secondary tier, expressed as weight rather than colour.
+#
+# Not stroke opacity: --brand is 3.38:1 on --surface, only just over the 3:1
+# SC 1.4.11 floor for a meaningful graphic, so ANY fade fails it — 0.85 drops
+# to 2.76:1 and 0.5 to 1.78:1, the same washed-out value that made the old
+# --green-300 focus ring invisible. Fading the line is how you get back to
+# "disabled" by a different route.
+#
+# So the two dials are split by what each can afford to lose:
+#   stroke-width  carries the line   — full-opacity hue, contrast untouched
+#   fill-opacity  carries the area   — purely decorative, free to lighten
+# Same ink, less weight: the chart equivalent of 400 vs 600 in one colour.
+#
+# Two dials, not three. Point markers stay a uniform r=3 across both tiers:
+# they carry the per-point tooltip, so they are the interactive target, and
+# shrinking them on the secondary metrics costs hit area to move the
+# marker-to-line ratio from 4:1 to 3.33:1 — not a difference anyone sees.
+KPI_TIERS = {
+    'primary':   {'stroke_width': '2.5', 'area_opacity': '1'},
+    'secondary': {'stroke_width': '1.5', 'area_opacity': '0.45'},
+}
+KPI_POINT_RADIUS = 3
+
+
 def _dashboard_kpi_payload(metrics, start, end):
     """
     The four KPI cards (DESIGN.md §2a) and the graph series each one swaps
@@ -287,7 +317,7 @@ def _dashboard_kpi_payload(metrics, start, end):
     specs = [
         {
             'key': 'total_sales', 'label': 'Total Sales', 'unit': 'currency',
-            'stroke': 'var(--brand)',
+            'tier': 'primary',
             'value_display': f'₱{totals["sales"]:,.2f}',
             'foot': f'{period_days} day{_plural(period_days)} · {txn_count} transaction{_plural(txn_count)}',
             'delta': _delta_pill(totals['sales'], prev['sales'], compare_label),
@@ -297,7 +327,7 @@ def _dashboard_kpi_payload(metrics, start, end):
         },
         {
             'key': 'avg_transaction_value', 'label': 'Avg. Transaction Value',
-            'unit': 'currency', 'stroke': 'var(--brand)',
+            'unit': 'currency', 'tier': 'primary',
             'value_display': f'₱{totals["atv"]:,.2f}',
             'foot': f'₱{totals["sales"]:,.2f} ÷ {txn_count} transaction{_plural(txn_count)}',
             'delta': _delta_pill(totals['atv'], prev['atv'], compare_label),
@@ -309,7 +339,7 @@ def _dashboard_kpi_payload(metrics, start, end):
         },
         {
             'key': 'procurement_cost', 'label': 'Procurement Cost', 'unit': 'currency',
-            'stroke': 'var(--ink-400)',
+            'tier': 'secondary',
             'value_display': f'₱{totals["procurement_cost"]:,.2f}',
             'foot': f'{period_days} day{_plural(period_days)} of supplier spend',
             'delta': _delta_pill(totals['procurement_cost'], prev['procurement_cost'], compare_label),
@@ -319,7 +349,7 @@ def _dashboard_kpi_payload(metrics, start, end):
         },
         {
             'key': 'total_transactions', 'label': 'Total Transactions', 'unit': 'count',
-            'stroke': 'var(--ink-400)',
+            'tier': 'secondary',
             'value_display': f'{txn_count:,}',
             'foot': f'across {period_days} day{_plural(period_days)}',
             'delta': _delta_pill(txn_count, prev['txn_count'], compare_label),
@@ -337,8 +367,14 @@ def _dashboard_kpi_payload(metrics, start, end):
             'value_display': spec['value_display'], 'foot': spec['foot'],
             'delta': spec['delta'],
         })
+        tier = KPI_TIERS[spec['tier']]
         graphs[spec['key']] = {
-            'label': spec['label'], 'unit': spec['unit'], 'stroke': spec['stroke'],
+            'label': spec['label'], 'unit': spec['unit'],
+            'stroke': KPI_LINE, 'fill': KPI_AREA,
+            'tier': spec['tier'],
+            'strokeWidth': tier['stroke_width'],
+            'areaOpacity': tier['area_opacity'],
+            'pointRadius': KPI_POINT_RADIUS,
             'valueDisplay': spec['value_display'], 'foot': spec['foot'],
             'delta': spec['delta'], **graph,
         }

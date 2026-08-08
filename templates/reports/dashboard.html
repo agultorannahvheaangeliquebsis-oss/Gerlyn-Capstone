@@ -73,8 +73,9 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
   <div class="card-pad">
     <svg id="kpi-graph-svg" viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none"
          {% if not default_kpi_graph.points %}hidden{% endif %}>
-      <path id="kpi-graph-area" d="{{ default_kpi_graph.area }}" fill="var(--green-50)" stroke="none"/>
-      <polyline id="kpi-graph-line" points="{{ default_kpi_graph.polyline }}" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      {# colours come from the payload, so the server-rendered first paint and the JS swap cannot disagree #}
+      <path id="kpi-graph-area" d="{{ default_kpi_graph.area }}" fill="{{ default_kpi_graph.fill }}" fill-opacity="{{ default_kpi_graph.areaOpacity }}" stroke="none"/>
+      <polyline id="kpi-graph-line" points="{{ default_kpi_graph.polyline }}" fill="none" stroke="{{ default_kpi_graph.stroke }}" stroke-width="{{ default_kpi_graph.strokeWidth }}" stroke-linecap="round" stroke-linejoin="round"/>
       <g id="kpi-graph-points"></g>
     </svg>
     {% comment %}

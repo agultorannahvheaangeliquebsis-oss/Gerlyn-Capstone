@@ -47,7 +47,7 @@
       var circle = document.createElementNS(SVG_NS, 'circle');
       circle.setAttribute('cx', p.x);
       circle.setAttribute('cy', p.y);
-      circle.setAttribute('r', 3);
+      circle.setAttribute('r', entry.pointRadius);
       circle.setAttribute('fill', entry.stroke);
       var title = document.createElementNS(SVG_NS, 'title');
       // p.date is already YYYY-MM-DD from the server — the system-wide date
@@ -88,12 +88,20 @@
 
     if (hasSeries) {
       areaEl.setAttribute('d', entry.area);
-      areaEl.setAttribute(
-        'fill',
-        entry.stroke === 'var(--brand)' ? 'var(--green-50)' : 'var(--line-soft)'
-      );
+      // Both colours come from the payload (KPI_LINE/KPI_AREA in views.py).
+      // This used to pick the fill by string-comparing the stroke against the
+      // literal 'var(--brand)', which silently fell through to a grey area for
+      // any other value — the reason Procurement Cost and Total Transactions
+      // rendered as though they were disabled.
+      areaEl.setAttribute('fill', entry.fill);
+      // Primary/secondary tier (KPI_TIERS in views.py). Weight, not colour:
+      // the hue stays --brand at full opacity on every metric, because fading
+      // it drops the line under the 3:1 SC 1.4.11 floor and lands back on
+      // "disabled". The area can fade freely — it carries no data.
+      areaEl.setAttribute('fill-opacity', entry.areaOpacity);
       lineEl.setAttribute('points', entry.polyline);
       lineEl.setAttribute('stroke', entry.stroke);
+      lineEl.setAttribute('stroke-width', entry.strokeWidth);
       renderPoints(entry);
     }
 
