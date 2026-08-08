@@ -145,9 +145,13 @@ Status: settled. The codebase already has a proper design token system in `gerly
 
 /* Semantic status */
 --ok-bg:     #E3F3EB   --ok-fg:     #1E7A4F   --ok-dot:     #2E9E6B
---warn-bg:   #FCF0D4   --warn-fg:   #7C4A05   --warn-dot:   #B45309
+--warn-bg:   #F6EFE2   --warn-fg:   #7D5A32   --warn-dot:   #B98452
 --danger-bg: #FDE8E6   --danger-fg: #9A1C12   --danger-dot: #B42318
 --info-bg:   #EAF6F0   --info-fg:   #14603C   --info-dot:   #2E9E6B
+
+/* CTA on a status tint (§3) — verify numerically before adding one */
+--warn-cta:   #8F5A2B          /* 5.01:1 on --warn-bg */
+--danger-cta: var(--danger-dot) /* 5.59:1 on --danger-bg */
 
 /* Spacing */
 --s1: 4px   --s2: 8px   --s3: 12px  --s4: 16px
