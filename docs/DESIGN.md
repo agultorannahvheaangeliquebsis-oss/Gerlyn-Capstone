@@ -171,7 +171,7 @@ Status: settled. The codebase already has a proper design token system in `gerly
 | Component | Description |
 |---|---|
 | `.btn` / `.btn-primary` / `.btn-quiet` / `.btn-danger` / `.btn-danger-solid` / `.btn-sm` | Full button system, already uses tokens |
-| `.pill-ok` / `.pill-warn` / `.pill-danger` / `.pill-info` / `.pill-neutral` | Status pills with dot+label, accessible for color-blind users |
+| `.pill-ok` / `.pill-warn` / `.pill-danger` / `.pill-info` / `.pill-neutral` | Status pills with a full text label, accessible for color-blind users (the label does that work, not colour) |
 | `.gv-table` | Sticky headers, zebra rows, right-aligned `.num` columns, responsive stacking at ≤860px |
 | `.stat` / `.stat-hero` | Two-tier KPI cards (quiet flat vs. elevated hero) |
 | `.kpi-card` / `.kpi-card.highlight` / `.kpi-card.danger` / `.kpi-card.warn` | Report KPI cards with icon, value, label, and status-tinted variants |
