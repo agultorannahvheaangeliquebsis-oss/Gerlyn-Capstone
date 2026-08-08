@@ -133,7 +133,8 @@ Status: settled. The codebase already has a proper design token system in `gerly
 --ink-900: #17251E   /* headings, data */
 --ink-700: #3E4E45
 --ink-600: #56655D   /* secondary text */
---ink-400: #8A968F   /* labels, muted */
+--ink-500: #627069   /* muted TEXT — prefer this one */
+--ink-400: #8A968F   /* NON-TEXT only: chevrons, icon glyphs, borders */
 
 /* Surfaces */
 --bg:         #F5F7F6
