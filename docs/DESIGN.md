@@ -347,8 +347,22 @@ The collapsed state already works as an icon-only rail. Potential enhancement: a
 
 *(Note: stakeholder inspo referenced a hover-to-reveal icon rail as a liked pattern — Gerlyn's sidebar already implements the collapsed icon-only rail described in "Existing components." The flyout-on-hover sub-item behavior above is the only piece not yet built; no other change needed here.)*
 
-**6. Breadcrumbs**
-Add a compact breadcrumb bar under the topbar for routes deeper than one level (e.g. Purchase Orders → PO-2026-003). Not currently implemented anywhere.
+**6. Breadcrumbs — mostly already solved, in a different idiom**
+
+Both premises of the original note were wrong, so it is restated rather than kept. A `.breadcrumb` component *is* implemented — `<nav aria-label="breadcrumb">` with `.sep` and `.current` — and eight customer account pages use it. It was defined in `account.css`, which the internal shell never loads, which is why it looked absent from that side. It now lives in `gerlyn.css` where both shells can see it.
+
+And the internal routes it was meant for already have the affordance. Thirteen detail/form/confirm pages open with `← Purchase Orders`, `← Stock Adjustments`, `← Suppliers` and so on. That is a two-level breadcrumb written as an action instead of a location.
+
+**The rule, then, is depth — not "deeper than one level".**
+
+| Chain | Use | Why |
+|---|---|---|
+| Section → record *(the common case)* | `← Section` back-link | The sidebar already shows the section, and the record is the `<h1>` directly below. A trail would restate the heading it sits on top of |
+| Three or more, or a parent that is itself a record | `.breadcrumb` | The middle of the chain is genuinely invisible otherwise |
+
+Converting the thirteen working back-links to `›` trails would be churn that also duplicates every `<h1>`. Not planned. The component stays available for chains that earn it.
+
+**Known gap, not a styling one.** `billing/billing_form.html` is reachable from two parents — `transaction_detail` and `billing_detail`'s "Edit payment details"/"Upload proof" — but its back-link is hardcoded to `transaction_detail`. Arriving from Billing, "← ORD-…" navigates to Sales & Orders instead of back to the record, and the page's own `page_subtitle` says "Billing" while its back-link disagrees. A breadcrumb does not fix this on its own: a static trail is equally wrong for one of the two paths. Needs a decision about which parent the page claims, or a trail derived from how it was reached.
 
 ---
 
@@ -407,6 +421,6 @@ Start small — each task is independently shippable:
 8. **Add Recent Activity feed** (2f) to Dashboard — can run in parallel with tasks 5/6, since it's unscoped by the date-range control and has no dependency on the date-resolver work those tasks need
 9. **Reframe Recent Orders as Open Orders** (2g) — depends on task 8, since the reframe is what stops the two panels overlapping
 10. **Build standardized date-range control** (2e) and wire into Dashboard + Reports + Alerts toolbars
-11. **Add breadcrumbs** under topbar for deep routes
+11. ~~**Add breadcrumbs** under topbar for deep routes~~ — mostly moot, see §2's "Breadcrumbs". The component moved to `gerlyn.css`; the internal routes already carry `← Parent` links and are not being converted. What remains is the `billing_form` two-parent problem, which is a navigation decision rather than a component to build
 12. **Fold Categories into Products** as a filter/tab (when team is ready)
 13. *(Lower priority, optional)* **Reports multi-panel row** (2c) and **Sales & Orders funnel** (2d)

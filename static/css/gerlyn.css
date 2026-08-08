@@ -587,6 +587,27 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: var(--s4); margin-bottom: var(--s6); flex-wrap: wrap;
 }
+/* ------------------------------------------------------------ breadcrumb
+   Lived in account.css, which only the customer account pages load — so the
+   internal shell could not use the component it already had. It is page
+   chrome, not an account feature, so it belongs here where both shells see
+   it. Markup is <nav aria-label="breadcrumb"> with .sep between items and
+   .current on the last.
+
+   Worth knowing before reaching for this: most internal detail routes are
+   two levels deep and already carry an "← Parent" link, which says the same
+   thing in less space and does not restate the <h1> underneath it. This
+   earns its place when the chain is genuinely three deep. */
+.breadcrumb {
+  display: flex; align-items: center; gap: 6px;
+  font: 400 13.5px/1 system-ui, sans-serif;
+  color: var(--ink-500); margin-bottom: var(--s3);
+}
+.breadcrumb a { color: var(--ink-500); text-decoration: none; }
+.breadcrumb a:hover { color: var(--action); }
+.breadcrumb .sep { font-size: 12px; }
+.breadcrumb .current { color: var(--ink-700); font-weight: 600; }
+
 .toolbar { display: flex; gap: var(--s2); margin-bottom: var(--s4); flex-wrap: wrap; }
 .toolbar .input, .toolbar select { width: auto; min-width: 200px; }
 

@@ -11,19 +11,9 @@
   align-items: start;
 }
 
-/* ── Breadcrumb ────────────────────────────────────────────────── */
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: 400 13.5px/1 system-ui, sans-serif;
-  color: var(--ink-500);
-  margin-bottom: 12px;
-}
-.breadcrumb a { color: var(--ink-500); text-decoration: none; }
-.breadcrumb a:hover { color: var(--action); }
-.breadcrumb .sep { font-size: 12px; }
-.breadcrumb .current { color: var(--ink-700); font-weight: 600; }
+/* Breadcrumb moved to gerlyn.css — it is not an account-only component, and
+   defining it here made it unavailable to the internal shell, which loads
+   gerlyn.css and never loads this file. */
 
 /* ── Sidebar ───────────────────────────────────────────────────── */
 .account-sidebar {
