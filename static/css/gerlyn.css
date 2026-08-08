@@ -892,6 +892,11 @@ input::placeholder { color: var(--ink-400); }
   background: var(--surface); border: 1px solid var(--status-line); color: var(--status-ink);
   align-items: center; justify-content: center;
 }
+/* The count badge is a .pill, whose -bg is the SAME token as the card it sits
+   on (pill-warn on --warn-bg, pill-danger on --danger-bg), so it painted tint
+   on identical tint and the count read as loose text. Lift it onto --surface;
+   the pill keeps its own -fg, so the status colour still comes through. */
+.attn-card .pill { background: var(--surface); }
 .attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 system-ui, sans-serif; color: var(--status-ink); }
 .attn-card-body { font: 400 13px/1.5 system-ui, sans-serif; color: var(--ink-700); margin-top: 3px; }
 /* §3: the CTA takes the card's status colour, not --action. Hover deepens to
