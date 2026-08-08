@@ -20,7 +20,14 @@
   --ink-900: #17251E;  /* headings, data */
   --ink-700: #3E4E45;
   --ink-600: #56655D;  /* secondary text */
-  --ink-400: #8A968F;  /* labels, muted */
+  /* Muted TEXT. --ink-400 is 3.07:1 on --surface and worse on every other
+     surface, so it fails 4.5:1 at the 11-14px these labels actually run at
+     (the 3:1 large-text allowance needs 18.66px bold). --ink-500 is the same
+     hue family measured to clear 4.5:1 everywhere it lands:
+     surface 5.20 · surface-2 5.04 · bg 4.83 · line-soft 4.64 · green-50 4.69.
+     line-soft is the binding one — .gv-table th sits on it. */
+  --ink-500: #627069;  /* muted text — the accessible one, prefer this */
+  --ink-400: #8A968F;  /* NON-TEXT only: chevrons, icon glyphs, borders */
 
   /* Surfaces + lines */
   --bg:         #F5F7F6;
@@ -90,15 +97,19 @@ h3, .gv-card-title { font: 600 18px/1.3 system-ui, sans-serif; margin: 0; }
 .gv-meta { font: 400 14px/1.45 system-ui, sans-serif; color: var(--ink-600); }
 .gv-label {
   font: 700 12px/1.2 system-ui, sans-serif;
-  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-400);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
 }
 .gv-muted { color: var(--ink-600); }
 .num { font-variant-numeric: tabular-nums; }
 
-/* Focus: 3px green ring on every control. */
+/* Focus: 3px green ring on every control.
+   --brand, not --green-300: WCAG 2.2 SC 1.4.11 wants 3:1 for a focus
+   indicator and green-300 is 1.78:1 on --surface — visible in theory, not in
+   practice. --brand clears it on every surface a ring lands on
+   (surface 3.38 · bg 3.14 · green-50 3.05). */
 a:focus-visible, button:focus-visible, input:focus-visible,
 select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
-  outline: 3px solid var(--green-300);
+  outline: 3px solid var(--brand);
   outline-offset: 2px;
   border-radius: var(--r-input);
 }
@@ -141,7 +152,7 @@ input[type=date], input[type=password], input[type=email], select, textarea {
   width: 100%;
 }
 textarea { padding: 10px 14px; min-height: 80px; resize: vertical; max-width: 100%; }
-input::placeholder { color: var(--ink-400); }
+input::placeholder { color: var(--ink-500); }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-700); }
 
@@ -213,7 +224,8 @@ input::placeholder { color: var(--ink-400); }
   font: inherit; color: inherit; display: block;
 }
 .stat-hero[data-kpi-key] .value { display: block; margin-top: 2px; }
-.stat-hero[data-kpi-key]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* No :focus-visible override here — the global ring is --brand now, so this
+   only ever made the cards' ring 1px thinner than every other control's. */
 .stat-hero.active { background: var(--green-50); border-color: var(--brand); }
 
 /* Shared graph panel the hero cards render into on click (DESIGN.md
@@ -269,7 +281,7 @@ input::placeholder { color: var(--ink-400); }
   position: sticky; top: 0; z-index: 1;
   background: var(--line-soft);
   font: 700 12px/1.2 system-ui, sans-serif;
-  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-400);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
   text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
@@ -282,7 +294,7 @@ input::placeholder { color: var(--ink-400); }
 .gv-table tbody tr:nth-child(even) { background: var(--surface-2); }
 .gv-table tbody tr:hover { background: var(--green-50); }
 .gv-table th.num, .gv-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.gv-table .sku { color: var(--ink-400); font-variant-numeric: tabular-nums; }
+.gv-table .sku { color: var(--ink-500); font-variant-numeric: tabular-nums; }
 .gv-table .strong { font-weight: 600; }
 .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
@@ -357,7 +369,7 @@ input::placeholder { color: var(--ink-400); }
    by the sidebar instead of ellipsizing. */
 .sb-logo-text { min-width: 0; flex: 1 1 auto; }
 .sb-logo-name { display: block; font: 750 15px/1.2 system-ui, sans-serif; }
-.sb-logo-sub { display: block; font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-400); }
+.sb-logo-sub { display: block; font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-500); }
 
 .sb-who {
   display: flex; align-items: center; gap: 10px;
@@ -543,7 +555,7 @@ input::placeholder { color: var(--ink-400); }
   position: sticky; top: 0; z-index: 5;
 }
 .topbar-title { font: 600 15px/1.2 system-ui, sans-serif; }
-.topbar-sub { font: 400 12.5px/1.2 system-ui, sans-serif; color: var(--ink-400); }
+.topbar-sub { font: 400 12.5px/1.2 system-ui, sans-serif; color: var(--ink-500); }
 .branch-chip {
   display: inline-flex; align-items: center; gap: 6px;
   height: 38px; padding: 0 14px; border-radius: var(--r-pill);
@@ -630,7 +642,7 @@ input::placeholder { color: var(--ink-400); }
   .gv-table td::before {
     content: attr(data-label);
     font: 700 12px/1.2 system-ui, sans-serif;
-    letter-spacing: .04em; text-transform: uppercase; color: var(--ink-400);
+    letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
     text-align: left; flex: none;
   }
   .gv-table td.num { text-align: right; }
@@ -824,7 +836,7 @@ input::placeholder { color: var(--ink-400); }
 .hbar-value { font: 600 13.5px/1 system-ui, sans-serif; color: var(--ink-900); font-variant-numeric: tabular-nums; }
 .hbar-axis { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); margin-top: var(--s1); }
 .hbar-axis-ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--line-soft); padding-top: 6px; }
-.hbar-axis-ticks span { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-400); font-variant-numeric: tabular-nums; }
+.hbar-axis-ticks span { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------ dashboard "Needs Attention"
    DESIGN.md §2b. Three presentations of the same check, chosen server-side
@@ -910,7 +922,7 @@ input::placeholder { color: var(--ink-400); }
 .attn-clear-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
 .attn-clear-label {
   font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
-  letter-spacing: .07em; color: var(--ink-400); white-space: nowrap;
+  letter-spacing: .07em; color: var(--ink-500); white-space: nowrap;
 }
 .attn-clear-rule { height: 1px; flex: 1; background: var(--line); }
 .attn-clear-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
@@ -939,7 +951,7 @@ input::placeholder { color: var(--ink-400); }
 .daterange { position: relative; }
 .daterange-trigger {
   display: inline-flex; align-items: center; gap: 8px; list-style: none;
-  min-height: 40px; padding: 0 14px; border-radius: var(--r-input);
+  min-height: var(--touch); padding: 0 14px; border-radius: var(--r-input);
   border: 1.5px solid var(--input-line); background: var(--surface);
   color: var(--ink-900); font: 600 14px/1 system-ui, sans-serif; cursor: pointer;
 }
@@ -949,14 +961,16 @@ input::placeholder { color: var(--ink-400); }
 .daterange-caret { color: var(--ink-600); font-size: 11px; }
 .daterange-panel {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
-  display: flex; flex-direction: column; gap: 2px; min-width: 240px;
+  display: flex; flex-direction: column; gap: var(--s1); min-width: 240px;
   padding: var(--s2); background: var(--surface);
   border: 1px solid var(--line); border-radius: var(--r-card);
   box-shadow: var(--shadow-hero);
 }
+/* min-height/gap are the --touch token, not the 38px/2px this used to run at:
+   four stacked submit buttons are the densest tap cluster in the app. */
 .daterange-preset {
-  display: block; width: 100%; text-align: left;
-  min-height: 38px; padding: 0 12px; border-radius: var(--r-input);
+  display: flex; align-items: center; width: 100%; text-align: left;
+  min-height: var(--touch); padding: 0 12px; border-radius: var(--r-input);
   border: none; background: none; color: var(--ink-700);
   font: 500 14px/1 system-ui, sans-serif; cursor: pointer;
 }
@@ -969,7 +983,7 @@ input::placeholder { color: var(--ink-400); }
 }
 .daterange-custom-head {
   font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
-  letter-spacing: .07em; color: var(--ink-400); padding: 0 12px;
+  letter-spacing: .07em; color: var(--ink-500); padding: 0 12px;
 }
 .daterange-field { display: flex; align-items: center; gap: var(--s2); padding: 0 12px; }
 .daterange-field > span { width: 38px; font: 400 13px/1 system-ui, sans-serif; color: var(--ink-600); }
@@ -1016,7 +1030,7 @@ input::placeholder { color: var(--ink-400); }
 .feed-sub { font: 400 12.5px/1.35 system-ui, sans-serif; color: var(--ink-600); }
 .feed-right { flex: none; text-align: right; }
 .feed-amount { display: block; font: 700 13.5px/1.35 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.feed-time { display: block; font: 400 12px/1.35 system-ui, sans-serif; color: var(--ink-400); font-variant-numeric: tabular-nums; }
+.feed-time { display: block; font: 400 12px/1.35 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
 /* In-app camera barcode scanner overlay (static/js/barcode-scanner.js). In
    gerlyn.css rather than account.css/storefront.css since it's used from
    internal admin pages (POS, Inventory, Products) that don't load those. */
@@ -1059,7 +1073,7 @@ input::placeholder { color: var(--ink-400); }
   font: 600 13px/1.4 system-ui, sans-serif;
   min-height: 18px;
 }
-.barcode-status-pending { color: var(--ink-400); font-weight: 400; }
+.barcode-status-pending { color: var(--ink-500); font-weight: 400; }
 .barcode-status-success { color: var(--ok-fg); }
 .barcode-status-info { color: var(--warn-fg); }
 .barcode-status-error { color: var(--danger-fg); }
@@ -1073,4 +1087,34 @@ input::placeholder { color: var(--ink-400); }
 @keyframes barcode-scan-flash {
   0% { background: var(--ok-bg); }
   100% { background: transparent; }
+}
+
+/* ---------------------------------------------------------------- skip link
+   WCAG 2.4.1 Bypass Blocks. The sidebar is a deep collapsible tree, so
+   without this a keyboard user tabs the whole nav to reach content on every
+   page. Off-screen until focused rather than display:none, which would take
+   it out of the tab order and defeat the point. */
+.skip-link {
+  position: absolute; left: var(--s4); top: -100%; z-index: 100;
+  display: inline-flex; align-items: center; min-height: var(--touch);
+  padding: 0 18px; border-radius: var(--r-input);
+  background: var(--action); color: #fff; text-decoration: none;
+  font: 600 14px/1 system-ui, sans-serif;
+  box-shadow: var(--shadow-hero);
+}
+.skip-link:focus { top: var(--s4); }
+
+/* ------------------------------------------------------- reduced motion
+   Honours the OS "reduce motion" setting. Everything animated here is
+   decorative easing (sidebar width, tree disclosure, content margin) — none
+   of it carries meaning, so near-zero duration loses nothing. Kept as 0.01ms
+   rather than 0s so animation/transition end events still fire for any
+   handler that waits on one. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

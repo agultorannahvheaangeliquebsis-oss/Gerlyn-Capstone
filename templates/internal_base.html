@@ -7,12 +7,18 @@
   <link rel="manifest" href="{% static 'manifest.json' %}">
   <meta name="theme-color" content="#1E7A4F">
   <link rel="apple-touch-icon" href="{% static 'img/icons/apple-touch-icon-180.png' %}">
-  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=23">
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v=24">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" defer></script>
   <script src="{% static 'js/live-filter.js' %}" defer></script>
   {% block extra_css %}{% endblock %}
 </head>
 <body>
+
+{% comment %}
+First focusable thing on the page, so it must precede the sidebar in the
+DOM — it is off-screen until focused (see .skip-link).
+{% endcomment %}
+<a class="skip-link" href="#main">Skip to main content</a>
 
 {# Role-aware dashboard target #}
 {% if request.user.role == 'OWNER' %}{% url 'accounts:owner_dashboard' as dash_url %}
@@ -209,7 +215,11 @@
       </div>
     </header>
 
-    <main class="content">
+    {% comment %}
+    tabindex="-1" so the skip link can actually move focus here; without it
+    the jump moves the viewport but leaves focus back in the nav.
+    {% endcomment %}
+    <main class="content" id="main" tabindex="-1">
       {% if messages %}
         {% for message in messages %}
           <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>

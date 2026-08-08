@@ -54,7 +54,15 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
 <div class="grid-2 mb-6" style="grid-template-columns: minmax(0, 1.6fr) minmax(260px, 340px);">
 
 <div class="kpi-graph-panel">
-  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+  {% comment %}
+  aria-live: clicking a KPI card rewrites the label, value, foot and delta
+  below via dashboard-kpi.js. Without a live region the button announces
+  "pressed" and nothing else, so the one thing the interaction exists to do
+  goes unannounced. aria-atomic re-reads the whole block — "₱12,345" on its
+  own, with no metric name attached, is not an answer.
+  {% endcomment %}
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);"
+       aria-live="polite" aria-atomic="true">
     <div>
       <h3 id="kpi-graph-label">{{ default_kpi_graph.label }}</h3>
       <p class="mb-0" id="kpi-graph-value" style="font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums;">{{ default_kpi_graph.valueDisplay }}</p>
