@@ -32,9 +32,19 @@
 
   /* Status — each pairs a bg, a text colour and a dot. */
   --ok-bg:     #E3F3EB;  --ok-fg:     #1E7A4F;  --ok-dot:     #2E9E6B;
-  --warn-bg:   #FCF0D4;  --warn-fg:   #7C4A05;  --warn-dot:   #B45309;
+  --warn-bg:   #F6EFE2;  --warn-fg:   #7D5A32;  --warn-dot:   #B98452;
   --danger-bg: #FDE8E6;  --danger-fg: #9A1C12;  --danger-dot: #B42318;
   --info-bg:   #EAF6F0;  --info-fg:   #14603C;  --info-dot:   #2E9E6B;
+
+  /* CTA colour for a call to action sitting ON a status tint (§3). The -dot
+     tokens are dot/border colours and are NOT all safe as type: measured at
+     the CTA's 13.5px/700 — below the 18.66px-bold large-text threshold, so
+     the bar is 4.5:1, not 3:1 — --warn-dot on --warn-bg is only 2.83:1.
+     --danger-dot clears it at 5.59:1 and is used directly; warn needs its own
+     darkened value. Add an -cta token per status before tinting a CTA on it;
+     --ok-dot (2.94:1) and --info-dot (3.05:1) would fail the same way. */
+  --warn-cta:   #8F5A2B;  /* 5.01:1 on --warn-bg */
+  --danger-cta: var(--danger-dot);  /* 5.59:1 on --danger-bg */
 
   /* Spacing (4px base) */
   --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
@@ -826,10 +836,17 @@ input::placeholder { color: var(--ink-400); }
      .attn-chip   an all-clear check, collapsed so it costs one grid cell
                   instead of a full row
 
-   The amber on .attn-card is status, never action (§3): it says "this is a
-   warning", not "click here". Its call to action stays --action green like
-   every other primary affordance, which is also why the count badge there is
-   the shared .pill and not a bespoke amber-filled dot. */
+   The tint on .attn-card is status, never action (§3): it says "this is a
+   warning", not "click here". Its call to action takes the card's OWN status
+   colour (--status-cta below), not --action green — §3 was reversed on this
+   point. --action green is now reserved for CTAs on neutral surfaces, so the
+   "View all alerts →" link in this panel's header stays green while the
+   "Review →" inside the tinted card does not.
+
+   The card carries its status as local custom properties rather than
+   repeating each token in a --danger override, so a third status only needs
+   the five --status-* lines. Escalation is a data decision made in
+   _needs_attention_rows (pill-danger), not re-derived here. */
 .attn-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
   padding: 12px var(--s6); min-height: var(--touch);
@@ -847,22 +864,41 @@ input::placeholder { color: var(--ink-400); }
 .attn-chevron { color: var(--ink-400); font-size: 18px; line-height: 1; }
 
 .attn-card {
+  --status-bg:   var(--warn-bg);
+  --status-line: #EAC97E;
+  --status-ink:  var(--warn-fg);
+  --status-dot:  var(--warn-dot);
+  --status-cta:  var(--warn-cta);
+
   display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: var(--s3);
   margin: var(--s4) var(--s6); padding: 13px var(--s4);
-  background: var(--warn-bg); border: 1px solid #EAC97E;
-  border-left: 4px solid var(--warn-dot); border-radius: 11px;
+  background: var(--status-bg); border: 1px solid var(--status-line);
+  border-left: 4px solid var(--status-dot); border-radius: 11px;
   color: var(--ink-900); text-decoration: none;
+}
+/* An escalated check — critical stock, already-expired batches. Without this
+   the card stayed amber while the .pill inside it went red, so the surface
+   and its own count badge disagreed about severity. */
+.attn-card--danger {
+  --status-bg:   var(--danger-bg);
+  --status-line: #E6B3AE;
+  --status-ink:  var(--danger-fg);
+  --status-dot:  var(--danger-dot);
+  --status-cta:  var(--danger-cta);
 }
 .attn-card:hover { box-shadow: var(--shadow-card); color: var(--ink-900); }
 .attn-card .attn-ico {
   width: 32px; height: 32px; border-radius: var(--r-input);
-  background: var(--surface); border: 1px solid #EAC97E; color: var(--warn-fg);
+  background: var(--surface); border: 1px solid var(--status-line); color: var(--status-ink);
   align-items: center; justify-content: center;
 }
-.attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 system-ui, sans-serif; color: var(--warn-fg); }
+.attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 system-ui, sans-serif; color: var(--status-ink); }
 .attn-card-body { font: 400 13px/1.5 system-ui, sans-serif; color: var(--ink-700); margin-top: 3px; }
-.attn-card-go { align-self: center; white-space: nowrap; font: 700 13.5px/1 system-ui, sans-serif; color: var(--action); }
-.attn-card:hover .attn-card-go { color: var(--action-700); }
+/* §3: the CTA takes the card's status colour, not --action. Hover deepens to
+   the status's own -fg (warn 5.43:1, danger 7.01:1) rather than --action-700,
+   which would jump hue mid-interaction. */
+.attn-card-go { align-self: center; white-space: nowrap; font: 700 13.5px/1 system-ui, sans-serif; color: var(--status-cta, var(--action)); }
+.attn-card:hover .attn-card-go { color: var(--status-ink, var(--action-700)); }
 
 .attn-clear { padding: var(--s4) var(--s6); }
 .attn-clear-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }

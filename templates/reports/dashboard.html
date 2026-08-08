@@ -202,8 +202,11 @@ Presentation, per §2b: every actionable check gets a full row (icon, label,
 check collapses into a compact chip instead of a full row. The one exception
 is a single actionable check, which is promoted to the mockup's status-tinted
 .attn-card so the lone open item reads as a headline rather than an orphaned
-row. That card's amber is status only — its "Review" link stays --action
-green, per the rule in §3.
+row. That card's tint is status only, but its "Review" CTA now takes the same
+status colour rather than --action green — §3 was reversed on this point, so
+green is reserved for CTAs on neutral surfaces (the "View all alerts →" in
+this panel's header is one). An escalated row tints the card red to match the
+pill it already carries.
 
 NOTE: {# #} is single-line only in Django — a multi-line one renders as visible
 text. Anything spanning lines must use {% templatetag openblock %} comment {% templatetag closeblock %}.
@@ -219,7 +222,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
 
   {% if needs_attention.actionable|length == 1 %}
     {% for row in needs_attention.actionable %}
-    <a href="{{ row.url }}" class="attn-card">
+    <a href="{{ row.url }}" class="attn-card{% if row.pill == 'pill-danger' %} attn-card--danger{% endif %}">
       <span class="attn-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=row.icon %}</span>
       <span>
         <span class="attn-card-title">{{ row.label }} <span class="pill {{ row.pill }}">{{ row.count }}</span></span>

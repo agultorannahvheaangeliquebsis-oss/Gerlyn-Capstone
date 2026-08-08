@@ -292,11 +292,30 @@ Why it went: sitting beside Needs Attention it read as a sixth unlisted check, a
 If per-branch pace is wanted again, it belongs somewhere with room to state its own axis — not adjacent to an actionable checklist. `_branch_status_rows()` and the `BRANCH_*` thresholds were deleted with the panel; recover them from history rather than rewriting from scratch.
 
 **3. Status color rule — enforce consistently**
-The tokens are correct but need a written rule:
 
-> **Amber/warning means "warning status" only — never use it for action buttons.**
-> A "Create PO" button is always `--action` (green primary), never orange/amber.
-> Status color and action color are separate systems.
+> **A CTA inside a status-tinted surface takes that status's own color. `--action` green is reserved for CTAs on neutral/unthemed surfaces.**
+> The tint decides the CTA: a warn-tinted card's "Review →" is `--warn-cta`, a danger-tinted card's is `--danger-cta`. Off a tint, every CTA stays `--action` green.
+> Status color still never *substitutes* for action color: a "Create PO" button on a plain white page is `--action` green, never amber.
+
+**This reverses the previous rule, it does not extend it.** §3 used to read "amber/warning means warning status only — never use it for action buttons… status color and action color are separate systems," and required a CTA to stay green *regardless* of the surface under it. That is no longer the rule and should not be reintroduced from doc history. What changed: on a tinted card the green CTA read as a second, competing status ("green = fine") on a surface whose whole job was to say "not fine." The surface owns the semantics; the CTA inherits them.
+
+The narrower claim inside the old rule survives — status color is not a *palette for buttons*. What died is the "regardless of surrounding color" clause.
+
+**Applying it:**
+- Scope is strictly CTAs *inside* a `*-bg`/`*-fg` tinted card or pill. Nav, table row actions, header links like "View all alerts →", and every `.btn-primary` are on neutral surfaces and stay green — this is a per-status modifier, not a change to `--action`
+- The card carries its status as local `--status-*` custom properties (`.attn-card` / `.attn-card--danger`); a CTA reads `var(--status-cta)`. A new status needs the five `--status-*` lines, not a new CTA rule
+- Hover deepens to the status's own `-fg`, never `--action-700` — jumping hue mid-interaction reads as a different control
+
+**The `-dot` tokens are not all usable as CTA type.** They were authored as dot/border colors. Measured against their own `-bg` at the CTA's 13.5px/700 — below the 18.66px-bold large-text threshold, so the bar is **4.5:1, not 3:1**:
+
+| status | `-dot` on own `-bg` | verdict |
+|---|---|---|
+| `--danger-dot` | 5.59:1 | passes — `--danger-cta` uses it directly |
+| `--warn-dot` | 2.83:1 | fails 4.5:1 *and* 3:1 → `--warn-cta` `#8F5A2B` (5.01:1) |
+| `--ok-dot` | 2.94:1 | would fail — needs its own `-cta` before use |
+| `--info-dot` | 3.05:1 | would fail — needs its own `-cta` before use |
+
+So: **add an `-cta` token per status and verify it numerically before tinting a CTA on that surface.** Do not reach for the `-dot` token and assume it carries. Softening `--warn-bg` toward the dot's hue is what pushed warn from 4.44:1 to 2.83:1 — a bg change can silently break a CTA that passed before, so re-measure both tokens whenever either moves.
 
 **4. Typography — consider Inter**
 Current: `system-ui`. Works fine and avoids font-loading latency. If the team wants a more distinctive look, switch to Inter (open-source, humanist, wide weight range). Not a priority — only change if actively wanted.
