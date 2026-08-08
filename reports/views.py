@@ -1499,6 +1499,46 @@ def inventory_report(request):
     })
 
 
+def _daily_spend_series(records, start, end):
+    """
+    Daily procurement spend, for the Procurement tab's trend panel (§2c).
+
+    Buckets in Python rather than in SQL because the caller has already
+    pulled `records` into a list to compute the KPI totals — going back to
+    the database for the same rows to group them would be a second query for
+    data already in memory.
+
+    Returns None when there is nothing to draw, so the template renders its
+    empty state rather than an axis with no line on it.
+
+    `start` is None on the "All time" range (§2e), which has no lower bound
+    by design. A per-day chart cannot bucket without one, so it resolves the
+    earliest order on record — the same exception, for the same reason, that
+    the Dashboard makes.
+    """
+    if not records:
+        return None
+    lo = start or min(p.order_date for p in records)
+    span = (end - lo).days + 1
+    if span < 1:
+        return None
+
+    buckets = {lo + timedelta(days=i): 0 for i in range(span)}
+    for p in records:
+        if p.order_date in buckets:
+            buckets[p.order_date] += p.total_cost
+
+    days = sorted(buckets)
+    values = [float(buckets[d]) for d in days]
+    series = _kpi_graph_series(values, [d.isoformat() for d in days])
+    hi = max(values)
+    series['peak'] = (
+        f'Peak ₱{hi:,.2f} · {days[values.index(hi)].isoformat()}' if hi
+        else 'No spend in this range'
+    )
+    return series
+
+
 @login_required(login_url='login')
 def procurement_report(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
@@ -1555,6 +1595,18 @@ def procurement_report(request):
         'received_value': received_value,
         'pending_delivery': pending_delivery,
         'chart': _procurement_status_chart(status_counts),
+        'spend_series': _daily_spend_series(records, range_start, range_end),
+        # The third panel of §2c's row. active_value (Draft + Ordered) and
+        # received_value are already computed above for the KPI cards, so the
+        # meter is a second reading of numbers the page is showing anyway —
+        # what it adds is the proportion between them, which no card states.
+        'spend_split': {
+            'received': received_value,
+            'outstanding': active_value,
+            'total': received_value + active_value,
+            'pct': round(received_value / (received_value + active_value) * 100)
+            if (received_value + active_value) else 0,
+        },
         'user_branch': user_branch,
         'active_page': 'reports',
     })

@@ -87,8 +87,18 @@ never silently resets the other.
   </div>
 </div>
 
-{# ---------------------------- status breakdown + PO list ---------------------------- #}
-<div class="grid-2" style="grid-template-columns: minmax(260px, 340px) 1fr;">
+{% comment %}
+DESIGN.md §2c's three-panel row: what the spend is split across, how it moved
+day to day, and how much of it has actually landed. The table follows at full
+width instead of sharing the row, because at three panels the old
+donut-beside-table split left the table in a column too narrow to read.
+
+No grid override here on purpose — plain .grid-2 is
+`repeat(auto-fit, minmax(320px, 1fr))`, so three children lay out as three
+columns on a wide screen and fold to two, then one, on their own. §2c asked
+for this to be built from existing primitives, and that includes the grid.
+{% endcomment %}
+<div class="grid-2 mb-6">
   <div class="card">
     <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>PO Status Breakdown</h3></div>
     <div class="card-pad">
@@ -106,11 +116,71 @@ never silently resets the other.
       <div class="empty">
         <span class="glyph">□</span>
         <h3>No purchase orders</h3>
+        <p>Raise one and its status shows up here.</p>
       </div>
       {% endif %}
     </div>
   </div>
 
+  {% comment %}
+  Daily spend. Same _kpi_graph_series geometry the Dashboard trend uses, so
+  the two read as one chart type rather than two lookalikes, and the same
+  peak line — the sparkline has no y-axis, so nothing else gives it a scale.
+  {% endcomment %}
+  <div class="card">
+    <div class="card-pad" style="border-bottom:1px solid var(--line);">
+      <h3>Daily Spend</h3>
+      <p class="gv-meta mb-0">{{ spend_series.peak|default:"Nothing ordered in this range" }}</p>
+    </div>
+    <div class="card-pad">
+      {% if spend_series.points %}
+      <svg viewBox="0 0 760 220" width="100%" height="140" preserveAspectRatio="none" role="img"
+           aria-label="Daily procurement spend across the selected range. {{ spend_series.peak }}">
+        <path d="{{ spend_series.area }}" fill="var(--green-50)" stroke="none"/>
+        <polyline points="{{ spend_series.polyline }}" fill="none" stroke="var(--brand)"
+                  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      {% else %}
+      <div class="empty">
+        <span class="glyph">□</span>
+        <h3>Nothing to chart</h3>
+        <p>No purchase orders were raised between {{ range_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% comment %}
+  Spend vs return. Both figures are already on the KPI cards above; what this
+  panel adds is the proportion between them, which no card states. Percentage
+  is written out as well as drawn, because a bar on its own is not a value.
+  {% endcomment %}
+  <div class="card">
+    <div class="card-pad" style="border-bottom:1px solid var(--line);">
+      <h3>Ordered vs Received</h3>
+      <p class="gv-meta mb-0">How much of the committed spend has arrived</p>
+    </div>
+    <div class="card-pad">
+      {% if spend_split.total %}
+      <p class="mb-0" style="font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums;">{{ spend_split.pct }}%</p>
+      <p class="gv-meta">₱{{ spend_split.received|floatformat:2 }} received of ₱{{ spend_split.total|floatformat:2 }} ordered</p>
+      <div class="meter" role="img"
+           aria-label="{{ spend_split.pct }}% of committed spend received">
+        <span style="width: {{ spend_split.pct }}%;"></span>
+      </div>
+      <p class="gv-meta mt-2 mb-0">₱{{ spend_split.outstanding|floatformat:2 }} still outstanding</p>
+      {% else %}
+      <div class="empty">
+        <span class="glyph">□</span>
+        <h3>Nothing committed</h3>
+        <p>Once orders are raised, this shows how much of their value has been received.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="grid-2" style="grid-template-columns: 1fr;">
   <div class="card table-wrap">
     <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Purchase Orders</h3></div>
     <table class="gv-table">
