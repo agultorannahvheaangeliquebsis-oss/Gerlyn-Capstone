@@ -126,12 +126,28 @@
     <h1>Product Master List</h1>
     <p class="gv-meta mb-0">{{ shown_count }} of {{ total_count }} products</p>
   </div>
-  {% if can_edit %}
-  <button type="button" class="btn btn-primary" id="open-add-modal">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    Add Product
-  </button>
-  {% endif %}
+  <div class="row" style="gap:var(--s2);">
+    {% comment %}
+    Categories used to sit in the sidebar beside Product Master List, which
+    gave a page you touch a few times a year the same standing as one you
+    live in. It is a setting of the catalog, so it is reached from the
+    catalog — and this is the only way in now, since the sidebar entry was
+    the sole inbound link. Gated exactly as that entry was, so nobody gains
+    or loses access in the move.
+
+    Secondary .btn, not .btn-primary: Add Product is the primary action on
+    this screen and DESIGN.md allows one.
+    {% endcomment %}
+    {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+    <a class="btn" href="{% url 'category_list' %}">Manage Categories</a>
+    {% endif %}
+    {% if can_edit %}
+    <button type="button" class="btn btn-primary" id="open-add-modal">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Add Product
+    </button>
+    {% endif %}
+  </div>
 </div>
 
 <form method="GET" class="toolbar" data-live-filter="#product-table tbody tr[data-filter-text]" data-filter-empty-target="#product-no-matches">

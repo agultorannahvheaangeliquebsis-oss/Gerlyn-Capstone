@@ -26,8 +26,8 @@ Status: settled — adapted to the actual Django codebase (not the Figma prototy
 
 ### Inventory
 
-- **Products** *(currently "Product Master List")* — product catalog. Categories folds into this page as a filter/tab instead of its own sidebar item
-- **Categories** — to be folded into Products as above; remains a separate nav item only until the merge is implemented
+- **Products** *(currently "Product Master List")* — product catalog. Owns category management: a "Manage Categories" action in the page head is the only way in
+- **Categories** — no longer a nav item. Still its own page, reached from Products *(see the note below on why it was demoted rather than merged)*
 - **Stock per Branch** — real-time inventory levels across branches
 - **Stock Withdrawals** *(was "Withdrawal Slips")* — goods issued out of the warehouse under an approval chain (request → approve → release → acknowledge), either to a branch or as a write-off. **Not "Stock Adjustments"**, which this doc originally specified: that name was already in use — see the naming note below.
 
@@ -119,7 +119,13 @@ Current code already gates: Suppliers (Owner/Manager only), Administration (Owne
 | **Stock Adjustment** | Correct a count directly, no sign-off | Products page → button + modal |
 
 `slip_number` and the `WS-` prefix are deliberately untouched: they identify records that already exist, and an ID is a stable handle rather than a label. `StockMovement.notes` is likewise forward-only — rows written before the rename keep the name the system used at the time, which is what makes them an audit trail.
-- [ ] Fold Categories into Products page as a filter/tab (when ready)
+- [x] ~~Fold Categories into Products page as a filter/tab~~ — **demoted, not merged**
+
+**Why not a filter/tab.** Both halves of the original instruction had stopped matching the code. The filter was already built — `product_list.html` and `inventory_list.html` each carry a category `<select>` that submits on change, so browsing by category has worked for some time. And Categories is not a filter dimension to absorb: it is a CRUD surface with add, edit, delete and a description field, and a `<select>` cannot hold that.
+
+What was actually wrong was its billing. Categories sat in the sidebar next to Product Master List, Stock per Branch and Stock Withdrawals — pages you work in daily — while being something you touch a few times a year. It had also already been written as a sub-page of Products: `category_list.html` has opened with `← Product Master List` all along.
+
+So it keeps its page and loses the nav slot. Products gains a **Manage Categories** action in the page head, gated exactly as the old sidebar entry was so the move changes nobody's access. That link is now the only way in — the sidebar entry was the sole inbound link, so removing it without a replacement would have left the page reachable only by typing a URL. A category page still lights the Product Master List row, because it is somewhere inside Products rather than nowhere at all.
 - [ ] Add "View all alerts →" link from Dashboard low stock table to Alerts Center
 - [ ] Migrate Owner Dashboard from Bootstrap utility classes to `gerlyn.css` tokens and components
 
@@ -446,5 +452,5 @@ Start small — each task is independently shippable:
 9. **Reframe Recent Orders as Open Orders** (2g) — depends on task 8, since the reframe is what stops the two panels overlapping
 10. **Build standardized date-range control** (2e) and wire into Dashboard + Reports + Alerts toolbars
 11. ~~**Add breadcrumbs** under topbar for deep routes~~ — done, though not as written. See §2's "Breadcrumbs": the component moved to `gerlyn.css`, the thirteen internal `← Parent` links stay as they are, and the one route that genuinely needed a trail (`billing_form`, two parents) has one
-12. **Fold Categories into Products** as a filter/tab (when team is ready)
+12. ~~**Fold Categories into Products** as a filter/tab~~ — done as a demotion instead: the filter already existed on both pages, and a CRUD surface will not fit in a `<select>`. Categories keeps its page, loses its nav slot, and is reached from Products. See the note in §1's cleanup tasks
 13. *(Lower priority, optional)* **Reports multi-panel row** (2c) and **Sales & Orders funnel** (2d)

@@ -69,8 +69,13 @@ DOM — it is off-screen until focused (see .skip-link).
         <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}open{% endif %}" id="tree-inventory">
           <li class="sb-tree-inner">
             {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
-            <a class="sb-tree-file {% if active_page == 'products' %}sb-tree-file--active{% endif %}" href="{% url 'product_list' %}"><span class="sb-label">Product Master List</span></a>
-            <a class="sb-tree-file {% if active_page == 'categories' %}sb-tree-file--active{% endif %}" href="{% url 'category_list' %}"><span class="sb-label">Categories</span></a>
+            {% comment %}
+            Categories is no longer its own nav item — it is reached from the
+            Products page, which is where you are when you need it. It still
+            lights this row, because a category page is somewhere inside
+            Products rather than nowhere at all.
+            {% endcomment %}
+            <a class="sb-tree-file {% if active_page == 'products' or active_page == 'categories' %}sb-tree-file--active{% endif %}" href="{% url 'product_list' %}"><span class="sb-label">Product Master List</span></a>
             {% endif %}
             <a class="sb-tree-file {% if active_page == 'stock' %}sb-tree-file--active{% endif %}" href="{% url 'inventory_list' %}"><span class="sb-label">Stock per Branch</span></a>
             {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
