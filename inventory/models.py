@@ -280,7 +280,16 @@ class Batch(models.Model):
 
 class StockTransfer(models.Model):
     """
-    Digital Withdrawal Slip.
+    A stock withdrawal: goods issued out of the warehouse under an
+    approval chain (request -> approve -> release -> acknowledge),
+    either to a branch or as a write-off.
+
+    Named "Stock Withdrawals" in the UI. Not to be confused with
+    stock_adjustment_add, which is a direct count correction with no
+    approval chain and keeps the name "Stock Adjustment".
+
+    slip_number/WS- are left alone on purpose: they identify records
+    that already exist.
     """
     class Status(models.TextChoices):
         # --- unchanged ---
@@ -301,7 +310,7 @@ class StockTransfer(models.Model):
     # --- existing fields (untouched) ----------------------------------------
     slip_number = models.CharField(
         max_length=20, unique=True, blank=True,
-        help_text="Auto-generated slip ID e.g. WS-2026-001"
+        help_text="Auto-generated withdrawal ID e.g. WS-2026-001"
     )
     warehouse = models.ForeignKey(
         Warehouse, on_delete=models.CASCADE,

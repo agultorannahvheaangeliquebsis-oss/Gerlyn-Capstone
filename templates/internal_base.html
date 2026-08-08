@@ -74,7 +74,7 @@ DOM — it is off-screen until focused (see .skip-link).
             {% endif %}
             <a class="sb-tree-file {% if active_page == 'stock' %}sb-tree-file--active{% endif %}" href="{% url 'inventory_list' %}"><span class="sb-label">Stock per Branch</span></a>
             {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
-            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Adjustments</span></a>
+            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Withdrawals</span></a>
             {% endif %}
           </li>
         </ul>

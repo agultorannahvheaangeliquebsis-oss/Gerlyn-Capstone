@@ -703,7 +703,7 @@ def transfer_create(request):
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
-        messages.error(request, 'You do not have permission to create withdrawal slips.')
+        messages.error(request, 'You do not have permission to create stock withdrawals.')
         return redirect('transfer_list')
 
     user_branch = get_user_branch(request.user)
@@ -770,7 +770,7 @@ def transfer_create(request):
 
         messages.success(
             request,
-            f'Withdrawal Slip {transfer.slip_number} created successfully. '
+            f'Stock withdrawal {transfer.slip_number} created successfully. '
             f'Awaiting approval.'
         )
         return redirect('transfer_list')
@@ -795,7 +795,7 @@ def transfer_detail(request, pk):
     # (The list is scoped; without this the detail leaks via the URL.)
     if not (user_can_access_branch(request.user, transfer.source_branch_id)
             or user_can_access_branch(request.user, transfer.destination_branch_id)):
-        messages.error(request, 'That withdrawal slip is not available to you.')
+        messages.error(request, 'That stock withdrawal is not available to you.')
         return redirect('transfer_list')
 
     items = transfer.items.select_related('product').all()
@@ -815,7 +815,7 @@ def transfer_approve(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.source_branch_id):
-        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        messages.error(request, 'That stock withdrawal belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.PENDING:
@@ -896,7 +896,7 @@ def transfer_complete(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.source_branch_id):
-        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        messages.error(request, 'That stock withdrawal belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.APPROVED:
@@ -928,7 +928,7 @@ def transfer_complete(request, pk):
                     quantity_before=qty_before_warehouse,
                     quantity_after=ws.quantity_on_hand,
                     reference_id=transfer.pk,
-                    notes=f'Withdrawal Slip {transfer.slip_number}',
+                    notes=f'Stock withdrawal {transfer.slip_number}',
                     created_by=request.user,
                 )
 
@@ -955,7 +955,7 @@ def transfer_complete(request, pk):
                         quantity_before=qty_before_floor,
                         quantity_after=inv.quantity_on_hand,
                         reference_id=transfer.pk,
-                        notes=f'Withdrawal Slip {transfer.slip_number}',
+                        notes=f'Stock withdrawal {transfer.slip_number}',
                         created_by=request.user,
                     )
 
@@ -964,7 +964,7 @@ def transfer_complete(request, pk):
 
         messages.success(
             request,
-            f'Withdrawal Slip {transfer.slip_number} released. '
+            f'Stock withdrawal {transfer.slip_number} released. '
             f'Stock has been moved to the store floor.'
         )
         return redirect('transfer_detail', pk=pk)
@@ -990,11 +990,11 @@ def transfer_confirm_receipt(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.destination_branch_id):
-        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        messages.error(request, 'That stock withdrawal belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.RELEASED:
-        messages.error(request, 'Only released slips can be acknowledged.')
+        messages.error(request, 'Only released withdrawals can be acknowledged.')
         return redirect('transfer_detail', pk=pk)
 
     if request.method != 'POST':
@@ -1033,11 +1033,11 @@ def transfer_flag_discrepancy(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.destination_branch_id):
-        messages.error(request, 'That withdrawal slip belongs to another branch.')
+        messages.error(request, 'That stock withdrawal belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.RELEASED:
-        messages.error(request, 'Only released slips can be flagged.')
+        messages.error(request, 'Only released withdrawals can be flagged.')
         return redirect('transfer_detail', pk=pk)
 
     if request.method != 'POST':

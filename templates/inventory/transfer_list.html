@@ -1,5 +1,5 @@
 {% extends 'internal_base.html' %}
-{% block title %}Stock Adjustments{% endblock %}
+{% block title %}Stock Withdrawals{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -43,10 +43,10 @@
 <div style="padding:8px 4px;">
   <div class="ws-header">
     <div>
-      <h2 style="margin:0;">Stock Adjustments</h2>
+      <h2 style="margin:0;">Stock Withdrawals</h2>
       <p style="color:#888; margin:4px 0 0;">Track stock released from inventory</p>
     </div>
-    <a class="btn green" href="{% url 'transfer_create' %}">+ New Stock Adjustment</a>
+    <a class="btn green" href="{% url 'transfer_create' %}">+ New Withdrawal</a>
   </div>
 
   {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
@@ -85,12 +85,12 @@
 
   <table class="ws">
     <thead>
-      <tr><th>Slip ID</th><th>From → To</th><th>Released By</th><th>Purpose</th><th>Status</th><th>Date</th><th></th></tr>
+      <tr><th>Withdrawal ID</th><th>From → To</th><th>Released By</th><th>Purpose</th><th>Status</th><th>Date</th><th></th></tr>
     </thead>
     <tbody>
       {% for t in transfers %}
       <tr>
-        <td data-label="Slip ID"><strong>{{ t.slip_number }}</strong></td>
+        <td data-label="Withdrawal ID"><strong>{{ t.slip_number }}</strong></td>
         <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"N/A" }}</td>
         <td data-label="Released By">{{ t.requested_by.username|default:"—" }}</td>
         <td data-label="Purpose"><span class="pill">{{ t.purpose }}</span></td>
@@ -99,7 +99,7 @@
         <td data-label=""><a class="btn" href="{% url 'transfer_detail' t.pk %}">View</a></td>
       </tr>
       {% empty %}
-      <tr><td colspan="7" style="text-align:center; color:#999;">No withdrawal slips yet.</td></tr>
+      <tr><td colspan="7" style="text-align:center; color:#999;">No stock withdrawals yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

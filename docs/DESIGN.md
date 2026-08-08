@@ -29,7 +29,7 @@ Status: settled — adapted to the actual Django codebase (not the Figma prototy
 - **Products** *(currently "Product Master List")* — product catalog. Categories folds into this page as a filter/tab instead of its own sidebar item
 - **Categories** — to be folded into Products as above; remains a separate nav item only until the merge is implemented
 - **Stock per Branch** — real-time inventory levels across branches
-- **Stock Adjustments** *(currently "Withdrawal Slips")* — inter-branch transfers and write-offs. Renamed for clarity.
+- **Stock Withdrawals** *(was "Withdrawal Slips")* — goods issued out of the warehouse under an approval chain (request → approve → release → acknowledge), either to a branch or as a write-off. **Not "Stock Adjustments"**, which this doc originally specified: that name was already in use — see the naming note below.
 
 ---
 
@@ -105,7 +105,20 @@ Current code already gates: Suppliers (Owner/Manager only), Administration (Owne
 
 ### Cleanup tasks (Inventory)
 
-- [ ] Rename "Withdrawal Slips" → "Stock Adjustments" in nav and templates
+- [x] Rename "Withdrawal Slips" → **"Stock Withdrawals"** in nav and templates *(not "Stock Adjustments" — see below)*
+
+**Naming note — why not "Stock Adjustments".** The rename was half-applied for a while, and that half revealed the problem: `stock_adjustment_add` already existed and was already called **"Stock Adjustment"** on the Products page. It is a different operation — a direct correction to a count, Owner/Manager only, no approval chain — where the withdrawal flow is a two-branch workflow with request, approve, release and acknowledge steps. Finishing the rename as originally written would have given two unrelated features the same name, one letter apart, in the same section of the app. The half-finished state was in fact being held together by the leftover "Withdrawal Slip" strings, which were the only thing still distinguishing them.
+
+"Stock Transfers" was considered and rejected: three of the four `Purpose` values are write-offs (Damaged/Spoiled, Sample/Display, Other) with a null `destination_branch`, so most records would sit under a label describing something they are not.
+
+**Stock Withdrawals** keeps the established vocabulary and drops only "Slips", the paper-era metaphor this rename was actually objecting to. It also matches what the code already said: the URLs have always been `/inventory/withdrawals/` and the nav key has always been `withdrawals`.
+
+| Name | Operation | Entry point |
+|---|---|---|
+| **Stock Withdrawals** | Issue stock out of the warehouse, with sign-off | Sidebar → Inventory |
+| **Stock Adjustment** | Correct a count directly, no sign-off | Products page → button + modal |
+
+`slip_number` and the `WS-` prefix are deliberately untouched: they identify records that already exist, and an ID is a stable handle rather than a label. `StockMovement.notes` is likewise forward-only — rows written before the rename keep the name the system used at the time, which is what makes them an audit trail.
 - [ ] Fold Categories into Products page as a filter/tab (when ready)
 - [ ] Add "View all alerts →" link from Dashboard low stock table to Alerts Center
 - [ ] Migrate Owner Dashboard from Bootstrap utility classes to `gerlyn.css` tokens and components
@@ -351,7 +364,7 @@ The collapsed state already works as an icon-only rail. Potential enhancement: a
 
 Both premises of the original note were wrong, so it is restated rather than kept. A `.breadcrumb` component *is* implemented — `<nav aria-label="breadcrumb">` with `.sep` and `.current` — and eight customer account pages use it. It was defined in `account.css`, which the internal shell never loads, which is why it looked absent from that side. It now lives in `gerlyn.css` where both shells can see it.
 
-And the internal routes it was meant for already have the affordance. Thirteen detail/form/confirm pages open with `← Purchase Orders`, `← Stock Adjustments`, `← Suppliers` and so on. That is a two-level breadcrumb written as an action instead of a location.
+And the internal routes it was meant for already have the affordance. Thirteen detail/form/confirm pages open with `← Purchase Orders`, `← Stock Withdrawals`, `← Suppliers` and so on. That is a two-level breadcrumb written as an action instead of a location.
 
 **The rule, then, is depth — not "deeper than one level".**
 
@@ -422,7 +435,7 @@ Use `.toolbar` or `.toolbar-card` with consistent control patterns. All date fil
 
 Start small — each task is independently shippable:
 
-1. **Rename "Withdrawal Slips" → "Stock Adjustments"** in nav and templates *(lowest risk, good smoke test)*
+1. ~~**Rename "Withdrawal Slips" → "Stock Adjustments"**~~ — done, as **"Stock Withdrawals"**. Not the lowest-risk task it was billed as: the target name was already taken by a different feature, so finishing it as written would have made the app less clear, not more. See the naming note in §1
 2. **Add "View all alerts →" link** from Dashboard low stock table to Alerts Center
 3. **Migrate Owner Dashboard** from Bootstrap classes to `gerlyn.css` components
 4. **Tighten Staff role nav visibility** (hide Inventory sections except Stock per Branch, hide Procurement, hide Administration)

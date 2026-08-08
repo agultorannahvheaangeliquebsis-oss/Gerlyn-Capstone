@@ -369,7 +369,7 @@ class StockTransferListCreateAPIView(APIView):
             User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
         ]:
             return Response(
-                {'detail': 'You do not have permission to create withdrawal slips.'},
+                {'detail': 'You do not have permission to create stock withdrawals.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -425,7 +425,7 @@ class StockTransferApproveAPIView(APIView):
         transfer = get_object_or_404(StockTransfer, pk=pk)
         if not user_can_access_branch(request.user, transfer.source_branch_id):
             return Response(
-                {'detail': 'That withdrawal slip belongs to another branch.'},
+                {'detail': 'That stock withdrawal belongs to another branch.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if transfer.status != StockTransfer.Status.PENDING:
@@ -496,7 +496,7 @@ class StockTransferReleaseAPIView(APIView):
         transfer = get_object_or_404(StockTransfer, pk=pk)
         if not user_can_access_branch(request.user, transfer.source_branch_id):
             return Response(
-                {'detail': 'That withdrawal slip belongs to another branch.'},
+                {'detail': 'That stock withdrawal belongs to another branch.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if transfer.status != StockTransfer.Status.APPROVED:
@@ -525,7 +525,7 @@ class StockTransferReleaseAPIView(APIView):
                     quantity_before=qty_before_warehouse,
                     quantity_after=ws.quantity_on_hand,
                     reference_id=transfer.pk,
-                    notes=f'Withdrawal Slip {transfer.slip_number}',
+                    notes=f'Stock withdrawal {transfer.slip_number}',
                     created_by=request.user,
                 )
 
@@ -547,7 +547,7 @@ class StockTransferReleaseAPIView(APIView):
                         quantity_before=qty_before_floor,
                         quantity_after=inv.quantity_on_hand,
                         reference_id=transfer.pk,
-                        notes=f'Withdrawal Slip {transfer.slip_number}',
+                        notes=f'Stock withdrawal {transfer.slip_number}',
                         created_by=request.user,
                     )
 
@@ -578,7 +578,7 @@ class StockTransferAcknowledgeAPIView(APIView):
         transfer = get_object_or_404(StockTransfer, pk=pk)
         if not user_can_access_branch(request.user, transfer.destination_branch_id):
             return Response(
-                {'detail': 'That withdrawal slip belongs to another branch.'},
+                {'detail': 'That stock withdrawal belongs to another branch.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if transfer.status != StockTransfer.Status.RELEASED:

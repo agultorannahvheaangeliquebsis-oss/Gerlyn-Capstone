@@ -1,9 +1,9 @@
 {% extends 'internal_base.html' %}
-{% block title %}New Stock Adjustment{% endblock %}
+{% block title %}New Stock Withdrawal{% endblock %}
 {% block content %}
 <div style="padding:8px 4px; max-width:760px;">
-  <a href="{% url 'transfer_list' %}">&larr; Stock Adjustments</a>
-  <h2 style="margin:8px 0;">New Stock Adjustment</h2>
+  <a href="{% url 'transfer_list' %}">&larr; Stock Withdrawals</a>
+  <h2 style="margin:8px 0;">New Stock Withdrawal</h2>
   {% for m in messages %}<div style="padding:10px 14px; border-radius:8px; background:#fdecea; color:#c0392b; margin:6px 0;">{{ m }}</div>{% endfor %}
 
   <form method="post">{% csrf_token %}
@@ -42,7 +42,7 @@
     </div>
 
     <label style="display:block; margin:12px 0;">Notes<br><textarea name="notes" rows="2" style="width:100%; padding:8px;"></textarea></label>
-    <button type="submit" style="padding:10px 20px; background:#128a4f; color:#fff; border:0; border-radius:8px;">Create Slip</button>
+    <button type="submit" style="padding:10px 20px; background:#128a4f; color:#fff; border:0; border-radius:8px;">Create withdrawal</button>
   </form>
 </div>
 {% endblock %}
