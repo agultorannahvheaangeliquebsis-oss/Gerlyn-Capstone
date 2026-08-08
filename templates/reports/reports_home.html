@@ -4,43 +4,48 @@
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
+{% comment %}
+The §2e range control sits in .page-head, where the Dashboard puts it — top
+right of the page title, above the tabs. It scopes every panel on the tab, so
+it belongs to the page rather than to the toolbar's row of per-table filters;
+having it lead that row on Reports and head the page on the Dashboard meant
+the same control moved when you crossed between them.
+{% endcomment %}
 <div class="page-head">
   <div>
     <h1>Reports</h1>
     <p class="gv-meta mb-0">Business performance, inventory, procurement, and billing analytics</p>
   </div>
+  {% include "_daterange.html" %}
 </div>
 
 {% include "reports/_tabs.html" with active="sales" %}
 
 {% comment %}
-Toolbar: filters + export. The month dropdown is gone — the shared §2e
-date-range control replaces it, and a legacy ?month= link is aliased to that
-month's exact range server-side.
+Toolbar: branch + export, the same shape on all four tabs. The month dropdown
+is gone — the §2e control above replaces it, and a legacy ?month= link is
+aliased to that month's exact range server-side.
 
-The toolbar is a plain <div>, not a <form>, because the range control brings
-its own form and HTML forbids nesting them. Branch is therefore its own small
-form, and each side carries the other's state in hidden inputs so changing one
-filter never silently resets the other.
+One plain <form> again now that the range control has left the row: it used to
+bring its own form, and HTML forbids nesting them, so branch had to be a
+second form inside a wrapper <div>. The hidden range inputs stay — changing
+branch must not silently reset the range the page is scoped to.
 {% endcomment %}
-<div class="toolbar-card no-print">
+<form method="GET" class="toolbar-card no-print">
   <div class="toolbar-filters">
     {% if show_branch_filter %}
-    <form method="GET">
-      <input type="hidden" name="range" value="{{ active_range }}">
-      {% if active_range == 'custom' %}
-        <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
-        <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
-      {% endif %}
-      <select name="branch" onchange="this.form.submit()">
-        <option value="">All Branches</option>
-        {% for b in branches %}
-          <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-        {% endfor %}
-      </select>
-    </form>
+    <input type="hidden" name="range" value="{{ active_range }}">
+    {% if active_range == 'custom' %}
+      <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+      <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
     {% endif %}
-    {% include "_daterange.html" %}
+    <select name="branch" onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
   </div>
   <div class="toolbar-actions">
     <a class="btn" href="{% url 'export_csv' 'sales' %}">
@@ -52,48 +57,92 @@ filter never silently resets the other.
       Export PDF
     </button>
   </div>
-</div>
+</form>
 
-{# ---------------------------- KPI stat cards ---------------------------- #}
-<div class="kpi-row">
-  <div class="kpi-card">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+{% comment %}
+KPI stat cards — the Dashboard rail's card, same class and same reading order
+(label, figure, status, foot). Each carries a period-over-period pill
+(DESIGN.md §2a), and the card takes a .warn/.danger tint once the decline
+behind that pill is steep enough to be worth acting on — graded server-side in
+reports/views.py::_delta_tint.
+
+No card is tinted green for being the headline any more. Green means "the card
+you have selected" on the Dashboard, and a second green meaning here left the
+one colour saying two things three clicks apart.
+
+No pill when there is nothing to compare against: _delta_pill returns None for
+an empty previous window, and kpi_compare_note says why once, below the rail,
+instead of three cards each spending their most prominent slot on it. "All
+time" always takes that path — its previous window is empty by construction
+(§2e), since the range starts at the earliest sale on record.
+
+Online Orders has no pill at all — see the view: the daily series carries no
+channel split, so there is nothing to compare it against without a query added
+for one card's sake.
+{% endcomment %}
+<div class="mb-6">
+  <div class="kpi-row">
+    <div class="kpi-card{% if delta_orders.tint %} {{ delta_orders.tint }}{% endif %}">
+      <span class="label">Total Orders</span>
+      <span class="value">{{ total_orders }}</span>
+      {% if delta_orders %}
+      <span class="stat-status"><span class="pill {{ delta_orders.pill }}">{{ delta_orders.text }}</span></span>
+      {% endif %}
+      <span class="stat-foot">in range</span>
     </div>
-    <div class="kpi-value">{{ total_orders }}</div>
-    <div class="kpi-label">Total Orders</div>
-  </div>
-  <div class="kpi-card highlight">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
+    <div class="kpi-card{% if delta_sales.tint %} {{ delta_sales.tint }}{% endif %}">
+      <span class="label">Total Sales</span>
+      <span class="value">₱{{ total_sales|floatformat:2 }}</span>
+      {% if delta_sales %}
+      <span class="stat-status"><span class="pill {{ delta_sales.pill }}">{{ delta_sales.text }}</span></span>
+      {% endif %}
+      <span class="stat-foot">{{ total_orders }} transaction{{ total_orders|pluralize }}</span>
     </div>
-    <div class="kpi-value">₱{{ total_sales|floatformat:2 }}</div>
-    <div class="kpi-label">Total Sales</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+    <div class="kpi-card{% if delta_aov.tint %} {{ delta_aov.tint }}{% endif %}">
+      <span class="label">Avg Order Value</span>
+      <span class="value">₱{{ avg_order_value|floatformat:2 }}</span>
+      {% if delta_aov %}
+      <span class="stat-status"><span class="pill {{ delta_aov.pill }}">{{ delta_aov.text }}</span></span>
+      {% endif %}
+      {% comment %}
+      Same foot the Dashboard's Avg. Transaction Value card prints, from the
+      same two figures — the card two along and the card one page over should
+      not show a reader different arithmetic for the same number.
+      {% endcomment %}
+      <span class="stat-foot">₱{{ total_sales|floatformat:2 }} ÷ {{ total_orders }} transaction{{ total_orders|pluralize }}</span>
     </div>
-    <div class="kpi-value">₱{{ avg_order_value|floatformat:2 }}</div>
-    <div class="kpi-label">Avg Order Value</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>
+    <div class="kpi-card">
+      <span class="label">Online Orders</span>
+      <span class="value">{{ online_orders }}</span>
+      <span class="stat-foot">of {{ total_orders }} in range</span>
     </div>
-    <div class="kpi-value">{{ online_orders }}</div>
-    <div class="kpi-label">Online Orders</div>
   </div>
+  {% if kpi_compare_note %}
+  <p class="kpi-compare-note">{{ kpi_compare_note }}</p>
+  {% endif %}
 </div>
 
 {% comment %}
-Sales by branch + transactions (DESIGN.md 2c). Same .grid-2 split the
-Procurement Report already uses for its status pie: fixed-width chart panel on
-the left, the existing table on the right, stacking below 860px via the shared
-.grid-2 media query.
-{% endcomment %}
-<div class="grid-2" style="grid-template-columns: minmax(260px, 340px) 1fr;">
+DESIGN.md §2c's panel row: what the sales are made of, and how they moved day
+to day. Plain .grid-2 — `repeat(auto-fit, minmax(320px, 1fr))` — so the panels
+lay out side by side and fold to one column on their own. That is also what
+absorbs the third panel when the donut is shown: three children become three
+columns on a wide screen and fold to two, then one, with no override, exactly
+as the Procurement tab's three-panel row does.
 
+The table follows at full width rather than sharing the row. It used to sit in
+the right-hand column beside a 340px donut; a second panel in that row would
+leave it in a column too narrow to read — the same trade the Procurement tab
+already resolved this way.
+
+Sales by Branch renders only when there is a split to show (see the view). At
+one branch the ring, its centre figure, its single legend row and the Total
+Sales card above all state the same number, so Top Products takes the slot
+instead — same question, an answer that varies.
+{% endcomment %}
+<div class="grid-2 mb-6">
+
+{% if show_branch_donut %}
 <div class="card">
   <div class="card-pad" style="border-bottom:1px solid var(--line);">
     <h3>Sales by Branch</h3>
@@ -141,6 +190,103 @@ the left, the existing table on the right, stacking below 860px via the shared
     {% endif %}
   </div>
 </div>
+{% endif %}
+
+{% comment %}
+Top Products — DESIGN.md Section 1's "Top-Selling Products list", drawn as a
+donut: how revenue splits between products is the same question Sales by
+Branch asks about branches, so it gets the same chart rather than a second
+visual language in one panel row (see reports/views.py::_top_products for the
+slice-count trade that buys).
+
+Markup deliberately identical to the branch donut above — same .pie-wrap, same
+ring geometry, same legend row — with only the ramp and the labels differing.
+Two donuts side by side drawn even slightly differently read as two unrelated
+charts.
+{% endcomment %}
+<div class="card">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Top Products</h3>
+    <p class="gv-meta mb-0">{{ top_products.subtitle|default:"By revenue in the selected range" }}</p>
+  </div>
+  <div class="card-pad">
+    {% if top_products.total %}
+    <div class="pie-wrap">
+      <svg viewBox="0 0 {{ top_products.box }} {{ top_products.box }}" width="160" height="160" role="img"
+           aria-label="Top products by revenue, {{ top_products.total_display }} total: {% for seg in top_products.segments %}{{ seg.name }} {{ seg.pct }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
+        <g transform="rotate(-90 {{ top_products.centre }} {{ top_products.centre }})">
+          {% for seg in top_products.segments %}
+          <circle cx="{{ top_products.centre }}" cy="{{ top_products.centre }}" r="{{ top_products.radius }}"
+                  fill="none" stroke="{{ seg.colour }}" stroke-width="{{ top_products.stroke }}"
+                  stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"/>
+          {% endfor %}
+        </g>
+        {% comment %}
+        Peso total as the headline, product count as the secondary line — the
+        branch donut's centre treatment, unchanged, for the same reason: a
+        donut's centre answers "how much", the ring answers "across how many".
+        {% endcomment %}
+        <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="-2"
+              style="font: 700 17px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ top_products.total_display }}</text>
+        <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="14"
+              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+          {{ top_products.product_count }} product{{ top_products.product_count|pluralize }}</text>
+      </svg>
+      <ul class="pie-legend">
+        {% for seg in top_products.segments %}
+        <li>
+          <span class="pie-dot" style="background:{{ seg.colour }};"></span>{{ seg.name }}
+          <span class="pie-count">₱{{ seg.value|floatformat:2 }}
+            <span class="gv-meta">· {{ seg.pct }}%</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>No products sold</h3>
+      <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}Products rank here once a sale records line items.{% endif %}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% comment %}
+Daily sales. Same _kpi_graph_series geometry as the Dashboard trend and the
+Procurement tab's Daily Spend, so the three read as one chart type rather than
+three lookalikes, and the same peak subtitle — the sparkline has no y-axis, so
+nothing else on the panel gives it a scale.
+
+Guarded on total_orders, not on the series: the series always has one bucket
+per day in the range, so with no sales it would draw a flat line sitting on
+the midline — a chart shape that says "steady" about a range where nothing
+happened. The donut beside it takes the same out for the same reason.
+{% endcomment %}
+<div class="card">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Daily Sales</h3>
+    <p class="gv-meta mb-0">{{ sales_series.peak }}</p>
+  </div>
+  <div class="card-pad">
+    {% if total_orders %}
+    <svg viewBox="0 0 760 220" width="100%" height="140" preserveAspectRatio="none" role="img"
+         aria-label="Daily sales from {{ chart_start|date:'Y-m-d' }} to {{ range_end|date:'Y-m-d' }}. {{ sales_series.peak }}">
+      <path d="{{ sales_series.area }}" fill="var(--green-50)" stroke="none"/>
+      <polyline points="{{ sales_series.polyline }}" fill="none" stroke="var(--brand)"
+                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">□</span>
+      <h3>Nothing to chart</h3>
+      <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}No sales were recorded between {{ chart_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.{% endif %}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+</div>
 
 {# ---------------------------- sales transactions ---------------------------- #}
 <div class="card table-wrap">
@@ -171,7 +317,5 @@ the left, the existing table on the right, stacking below 860px via the shared
       {% endfor %}
     </tbody>
   </table>
-</div>
-
 </div>
 {% endblock %}

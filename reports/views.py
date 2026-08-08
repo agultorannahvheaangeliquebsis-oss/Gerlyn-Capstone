@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from billing.models import BillingRecord
 
-from sales.models import SalesTransaction
+from sales.models import SalesItem, SalesTransaction
 from inventory.models import Batch, Inventory
 from inventory.alerts import EXPIRY_WINDOW_DAYS, alert_summary
 from procurement.models import Procurement
@@ -187,6 +187,22 @@ def _dashboard_atv_points(daily_series):
     ]
 
 
+def _previous_window(start, end):
+    """
+    The equal-length window immediately before [start, end], plus that
+    window's length in days — the basis every delta pill compares against
+    (DESIGN.md §2a).
+
+    Extracted rather than repeated because the Dashboard rail and the
+    Reports Sales tab both draw pills reading "vs previous N days": two
+    surfaces each deriving their own offset is how the same sentence ends
+    up meaning two different windows.
+    """
+    period_days = (end - start).days + 1
+    prev_end = start - timedelta(days=1)
+    return prev_end - timedelta(days=period_days - 1), prev_end, period_days
+
+
 def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     """
     The single data source for the Dashboard's date-range-scoped surfaces
@@ -200,9 +216,7 @@ def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     totals = _dashboard_range_totals(daily)
     atv_points = _dashboard_atv_points(daily)
 
-    period_days = (end - start).days + 1
-    prev_end = start - timedelta(days=1)
-    prev_start = prev_end - timedelta(days=period_days - 1)
+    prev_start, prev_end, period_days = _previous_window(start, end)
     prev_totals = _dashboard_range_totals(
         _dashboard_daily_series(sales_qs, procurement_qs, prev_start, prev_end)
     )
@@ -267,17 +281,64 @@ def _delta_pill(current, previous, compare_label, prev_window_empty=False):
         metric. The old string was simply false in that case: a previous
         window did exist. Percentage change from zero is undefined, so the
         pill names the fact rather than inventing a number.
+
+    `pct` is returned alongside the rendered strings so a caller can grade
+    the change without re-deriving it — see _delta_tint. It is None on the
+    neutral branch, where no percentage exists to report.
     """
     if prev_window_empty:
         return None
     if not previous:
-        return {'text': f'None in the {compare_label}', 'pill': 'pill-neutral'}
+        return {'text': f'None in the {compare_label}', 'pill': 'pill-neutral', 'pct': None}
     pct = round(((float(current) - float(previous)) / float(previous)) * 100, 1)
     rising = pct >= 0
     return {
         'text': f'{"▲" if rising else "▼"} {"+" if rising else ""}{pct}% vs {compare_label}',
         'pill': 'pill-ok' if rising else 'pill-danger',
+        'pct': pct,
     }
+
+
+# How far a decline has to run before the whole KPI card takes a tint, and
+# before that tint escalates. Both are existing modifiers — .kpi-card.warn and
+# .kpi-card.danger, the same pair the stock and billing cards already use —
+# so this grades an existing treatment rather than adding a new one.
+#
+# Deliberately NOT the pill's own threshold. The pill reports direction, so any
+# decline at all turns it .pill-danger; that is one small element saying
+# "down", next to three others. The tint repaints an entire card, and at -0.4%
+# that reads as an incident rather than as the noise it is. So the tint stays
+# off until a decline is worth a second look, and only reaches danger when it
+# is steep enough to be the reason someone opened the report.
+KPI_TINT_WARN_PCT = -2.0
+KPI_TINT_DANGER_PCT = -10.0
+
+
+def _delta_tint(delta):
+    """
+    The .kpi-card modifier a delta pill implies, or '' for no tint.
+
+    Graded off the pill's own `pct` rather than a second comparison, so a
+    card can never be tinted in a direction its pill contradicts. Rises and
+    the neutral "None in the previous N days" case are untinted: neither is
+    a problem, and tinting them would spend the page's only two alarm
+    colours on states nobody needs to act on.
+    """
+    if not delta or delta.get('pct') is None:
+        return ''
+    if delta['pct'] <= KPI_TINT_DANGER_PCT:
+        return 'danger'
+    if delta['pct'] <= KPI_TINT_WARN_PCT:
+        return 'warn'
+    return ''
+
+
+def _kpi_delta(current, previous, compare_label, prev_window_empty):
+    """A delta pill carrying the card tint it implies, or None (see _delta_pill)."""
+    delta = _delta_pill(current, previous, compare_label, prev_window_empty)
+    if delta:
+        delta['tint'] = _delta_tint(delta)
+    return delta
 
 
 def _plural(n, suffix='s'):
@@ -898,6 +959,35 @@ def operational_dashboard(request):
     })
 
 
+def _daily_sales_series(sales_qs, start, end):
+    """
+    Daily sales, for the Sales tab's trend panel (§2c's middle panel).
+
+    Assembly only — the aggregation is _dashboard_daily_series and the
+    geometry is _kpi_graph_series, the same two the Dashboard trend and the
+    Procurement tab's Daily Spend already run through, so the three read as
+    one chart type rather than three lookalikes. The peak line comes from
+    _series_peak for the same reason: a sparkline has no y-axis, so without
+    it the shape is readable but its magnitude is not.
+
+    Procurement is passed an empty queryset rather than the helper being
+    split in two. This page has no procurement column to draw and never
+    will — §2c gives the Sales tab a sales breakdown, not a spend one — so
+    the second series is unused here, and `.none()` costs no query at all
+    (Django short-circuits an EmptyQuerySet before it reaches the database).
+
+    `start` must already be a real date. 'All time' (§2e) resolves to None
+    by design, and a per-day chart cannot bucket without a lower edge —
+    the caller resolves one, the same exception the Dashboard makes.
+    """
+    daily = _dashboard_daily_series(sales_qs, Procurement.objects.none(), start, end)
+    values = [float(d['sales']) for d in daily]
+    labels = [d['date'].isoformat() for d in daily]
+    series = _kpi_graph_series(values, labels)
+    series['peak'] = _series_peak(values, labels, 'currency')
+    return series
+
+
 @role_required(OWNER, BRANCH_MANAGER)
 def reports_dashboard(request):
     """
@@ -928,6 +1018,14 @@ def reports_dashboard(request):
     # Range comparison, NOT __year=/__month= — those compile to CONVERT_TZ on
     # MySQL and silently match nothing here. See core/timebounds.
     range_start, range_end, active_range = range_from_request(request)
+
+    # Branch-scoped but NOT range-scoped, kept for the previous-window
+    # comparison below. That window lies entirely before the selected range,
+    # so it has to be measured against this queryset: asking the range-filtered
+    # one for rows before its own lower bound returns zero every time, which
+    # renders as "nothing last period" rather than as the mistake it is.
+    scoped_qs = sales_qs
+
     _, period_end = local_range_bounds(range_end, range_end)
     sales_qs = sales_qs.filter(transaction_date__lt=period_end)
     # 'All time' resolves to a None start — no lower bound at all, rather than
@@ -949,13 +1047,69 @@ def reports_dashboard(request):
     # above, so branch + month selections carry into it (DESIGN.md 2c).
     branch_chart = _sales_by_branch_chart(sales_qs)
 
+    # A one-branch donut is a full ring, and every part of the panel then
+    # states the same number: the ring's only segment, the figure in its
+    # centre, its single legend row, and the Total Sales card above it. Four
+    # readings of one total, and the "by branch" question answered with the
+    # only branch there is. So the panel earns its slot only when there is a
+    # split to show, and Top Products takes it otherwise — same slot, same
+    # question ("what is this money made of"), an answer that varies.
+    #
+    # Keyed off the rendered breakdown rather than Branch.objects.count(),
+    # because a second branch that recorded nothing in this range still
+    # produces a single-segment ring. An active branch filter is the same
+    # case reached deliberately.
+    show_branch_donut = not branch_filter and branch_chart['branch_count'] > 1
+    top_products = _top_products(sales_qs)
+
+    # --- §2c trend panel + §2a delta pills ------------------------------
+    # Both need a real lower edge, and 'All time' has none by design. The
+    # Dashboard resolves one from the earliest posting on record; this does
+    # the same, off the report's own filtered rows so the chart starts where
+    # the table does rather than at some branch the filter excluded. One
+    # indexed aggregate, and only on the 'all' branch.
+    chart_start = range_start
+    if chart_start is None:
+        first_sale = sales_qs.aggregate(m=Min('transaction_date'))['m']
+        # No sales at all: collapse to a single day rather than an unbounded
+        # span, which would bucket from year zero.
+        chart_start = timezone.localtime(first_sale).date() if first_sale else range_end
+    sales_series = _daily_sales_series(sales_qs, chart_start, range_end)
+
+    # Deltas compare against the equal-length window immediately before the
+    # selected one, measured off scoped_qs for the reason noted above. For
+    # 'All time' that window sits entirely before the earliest sale, so it is
+    # empty by construction and every pill resolves to None — kpi_compare_note
+    # states the reason once instead of three cards repeating it.
+    prev_start, prev_end, period_days = _previous_window(chart_start, range_end)
+    prev = _dashboard_range_totals(
+        _dashboard_daily_series(scoped_qs, Procurement.objects.none(), prev_start, prev_end)
+    )
+    compare_label = f'previous {period_days} day{_plural(period_days)}'
+    prev_window_empty = not (prev['sales'] or prev['txn_count'])
+    kpi_compare_note = (
+        f'Nothing was recorded in the {compare_label}, so there is no change to show yet.'
+        if prev_window_empty else ''
+    )
+
     return render(request, 'reports/reports_home.html', {
         'transactions': sales_qs,
         'branch_chart': branch_chart,
+        'show_branch_donut': show_branch_donut,
+        'top_products': top_products,
+        'sales_series': sales_series,
         'total_orders': total_orders,
         'total_sales': total_sales,
         'avg_order_value': avg_order_value,
         'online_orders': online_orders,
+        # Online Orders gets no pill: the daily series carries no channel
+        # split, so comparing it would mean a second query for a fourth card
+        # nobody asked to compare. Absent beats invented.
+        'delta_sales': _kpi_delta(total_sales, prev['sales'], compare_label, prev_window_empty),
+        'delta_orders': _kpi_delta(total_orders, prev['txn_count'], compare_label, prev_window_empty),
+        'delta_aov': _kpi_delta(avg_order_value, prev['atv'], compare_label, prev_window_empty),
+        'kpi_compare_note': kpi_compare_note,
+        'chart_start': chart_start,
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
@@ -997,7 +1151,10 @@ def reports_dashboard(request):
 # A fully-passing monotone alternative, if the ramp is ever revisited:
 # --action-700 / --action / --brand (7.59 / 5.31 / 3.38:1, all checks PASS).
 SALES_BRANCH_RAMP = ['var(--brand)', 'var(--green-300)', 'var(--action)']
-SALES_BRANCH_OTHER_COLOUR = 'var(--ink-400)'
+
+# Shared by every donut on the tab: the overflow fold is "the rest", not a
+# category, so it sits outside whichever ramp is in play.
+DONUT_OTHER_COLOUR = 'var(--ink-400)'
 
 # Donut geometry — a stroked circle with a dash pattern, so each segment is one
 # <circle> and no arc-path maths is needed (a 100%-single-segment donut, which
@@ -1006,6 +1163,68 @@ DONUT_RADIUS = 60
 DONUT_STROKE = 26
 DONUT_BOX = 160
 DONUT_GAP = 2.0  # surface-coloured gap between adjacent fills
+
+
+def _donut(rows, ramp, other_label):
+    """
+    Ring segments + geometry for one donut, from `rows` of (name, value)
+    already sorted biggest-first.
+
+    Shared by Sales by Branch and Top Products so the two donuts sitting in
+    the same panel row are the same chart drawn twice, not two lookalikes
+    that drift apart the next time one of them is touched. What a caller
+    supplies is the part that genuinely differs: its colour ramp, and what
+    the overflow fold is called.
+
+    Names past the ramp's length fold into one `other_label` segment rather
+    than getting improvised colours. The fold has to swallow everything from
+    limit-1 onwards (not just limit onwards), or the row sitting in the last
+    named slot is dropped and the segments stop summing to 100%.
+    """
+    geometry = {
+        'radius': DONUT_RADIUS, 'stroke': DONUT_STROKE,
+        'box': DONUT_BOX, 'centre': DONUT_BOX / 2,
+    }
+    total = sum(value for _, value in rows)
+    if not total:
+        return {'total': 0, 'segments': [], 'circumference': 0,
+                'overflow': 0, **geometry}
+
+    limit = len(ramp)
+    if len(rows) > limit:
+        folded = rows[limit - 1:]
+        head = rows[:limit - 1] + [(other_label, sum(v for _, v in folded))]
+    else:
+        folded = []
+        head = list(rows)
+
+    circumference = 2 * math.pi * DONUT_RADIUS
+    gap = DONUT_GAP if len(head) > 1 else 0
+
+    segments = []
+    cursor = 0.0
+    for i, (name, value) in enumerate(head):
+        fraction = float(value) / float(total)
+        arc = fraction * circumference
+        is_other = bool(folded) and i == len(head) - 1
+        segments.append({
+            'name': name,
+            'value': value,
+            'pct': round(fraction * 100, 1),
+            'colour': DONUT_OTHER_COLOUR if is_other else ramp[i],
+            # "<dash> <rest>" + a negative offset walks each segment round the ring.
+            'dasharray': f'{max(arc - gap, 0.5):.2f} {circumference - max(arc - gap, 0.5):.2f}',
+            'dashoffset': f'{-cursor:.2f}',
+        })
+        cursor += arc
+
+    return {
+        'total': total,
+        'segments': segments,
+        'circumference': round(circumference, 2),
+        'overflow': len(folded),
+        **geometry,
+    }
 
 
 def _compact_peso(amount):
@@ -1056,62 +1275,119 @@ def _sales_by_branch_chart(sales_qs):
         by_branch[key] = by_branch.get(key, 0) + (amount or 0)
 
     rows = sorted(by_branch.items(), key=lambda kv: -kv[1])
-    total = sum(by_branch.values())
-    if not total:
-        return {'total': 0, 'total_display': _compact_peso(0), 'segments': [],
-                'circumference': 0, 'radius': DONUT_RADIUS,
-                'stroke': DONUT_STROKE, 'box': DONUT_BOX, 'centre': DONUT_BOX / 2,
-                'branch_count': 0, 'overflow': 0}
-
-    # With more branches than ramp steps, the last slot becomes a single
-    # "Other branches" aggregate. It has to swallow everything from
-    # limit-1 onwards (not just limit onwards), or the branch sitting in the
-    # last named slot is dropped and the segments stop summing to 100%.
-    limit = len(SALES_BRANCH_RAMP)
-    if len(rows) > limit:
-        folded = rows[limit - 1:]
-        head = rows[:limit - 1] + [('Other branches', sum(v for _, v in folded))]
-    else:
-        folded = []
-        head = rows
-
-    circumference = 2 * math.pi * DONUT_RADIUS
-    gap = DONUT_GAP if len(head) > 1 else 0
-
-    segments = []
-    cursor = 0.0
-    for i, (name, value) in enumerate(head):
-        fraction = float(value) / float(total)
-        arc = fraction * circumference
-        is_other = bool(folded) and i == len(head) - 1
-        segments.append({
-            'name': name,
-            'value': value,
-            'pct': round(fraction * 100, 1),
-            'colour': SALES_BRANCH_OTHER_COLOUR if is_other else SALES_BRANCH_RAMP[i],
-            # "<dash> <rest>" + a negative offset walks each segment round the ring.
-            'dasharray': f'{max(arc - gap, 0.5):.2f} {circumference - max(arc - gap, 0.5):.2f}',
-            'dashoffset': f'{-cursor:.2f}',
-        })
-        cursor += arc
-
+    chart = _donut(rows, SALES_BRANCH_RAMP, 'Other branches')
     return {
-        'total': total,
+        **chart,
         # The donut's headline figure: the amount the ring divides up, which
         # is what the panel subtitle already states. The branch count reads
         # as the secondary line beneath it — a donut's centre answers "how
         # much", and the ring and legend already answer "across how many".
-        'total_display': _compact_peso(total),
-        'segments': segments,
-        'circumference': round(circumference, 2),
-        'radius': DONUT_RADIUS,
-        'stroke': DONUT_STROKE,
-        'box': DONUT_BOX,
-        'centre': DONUT_BOX / 2,
+        'total_display': _compact_peso(chart['total']),
         # Real branch count for the donut's secondary label — the segment
         # count understates it once branches fold into "Other branches".
-        'branch_count': len(rows),
-        'overflow': len(folded),
+        'branch_count': len(rows) if chart['total'] else 0,
+    }
+
+
+# --- Top Products by revenue (Reports → Sales tab) ----------------------
+# DESIGN.md Section 1 asks for a "Top-Selling Products list"; this draws that
+# ranking as a donut, the same chart Sales by Branch uses one panel over.
+#
+# The trade the donut makes, stated plainly: a ring can only carry as many
+# slices as the ramp has legible steps, so the panel now names the top four
+# products and folds the rest into one segment, where the list it replaced
+# ranked eight. What the ring buys back is the share — the leader's 86% and
+# the tail's 2% are a shape you read rather than two numbers you compare —
+# and no revenue leaves the panel, because the fold is a segment, not a
+# cut-off: the slices still sum to the total the subtitle prints.
+#
+# Its own ramp rather than SALES_BRANCH_RAMP, which runs
+# brand / green-300 / action — dark, pale, dark. That is fine for branches,
+# where the legend states the rank numerically anyway, but this panel IS a
+# ranking, so lightness should fall with it. This is the monotone ordering
+# the branch ramp's note already names as the better scale, extended by one
+# pale step for a fourth slot.
+#
+# Contrast vs the white .card surface, same validator thresholds as the
+# branch ramp:
+#   --action-700  #14603C  7.59:1  PASS
+#   --action      #1E7A4F  5.31:1  PASS
+#   --brand       #2E9E6B  3.38:1  PASS
+#   --green-300   #9CCDB4  1.78:1  under the 2.0:1 ordinal light-end floor
+# The pale fourth step is the same known miss the branch donut already
+# carries in its second slot, and it lands on the smallest named slice.
+# Identity is never colour alone here either: every legend row prints its
+# name, its peso figure and its share.
+TOP_PRODUCTS_RAMP = [
+    'var(--action-700)', 'var(--action)', 'var(--brand)', 'var(--green-300)',
+]
+TOP_PRODUCTS_OTHER_LABEL = 'Other products'
+
+# SalesItem.product is SET_NULL, so a deleted product leaves live revenue rows
+# pointing at nothing. Those rows are real money and belong in the total, so
+# they are labelled rather than filtered out — dropping them would leave the
+# panel's own total short of the Total Sales card sitting a few pixels above
+# it, with nothing on the page explaining the gap.
+DELETED_PRODUCT_LABEL = 'Deleted product'
+
+
+def _top_products(sales_qs):
+    """
+    Products ranked by revenue over whatever `sales_qs` the Sales tab has
+    already filtered, as donut segments.
+
+    Scoping is inherited, not re-derived: `transaction__in=sales_qs` puts the
+    page's branch dropdown and §2e date range behind one subquery, so this
+    panel counts exactly the transactions the KPI cards, donut and table
+    count. In particular it applies no order_status filter of its own —
+    whatever the cards currently include, this includes, because two panels
+    on one page disagreeing about which orders are real is worse than either
+    answer being arguable.
+
+    Revenue is `Sum('subtotal')`, the stored column, rather than
+    quantity × unit_price recomputed in SQL. SalesItem.save() writes subtotal
+    as exactly that product, so the two agree, and summing a stored decimal
+    keeps this a plain indexed aggregate.
+
+    Grouping is by product_id, not by name: two catalog entries sharing a name
+    are two products, and every row whose product is gone collapses into one
+    labelled bucket instead of one bucket per deleted id.
+    """
+    rows = list(
+        SalesItem.objects
+        .filter(transaction__in=sales_qs)
+        .values('product_id', 'product__product_name')
+        .annotate(revenue=Sum('subtotal'))
+        .order_by('-revenue')
+    )
+    # Rows with no revenue at all would be 0%-wide slices carrying a legend
+    # row each, so they are dropped before the ring is built rather than
+    # drawn as segments nobody can see or click.
+    named = [
+        (r['product__product_name'] or DELETED_PRODUCT_LABEL, r['revenue'])
+        for r in rows if r['revenue']
+    ]
+    chart = _donut(named, TOP_PRODUCTS_RAMP, TOP_PRODUCTS_OTHER_LABEL)
+    if not chart['total']:
+        return {**chart, 'total_display': _compact_peso(0),
+                'product_count': 0, 'subtitle': ''}
+
+    # Same centre treatment as Sales by Branch: how much, then across how
+    # many. The count is the real product count, which the segment count
+    # understates the moment the tail folds.
+    count = len(named)
+    total = chart['total']
+    subtitle = (
+        f'Share of ₱{total:,.2f} · all {count} product{_plural(count)}'
+        if not chart['overflow'] else
+        f'Share of ₱{total:,.2f} · top {len(chart["segments"]) - 1} of {count} '
+        f'products, rest grouped'
+    )
+    return {
+        **chart,
+        'total_display': _compact_peso(total),
+        'product_count': count,
+        'subtitle': subtitle,
     }
 
 

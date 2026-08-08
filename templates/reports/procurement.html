@@ -4,42 +4,43 @@
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
+{% comment %}
+The §2e range control sits in .page-head, where the Dashboard puts it — see
+reports/reports_home.html for why it belongs to the page, not the toolbar.
+{% endcomment %}
 <div class="page-head">
   <div>
     <h1>Reports</h1>
     <p class="gv-meta mb-0">Business performance, inventory, procurement, and billing analytics</p>
   </div>
+  {% include "_daterange.html" %}
 </div>
 
 {% include "reports/_tabs.html" with active="procurement" %}
 
 {% comment %}
-Toolbar: filters + export. The bare from/to date pair is replaced by the
-shared §2e range control, which adds presets on top of the same custom range.
+Toolbar: branch + export, the same shape on all four tabs. The bare from/to
+date pair is replaced by the §2e range control above, which adds presets on
+top of the same custom range.
 
-The toolbar is a plain <div>, not a <form>, because the range control brings
-its own form and HTML forbids nesting them. Branch is its own small form, and
-each side carries the other's state in hidden inputs so changing one filter
-never silently resets the other.
+One plain <form> again now that the range control has left the row; the hidden
+range inputs stay, so changing branch never silently resets the range.
 {% endcomment %}
-<div class="toolbar-card no-print">
+<form method="GET" class="toolbar-card no-print">
   <div class="toolbar-filters">
     {% if show_branch_filter %}
-    <form method="GET">
-      <input type="hidden" name="range" value="{{ active_range }}">
-      {% if active_range == 'custom' %}
-        <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
-        <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
-      {% endif %}
-      <select name="branch" onchange="this.form.submit()">
-        <option value="">All Branches</option>
-        {% for b in branches %}
-          <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-        {% endfor %}
-      </select>
-    </form>
+    <input type="hidden" name="range" value="{{ active_range }}">
+    {% if active_range == 'custom' %}
+      <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+      <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
     {% endif %}
-    {% include "_daterange.html" %}
+    <select name="branch" onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
   </div>
   <div class="toolbar-actions">
     <a class="btn" href="{% url 'export_csv' 'procurement' %}">
@@ -51,39 +52,37 @@ never silently resets the other.
       Export PDF
     </button>
   </div>
-</div>
+</form>
 
-{# ---------------------------- KPI stat cards ---------------------------- #}
+{% comment %}
+KPI stat cards — the Dashboard rail's card, same class and reading order.
+
+Only Pending Delivery is tinted, and only while it has something in it: an
+amber card announcing "0 orders waiting" spends the row's one alarm colour on
+the good outcome. The two money cards are plain — see gerlyn.css, tint is
+status here, not emphasis.
+{% endcomment %}
 <div class="kpi-row">
   <div class="kpi-card">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
-    </div>
-    <div class="kpi-value">{{ total_pos }}</div>
-    <div class="kpi-label">Total POs</div>
-    <div class="gv-meta">in range</div>
+    <span class="label">Total POs</span>
+    <span class="value">{{ total_pos }}</span>
+    <span class="stat-foot">in range</span>
   </div>
-  <div class="kpi-card highlight">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
-    </div>
-    <div class="kpi-value">₱{{ active_value|floatformat:2 }}</div>
-    <div class="kpi-label">PO Value (Active)</div>
+  <div class="kpi-card">
+    <span class="label">PO Value (Active)</span>
+    <span class="value">₱{{ active_value|floatformat:2 }}</span>
+    {# Draft + Ordered, per the view — "active" is the two statuses, not one. #}
+    <span class="stat-foot">draft and ordered</span>
   </div>
-  <div class="kpi-card highlight">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
-    </div>
-    <div class="kpi-value">₱{{ received_value|floatformat:2 }}</div>
-    <div class="kpi-label">Received Value</div>
+  <div class="kpi-card">
+    <span class="label">Received Value</span>
+    <span class="value">₱{{ received_value|floatformat:2 }}</span>
+    <span class="stat-foot">received in range</span>
   </div>
-  <div class="kpi-card warn">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-    </div>
-    <div class="kpi-value">{{ pending_delivery }}</div>
-    <div class="kpi-label">Pending Delivery</div>
-    <div class="gv-meta">orders</div>
+  <div class="kpi-card{% if pending_delivery %} warn{% endif %}">
+    <span class="label">Pending Delivery</span>
+    <span class="value">{{ pending_delivery }}</span>
+    <span class="stat-foot">order{{ pending_delivery|pluralize }} awaiting receipt</span>
   </div>
 </div>
 

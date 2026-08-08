@@ -48,9 +48,9 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       is stated once below the rail instead.
       {% endcomment %}
       {% if card.delta %}
-      <span class="mt-2" style="display:block;"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
       {% endif %}
-      <span class="gv-meta mt-2" style="display:block;">{{ card.foot }}</span>
+      <span class="stat-foot">{{ card.foot }}</span>
     </button>
     {% endfor %}
   </div>

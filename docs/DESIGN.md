@@ -197,8 +197,8 @@ Status: settled. The codebase already has a proper design token system in `gerly
 | `.btn` / `.btn-primary` / `.btn-quiet` / `.btn-danger` / `.btn-danger-solid` / `.btn-sm` | Full button system, already uses tokens |
 | `.pill-ok` / `.pill-warn` / `.pill-danger` / `.pill-info` / `.pill-neutral` | Status pills with a full text label, accessible for color-blind users (the label does that work, not colour) |
 | `.gv-table` | Sticky headers, zebra rows, right-aligned `.num` columns, responsive stacking at ≤860px |
-| `.stat` / `.stat-hero` | Two-tier KPI cards (quiet flat vs. elevated hero) |
-| `.kpi-card` / `.kpi-card.highlight` / `.kpi-card.danger` / `.kpi-card.warn` | Report KPI cards with icon, value, label, and status-tinted variants |
+| `.stat` | Quiet flat tile for secondary figures |
+| `.kpi-row` + `.stat-hero` / `.kpi-card` | The one KPI card, shared by the Dashboard rail (`.stat-hero`, a `<button>` tab, green when `.active`) and all four Reports tabs (`.kpi-card`). Reading order `.label` → `.value` → `.stat-status` → `.stat-foot`. No icon. Tint is status only: `.warn` waiting on someone, `.danger` act now — never emphasis |
 | `.toolbar` / `.toolbar-card` | Filter bars with search + dropdowns + export actions |
 | `.tabs` / `.report-tabs` | Two distinct tab styles (pill tabs for filtering, underline tabs for report sections) |
 | `.banner-ok` / `.banner-warning` / `.banner-error` / `.banner-info` | Toast/alert banners |

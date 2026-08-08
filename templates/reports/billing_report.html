@@ -4,42 +4,43 @@
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
+{% comment %}
+The §2e range control sits in .page-head, where the Dashboard puts it — see
+reports/reports_home.html for why it belongs to the page, not the toolbar.
+{% endcomment %}
 <div class="page-head">
   <div>
     <h1>Reports</h1>
     <p class="gv-meta mb-0">Business performance, inventory, procurement, and billing analytics</p>
   </div>
+  {% include "_daterange.html" %}
 </div>
 
 {% include "reports/_tabs.html" with active="billing" %}
 
 {% comment %}
-Toolbar: filters + export. The bare from/to date pair is replaced by the
-shared §2e range control, which adds presets on top of the same custom range.
+Toolbar: branch + export, the same shape on all four tabs. The bare from/to
+date pair is replaced by the §2e range control above, which adds presets on
+top of the same custom range.
 
-The toolbar is a plain <div>, not a <form>, because the range control brings
-its own form and HTML forbids nesting them. Branch is its own small form, and
-each side carries the other's state in hidden inputs so changing one filter
-never silently resets the other.
+One plain <form> again now that the range control has left the row; the hidden
+range inputs stay, so changing branch never silently resets the range.
 {% endcomment %}
-<div class="toolbar-card no-print">
+<form method="GET" class="toolbar-card no-print">
   <div class="toolbar-filters">
     {% if show_branch_filter %}
-    <form method="GET">
-      <input type="hidden" name="range" value="{{ active_range }}">
-      {% if active_range == 'custom' %}
-        <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
-        <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
-      {% endif %}
-      <select name="branch" onchange="this.form.submit()">
-        <option value="">All Branches</option>
-        {% for b in branches %}
-          <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-        {% endfor %}
-      </select>
-    </form>
+    <input type="hidden" name="range" value="{{ active_range }}">
+    {% if active_range == 'custom' %}
+      <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+      <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
     {% endif %}
-    {% include "_daterange.html" %}
+    <select name="branch" onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
   </div>
   <div class="toolbar-actions">
     <a class="btn" href="{% url 'export_csv' 'billing' %}">
@@ -51,56 +52,49 @@ never silently resets the other.
       Export PDF
     </button>
   </div>
-</div>
+</form>
 
-{# ---------------------------- KPI stat cards ---------------------------- #}
+{% comment %}
+KPI stat cards — the Dashboard rail's card, same class and reading order.
+Only Pending Collection is ever tinted; the money cards are plain.
+{% endcomment %}
 <div class="kpi-row">
   <div class="kpi-card">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>
-    </div>
-    <div class="kpi-value">{{ completed_count }}</div>
-    <div class="kpi-label">Completed Transactions</div>
-    <div class="gv-meta">orders</div>
+    <span class="label">Completed Transactions</span>
+    <span class="value">{{ completed_count }}</span>
+    <span class="stat-foot">orders in range</span>
   </div>
-  <div class="kpi-card highlight">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v2m0 6v2M9 9.5c0-1 1-1.5 3-1.5s3 .7 3 1.7-1 1.4-3 1.8-3 .9-3 1.8 1 1.7 3 1.7 3-.5 3-1.5"/></svg>
-    </div>
-    <div class="kpi-value">₱{{ total_revenue|floatformat:2 }}</div>
-    <div class="kpi-label">Total Revenue</div>
-    <div class="gv-meta">completed only</div>
+  <div class="kpi-card">
+    <span class="label">Total Revenue</span>
+    <span class="value">₱{{ total_revenue|floatformat:2 }}</span>
+    <span class="stat-foot">completed only</span>
   </div>
-  <div class="kpi-card highlight">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
-    </div>
-    <div class="kpi-value">₱{{ collected|floatformat:2 }}</div>
-    <div class="kpi-label">Collected (Paid)</div>
-    <div class="gv-meta">{{ collected_count }} order{{ collected_count|pluralize }}</div>
+  <div class="kpi-card">
+    <span class="label">Collected (Paid)</span>
+    <span class="value">₱{{ collected|floatformat:2 }}</span>
+    <span class="stat-foot">{{ collected_count }} order{{ collected_count|pluralize }}</span>
   </div>
   {% comment %}
   Branch on the COUNT, not the amount: a pending set that happens to sum to
   zero is still pending, and reading the all-clear card beside "30 pending"
   was the contradiction this fixes. ({# #} is single-line only in Django.)
+
+  The all-clear card is plain, not tinted. It used to print "✓ ₱0" in the
+  metric slot — the one slot on the card reserved for a figure — because the
+  green tint alone did not say "this is the good outcome". The foot says it in
+  words now, so the figure can just be the figure.
   {% endcomment %}
   {% if pending_count %}
   <div class="kpi-card warn">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-    </div>
-    <div class="kpi-value">₱{{ outstanding|floatformat:2 }}</div>
-    <div class="kpi-label">Pending Collection</div>
-    <div class="gv-meta">{{ pending_count }} pending</div>
+    <span class="label">Pending Collection</span>
+    <span class="value">₱{{ outstanding|floatformat:2 }}</span>
+    <span class="stat-foot">{{ pending_count }} order{{ pending_count|pluralize }} unpaid</span>
   </div>
   {% else %}
-  <div class="kpi-card highlight">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>
-    </div>
-    <div class="kpi-value">✓ ₱0</div>
-    <div class="kpi-label">Pending Collection</div>
-    <div class="gv-meta">All payments collected</div>
+  <div class="kpi-card">
+    <span class="label">Pending Collection</span>
+    <span class="value">₱0.00</span>
+    <span class="stat-foot">all payments collected</span>
   </div>
   {% endif %}
 </div>

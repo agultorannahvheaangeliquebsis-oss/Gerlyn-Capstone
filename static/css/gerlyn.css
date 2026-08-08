@@ -206,13 +206,50 @@ input::placeholder { color: var(--ink-500); }
 }
 .card-pad { padding: var(--s6); }
 
-/* Stat cards: ONE hero (white, elevated, 32px metric) + quiet flat tiles. */
-.stat-hero {
+/* --------------------------------------------------------------- stat cards
+   ONE card, shared by the Dashboard KPI rail and all four Reports tabs, in one
+   reading order: label names the figure, the figure, then an optional status
+   pill, then a foot line that qualifies it.
+
+   The Reports tabs used to run a second card of their own — 36px icon tile on
+   top, 24px metric, label underneath — so ₱68,585.00 was the page's loudest
+   number on the Dashboard and a mid-weight one on the Sales tab, for no reason
+   a reader could name. Same figure, same weight, wherever it appears.
+
+   The icon tile is gone rather than adopted. A cart glyph above "Total Orders"
+   redraws the label in a picture, in the slot above the label, and four of
+   them in a row were the loudest thing on a page whose entire job is the
+   numbers underneath them.
+
+   Tint carries STATUS, never emphasis:
+     .warn    something is waiting on someone
+     .danger  something needs acting on now
+     .active  the Dashboard's selected card — the only green
+   A fourth "this is the important one" green on top of those gave one colour
+   three meanings across five pages, and put two and three tinted cards in the
+   same four-card row. Importance is carried by rank in the row instead. */
+.kpi-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--s4); margin-bottom: var(--s6);
+}
+.stat-hero, .kpi-card {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-card); box-shadow: var(--shadow-hero);
   padding: var(--s6);
 }
-.stat-hero .value { font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.stat-hero .label, .kpi-card .label { display: block; }
+.stat-hero .value, .kpi-card .value {
+  display: block; margin-top: 2px;
+  font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+}
+/* Below the figure, and quieter than the label above it: the label names the
+   number, the foot only qualifies it ("at cost", "23 orders"). Two lines of
+   identical grey sandwiching the metric read as two labels for one figure. */
+.stat-foot {
+  display: block; margin-top: var(--s2);
+  font: 400 13px/1.45 system-ui, sans-serif; color: var(--ink-500);
+}
+.stat-status { display: block; margin-top: var(--s2); }
 
 /* Dashboard hero cards double as click-to-expand tabs into the KPI graph
    panel (DESIGN.md Section 2, #2a) — active state is a green tint, never a
@@ -223,10 +260,18 @@ input::placeholder { color: var(--ink-500); }
   cursor: pointer; width: 100%; text-align: left;
   font: inherit; color: inherit; display: block;
 }
-.stat-hero[data-kpi-key] .value { display: block; margin-top: 2px; }
 /* No :focus-visible override here — the global ring is --brand now, so this
    only ever made the cards' ring 1px thinner than every other control's. */
 .stat-hero.active { background: var(--green-50); border-color: var(--brand); }
+
+.kpi-card.danger { background: var(--danger-bg); border-color: #E6B3AE; }
+.kpi-card.danger .value { color: var(--danger-fg); }
+.kpi-card.warn { background: var(--warn-bg); border-color: #EAC97E; }
+.kpi-card.warn .value { color: var(--warn-fg); }
+/* --ink-500 measures 4.42:1 on --danger-bg and 4.54:1 on --warn-bg, so the
+   foot's default muted grey fails 4.5:1 the moment a card takes a tint.
+   --ink-600 is the same family one step darker: 5.23:1 and 5.38:1. */
+.kpi-card.warn .stat-foot, .kpi-card.danger .stat-foot { color: var(--ink-600); }
 
 /* Sits under the KPI rail when the previous window holds nothing, in place of
    the four identical "no previous N days to compare" pills that used to fill
@@ -260,7 +305,7 @@ input::placeholder { color: var(--ink-500); }
   border-radius: var(--r-card); padding: var(--s4) var(--s4);
 }
 .stat .value { font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.stat .label, .stat-hero .label { font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-600); }
+.stat .label, .stat-hero .label, .kpi-card .label { font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-600); }
 .stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s3); }
 .trend-up { color: var(--ok-fg); font: 600 13px/1 system-ui, sans-serif; }
 .trend-down { color: var(--danger-fg); font: 600 13px/1 system-ui, sans-serif; }
@@ -788,29 +833,8 @@ input::placeholder { color: var(--ink-500); }
 .toolbar-card .toolbar-filters select { min-width: 160px; width: auto; }
 .toolbar-card .toolbar-actions { display: flex; gap: var(--s2); }
 
-/* KPI stat cards row (Reports > Sales Report). */
-.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s4); margin-bottom: var(--s6); }
-.kpi-card {
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: var(--shadow-card); padding: var(--s4);
-}
-.kpi-card.highlight { background: var(--green-50); border-color: var(--green-300); }
-.kpi-card .kpi-icon {
-  width: 36px; height: 36px; border-radius: var(--r-input);
-  background: var(--line-soft); color: var(--ink-600);
-  display: flex; align-items: center; justify-content: center; margin-bottom: var(--s3);
-}
-.kpi-card .kpi-icon svg { width: 18px; height: 18px; }
-.kpi-card.highlight .kpi-icon { background: #fff; color: var(--action); }
-.kpi-card .kpi-value { font: 700 24px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.kpi-card .kpi-label { font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-600); margin-top: 2px; }
-.kpi-card.highlight .kpi-value { color: var(--action-700); }
-.kpi-card.danger { background: var(--danger-bg); border-color: #E6B3AE; }
-.kpi-card.danger .kpi-icon { background: #fff; color: var(--danger-fg); }
-.kpi-card.danger .kpi-value { color: var(--danger-fg); }
-.kpi-card.warn { background: var(--warn-bg); border-color: #EAC97E; }
-.kpi-card.warn .kpi-icon { background: #fff; color: var(--warn-fg); }
-.kpi-card.warn .kpi-value { color: var(--warn-fg); }
+/* The Reports KPI rail is the shared .kpi-row / .kpi-card up in the cards
+   section — the Dashboard rail's card, not a second one. */
 
 /* Toolbar date-range pair (Procurement Report): two date inputs + "to". */
 .toolbar-filters .date-range { display: flex; align-items: center; gap: 8px; }

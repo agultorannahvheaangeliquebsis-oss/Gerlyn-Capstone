@@ -37,38 +37,37 @@
   </div>
 </form>
 
-{# ---------------------------- KPI stat cards ---------------------------- #}
+{% comment %}
+KPI stat cards — the Dashboard rail's card, same class and reading order.
+
+Low / Critical Items keeps its .danger tint only while the count is above
+zero. A red card reading "0" put the page's loudest colour on its best news,
+and left nothing louder for the day the number is 12.
+
+No range control on this tab: an inventory report is a snapshot of what is on
+the shelves right now, so there is no date axis for §2e to scope. The other
+three tabs carry the control in .page-head.
+{% endcomment %}
 <div class="kpi-row">
-  <div class="kpi-card highlight">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="6"/><circle cx="16" cy="12" r="6"/></svg>
-    </div>
-    <div class="kpi-value">₱{{ total_value|floatformat:2 }}</div>
-    <div class="kpi-label">Inventory Value</div>
-    <div class="gv-meta">at cost</div>
+  <div class="kpi-card">
+    <span class="label">Inventory Value</span>
+    <span class="value">₱{{ total_value|floatformat:2 }}</span>
+    <span class="stat-foot">at cost</span>
   </div>
   <div class="kpi-card">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg>
-    </div>
-    <div class="kpi-value">{{ total_units }}</div>
-    <div class="kpi-label">Total Units</div>
-    <div class="gv-meta">in stock</div>
+    <span class="label">Total Units</span>
+    <span class="value">{{ total_units }}</span>
+    <span class="stat-foot">in stock</span>
   </div>
-  <div class="kpi-card danger">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
-    </div>
-    <div class="kpi-value">{{ low_critical_count }}</div>
-    <div class="kpi-label">Low / Critical Items</div>
+  <div class="kpi-card{% if low_critical_count %} danger{% endif %}">
+    <span class="label">Low / Critical Items</span>
+    <span class="value">{{ low_critical_count }}</span>
+    <span class="stat-foot">at or below reorder level</span>
   </div>
   <div class="kpi-card">
-    <div class="kpi-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
-    </div>
-    <div class="kpi-value">{{ product_lines }}</div>
-    <div class="kpi-label">Product Lines</div>
-    <div class="gv-meta">tracked SKUs</div>
+    <span class="label">Product Lines</span>
+    <span class="value">{{ product_lines }}</span>
+    <span class="stat-foot">tracked SKUs</span>
   </div>
 </div>
 
