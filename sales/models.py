@@ -53,7 +53,14 @@ class SalesTransaction(models.Model):
         limit_choices_to={'role': 'CUSTOMER'},
         related_name='purchases'
     )
-    transaction_date = models.DateTimeField(auto_now_add=True)
+    # Indexed: every range-scoped surface in the back office filters on this
+    # column — the Dashboard's daily series and its previous-window
+    # comparison, the Reports Sales tab's KPIs, trend panel and donut, and
+    # every CSV export — and the daily charts hit it twice per request
+    # (selected window plus the one before it). The §2e "All time" preset
+    # also takes a MIN() on it. No Meta ordering or index exists on this
+    # model, so this is the one the queries actually need.
+    transaction_date = models.DateTimeField(auto_now_add=True, db_index=True)
     total_amount = models.DecimalField(
         max_digits=12, decimal_places=2, default=0
     )
