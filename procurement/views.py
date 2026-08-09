@@ -97,17 +97,26 @@ def procurement_detail(request, pk):
     })
 
 
+def _procurement_form_context():
+    """Everything procurement_form.html needs, in one place so the error
+    re-render below cannot drift from the initial GET."""
+    from branches.models import Branch
+    return {
+        'products': Product.objects.all(),
+        'suppliers': User.objects.filter(role=User.Role.SUPPLIER),
+        'branches': Branch.objects.all(),
+        # localdate(), not now(): the order-date field defaults to this, and
+        # now() is UTC under USE_TZ, so late evening in Asia/Manila would
+        # prefill tomorrow's date.
+        'today': timezone.localdate(),
+    }
+
+
 @login_required(login_url='login')
 def procurement_add(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to create procurement orders.')
         return redirect('procurement_list')
-
-    products  = Product.objects.all()
-    suppliers = User.objects.filter(role=User.Role.SUPPLIER)
-
-    from branches.models import Branch
-    branches = Branch.objects.all()
 
     if request.method == 'POST':
         if request.user.role == User.Role.BRANCH_MANAGER:
@@ -126,6 +135,28 @@ def procurement_add(request):
         quantities   = request.POST.getlist('quantity_ordered')
         cost_prices  = request.POST.getlist('cost_price')
 
+        # Collect the usable lines BEFORE writing anything. This loop used to
+        # run inside the transaction with the Procurement already created, so a
+        # submission where every row was missing a cost price saved an order
+        # with no items and a ₱0.00 total, then reported "created successfully".
+        # That is not hypothetical — PO-2026-001 in this database is one, left
+        # behind when the cost field silently blanked itself (see the
+        # |unlocalize note in procurement_form.html).
+        items = []
+        for product_id, qty, cost in zip(product_ids, quantities, cost_prices):
+            if not product_id or not qty or not cost:
+                continue
+            items.append((product_id, int(qty), float(cost)))
+
+        if not items:
+            messages.error(
+                request,
+                'The order was not created — every item needs a product, a '
+                'quantity and a cost price.'
+            )
+            return render(request, 'procurement/procurement_form.html',
+                          _procurement_form_context())
+
         with transaction.atomic():
             owner_user = request.user if request.user.role == User.Role.OWNER else None
 
@@ -140,11 +171,7 @@ def procurement_add(request):
             )
 
             total = 0
-            for product_id, qty, cost in zip(product_ids, quantities, cost_prices):
-                if not product_id or not qty or not cost:
-                    continue
-                qty  = int(qty)
-                cost = float(cost)
+            for product_id, qty, cost in items:
                 ProcurementItem.objects.create(
                     procurement=proc,
                     product_id=product_id,
@@ -159,11 +186,7 @@ def procurement_add(request):
         messages.success(request, 'Procurement order created successfully.')
         return redirect('procurement_list')
 
-    return render(request, 'procurement/procurement_form.html', {
-        'products': products,
-        'suppliers': suppliers,
-        'branches': branches,
-    })
+    return render(request, 'procurement/procurement_form.html', _procurement_form_context())
 
 
 @login_required(login_url='login')
