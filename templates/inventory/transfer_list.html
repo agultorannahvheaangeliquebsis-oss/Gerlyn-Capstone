@@ -3,12 +3,10 @@
 
 {% block extra_css %}
 <style>
-  .ws-cards { display:flex; gap:16px; flex-wrap:wrap; margin:16px 0 20px; }
-  .ws-card { flex:1 1 200px; border-radius:12px; padding:16px 20px; border:1px solid #eee; }
-  .ws-card .num { font-size:26px; font-weight:700; }
-  .ws-card.ok { background:#eaf7ef; border-color:#bfe6cd; }
-  .ws-card.warn { background:#fff8e1; border-color:#f0dfa0; }
-  .ws-card.bad { background:#fdecea; border-color:#f5c2c0; }
+  /* .ws-card* removed — the KPI row uses gerlyn.css's .kpi-row/.kpi-card, the
+     same component as the Dashboard rail and the Reports tabs. It hard-coded
+     its own hexes, radius and 26px figure, so it drifted from every other card
+     in the app the moment a token moved. */
   .pending-box { border:1px solid #f0dfa0; background:#fffdf5; border-radius:12px; padding:16px; margin-bottom:20px; }
   .pending-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 0; border-bottom:1px solid #f2eecf; }
   .pending-row:last-child { border-bottom:0; }
@@ -16,7 +14,10 @@
   .pending-row form input[type=number] { width:70px; flex:0 1 70px; }
   .pending-row form input[type=text] { width:130px; flex:1 1 100px; min-width:0; }
   .grow { flex:1 1 220px; }
-  .ws-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  /* The gap above the KPI row used to come from .ws-cards' own margin-top.
+     .kpi-row carries no top margin — .page-head owns that spacing everywhere
+     else — so the header takes it here, on the same token .page-head uses. */
+  .ws-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:var(--s6); }
   table.ws { width:100%; border-collapse:collapse; }
   table.ws th, table.ws td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:14px; }
   @media (max-width: 860px) {
@@ -51,10 +52,53 @@
 
   {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
 
-  <div class="ws-cards">
-    <div class="ws-card ok"><div class="num">{{ total_released_this_month }}</div><div>Released This Month</div></div>
-    <div class="ws-card warn"><div class="num">{{ pending_acknowledgment }}</div><div>Pending Acknowledgment</div></div>
-    <div class="ws-card bad"><div class="num">{{ flagged_discrepancies }}</div><div>Flagged Discrepancies</div></div>
+  {% comment %}
+  The one KPI card (DESIGN.md §2), shared with the Dashboard rail and the
+  Reports tabs. Reading order .label → .value names the figure before it is
+  read.
+
+  Tint is status, never category: .warn is "waiting on someone" and .danger is
+  "act now", so both are gated on a non-zero count. Pending Acknowledgment is
+  waiting on a branch to confirm receipt; a flagged discrepancy is someone's
+  next job. Released This Month is throughput, not a state anyone acts on, so
+  it takes no tint — it was the green card here, and green is reserved for the
+  Dashboard's selected card.
+
+  These three are not one series. Released This Month is a FLOW — throughput
+  over a window, filtered on the release date. Pending Acknowledgment and
+  Flagged Discrepancies are BACKLOGS — what is outstanding right now, filtered
+  on status alone and deliberately unscoped by date. Subtracting the first from
+  the second gives a number that means nothing.
+
+  Do NOT "fix" that by scoping pending_acknowledgment to the month. A backlog
+  has no natural window, and its oldest entries are its most important: a slip
+  released in June and still unacknowledged is the one someone needs to chase.
+  Month-scoping would drop those first, collapse the count on the 1st while
+  nothing had actually been resolved, and — because the .warn tint is gated on
+  a non-zero count — clear the amber overnight with the backlog untouched. The
+  card would be announcing that nothing is waiting on anyone, and be wrong.
+
+  The labels already carry the scope: "Released This Month" names its window,
+  "Pending Acknowledgment" has no time word at all, which is how a present-
+  tense backlog should read. The pending items are listed in the panel directly
+  below, so the relationship is on screen either way.
+
+  .compact because this row heads a table, not a graph panel, and three cards
+  across the full width leave the default block padding as empty card.
+  {% endcomment %}
+  <div class="kpi-row compact">
+    <div class="kpi-card">
+      <span class="label">Released This Month</span>
+      <span class="value">{{ total_released_this_month }}</span>
+    </div>
+    <div class="kpi-card{% if pending_acknowledgment %} warn{% endif %}">
+      <span class="label">Pending Acknowledgment</span>
+      <span class="value">{{ pending_acknowledgment }}</span>
+    </div>
+    <div class="kpi-card{% if flagged_discrepancies %} danger{% endif %}">
+      <span class="label">Flagged Discrepancies</span>
+      <span class="value">{{ flagged_discrepancies }}</span>
+    </div>
   </div>
 
   {% if pending_acknowledgment %}

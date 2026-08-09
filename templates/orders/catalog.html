@@ -12,11 +12,19 @@
     </div>
   </div>
 
-  <!-- branch picker: stock is honest only when a branch is chosen -->
-  <div class="tabs">
-    <a class="tab {% if not selected_branch_id %}active{% endif %}" href="{% url 'orders:clear_branch' %}">All Branches</a>
+  {% comment %}
+  Branch picker: stock is honest only when a branch is chosen.
+
+  No glyphs and no counts here, unlike every other .filter-tabs bar. One
+  storefront icon repeated down a row of branch names would carry no
+  information — each tab already says which branch it is — and a per-branch
+  product count would answer a question nobody is asking at this point in the
+  flow. The component does not require either.
+  {% endcomment %}
+  <div class="filter-tabs">
+    <a class="filter-tab {% if not selected_branch_id %}active{% endif %}" href="{% url 'orders:clear_branch' %}">All Branches</a>
     {% for b in branches %}
-      <a class="tab {% if b.id == selected_branch_id %}active{% endif %}"
+      <a class="filter-tab {% if b.id == selected_branch_id %}active{% endif %}"
          href="{% url 'orders:set_branch' b.id %}">{{ b.branch_name }}</a>
     {% endfor %}
   </div>

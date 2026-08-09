@@ -52,22 +52,18 @@ three tabs carry the control in .page-head.
   <div class="kpi-card">
     <span class="label">Inventory Value</span>
     <span class="value">₱{{ total_value|floatformat:2 }}</span>
-    <span class="stat-foot">at cost</span>
   </div>
   <div class="kpi-card">
     <span class="label">Total Units</span>
     <span class="value">{{ total_units }}</span>
-    <span class="stat-foot">in stock</span>
   </div>
   <div class="kpi-card{% if low_critical_count %} danger{% endif %}">
     <span class="label">Low / Critical Items</span>
     <span class="value">{{ low_critical_count }}</span>
-    <span class="stat-foot">at or below reorder level</span>
   </div>
   <div class="kpi-card">
     <span class="label">Product Lines</span>
     <span class="value">{{ product_lines }}</span>
-    <span class="stat-foot">tracked SKUs</span>
   </div>
 </div>
 

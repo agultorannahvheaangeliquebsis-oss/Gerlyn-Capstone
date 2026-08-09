@@ -1,0 +1,51 @@
+{% comment %}
+Glyphs for the status filter tabs (.filter-tab), one copy across Purchase
+Orders, Order Management and Billing so the same status cannot drift into two
+drawings.
+
+Four of these are deliberately the same paths as reports/_row_icon.html and
+reports/_tabs.html rather than new art: a purchase order is the same truck in
+the Reports tab bar, the Needs Attention row and this filter; a payment the
+same peso; stock the same box; waiting the same clock. Reusing them is the
+point — a second truck would say there are two kinds of purchase order.
+
+Usage: {% include "partials/_status_icon.html" with icon="draft" %}
+Colour comes from the wrapper via currentColor.
+
+Size is set BOTH here (width/height attributes) and in .filter-tab svg, and the
+attributes are not redundant: an <svg> carrying only a viewBox has no intrinsic
+size, so the moment the stylesheet is missing or stale it falls back to the SVG
+default of 300x150 and a 16px glyph becomes a block the width of the page. That
+is exactly what happened on 2026-08-10 — in DEBUG the stylesheet URL is a plain
+/static/css/gerlyn.css with no hash, so a browser holding an older copy never
+saw the .filter-tab svg rule. reports/_row_icon.html already carried the
+attributes for this reason; dropping them here was the mistake.
+{% endcomment %}
+{% if icon == 'all' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg>
+{% elif icon == 'draft' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+{% elif icon == 'truck' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 16V5h11v11"/><path d="M14 9h4l3 3.5V16h-7"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg>
+{% elif icon == 'alert' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
+{% elif icon == 'clock' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+{% elif icon == 'box' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+{% elif icon == 'check' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
+{% elif icon == 'check-circle' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg>
+{% elif icon == 'peso' %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 20V4h5a4 4 0 0 1 0 8H6"/><path d="M6 16h8"/></svg>
+{% elif icon == 'x-circle' %}
+  {# cancelled and rejected — the two terminal negatives #}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>
+{% endif %}
+{% comment %}
+No {% else %}. x-circle used to be the fallback, which meant a misspelled name
+rendered a plausible "cancelled" glyph on, say, the Received tab and nothing
+looked broken. An unknown name now draws nothing at all, which is visible in a
+second and cannot be mistaken for a deliberate choice.
+{% endcomment %}

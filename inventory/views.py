@@ -695,6 +695,10 @@ def transfer_list(request):
         'total_released_this_month': total_released_this_month,
         'pending_acknowledgment': pending_acknowledgment,
         'flagged_discrepancies': flagged_discrepancies,
+        # Names the window the card above counts. From `today`, which is
+        # already localtime()-derived, so it cannot disagree with the
+        # month_start/month_end bounds the count itself was filtered on.
+        'month_label': today.strftime('%B'),
     })
 
 

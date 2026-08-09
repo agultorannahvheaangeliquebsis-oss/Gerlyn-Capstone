@@ -65,18 +65,44 @@
   {% endif %}
 </div>
 
-<div class="stat-strip mb-4">
-  <div class="stat" style="background:var(--ok-bg); border-color:var(--ok-bg);">
-    <div class="value" style="color:var(--ok-fg);">{{ counts.in_stock }}</div>
-    <div class="label">In Stock</div>
+{% comment %}
+The one KPI card (DESIGN.md §2) — the same component as the Dashboard rail and
+the four Reports tabs, not a third lookalike. `.stat` is the quiet tile for
+secondary figures; these three are the headline of the page, so they take the
+card. Reading order is .label → .value, so the figure is named before it is
+read, rather than after it as it was here.
+
+Tint is status, never category. gerlyn.css reserves .warn for "waiting on
+someone" and .danger for "act now", so both are gated on the count being
+non-zero: a branch with nothing wrong used to render an amber "Low Stock 0" and
+a red "Critical 0", a traffic light that lit up the same way no matter what the
+stock was doing. Colour now only appears when someone has to act on it, and it
+matches the .pill-warn/.pill-danger already in the Status column below.
+
+In Stock takes no tint at all — there is no .ok card variant, because green is
+the Dashboard's selected-card colour and giving it a fourth meaning here is the
+thing that rule exists to prevent.
+
+No sub-text under the figures, by request. The thresholds these buckets are
+computed from ("at or below half the reorder level") are consequently not
+stated anywhere on this page — the Status column shows each row's verdict, not
+the rule behind it. The rule still lives in _inventory_list_context().
+
+.compact because this row heads a table, not a graph panel, and three cards
+across the full width leave the default block padding as empty card.
+{% endcomment %}
+<div class="kpi-row compact">
+  <div class="kpi-card">
+    <span class="label">In Stock</span>
+    <span class="value">{{ counts.in_stock }}</span>
   </div>
-  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
-    <div class="value" style="color:var(--warn-fg);">{{ counts.low }}</div>
-    <div class="label">Low Stock</div>
+  <div class="kpi-card{% if counts.low %} warn{% endif %}">
+    <span class="label">Low Stock</span>
+    <span class="value">{{ counts.low }}</span>
   </div>
-  <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
-    <div class="value" style="color:var(--danger-fg);">{{ counts.critical }}</div>
-    <div class="label">Critical</div>
+  <div class="kpi-card{% if counts.critical %} danger{% endif %}">
+    <span class="label">Critical</span>
+    <span class="value">{{ counts.critical }}</span>
   </div>
 </div>
 

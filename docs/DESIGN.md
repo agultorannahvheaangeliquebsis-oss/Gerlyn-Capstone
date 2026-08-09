@@ -196,11 +196,14 @@ Status: settled. The codebase already has a proper design token system in `gerly
 |---|---|
 | `.btn` / `.btn-primary` / `.btn-quiet` / `.btn-danger` / `.btn-danger-solid` / `.btn-sm` | Full button system, already uses tokens |
 | `.pill-ok` / `.pill-warn` / `.pill-danger` / `.pill-info` / `.pill-neutral` | Status pills with a full text label, accessible for color-blind users (the label does that work, not colour) |
-| `.gv-table` | Sticky headers, zebra rows, right-aligned `.num` columns, responsive stacking at ≤860px |
+| `.gv-table` | Sticky headers, zebra rows, right-aligned `.num` columns, responsive stacking at ≤860px. `.end` right-aligns without `.num`'s tabular figures — for the trailing Action header, which is a word, not a number |
 | `.stat` | Quiet flat tile for secondary figures |
-| `.kpi-row` + `.stat-hero` / `.kpi-card` | The one KPI card, shared by the Dashboard rail (`.stat-hero`, a `<button>` tab, green when `.active`) and all four Reports tabs (`.kpi-card`). Reading order `.label` → `.value` → `.stat-status` → `.stat-foot`. No icon. Tint is status only: `.warn` waiting on someone, `.danger` act now — never emphasis |
+| `.kpi-row` + `.stat-hero` / `.kpi-card` | The one KPI card, shared by the Dashboard rail (`.stat-hero`, a `<button>` tab, green when `.active`) and all four Reports tabs (`.kpi-card`). Reading order `.label` → `.value`, plus `.stat-status` on the Dashboard rail only. No icon, and **no sub-text** — the qualifying `.stat-foot` line ("at cost", "above reorder level") was removed from every KPI surface, and the class no longer exists. Tint is status only: `.warn` waiting on someone, `.danger` act now — never emphasis, and gated on a non-zero count so an all-clear page shows no colour. `.kpi-row.compact` trims the block padding and figure for rows that head a dense table (Stock per Branch, Stock Withdrawals) rather than a page |
 | `.toolbar` / `.toolbar-card` | Filter bars with search + dropdowns + export actions |
-| `.tabs` / `.report-tabs` | Two distinct tab styles (pill tabs for filtering, underline tabs for report sections) |
+| `.report-tabs` / `.filter-tabs` | One tab language, two jobs. `.report-tab` navigates between report sections; `.filter-tab` filters a list in place. Identical geometry — 14.5px/600, `--ink-600` → `--action-700`, a 2.5px active underline overlapping the bar's 1.5px hairline. They differ only in payload: a report tab carries an icon, a filter tab carries an icon **and** a `.count`. The pill `.tabs` / `.tab` component they replaced is gone |
+| `.count` + `.count-neutral` / `.count-info` / `.count-warn` / `.count-ok` / `.count-danger` | Count badge inside a `.filter-tab`. Selection lives in the underline, status in the badge — two independent channels, so colour never competes with "which filter is on". Tints are the `.pill-*` pairs below, and each page maps its badge to the same pill its own Status column uses. An unclassed `.count` is neutral (used for "All", which is not a status) |
+| `partials/_status_icon.html` | The filter tabs' glyphs, one copy. Four are deliberately the same paths as `reports/_row_icon.html` and `reports/_tabs.html` — a purchase order is the same truck everywhere it appears. No `{% else %}`: an unknown name draws nothing, rather than a plausible wrong glyph. SVGs carry `width`/`height` **and** a CSS rule, because a viewBox-only `<svg>` balloons to 300×150 the moment its stylesheet is stale |
+| `.filter-head` / `.filter-summary` | Binds a summary line to the filter tabs below it as one header block — 8px inside, 16px out. Proximity does the work, so it costs no vertical space above a dense table |
 | `.banner-ok` / `.banner-warning` / `.banner-error` / `.banner-info` | Toast/alert banners |
 | `.empty` | Empty state with glyph, heading, description |
 | `.meter` | Progress/proportion bars |
@@ -426,6 +429,18 @@ This is also the shape the rule above predicts: three levels with a record in th
 
 **Filters**
 Use `.toolbar` or `.toolbar-card` with consistent control patterns. All date filtering should use the same date-range control pattern.
+
+**Tabs**
+- Filtering a list in place → `.filter-tabs` / `.filter-tab`
+- Navigating between report sections → `.report-tabs` / `.report-tab`
+- Never a pill tab bar — that component is gone, and there is one tab language now
+
+Each `.filter-tab` carries a glyph from `partials/_status_icon.html` and a `.count`. Tint the count with the same `.pill-*` family that page's own Status column uses for that status, so the tab bar and the table read as one scan. "All" is not a status and takes the unclassed neutral. Two exceptions worth knowing, both deliberate:
+
+| Case | Why |
+|---|---|
+| Order Management's "Pending" is `count-neutral`, Billing's is `count-warn` | The tabs filter `order_status`; an unstarted order and an unpaid bill are different states. The badge follows the column it actually filters, not the status *name* |
+| Catalog's branch picker has no glyphs and no counts | One storefront icon repeated down a row of branch names carries no information, and a per-branch product count answers nothing at that point in the flow |
 
 **Formatting standards**
 

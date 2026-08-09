@@ -445,7 +445,6 @@ def _dashboard_kpi_payload(metrics, start, end):
             'key': 'total_sales', 'label': 'Total Sales', 'unit': 'currency',
             'tier': 'primary',
             'value_display': f'₱{totals["sales"]:,.2f}',
-            'foot': f'{period_days} day{_plural(period_days)} · {txn_count} transaction{_plural(txn_count)}',
             'delta': _delta_pill(totals['sales'], prev['sales'], compare_label, prev_empty),
             'values': [float(d['sales']) for d in daily],
             'labels': every_day_labels,
@@ -455,7 +454,6 @@ def _dashboard_kpi_payload(metrics, start, end):
             'key': 'avg_transaction_value', 'label': 'Avg. Transaction Value',
             'unit': 'currency', 'tier': 'primary',
             'value_display': f'₱{totals["atv"]:,.2f}',
-            'foot': f'₱{totals["sales"]:,.2f} ÷ {txn_count} transaction{_plural(txn_count)}',
             'delta': _delta_pill(totals['atv'], prev['atv'], compare_label, prev_empty),
             # Days with no transactions are absent entirely, and the x
             # positions keep the remaining ones on the real time axis.
@@ -467,7 +465,6 @@ def _dashboard_kpi_payload(metrics, start, end):
             'key': 'procurement_cost', 'label': 'Procurement Cost', 'unit': 'currency',
             'tier': 'secondary',
             'value_display': f'₱{totals["procurement_cost"]:,.2f}',
-            'foot': f'{period_days} day{_plural(period_days)} of supplier spend',
             'delta': _delta_pill(totals['procurement_cost'], prev['procurement_cost'], compare_label, prev_empty),
             'values': [float(d['procurement_cost']) for d in daily],
             'labels': every_day_labels,
@@ -477,7 +474,6 @@ def _dashboard_kpi_payload(metrics, start, end):
             'key': 'total_transactions', 'label': 'Total Transactions', 'unit': 'count',
             'tier': 'secondary',
             'value_display': f'{txn_count:,}',
-            'foot': f'across {period_days} day{_plural(period_days)}',
             'delta': _delta_pill(txn_count, prev['txn_count'], compare_label, prev_empty),
             'values': [float(d['txn_count']) for d in daily],
             'labels': every_day_labels,
@@ -490,13 +486,14 @@ def _dashboard_kpi_payload(metrics, start, end):
         graph = _kpi_graph_series(spec['values'], spec['labels'], x_fractions=spec['x_fractions'])
         cards.append({
             'key': spec['key'], 'label': spec['label'],
-            'value_display': spec['value_display'], 'foot': spec['foot'],
+            'value_display': spec['value_display'],
             'delta': spec['delta'],
         })
         tier = KPI_TIERS[spec['tier']]
-        # No 'foot' and no 'delta' here: both were the selected card's own
-        # strings repeated a few pixels below it, and the card is tinted
-        # .active while its panel is open. 'valueDisplay' does stay — it is
+        # No 'delta' here: it was the selected card's own string repeated a few
+        # pixels below it, and the card is tinted .active while its panel is
+        # open. (There was a 'foot' too, until the KPI sub-texts were dropped
+        # app-wide — cards are now label + value.) 'valueDisplay' does stay — it is
         # what the aria-live region announces on a card click, and a panel
         # that announced only its own title would answer nothing. 'peak' is
         # the replacement subtitle, and is the only line here that says

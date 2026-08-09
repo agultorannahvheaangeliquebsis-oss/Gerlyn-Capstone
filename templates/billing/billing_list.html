@@ -10,11 +10,12 @@
   </div>
 </div>
 
-<div class="tabs">
-  <a class="tab {% if not status_filter %}active{% endif %}" href="?">All <span class="count">{{ counts.all }}</span></a>
-  <a class="tab {% if status_filter == 'Pending' %}active{% endif %}" href="?status=Pending">Pending <span class="count">{{ counts.pending }}</span></a>
-  <a class="tab {% if status_filter == 'Paid' %}active{% endif %}" href="?status=Paid">Paid <span class="count">{{ counts.paid }}</span></a>
-  <a class="tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?status=Rejected">Rejected <span class="count">{{ counts.rejected }}</span></a>
+<div class="filter-tabs">
+  {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger. #}
+  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?status=Pending">{% include "partials/_status_icon.html" with icon="clock" %}Pending <span class="count count-warn">{{ counts.pending }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?status=Paid">{% include "partials/_status_icon.html" with icon="peso" %}Paid <span class="count count-ok">{{ counts.paid }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?status=Rejected">{% include "partials/_status_icon.html" with icon="x-circle" %}Rejected <span class="count count-danger">{{ counts.rejected }}</span></a>
 </div>
 
 <div class="card table-wrap">
@@ -28,7 +29,7 @@
         <th>Method</th>
         <th>Reference</th>
         <th>Status</th>
-        <th style="text-align:right;">Action</th>
+        <th class="end">Action</th>
       </tr>
     </thead>
     <tbody>

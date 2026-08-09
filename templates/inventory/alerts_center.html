@@ -26,12 +26,18 @@
   </div>
 </div>
 
-<div class="tabs">
-  <button type="button" class="tab active" id="tab-low" onclick="showTab('low')">
-    Low Stock Alerts <span class="count">{{ low_count }}</span>
+<div class="filter-tabs">
+  {% comment %}
+  Badge tints mirror the stat strip above: low stock warn, expiry info.
+  These stay real button elements — they switch panels in place, they do not
+  navigate — so showTab() keeps toggling .active by id and never touches the
+  class name.
+  {% endcomment %}
+  <button type="button" class="filter-tab active" id="tab-low" onclick="showTab('low')">
+    {% include "partials/_status_icon.html" with icon="alert" %}Low Stock Alerts <span class="count count-warn">{{ low_count }}</span>
   </button>
-  <button type="button" class="tab" id="tab-exp" onclick="showTab('exp')">
-    Expiry Alerts <span class="count">{{ expiring_count }}</span>
+  <button type="button" class="filter-tab" id="tab-exp" onclick="showTab('exp')">
+    {% include "partials/_status_icon.html" with icon="clock" %}Expiry Alerts <span class="count count-info">{{ expiring_count }}</span>
   </button>
 </div>
 
@@ -46,7 +52,7 @@
         <th class="num">Reorder</th>
         <th class="num">Suggested</th>
         <th>Risk</th>
-        <th style="text-align:right;">Action</th>
+        <th class="end">Action</th>
       </tr>
     </thead>
     <tbody>

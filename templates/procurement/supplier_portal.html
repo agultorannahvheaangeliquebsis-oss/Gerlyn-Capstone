@@ -69,11 +69,15 @@
     </div>
   </div>
 
-  <div class="tabs">
-    <a class="tab {% if not status_filter %}active{% endif %}" href="?">All <span class="count">{{ counts.all }}</span></a>
-    <a class="tab {% if status_filter == 'Ordered' %}active{% endif %}" href="?status=Ordered">To fulfil <span class="count">{{ counts.ordered }}</span></a>
-    <a class="tab {% if status_filter == 'Received' %}active{% endif %}" href="?status=Received">Delivered <span class="count">{{ counts.received }}</span></a>
-    <a class="tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?status=Cancelled">Cancelled <span class="count">{{ counts.cancelled }}</span></a>
+  {% comment %}
+  Same PO statuses as Purchase Orders, so the same glyphs and tints — the
+  supplier's "To fulfil" and the buyer's "Ordered" are one record.
+  {% endcomment %}
+  <div class="filter-tabs">
+    <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
+    <a class="filter-tab {% if status_filter == 'Ordered' %}active{% endif %}" href="?status=Ordered">{% include "partials/_status_icon.html" with icon="truck" %}To fulfil <span class="count count-info">{{ counts.ordered }}</span></a>
+    <a class="filter-tab {% if status_filter == 'Received' %}active{% endif %}" href="?status=Received">{% include "partials/_status_icon.html" with icon="check-circle" %}Delivered <span class="count count-ok">{{ counts.received }}</span></a>
+    <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?status=Cancelled">{% include "partials/_status_icon.html" with icon="x-circle" %}Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
   </div>
 
   <div class="stack">

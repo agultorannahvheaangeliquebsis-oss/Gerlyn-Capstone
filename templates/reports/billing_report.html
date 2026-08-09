@@ -62,17 +62,14 @@ Only Pending Collection is ever tinted; the money cards are plain.
   <div class="kpi-card">
     <span class="label">Completed Transactions</span>
     <span class="value">{{ completed_count }}</span>
-    <span class="stat-foot">orders in range</span>
   </div>
   <div class="kpi-card">
     <span class="label">Total Revenue</span>
     <span class="value">₱{{ total_revenue|floatformat:2 }}</span>
-    <span class="stat-foot">completed only</span>
   </div>
   <div class="kpi-card">
     <span class="label">Collected (Paid)</span>
     <span class="value">₱{{ collected|floatformat:2 }}</span>
-    <span class="stat-foot">{{ collected_count }} order{{ collected_count|pluralize }}</span>
   </div>
   {% comment %}
   Branch on the COUNT, not the amount: a pending set that happens to sum to
@@ -88,13 +85,11 @@ Only Pending Collection is ever tinted; the money cards are plain.
   <div class="kpi-card warn">
     <span class="label">Pending Collection</span>
     <span class="value">₱{{ outstanding|floatformat:2 }}</span>
-    <span class="stat-foot">{{ pending_count }} order{{ pending_count|pluralize }} unpaid</span>
   </div>
   {% else %}
   <div class="kpi-card">
     <span class="label">Pending Collection</span>
     <span class="value">₱0.00</span>
-    <span class="stat-foot">all payments collected</span>
   </div>
   {% endif %}
 </div>

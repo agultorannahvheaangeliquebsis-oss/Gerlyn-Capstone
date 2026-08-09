@@ -242,13 +242,9 @@ input::placeholder { color: var(--ink-500); }
   display: block; margin-top: 2px;
   font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums;
 }
-/* Below the figure, and quieter than the label above it: the label names the
-   number, the foot only qualifies it ("at cost", "23 orders"). Two lines of
-   identical grey sandwiching the metric read as two labels for one figure. */
-.stat-foot {
-  display: block; margin-top: var(--s2);
-  font: 400 13px/1.45 system-ui, sans-serif; color: var(--ink-500);
-}
+/* .stat-foot removed — every KPI card across the app dropped its qualifying
+   sub-text ("at cost", "23 orders", "above reorder level") by request. A card
+   is now .label -> .value, plus .stat-status on the Dashboard rail only. */
 .stat-status { display: block; margin-top: var(--s2); }
 
 /* Dashboard hero cards double as click-to-expand tabs into the KPI graph
@@ -268,10 +264,23 @@ input::placeholder { color: var(--ink-500); }
 .kpi-card.danger .value { color: var(--danger-fg); }
 .kpi-card.warn { background: var(--warn-bg); border-color: #EAC97E; }
 .kpi-card.warn .value { color: var(--warn-fg); }
-/* --ink-500 measures 4.42:1 on --danger-bg and 4.54:1 on --warn-bg, so the
-   foot's default muted grey fails 4.5:1 the moment a card takes a tint.
-   --ink-600 is the same family one step darker: 5.23:1 and 5.38:1. */
-.kpi-card.warn .stat-foot, .kpi-card.danger .stat-foot { color: var(--ink-600); }
+
+/* Density modifier for KPI rows that sit above a table rather than above a
+   graph panel — Stock per Branch and Stock Withdrawals. Those pages carry only
+   three cards, so each one stretches to a third of the width and the default
+   24px block padding buys a lot of empty card. The Dashboard rail and the
+   Reports tabs keep the roomier default: their cards head the page, and the
+   Dashboard's are clickable tabs that want the larger hit area.
+
+   Only the vertical axis is cut. The complaint this answers is height, and the
+   inline padding is what keeps the text off the edge of a very wide card.
+
+   font-size, NOT the `font:` shorthand: the base rule sets the shorthand and
+   then font-variant-numeric: tabular-nums after it. Re-declaring the shorthand
+   here would win on specificity and silently reset the figures to
+   proportional numerals, so the columns of digits would stop lining up. */
+.kpi-row.compact .kpi-card { padding: var(--s4) var(--s6); }
+.kpi-row.compact .kpi-card .value { font-size: 26px; }
 
 /* Sits under the KPI rail when the previous window holds nothing, in place of
    the four identical "no previous N days to compare" pills that used to fill
@@ -349,6 +358,10 @@ input::placeholder { color: var(--ink-500); }
 .gv-table tbody tr:nth-child(even) { background: var(--surface-2); }
 .gv-table tbody tr:hover { background: var(--green-50); }
 .gv-table th.num, .gv-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Right-align without the numeric coupling — for the trailing Action column,
+   whose header was carrying an inline style because .num was the only
+   right-aligning class and it would have applied tabular figures to a word. */
+.gv-table th.end, .gv-table td.end { text-align: right; }
 .gv-table .sku { color: var(--ink-500); font-variant-numeric: tabular-nums; }
 .gv-table .strong { font-weight: 600; }
 .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
@@ -791,16 +804,48 @@ input::placeholder { color: var(--ink-500); }
 .meter { height: 8px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; }
 .meter > span { display: block; height: 100%; background: var(--brand); border-radius: var(--r-pill); }
 
-/* Tabs */
-.tabs { display: flex; gap: 8px; margin-bottom: var(--s4); flex-wrap: wrap; }
-.tab {
-  min-height: 40px; padding: 0 16px; border-radius: var(--r-pill);
-  border: 1.5px solid var(--input-line); background: var(--surface);
-  color: var(--ink-700); font: 650 14px/1 system-ui, sans-serif;
-  cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+/* The pill .tabs / .tab component was removed once Catalog's branch picker —
+   its last user — moved to .filter-tabs. Every tab bar in the app is now the
+   underline language: .report-tabs for report sections, .filter-tabs for
+   filtering a list in place. See both below.
+
+   Count badge. Selection lives in the tab's underline; status lives in the
+   badge — two independent channels, so colour never competes with "which
+   filter is on". The tints are the .pill-* pairs from the status table in
+   DESIGN.md, and each page maps its badge to the same pill its own Status
+   column uses, so scanning the tab bar and scanning the table are one act.
+
+   The .count-* modifiers match this rule's specificity exactly and win on
+   source order alone. Written as a bare `.count-ok` they would be (0,1,0),
+   the neutral default below would outrank every one of them, and the whole
+   palette would silently collapse to grey. For the same reason, never add a
+   colour to the base rule — it is the unclassed fallback. */
+.filter-tab .count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; padding: 0 6px; border-radius: var(--r-pill);
+  font: 700 12px/1.7 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  background: var(--line-soft); color: var(--ink-700);
 }
-.tab.active { background: var(--action); border-color: var(--action); color: #fff; }
-.tab .count { font-weight: 700; opacity: .85; }
+.filter-tab .count-neutral { background: var(--line-soft); color: var(--ink-600); }
+.filter-tab .count-info    { background: var(--info-bg);   color: var(--info-fg); }
+.filter-tab .count-warn    { background: var(--warn-bg);   color: var(--warn-fg); }
+.filter-tab .count-ok      { background: var(--ok-bg);     color: var(--ok-fg); }
+.filter-tab .count-danger  { background: var(--danger-bg); color: var(--danger-fg); }
+
+/* Summary line + status tabs as one header block. 8px between them, 16px to
+   the table below: tight inside, loose outside, so proximity alone reads them
+   as a unit and it costs no vertical space above a dense table. The figures
+   take the table header's tabular-nums and the body's ink, so the line reads
+   as the tab bar written out in prose rather than as an unrelated caption. */
+.filter-head { margin-bottom: var(--s4); }
+.filter-head .filter-tabs { margin-bottom: 0; }
+.filter-summary {
+  margin: 0 0 var(--s2);
+  font: 400 13px/1.45 system-ui, sans-serif; color: var(--ink-500);
+}
+.filter-summary b {
+  font-weight: 600; color: var(--ink-900); font-variant-numeric: tabular-nums;
+}
 
 /* Report tabs: green-underline style (the Reports section's own tab bar —
    a different visual language from the pill .tabs above on purpose). */
@@ -819,6 +864,42 @@ input::placeholder { color: var(--ink-500); }
 @media (max-width: 860px) {
   .report-tab-word { display: none; }
 }
+
+/* Status filter tabs — the Reports bar's underline language applied to
+   filtering a list in place. Deliberately identical to .report-tab above
+   (same 1.5px rule, same 2.5px active underline, same ink ramp): the two bars
+   sat three clicks apart in two different visual languages, and the pill
+   version read as a row of buttons rather than as views of one table.
+
+   Payload is icon + label + .count, where .report-tab has icon + label: a
+   filter's useful second fact is how many rows it will return. The glyphs come
+   from partials/_status_icon.html and are the app's existing ones wherever one
+   already exists, so a purchase order is the same truck here as in the Reports
+   bar and the Needs Attention row.
+
+   --s4 rather than .report-tabs' --s6 below the rule: this bar sits directly
+   on a dense table, where that bar heads a whole page. */
+.filter-tabs {
+  display: flex; gap: var(--s6); flex-wrap: wrap;
+  border-bottom: 1.5px solid var(--line);
+  margin-bottom: var(--s4);
+}
+.filter-tab {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: 0 2px 12px; margin-bottom: -1.5px;
+  font: 600 14.5px/1 system-ui, sans-serif;
+  color: var(--ink-600); text-decoration: none;
+  /* border:0 before border-bottom, not after — Alerts Center's tabs are real
+     <button>s (they switch panels in place rather than navigating), and a
+     button carries a UA border on all four sides. Reversing these two lines
+     erases the underline this component is built on. */
+  border: 0; border-bottom: 2.5px solid transparent;
+  background: none; cursor: pointer;
+  min-height: var(--touch);
+}
+.filter-tab svg { width: 16px; height: 16px; flex: none; }
+.filter-tab:hover { color: var(--ink-900); }
+.filter-tab.active { color: var(--action-700); border-bottom-color: var(--action); }
 
 /* Report toolbar: a white card housing filters (left) and export actions
    (right), sitting right below the report tabs. */

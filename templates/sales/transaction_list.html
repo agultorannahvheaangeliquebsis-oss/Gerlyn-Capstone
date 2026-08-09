@@ -40,19 +40,30 @@
   <button type="submit" class="btn">Search</button>
 </form>
 
-<div class="tabs">
-  <a class="tab {% if not status_filter %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}">All <span class="count">{{ counts.all }}</span></a>
-  <a class="tab {% if status_filter == 'Pending' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Pending">Pending <span class="count">{{ counts.pending }}</span></a>
-  <a class="tab {% if status_filter == 'Approved' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Approved">Approved <span class="count">{{ counts.approved }}</span></a>
-  <a class="tab {% if status_filter == 'Preparing' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Preparing">Preparing <span class="count">{{ counts.preparing }}</span></a>
-  <a class="tab {% if status_filter == 'Completed' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Completed">Completed <span class="count">{{ counts.completed }}</span></a>
-  <a class="tab {% if status_filter == 'Cancelled' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Cancelled">Cancelled <span class="count">{{ counts.cancelled }}</span></a>
+<div class="filter-tabs">
+  {% comment %}
+  These tabs filter order_status, so the glyphs and badges mirror the Order
+  Status column, not Pay Status: Pending neutral, Approved info, Preparing
+  warn, Completed ok, Cancelled danger. This page's two "Pending"s are
+  different states — an unstarted order (neutral) and an unpaid bill (warn) —
+  and each badge follows the column it actually filters.
+
+  Use this tag and not the hash form for anything spanning lines: Django's hash
+  comment is single-line only, so a multi-line one is not a comment at all and
+  printed verbatim between the tabs.
+  {% endcomment %}
+  <a class="filter-tab {% if not status_filter %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Pending">{% include "partials/_status_icon.html" with icon="clock" %}Pending <span class="count count-neutral">{{ counts.pending }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Approved' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Approved">{% include "partials/_status_icon.html" with icon="check" %}Approved <span class="count count-info">{{ counts.approved }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Preparing' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Preparing">{% include "partials/_status_icon.html" with icon="box" %}Preparing <span class="count count-warn">{{ counts.preparing }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Completed' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Completed">{% include "partials/_status_icon.html" with icon="check-circle" %}Completed <span class="count count-ok">{{ counts.completed }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}"
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Cancelled">{% include "partials/_status_icon.html" with icon="x-circle" %}Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
 </div>
 
 <div class="card table-wrap">
@@ -68,7 +79,7 @@
         <th>Payment</th>
         <th>Pay Status</th>
         <th>Order Status</th>
-        <th style="text-align:right;">Action</th>
+        <th class="end">Action</th>
       </tr>
     </thead>
     <tbody>

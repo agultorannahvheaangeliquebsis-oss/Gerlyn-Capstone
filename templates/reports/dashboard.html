@@ -50,7 +50,6 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       {% if card.delta %}
       <span class="stat-status"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
       {% endif %}
-      <span class="stat-foot">{{ card.foot }}</span>
     </button>
     {% endfor %}
   </div>

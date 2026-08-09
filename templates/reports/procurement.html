@@ -66,23 +66,19 @@ status here, not emphasis.
   <div class="kpi-card">
     <span class="label">Total POs</span>
     <span class="value">{{ total_pos }}</span>
-    <span class="stat-foot">in range</span>
   </div>
   <div class="kpi-card">
     <span class="label">PO Value (Active)</span>
     <span class="value">₱{{ active_value|floatformat:2 }}</span>
     {# Draft + Ordered, per the view — "active" is the two statuses, not one. #}
-    <span class="stat-foot">draft and ordered</span>
   </div>
   <div class="kpi-card">
     <span class="label">Received Value</span>
     <span class="value">₱{{ received_value|floatformat:2 }}</span>
-    <span class="stat-foot">received in range</span>
   </div>
   <div class="kpi-card{% if pending_delivery %} warn{% endif %}">
     <span class="label">Pending Delivery</span>
     <span class="value">{{ pending_delivery }}</span>
-    <span class="stat-foot">order{{ pending_delivery|pluralize }} awaiting receipt</span>
   </div>
 </div>
 

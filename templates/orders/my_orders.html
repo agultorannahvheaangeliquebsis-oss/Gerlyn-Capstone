@@ -11,10 +11,15 @@
     </div>
   </div>
 
-  <div class="tabs">
-    <a class="tab {% if not status_filter %}active{% endif %}" href="?">All <span class="count">{{ counts.all }}</span></a>
-    <a class="tab {% if status_filter == 'active' %}active{% endif %}" href="?status=active">In progress <span class="count">{{ counts.active }}</span></a>
-    <a class="tab {% if status_filter == 'completed' %}active{% endif %}" href="?status=completed">Completed <span class="count">{{ counts.completed }}</span></a>
+  {% comment %}
+  "In progress" aggregates Pending/Confirmed/Being packed, so it takes the
+  info tint rather than Being packed's warn — for a customer an order in
+  progress is the normal case, not something to act on.
+  {% endcomment %}
+  <div class="filter-tabs">
+    <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
+    <a class="filter-tab {% if status_filter == 'active' %}active{% endif %}" href="?status=active">{% include "partials/_status_icon.html" with icon="box" %}In progress <span class="count count-info">{{ counts.active }}</span></a>
+    <a class="filter-tab {% if status_filter == 'completed' %}active{% endif %}" href="?status=completed">{% include "partials/_status_icon.html" with icon="check-circle" %}Completed <span class="count count-ok">{{ counts.completed }}</span></a>
   </div>
 
   <div class="stack">

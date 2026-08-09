@@ -88,7 +88,6 @@ for one card's sake.
       {% if delta_orders %}
       <span class="stat-status"><span class="pill {{ delta_orders.pill }}">{{ delta_orders.text }}</span></span>
       {% endif %}
-      <span class="stat-foot">in range</span>
     </div>
     <div class="kpi-card{% if delta_sales.tint %} {{ delta_sales.tint }}{% endif %}">
       <span class="label">Total Sales</span>
@@ -96,7 +95,6 @@ for one card's sake.
       {% if delta_sales %}
       <span class="stat-status"><span class="pill {{ delta_sales.pill }}">{{ delta_sales.text }}</span></span>
       {% endif %}
-      <span class="stat-foot">{{ total_orders }} transaction{{ total_orders|pluralize }}</span>
     </div>
     <div class="kpi-card{% if delta_aov.tint %} {{ delta_aov.tint }}{% endif %}">
       <span class="label">Avg Order Value</span>
@@ -109,12 +107,10 @@ for one card's sake.
       same two figures — the card two along and the card one page over should
       not show a reader different arithmetic for the same number.
       {% endcomment %}
-      <span class="stat-foot">₱{{ total_sales|floatformat:2 }} ÷ {{ total_orders }} transaction{{ total_orders|pluralize }}</span>
     </div>
     <div class="kpi-card">
       <span class="label">Online Orders</span>
       <span class="value">{{ online_orders }}</span>
-      <span class="stat-foot">of {{ total_orders }} in range</span>
     </div>
   </div>
   {% if kpi_compare_note %}
