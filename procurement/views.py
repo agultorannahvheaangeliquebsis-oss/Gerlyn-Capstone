@@ -7,6 +7,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 
@@ -54,13 +55,17 @@ def procurement_list(request):
         'received': procurements.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': procurements.filter(status=Procurement.Status.CANCELLED).count(),
     }
+    # Before the status filter, like counts above — this is a page-level
+    # summary, not a summary of the open tab. It used to be computed after,
+    # so selecting Cancelled or Received reported "₱0.00 in open orders"
+    # alongside a pending-delivery count that was still page-wide: one
+    # sentence, two different scopes.
+    open_value = procurements.filter(
+        status__in=[Procurement.Status.DRAFT, Procurement.Status.ORDERED]
+    ).aggregate(total=Sum('total_cost'))['total'] or 0
+
     if status_filter:
         procurements = procurements.filter(status=status_filter)
-
-    open_value = sum(
-        p.total_cost for p in procurements
-        if p.status in [Procurement.Status.DRAFT, Procurement.Status.ORDERED]
-    )
 
     return render(request, 'procurement/procurement_list.html', {
         'procurements': procurements,

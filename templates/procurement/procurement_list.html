@@ -6,6 +6,7 @@
 <div class="page-head">
   <div>
     <h1>Purchase Orders</h1>
+    <p class="gv-meta mb-0">{{ counts.ordered }} pending delivery · {{ counts.draft }} draft · ₱{{ open_value|floatformat:2 }} in open orders</p>
   </div>
   {% if can_create %}
   <a href="{% url 'procurement_add' %}" class="btn btn-primary">
@@ -16,27 +17,25 @@
 </div>
 
 {% comment %}
-The summary line moved out from under the <h1> to sit with the tabs: it is a
-prose restatement of the same counts, so .filter-head binds the two into one
-header block rather than leaving a caption stranded on the title.
+The summary sits under the <h1> as a plain .gv-meta subtitle, the way Billing
+Records, Order Management, Alerts Center and Stock per Branch all do it. It
+spent one round bound to the tab bar instead, on the theory that a prose
+restatement of the counts belonged with them. That was written for the old pill
+tabs; .filter-tab carries a 44px touch target with 12px of bottom padding, so
+there is invisible space above every label and the 8px binding never read as
+one block — the line just floated between the title and the tabs, and was the
+only page-level summary in the app not sitting where the other four put theirs.
 
 Each badge takes the same .pill-* tint the Status column below uses for that
 status — Draft neutral, Ordered info, Received ok, Cancelled danger. "All" is
 not a status, so it keeps the unclassed neutral default.
 {% endcomment %}
-<div class="filter-head">
-  <p class="filter-summary">
-    <b>{{ counts.ordered }}</b> pending delivery ·
-    <b>{{ counts.draft }}</b> draft ·
-    <b>₱{{ open_value|floatformat:2 }}</b> in open orders
-  </p>
-  <div class="filter-tabs">
-    <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
-    <a class="filter-tab{% if status_filter == 'Draft' %} active{% endif %}" href="?status=Draft">{% include "partials/_status_icon.html" with icon="draft" %}Draft <span class="count count-neutral">{{ counts.draft }}</span></a>
-    <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?status=Ordered">{% include "partials/_status_icon.html" with icon="truck" %}Ordered <span class="count count-info">{{ counts.ordered }}</span></a>
-    <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?status=Received">{% include "partials/_status_icon.html" with icon="check-circle" %}Received <span class="count count-ok">{{ counts.received }}</span></a>
-    <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?status=Cancelled">{% include "partials/_status_icon.html" with icon="x-circle" %}Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
-  </div>
+<div class="filter-tabs">
+  <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Draft' %} active{% endif %}" href="?status=Draft">{% include "partials/_status_icon.html" with icon="draft" %}Draft <span class="count count-neutral">{{ counts.draft }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?status=Ordered">{% include "partials/_status_icon.html" with icon="truck" %}Ordered <span class="count count-info">{{ counts.ordered }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?status=Received">{% include "partials/_status_icon.html" with icon="check-circle" %}Received <span class="count count-ok">{{ counts.received }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?status=Cancelled">{% include "partials/_status_icon.html" with icon="x-circle" %}Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
 </div>
 
 <div class="card table-wrap">
