@@ -833,7 +833,7 @@ def _recent_activity(sales_qs, procurement_qs, billing_qs, now, limit=ACTIVITY_F
     return entries[:limit]
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def operational_dashboard(request):
     """
     The Dashboard — a live operational snapshot: hero KPI cards (with a
@@ -1543,7 +1543,7 @@ def _billing_payment_breakdown(completed_records, total_revenue):
 # and working offline, per the deployment constraints.
 # =============================================================================
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def export_csv(request, kind):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to export reports.')
@@ -1639,7 +1639,7 @@ def export_csv(request, kind):
     return response
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def billing_report(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to view this report.')
@@ -1709,7 +1709,7 @@ def billing_report(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def sales_report(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to view this report.')
@@ -1724,7 +1724,7 @@ def sales_report(request):
     return render(request, 'reports/sales_report.html', {'transactions': sales_qs})
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def inventory_report(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to view this report.')
@@ -1812,7 +1812,7 @@ def _daily_spend_series(records, start, end):
     return series
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def procurement_report(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to view this report.')

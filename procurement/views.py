@@ -7,7 +7,6 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 
@@ -55,15 +54,6 @@ def procurement_list(request):
         'received': procurements.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': procurements.filter(status=Procurement.Status.CANCELLED).count(),
     }
-    # Before the status filter, like counts above — this is a page-level
-    # summary, not a summary of the open tab. It used to be computed after,
-    # so selecting Cancelled or Received reported "₱0.00 in open orders"
-    # alongside a pending-delivery count that was still page-wide: one
-    # sentence, two different scopes.
-    open_value = procurements.filter(
-        status__in=[Procurement.Status.DRAFT, Procurement.Status.ORDERED]
-    ).aggregate(total=Sum('total_cost'))['total'] or 0
-
     if status_filter:
         procurements = procurements.filter(status=status_filter)
 
@@ -71,7 +61,6 @@ def procurement_list(request):
         'procurements': procurements,
         'counts': counts,
         'status_filter': status_filter,
-        'open_value': open_value,
         'today': timezone.now().date(),
         'can_create': request.user.role in [
             User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
@@ -79,7 +68,7 @@ def procurement_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def procurement_detail(request, pk):
     proc = get_object_or_404(
         Procurement.objects.select_related('branch', 'supplier'), pk=pk
@@ -117,7 +106,7 @@ def _procurement_form_context():
     }
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def procurement_add(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to create procurement orders.')
@@ -194,7 +183,7 @@ def procurement_add(request):
     return render(request, 'procurement/procurement_form.html', _procurement_form_context())
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def procurement_update_status(request, pk):
     proc = get_object_or_404(Procurement, pk=pk)
 
@@ -227,7 +216,7 @@ def procurement_update_status(request, pk):
 # after a formal receipt validation, so digital stock matches physical goods.
 # =============================================================================
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def delivery_list(request):
     """Pick a purchase order to receive."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
@@ -246,7 +235,7 @@ def delivery_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def delivery_receive(request, pk):
     """Record the quantities actually delivered against a PO."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
@@ -333,7 +322,7 @@ def delivery_receive(request, pk):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def receiving_history(request):
     """Everything already received, newest first."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
@@ -358,7 +347,7 @@ def receiving_history(request):
 # rule 13), and letting a supplier self-confirm would defeat the control.
 # =============================================================================
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def supplier_portal(request):
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
@@ -399,7 +388,7 @@ def supplier_portal(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def supplier_set_delivery_date(request, pk):
     """The supplier commits to (or revises) a delivery date on their own order."""
     if request.user.role != User.Role.SUPPLIER:
@@ -431,7 +420,7 @@ def supplier_set_delivery_date(request, pk):
 # SUPPLIERS (managed by the store)
 # =============================================================================
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def supplier_list(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'Access denied.')
@@ -454,7 +443,7 @@ def supplier_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def supplier_form(request, pk=None):
     """Add or edit a supplier (Owner only)."""
     if request.user.role != User.Role.OWNER:
@@ -508,7 +497,7 @@ def supplier_form(request, pk=None):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def supplier_delete(request, pk):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can delete suppliers.')

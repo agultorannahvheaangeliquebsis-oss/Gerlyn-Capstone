@@ -6,7 +6,6 @@
 <div class="page-head">
   <div>
     <h1>Order Management Console</h1>
-    <p class="gv-meta mb-0">{{ counts.all }} total order{{ counts.all|pluralize }}</p>
   </div>
   {% if can_pos %}
   <a href="{% url 'transaction_add' %}" class="btn btn-primary">

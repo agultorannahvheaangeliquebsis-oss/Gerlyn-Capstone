@@ -10,7 +10,7 @@ from inventory.models import Inventory, Warehouse
 from .models import Branch
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def branch_list(request):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage branches.')
@@ -34,7 +34,7 @@ def branch_list(request):
     return render(request, 'branches/branch_list.html', {'rows': rows})
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def branch_form(request, pk=None):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage branches.')
@@ -69,7 +69,7 @@ def branch_form(request, pk=None):
     return render(request, 'branches/branch_form.html', {'branch': branch})
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def branch_delete(request, pk):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can delete branches.')

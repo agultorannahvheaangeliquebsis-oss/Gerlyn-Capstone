@@ -641,8 +641,16 @@ input::placeholder { color: var(--ink-500); }
 .avatar-menu-panel { display: none; }
 
 .content { padding: var(--s6) var(--s8) var(--s12); }
+/* align-items: center, not flex-start. flex-start was right while every page
+   carried a subtitle under its <h1> — the left column was two lines, and a
+   top-aligned button lined up with the title rather than floating against the
+   middle of the block. The subtitles are gone app-wide, so the left column is
+   now usually a single 30px line next to a ~40px button: top-aligning them
+   left the button hanging 10px below the title's baseline. Centring is also
+   correct on the twelve pages whose left column is still two lines, because
+   there the button reads as belonging to the group, not to the first line. */
 .page-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   gap: var(--s4); margin-bottom: var(--s6); flex-wrap: wrap;
 }
 /* ------------------------------------------------------------ breadcrumb
@@ -832,12 +840,11 @@ input::placeholder { color: var(--ink-500); }
 .filter-tab .count-ok      { background: var(--ok-bg);     color: var(--ok-fg); }
 .filter-tab .count-danger  { background: var(--danger-bg); color: var(--danger-fg); }
 
-/* .filter-head / .filter-summary removed. They bound a page summary to the tab
-   bar as one block, which worked when the tabs were pills sitting flush under
-   the line. .filter-tab carries a 44px touch target with 12px of bottom
-   padding, so there is invisible space above every label and an 8px gap could
-   not read as a binding — the summary just floated. Page summaries go under
-   the <h1> as .gv-meta, which is where the other four list pages put them. */
+/* A .filter-tabs bar carries tabs and nothing else. Three attempts at hanging a
+   page summary off it — above the bar as .filter-head/.filter-summary, then as
+   a figure on its right end via .filter-aside — all read as clutter, because
+   the count badges already answer what the summary was restating. Put a page
+   summary under the <h1> as .gv-meta, or leave it out. */
 
 /* Report tabs: green-underline style (the Reports section's own tab bar —
    a different visual language from the pill .tabs above on purpose). */

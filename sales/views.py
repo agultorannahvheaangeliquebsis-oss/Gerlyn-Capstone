@@ -30,7 +30,7 @@ def price_for(product, order_type):
 # ORDER CONSOLE
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transaction_list(request):
     """Order Console — the queue of every order, filterable by status."""
     if request.user.role not in INTERNAL_ROLES:
@@ -93,7 +93,7 @@ def transaction_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transaction_detail(request, pk):
     txn = get_object_or_404(
         SalesTransaction.objects.select_related('branch', 'staff', 'customer'), pk=pk
@@ -191,7 +191,7 @@ def _deduct_stock(txn, user):
 # WALK-IN POS
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transaction_add(request):
     if request.user.role not in [OWNER, BRANCH_MANAGER, STAFF]:
         messages.error(request, 'You do not have permission to record sales.')

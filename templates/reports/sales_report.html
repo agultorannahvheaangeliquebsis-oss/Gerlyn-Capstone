@@ -7,7 +7,6 @@
   <div>
     <a class="gv-meta no-print" href="{% url 'reports_dashboard' %}">&larr; Dashboard</a>
     <h1 class="mt-2">Sales Report</h1>
-    <p class="gv-meta mb-0">{{ transactions|length }} transaction{{ transactions|length|pluralize }}</p>
   </div>
   <div class="row no-print">
     <a class="btn" href="{% url 'export_csv' 'sales' %}">Export CSV</a>

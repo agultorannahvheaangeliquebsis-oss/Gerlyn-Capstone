@@ -6,7 +6,6 @@
 <div class="page-head">
   <div>
     <h1>Suppliers</h1>
-    <p class="gv-meta mb-0">{{ suppliers|length }} supplier{{ suppliers|length|pluralize }} on record</p>
   </div>
   {% if can_edit %}
   <a class="btn btn-primary" href="{% url 'supplier_add' %}">

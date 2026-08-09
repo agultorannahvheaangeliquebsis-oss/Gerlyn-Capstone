@@ -9,10 +9,6 @@
   <div>
     <a class="gv-meta" href="{% url 'transaction_list' %}">&larr; Order Console</a>
     <h1 class="mt-2">Walk-in Sale</h1>
-    <p class="gv-meta mb-0">
-      Recorded as completed and paid — stock leaves
-      {% if user_branch %}{{ user_branch.branch_name }}{% else %}the selected branch{% endif %} immediately.
-    </p>
   </div>
 </div>
 

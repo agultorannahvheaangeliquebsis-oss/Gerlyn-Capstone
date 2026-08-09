@@ -6,7 +6,6 @@
 <div class="page-head">
   <div>
     <h1>Purchase Orders</h1>
-    <p class="gv-meta mb-0">{{ counts.ordered }} pending delivery · {{ counts.draft }} draft · ₱{{ open_value|floatformat:2 }} in open orders</p>
   </div>
   {% if can_create %}
   <a href="{% url 'procurement_add' %}" class="btn btn-primary">
@@ -17,14 +16,13 @@
 </div>
 
 {% comment %}
-The summary sits under the <h1> as a plain .gv-meta subtitle, the way Billing
-Records, Order Management, Alerts Center and Stock per Branch all do it. It
-spent one round bound to the tab bar instead, on the theory that a prose
-restatement of the counts belonged with them. That was written for the old pill
-tabs; .filter-tab carries a 44px touch target with 12px of bottom padding, so
-there is invisible space above every label and the 8px binding never read as
-one block — the line just floated between the title and the tabs, and was the
-only page-level summary in the app not sitting where the other four put theirs.
+No summary line above this bar. There was one — "3 pending delivery · 0 draft ·
+₱1,456.00 in open orders" — and it was tried under the <h1>, floating above the
+tabs, and as a figure on the right end of the tab row. None of them looked
+right, and the reason is that most of it was never needed: "pending delivery"
+is the Ordered badge and "draft" is the Draft badge, both a few pixels below.
+The open-order value is the only fact it added, and the Procurement report
+already carries that. The tab bar answers the page's question on its own.
 
 Each badge takes the same .pill-* tint the Status column below uses for that
 status — Draft neutral, Ordered info, Received ok, Cancelled danger. "All" is

@@ -8,10 +8,6 @@
 <div class="page-head">
   <div>
     <h1>Dashboard</h1>
-    <p class="gv-meta mb-0">
-      Good day, {{ request.user.get_full_name|default:request.user.username }}! Here's
-      what's happening — {{ today|date:"F d, Y" }}.
-    </p>
   </div>
   {% comment %}
   The §2e range control. .page-head is already a space-between flex row, so it

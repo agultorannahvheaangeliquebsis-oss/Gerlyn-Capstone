@@ -2,8 +2,9 @@
 {% block title %}Warehouse Stock{% endblock %}
 {% block content %}
 <div style="padding:8px 4px;">
-  <h2 style="margin:0 0 4px;">Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% endif %}</h2>
-  <p style="color:#888; margin:0 0 16px;">{{ total_products }} products · {{ low_stock_count }} need restock</p>
+  {# The 4px below the title was spacing to a subtitle that is now gone; it #}
+  {# takes over the 16px that paragraph carried, so the gap to the table holds. #}
+  <h2 style="margin:0 0 var(--s6);">Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% endif %}</h2>
 
   <div class="table-wrap">
   <table class="gv-table">

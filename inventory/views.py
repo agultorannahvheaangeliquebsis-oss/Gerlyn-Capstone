@@ -104,7 +104,7 @@ def _edit_modal_values(product, form_data=None):
     }
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def product_list(request):
     if request.user.role not in INTERNAL_ROLES:
         messages.error(request, 'Access denied.')
@@ -125,7 +125,7 @@ def product_list(request):
     return render(request, 'inventory/product_list.html', context)
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def barcode_lookup(request):
     """AJAX: resolve a scanned/typed code to product details for the shared
     barcode field on Add Product and Stock Adjustment. Checks the real
@@ -160,7 +160,7 @@ def barcode_lookup(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def product_add(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to add products.')
@@ -232,7 +232,7 @@ def product_add(request):
     return render(request, 'inventory/product_list.html', context)
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def product_edit(request, pk):
     product = get_object_or_404(Product, pk=pk)
 
@@ -309,7 +309,7 @@ def product_edit(request, pk):
     return render(request, 'inventory/product_list.html', context)
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def product_delete(request, pk):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to delete products.')
@@ -333,7 +333,7 @@ def product_delete(request, pk):
 # "Shop by Category" section, so they need a real management screen.
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def category_list(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
@@ -349,7 +349,7 @@ def category_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def category_form(request, pk=None):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to manage categories.')
@@ -385,7 +385,7 @@ def category_form(request, pk=None):
     return render(request, 'inventory/category_form.html', {'category': category})
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def category_delete(request, pk):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to manage categories.')
@@ -495,7 +495,7 @@ def _inventory_list_context(request):
     }
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def inventory_list(request):
     """Stock per Branch — real-time levels across branches, with status."""
     # Suppliers/customers must never reach this: get_user_branch() returns None
@@ -507,7 +507,7 @@ def inventory_list(request):
     return render(request, 'inventory/inventory_list.html', _inventory_list_context(request))
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def stock_adjustment_add(request):
     """Direct floor-stock correction — bumps Inventory.quantity_on_hand
     without going through the normal Warehouse -> StockTransfer chain, so
@@ -576,7 +576,7 @@ def stock_adjustment_add(request):
 # WAREHOUSE STOCK VIEW
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def warehouse_stock_list(request):
     if request.user.role not in [
         User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
@@ -702,7 +702,7 @@ def transfer_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transfer_create(request):
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
@@ -786,7 +786,7 @@ def transfer_create(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transfer_detail(request, pk):
     transfer = get_object_or_404(
         StockTransfer.objects.select_related(
@@ -810,7 +810,7 @@ def transfer_detail(request, pk):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transfer_approve(request, pk):
     if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
         messages.error(request, 'Only Branch Managers and Owners can approve transfers.')
@@ -891,7 +891,7 @@ def transfer_approve(request, pk):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transfer_complete(request, pk):
     if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
         messages.error(request, 'Only Branch Managers and Owners can release transfers.')
@@ -982,7 +982,7 @@ def transfer_complete(request, pk):
 # a discrepancy if the received quantity differs from what was released.
 # ─────────────────────────────────────────────
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transfer_confirm_receipt(request, pk):
     """Destination-branch staff confirms receipt of a RELEASED slip."""
     if request.user.role not in [
@@ -1021,7 +1021,7 @@ def transfer_confirm_receipt(request, pk):
     return redirect('transfer_detail', pk=pk)
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def transfer_flag_discrepancy(request, pk):
     """
     Destination-branch staff flags a discrepancy: the quantity actually

@@ -7,7 +7,6 @@
   <div>
     <a class="gv-meta" href="{% url 'product_list' %}">&larr; Product Master List</a>
     <h1 class="mt-2">Manage Categories</h1>
-    <p class="gv-meta mb-0">{{ categories|length }} categor{{ categories|length|pluralize:"y,ies" }} · used across the catalog and storefront</p>
   </div>
   {% if can_edit %}
   <a class="btn btn-primary" href="{% url 'category_add' %}">

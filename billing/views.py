@@ -56,7 +56,7 @@ def billing_list(request):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def billing_detail(request, pk):
     record = get_object_or_404(
         BillingRecord.objects.select_related('transaction', 'transaction__branch'),
@@ -77,7 +77,7 @@ def billing_detail(request, pk):
     return render(request, 'billing/billing_detail.html', {'record': record})
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def billing_create(request, transaction_id):
     txn = get_object_or_404(SalesTransaction, pk=transaction_id)
 
@@ -163,7 +163,7 @@ def billing_create(request, transaction_id):
     })
 
 
-@login_required(login_url='login')
+@login_required(login_url='accounts:login')
 def billing_confirm(request, pk):
     record = get_object_or_404(BillingRecord, pk=pk)
 

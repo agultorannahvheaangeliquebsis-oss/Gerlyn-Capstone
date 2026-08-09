@@ -7,10 +7,6 @@
 <div class="page-head">
   <div>
     <h1>My Dashboard</h1>
-    <p class="gv-meta mb-0">
-      Good day, {{ request.user.get_full_name|default:request.user.username }}! Here's what needs
-      your attention{% if branch %} at {{ branch.branch_name }}{% endif %} — {{ today|date:"F d, Y" }}.
-    </p>
   </div>
 </div>
 
