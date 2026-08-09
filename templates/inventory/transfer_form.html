@@ -4,7 +4,6 @@
 <div style="padding:8px 4px; max-width:760px;">
   <a href="{% url 'transfer_list' %}">&larr; Stock Withdrawals</a>
   <h2 style="margin:8px 0;">New Stock Withdrawal</h2>
-  {% for m in messages %}<div style="padding:10px 14px; border-radius:8px; background:#fdecea; color:#c0392b; margin:6px 0;">{{ m }}</div>{% endfor %}
 
   <form method="post">{% csrf_token %}
     <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px;">
