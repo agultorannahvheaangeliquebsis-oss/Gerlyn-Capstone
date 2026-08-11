@@ -10,6 +10,11 @@
   <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" defer></script>
   <script src="{% static 'js/live-filter.js' %}" defer></script>
+  {% comment %}
+  No defer on modal.js: pages call initModal() from an inline script at the end
+  of the page, which runs before any deferred script does. See modal.js.
+  {% endcomment %}
+  <script src="{% static 'js/modal.js' %}?v={{ APP_VERSION }}"></script>
   {% block extra_css %}{% endblock %}
 </head>
 <body>

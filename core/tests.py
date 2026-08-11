@@ -7,6 +7,10 @@ Run with:
 These are the checks the ISO 25010 evaluation leans on for Functional
 Suitability, Reliability, and Security — so they must stay green.
 """
+import re
+from pathlib import Path
+
+from django.conf import settings
 from django.core.management import call_command
 from django.test import Client, TestCase
 
@@ -18,6 +22,36 @@ from inventory.models import (
 )
 from procurement.models import Procurement
 from sales.models import SalesTransaction
+
+
+class TemplateHygieneTests(TestCase):
+    """`{# #}` is single-line only. Spanning one across two lines does not
+    make a comment — Django emits the text, and the browser parses any tag
+    name inside it as a real element. That has broken the layout three times
+    now (Order Management's tabs, the Alerts Center tab row, and the internal
+    topbar, where a `<body>` inside the prose opened a second body element).
+
+    It survives every other check: the template compiles, `manage.py check`
+    passes, and `get_template()` succeeds. Only rendering shows it, which is
+    why it keeps reaching the browser. So it is a test.
+    """
+
+    def test_no_multiline_django_comments(self):
+        offenders = []
+        for root in settings.TEMPLATES[0]['DIRS']:
+            for path in Path(root).rglob('*.html'):
+                for number, line in enumerate(
+                    path.read_text(encoding='utf-8').splitlines(), 1
+                ):
+                    for match in re.finditer(r'\{#', line):
+                        if '#}' not in line[match.end():]:
+                            offenders.append(f'{path}:{number}')
+
+        self.assertEqual(
+            offenders, [],
+            'Unterminated {# on these lines — use {% comment %}...{% endcomment %} '
+            'for anything spanning more than one line:\n  ' + '\n  '.join(offenders),
+        )
 
 
 class AcceptanceTests(TestCase):

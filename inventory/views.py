@@ -333,45 +333,68 @@ def product_delete(request, pk):
 # "Shop by Category" section, so they need a real management screen.
 # ─────────────────────────────────────────────
 
+def _category_list_context(request):
+    return {
+        'categories': ProductCategory.objects.annotate(
+            product_count=models.Count('products')
+        ).order_by('category_name'),
+        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+    }
+
+
 @login_required(login_url='accounts:login')
 def category_list(request):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    categories = ProductCategory.objects.annotate(
-        product_count=models.Count('products')
-    ).order_by('category_name')
+    context = _category_list_context(request)
 
-    return render(request, 'inventory/category_list.html', {
-        'categories': categories,
-        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
-    })
+    edit_pk = request.GET.get('edit')
+    if edit_pk and context['can_edit']:
+        category = ProductCategory.objects.filter(pk=edit_pk).first()
+        if category:
+            context.update({'show_edit_modal': True, 'edit_category': category})
+
+    return render(request, 'inventory/category_list.html', context)
 
 
 @login_required(login_url='accounts:login')
 def category_form(request, pk=None):
+    """Add/Edit Category. Both live in a modal on the category list now, the
+    same way Add/Edit Product do — this view is the POST target and no longer
+    renders a page of its own.
+
+    On a validation error it re-renders the list with the modal reopened and
+    the submitted values still in the fields, rather than redirecting with a
+    message: a redirect discards what was typed, which on a two-field form is
+    the whole form."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to manage categories.')
         return redirect('category_list')
 
     category = get_object_or_404(ProductCategory, pk=pk) if pk else None
 
-    if request.method == 'POST':
-        name = request.POST.get('category_name', '').strip()
-        description = request.POST.get('description', '').strip()
+    if request.method != 'POST':
+        # Direct hit (bookmark, back button) on what used to be a page: send
+        # them to the list with the flag that opens the right modal.
+        flag = f'edit={pk}' if category else 'add=1'
+        return redirect(f"{reverse('category_list')}?{flag}")
 
-        if not name:
-            messages.error(request, 'Category name is required.')
-            return redirect(request.path)
+    name = request.POST.get('category_name', '').strip()
+    description = request.POST.get('description', '').strip()
 
+    errors = []
+    if not name:
+        errors.append('Category name is required.')
+    else:
         clash = ProductCategory.objects.filter(category_name__iexact=name)
         if category:
             clash = clash.exclude(pk=category.pk)
         if clash.exists():
-            messages.error(request, f'A category called "{name}" already exists.')
-            return redirect(request.path)
+            errors.append(f'A category called "{name}" already exists.')
 
+    if not errors:
         if category is None:
             ProductCategory.objects.create(category_name=name, description=description)
             messages.success(request, f'Category "{name}" created.')
@@ -382,7 +405,21 @@ def category_form(request, pk=None):
             messages.success(request, f'Category "{name}" updated.')
         return redirect('category_list')
 
-    return render(request, 'inventory/category_form.html', {'category': category})
+    context = _category_list_context(request)
+    if category:
+        context.update({
+            'show_edit_modal': True,
+            'edit_category': category,
+            'edit_errors': errors,
+            'edit_form_data': request.POST,
+        })
+    else:
+        context.update({
+            'show_add_modal': True,
+            'add_errors': errors,
+            'add_form_data': request.POST,
+        })
+    return render(request, 'inventory/category_list.html', context)
 
 
 @login_required(login_url='accounts:login')
