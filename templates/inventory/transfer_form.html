@@ -1,8 +1,9 @@
 {% extends 'internal_base.html' %}
 {% block title %}New Stock Withdrawal{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
 {% block content %}
 <div style="padding:8px 4px; max-width:760px;">
-  <a href="{% url 'transfer_list' %}">&larr; Stock Withdrawals</a>
+  <a class="back-link" href="{% url 'transfer_list' %}">Stock Withdrawals</a>
   <h2 style="margin:8px 0;">New Stock Withdrawal</h2>
 
   <form method="post">{% csrf_token %}

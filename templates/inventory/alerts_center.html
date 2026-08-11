@@ -10,24 +10,38 @@
   <a class="btn btn-primary" href="{% url 'procurement_add' %}">Create Purchase Order</a>
 </div>
 
-<div class="stat-strip mb-6">
-  <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
-    <div class="value" style="color:var(--danger-fg);">{{ critical_count }}</div>
-    <div class="label">Critical Stock</div>
+{% comment %}
+The one KPI card, same as Reports and Stock per Branch — .label then .value,
+no inline tints. Colour is gated on a non-zero count, so an all-clear Alerts
+Center is three plain white cards rather than a red/amber/green wall that says
+nothing is wrong in the palette reserved for saying something is.
+
+Critical is .danger (act now); low stock and expiry are .warn (act soon).
+There is no info tint on a KPI card and the green one this row used to carry
+was the worst of the three: it painted "0 expiring" in the same green the app
+uses for healthy, and "40 expiring" in it too.
+
+.compact because the row heads a tab bar and a table, not a graph panel.
+{% endcomment %}
+<div class="kpi-row compact">
+  <div class="kpi-card{% if critical_count %} danger{% endif %}">
+    <span class="label">Critical Stock</span>
+    <span class="value">{{ critical_count }}</span>
   </div>
-  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
-    <div class="value" style="color:var(--warn-fg);">{{ low_count }}</div>
-    <div class="label">Low / Critical Stock</div>
+  <div class="kpi-card{% if low_count %} warn{% endif %}">
+    <span class="label">Low / Critical Stock</span>
+    <span class="value">{{ low_count }}</span>
   </div>
-  <div class="stat" style="background:var(--info-bg); border-color:var(--info-bg);">
-    <div class="value" style="color:var(--info-fg);">{{ expiring_count }}</div>
-    <div class="label">Expiring within 14 days</div>
+  <div class="kpi-card{% if expiring_count %} warn{% endif %}">
+    <span class="label">Expiring within 14 days</span>
+    <span class="value">{{ expiring_count }}</span>
   </div>
 </div>
 
 <div class="filter-tabs">
   {% comment %}
-  Badge tints mirror the stat strip above: low stock warn, expiry info.
+  Badge tints follow this page's own Status columns, not the KPI row above:
+  low stock warn, expiry info.
   These stay real button elements — they switch panels in place, they do not
   navigate — so showTab() keeps toggling .active by id and never touches the
   class name.

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="gv-meta" href="{% url 'accounts:user_list' %}">&larr; User Management</a>
+    <a class="back-link" href="{% url 'accounts:user_list' %}">User Management</a>
     <h1 class="mt-2">{% if target %}Edit{% else %}Add{% endif %} User</h1>
   </div>
 </div>

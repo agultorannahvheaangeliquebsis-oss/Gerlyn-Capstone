@@ -186,10 +186,20 @@ DOM — it is off-screen until focused (see .skip-link).
   <!-- ============================== MAIN ============================== -->
   <div class="main">
     <header class="topbar">
-      <div>
-        <div class="topbar-title">{% block page_title %}Gerlyn Variety Store — Internal System{% endblock %}</div>
-        <div class="topbar-sub">{% block page_subtitle %}All Branches{% endblock %}</div>
-      </div>
+      {% comment %}
+      One line, and it is the section — not the store name, which the sidebar
+      header already carries two inches to the left, and not "All Branches",
+      which the branch chip on the right of this same bar already says.
+
+      The block keeps the name page_subtitle because 38 templates fill it and
+      almost all of them already put the section there (Procurement, Reports,
+      Catalog…). It is no longer a subtitle to anything, so the class does not
+      pretend otherwise. Empty by default: a page that forgets to set it
+      leaves the slot blank rather than printing a fallback that duplicates
+      the chip, and the bar keeps its height either way — the 38px chip is
+      what measures it, not this text.
+      {% endcomment %}
+      <div class="topbar-section">{% block page_subtitle %}{% endblock %}</div>
       <div class="row">
         <span class="branch-chip">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>

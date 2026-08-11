@@ -6,7 +6,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="gv-meta" href="{% url 'transaction_list' %}">&larr; Order Console</a>
+    <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
     <h1 class="mt-2">{{ transaction.order_number }}
       {% if transaction.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>
       {% elif transaction.order_status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>

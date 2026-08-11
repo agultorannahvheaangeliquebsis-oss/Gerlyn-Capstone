@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="gv-meta" href="{% url 'billing_list' %}">&larr; Billing Records</a>
+    <a class="back-link" href="{% url 'billing_list' %}">Billing Records</a>
     <h1 class="mt-2">Billing for {{ record.transaction.order_number }}
       {% if record.status == "Paid" %}<span class="pill pill-ok">Paid</span>
       {% elif record.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>

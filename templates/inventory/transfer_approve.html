@@ -1,9 +1,12 @@
 {% extends 'internal_base.html' %}
 {% load l10n %}
 {% block title %}Approve {{ transfer.slip_number }}{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
 {% block content %}
 <div style="padding:8px 4px; max-width:720px;">
-  <a href="{% url 'transfer_detail' transfer.pk %}">&larr; Back</a>
+  {# Names the slip rather than saying "Back": every other back-link on the
+     app states where it lands, and this one lands on a record, not a list. #}
+  <a class="back-link" href="{% url 'transfer_detail' transfer.pk %}">{{ transfer.slip_number }}</a>
   <h2 style="margin:8px 0;">Review &amp; Approve {{ transfer.slip_number }}</h2>
 
   <form method="post">{% csrf_token %}

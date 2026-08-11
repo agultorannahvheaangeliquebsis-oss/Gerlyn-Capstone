@@ -62,6 +62,12 @@
   --r-card: 12px;
   --r-pill: 999px;
 
+  /* Icons drawn by CSS rather than by markup. Masked, not background-image,
+     so they take currentColor — see .back-link. Single quotes inside so the
+     value can sit in a double-quoted url(), and `#` is written %23 because a
+     raw one starts the fragment. */
+  --icon-arrow-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 12H5M11 18l-6-6 6-6'/%3E%3C/svg%3E");
+
   --touch: 44px;              /* minimum tap target */
   --shadow-card: 0 1px 3px rgba(23,37,30,.06);
   --shadow-hero: 0 2px 10px rgba(23,37,30,.08);
@@ -395,33 +401,71 @@ input::placeholder { color: var(--ink-500); }
 .banner-info    { background: var(--info-bg);   color: var(--info-fg); }
 
 /* ---------------------------------------------------------------- layout */
-.app { min-height: 100vh; --sidebar-gap: 16px; --sidebar-w: 304px; }
+.app { min-height: 100vh; --sidebar-w: 304px; }
 .app.sidebar-collapsed { --sidebar-w: 80px; }
 
-/* Floating card rail — inset from the viewport edges (vs. the old flush,
-   full-height panel) with a soft shadow, per the redesign reference. */
+/* Flush full-height panel, not a floating rounded card.
+
+   It was inset 16px on all four sides with a 20px radius and a drop shadow,
+   which made it an object sitting in front of the app rather than part of it:
+   it shared no edge with the topbar, so the two headers — the store name in
+   the rail and the page title in the bar — were two boxes at two different
+   heights with a gap of page background between them, and the eye had to
+   decide which one was the top of the page.
+
+   Flush, they resolve into one band. The panel's own edge is a single
+   --line hairline on the right, which is the same weight and colour as the
+   topbar's bottom border, so the two meet in a T at the corner instead of a
+   shadow overlapping a border. --sidebar-gap is gone with the float; .main's
+   margin is now the rail's width and nothing else. */
 .sidebar {
-  position: fixed; top: var(--sidebar-gap); left: var(--sidebar-gap); bottom: var(--sidebar-gap);
+  position: fixed; top: 0; left: 0; bottom: 0;
   width: var(--sidebar-w); z-index: 10;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 20px;
-  box-shadow: 0 8px 28px rgba(23, 37, 30, .10), 0 1px 3px rgba(23, 37, 30, .06);
+  background: var(--surface); border-right: 1px solid var(--line);
   display: flex; flex-direction: column; padding: var(--s4) var(--s3);
   overflow: hidden;
   transition: width .26s cubic-bezier(.4, 0, .2, 1);
 }
-.sb-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s2); }
+/* The brand block is a header, so it is given an edge instead of being left to
+   float above the nav on whitespace alone.
+
+   That edge lands on the topbar's. Both are 62px from the top of the viewport
+   and neither number is chosen — they are what the contents already measured:
+
+     topbar   12 padding + 38 (.branch-chip, its tallest child) + 12 = 62
+     sb-head  16 (.sidebar padding) + 34 (.brand-mark) + 12 padding  = 62
+
+   So the store name and the page title sit in one continuous white band with
+   a single hairline running the full width under both, and the panel's right
+   border drops out of that line. This is what "stuck to the header" means
+   here, and it is load-bearing: change .brand-mark's height or the chip's and
+   the band breaks into two ledges again. Re-measure both sides if either
+   moves.
+
+   align-items: center, not flex-start: the toggle was pinned to the top of a
+   two-line brand block with a 4px nudge, which left a 30px circle hanging off
+   the wordmark's cap height with nothing under it. Centred, it anchors to the
+   mark beside it. */
+.sb-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  padding-bottom: var(--s3); margin-bottom: var(--s3);
+  border-bottom: 1px solid var(--line);
+}
 .sb-toggle {
-  flex: none; width: 30px; height: 30px; margin-top: 4px;
+  flex: none; width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: 9999px;
-  background: var(--surface); color: var(--ink-600); cursor: pointer;
+  background: var(--surface); color: var(--ink-400); cursor: pointer;
 }
 .sb-toggle:hover { background: var(--line-soft); color: var(--ink-900); }
-.sb-toggle svg { width: 16px; height: 16px; transition: transform .22s ease; }
+.sb-toggle svg { width: 15px; height: 15px; transition: transform .22s ease; }
 .app.sidebar-collapsed .sb-toggle svg { transform: rotate(180deg); }
 
-.sb-logo { display: flex; align-items: center; gap: 10px; padding: 4px 8px var(--s4); min-width: 0; }
+/* padding-left: 12px is not a guess — it is the nav rows' own inline padding,
+   so the brand mark, the avatar below it and every nav icon start on one
+   vertical line. It used to be 8px, which put the mark 4px left of the icon
+   column: too small to read as an indent, big enough to read as a mistake. */
+.sb-logo { display: flex; align-items: center; gap: 10px; padding-left: 12px; min-width: 0; }
 .brand-mark {
   width: 36px; height: 36px; border-radius: 10px; flex: none;
   background: var(--brand); color: #fff;
@@ -430,6 +474,14 @@ input::placeholder { color: var(--ink-500); }
   overflow: hidden;
 }
 .brand-mark img { max-width: 100%; max-height: 40px; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Sidebar sizing only. .brand-mark is shared with the login, register, about,
+   download, storefront and supplier-portal headers, so the size and corner
+   are set here rather than on the component: 34px matches .avatar exactly and
+   --r-input matches the nav rows, which is what makes the mark, the avatar
+   below it and every nav icon read as one column. Nothing outside the rail
+   needs that agreement, and several of those pages already override the size
+   inline anyway. */
+.sb-logo .brand-mark { width: 34px; height: 34px; border-radius: var(--r-input); font-size: 16px; }
 /* min-width: 0 on the wrapper lets it shrink inside the .sb-logo flex row;
    display: block on the labels themselves is required for their inherited
    .sb-label overflow/text-overflow rules to apply — those are no-ops on a
@@ -439,13 +491,23 @@ input::placeholder { color: var(--ink-500); }
 .sb-logo-name { display: block; font: 750 15px/1.2 system-ui, sans-serif; }
 .sb-logo-sub { display: block; font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-500); }
 
+/* Neutral, not green-tinted. The chip used to be a filled --green-50 card,
+   which put a second solid green block in a rail whose one job is to show
+   which row you are on — the selected item and "who am I" were competing in
+   the same colour, and the chip is on every page while the selection moves.
+   Green is now the selection's alone; the avatar keeps it because a 34px disc
+   reads as identity, not as a state. 11px inline rather than the nav rows' 12
+   because this row is the only one with a border: 1px + 11px puts the avatar
+   on the same 12px icon column as the brand mark above and every nav icon
+   below. */
 .sb-who {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px; margin-bottom: var(--s4);
-  background: var(--green-50); border-radius: var(--r-card);
+  padding: 8px 11px; margin-bottom: var(--s3);
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-input);
   text-decoration: none; color: inherit;
 }
-.sb-who:hover { color: inherit; }
+.sb-who:hover { background: var(--line-soft); color: inherit; }
 .sb-who-name { color: var(--ink-900); }
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
@@ -469,10 +531,15 @@ input::placeholder { color: var(--ink-500); }
 }
 .sb-nav + .sb-nav { margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line); }
 
+/* border-radius is --r-input (8px), the same corner as .btn and .input, not
+   the 9999px full pill it was. A 44px-tall lozenge running the width of the
+   rail reads as a button someone dropped into the nav, and when the selected
+   one is a sub-item its round left cap collides with the tree's accent rail
+   1.5px away. A soft-cornered row reads as a row. */
 .sb-item, .sb-tree-toggle, .sb-tree-file {
   display: flex; align-items: center; gap: 10px; width: 100%;
   min-height: var(--touch); padding: 0 12px;
-  border: 0; border-radius: 9999px;
+  border: 0; border-radius: var(--r-input);
   background: transparent; color: var(--ink-700); text-decoration: none;
   font: 600 14.5px/1.3 system-ui, sans-serif; cursor: pointer; text-align: left;
 }
@@ -510,10 +577,19 @@ input::placeholder { color: var(--ink-500); }
 .sb-tree-root:has(.sb-tree-file--active) > .sb-tree-toggle > svg:first-child { color: var(--action); }
 .sb-tree-root:has(.sb-tree-file--active) > .sb-tree { border-left-color: var(--green-300); }
 
+/* The indent is derived, not eyeballed. A parent row puts its icon at 12–30px
+   and its label at 40px (12 padding + 18 icon + 10 gap). 20 + 8 + the file's
+   own 12 lands a child label on that same 40px, so the two levels share a text
+   spine and the rail alone carries the depth — and the rail itself falls at
+   20–21.5px, which is the parent icon's centre axis, so the branch line drops
+   out of the icon that opened it.
+
+   It was 22 + 10, putting child labels at 44px: four pixels right of their
+   parent's. Not an indent, just an alignment that misses. */
 .sb-tree {
   display: grid; grid-template-rows: 0fr;
   transition: grid-template-rows .22s ease;
-  margin: 0 0 0 22px; padding: 0 0 0 10px; list-style: none;
+  margin: 0 0 0 20px; padding: 0 0 0 8px; list-style: none;
   border-left: 1.5px solid var(--line);
 }
 .sb-tree.open { grid-template-rows: 1fr; }
@@ -534,6 +610,10 @@ input::placeholder { color: var(--ink-500); }
    Icon-only rail. A group's sub-items have nowhere to go at this width, so
    they stay hidden — clicking a group's icon expands the sidebar back out
    and opens that group, instead of a flyout (see sidebar.js). */
+/* Collapsed, the head stacks and so its divider no longer meets the topbar's
+   at 62px — 56px of content width cannot hold a 34px mark and a 28px toggle
+   side by side, so there is no arrangement that keeps the band continuous.
+   The expanded rail is the default state and the one that gets the alignment. */
 .app.sidebar-collapsed .sb-head { flex-direction: column; align-items: center; gap: var(--s3); }
 .app.sidebar-collapsed .sb-logo {
   display: flex;
@@ -572,8 +652,9 @@ input::placeholder { color: var(--ink-500); }
   width: 44px;
   height: 44px;
   padding: 0;
-  margin: 0 auto var(--s4);
-  background: var(--green-50);
+  margin: 0 auto var(--s3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
   border-radius: 50%;
 }
 .app.sidebar-collapsed .sb-item,
@@ -613,7 +694,7 @@ input::placeholder { color: var(--ink-500); }
 .app.sidebar-collapsed .sb-nav { scrollbar-gutter: auto; }
 
 .main {
-  margin-left: calc(var(--sidebar-w) + var(--sidebar-gap) * 2); min-height: 100vh;
+  margin-left: var(--sidebar-w); min-height: 100vh;
   transition: margin-left .26s cubic-bezier(.4, 0, .2, 1);
 }
 .topbar {
@@ -622,8 +703,13 @@ input::placeholder { color: var(--ink-500); }
   background: var(--surface); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 5;
 }
-.topbar-title { font: 600 15px/1.2 system-ui, sans-serif; }
-.topbar-sub { font: 400 12.5px/1.2 system-ui, sans-serif; color: var(--ink-500); }
+/* The bar carried a title line reading "Gerlyn Variety Store — Internal
+   System" above a smaller section line. The store name is already the first
+   thing in the sidebar header, now on the same 62px band and about an inch to
+   the left, so the bar was restating it on every page while the line that
+   actually said where you were sat under it in 12.5px grey. The section line
+   is the only line now and takes the title's weight. */
+.topbar-section { font: 600 15px/1.2 system-ui, sans-serif; color: var(--ink-900); }
 .branch-chip {
   display: inline-flex; align-items: center; gap: 6px;
   height: 38px; padding: 0 14px; border-radius: var(--r-pill);
@@ -673,6 +759,51 @@ input::placeholder { color: var(--ink-500); }
 .breadcrumb a:hover { color: var(--action); }
 .breadcrumb .sep { font-size: 12px; }
 .breadcrumb .current { color: var(--ink-700); font-weight: 600; }
+
+/* ------------------------------------------------------------- back link
+   The "← Parent" affordance above the <h1> on every detail, form and confirm
+   page — sixteen internal routes plus the storefront's product and order
+   pages. The breadcrumb note above calls it a two-level breadcrumb written as
+   an action, so it is styled as that component's sibling and not as a second
+   idiom: same 13.5px, same --ink-500 resting, same --action on hover, no
+   underline. Two "where am I" controls, one voice.
+
+   What it replaces: <a class="gv-meta">&larr; Categories</a>, which set the
+   type to 14px muted and then let the global `a` rule paint it --action green
+   and underline it. That made the smallest link on the page the loudest thing
+   above the title, in the same green as the page's primary button, sitting on
+   its own underline.
+
+   The arrow is a masked SVG, not the &larr; character. system-ui draws that
+   glyph as a hairline that reads optically lighter than the label beside it,
+   and it shifts shape across platforms; a 2.5px stroke matches the 600-weight
+   text everywhere. Masking rather than an <img> keeps it currentColor, so one
+   colour declaration moves the arrow and the word together through hover and
+   focus, and no template has to carry an inline SVG.
+
+   The arrow rests one step lighter than the label (--ink-400, the non-text
+   glyph token) and slides 3px left on hover — the only motion, pointing at
+   where the link goes. */
+.back-link {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: 600 13.5px/1 system-ui, sans-serif;
+  color: var(--ink-500); text-decoration: none;
+}
+.back-link::before {
+  content: ""; width: 15px; height: 15px; flex: none;
+  color: var(--ink-400); background: currentColor;
+  -webkit-mask: var(--icon-arrow-left) center / contain no-repeat;
+  mask: var(--icon-arrow-left) center / contain no-repeat;
+}
+/* focus-visible carries the same colour shift as hover: the global 3px ring
+   proves focus, but without this the keyboard path is the only one that never
+   sees the link light up. */
+.back-link:hover, .back-link:focus-visible { color: var(--action); }
+.back-link:hover::before, .back-link:focus-visible::before { color: var(--action); }
+@media (prefers-reduced-motion: no-preference) {
+  .back-link::before { transition: transform .15s ease, color .15s ease; }
+  .back-link:hover::before { transform: translateX(-3px); }
+}
 
 .toolbar { display: flex; gap: var(--s2); margin-bottom: var(--s4); flex-wrap: wrap; }
 .toolbar .input, .toolbar select { width: auto; min-width: 200px; }
