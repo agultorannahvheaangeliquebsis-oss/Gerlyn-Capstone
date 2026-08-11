@@ -1,3 +1,247 @@
+"""Add/Edit User, Supplier and Branch moved from their own pages into modals
+on their list pages. The forms' save logic was left alone — these cover the
+two things the move did change (the GET route and the error path), plus the
+writes themselves, so a regression in either shows up here rather than in a
+browser.
+"""
 from django.test import TestCase
+from django.urls import reverse
 
-# Create your tests here.
+from accounts.models import BranchManagerProfile, User
+from branches.models import Branch
+
+
+class UserModalFlowTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.client.force_login(self.owner)
+
+    def test_get_add_and_edit_urls_redirect_to_the_list(self):
+        self.assertRedirects(
+            self.client.get(reverse('accounts:user_add')),
+            reverse('accounts:user_list') + '?add=1',
+        )
+        self.assertRedirects(
+            self.client.get(reverse('accounts:user_edit', args=[self.owner.pk])),
+            reverse('accounts:user_list') + f'?edit={self.owner.pk}',
+        )
+
+    def test_creating_a_manager_sets_their_branch(self):
+        response = self.client.post(reverse('accounts:user_add'), {
+            'username': 'carlo', 'password': 'pw123456',
+            'role': User.Role.BRANCH_MANAGER, 'branch': self.branch.pk,
+            'first_name': 'Carlo', 'last_name': 'Reyes', 'email': 'c@x.ph',
+        })
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        carlo = User.objects.get(username='carlo')
+        self.assertEqual(carlo.role, User.Role.BRANCH_MANAGER)
+        profile = BranchManagerProfile.objects.get(user=carlo)
+        self.assertEqual(profile.branch_id, self.branch.pk)
+        self.assertEqual(profile.manager_name, 'Carlo Reyes')
+
+    def test_missing_password_reopens_the_modal_and_keeps_the_fields(self):
+        response = self.client.post(reverse('accounts:user_add'), {
+            'username': 'carlo', 'password': '',
+            'role': User.Role.STAFF, 'first_name': 'Carlo',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertIn(
+            'A password is required for a new user.', response.context['add_errors']
+        )
+        self.assertContains(response, 'value="carlo"')
+        self.assertFalse(User.objects.filter(username='carlo').exists())
+
+    def test_a_rejected_submit_never_writes_the_password_back(self):
+        response = self.client.post(reverse('accounts:user_add'), {
+            'username': '', 'password': 'sup3rsecret',
+            'role': User.Role.STAFF,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'sup3rsecret')
+
+    def test_duplicate_username_is_rejected(self):
+        response = self.client.post(reverse('accounts:user_add'), {
+            'username': 'owner', 'password': 'pw123456', 'role': User.Role.STAFF,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertEqual(User.objects.filter(username='owner').count(), 1)
+
+    def test_a_non_internal_role_is_still_refused(self):
+        response = self.client.post(reverse('accounts:user_add'), {
+            'username': 'shopper', 'password': 'pw123456',
+            'role': User.Role.CUSTOMER,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(username='shopper').exists())
+
+    def test_editing_without_a_password_keeps_the_old_one(self):
+        staff = User.objects.create_user(
+            username='ana', password='original', role=User.Role.STAFF
+        )
+        self.client.post(reverse('accounts:user_edit', args=[staff.pk]), {
+            'username': 'ana', 'password': '', 'role': User.Role.STAFF,
+            'first_name': 'Ana', 'branch': self.branch.pk,
+        })
+        staff.refresh_from_db()
+        self.assertTrue(staff.check_password('original'))
+        self.assertEqual(staff.first_name, 'Ana')
+
+    def test_non_owner_cannot_post(self):
+        staff = User.objects.create_user(
+            username='ana', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(staff)
+        response = self.client.post(reverse('accounts:user_add'), {
+            'username': 'sneaky', 'password': 'pw123456', 'role': User.Role.OWNER,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(User.objects.filter(username='sneaky').exists())
+
+
+class SupplierModalFlowTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(self.owner)
+
+    def test_get_add_url_redirects_to_the_list(self):
+        self.assertRedirects(
+            self.client.get(reverse('supplier_add')),
+            reverse('supplier_list') + '?add=1',
+        )
+
+    def test_creating_a_supplier_fills_the_profile(self):
+        response = self.client.post(reverse('supplier_add'), {
+            'supplier_name': 'Century Pacific Food Inc.',
+            'username': 'centurypacific',
+            'contact_person': 'Ricardo Buenaventura',
+            'contact_number': '0917-123-4567',
+            'supplier_category': 'Canned Goods',
+            'email': 'sales@supplier.com.ph',
+            'address': 'Laguna Technical Park',
+        })
+        self.assertRedirects(response, reverse('supplier_list'))
+        supplier = User.objects.get(username='centurypacific')
+        self.assertEqual(supplier.role, User.Role.SUPPLIER)
+        profile = supplier.supplier_profile
+        self.assertEqual(profile.supplier_name, 'Century Pacific Food Inc.')
+        self.assertEqual(profile.contact_person, 'Ricardo Buenaventura')
+        self.assertEqual(profile.address, 'Laguna Technical Park')
+
+    def test_missing_name_reopens_the_modal_and_keeps_the_rest(self):
+        response = self.client.post(reverse('supplier_add'), {
+            'supplier_name': '', 'username': 'centurypacific',
+            'contact_person': 'Ricardo Buenaventura',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertContains(response, 'Ricardo Buenaventura')
+        self.assertFalse(User.objects.filter(username='centurypacific').exists())
+
+    def test_duplicate_username_is_rejected_without_creating_a_user(self):
+        response = self.client.post(reverse('supplier_add'), {
+            'supplier_name': 'Anything', 'username': 'owner',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertEqual(User.objects.filter(username='owner').count(), 1)
+        self.assertEqual(User.objects.filter(role=User.Role.SUPPLIER).count(), 0)
+
+    def test_editing_updates_the_profile_not_a_new_user(self):
+        self.client.post(reverse('supplier_add'), {
+            'supplier_name': 'Old Name', 'username': 'century',
+        })
+        supplier = User.objects.get(username='century')
+        self.client.post(reverse('supplier_edit', args=[supplier.pk]), {
+            'supplier_name': 'New Name', 'username': 'century',
+            'supplier_category': 'Canned Goods',
+        })
+        supplier.refresh_from_db()
+        self.assertEqual(supplier.supplier_profile.supplier_name, 'New Name')
+        self.assertEqual(User.objects.filter(role=User.Role.SUPPLIER).count(), 1)
+
+    def test_manager_can_see_the_list_but_not_post(self):
+        manager = User.objects.create_user(
+            username='carlo', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        self.client.force_login(manager)
+        self.assertEqual(self.client.get(reverse('supplier_list')).status_code, 200)
+        self.client.post(reverse('supplier_add'), {
+            'supplier_name': 'Nope', 'username': 'nope',
+        })
+        self.assertFalse(User.objects.filter(username='nope').exists())
+
+
+class BranchModalFlowTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(self.owner)
+
+    def test_get_add_url_redirects_to_the_list(self):
+        self.assertRedirects(
+            self.client.get(reverse('branch_add')),
+            reverse('branch_list') + '?add=1',
+        )
+
+    def test_creating_a_branch_also_creates_its_warehouse(self):
+        response = self.client.post(reverse('branch_add'), {
+            'branch_name': 'Tarcan', 'location': 'Baliuag, Bulacan',
+        })
+        self.assertRedirects(response, reverse('branch_list'))
+        branch = Branch.objects.get(branch_name='Tarcan')
+        self.assertEqual(branch.location, 'Baliuag, Bulacan')
+        self.assertTrue(
+            branch.warehouse_set.exists() if hasattr(branch, 'warehouse_set')
+            else Branch.objects.filter(pk=branch.pk).exists()
+        )
+        from inventory.models import Warehouse
+        self.assertTrue(Warehouse.objects.filter(branch=branch).exists())
+
+    def test_blank_name_reopens_the_modal_and_keeps_the_location(self):
+        response = self.client.post(reverse('branch_add'), {
+            'branch_name': '', 'location': 'Baliuag, Bulacan',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertIn('Branch name is required.', response.context['add_errors'])
+        self.assertContains(response, 'Baliuag, Bulacan')
+        self.assertFalse(Branch.objects.exists())
+
+    def test_editing_renames_without_making_a_second_warehouse(self):
+        from inventory.models import Warehouse
+        self.client.post(reverse('branch_add'), {'branch_name': 'Tarcan'})
+        branch = Branch.objects.get(branch_name='Tarcan')
+        self.client.post(reverse('branch_edit', args=[branch.pk]), {
+            'branch_name': 'Tarcan Main', 'location': 'Baliuag',
+        })
+        branch.refresh_from_db()
+        self.assertEqual(branch.branch_name, 'Tarcan Main')
+        self.assertEqual(Warehouse.objects.filter(branch=branch).count(), 1)
+
+    def test_list_opens_the_edit_modal_and_ignores_a_bad_pk(self):
+        branch = Branch.objects.create(branch_name='Tarcan', owner=self.owner)
+        good = self.client.get(reverse('branch_list'), {'edit': branch.pk})
+        self.assertTrue(good.context['show_edit_modal'])
+        self.assertEqual(good.context['edit_branch'].pk, branch.pk)
+
+        bad = self.client.get(reverse('branch_list'), {'edit': '9999'})
+        self.assertEqual(bad.status_code, 200)
+        self.assertNotIn('show_edit_modal', bad.context)
+
+    def test_non_owner_cannot_post(self):
+        staff = User.objects.create_user(
+            username='ana', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(staff)
+        self.client.post(reverse('branch_add'), {'branch_name': 'Sneaky'})
+        self.assertFalse(Branch.objects.filter(branch_name='Sneaky').exists())

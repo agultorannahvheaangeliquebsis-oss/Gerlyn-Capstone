@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate, login, logout, password_validation
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.urls import reverse
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
     CustomerProfile, SupplierProfile, Notification,
@@ -182,11 +183,7 @@ def _profile_for(user):
 
 
 @login_required(login_url='accounts:login')
-def user_list(request):
-    if request.user.role != User.Role.OWNER:
-        messages.error(request, 'Only the Owner can manage users.')
-        return redirect('accounts:home')
-
+def _user_list_context(request):
     users = User.objects.exclude(role=User.Role.CUSTOMER).select_related(
         'manager_profile__branch', 'staff_profile__branch', 'owner_profile',
         'supplier_profile',
@@ -212,13 +209,40 @@ def user_list(request):
             ),
         })
 
-    return render(request, 'accounts/user_list.html', {
+    return {
         'rows': rows,
         'search_query': search_query,
         'role_filter': role_filter,
+        # The toolbar filters on every role a row can have; the Add/Edit modal
+        # may only ASSIGN an internal one. Two different lists on purpose —
+        # user_form has always validated against INTERNAL_ROLE_CHOICES.
         'role_choices': User.Role.choices,
+        'form_role_choices': INTERNAL_ROLE_CHOICES,
+        'branches': Branch.objects.all(),
         'active_count': users.filter(is_active=True).count(),
-    })
+    }
+
+
+@login_required(login_url='accounts:login')
+def user_list(request):
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage users.')
+        return redirect('accounts:home')
+
+    context = _user_list_context(request)
+
+    edit_pk = request.GET.get('edit')
+    if edit_pk:
+        target = User.objects.filter(pk=edit_pk).first()
+        if target:
+            profile = _profile_for(target)
+            context.update({
+                'show_edit_modal': True,
+                'edit_target': target,
+                'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
+            })
+
+    return render(request, 'accounts/user_list.html', context)
 
 
 @login_required(login_url='accounts:login')
@@ -229,26 +253,30 @@ def user_form(request, pk=None):
 
     target = get_object_or_404(User, pk=pk) if pk else None
 
-    if request.method == 'POST':
-        username = request.POST.get('username', '').strip()
-        role = request.POST.get('role')
-        branch_id = request.POST.get('branch') or None
-        first_name = request.POST.get('first_name', '').strip()
-        last_name = request.POST.get('last_name', '').strip()
-        password = request.POST.get('password', '').strip()
+    if request.method != 'POST':
+        flag = f'edit={pk}' if target else 'add=1'
+        return redirect(f"{reverse('accounts:user_list')}?{flag}")
 
-        if not username or role not in dict(INTERNAL_ROLE_CHOICES):
-            messages.error(request, 'A username and a valid role are required.')
-            return redirect(request.path)
+    username = request.POST.get('username', '').strip()
+    role = request.POST.get('role')
+    branch_id = request.POST.get('branch') or None
+    first_name = request.POST.get('first_name', '').strip()
+    last_name = request.POST.get('last_name', '').strip()
+    password = request.POST.get('password', '').strip()
 
-        if target is None and User.objects.filter(username=username).exists():
-            messages.error(request, f'Username "{username}" is already taken.')
-            return redirect('accounts:user_add')
+    # The same three checks, in the same order, collected rather than
+    # redirected — a redirect discarded the whole form, and this one has
+    # six fields to retype.
+    errors = []
+    if not username or role not in dict(INTERNAL_ROLE_CHOICES):
+        errors.append('A username and a valid role are required.')
+    elif target is None and User.objects.filter(username=username).exists():
+        errors.append(f'Username "{username}" is already taken.')
+    elif target is None and not password:
+        errors.append('A password is required for a new user.')
 
+    if not errors:
         if target is None:
-            if not password:
-                messages.error(request, 'A password is required for a new user.')
-                return redirect('accounts:user_add')
             target = User.objects.create_user(
                 username=username, email=request.POST.get('email', ''),
                 password=password, role=role,
@@ -284,14 +312,23 @@ def user_form(request, pk=None):
         messages.success(request, f'User "{username}" saved.')
         return redirect('accounts:user_list')
 
-    profile = _profile_for(target) if target else None
-    return render(request, 'accounts/user_form.html', {
-        'target': target,
-        'profile': profile,
-        'current_branch_id': getattr(profile, 'branch_id', None) if profile else None,
-        'branches': Branch.objects.all(),
-        'role_choices': INTERNAL_ROLE_CHOICES,
-    })
+    context = _user_list_context(request)
+    if pk:
+        context.update({
+            'show_edit_modal': True,
+            'edit_target': target,
+            'edit_branch_id': branch_id,
+            'edit_errors': errors,
+            'edit_form_data': request.POST,
+        })
+    else:
+        context.update({
+            'show_add_modal': True,
+            'add_branch_id': branch_id,
+            'add_errors': errors,
+            'add_form_data': request.POST,
+        })
+    return render(request, 'accounts/user_list.html', context)
 
 
 @login_required(login_url='accounts:login')

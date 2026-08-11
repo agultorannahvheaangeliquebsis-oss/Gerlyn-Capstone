@@ -1,0 +1,145 @@
+{% comment %}
+Walk-in Sale, as a modal on the Order Console. It was its own page; the fields,
+their names and the JS below are the ones that page carried.
+
+This is the widest modal in the app (.modal-card--wide) because it holds a
+repeating item row rather than a column of fields, and it is the only one whose
+body is expected to grow while it is open — .modal-body already scrolls, and
+.modal-foot keeps Record Sale reachable no matter how many rows are added.
+
+Element ids are pos-prefixed. The console underneath has its own branch and
+channel selects in the filter toolbar, and the plain ids this form used to
+carry (branch, order_type) would have been ambiguous on a shared page.
+
+On a rejected submit the view sends back pos_restore_rows and the JS rebuilds
+those rows instead of the single blank one, so a cashier does not re-ring a
+basket because they forgot to pick a branch.
+{% endcomment %}
+<div class="modal-overlay{% if show_pos_modal %} is-open{% endif %}" id="pos-modal" data-autoopen="{% if show_pos_modal %}1{% else %}0{% endif %}">
+  <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="pos-modal-title">
+    <div class="modal-head">
+      <h2 id="pos-modal-title">Walk-in Sale</h2>
+      <button type="button" class="modal-close" id="close-pos-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" action="{% url 'transaction_add' %}" class="modal-body" id="pos-form">
+      {% csrf_token %}
+
+      {% if pos_errors %}
+      <div class="banner banner-error">
+        {% for err in pos_errors %}<div>{{ err }}</div>{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="grid-2">
+        {% if pos_user_branch %}
+          <div class="field">
+            <label>Branch</label>
+            <div class="row"><span class="pill pill-info">{{ pos_user_branch.branch_name }}</span>
+              <span class="gv-meta">your assigned branch</span></div>
+          </div>
+        {% else %}
+          <div class="field">
+            <label for="pos-branch">Branch</label>
+            <select id="pos-branch" name="branch" required>
+              <option value="">— Choose a branch —</option>
+              {% for b in pos_branches %}
+                <option value="{{ b.id }}" {% if pos_form_data.branch == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+        <div class="field">
+          <label for="pos-mode-of-payment">Mode of Payment</label>
+          <select id="pos-mode-of-payment" name="mode_of_payment">
+            {% for value, label in pos_payment_choices %}
+              <option value="{{ value }}" {% if pos_form_data.mode_of_payment == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="pos-order-type">Order Type</label>
+          <select id="pos-order-type" name="order_type" onchange="posRecalc()">
+            {% for value, label in pos_order_type_choices %}
+              <option value="{{ value }}" {% if pos_form_data.order_type == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <span class="gv-meta" id="pos-type-hint">Retail prices apply.</span>
+        </div>
+      </div>
+
+      <div class="row-between">
+        <h3>Items</h3>
+        <button type="button" class="btn btn-sm" onclick="posAddRow()">+ Add Item</button>
+      </div>
+
+      <div class="field" style="max-width:480px;">
+        <label for="pos-scan-input">Scan or type barcode / SKU</label>
+        <div class="row" style="gap:8px;">
+          <input type="text" id="pos-scan-input" class="input grow"
+                 placeholder="Scan a barcode, or type a SKU and press Enter" autocomplete="off">
+          <button type="button" class="btn" id="pos-scan-camera-btn" title="Scan with camera">📷 Scan</button>
+        </div>
+        <span class="gv-meta" id="pos-scan-status"></span>
+      </div>
+
+      <div id="pos-item-rows" class="stack"></div>
+
+      <template id="pos-row-template">
+        <div class="item-row row wrap" style="gap:12px; align-items:flex-end;">
+          <div class="field grow" style="min-width:220px;">
+            <label>Product</label>
+            <select name="product_id" class="js-product" onchange="posRecalc()">
+              <option value="">— Select a product —</option>
+              {% for p in pos_products %}
+                <option value="{{ p.id }}"
+                        data-sku="{{ p.sku_code|lower }}"
+                        data-retail="{{ p.unit_price }}"
+                        data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
+                        data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field" style="width:120px;">
+            <label>Unit Price</label>
+            <input type="text" class="js-price" value="₱0.00" readonly tabindex="-1"
+                   style="background:var(--line-soft); border-color:var(--line);">
+          </div>
+          <div class="field" style="width:110px;">
+            <label>Quantity</label>
+            <input type="number" name="quantity" class="js-qty" min="1" value="1" oninput="posRecalc()">
+          </div>
+          <div class="field" style="width:120px;">
+            <label>Subtotal</label>
+            <input type="text" class="js-sub" value="₱0.00" readonly tabindex="-1"
+                   style="background:var(--line-soft); border-color:var(--line);">
+          </div>
+          <button type="button" class="btn btn-danger" onclick="posRemoveRow(this)">Remove</button>
+        </div>
+      </template>
+
+      <div class="row-between" style="border-top:1px solid var(--line); padding-top:16px;">
+        <span class="gv-label">Total</span>
+        <span class="gv-metric" id="pos-grand-total" style="color:var(--action);">₱0.00</span>
+      </div>
+    </form>
+
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-pos-modal">Cancel</button>
+      <button type="submit" form="pos-form" class="btn btn-primary">Record Sale</button>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+Only emitted after a rejected submit. json_script rather than a data attribute
+so the payload is escaped as JSON by Django and never has to survive a trip
+through HTML attribute quoting. The JS treats a missing element as "no rows to
+restore" and opens with one blank row, which is the normal case.
+{% endcomment %}
+{% if pos_restore_rows %}{{ pos_restore_rows|json_script:"pos-restore-rows" }}{% endif %}

@@ -832,6 +832,13 @@ input::placeholder { color: var(--ink-500); }
   max-height: calc(100vh - 64px);
   display: flex; flex-direction: column;
 }
+/* Walk-in Sale is the one modal that holds a repeating row rather than a
+   column of fields: product + unit price + quantity + subtotal + remove comes
+   to roughly 700px before it starts wrapping mid-row, which is unreadable
+   when you are ringing up a customer. 880px fits it with the gutters intact,
+   and still leaves the overlay's 16px padding visible on a 1024px screen. */
+.modal-card--wide { max-width: 880px; }
+
 .modal-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--s4) var(--s6);

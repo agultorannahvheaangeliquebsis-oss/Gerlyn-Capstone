@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User
 from inventory.models import Inventory, Warehouse
@@ -10,12 +11,7 @@ from inventory.models import Inventory, Warehouse
 from .models import Branch
 
 
-@login_required(login_url='accounts:login')
-def branch_list(request):
-    if request.user.role != User.Role.OWNER:
-        messages.error(request, 'Only the Owner can manage branches.')
-        return redirect('accounts:home')
-
+def _branch_list_context():
     branches = Branch.objects.annotate(
         staff_count=Count('staff', distinct=True),
         product_count=Count('inventory', distinct=True),
@@ -31,25 +27,50 @@ def branch_list(request):
             'product_count': b.product_count,
         })
 
-    return render(request, 'branches/branch_list.html', {'rows': rows})
+    return {'rows': rows}
+
+
+@login_required(login_url='accounts:login')
+def branch_list(request):
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage branches.')
+        return redirect('accounts:home')
+
+    context = _branch_list_context()
+
+    edit_pk = request.GET.get('edit')
+    if edit_pk:
+        branch = Branch.objects.filter(pk=edit_pk).first()
+        if branch:
+            context.update({'show_edit_modal': True, 'edit_branch': branch})
+
+    return render(request, 'branches/branch_list.html', context)
 
 
 @login_required(login_url='accounts:login')
 def branch_form(request, pk=None):
+    """Add or edit a branch (Owner only). Both live in a modal on the branch
+    list, so this is the POST target and renders no page of its own. Only the
+    GET branch and the error path changed — the create/update below, and the
+    warehouse that comes with a new branch, are untouched."""
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage branches.')
         return redirect('accounts:home')
 
     branch = get_object_or_404(Branch, pk=pk) if pk else None
 
-    if request.method == 'POST':
-        name = request.POST.get('branch_name', '').strip()
-        location = request.POST.get('location', '').strip()
+    if request.method != 'POST':
+        flag = f'edit={pk}' if branch else 'add=1'
+        return redirect(f"{reverse('branch_list')}?{flag}")
 
-        if not name:
-            messages.error(request, 'Branch name is required.')
-            return redirect(request.path)
+    name = request.POST.get('branch_name', '').strip()
+    location = request.POST.get('location', '').strip()
 
+    errors = []
+    if not name:
+        errors.append('Branch name is required.')
+
+    if not errors:
         if branch is None:
             branch = Branch.objects.create(
                 branch_name=name, location=location, owner=request.user,
@@ -66,7 +87,21 @@ def branch_form(request, pk=None):
             messages.success(request, f'Branch "{name}" updated.')
         return redirect('branch_list')
 
-    return render(request, 'branches/branch_form.html', {'branch': branch})
+    context = _branch_list_context()
+    if pk:
+        context.update({
+            'show_edit_modal': True,
+            'edit_branch': branch,
+            'edit_errors': errors,
+            'edit_form_data': request.POST,
+        })
+    else:
+        context.update({
+            'show_add_modal': True,
+            'add_errors': errors,
+            'add_form_data': request.POST,
+        })
+    return render(request, 'branches/branch_list.html', context)
 
 
 @login_required(login_url='accounts:login')

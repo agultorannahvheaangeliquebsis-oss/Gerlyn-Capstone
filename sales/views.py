@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from accounts.models import User
 from branches.models import Branch
@@ -30,13 +31,35 @@ def price_for(product, order_type):
 # ORDER CONSOLE
 # ─────────────────────────────────────────────
 
-@login_required(login_url='accounts:login')
-def transaction_list(request):
-    """Order Console — the queue of every order, filterable by status."""
-    if request.user.role not in INTERNAL_ROLES:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
+def _pos_user_branch(request):
+    """Staff and managers are pinned to their own branch; the Owner picks one.
+    Extracted verbatim from transaction_add so the Walk-in Sale modal resolves
+    the branch exactly the way the POST handler will."""
+    if request.user.role == STAFF:
+        return getattr(getattr(request.user, 'staff_profile', None), 'branch', None)
+    if request.user.role == BRANCH_MANAGER:
+        return getattr(getattr(request.user, 'manager_profile', None), 'branch', None)
+    return None
 
+
+def _pos_context(request):
+    """Everything the Walk-in Sale modal needs. Prefixed pos_* because this
+    lands in the Order Console's context, which already has its own `branches`
+    for the filter toolbar — a different list answering a different question."""
+    user_branch = _pos_user_branch(request)
+    return {
+        'pos_products': Product.objects.select_related('category').all(),
+        'pos_branches': Branch.objects.all() if not user_branch else [],
+        'pos_user_branch': user_branch,
+        'pos_payment_choices': [
+            c for c in SalesTransaction.ModeOfPayment.choices
+            if c[0] in ['Cash', 'GCash', 'Card']
+        ],
+        'pos_order_type_choices': SalesTransaction.OrderType.choices,
+    }
+
+
+def _transaction_list_context(request):
     transactions = (
         SalesTransaction.objects
         .select_related('branch', 'staff', 'customer')
@@ -80,7 +103,9 @@ def transaction_list(request):
         transactions = transactions.filter(order_status=status_filter)
 
     show_branch_filter = branch_ids_for_user(request.user) is None
-    return render(request, 'sales/transaction_list.html', {
+    can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
+
+    context = {
         'transactions': transactions,
         'counts': counts,
         'search_query': search_query,
@@ -89,8 +114,23 @@ def transaction_list(request):
         'branch_filter': branch_filter,
         'type_filter': type_filter,
         'branches': Branch.objects.all() if show_branch_filter else [],
-        'can_pos': request.user.role in [OWNER, BRANCH_MANAGER, STAFF],
-    })
+        'can_pos': can_pos,
+    }
+    if can_pos:
+        context.update(_pos_context(request))
+    return context
+
+
+@login_required(login_url='accounts:login')
+def transaction_list(request):
+    """Order Console — the queue of every order, filterable by status."""
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    return render(
+        request, 'sales/transaction_list.html', _transaction_list_context(request)
+    )
 
 
 @login_required(login_url='accounts:login')
@@ -197,34 +237,35 @@ def transaction_add(request):
         messages.error(request, 'You do not have permission to record sales.')
         return redirect('transaction_list')
 
-    # Staff/managers are pinned to their own branch; the Owner picks one.
-    user_branch = None
-    if request.user.role == STAFF:
-        user_branch = getattr(getattr(request.user, 'staff_profile', None), 'branch', None)
-    elif request.user.role == BRANCH_MANAGER:
-        user_branch = getattr(getattr(request.user, 'manager_profile', None), 'branch', None)
+    user_branch = _pos_user_branch(request)
 
-    if request.method == 'POST':
-        branch_id = user_branch.id if user_branch else request.POST.get('branch')
-        if not branch_id:
-            messages.error(request, 'Please choose a branch for this sale.')
-            return redirect('transaction_add')
+    if request.method != 'POST':
+        # Walk-in Sale is a modal on the Order Console now. A direct hit
+        # (bookmark, back button) lands there with the modal open.
+        return redirect(f"{reverse('transaction_list')}?add=1")
 
-        mode_of_payment = request.POST.get('mode_of_payment') or 'Cash'
-        order_type = request.POST.get('order_type') or SalesTransaction.OrderType.RETAIL
-        if order_type not in SalesTransaction.OrderType.values:
-            order_type = SalesTransaction.OrderType.RETAIL
-        product_ids = request.POST.getlist('product_id')
-        quantities = request.POST.getlist('quantity')
+    branch_id = user_branch.id if user_branch else request.POST.get('branch')
+    mode_of_payment = request.POST.get('mode_of_payment') or 'Cash'
+    order_type = request.POST.get('order_type') or SalesTransaction.OrderType.RETAIL
+    if order_type not in SalesTransaction.OrderType.values:
+        order_type = SalesTransaction.OrderType.RETAIL
+    product_ids = request.POST.getlist('product_id')
+    quantities = request.POST.getlist('quantity')
 
-        line_items = [
-            (pid, int(q)) for pid, q in zip(product_ids, quantities)
-            if pid and q and q.isdigit() and int(q) > 0
-        ]
-        if not line_items:
-            messages.error(request, 'Add at least one item with a quantity.')
-            return redirect('transaction_add')
+    line_items = [
+        (pid, int(q)) for pid, q in zip(product_ids, quantities)
+        if pid and q and q.isdigit() and int(q) > 0
+    ]
 
+    # The same two checks, collected instead of redirected. A redirect threw
+    # away every item row the cashier had already rung up.
+    errors = []
+    if not branch_id:
+        errors.append('Please choose a branch for this sale.')
+    if not line_items:
+        errors.append('Add at least one item with a quantity.')
+
+    if not errors:
         with transaction.atomic():
             txn = SalesTransaction.objects.create(
                 branch_id=branch_id,
@@ -266,13 +307,18 @@ def transaction_add(request):
         messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
         return redirect('transaction_detail', pk=txn.pk)
 
-    return render(request, 'sales/transaction_form.html', {
-        'products': Product.objects.select_related('category').all(),
-        'branches': Branch.objects.all() if not user_branch else [],
-        'user_branch': user_branch,
-        'payment_choices': [
-            c for c in SalesTransaction.ModeOfPayment.choices
-            if c[0] in ['Cash', 'GCash', 'Card']
+    # Rejected. Re-render the console with the modal open, the header
+    # selections re-chosen, and the item rows rebuilt from what was posted —
+    # every pid/qty pair, including the ones that failed the digit check, so
+    # a mistyped quantity comes back visible instead of vanishing.
+    context = _transaction_list_context(request)
+    context.update({
+        'show_pos_modal': True,
+        'pos_errors': errors,
+        'pos_form_data': request.POST,
+        'pos_restore_rows': [
+            {'product_id': pid, 'quantity': qty}
+            for pid, qty in zip(product_ids, quantities) if pid
         ],
-        'order_type_choices': SalesTransaction.OrderType.choices,
     })
+    return render(request, 'sales/transaction_list.html', context)

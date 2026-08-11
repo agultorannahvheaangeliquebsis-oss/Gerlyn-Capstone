@@ -7,10 +7,10 @@
   <div>
     <h1>User Management</h1>
   </div>
-  <a class="btn btn-primary" href="{% url 'accounts:user_add' %}">
+  <button type="button" class="btn btn-primary" id="open-add-user-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Add User
-  </a>
+  </button>
 </div>
 
 <form method="GET" class="toolbar" data-live-filter="#user-table tbody tr[data-filter-text]" data-filter-empty-target="#user-no-matches">
@@ -53,7 +53,7 @@
         <td data-label="Last Login" class="gv-meta">{{ r.user.last_login|date:"Y-m-d H:i"|default:"Never" }}</td>
         <td data-label="Actions">
           <span class="row-actions">
-            <a class="btn btn-sm" href="{% url 'accounts:user_edit' r.user.pk %}">Edit</a>
+            <a class="btn btn-sm" href="{% url 'accounts:user_list' %}?edit={{ r.user.pk }}">Edit</a>
             {% if r.user.pk != request.user.pk %}
             <form method="POST" action="{% url 'accounts:user_toggle_active' r.user.pk %}" style="display:inline;">
               {% csrf_token %}
@@ -81,4 +81,29 @@
     </tbody>
   </table>
 </div>
+
+{% url 'accounts:user_add' as add_action %}
+{% include "accounts/_user_modal.html" with which="add" title="Add New User" action=add_action branch_id=add_branch_id errors=add_errors form_data=add_form_data is_open=show_add_modal submit_label="Save User" %}
+
+{% if edit_target %}
+{% url 'accounts:user_edit' edit_target.pk as edit_action %}
+{% include "accounts/_user_modal.html" with which="edit" title="Edit User" action=edit_action target=edit_target branch_id=edit_branch_id errors=edit_errors form_data=edit_form_data is_open=show_edit_modal submit_label="Save Changes" %}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  initModal({
+    modalId: 'add-user-modal',
+    openerIds: ['open-add-user-modal'],
+    closerIds: ['close-add-user-modal', 'cancel-add-user-modal'],
+    autoopenParam: 'add',
+  });
+  initModal({
+    modalId: 'edit-user-modal',
+    closerIds: ['close-edit-user-modal', 'cancel-edit-user-modal'],
+  });
+})();
+</script>
 {% endblock %}

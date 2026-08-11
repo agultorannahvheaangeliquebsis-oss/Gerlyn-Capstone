@@ -4,6 +4,7 @@
 #   SECTION 2 — new DRF API views (what React calls)
 
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
@@ -421,11 +422,7 @@ def supplier_set_delivery_date(request, pk):
 # =============================================================================
 
 @login_required(login_url='accounts:login')
-def supplier_list(request):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
-
+def _supplier_list_context(request):
     suppliers = User.objects.filter(role=User.Role.SUPPLIER).select_related(
         'supplier_profile'
     ).order_by('supplier_profile__supplier_name')
@@ -436,16 +433,42 @@ def supplier_list(request):
             supplier_profile__supplier_name__icontains=search_query
         )
 
-    return render(request, 'procurement/supplier_list.html', {
+    return {
         'suppliers': suppliers,
         'search_query': search_query,
         'can_edit': request.user.role == User.Role.OWNER,
-    })
+    }
+
+
+@login_required(login_url='accounts:login')
+def supplier_list(request):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    context = _supplier_list_context(request)
+
+    edit_pk = request.GET.get('edit')
+    if edit_pk and context['can_edit']:
+        supplier = User.objects.filter(pk=edit_pk, role=User.Role.SUPPLIER).first()
+        if supplier:
+            context.update({
+                'show_edit_modal': True,
+                'edit_supplier': supplier,
+                'edit_profile': getattr(supplier, 'supplier_profile', None),
+            })
+
+    return render(request, 'procurement/supplier_list.html', context)
 
 
 @login_required(login_url='accounts:login')
 def supplier_form(request, pk=None):
-    """Add or edit a supplier (Owner only)."""
+    """Add or edit a supplier (Owner only). Both live in a modal on the
+    supplier list, so this is the POST target and renders no page of its own.
+
+    What changed when the form moved into the modal: the GET branch, and how a
+    validation failure is reported. Every write below is untouched — same
+    fields, same order, same transaction."""
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage suppliers.')
         return redirect('supplier_list')
@@ -453,19 +476,25 @@ def supplier_form(request, pk=None):
     supplier = get_object_or_404(User, pk=pk, role=User.Role.SUPPLIER) if pk else None
     profile = getattr(supplier, 'supplier_profile', None) if supplier else None
 
-    if request.method == 'POST':
-        name = request.POST.get('supplier_name', '').strip()
-        username = request.POST.get('username', '').strip()
+    if request.method != 'POST':
+        flag = f'edit={pk}' if supplier else 'add=1'
+        return redirect(f"{reverse('supplier_list')}?{flag}")
 
-        if not name or not username:
-            messages.error(request, 'Supplier name and username are required.')
-            return redirect(request.path)
+    name = request.POST.get('supplier_name', '').strip()
+    username = request.POST.get('username', '').strip()
 
+    # Both checks were already here — the first returned to request.path, the
+    # second sat inside the atomic block and returned before writing anything.
+    # Collected instead of redirected so the typed form survives.
+    errors = []
+    if not name or not username:
+        errors.append('Supplier name and username are required.')
+    elif supplier is None and User.objects.filter(username=username).exists():
+        errors.append(f'Username "{username}" is already taken.')
+
+    if not errors:
         with transaction.atomic():
             if supplier is None:
-                if User.objects.filter(username=username).exists():
-                    messages.error(request, f'Username "{username}" is already taken.')
-                    return redirect('supplier_add')
                 # Suppliers get a random password; the Owner shares a reset link
                 # if the supplier ever needs to log in themselves.
                 supplier = User.objects.create_user(
@@ -491,10 +520,22 @@ def supplier_form(request, pk=None):
         messages.success(request, f'Supplier "{name}" saved.')
         return redirect('supplier_list')
 
-    return render(request, 'procurement/supplier_form.html', {
-        'supplier': supplier,
-        'profile': profile,
-    })
+    context = _supplier_list_context(request)
+    if pk:
+        context.update({
+            'show_edit_modal': True,
+            'edit_supplier': supplier,
+            'edit_profile': profile,
+            'edit_errors': errors,
+            'edit_form_data': request.POST,
+        })
+    else:
+        context.update({
+            'show_add_modal': True,
+            'add_errors': errors,
+            'add_form_data': request.POST,
+        })
+    return render(request, 'procurement/supplier_list.html', context)
 
 
 @login_required(login_url='accounts:login')

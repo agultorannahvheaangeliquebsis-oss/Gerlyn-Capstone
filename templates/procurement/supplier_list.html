@@ -8,10 +8,10 @@
     <h1>Suppliers</h1>
   </div>
   {% if can_edit %}
-  <a class="btn btn-primary" href="{% url 'supplier_add' %}">
+  <button type="button" class="btn btn-primary" id="open-add-supplier-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Add Supplier
-  </a>
+  </button>
   {% endif %}
 </div>
 
@@ -43,7 +43,7 @@
         {% if can_edit %}
         <td data-label="Actions">
           <span class="row-actions">
-            <a class="btn btn-sm" href="{% url 'supplier_edit' s.pk %}">Edit</a>
+            <a class="btn btn-sm" href="{% url 'supplier_list' %}?edit={{ s.pk }}">Edit</a>
             <a class="btn btn-sm btn-danger" href="{% url 'supplier_delete' s.pk %}">Delete</a>
           </span>
         </td>
@@ -54,7 +54,7 @@
         <span class="glyph">＋</span>
         <h3>No suppliers yet</h3>
         <p>Suppliers are who you raise purchase orders with.</p>
-        {% if can_edit %}<a class="btn btn-primary mt-2" href="{% url 'supplier_add' %}">Add Supplier</a>{% endif %}
+        {% if can_edit %}<button type="button" class="btn btn-primary mt-2" id="open-add-supplier-modal-empty">Add Supplier</button>{% endif %}
       </div></td></tr>
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
@@ -66,4 +66,37 @@
     </tbody>
   </table>
 </div>
+
+{% if can_edit %}
+{% comment %}
+The add and edit forms are one set of fields with two actions, so they are
+written once as an include and given the values each case needs. The add modal
+gets nothing but whatever a rejected submit posted back; the edit modal gets
+the supplier's stored values underneath that.
+{% endcomment %}
+{% url 'supplier_add' as add_action %}
+{% include "procurement/_supplier_modal.html" with which="add" title="Add New Supplier" action=add_action errors=add_errors form_data=add_form_data is_open=show_add_modal submit_label="Save Supplier" %}
+
+{% if edit_supplier %}
+{% url 'supplier_edit' edit_supplier.pk as edit_action %}
+{% include "procurement/_supplier_modal.html" with which="edit" title="Edit Supplier" action=edit_action supplier=edit_supplier profile=edit_profile errors=edit_errors form_data=edit_form_data is_open=show_edit_modal submit_label="Save Changes" %}
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  initModal({
+    modalId: 'add-supplier-modal',
+    openerIds: ['open-add-supplier-modal', 'open-add-supplier-modal-empty'],
+    closerIds: ['close-add-supplier-modal', 'cancel-add-supplier-modal'],
+    autoopenParam: 'add',
+  });
+  initModal({
+    modalId: 'edit-supplier-modal',
+    closerIds: ['close-edit-supplier-modal', 'cancel-edit-supplier-modal'],
+  });
+})();
+</script>
 {% endblock %}

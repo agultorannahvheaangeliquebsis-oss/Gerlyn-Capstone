@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load static %}
 {% block title %}Order Console{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 
@@ -8,10 +9,10 @@
     <h1>Order Management Console</h1>
   </div>
   {% if can_pos %}
-  <a href="{% url 'transaction_add' %}" class="btn btn-primary">
+  <button type="button" class="btn btn-primary" id="open-pos-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     New Walk-in Sale
-  </a>
+  </button>
   {% endif %}
 </div>
 
@@ -123,7 +124,7 @@
             <span class="glyph">□</span>
             <h3>No orders here</h3>
             <p>{% if status_filter or search_query %}Nothing matches this filter — try “All”.{% else %}Orders appear as customers buy online or staff record walk-in sales.{% endif %}</p>
-            {% if can_pos %}<a class="btn btn-primary mt-2" href="{% url 'transaction_add' %}">New Walk-in Sale</a>{% endif %}
+            {% if can_pos %}<button type="button" class="btn btn-primary mt-2" id="open-pos-modal-empty">New Walk-in Sale</button>{% endif %}
           </div>
         </td>
       </tr>
@@ -141,4 +142,146 @@
     </tbody>
   </table>
 </div>
+
+{% if can_pos %}{% include "sales/_pos_modal.html" %}{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if can_pos %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/barcode-scanner.js' %}"></script>
+<script>
+(function () {
+  initModal({
+    modalId: 'pos-modal',
+    openerIds: ['open-pos-modal', 'open-pos-modal-empty'],
+    closerIds: ['close-pos-modal', 'cancel-pos-modal'],
+    autoopenParam: 'add',
+  });
+
+  // Focus the scan field whenever the modal opens. This is not a nicety: a
+  // USB/Bluetooth scanner types into whatever holds focus, so without this the
+  // first scan of every sale would go nowhere.
+  var modal = document.getElementById('pos-modal');
+  var scanInput = document.getElementById('pos-scan-input');
+  if (modal && scanInput) {
+    new MutationObserver(function () {
+      if (modal.classList.contains('is-open')) scanInput.focus();
+    }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+    if (modal.classList.contains('is-open')) scanInput.focus();
+  }
+})();
+
+// The row helpers stay global: the template's rows are cloned with inline
+// onchange/oninput/onclick handlers, which resolve against window. They are
+// pos-prefixed so nothing else on the console can collide with them.
+var posRows = document.getElementById('pos-item-rows');
+var posTpl = document.getElementById('pos-row-template');
+
+function posAddRow() {
+  posRows.appendChild(posTpl.content.cloneNode(true));
+  posRecalc();
+}
+function posRemoveRow(btn) {
+  if (posRows.children.length > 1) { btn.closest('.item-row').remove(); posRecalc(); }
+}
+function posPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+
+function posRecalc() {
+  // Wholesale orders bill at the wholesale price — show that to the cashier
+  // BEFORE the sale is recorded, not after.
+  var wholesale = document.getElementById('pos-order-type').value === 'Wholesale';
+  var total = 0;
+  var missing = 0;
+
+  posRows.querySelectorAll('.item-row').forEach(function (row) {
+    var opt = row.querySelector('.js-product').selectedOptions[0];
+    if (!opt) return;
+    var price = parseFloat(
+      (wholesale ? opt.dataset.wholesale : opt.dataset.retail) || 0
+    );
+    if (wholesale && opt.dataset.hasWholesale === '0') missing++;
+
+    var qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
+    var sub = price * (qty > 0 ? qty : 0);
+    row.querySelector('.js-price').value = posPeso(price);
+    row.querySelector('.js-sub').value = posPeso(sub);
+    total += sub;
+  });
+
+  document.getElementById('pos-grand-total').textContent = posPeso(total);
+
+  var hint = document.getElementById('pos-type-hint');
+  if (!wholesale) {
+    hint.textContent = 'Retail prices apply.';
+    hint.style.color = '';
+  } else if (missing) {
+    hint.textContent = 'Wholesale prices apply — ' + missing + ' item(s) have no wholesale price, so they stay at retail.';
+    hint.style.color = 'var(--warn-fg)';
+  } else {
+    hint.textContent = 'Wholesale prices apply.';
+    hint.style.color = 'var(--ok-fg)';
+  }
+}
+
+(function () {
+  // A rejected submit sends the basket back; otherwise open with one row.
+  var restoreEl = document.getElementById('pos-restore-rows');
+  var restore = restoreEl ? JSON.parse(restoreEl.textContent) : [];
+  if (restore.length) {
+    restore.forEach(function (item) {
+      posAddRow();
+      var row = posRows.lastElementChild;
+      row.querySelector('.js-product').value = item.product_id;
+      row.querySelector('.js-qty').value = item.quantity;
+    });
+  } else {
+    posAddRow();
+  }
+  posRecalc();
+})();
+
+// Barcode / SKU scanning — finds the matching product option (by data-sku,
+// case-insensitive) among the row-template's options, then either bumps an
+// existing row's quantity or adds a new row for it. Works identically whether
+// the code arrives from a USB/Bluetooth hardware scanner (which just types +
+// Enter) or the in-app camera.
+(function () {
+  function findProductOptionBySku(code) {
+    var needle = code.trim().toLowerCase();
+    if (!needle) return null;
+    return posTpl.content.querySelector('option[data-sku="' + CSS.escape(needle) + '"]');
+  }
+
+  function handleScan(code) {
+    var status = document.getElementById('pos-scan-status');
+    var match = findProductOptionBySku(code);
+    if (!match) {
+      status.textContent = 'No product matches "' + code + '".';
+      status.style.color = 'var(--danger-fg)';
+      return;
+    }
+
+    var existingRow = Array.from(posRows.querySelectorAll('.item-row')).find(
+      function (row) { return row.querySelector('.js-product').value === match.value; }
+    );
+    if (existingRow) {
+      var qtyInput = existingRow.querySelector('.js-qty');
+      qtyInput.value = parseInt(qtyInput.value || 0, 10) + 1;
+    } else {
+      posAddRow();
+      posRows.lastElementChild.querySelector('.js-product').value = match.value;
+    }
+    posRecalc();
+    status.textContent = 'Added: ' + match.textContent;
+    status.style.color = 'var(--ok-fg)';
+  }
+
+  GerlynBarcodeScanner.attach(document.getElementById('pos-scan-input'), {
+    onScan: handleScan,
+    cameraBtn: document.getElementById('pos-scan-camera-btn'),
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
