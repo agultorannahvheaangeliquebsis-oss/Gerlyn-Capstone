@@ -169,6 +169,7 @@ INTERNAL_ROLE_CHOICES = [
     (User.Role.OWNER, 'Owner'),
     (User.Role.BRANCH_MANAGER, 'Branch Manager'),
     (User.Role.STAFF, 'Store Staff'),
+    (User.Role.SUPPLIER, 'Supplier'),
 ]
 
 
@@ -279,6 +280,10 @@ def user_form(request, pk=None):
         elif role == User.Role.OWNER:
             profile, _ = OwnerProfile.objects.get_or_create(user=target)
             profile.owner_name = full_name
+            profile.save()
+        elif role == User.Role.SUPPLIER:
+            profile, _ = SupplierProfile.objects.get_or_create(user=target)
+            profile.supplier_name = full_name
             profile.save()
 
         messages.success(request, f'User "{username}" saved.')
