@@ -74,4 +74,21 @@
     </div>
   </form>
 </div>
+
+<script>
+  (function () {
+    var roleSelect = document.getElementById('role');
+    var branchSelect = document.getElementById('branch');
+    var branchRoles = ['BRANCH_MANAGER', 'STAFF'];
+
+    function syncBranchField() {
+      var disabled = branchRoles.indexOf(roleSelect.value) === -1;
+      branchSelect.disabled = disabled;
+      if (disabled) branchSelect.value = '';
+    }
+
+    roleSelect.addEventListener('change', syncBranchField);
+    syncBranchField();
+  })();
+</script>
 {% endblock %}
