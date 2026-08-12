@@ -145,7 +145,19 @@ window.GerlynBarcodeScanner = (function () {
     document.body.appendChild(overlay);
 
     const hint = overlay.querySelector('.barcode-scan-hint');
-    const html5QrCode = new Html5Qrcode('barcode-scan-reader');
+    // formatsToSupport is a constructor-time option, not a start() option —
+    // passing it to start() is silently ignored by html5-qrcode, so the
+    // scanner would otherwise fall back to decoding every supported format.
+    const html5QrCode = new Html5Qrcode('barcode-scan-reader', {
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.CODE_128,
+      ],
+    });
     let stopped = false;
 
     // html5-qrcode's stop() can reject — or even throw synchronously — if
@@ -180,14 +192,6 @@ window.GerlynBarcodeScanner = (function () {
     const config = {
       fps: 10,
       qrbox: { width: 240, height: 240 },
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.QR_CODE,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.CODE_128,
-      ],
     };
 
     html5QrCode
