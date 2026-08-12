@@ -14,7 +14,15 @@
     <div class="gv-meta" style="background:var(--danger-bg); color:var(--danger-fg); border-radius:var(--r-input); padding:10px 12px; margin-bottom:16px;">
       This deactivates your account: you'll be signed out everywhere, your profile info is scrubbed, and you won't be able to log back in. It cannot be easily undone.
     </div>
-    <form method="POST" class="stack" onsubmit="return confirm('Are you absolutely sure you want to deactivate your account? This cannot be easily undone.');">
+    {% comment %}
+    No confirm dialog here, deliberately. This whole page IS the confirmation
+    step — it is reached only from an emailed token link, it leads with the
+    red consequence block above, and it will not submit without the account
+    password. A dialog asking "are you sure?" on a screen the user reached by
+    following a link from their inbox and typing their password adds a click
+    without adding a decision.
+    {% endcomment %}
+    <form method="POST" class="stack">
       {% csrf_token %}
       <div class="field">
         <label for="password">Password</label>

@@ -231,6 +231,7 @@ document.addEventListener('click', function(e) {
 
 <script src="{% static 'js/live-search.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
+<script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}

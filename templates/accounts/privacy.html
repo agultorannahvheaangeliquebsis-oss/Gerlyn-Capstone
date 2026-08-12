@@ -73,8 +73,14 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <form method="post" action="{% url 'accounts:deactivate_account_confirm' %}"
-      onsubmit="return confirm('{% t "Are you absolutely sure you want to deactivate your account? This cannot be easily undone." %}');">
+    {% comment %}
+    No data-confirm here: this form already sits inside a modal that opens on
+    a deliberate click, leads with the red consequence block below, and gates
+    the submit behind the account password. Stacking a second dialog on top
+    of an open modal would put one dialog over another to ask a question the
+    password field has already asked.
+    {% endcomment %}
+    <form method="post" action="{% url 'accounts:deactivate_account_confirm' %}">
       {% csrf_token %}
       <div class="modal-body">
         <p class="gv-meta" style="margin:0; background:var(--danger-bg); color:var(--danger-fg); border-radius:var(--r-input); padding:10px 12px;">

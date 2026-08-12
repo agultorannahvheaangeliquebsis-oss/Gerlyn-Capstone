@@ -417,10 +417,24 @@ input::placeholder { color: var(--ink-500); }
 /* --------------------------------------------------------------- banners */
 .banner { display: flex; gap: 10px; align-items: flex-start;
   padding: 12px 16px; border-radius: var(--r-input); font-size: 14.5px; margin-bottom: var(--s3); }
+/* .banner-success is the one the messages framework actually emits — the
+   class comes from `message.tags`, and Django's tag for messages.success()
+   is "success". The original token here was .banner-ok, which no template
+   ever produced and no template ever hand-wrote, so every success message on
+   every internal page rendered as unstyled black-on-white text while the
+   error and info paths looked correct. .banner-ok is kept as an alias so any
+   markup written against the old name keeps working. */
+.banner-success,
 .banner-ok      { background: var(--ok-bg);     color: var(--ok-fg); }
 .banner-warning { background: var(--warn-bg);   color: var(--warn-fg); }
 .banner-error   { background: var(--danger-bg); color: var(--danger-fg); }
 .banner-info    { background: var(--info-bg);   color: var(--info-fg); }
+/* Icon carries the same meaning as the tint, for anyone who cannot separate
+   the two by colour. flex:none so a long message wraps against the text
+   column instead of squashing the glyph. */
+.banner-icon { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+.banner-icon svg { display: block; width: 100%; height: 100%; }
+.banner-text { flex: 1; min-width: 0; }
 
 /* ---------------------------------------------------------------- layout */
 .app { min-height: 100vh; --sidebar-w: 304px; }
@@ -891,6 +905,61 @@ input::placeholder { color: var(--ink-500); }
   display: flex; justify-content: flex-end; gap: var(--s3);
   padding: var(--s4) var(--s6);
   border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------- confirm dialog
+   The one-question modal: a stop placed in front of an action that cannot be
+   taken back. Deliberately NOT the same shape as .modal-card above — that one
+   is a workspace you fill in, this one is a question you answer, so it is
+   narrower, centre-aligned, and its two buttons are equal halves rather than
+   a right-aligned pair. Nothing in here is reachable by a page that does not
+   opt in: confirm-dialog.js builds the markup, and it only builds it for a
+   form carrying data-confirm.
+
+   Two variants, and the difference is meaning, not decoration:
+     .confirm-danger — the record is destroyed (delete)
+     .confirm-warn   — the record survives but the state change is not
+                       reversible from the same screen (cancel, deactivate)
+   There is no success variant on purpose. A success modal makes the user
+   dismiss a dialog to acknowledge something that already worked; success is
+   the .banner at the top of .content, which needs no click. */
+.confirm-card { max-width: 420px; }
+.confirm-body {
+  padding: var(--s8) var(--s6) var(--s4);
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: var(--s3);
+}
+/* The medallion. --r-card rather than a full circle so it reads as part of
+   the same family as .card and .btn instead of a floating bubble. */
+.confirm-icon {
+  width: 56px; height: 56px; flex: none;
+  border-radius: var(--r-card);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.confirm-icon svg { display: block; width: 26px; height: 26px; }
+.confirm-danger .confirm-icon { background: var(--danger-bg); color: var(--danger-dot); }
+.confirm-warn   .confirm-icon { background: var(--warn-bg);   color: var(--warn-cta); }
+
+.confirm-title {
+  font: 650 20px/1.25 system-ui, sans-serif;
+  margin: 0; color: var(--ink-900);
+}
+/* --ink-500, not --ink-400: this runs at 14.5px, below the 18.66px-bold
+   large-text allowance, so it needs the 4.5:1 token (see §tokens). */
+.confirm-text { margin: 0; color: var(--ink-500); font-size: 14.5px; line-height: 1.5; }
+
+.confirm-foot { display: flex; gap: var(--s3); padding: var(--s4) var(--s6) var(--s6); }
+/* Equal halves. Cancel is not the smaller target — reaching for it is the
+   recovery path, and a recovery path should never be harder to hit than the
+   destructive one it undoes. */
+.confirm-foot .btn { flex: 1 1 0; justify-content: center; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .confirm-card { animation: confirm-in .16s ease-out; }
+  @keyframes confirm-in {
+    from { opacity: 0; transform: translateY(6px) scale(.98); }
+    to   { opacity: 1; transform: none; }
+  }
 }
 
 /* Visible to screen readers, not to the eye. Came over with the modal — the

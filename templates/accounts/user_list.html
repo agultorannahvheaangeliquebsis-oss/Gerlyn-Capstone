@@ -55,7 +55,18 @@
           <span class="row-actions">
             <a class="btn btn-sm" href="{% url 'accounts:user_list' %}?edit={{ r.user.pk }}">Edit</a>
             {% if r.user.pk != request.user.pk %}
-            <form method="POST" action="{% url 'accounts:user_toggle_active' r.user.pk %}" style="display:inline;">
+            {% comment %}
+            The confirm is on the deactivate direction only. Reactivating
+            restores an account and is undone by clicking again, so stopping
+            for it would be a click that asks nothing.
+            {% endcomment %}
+            <form method="POST" action="{% url 'accounts:user_toggle_active' r.user.pk %}" style="display:inline;"
+                  {% if r.user.is_active %}
+                  data-confirm="{{ r.user.username }} will be signed out and blocked from signing in. Their sales and audit history is kept."
+                  data-confirm-title="Deactivate {{ r.user.username }}?"
+                  data-confirm-variant="warn"
+                  data-confirm-ok="Deactivate"
+                  {% endif %}>
               {% csrf_token %}
               <button type="submit" class="btn btn-sm {% if r.user.is_active %}btn-danger{% endif %}">
                 {% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}

@@ -35,7 +35,11 @@
           {% t "Sessions" %}
         </span>
         {% if sessions|length > 1 %}
-          <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0;" onsubmit="return confirm('{% t "Log out of all other sessions?" %}');">
+          <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0;"
+                data-confirm="{% t "Every other device signed in to this account will be signed out. This one stays signed in." %}"
+                data-confirm-title="{% t "Log out of all other sessions?" %}"
+                data-confirm-variant="warn"
+                data-confirm-ok="{% t "Log them out" %}">
             {% csrf_token %}
             <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">{% t "Log out all other sessions" %}</button>
           </form>
@@ -60,7 +64,11 @@
               </div>
             </div>
             {% if s.session_key != current_session_key %}
-              <form method="post" action="{% url 'accounts:session_revoke' s.pk %}" style="margin:0;">
+              <form method="post" action="{% url 'accounts:session_revoke' s.pk %}" style="margin:0;"
+                    data-confirm="{% t "That device will be signed out and will need the password again to get back in." %}"
+                    data-confirm-title="{% t "Log out this device?" %}"
+                    data-confirm-variant="warn"
+                    data-confirm-ok="{% t "Log it out" %}">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">{% t "Log out" %}</button>
               </form>

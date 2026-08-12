@@ -26,7 +26,19 @@
         {{ procurement.branch.branch_name }}'s stock.
       </p>
     </div>
-    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="row wrap">
+    {% comment %}
+    One form, three outcomes, and only one of them is destructive — hence
+    data-confirm-when. Ordered is a routine status bump and Received hands
+    off to the Deliveries screen, which already has its own review step;
+    stopping for either would tax the common path to guard the rare one.
+    {% endcomment %}
+    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="row wrap"
+          data-confirm="{{ procurement.po_number }} will be closed as cancelled. Stock already received is not affected."
+          data-confirm-title="Cancel this purchase order?"
+          data-confirm-variant="warn"
+          data-confirm-ok="Cancel PO"
+          data-confirm-dismiss="Keep PO"
+          data-confirm-when="status=Cancelled">
       {% csrf_token %}
       <select name="status" style="min-width:170px;">
         <option value="Ordered">Ordered</option>

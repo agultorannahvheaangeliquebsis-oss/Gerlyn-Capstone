@@ -94,7 +94,11 @@
                   <div class="address-map-thumb" id="thumb-map-{{ address.pk }}"
                     data-lat="{{ address.latitude }}" data-lng="{{ address.longitude }}"></div>
                 {% elif not address.is_default %}
-                  <form method="post" action="{% url 'accounts:address_delete' address.pk %}" style="margin:0;" onsubmit="return confirm('Delete this address?');">
+                  <form method="post" action="{% url 'accounts:address_delete' address.pk %}" style="margin:0;"
+                        data-confirm="{% t "This address will be removed from your account. Orders already placed keep the address they shipped to." %}"
+                        data-confirm-title="{% t "Delete this address?" %}"
+                        data-confirm-variant="danger"
+                        data-confirm-ok="{% t "Delete address" %}">
                     {% csrf_token %}
                     <button type="submit" class="address-delete-btn" aria-label="Delete address">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>

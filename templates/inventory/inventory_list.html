@@ -202,9 +202,9 @@ across the full width leave the default block padding as empty card.
     <form method="POST" action="{% url 'stock_adjustment_add' %}" class="modal-body" id="adjust-form">
       {% csrf_token %}
       <p class="gv-meta" style="margin:0;">
-        A direct correction to floor stock — for spot-counts, corrections, or
-        initial seeding. Stock arriving from a supplier should go through a
-        Stock Withdrawal instead, so it stays traceable to a delivery.
+        Adds directly to floor stock — for initial seeding, or for topping up a
+        count that came up short. Stock arriving from a supplier should go
+        through a Stock Withdrawal instead, so it stays traceable to a delivery.
       </p>
 
       <div class="field">
@@ -248,9 +248,11 @@ across the full width leave the default block padding as empty card.
 
       <div class="grid-2">
         <div class="field">
-          <label for="adjust-quantity">Quantity to Add <span style="color:var(--danger-dot);">*</span></label>
+          <label for="adjust-quantity">Quantity to Add to Stock <span style="color:var(--danger-dot);">*</span></label>
           <input type="number" id="adjust-quantity" name="quantity" min="1"
-                 value="{{ adjust_form_data.quantity|default:'' }}" required>
+                 value="{{ adjust_form_data.quantity|default:'' }}" required
+                 aria-describedby="adjust-quantity-hint">
+          <span class="gv-meta" id="adjust-quantity-hint">Added on top of the current count — not the new total. This form can only increase stock.</span>
         </div>
         <div class="field">
           <label for="adjust-expiry">Expiry Date (optional)</label>

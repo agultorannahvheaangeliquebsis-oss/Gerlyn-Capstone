@@ -29,7 +29,20 @@
     </div>
     <div class="row wrap">
       {% for action in next_actions %}
-        <form method="post" action="{% url 'transaction_set_status' transaction.pk action %}">
+        {% comment %}
+        Cancelling is the only one of these that stops for a question. The
+        forward steps (Mark Paid, Mark Completed) are the routine path a
+        cashier walks all day, and a dialog on each would be a click that
+        never changes anyone's mind.
+        {% endcomment %}
+        <form method="post" action="{% url 'transaction_set_status' transaction.pk action %}"
+              {% if action == 'Cancelled' %}
+              data-confirm="{{ transaction.order_number }} will be closed as cancelled. It cannot be moved back from this screen."
+              data-confirm-title="Cancel this order?"
+              data-confirm-variant="danger"
+              data-confirm-ok="Cancel order"
+              data-confirm-dismiss="Keep order"
+              {% endif %}>
           {% csrf_token %}
           <button type="submit" class="btn {% if action == 'Cancelled' %}btn-danger{% else %}btn-primary{% endif %}">
             {% if action == 'Cancelled' %}Cancel Order{% else %}Mark {{ action }}{% endif %}

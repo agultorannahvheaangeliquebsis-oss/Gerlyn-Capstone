@@ -297,7 +297,11 @@
 
   <div class="edit-form" id="sessions-panel" style="padding:16px 0 0;">
     {% if sessions|length > 1 %}
-      <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0 0 8px; text-align:right;" onsubmit="return confirm('Log out of all other sessions?');">
+      <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0 0 8px; text-align:right;"
+            data-confirm="Every other device signed in to this account will be signed out. This one stays signed in."
+            data-confirm-title="Log out of all other sessions?"
+            data-confirm-variant="warn"
+            data-confirm-ok="Log them out">
         {% csrf_token %}
         <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out all other sessions</button>
       </form>
