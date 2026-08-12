@@ -18,8 +18,12 @@
         <label for="username">Username</label>
       </div>
       <div class="field field-float">
-        <input id="password" type="password" name="password" placeholder=" " required{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="password-error"{% endif %}>
+        <input id="password" type="password" name="password" placeholder=" " required style="padding-right:44px;"{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="password-error"{% endif %}>
         <label for="password">Password</label>
+        <button type="button" onclick="togglePwd('password', this)" aria-label="Show password"
+          style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+          <svg id="password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
       </div>
       {% if error %}<p class="field-error" id="password-error" role="alert">{{ error }}</p>{% endif %}
       <button type="submit" class="btn btn-primary" style="width:100%;">Sign In</button>
@@ -29,4 +33,14 @@
     </p>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function togglePwd(inputId, btn) {
+  const input = document.getElementById(inputId);
+  input.type = input.type === 'password' ? 'text' : 'password';
+  btn.setAttribute('aria-label', input.type === 'password' ? 'Show password' : 'Hide password');
+}
+</script>
 {% endblock %}
