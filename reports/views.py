@@ -626,9 +626,12 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
             'key': 'low_stock', 'icon': 'alert', 'label': 'Low Stock',
             'count': low_count,
             'pill': _attention_pill(low_count, escalated=summary['critical_count'] > 0),
+            # Details are one clause each, no trailing qualifier: this is a
+            # row's second line, not a paragraph. "across your branches" went
+            # because the panel is already branch-scoped for whoever is
+            # reading it, so it added a word and no fact.
             'detail': (
-                f'{low_count} product{_plural(low_count)} at or below the reorder level '
-                f'across your branches.'
+                f'{low_count} product{_plural(low_count)} at or below the reorder level.'
             ),
             'url': reverse('alerts_center') + '#low',
         },
@@ -638,7 +641,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
             'pill': _attention_pill(expiring_count, escalated=expired_count > 0),
             'detail': (
                 f'{expiring_count} batch{"es" if expiring_count != 1 else ""} expiring within '
-                f'{EXPIRY_WINDOW_DAYS} days or already past expiry.'
+                f'{EXPIRY_WINDOW_DAYS} days or already expired.'
             ),
             'url': reverse('alerts_center') + '#expiring',
         },
@@ -647,8 +650,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
             'count': pending_pos,
             'pill': _attention_pill(pending_pos),
             'detail': (
-                f'{pending_pos} purchase order{_plural(pending_pos)} raised but not yet '
-                f'received from the supplier.'
+                f'{pending_pos} purchase order{_plural(pending_pos)} raised but not yet received.'
             ),
             'url': reverse('procurement_list'),
         },
@@ -658,7 +660,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
             'pill': _attention_pill(pending_orders),
             'detail': (
                 f'{pending_orders} order{_plural(pending_orders)} still pending, approved or '
-                f'preparing — none completed yet.'
+                f'preparing.'
             ),
             'url': reverse('transaction_list'),
         },
@@ -675,11 +677,14 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
 
     actionable = [r for r in rows if r['count']]
     checks = len(rows)
+    # Short enough to sit on one line beside "View all alerts →" at panel
+    # width. "right now" is dropped from both: the panel is live either way,
+    # and it was the half of the line nobody was reading.
     if actionable:
         needs = 'needs' if len(actionable) == 1 else 'need'
-        subtitle = f'{len(actionable)} of {checks} checks {needs} action right now'
+        subtitle = f'{len(actionable)} of {checks} checks {needs} action'
     else:
-        subtitle = f'All {checks} checks clear — nothing needs action right now'
+        subtitle = f'All {checks} checks clear'
 
     return {
         'actionable': actionable,
@@ -739,13 +744,6 @@ def _relative_day(day, today):
     return f'{day:%b} {day.day}'
 
 
-def _actor_name(user):
-    """Display name for whoever a posting is attributed to, or None."""
-    if user is None:
-        return None
-    return user.get_full_name() or user.username
-
-
 def _recent_activity(sales_qs, procurement_qs, billing_qs, now, limit=ACTIVITY_FEED_SIZE):
     """
     The Recent Activity feed (DESIGN.md §2f) — the latest postings across
@@ -777,60 +775,90 @@ def _recent_activity(sales_qs, procurement_qs, billing_qs, now, limit=ACTIVITY_F
     matters mechanically: comparing a naive datetime against the aware ones
     from the other two sources raises TypeError under USE_TZ.
 
-    Attribution
-    -----------
-    Sale -> staff, PO -> created_by, Billing -> confirmed_by. All three are
-    nullable, and confirmed_by is only populated once a payment is confirmed,
-    so a freshly recorded pending payment carries no attribution rather than
-    borrowing a name from a field that doesn't mean "who posted this".
+    Row shape
+    ---------
+    kind_label is the row's whole subtitle, and it names the section of the
+    app the posting came out of — "Sales", "Procurement", "Billing", the same
+    words the sidebar uses for them. It is deliberately the only thing under
+    the title: the branch and the posting staff used to follow it, and since
+    attribution is nullable on all three sources (a pending payment has no
+    confirmed_by yet) the line changed shape from row to row, which is what
+    made a five-row feed tiring to read.
+
+    Nothing here carries a branch, so no source select_relates one — every
+    queryset arriving here is already scoped to what the viewer may see.
     """
     today = now.date()
     entries = []
 
-    for sale in sales_qs.select_related('branch', 'staff').order_by('-transaction_date')[:limit]:
+    for sale in sales_qs.order_by('-transaction_date')[:limit]:
         entries.append({
-            'kind': 'sale', 'kind_label': 'Sale', 'icon': 'cart',
+            'kind': 'sale', 'kind_label': 'Sales', 'icon': 'cart',
             'title': sale.order_number or f'Transaction #{sale.pk}',
             'url': reverse('transaction_detail', args=[sale.pk]),
-            'branch': sale.branch.branch_name if sale.branch else 'Unassigned',
             'amount': sale.total_amount,
             'when': sale.transaction_date,
             'when_label': _relative_time(sale.transaction_date, now),
-            'actor': _actor_name(sale.staff),
         })
 
-    for po in procurement_qs.select_related('branch', 'created_by').order_by('-order_date', '-id')[:limit]:
+    for po in procurement_qs.order_by('-order_date', '-id')[:limit]:
         # See docstring — DateField, so local midnight is the honest sort key.
         po_when, _ = local_day_bounds(po.order_date)
         entries.append({
-            'kind': 'procurement', 'kind_label': 'PO', 'icon': 'truck',
+            'kind': 'procurement', 'kind_label': 'Procurement', 'icon': 'truck',
             'title': po.po_number or f'Procurement #{po.pk}',
             'url': reverse('procurement_detail', args=[po.pk]),
-            'branch': po.branch.branch_name if po.branch else 'Unassigned',
             'amount': po.total_cost,
             'when': po_when,
             'when_label': _relative_day(po.order_date, today),
-            'actor': _actor_name(po.created_by),
         })
 
-    billings = billing_qs.select_related(
-        'transaction', 'transaction__branch', 'confirmed_by'
-    ).order_by('-date_recorded')[:limit]
-    for bill in billings:
-        branch = bill.transaction.branch if bill.transaction else None
+    for bill in billing_qs.order_by('-date_recorded')[:limit]:
         entries.append({
-            'kind': 'billing', 'kind_label': 'Bill', 'icon': 'peso',
+            'kind': 'billing', 'kind_label': 'Billing', 'icon': 'peso',
             'title': f'Payment #{bill.pk}',
             'url': reverse('billing_detail', args=[bill.pk]),
-            'branch': branch.branch_name if branch else 'Unassigned',
             'amount': bill.amount_due,
             'when': bill.date_recorded,
             'when_label': _relative_time(bill.date_recorded, now),
-            'actor': _actor_name(bill.confirmed_by),
         })
 
     entries.sort(key=lambda e: e['when'], reverse=True)
     return entries[:limit]
+
+
+def _dashboard_greeting(now, user):
+    """
+    The Dashboard's <h1> — "Good morning, Marie" rather than a literal
+    "Dashboard", which the <title>, the topbar section line and the active
+    sidebar item already say three times over between them.
+
+    Resolved server-side from timezone.localtime() so it agrees with every
+    other time on this page: a client-side clock would happily say "Good
+    morning" beside a feed row stamped "6h ago" for anyone whose device sits
+    in another zone.
+
+    Cut points are the ordinary ones — morning until noon, afternoon until
+    6pm, evening after. First name only; the sidebar carries the full name
+    and role two inches to the left, and a greeting is the one place in the
+    app that should sound like a person talking.
+
+    The exclamation mark is the warmth, and it is all of it. This line is read
+    every time the store owner opens the app — several times a day, for years
+    — so anything chattier than a greeting a colleague would actually say
+    ("Hope you're having a great day!") curdles by the second week.
+    """
+    hour = now.hour
+    if hour < 12:
+        part = 'morning'
+    elif hour < 18:
+        part = 'afternoon'
+    else:
+        part = 'evening'
+    # Accounts seeded without a first name fall back to the full name, then to
+    # the username — never to a bare "Good morning," with a dangling comma.
+    name = user.first_name.strip() or user.get_full_name().strip() or user.username
+    return f'Good {part}, {name}!'
 
 
 @login_required(login_url='accounts:login')
@@ -924,6 +952,7 @@ def operational_dashboard(request):
     recent_activity = _recent_activity(sales_qs, procurement_qs, billing_qs, now)
 
     return render(request, 'reports/dashboard.html', {
+        'greeting': _dashboard_greeting(now, request.user),
         # KPI rail + the graph panel they tab into + the Sales-by-Branch
         # donut, all derived from the one resolved range (DESIGN.md §2a/§2c).
         'kpi_cards': kpi_cards,

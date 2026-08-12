@@ -7,7 +7,25 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Dashboard</h1>
+    {% comment %}
+    The greeting IS the h1, rather than a line added above or below one
+    reading "Dashboard". Three other pieces of chrome already name this page
+    — the browser title, the topbar section line, and the lit sidebar item —
+    so a fourth was the least useful text on the screen, and the greeting
+    only lands if it occupies the slot the eye already goes to.
+
+    Built in reports/views.py::_dashboard_greeting so the time of day comes
+    from the same clock as everything else on the page.
+
+    The date line under it is the only subtitle left under an <h1> anywhere in
+    the app, and it earns that on a fact rather than on warmth: the range
+    control to its right reads "Last 30 days", so after the Sales by Branch
+    caption came off, nothing on this page said what today is. A greeting is
+    also the natural place to say it — it is what makes the line sound like
+    someone opening the shop rather than a system printing a timestamp.
+    {% endcomment %}
+    <h1>{{ greeting }}</h1>
+    <p class="page-greet">{{ today|date:"l, j F" }} — here's how the store is doing.</p>
   </div>
   {% comment %}
   The §2e range control. .page-head is already a space-between flex row, so it
@@ -78,11 +96,25 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
   peak line replaces the foot as the one thing here the card does not say —
   the chart has no y-axis, so nothing else gives the line a magnitude.
   {% endcomment %}
-  <div class="card-pad" style="border-bottom:1px solid var(--line);"
+  {% comment %}
+  Three stacked lines became two. The label was an 18px/600 h3 sitting on a
+  20px/700 value — near enough in weight and size that neither led, so the
+  block read as a list of three equal things and the eye had to pick the
+  figure out of it. The value now carries the size (30px), which is the only
+  thing in this header anyone is looking for, and the peak moves up onto its
+  baseline instead of taking a third full-width line of its own.
+
+  The h3 keeps its size and stays an h3: it is this panel's heading, and it
+  sits level with "Sales by Branch" in the card beside it, so shrinking it
+  would fix one panel by breaking the pair.
+  {% endcomment %}
+  <div class="card-pad kpi-graph-head" style="border-bottom:1px solid var(--line);"
        aria-live="polite" aria-atomic="true">
     <h3 id="kpi-graph-label">{{ default_kpi_graph.label }}</h3>
-    <p class="mb-0" id="kpi-graph-value" style="font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums;">{{ default_kpi_graph.valueDisplay }}</p>
-    <p class="gv-meta mb-0" id="kpi-graph-peak">{{ default_kpi_graph.peak }}</p>
+    <div class="kpi-graph-figure">
+      <p class="kpi-graph-value mb-0" id="kpi-graph-value">{{ default_kpi_graph.valueDisplay }}</p>
+      <p class="gv-meta kpi-graph-peak mb-0" id="kpi-graph-peak">{{ default_kpi_graph.peak }}</p>
+    </div>
   </div>
   <div class="card-pad">
     <svg id="kpi-graph-svg" viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none"
@@ -107,9 +139,14 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
 
 {# ---------- Sales by Branch donut (DESIGN.md §2c) — same range as the rail ---------- #}
 <div class="card donut-card">
+  {% comment %}
+  No subtitle. It stated the peso total, which the ring's own centre label
+  already prints two inches below it, and the date range, which the §2e
+  control at the top of the page sets and shows. Both were restatements, and
+  together they cost this panel a full line of its narrow column.
+  {% endcomment %}
   <div class="card-pad" style="border-bottom:1px solid var(--line);">
     <h3>Sales by Branch</h3>
-    <p class="gv-meta mb-0">Share of ₱{{ branch_chart.total|floatformat:2 }} · {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}</p>
   </div>
   <div class="card-pad">
     {% if branch_chart.total %}
@@ -177,18 +214,20 @@ Orders and Billing in one feed — the audit-trail glance Chapter 1 asks for.
 
 Unscoped by the date-range control on purpose (§2f): it answers "what just
 happened", so it keeps showing the last real postings no matter how narrow a
-range the KPI rail above is set to. The subtitle says so, because a feed
-sitting under range-scoped cards otherwise looks like it disagrees with them.
+range the KPI rail above is set to. The subtitle says only that, because a
+feed sitting under range-scoped cards otherwise looks like it disagrees with
+them — "latest postings across sales, purchasing and billing" was the rest of
+that line, and the rows underneath it were already saying so, one per row.
 
 Type is carried by the glyph and spelled out in the meta line, NOT by a
 tinted icon — a PO is a category, not a warning, and §3 reserves amber for
 status. Rows are built from reports/views.py::_recent_activity.
 {% endcomment %}
 <div class="card">
-  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+  <div class="card-pad panel-head row-between" style="border-bottom:1px solid var(--line);">
     <div>
       <h3>Recent Activity</h3>
-      <p class="gv-meta mb-0">Latest postings across sales, purchasing and billing — not filtered by the selected range</p>
+      <p class="gv-meta mb-0">Not filtered by the selected range</p>
     </div>
   </div>
   {% for e in recent_activity %}
@@ -196,7 +235,15 @@ status. Rows are built from reports/views.py::_recent_activity.
     <span class="feed-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=e.icon %}</span>
     <span class="feed-main">
       <span class="feed-title">{{ e.title }}</span>
-      <span class="feed-sub">{{ e.kind_label }} · {{ e.branch }}{% if e.actor %} · {{ e.actor }}{% endif %}</span>
+      {% comment %}
+      The source module and nothing else. The branch and the staff name that
+      used to follow it made a three-part line that changed shape row to row
+      — some postings carry an actor, some don't — so the eye had to re-parse
+      every row to find the one part that was always there. That part is what
+      the feed actually merges on: this row came out of Sales, or Procurement,
+      or Billing. Named exactly as the sidebar names those sections.
+      {% endcomment %}
+      <span class="feed-sub">{{ e.kind_label }}</span>
     </span>
     <span class="feed-right">
       <span class="feed-amount">₱{{ e.amount|floatformat:2 }}</span>
@@ -235,7 +282,7 @@ NOTE: {# #} is single-line only in Django — a multi-line one renders as visibl
 text. Anything spanning lines must use {% templatetag openblock %} comment {% templatetag closeblock %}.
 {% endcomment %}
 <div class="card">
-  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+  <div class="card-pad panel-head row-between" style="border-bottom:1px solid var(--line);">
     <div>
       <h3>Needs Attention</h3>
       <p class="gv-meta mb-0">{{ needs_attention.subtitle }}</p>

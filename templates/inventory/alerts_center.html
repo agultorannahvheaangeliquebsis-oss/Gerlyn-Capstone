@@ -16,21 +16,23 @@ no inline tints. Colour is gated on a non-zero count, so an all-clear Alerts
 Center is three plain white cards rather than a red/amber/green wall that says
 nothing is wrong in the palette reserved for saying something is.
 
-Critical is .danger (act now); low stock and expiry are .warn (act soon).
+Critical is .danger (act now); expiry is .warn (act soon).
 There is no info tint on a KPI card and the green one this row used to carry
 was the worst of the three: it painted "0 expiring" in the same green the app
 uses for healthy, and "40 expiring" in it too.
 
-.compact because the row heads a tab bar and a table, not a graph panel.
+A third card, "Low / Critical Stock" on low_count, used to sit between these
+two. It was removed because it did not measure a third thing: critical_count
+counts the low-stock rows whose risk is Critical, and low_count counts every
+low-stock row INCLUDING those, so the two cards nested rather than divided —
+the label said as much out loud. Its number is also the one already on the
+"Low Stock Alerts" tab immediately below, where it belongs, because there it
+labels the table it opens instead of standing on its own as a fourth figure.
 {% endcomment %}
 <div class="kpi-row compact">
   <div class="kpi-card{% if critical_count %} danger{% endif %}">
     <span class="label">Critical Stock</span>
     <span class="value">{{ critical_count }}</span>
-  </div>
-  <div class="kpi-card{% if low_count %} warn{% endif %}">
-    <span class="label">Low / Critical Stock</span>
-    <span class="value">{{ low_count }}</span>
   </div>
   <div class="kpi-card{% if expiring_count %} warn{% endif %}">
     <span class="label">Expiring within 14 days</span>

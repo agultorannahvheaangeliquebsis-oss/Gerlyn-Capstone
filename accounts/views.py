@@ -1054,6 +1054,12 @@ def language_view(request):
             request.user.save(update_fields=['language'])
             request.session['language'] = language
             messages.success(request, "Language updated.")
+        else:
+            # Silent before this: an unrecognised code fell straight past the
+            # branch to the redirect, so the page came back in the language it
+            # started in with nothing said — which is exactly what a save that
+            # failed to stick looks like.
+            messages.error(request, "That language isn't available. Your language is unchanged.")
         return redirect('accounts:language')
 
     return render(request, 'accounts/language.html', {'active_page': 'language'})

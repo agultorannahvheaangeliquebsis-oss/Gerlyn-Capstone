@@ -315,6 +315,28 @@ input::placeholder { color: var(--ink-500); }
    with dashboard-kpi.js using toggleAttribute — `.hidden` is an HTMLElement
    property that SVGSVGElement doesn't implement, so neither half works alone. */
 .kpi-graph-panel svg[hidden] { display: none; }
+/* The panel's header block. The figure and its peak share one baseline row:
+   the peak is a qualifier on the number, so it belongs beside it, and as its
+   own full-width line it made a three-line header where two will do.
+
+   baseline, not center — these are two runs of text at very different sizes,
+   and aligning their boxes would leave the small one floating off the big
+   one's foot. wrap so the peak drops under the figure on a narrow screen
+   rather than crushing it. */
+.kpi-graph-head h3 { margin-bottom: 2px; }
+.kpi-graph-figure {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s3); flex-wrap: wrap;
+}
+/* 30px against the h3's 18px. At the 20px it replaces, the label and the
+   figure were close enough in size and weight that neither one led. */
+.kpi-graph-value { font: 700 30px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+/* .gv-meta.kpi-graph-peak, not .kpi-graph-peak alone — .gv-meta sets 14px in
+   the same single-class breath, so on specificity alone this would win only
+   by sitting later in the file. Left-aligned once it wraps to its own line,
+   which is what space-between does with a lone item; against the figure's
+   left edge is the right place for it there. */
+.gv-meta.kpi-graph-peak { font-size: 13px; }
 .stat {
   background: var(--line-soft); border: 1px solid var(--line);
   border-radius: var(--r-card); padding: var(--s4) var(--s4);
@@ -739,6 +761,11 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--s4); margin-bottom: var(--s6); flex-wrap: wrap;
 }
+/* The Dashboard greeting's second line — the one deliberate exception to the
+   subtitles-under-h1 removal above, because it is not a restatement of the
+   heading. It carries today's date, which nothing else on that page shows
+   (the range control reads "Last 30 days", not a date). Dashboard only. */
+.page-greet { font: 400 14px/1.45 system-ui, sans-serif; color: var(--ink-600); margin: 3px 0 0; }
 /* ------------------------------------------------------------ breadcrumb
    Lived in account.css, which only the customer account pages load — so the
    internal shell could not use the component it already had. It is page
@@ -1195,15 +1222,20 @@ input::placeholder { color: var(--ink-500); }
    repeating each token in a --danger override, so a third status only needs
    the five --status-* lines. Escalation is a data decision made in
    _needs_attention_rows (pill-danger), not re-derived here. */
+/* Padding tracks .feed-row exactly. The two lists sit side by side in one grid
+   row at the same type size, so any difference between them reads as a
+   mistake rather than as a distinction — these rows are single-line, so
+   min-height is what sets their height and 9px only closes the gap on a
+   wrapped label. */
 .attn-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
-  padding: 12px var(--s6); min-height: var(--touch);
+  padding: 9px var(--s6); min-height: var(--touch);
   color: var(--ink-900); text-decoration: none;
   border-bottom: 1px solid var(--line-soft);
 }
 /* Same gutter as .feed-row:last-child — only applies when no all-clear block
    follows, since that block brings its own padding. */
-.attn-row:last-child { border-bottom: none; padding-bottom: var(--s6); }
+.attn-row:last-child { border-bottom: none; padding-bottom: var(--s4); }
 .attn-row:hover { background: var(--green-50); color: var(--ink-900); }
 .attn-label { display: flex; align-items: center; gap: var(--s3); font-weight: 600; }
 .attn-end { display: flex; align-items: center; gap: var(--s3); }
@@ -1246,7 +1278,10 @@ input::placeholder { color: var(--ink-500); }
    the pill keeps its own -fg, so the status colour still comes through. */
 .attn-card .pill { background: var(--surface); }
 .attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 system-ui, sans-serif; color: var(--status-ink); }
-.attn-card-body { font: 400 13px/1.5 system-ui, sans-serif; color: var(--ink-700); margin-top: 3px; }
+/* 1.4 and 2px, matching the title/sub pairing in .feed-row beside it: the
+   detail is this title's second line, not a paragraph under it. The sentence
+   itself was cut back in _needs_attention_rows to fit that. */
+.attn-card-body { font: 400 13px/1.4 system-ui, sans-serif; color: var(--ink-700); margin-top: 2px; }
 /* §3: the CTA takes the card's status colour, not --action. Hover deepens to
    the status's own -fg (warn 5.43:1, danger 7.01:1) rather than --action-700,
    which would jump hue mid-interaction. */
@@ -1329,6 +1364,26 @@ input::placeholder { color: var(--ink-500); }
   .daterange-panel { right: auto; left: 0; min-width: 0; width: max-content; max-width: 90vw; }
 }
 
+/* ------------------ dashboard panel header: Recent Activity + Needs Attention
+   The two panels share the bottom grid row, so their headers have to resolve
+   to the same height or the rule under each lands on a different line. One
+   class over both is what guarantees that; it is not a general .card-pad
+   variant, and nothing outside those two panels uses it.
+
+   Tighter than a plain .card-pad because the subtitle under each h3 is now a
+   single short clause rather than a sentence. 24px of air around two short
+   lines read as a gap between two things instead of a header attached to the
+   list below it, and the subtitle sat far enough under its own h3 to look
+   like a third element rather than that heading's second line.
+
+   .card-pad.panel-head, not .panel-head alone: both are single-class, so on
+   specificity alone the winner would be whichever appears later in this file. */
+.card-pad.panel-head { padding: var(--s4) var(--s6); }
+.panel-head h3 { margin-bottom: 1px; }
+/* One step down from .gv-meta's 14px — this is a caption on a panel header,
+   and at full size it competed with the .feed-title rows underneath it. */
+.panel-head .gv-meta { font-size: 13px; line-height: 1.4; }
+
 /* -------------------------------------------- dashboard "Recent Activity"
    DESIGN.md §2f. .row-between is a two-part row; this feed is three-part —
    a fixed glyph, a middle that must grow and truncate, and a right column
@@ -1339,17 +1394,21 @@ input::placeholder { color: var(--ink-500); }
    badge (amber for POs), but §3 reserves amber for status: a purchase order
    is a category, not a warning. Type is carried by the glyph itself and
    named in .feed-sub instead. */
+/* 9px, down from 12: five rows of two short lines each is a list to scan, and
+   at 12px it read as five separate blocks. min-height still holds the tap
+   target at 44px, so the rows cannot compress below it however tight the type
+   gets — a two-line row lands at ~52px, comfortably clear of that floor. */
 .feed-row {
   display: flex; align-items: center; gap: var(--s3);
-  padding: 12px var(--s6); min-height: var(--touch);
+  padding: 9px var(--s6); min-height: var(--touch);
   color: var(--ink-900); text-decoration: none;
   border-bottom: 1px solid var(--line-soft);
 }
-/* The last row would otherwise leave only its own 12px against the card's
-   bottom edge, against ~40px under the Needs Attention list it sits beside.
+/* The last row would otherwise leave only its own 9px against the card's
+   bottom edge, against ~32px under the Needs Attention list it sits beside.
    Padding on the row rather than the card so the hover highlight still covers
    the full row; that makes the last row taller than its siblings by design. */
-.feed-row:last-child { border-bottom: none; padding-bottom: var(--s6); }
+.feed-row:last-child { border-bottom: none; padding-bottom: var(--s4); }
 .feed-row:hover { background: var(--green-50); color: var(--ink-900); }
 .feed-ico {
   width: 30px; height: 30px; flex: none; border-radius: var(--r-input);
@@ -1360,12 +1419,16 @@ input::placeholder { color: var(--ink-500); }
 /* min-width:0 so the ellipsis below can actually engage — a flex item's
    default min-width:auto refuses to shrink past its content. */
 .feed-main { flex: 1; min-width: 0; }
+/* 1.3, down from 1.35, on all four: the sub belongs to the title above it and
+   the timestamp to the amount above it, so each pair wants to read as one
+   block. The leading is the only thing binding them — there is no other
+   device holding a pair together. */
 .feed-title, .feed-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed-title { font: 600 13.5px/1.35 system-ui, sans-serif; }
-.feed-sub { font: 400 12.5px/1.35 system-ui, sans-serif; color: var(--ink-600); }
+.feed-title { font: 600 13.5px/1.3 system-ui, sans-serif; }
+.feed-sub { font: 400 12.5px/1.3 system-ui, sans-serif; color: var(--ink-600); }
 .feed-right { flex: none; text-align: right; }
-.feed-amount { display: block; font: 700 13.5px/1.35 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.feed-time { display: block; font: 400 12px/1.35 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.feed-amount { display: block; font: 700 13.5px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.feed-time { display: block; font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
 /* In-app camera barcode scanner overlay (static/js/barcode-scanner.js). In
    gerlyn.css rather than account.css/storefront.css since it's used from
    internal admin pages (POS, Inventory, Products) that don't load those. */

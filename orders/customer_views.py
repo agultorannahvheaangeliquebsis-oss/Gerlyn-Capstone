@@ -146,23 +146,59 @@ def product_detail(request, product_id):
     })
 
 
+def _start_shopping_at(request, branch):
+    """
+    Point the session at a branch and start a fresh cart, saying so.
+
+    Switching branches empties the cart — stock and prices are per-branch, so
+    the old lines cannot be carried across. All three entry points below used
+    to do that in silence, which from the shopper's side is indistinguishable
+    from the cart having lost itself. The wording only mentions the clearing
+    when there was actually something to clear.
+    """
+    had_items = bool(request.session.get('cart'))
+    request.session['branch_id'] = branch.pk
+    request.session['cart'] = {}
+    if had_items:
+        messages.info(
+            request,
+            f'Now shopping at {branch.branch_name}. Your cart was cleared — '
+            f'stock and prices are set per branch.'
+        )
+    else:
+        messages.success(request, f'Now shopping at {branch.branch_name}.')
+
+
 def select_branch(request):
     branches = Branch.objects.all()
     if request.method == 'POST':
-        request.session['branch_id'] = int(request.POST['branch_id'])
-        request.session['cart'] = {}
+        # request.POST['branch_id'] with a bare int() was a KeyError or a
+        # ValueError away from a 500 on a submit with nothing chosen — which
+        # is a rejection the shopper should be told about, not a crash. The
+        # int() has to happen before the query too: a non-numeric pk raises
+        # out of the ORM rather than simply matching nothing.
+        try:
+            branch_id = int(request.POST.get('branch_id', ''))
+        except (TypeError, ValueError):
+            branch_id = None
+        branch = Branch.objects.filter(pk=branch_id).first() if branch_id else None
+        if branch is None:
+            messages.error(request, 'Choose a branch to continue.')
+            return redirect('orders:select_branch')
+        _start_shopping_at(request, branch)
         return redirect('orders:catalog')
     return render(request, 'orders/select_branch.html', {'branches': branches})
 
 
 def set_branch(request, branch_id):
-    request.session['branch_id'] = branch_id
-    request.session['cart'] = {}
+    _start_shopping_at(request, get_object_or_404(Branch, pk=branch_id))
     return redirect('orders:catalog')
 
 
 def clear_branch(request):
+    # Leaves the cart alone, as it always has — only the silence is fixed here.
     request.session.pop('branch_id', None)
+    messages.success(request, 'Branch cleared. Pick one to start shopping again.')
     return redirect('orders:catalog')
 
 
@@ -246,14 +282,22 @@ def update_cart(request, product_id):
     cart = request.session.get('cart', {})
     key = str(product_id)
     if key not in cart:
+        messages.info(request, 'That item is no longer in your cart.')
         return redirect('orders:cart')
 
     inv = Inventory.objects.select_related('product').filter(
         product_id=product_id, branch_id=branch_id
     ).first()
     if not inv:
+        # This one silently DELETED a line and redirected to a cart that had
+        # quietly changed under the shopper — the worst of the three silent
+        # exits, because they had asked for the opposite (one more of it).
         cart.pop(key, None)
         request.session['cart'] = cart
+        messages.error(
+            request,
+            'That item is no longer stocked at this branch, so it came out of your cart.'
+        )
         return redirect('orders:cart')
 
     action = request.POST.get('action')
