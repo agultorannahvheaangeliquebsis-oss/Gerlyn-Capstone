@@ -302,3 +302,176 @@ body.shop { background: #fff; }
   .toast { transition: opacity .2s ease; transform: none; }
   .toast.is-leaving { transform: none; }
 }
+
+/* ======================================================================
+   AUTH SCREEN  (.shop-auth)
+
+   The sign-in page as a room of its own rather than a card dropped into
+   the shop layout. Every selector here is scoped under .shop-auth, which
+   only login.html sets, so none of it reaches the catalog, the cart or
+   any other page that loads this file.
+
+   The backdrop is the brand's own green mist, not the blue of the design
+   reference this was modelled on: the reference's sky put a colour on the
+   largest surface in the app that appears nowhere else in it, directly
+   behind a green brand mark. Same composition — soft gradient, one
+   floating card, a medallion over the title — in the palette the rest of
+   the product already speaks.
+   ====================================================================== */
+/* Column, so the announcement bar and the footer keep their own bands and
+   the card's band takes whatever is left. Without this the centring block
+   below claimed a full 100vh of its own and pushed the footer off the fold
+   on every screen. .toast-stack is position:fixed and sits outside the flow,
+   so it is unaffected. */
+body.shop-auth {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(900px 520px at 50% -8%, #FFFFFF 0%, rgba(255,255,255,0) 62%),
+    linear-gradient(180deg, var(--green-100) 0%, var(--green-50) 40%, #FFFFFF 100%);
+  background-attachment: fixed;
+}
+/* Only the nav bar goes. The announcement above it and the footer below are
+   store information, not navigation — the delivery threshold is worth as
+   much to someone signing in as to someone browsing, and the branch list is
+   how a customer checks this is the store they meant. What is wrong on this
+   page is the nav specifically: its right-hand action is a "Log in" button
+   pointing at the page you are already on. */
+.shop-auth .shop-header { display: none; }
+.shop-auth .shop-main {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  /* The positioning context for .auth-brand. Anchoring the mark here rather
+     than to the viewport is what keeps it clear of the announcement bar,
+     whose height this page does not need to know. */
+  position: relative;
+  padding: 72px var(--s4) var(--s8);
+}
+/* On the gradient the footer's own top border read as the edge of a panel
+   that was not there, so it is dropped and the band left transparent. */
+.shop-auth .shop-footer {
+  border-top: none;
+  margin-top: 0;
+  background: transparent;
+}
+
+/* Brand mark, top-left. It is also the way back out of this page now that
+   the nav is gone, so it is a link and not a decoration. */
+.auth-brand {
+  position: absolute; top: 22px; left: 24px;
+  display: inline-flex; align-items: center; gap: 10px;
+  text-decoration: none; color: var(--ink-900);
+  font: 700 17px/1 system-ui, sans-serif;
+}
+.auth-brand img {
+  width: 34px; height: 34px; border-radius: 10px; display: block;
+  box-shadow: var(--shadow-card);
+}
+.auth-brand:hover { color: var(--action); }
+
+.auth-card {
+  width: 100%; max-width: 420px;
+  background: rgba(255,255,255,.78);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,.85);
+  border-radius: 20px;
+  box-shadow: 0 18px 48px rgba(23,37,30,.10), 0 2px 8px rgba(23,37,30,.05);
+  padding: var(--s8) var(--s6) var(--s6);
+  position: relative; overflow: hidden;
+}
+/* The tint the reference carries across the top of the card. Sits behind
+   the content on its own layer so it cannot pick up the text's stacking. */
+.auth-card::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 140px;
+  background: linear-gradient(180deg, var(--green-50) 0%, rgba(255,255,255,0) 100%);
+  pointer-events: none;
+}
+.auth-card > * { position: relative; }
+
+.auth-badge {
+  width: 56px; height: 56px; margin: 0 auto var(--s4);
+  border-radius: 16px; background: var(--surface);
+  display: grid; place-items: center; color: var(--action);
+  box-shadow: 0 4px 14px rgba(23,37,30,.10);
+}
+.auth-badge svg { width: 26px; height: 26px; display: block; }
+
+.auth-title {
+  font: 700 25px/1.2 system-ui, sans-serif;
+  text-align: center; margin: 0 0 6px; color: var(--ink-900);
+}
+.auth-sub {
+  text-align: center; margin: 0 0 var(--s6);
+  font: 400 14.5px/1.5 system-ui, sans-serif; color: var(--ink-500);
+}
+
+/* Leading icon inside the field. The floating label and the input padding
+   both shift right to clear it — matched values, because a label that
+   settles anywhere but the caret's column reads as belonging to something
+   else. Four classes deep to out-specify .field.field-float in gerlyn.css
+   without reaching for !important. */
+.auth-card .field.field-float.auth-field { margin: 0 0 var(--s3); }
+/* Centred text, replacing the component's 22px-top/6px-bottom split.
+
+   That split exists to clear a label that floats INSIDE the field. This
+   label does not: it floats onto the top border and notches it (top:0 with
+   the -50% transform still applied), so the 16px it was reserving stayed
+   empty and pushed the typed value 8px below the icon sitting beside it —
+   the icon is centred on the box, the value was not. Centring the text puts
+   the value, the icon and the resting label all on one line, and leaves the
+   floated label the border to sit on. */
+.auth-card .field.field-float.auth-field input {
+  min-height: 52px;
+  padding: 0 14px 0 44px;
+}
+.auth-card .field.field-float.auth-field label { left: 44px; }
+.auth-card .field.field-float.auth-field input:focus + label,
+.auth-card .field.field-float.auth-field input:not(:placeholder-shown) + label {
+  left: 40px;
+}
+.auth-field-icon {
+  position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; color: var(--ink-400);
+  pointer-events: none; z-index: 1;
+}
+.auth-field-icon svg { width: 100%; height: 100%; display: block; }
+
+/* Reveal toggle. 44px square for the touch-target minimum even though the
+   glyph is 18px, and it clears its own room in the input's padding. */
+.auth-card .field.field-float.auth-field input.has-reveal { padding-right: 50px; }
+.auth-reveal {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 44px; height: 44px; padding: 0;
+  display: grid; place-items: center;
+  background: none; border: none; cursor: pointer;
+  color: var(--ink-500); border-radius: var(--r-input);
+}
+.auth-reveal:hover { color: var(--ink-900); }
+.auth-reveal svg { width: 18px; height: 18px; display: block; }
+
+.auth-submit {
+  width: 100%; margin-top: var(--s4);
+  min-height: 48px; font-size: 15.5px; border-radius: 10px;
+}
+.auth-alt {
+  text-align: center; margin: var(--s6) 0 0;
+  font: 400 14px/1.5 system-ui, sans-serif; color: var(--ink-500);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .auth-card { animation: auth-in .22s ease-out; }
+  @keyframes auth-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+}
+
+@media (max-width: 480px) {
+  .shop-auth .shop-main { padding: 68px var(--s3) var(--s6); }
+  .auth-card { padding: var(--s6) var(--s4) var(--s4); border-radius: 16px; }
+  .auth-brand { top: 16px; left: 16px; font-size: 16px; }
+  .auth-title { font-size: 22px; }
+}

@@ -22,7 +22,13 @@
   <link rel="stylesheet" href="{% static 'css/storefront.css' %}?v={{ APP_VERSION }}">
   {% block extra_css %}{% endblock %}
 </head>
-<body class="shop">
+{% comment %}
+body_class defaults to the plain shop shell, so every page that does not
+override it renders exactly as before. Sign In adds shop-auth to trade the
+storefront header and footer for a full-bleed backdrop — see the AUTH SCREEN
+section in storefront.css, which is scoped entirely under that class.
+{% endcomment %}
+<body class="{% block body_class %}shop{% endblock %}">
 
 <!-- announcement -->
 <div class="shop-announce">

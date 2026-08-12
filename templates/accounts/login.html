@@ -1,32 +1,125 @@
 {% extends "public_base.html" %}
 {% load static %}
 {% block title %}Sign In — Gerlyn Variety Store{% endblock %}
+{% block body_class %}shop shop-auth{% endblock %}
 
 {% block content %}
-<div class="shop-wrap section" style="max-width:420px;">
-  <div style="text-align:center; margin-bottom:24px;">
-    <span class="brand-mark" style="width:56px; height:56px; border-radius:16px; margin:0 auto 12px;"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
-    <h2>Welcome back</h2>
-    <p class="gv-meta mb-0">Sign in to your Gerlyn Variety Store account.</p>
-  </div>
+{% comment %}
+Modelled on a reference sign-in screen, with three of its elements left out
+because this app cannot honour them:
 
-  <div class="card card-pad">
-    <form method="POST" class="stack">
-      {% csrf_token %}
-      <div class="field field-float">
-        <input id="username" type="text" name="username" value="{{ username }}" placeholder=" " required autofocus{% if error %} class="is-invalid" aria-invalid="true"{% endif %}>
-        <label for="username">Username</label>
-      </div>
-      <div class="field field-float">
-        <input id="password" type="password" name="password" placeholder=" " required{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="password-error"{% endif %}>
-        <label for="password">Password</label>
-      </div>
-      {% if error %}<p class="field-error" id="password-error" role="alert">{{ error }}</p>{% endif %}
-      <button type="submit" class="btn btn-primary" style="width:100%;">Sign In</button>
-    </form>
-    <p class="gv-meta mt-4" style="text-align:center; margin-bottom:0;">
-      New here? <a href="{% url 'accounts:register' %}">Create an account</a>
-    </p>
-  </div>
+  - Google / Facebook / Apple buttons. There is no social auth in the
+    project — no allauth, no OAuth client, no provider settings. Buttons for
+    them would be three dead controls on the one screen a user cannot get
+    past, and the failure would look like the account being broken.
+  - "Forgot password?". There is no public reset flow. change_password and
+    request_password_change_email both require an authenticated session, so
+    the link has nowhere to point for the person who actually needs it.
+  - An "Email" field. authenticate() is called with username, so a field
+    labelled Email would reject the address a customer typed into it.
+
+The composition the reference is actually made of — gradient backdrop, one
+floating card, medallion over a centred title, icon-led fields, full-width
+CTA — is all here.
+{% endcomment %}
+<a class="auth-brand" href="{% url 'orders:catalog' %}">
+  <img src="{% static 'img/logo.jpg' %}" alt="">
+  <span>Gerlyn</span>
+</a>
+
+<div class="auth-card">
+  <span class="auth-badge" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+      <polyline points="10 17 15 12 10 7"/>
+      <line x1="15" y1="12" x2="3" y2="12"/>
+    </svg>
+  </span>
+
+  <h1 class="auth-title">Sign in</h1>
+  <p class="auth-sub">Welcome back to Gerlyn Variety Store.</p>
+
+  <form method="POST">
+    {% csrf_token %}
+
+    <div class="field field-float auth-field">
+      <span class="auth-field-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+      </span>
+      <input id="username" type="text" name="username" value="{{ username }}" placeholder=" "
+             autocomplete="username" required autofocus{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="login-error"{% endif %}>
+      <label for="username">Username</label>
+    </div>
+
+    <div class="field field-float auth-field">
+      <span class="auth-field-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </span>
+      {% comment %}
+      has-reveal, not input[type=password], carries the room for the toggle:
+      the toggle rewrites type to "text", so an attribute selector would drop
+      the right-hand padding at the exact moment the text becomes visible and
+      slide it under the eye.
+      {% endcomment %}
+      <input id="password" type="password" name="password" placeholder=" "
+             autocomplete="current-password" required
+             class="has-reveal{% if error %} is-invalid{% endif %}"{% if error %} aria-invalid="true" aria-describedby="login-error"{% endif %}>
+      <label for="password">Password</label>
+      {% comment %}
+      aria-pressed rather than a label that flips: the button's name stays
+      "Show password" and its pressed state carries whether it is on, which
+      is the pattern a screen reader announces without the label changing
+      out from under the user mid-press.
+      {% endcomment %}
+      <button type="button" class="auth-reveal" id="password-reveal"
+              aria-label="Show password" aria-pressed="false" aria-controls="password">
+        <svg id="password-reveal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+
+    {% if error %}<p class="field-error" id="login-error" role="alert">{{ error }}</p>{% endif %}
+
+    <button type="submit" class="btn btn-primary auth-submit">Sign In</button>
+  </form>
+
+  <p class="auth-alt">
+    New here? <a href="{% url 'accounts:register' %}">Create an account</a>
+  </p>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var btn = document.getElementById('password-reveal');
+  var input = document.getElementById('password');
+  var icon = document.getElementById('password-reveal-icon');
+  if (!btn || !input || !icon) return;
+
+  var EYE = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  var EYE_OFF = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>'
+              + '<path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>'
+              + '<path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+
+  btn.addEventListener('click', function () {
+    var show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    icon.innerHTML = show ? EYE_OFF : EYE;
+    /* Focus goes back to the field, at the end of what was already typed.
+       Without this the caret is lost to the button and the next keystroke
+       does nothing, which is the moment people assume the toggle wiped it. */
+    var v = input.value;
+    input.focus();
+    input.setSelectionRange(v.length, v.length);
+  });
+})();
+</script>
 {% endblock %}
