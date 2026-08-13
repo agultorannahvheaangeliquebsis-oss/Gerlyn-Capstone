@@ -4,9 +4,18 @@
   when the product has no uploaded photos. Expects `product` in context.
   Use inside an element styled as `.thumb` (see storefront.css).
 {% endcomment %}
+{% comment %}
+loading="lazy" is unconditional here because this partial only ever renders
+a GRID thumbnail — the discover grid, the catalog grid, the best-seller rail
+and the related-products strip. The product-detail hero is its own
+<img id="main-image"> and is untouched, so nothing above the fold on a
+detail page is deferred by this. The card reserves its own box with
+aspect-ratio in storefront.css, so a deferred image shifts no layout.
+{% endcomment %}
 {% with imgs=product.images.all %}
   {% if imgs %}
-    <img src="{{ imgs.0.image.url }}" alt="{{ imgs.0.alt_text|default:product.product_name }}">
+    <img src="{{ imgs.0.image.url }}" alt="{{ imgs.0.alt_text|default:product.product_name }}"
+         loading="lazy" decoding="async">
   {% else %}
     {{ product|product_emoji }}
   {% endif %}

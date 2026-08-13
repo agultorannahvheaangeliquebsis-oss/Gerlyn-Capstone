@@ -88,11 +88,43 @@ body.shop {
 .shop-quick::-webkit-scrollbar { display: none; }
 .shop-quick a {
   flex: none; text-decoration: none; white-space: nowrap;
+  display: inline-flex; align-items: center;
   font: 400 13px/1 'Inter', system-ui, sans-serif;
   color: rgba(255,255,255,.92);            /* 4.76:1 on --action */
   padding: 4px 0;
 }
 .shop-quick a:hover { color: #fff; text-decoration: underline; }
+/* 13px text with 4px of padding is a 21px tap target. On a touch screen
+   these are the row of category links directly under the search field, so
+   they answer to the 44px floor — but only there: a mouse does not need it
+   and the compact band is the point of the design. */
+@media (pointer: coarse) {
+  .shop-quick a { min-height: var(--touch); }
+}
+
+/* FOCUS RINGS ON THE GREEN BANDS.
+
+   gerlyn.css sets a --brand ring globally and its comment lists the
+   surfaces it was measured against: --surface 3.38, --bg 3.14, --green-50
+   3.05. --action is not among them, because until this redesign nothing in
+   the app had a green band to focus on. Measured now: --brand on --action
+   is 1.57:1 and on --action-700 2.25:1, both under the 3:1 that WCAG 2.2
+   SC 1.4.11 asks of a focus indicator. White is 5.31:1 and 7.59:1.
+
+   Enumerated rather than a blanket `.shop-header :focus-visible` on
+   purpose: the search input and its submit button sit inside a WHITE pill
+   within this same green header, and a white ring there would be the
+   invisible one. Those two keep the --brand ring, which their surface
+   already clears. */
+.shop-announce a:focus-visible,
+.shop-brand:focus-visible,
+.shop-links a:focus-visible,
+.shop-quick a:focus-visible,
+.cart-btn:focus-visible,
+.shop-header-actions > .btn:focus-visible,
+.user-menu-trigger:focus-visible {
+  outline-color: #fff;
+}
 
 /* The white search pill. These values used to live as a 10-line inline
    style attribute on the div in public_base.html. */
@@ -201,11 +233,14 @@ body.shop {
 .banner-slide--c { background: linear-gradient(120deg, #0F4F31 0%, #22694A 50%, #3AA97A 100%); }
 
 .banner-dots {
-  position: absolute; left: 0; right: 0; bottom: 12px; z-index: 2;
-  display: flex; justify-content: center; gap: 8px;
+  position: absolute; left: 0; right: 0; bottom: 2px; z-index: 2;
+  display: flex; justify-content: center; gap: 2px;
 }
+/* 44px of hit area around a 9px dot. The dot itself is drawn by ::after and
+   is unchanged — this only grows the target, which was 30px. */
 .banner-dot {
-  width: 30px; height: 30px; padding: 0; border: none; background: none;
+  width: var(--touch); height: var(--touch);
+  padding: 0; border: none; background: none;
   cursor: pointer; display: grid; place-items: center;
 }
 .banner-dot::after {
@@ -768,29 +803,39 @@ body.shop-auth {
   font: 400 14.5px/1.5 system-ui, sans-serif; color: var(--ink-500);
 }
 
-/* Leading icon inside the field. The floating label and the input padding
-   both shift right to clear it — matched values, because a label that
-   settles anywhere but the caret's column reads as belonging to something
-   else. Four classes deep to out-specify .field.field-float in gerlyn.css
-   without reaching for !important. */
-.auth-card .field.field-float.auth-field { margin: 0 0 var(--s3); }
-/* Centred text, replacing the component's 22px-top/6px-bottom split.
+/* Static labels, sitting above their field.
 
-   That split exists to clear a label that floats INSIDE the field. This
-   label does not: it floats onto the top border and notches it (top:0 with
-   the -50% transform still applied), so the 16px it was reserving stayed
-   empty and pushed the typed value 8px below the icon sitting beside it —
-   the icon is centred on the box, the value was not. Centring the text puts
-   the value, the icon and the resting label all on one line, and leaves the
-   floated label the border to sit on. */
-.auth-card .field.field-float.auth-field input {
+   These used to float onto the top border and notch it, in a chip painted
+   --surface. Two things were wrong with that, and both are visible at once
+   the moment a browser fills the form:
+
+     · the chip is opaque white, but .auth-card is rgba(255,255,255,.78)
+       over a green gradient, so it was never the same colour as the thing
+       behind it — the notch read as a sticker laid across the border
+       rather than a gap in it;
+     · Chrome repaints an autofilled input #E8F0FE and ignores
+       background-color, so the field went pale blue while the chip stayed
+       white, and the mismatch became unmissable.
+
+   A label above the box has no seam to hide and no state to be in. It is
+   also what every other form in this app already does — register.html,
+   which sits one link away, has never floated its labels — so login was
+   the odd screen out. .field's own column layout does the work; the only
+   thing this needs to add is the icon's positioning context. */
+.auth-card .field.auth-field {
+  display: flex; flex-direction: column; gap: 7px;
+  margin: 0 0 var(--s4);
+}
+.auth-card .field.auth-field > label {
+  font: 600 13.5px/1.2 'Inter', system-ui, sans-serif;
+  color: var(--ink-700);
+}
+/* Wraps the input alone, so the icon centres on the box and not on the
+   box-plus-label. */
+.auth-input-wrap { position: relative; display: block; }
+.auth-card .auth-field input {
   min-height: 52px;
   padding: 0 14px 0 44px;
-}
-.auth-card .field.field-float.auth-field label { left: 44px; }
-.auth-card .field.field-float.auth-field input:focus + label,
-.auth-card .field.field-float.auth-field input:not(:placeholder-shown) + label {
-  left: 40px;
 }
 .auth-field-icon {
   position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
@@ -799,9 +844,21 @@ body.shop-auth {
 }
 .auth-field-icon svg { width: 100%; height: 100%; display: block; }
 
+/* Autofill. Chrome will not honour background-color on an autofilled
+   input; a 1000px inset shadow is the only way to repaint the box, and
+   -webkit-text-fill-color the only way to recolour the text inside it. */
+.auth-card .auth-field input:-webkit-autofill,
+.auth-card .auth-field input:-webkit-autofill:hover,
+.auth-card .auth-field input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+  -webkit-text-fill-color: var(--ink-900);
+  caret-color: var(--ink-900);
+}
+
 /* Reveal toggle. 44px square for the touch-target minimum even though the
    glyph is 18px, and it clears its own room in the input's padding. */
-.auth-card .field.field-float.auth-field input.has-reveal { padding-right: 50px; }
+.auth-card .auth-field input.has-reveal { padding-right: 50px; }
 .auth-reveal {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
   width: 44px; height: 44px; padding: 0;
