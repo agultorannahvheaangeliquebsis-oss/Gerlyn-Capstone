@@ -1,0 +1,89 @@
+"""
+Storefront counters read off real transaction and stock rows.
+
+The marketplace layout the shop is modelled on prints a social-proof number
+under every product ("Monthly Sales 308K+", "10K+ sold"). There is no
+promotions or ratings model in this system to fake one from, so the number
+shown is the plain sum of SalesItem.quantity_sold, and products with no
+sales history simply show nothing rather than a zero or an invented figure.
+
+Why the two counts are fetched in separate queries and merged in Python:
+annotating Sum('sales_items__quantity_sold') and Sum('inventory__
+quantity_on_hand') on ONE queryset joins both multi-valued relations at
+once, and every sales row is then multiplied by every inventory row for
+that product (and vice versa). Both figures come back inflated, silently
+and plausibly — a product in 3 branches would report triple its true sales.
+"""
+from django.db.models import Sum
+
+from inventory.models import Inventory
+from sales.models import SalesItem
+
+
+def units_sold_by_product(product_ids=None):
+    """{product_id: units sold}. Products never sold are absent from the map."""
+    rows = SalesItem.objects.values('product_id').annotate(n=Sum('quantity_sold'))
+    if product_ids is not None:
+        rows = rows.filter(product_id__in=product_ids)
+    return {r['product_id']: r['n'] for r in rows if r['product_id'] and r['n']}
+
+
+def on_hand_by_product(product_ids=None, branch_id=None):
+    """
+    {product_id: units on hand}, summed across branches unless one is given.
+
+    Used where the page is not branch-scoped (the home page), so the stock
+    line can still be truthful: "in stock somewhere in the store" is a real
+    claim, and picking a branch narrows it on the catalog.
+    """
+    rows = Inventory.objects.values('product_id')
+    if branch_id:
+        rows = rows.filter(branch_id=branch_id)
+    if product_ids is not None:
+        rows = rows.filter(product_id__in=product_ids)
+    rows = rows.annotate(n=Sum('quantity_on_hand'))
+    return {r['product_id']: r['n'] or 0 for r in rows if r['product_id']}
+
+
+def attach_storefront_counts(products, branch_id=None):
+    """
+    Hang `units_sold` and `on_hand` on each product in `products`.
+
+    Takes a list (not a queryset) because the attributes are set on the
+    instances — re-evaluating a queryset afterwards would throw them away.
+    """
+    ids = [p.id for p in products]
+    if not ids:
+        return products
+
+    sold = units_sold_by_product(ids)
+    on_hand = on_hand_by_product(ids, branch_id=branch_id)
+    for product in products:
+        product.units_sold = sold.get(product.id, 0)
+        product.on_hand = on_hand.get(product.id, 0)
+    return products
+
+
+def best_sellers(limit=8):
+    """
+    Products ranked by units actually sold, best first.
+
+    Only products with a real sales history qualify — `filter(units_sold__gt
+    =0)` is what keeps the rail from padding itself out with never-sold stock
+    when the store is new. The caller must be ready for an empty list.
+    """
+    from inventory.models import Product
+
+    ranked = list(
+        Product.objects.select_related('category')
+        .prefetch_related('images')
+        .annotate(units_sold=Sum('sales_items__quantity_sold'))
+        .filter(units_sold__gt=0)
+        .order_by('-units_sold')[:limit]
+    )
+    # on_hand only — units_sold is already annotated above, and letting
+    # attach_storefront_counts overwrite it would cost a query for nothing.
+    on_hand = on_hand_by_product([p.id for p in ranked])
+    for product in ranked:
+        product.on_hand = on_hand.get(product.id, 0)
+    return ranked

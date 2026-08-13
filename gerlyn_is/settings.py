@@ -153,6 +153,7 @@ TEMPLATES = [
                 'core.context_processors.active_nav',
                 'core.context_processors.alerts',
                 'core.context_processors.app_version',
+                'core.context_processors.nav_categories',
             ],
         },
     },

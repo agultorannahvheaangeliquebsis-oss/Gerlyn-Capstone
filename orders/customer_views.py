@@ -11,6 +11,7 @@ from django.urls import reverse
 
 from branches.models import Branch
 from inventory.models import Inventory, Product, ProductCategory
+from inventory.stats import units_sold_by_product
 from sales.models import SalesItem, SalesTransaction
 
 # Cap on how many rows the live-search dropdown shows at once.
@@ -77,8 +78,17 @@ def product_catalog(request):
         if key not in rows or inv.quantity_on_hand > rows[key]['qty']:
             rows[key] = {'product': inv.product, 'qty': inv.quantity_on_hand}
 
+    ordered_rows = sorted(rows.values(), key=lambda r: r['product'].product_name)
+
+    # The card shows a "N sold" line where the design reference shows a star
+    # rating — there is no review model, and this is a real figure. One
+    # aggregate query for the whole page, not one per card.
+    sold = units_sold_by_product([r['product'].id for r in ordered_rows])
+    for row in ordered_rows:
+        row['product'].units_sold = sold.get(row['product'].id, 0)
+
     context = {
-        'rows': sorted(rows.values(), key=lambda r: r['product'].product_name),
+        'rows': ordered_rows,
         'branches': branches,
         'selected_branch_id': branch_id,
         'categories': ProductCategory.objects.all(),

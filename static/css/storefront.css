@@ -1,43 +1,117 @@
 /* ==========================================================================
    Storefront layer — builds on gerlyn.css tokens.
-   Same green identity, warmer voice for shoppers. One clean hero,
-   44px add-to-cart targets, honest stock signals, mobile sticky checkout.
+
+   Marketplace layout (coloured search header, banner rail, service row,
+   bordered category grid, best-seller rail, dense discover grid) in the
+   store's own green, not the orange of the reference it is modelled on:
+   the shop and the staff system are one product, and gerlyn.css's whole
+   contrast argument is built on --action. Every rule here is storefront-
+   scoped — nothing in this file reaches internal_base.html.
+
+   Honest-data rule for this layer: the reference carries discount
+   percentages, star ratings and wishlist hearts. There is no compare-at
+   price, no review model and no wishlist in this codebase, so none of
+   those are drawn. The "N sold" line is a real SalesItem aggregate and
+   the stock line is real Inventory — see partials/catalog_grid.html.
    ========================================================================== */
 
-body.shop { background: #fff; }
-
-.shop-wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
-
-/* ------------------------------------------------------------- announce */
-.shop-announce {
-  background: var(--action);
-  color: #fff;
-  font: 400 13px/1 system-ui, sans-serif;
-  padding: 9px 0;
+/* Inter has been preloaded in public_base.html all along but nothing except
+   the old hero headline ever asked for it. The marketplace card stack leans
+   hard on tight, even numerals, which is exactly what Inter is for. */
+body.shop {
+  background: var(--bg);
+  font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+.shop-wrap { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
+
+/* ------------------------------------------------------------- announce
+   Utility strip above the search header. Darker than the header so the two
+   green bands read as separate rows rather than one tall slab. */
+.shop-announce {
+  background: var(--action-700);
+  color: #fff;
+  font: 400 13px/1 'Inter', system-ui, sans-serif;
+  padding: 8px 0;
+}
+/* The strip is two blocks of text on one row; on a phone they have to be
+   allowed to stack rather than force the page wider than the viewport. */
+.shop-announce .row-between { flex-wrap: wrap; gap: 4px 16px; }
 .shop-announce a { color: #fff; text-decoration: none; }
 .shop-announce a:hover { text-decoration: underline; }
+.shop-announce-links { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.shop-announce-links a { display: inline-flex; align-items: center; gap: 6px; }
+.shop-announce-sep { width: 1px; height: 12px; background: rgba(255,255,255,.35); }
 
-/* --------------------------------------------------------------- header */
-.shop-header { background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
-.shop-nav { display: flex; align-items: center; gap: 20px; padding: 14px 24px; max-width: 1200px; margin: 0 auto; }
+/* --------------------------------------------------------------- header
+   The search bar is the primary control of a shop, so it gets the coloured
+   band and the widest column. White on --action is 5.31:1. */
+.shop-header {
+  background: var(--action);
+  position: sticky; top: 0; z-index: 10;
+}
+.shop-nav {
+  display: flex; align-items: center; gap: 24px;
+  padding: 14px 24px 12px; max-width: 1280px; margin: 0 auto;
+}
 .shop-brand {
   display: flex; align-items: center; gap: 10px; flex: none;
-  font-size: 16px; text-decoration: none; color: var(--ink-900);
+  font-size: 17px; text-decoration: none; color: #fff;
 }
+.shop-brand:hover { color: #fff; }
+.shop-brand .brand-mark img {
+  width: 38px; height: 38px; border-radius: 10px; display: block;
+  background: #fff;
+}
+.shop-brand-name { white-space: nowrap; }
+.shop-brand-name strong { color: #fff; }
+
 .shop-links { display: flex; gap: 4px; flex: none; }
 .shop-links a {
   height: var(--touch); display: inline-flex; align-items: center; padding: 0 14px;
-  font: 600 14.5px/1 system-ui, sans-serif; color: var(--ink-700);
+  font: 600 14.5px/1 'Inter', system-ui, sans-serif; color: #fff;
   border-radius: var(--r-input); text-decoration: none;
 }
-.shop-links a:hover { background: var(--line-soft); }
-.shop-links a.active { background: var(--green-50); color: var(--action-700); font-weight: 650; }
+.shop-links a:hover { background: rgba(255,255,255,.14); color: #fff; }
+.shop-links a.active { background: rgba(255,255,255,.2); color: #fff; font-weight: 700; }
 
-.shop-search { display: flex; gap: 8px; flex: 1; min-width: 0; }
-.shop-search input { border-radius: var(--r-pill); background: var(--bg); width: 100%; }
+.shop-search { display: flex; flex: 1; min-width: 0; }
 
-.search-box { position: relative; flex: 1; min-width: 0; }
+/* Quick keyword row under the search field — real categories, not invented
+   trending terms. Scrolls sideways instead of wrapping the green band to a
+   third row on narrow screens. */
+.shop-quick {
+  display: flex; align-items: center; gap: 16px;
+  max-width: 1280px; margin: 0 auto; padding: 0 24px 10px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.shop-quick::-webkit-scrollbar { display: none; }
+.shop-quick a {
+  flex: none; text-decoration: none; white-space: nowrap;
+  font: 400 13px/1 'Inter', system-ui, sans-serif;
+  color: rgba(255,255,255,.92);            /* 4.76:1 on --action */
+  padding: 4px 0;
+}
+.shop-quick a:hover { color: #fff; text-decoration: underline; }
+
+/* The white search pill. These values used to live as a 10-line inline
+   style attribute on the div in public_base.html. */
+.search-box {
+  position: relative; flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  background: #fff; border-radius: var(--r-input);
+  padding: 0 5px 0 14px; min-height: 44px;
+}
+.search-box .search-icon { flex: none; color: var(--ink-400); }
+.search-box input {
+  border: none; background: transparent; outline: none; flex: 1; min-width: 0;
+  padding: 0; color: var(--ink-900);
+  font: 400 15px/1 'Inter', system-ui, sans-serif;
+}
+.search-box .search-submit {
+  flex: none; min-height: 34px; padding: 0 20px; font-size: 14px;
+  border-radius: 6px;
+}
 .search-dropdown {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0;
   background: #fff; border: 1px solid var(--line); border-radius: var(--r-card);
@@ -62,108 +136,336 @@ body.shop { background: #fff; }
   position: absolute; top: -7px; right: -7px;
   min-width: 20px; height: 20px; padding: 0 5px;
   border-radius: var(--r-pill); background: #B45309; color: #fff;
-  font: 700 11.5px/20px system-ui, sans-serif; text-align: center;
+  font: 700 11.5px/20px 'Inter', system-ui, sans-serif; text-align: center;
   border: 2px solid #fff;
 }
+/* On the green band the cart reverses: white pill, green content. */
+.shop-header .cart-btn {
+  background: #fff; color: var(--action-700); border-color: #fff;
+}
+.shop-header .cart-btn:hover { background: var(--green-50); color: var(--action-700); }
 
 .shop-main { min-height: 60vh; }
 
-/* ----------------------------------------------------------------- hero
-   ONE headline layer — no ghosted/overlapping text. */
-.hero {
-  background: linear-gradient(135deg, var(--action) 0%, var(--action-700) 100%);
-  color: #fff;
-  padding: 64px 0;
+/* ----------------------------------------------------------- banner rail
+   One wide rotator plus two stacked panels, the marketplace's front-page
+   shape. Every slide is a real store fact pointing at a real destination —
+   there is no promotions model here to render, and inventing campaign art
+   would put claims on the page the store has not made. */
+.banner-rail {
+  display: grid; grid-template-columns: 2.2fr 1fr; gap: 12px;
+  padding: 16px 0;
 }
-.hero h1 {
-  font: 800 40px/1.15 'Inter', system-ui, sans-serif;
-  color: #fff; margin: 0 0 12px; white-space: nowrap;
+/* aspect-ratio with NO min-height. The two together fight: once min-height
+   wins, the ratio resolves the width from that height, and the box grew
+   9px wider than its own grid track (measured 503px inside a 494px rail).
+   The narrow breakpoint below drops the ratio instead and pins a height. */
+.banner-main {
+  position: relative; border-radius: var(--r-card); overflow: hidden;
+  aspect-ratio: 1320 / 390;
 }
-.hero p { font-size: 17px; line-height: 1.5; opacity: .92; margin: 0 0 24px; white-space: nowrap; }
-.hero .eyebrow {
-  display: inline-flex; align-items: center; gap: 6px;
-  font: 600 13.5px/1 system-ui, sans-serif; opacity: .9; margin-bottom: 14px;
+.banner-slide {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  gap: 10px; padding: 0 clamp(24px, 5%, 56px);
+  color: #fff; text-decoration: none;
+  opacity: 0; visibility: hidden;
+  transition: opacity .5s ease, visibility .5s ease;
 }
-.hero .btn-hero {
-  background: #fff; color: var(--action-700); border-color: #fff; font-weight: 700;
+.banner-slide.is-active { opacity: 1; visibility: visible; }
+.banner-slide:hover { color: #fff; }
+.banner-slide .eyebrow {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: 600 13px/1 'Inter', system-ui, sans-serif;
+  letter-spacing: .04em; text-transform: uppercase;
 }
-.hero .btn-hero:hover { background: var(--green-50); color: var(--action-700); }
-.hero .btn-hero-ghost { background: transparent; color: #fff; border-color: rgba(255,255,255,.7); }
-.hero .btn-hero-ghost:hover { background: rgba(255,255,255,.12); color: #fff; }
+.banner-slide h2 {
+  font: 800 clamp(24px, 3vw, 40px)/1.12 'Inter', system-ui, sans-serif;
+  color: #fff; margin: 0; max-width: 15ch;
+}
+.banner-slide p {
+  font: 400 clamp(14px, 1.3vw, 17px)/1.45 'Inter', system-ui, sans-serif;
+  margin: 0; max-width: 34ch;
+}
+.banner-slide .banner-cue {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+  font: 700 14px/1 'Inter', system-ui, sans-serif;
+  border-bottom: 2px solid rgba(255,255,255,.65); padding-bottom: 3px;
+  align-self: flex-start;
+}
+.banner-slide:hover .banner-cue { border-bottom-color: #fff; }
+/* Three fixed grounds rather than one repeated — the rotation has to be
+   visible at a glance or it reads as a rendering fault. */
+.banner-slide--a { background: linear-gradient(120deg, var(--action-700) 0%, var(--action) 55%, var(--brand) 100%); }
+.banner-slide--b { background: linear-gradient(120deg, #14603C 0%, #1E7A4F 60%, #2E9E6B 100%); }
+.banner-slide--c { background: linear-gradient(120deg, #0F4F31 0%, #22694A 50%, #3AA97A 100%); }
 
-/* --------------------------------------------------------- value props */
-.props { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: -32px 0 40px; }
-.prop {
-  background: var(--green-50); border: 1px solid var(--green-100);
-  border-radius: var(--r-card); padding: 16px 20px;
-  display: flex; align-items: center; gap: 14px;
+.banner-dots {
+  position: absolute; left: 0; right: 0; bottom: 12px; z-index: 2;
+  display: flex; justify-content: center; gap: 8px;
 }
-.prop .ic {
-  width: 40px; height: 40px; border-radius: 50%; background: #fff; flex: none;
-  display: flex; align-items: center; justify-content: center; color: var(--action);
+.banner-dot {
+  width: 30px; height: 30px; padding: 0; border: none; background: none;
+  cursor: pointer; display: grid; place-items: center;
 }
-.prop .t { font: 650 14.5px/1.2 system-ui, sans-serif; }
-.prop .s { font: 400 13px/1.3 system-ui, sans-serif; color: var(--ink-600); }
+.banner-dot::after {
+  content: ""; width: 9px; height: 9px; border-radius: 50%;
+  background: rgba(255,255,255,.5); transition: background .2s ease, transform .2s ease;
+}
+.banner-dot[aria-selected="true"]::after { background: #fff; transform: scale(1.25); }
+
+.banner-side { display: grid; grid-template-rows: 1fr 1fr; gap: 12px; }
+.banner-card {
+  border-radius: var(--r-card); padding: 20px 22px; text-decoration: none;
+  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  border: 1px solid var(--green-100); background: var(--green-50);
+  color: var(--ink-900); transition: box-shadow .18s ease, transform .18s ease;
+}
+.banner-card:hover { box-shadow: 0 6px 18px rgba(23,37,30,.10); transform: translateY(-2px); color: var(--ink-900); }
+.banner-card .bc-ic {
+  width: 34px; height: 34px; border-radius: 9px; background: #fff; flex: none;
+  display: grid; place-items: center; color: var(--action); margin-bottom: 2px;
+}
+.banner-card .bc-t { font: 700 15.5px/1.25 'Inter', system-ui, sans-serif; }
+.banner-card .bc-s { font: 400 13px/1.4 'Inter', system-ui, sans-serif; color: var(--ink-600); }
+
+/* ------------------------------------------------------- service row
+   The reference's ring of shortcuts. Every one is a destination that
+   exists — no promo tiles standing in for features the store lacks. */
+.svc-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px; background: #fff; border-radius: var(--r-card);
+  padding: 22px 12px; border: 1px solid var(--line);
+}
+.svc {
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  padding: 8px 4px; text-decoration: none; color: var(--ink-700);
+  border-radius: var(--r-input); text-align: center;
+  transition: background .15s ease;
+}
+.svc:hover { background: var(--green-50); color: var(--action-700); }
+.svc .svc-ic {
+  width: 46px; height: 46px; border-radius: 13px; flex: none;
+  background: var(--green-50); color: var(--action);
+  display: grid; place-items: center;
+}
+.svc:hover .svc-ic { background: var(--action); color: #fff; }
+.svc .svc-nm { font: 500 12.5px/1.3 'Inter', system-ui, sans-serif; }
 
 /* ------------------------------------------------------------ sections */
-.section { padding: 32px 0; }
+.section { padding: 26px 0; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
-.section-head h2 { font: 700 22px/1.2 system-ui, sans-serif; }
+.section-head h2 { font: 700 22px/1.2 'Inter', system-ui, sans-serif; }
 
-/* categories */
-.cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
+/* Panel-style section — white card with a ruled header, as the reference
+   frames CATEGORIES and TOP PRODUCTS. */
+.panel {
+  background: #fff; border: 1px solid var(--line);
+  border-radius: var(--r-card); overflow: hidden;
+}
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 18px 22px; border-bottom: 1px solid var(--line);
+}
+.panel-head h2 {
+  font: 700 17px/1.2 'Inter', system-ui, sans-serif;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--action);
+}
+.panel-more {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 600 14px/1 'Inter', system-ui, sans-serif;
+  color: var(--action); text-decoration: none;
+  min-height: var(--touch); padding: 0 4px;
+}
+.panel-more:hover { color: var(--action-700); text-decoration: underline; }
+
+/* --------------------------------------------------------- categories
+   Hairline grid: each cell draws only its right and bottom edge, so shared
+   borders never double up and the panel's own border closes the outside. */
+/* auto-fill, not repeat(10, 1fr): this store currently has a single category
+   and a fixed ten-column track drew nine empty hairline cells beside it. The
+   120px floor still yields ten across at the 1280px container. */
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 .cat {
-  border: 1px solid var(--line); border-radius: var(--r-card); background: #fff;
-  padding: 16px 8px; text-align: center; text-decoration: none; color: var(--ink-900);
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  min-height: var(--touch);
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: #fff; padding: 20px 8px 18px; text-align: center;
+  text-decoration: none; color: var(--ink-900);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  min-height: 132px; transition: box-shadow .18s ease;
 }
-.cat:hover { border-color: var(--brand); box-shadow: 0 2px 8px rgba(46,158,107,.12); color: var(--ink-900); }
+.cat:hover { box-shadow: 0 4px 14px rgba(23,37,30,.10); color: var(--action-700); position: relative; z-index: 1; }
 .cat .ring {
-  width: 52px; height: 52px; border-radius: 50%; background: var(--green-50);
-  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  width: 58px; height: 58px; border-radius: 50%; background: var(--green-50);
+  display: flex; align-items: center; justify-content: center; font-size: 24px;
 }
-.cat .nm { font: 600 13px/1.25 system-ui, sans-serif; }
+.cat .nm { font: 400 13px/1.3 'Inter', system-ui, sans-serif; }
 
-/* ------------------------------------------------------- product cards */
-.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+/* ----------------------------------------------------- best-seller rail
+   Horizontal scroller. Ranked by units actually sold (SalesItem), and the
+   figure printed on each tile is that same number — the reference's
+   "Monthly Sales 308K+" bar with a real quantity behind it. */
+/* A capped column width, not 1fr: with only three best sellers the tracks
+   stretched to a third of the container each and the 1:1 media box grew to
+   ~340px tall — a wall of packaging for three items. Capped, a short rail
+   simply ends early and a long one scrolls, which is the intent either way. */
+.top-rail {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(168px, 208px);
+  justify-content: start;
+  gap: 0; overflow-x: auto; scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+.top-item {
+  scroll-snap-align: start; text-decoration: none; color: var(--ink-900);
+  padding: 18px 16px 22px; border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.top-item:hover { color: var(--action-700); }
+.top-media {
+  position: relative; aspect-ratio: 1 / 1; background: #fff;
+  display: grid; place-items: center; font-size: 46px; overflow: hidden;
+}
+.top-media img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.top-rank {
+  position: absolute; top: 0; left: 0; z-index: 1;
+  background: var(--action); color: #fff;
+  font: 700 11px/1 'Inter', system-ui, sans-serif; letter-spacing: .05em;
+  padding: 6px 7px 9px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
+}
+.top-sold {
+  background: rgba(23,37,30,.72); color: #fff;
+  font: 600 12px/1 'Inter', system-ui, sans-serif;
+  padding: 7px 8px; text-align: center; border-radius: 3px;
+}
+.top-nm { font: 400 14.5px/1.35 'Inter', system-ui, sans-serif; }
+
+/* ------------------------------------------------------- product cards
+   Hierarchy from the card reference: category → name → stock → sold →
+   price + action. Rating stars and a struck-through was-price sit in that
+   reference between stock and price; neither has a field behind it here,
+   so the sold count carries that row instead of a fabricated one. */
+/* 260px floor, not 210px. The reference card is ~370px wide and roomy; the
+   210px track came from the marketplace home page's six-across density and
+   squeezed every type size down with it. At the 1280px container this gives
+   four across at ~300px — the reference's proportions at a grocery catalog's
+   item count. */
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
 .pcard {
-  border: 1px solid var(--line); border-radius: var(--r-card); background: #fff;
+  /* No hard border: the reference separates the card from the page with a
+     soft shadow alone. The hairline is kept only as a near-invisible edge so
+     the card still has a boundary on a white background. */
+  border: 1px solid rgba(23,37,30,.06); border-radius: 18px; background: #fff;
   overflow: hidden; display: flex; flex-direction: column;
+  box-shadow: 0 1px 2px rgba(23,37,30,.05), 0 4px 14px rgba(23,37,30,.05);
+  transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
 }
-.pcard:hover { box-shadow: 0 3px 12px rgba(23,37,30,.10); }
+.pcard:hover {
+  box-shadow: 0 10px 28px rgba(23,37,30,.13);
+  border-color: var(--green-300); transform: translateY(-2px);
+}
 .pcard .thumb {
-  aspect-ratio: 1 / 1; background: var(--green-50);
+  aspect-ratio: 4 / 3; background: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-size: 54px; text-decoration: none; position: relative;
-  overflow: hidden;
+  font-size: 64px; text-decoration: none; position: relative;
+  overflow: hidden; padding: 20px 20px 8px;
 }
-/* Real product photo fills the square thumb; emoji fallback stays centered.
-   Absolute positioning takes the image out of the flex flow so a large upload
-   is clipped to the 1:1 box instead of stretching the whole card. */
+/* `contain`, not `cover`: packaging is how a shopper recognises a grocery
+   item, and cover crops the label off a tall bottle or a wide sack. The
+   emoji fallback stays centred in the same box. */
 .pcard .thumb img {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  object-fit: cover; display: block;
+  position: absolute; inset: 20px 20px 8px;
+  width: calc(100% - 40px); height: calc(100% - 28px);
+  object-fit: contain; display: block;
 }
-.pcard .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+/* The reference's rhythm: a tight category→name pair, then air before each
+   of the rows below it. A single flat gap made all five rows read as one
+   undifferentiated list. */
+.pcard .body { padding: 12px 20px 20px; display: flex; flex-direction: column; gap: 0; flex: 1; }
+.pcard .pcat {
+  font: 400 12.5px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  margin-bottom: 6px;
+}
 .pcard .name {
-  font: 600 15px/1.35 system-ui, sans-serif; color: var(--ink-900);
-  text-decoration: none; display: block;
+  font: 600 17.5px/1.32 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+  margin-bottom: 10px;
 }
 .pcard .name:hover { color: var(--action); }
-.pcard .price { font: 700 18px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.pcard .unit { font: 400 13px/1 system-ui, sans-serif; color: var(--ink-500); }
+.pcard .psold {
+  font: 400 13px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  margin-top: 8px;
+}
+.pcard .price {
+  font: 700 24px/1 'Inter', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; color: var(--ink-900);
+}
+/* The reference sets a struck-through was-price in grey immediately left of
+   the live one. There is no compare-at price in this system and inventing
+   one is a false discount claim — the unit takes that slot instead, which
+   is the other thing a shopper needs beside a peso figure ("₱1,800 — per
+   sack" is not the same offer as "₱1,800 — per kilo"). */
+.pcard .unit { font: 400 13px/1 'Inter', system-ui, sans-serif; color: var(--ink-500); }
+/* Stacked, not inline. The reference sets its two prices side by side
+   because both are short numerals; "per bottle" / "per sack" is wider than
+   a struck price, and inline it pushed the total past the card and wrapped
+   the button onto its own line. Stacked, the cluster is only as wide as the
+   peso figure and the price/button row survives down to the 158px track. */
+.pcard .price-cluster {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  min-width: 0;
+}
 /* .cta marks whichever element is the card's call-to-action (form, link,
    or disabled button) so it always docks to the bottom, keeping buttons
    aligned across a row even when product names wrap to two lines. */
 .pcard .cta { margin-top: auto; }
+.pcard .pfoot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: auto; padding-top: 18px; flex-wrap: wrap;
+}
+.pcard .pfoot .cta { margin-top: 0; }
 .pcard .btn { width: 100%; }
+.pcard .pfoot .btn { width: auto; }
 
-/* Honest stock signals — never hide a shortage. */
-.stock-ok   { font: 600 13px/1.4 system-ui, sans-serif; color: var(--ok-fg); }
-.stock-low  { font: 600 13px/1.4 system-ui, sans-serif; color: var(--warn-fg); }
-.stock-out  { font: 600 13px/1.4 system-ui, sans-serif; color: var(--danger-fg); }
+/* The reference's tinted pill. --action-700 on --green-50 is 6.94:1; the
+   44px floor is kept even though the reference pill looks smaller, because
+   this is the one thing on the card a thumb has to hit. */
+.btn-cart {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: var(--touch); padding: 0 18px;
+  border-radius: var(--r-pill); border: 1px solid var(--green-100);
+  background: var(--green-50); color: var(--action-700);
+  font: 600 14px/1 'Inter', system-ui, sans-serif; cursor: pointer;
+  /* Three of the four CTA branches render as <a>, which arrives underlined
+     from the UA sheet — the button read as a link sitting inside a pill. */
+  text-decoration: none; white-space: nowrap;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.btn-cart:hover { text-decoration: none; }
+.btn-cart:hover { background: var(--action); color: #fff; border-color: var(--action); }
+.btn-cart:disabled { opacity: .55; cursor: not-allowed; background: var(--line-soft); color: var(--ink-500); border-color: var(--line); }
+.btn-cart svg { flex: none; }
+
+/* Honest stock signals — never hide a shortage. Uppercased to match the
+   reference's IN STOCK line; the colours are the existing status tokens. */
+.stock-ok, .stock-low, .stock-out {
+  font: 700 11.5px/1.4 'Inter', system-ui, sans-serif;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.stock-ok   { color: var(--ok-fg); }
+.stock-low  { color: var(--warn-fg); }
+.stock-out  { color: var(--danger-fg); }
+
+/* --------------------------------------------------- discover section
+   The reference's centred label over a full-width rule. */
+.discover-head {
+  text-align: center; padding: 14px 0 12px;
+  border-bottom: 3px solid var(--action); margin-bottom: 18px;
+}
+.discover-head h2 {
+  font: 700 19px/1.2 'Inter', system-ui, sans-serif;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--action);
+}
 
 /* ------------------------------------------------------------ cart page */
 .cart-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
@@ -216,18 +518,68 @@ body.shop { background: #fff; }
 }
 
 /* ----------------------------------------------------------- responsive */
+@media (max-width: 1100px) {
+  .cat-grid { grid-template-columns: repeat(6, 1fr); }
+}
 @media (max-width: 900px) {
   .cart-grid { grid-template-columns: 1fr; }
+  /* The side panels stop being a side once the rotator is this narrow. */
+  .banner-rail { grid-template-columns: 1fr; }
+  .banner-side { grid-template-rows: none; grid-template-columns: 1fr 1fr; }
+  /* A 3.4:1 band is ~100px tall at phone width — not enough for a headline
+     and a line of copy. Below the two-column breakpoint the ratio is
+     dropped and the height fixed instead. The slides are position:absolute
+     so they contribute no height of their own; this value is the height. */
+  .banner-main { aspect-ratio: auto; min-height: 250px; }
 }
 @media (max-width: 760px) {
   .shop-wrap { padding: 0 16px; }
-  .shop-nav { flex-wrap: wrap; gap: 12px; padding: 12px 16px; }
-  .shop-search, .shop-links, .shop-header-actions { display: none; }
-  .hero { padding: 40px 0; }
-  .hero h1 { font-size: 30px; white-space: normal; }
-  .hero p { white-space: normal; }
-  .props { margin-top: 24px; }
-  .pgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+
+  /* Search and cart used to be display:none below this width, which took
+     the two controls a phone shopper needs most off the phone. They stay;
+     the nav links are what folds away, since Home/Products are reachable
+     from the brand mark and the service row. */
+  /* minmax(0, 1fr), not 1fr. A bare 1fr floors at min-content, and the
+     brand name is nowrap — so the track refused to go below the full width
+     of "Gerlyn Variety Store", pushed the cart and account buttons past the
+     right edge, and gave the whole page a horizontal scrollbar. */
+  .shop-nav {
+    display: grid; gap: 10px 12px; padding: 12px 16px 10px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "brand cart user" "search search search";
+  }
+  .shop-brand { grid-area: brand; min-width: 0; }
+  .shop-brand-name { overflow: hidden; text-overflow: ellipsis; }
+  .shop-search { grid-area: search; }
+  .shop-links { display: none; }
+  .shop-header-actions { display: contents; }
+  .shop-header-actions .cart-btn { grid-area: cart; }
+  /* :not(.cart-btn) matters — the cart link carries .btn too, so a bare
+     `> .btn` put the cart and the Log in button in the same grid cell at
+     equal specificity, and the cart painted straight over Log in. */
+  .shop-header-actions .user-menu,
+  .shop-header-actions > .btn:not(.cart-btn) { grid-area: user; }
+  .shop-quick { padding: 0 16px 10px; }
+  .search-box .search-submit { padding: 0 14px; }
+  /* The label would push the badge off a 360px row; the icon carries it. */
+  .cart-btn .cart-label { display: none; }
+
+  .cat-grid { grid-template-columns: repeat(3, 1fr); }
+  .svc-row { grid-template-columns: repeat(4, 1fr); }
+  /* Two-up on a phone rather than the desktop card scaled down: the
+     reference's proportions hold at ~170px, but its 24px price and 20px
+     padding do not, so the type steps down with the track. */
+  .pgrid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 12px; }
+  .pcard { border-radius: 14px; }
+  .pcard .thumb { padding: 12px 12px 6px; }
+  .pcard .thumb img { inset: 12px 12px 6px; width: calc(100% - 24px); height: calc(100% - 18px); }
+  .pcard .body { padding: 10px 13px 14px; }
+  .pcard .name { font-size: 15px; margin-bottom: 8px; }
+  .pcard .price { font-size: 19px; }
+  .pcard .pfoot { padding-top: 12px; gap: 8px; }
+  .pcard .pfoot .btn,
+  .pcard .pfoot .btn-cart { width: 100%; }
+  .banner-side { grid-template-columns: 1fr; }
 
   /* Sticky checkout bar — the running total is always visible. */
   .sticky-checkout {
@@ -301,6 +653,14 @@ body.shop { background: #fff; }
 @media (prefers-reduced-motion: reduce) {
   .toast { transition: opacity .2s ease; transform: none; }
   .toast.is-leaving { transform: none; }
+
+  /* The lift on cards and side panels is decoration; the colour change on
+     the same hover still reports the state. The banner cross-fade is left
+     as a fade but shortened — the rotator's autoplay is switched off in
+     home_extra_js.html under the same query, so this only covers the dots. */
+  .pcard, .banner-card { transition: border-color .15s ease; }
+  .pcard:hover, .banner-card:hover { transform: none; }
+  .banner-slide { transition: opacity .15s ease, visibility .15s ease; }
 }
 
 /* ======================================================================

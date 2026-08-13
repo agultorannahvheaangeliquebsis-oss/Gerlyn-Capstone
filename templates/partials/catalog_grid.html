@@ -1,12 +1,31 @@
+{% comment %}
+Product card. Hierarchy taken from the design reference, top to bottom:
+
+    category → name → stock status → social proof → price + action
+
+Three rows of that reference have no field behind them in this system and
+are therefore not drawn rather than invented:
+
+  · the wishlist heart      — no wishlist model; a button that does nothing
+                              is worse than no button
+  · the ★★★★☆ rating         — no review model. The "N sold" line takes that
+                              slot instead, and it is a real SalesItem sum
+                              (inventory/stats.py), shown only when non-zero
+  · the struck-through price — Product has one price field. A fake "was"
+                              price is a false discount claim, not styling
+
+The four CTA branches below (out of stock / guest / no branch chosen / add)
+are unchanged from before the redesign — only their markup is.
+{% endcomment %}
 {% for row in rows %}
-<div class="pcard">
+<article class="pcard">
   <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{% include "partials/product_thumb.html" with product=row.product %}</a>
   <div class="body">
+    {% if row.product.category %}
+      <span class="pcat">{{ row.product.category.category_name }}</span>
+    {% endif %}
+
     <a class="name" href="{% url 'orders:product_detail' row.product.id %}">{{ row.product.product_name }}</a>
-    <div class="row-between">
-      <span class="price">₱{{ row.product.unit_price|floatformat:2 }}</span>
-      <span class="unit">per {{ row.product.unit_of_measure|lower }}</span>
-    </div>
 
     {# Honest stock signals — never hide a shortage. #}
     {% if row.qty == 0 %}
@@ -17,21 +36,41 @@
       <span class="stock-ok">In stock</span>
     {% endif %}
 
-    {% if row.qty == 0 %}
-      <button class="btn cta" disabled>Out of stock</button>
-    {% elif not request.user.is_authenticated %}
-      <a class="btn btn-primary cta" href="{% url 'accounts:login' %}">Log in to buy</a>
-    {% elif not selected_branch_id %}
-      <a class="btn btn-primary cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
-    {% else %}
-      <form class="cta" method="POST" action="{% url 'orders:add_to_cart' row.product.id %}" data-add-to-cart>
-        {% csrf_token %}
-        <input type="hidden" name="quantity" value="1">
-        <button class="btn btn-primary" type="submit">Add to Cart</button>
-      </form>
+    {% if row.product.units_sold %}
+      <span class="psold">{{ row.product.units_sold }} sold</span>
     {% endif %}
+
+    <div class="pfoot">
+      <span class="price-cluster">
+        <span class="price">₱{{ row.product.unit_price|floatformat:2 }}</span>
+        <span class="unit">per {{ row.product.unit_of_measure|lower }}</span>
+      </span>
+
+      {% if row.qty == 0 %}
+        <button class="btn-cart cta" disabled>Out of stock</button>
+      {% elif not request.user.is_authenticated %}
+        <a class="btn-cart cta" href="{% url 'accounts:login' %}">Log in to buy</a>
+      {% elif not selected_branch_id %}
+        <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
+      {% else %}
+        <form class="cta" method="POST" action="{% url 'orders:add_to_cart' row.product.id %}" data-add-to-cart>
+          {% csrf_token %}
+          <input type="hidden" name="quantity" value="1">
+          {% comment %}
+          The name is in the label so screen-reader users hear which product
+          this adds — every card's button reads "Add to cart" otherwise, and
+          the visible text alone would not distinguish them.
+          {% endcomment %}
+          <button class="btn-cart" type="submit"
+                  aria-label="Add {{ row.product.product_name }} to cart">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+            Add to cart
+          </button>
+        </form>
+      {% endif %}
+    </div>
   </div>
-</div>
+</article>
 {% empty %}
 <div style="grid-column: 1 / -1;">
   <div class="card">

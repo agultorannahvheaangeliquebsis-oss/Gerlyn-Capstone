@@ -68,6 +68,22 @@ def active_nav(request):
     return {"active_page": page} if page else {}
 
 
+def nav_categories(request):
+    """
+    Expose `nav_categories` for the storefront header's quick-link row.
+
+    The row sits in public_base.html, which cart, checkout, product detail and
+    the order pages all extend — none of which were passing categories of their
+    own, so the row would have rendered empty on most of the shop.
+
+    Costs nothing on internal pages: a sliced QuerySet is lazy, and no internal
+    template names this variable, so the query is never executed there.
+    """
+    from inventory.models import ProductCategory
+
+    return {"nav_categories": ProductCategory.objects.all()[:8]}
+
+
 def alerts(request):
     """
     Expose `alert_count` for the sidebar/bottom-nav badge.

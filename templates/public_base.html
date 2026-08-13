@@ -34,7 +34,22 @@ section in storefront.css, which is scoped entirely under that class.
 <div class="shop-announce">
   <div class="shop-wrap row-between">
     <span>{% t "Free delivery within Baliuag on orders over ₱500" %}</span>
-    <span class="row" style="gap:16px;">
+    {% comment %}
+    The auth links this strip used to hold are still commented out below and
+    stay that way — the header's account menu already carries them, and the
+    reference puts store utilities up here, not a second sign-in. Branches
+    and the app install are the two utilities this store actually has.
+    {% endcomment %}
+    <span class="shop-announce-links">
+      <a href="{% url 'orders:select_branch' %}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        {% t "Our Branches" %}
+      </a>
+      <span class="shop-announce-sep" aria-hidden="true"></span>
+      <a href="{% url 'download' %}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        {% t "Get the App" %}
+      </a>
 {% comment "" %}
       {% if request.user.is_authenticated %}
         <a href="{% url 'orders:my_orders' %}">Track Order</a>
@@ -54,7 +69,13 @@ section in storefront.css, which is scoped entirely under that class.
   <div class="shop-wrap shop-nav">
     <a class="shop-brand" href="/">
       <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
-      <span><strong>Gerlyn</strong> <strong style="color:var(--action);">Variety Store</strong></span>
+      {% comment %}
+      "Variety Store" used to carry an inline color:var(--action). The header
+      band is now that exact green, so the second half of the store's own name
+      was painting itself invisible — and an inline style cannot be overridden
+      from the stylesheet, so it has to come off here.
+      {% endcomment %}
+      <span class="shop-brand-name"><strong>Gerlyn</strong> <strong>Variety Store</strong></span>
     </a>
 
     <nav class="shop-links">
@@ -67,20 +88,17 @@ section in storefront.css, which is scoped entirely under that class.
       {% endcomment %}
     </nav>
 
-    <form class="shop-search {% if '/shop/' in request.path %}hidden{% endif %}" method="GET" action="{% url 'orders:catalog' %}" role="search" autocomplete="off">
-  <div class="search-box" style="
-    display: flex;
-    align-items: center;
-    background: #fff;
-    border: 1.5px solid var(--input-line);
-    border-radius: var(--r-pill);
-    padding: 0 6px 0 14px;
-    gap: 8px;
-    flex: 1;
-    min-height: 42px;
-  ">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-400)" stroke-width="2" style="flex:none;">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    {% comment %}
+    The search field no longer hides itself on /shop/. It is the centrepiece
+    of the coloured band now, and blanking it left a hole across half the
+    header on the one page where people search most. The catalog keeps its
+    own live-filtering toolbar underneath — that one filters the grid in
+    place, this one starts a fresh search — so the two are not duplicates.
+    {% endcomment %}
+    <form class="shop-search" method="GET" action="{% url 'orders:catalog' %}" role="search" autocomplete="off">
+      <div class="search-box">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
         <input
           type="search" name="q" id="live-search-input"
@@ -88,17 +106,23 @@ section in storefront.css, which is scoped entirely under that class.
           value="{{ search_query|default:'' }}"
           data-suggest-url="{% url 'orders:search_suggestions' %}"
           role="combobox" aria-expanded="false" aria-controls="live-search-results" aria-autocomplete="list"
-          style="border:none; background:transparent; outline:none; flex:1; font:400 15px/1 system-ui,sans-serif; color:var(--ink-900); min-width:0; padding:0;"
+          aria-label="{% t 'Search products' %}"
         >
         <div class="search-dropdown" id="live-search-results" role="listbox" hidden></div>
-        <button class="btn btn-primary" type="submit" style="border-radius:var(--r-pill); min-height:34px; padding:0 18px; font-size:14px;">{% t "Search" %}</button>
+        <button class="btn btn-primary search-submit" type="submit">{% t "Search" %}</button>
       </div>
     </form>
 
     <div class="row shop-header-actions" style="gap:10px; margin-left:auto;">
-      <a class="cart-btn btn btn-primary" href="{% url 'orders:cart' %}">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-        {% t "Cart" %}
+      {% comment %}
+      aria-label rather than the visible text alone: the label span is
+      display:none under 760px, and the SVG beside it is decorative, which
+      would leave the link with no accessible name at all on a phone.
+      {% endcomment %}
+      <a class="cart-btn btn btn-primary" href="{% url 'orders:cart' %}"
+         aria-label="{% t 'Cart' %}{% if cart_count %} ({{ cart_count }}){% endif %}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+        <span class="cart-label">{% t "Cart" %}</span>
         {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
       </a>
       {% if request.user.is_authenticated %}
@@ -140,6 +164,20 @@ section in storefront.css, which is scoped entirely under that class.
       {% endif %}
     </div>
   </div>
+
+  {% comment %}
+  Quick keywords under the search field. The reference fills this row with
+  trending search terms; this store has no search-log to rank, so it carries
+  the real category list instead — same shape, and every link lands on a
+  filtered catalog that actually has stock behind it.
+  {% endcomment %}
+  {% if nav_categories %}
+  <nav class="shop-quick" aria-label="{% t 'Shop by category' %}">
+    {% for c in nav_categories %}
+      <a href="{% url 'orders:catalog' %}?category={{ c.id }}">{{ c.category_name }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
 </header>
 
 <!-- toasts: Django messages plus any raised live by toast.js (e.g. Add to Cart) -->
@@ -171,24 +209,27 @@ section in storefront.css, which is scoped entirely under that class.
 </footer>
 
 <style>
+/* The trigger sits on the green header band now, so its border, text and
+   avatar all invert. The dropdown panel below it stays on white and keeps
+   the original ink colours. */
 .user-menu { position: relative; }
 .user-menu-trigger {
   display: flex; align-items: center; gap: 8px;
-  background: none; border: 1.5px solid var(--line);
+  background: none; border: 1.5px solid rgba(255,255,255,.55);
   border-radius: var(--r-pill); padding: 4px 10px 4px 4px;
-  cursor: pointer; font: 600 14px/1 system-ui, sans-serif;
-  color: var(--ink-900); min-height: 40px;
+  cursor: pointer; font: 600 14px/1 'Inter', system-ui, sans-serif;
+  color: #fff; min-height: 44px;
   transition: background .12s ease, border-color .12s ease;
 }
-.user-menu-trigger:hover { background: var(--line-soft); border-color: var(--input-line); }
+.user-menu-trigger:hover { background: rgba(255,255,255,.14); border-color: #fff; }
 .user-avatar {
   width: 30px; height: 30px; border-radius: 50%;
-  background: var(--action); color: #fff;
+  background: #fff; color: var(--action-700);
   display: flex; align-items: center; justify-content: center;
-  font: 700 13px/1 system-ui, sans-serif; flex: none;
+  font: 700 13px/1 'Inter', system-ui, sans-serif; flex: none;
 }
 .user-menu-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-menu-caret { color: var(--ink-400); transition: transform .18s ease; flex: none; }
+.user-menu-caret { color: rgba(255,255,255,.85); transition: transform .18s ease; flex: none; }
 .user-menu-trigger[aria-expanded="true"] .user-menu-caret { transform: rotate(180deg); }
 .user-menu-panel {
   display: none; position: absolute; top: calc(100% + 8px); right: 0;

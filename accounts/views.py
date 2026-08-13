@@ -365,10 +365,26 @@ def home_view(request):
     if request.user.is_authenticated and request.user.role in INTERNAL_ROLES:
         return redirect_by_role(request.user)
 
-    products = Product.objects.prefetch_related('images')[:8]
+    from inventory.stats import attach_storefront_counts, best_sellers
+
+    # 12, not 8: the discover grid runs four across on a desktop, and eight
+    # left the second row half-empty.
+    products = attach_storefront_counts(
+        list(
+            Product.objects.select_related('category')
+            .prefetch_related('images')[:12]
+        )
+    )
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()
-    return render(request, 'home.html', {'products': products, 'branches': branches, 'categories': categories})
+    return render(request, 'home.html', {
+        'products': products,
+        'branches': branches,
+        'categories': categories,
+        # Empty on a store with no sales yet — the rail hides itself rather
+        # than showing a "top products" list nobody has bought.
+        'best_sellers': best_sellers(limit=8),
+    })
 
 def register_view(request):
     if request.user.is_authenticated:

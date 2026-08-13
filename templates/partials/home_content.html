@@ -1,95 +1,210 @@
 {% load shop_extras %}
+{% comment %}
+Marketplace home: banner rail → service shortcuts → categories → best
+sellers → discover grid. That is the reference's running order.
 
-<!-- ============================ HERO ============================
-     One clean headline layer — no stacked/ghosted text. -->
-<section class="hero">
-  <div class="shop-wrap">
-    <span class="eyebrow">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-      Fresh stocks daily · Baliuag, Bulacan
-    </span>
-    <h1>Groceries delivered to your door</h1>
-    <p>
-      Shop everyday essentials from Gerlyn Variety Store. Cash on delivery across
-      Baliuag, or pick up at your nearest branch.
-    </p>
-    <div class="row wrap">
-      <a class="btn btn-hero" href="{% url 'orders:catalog' %}">Shop Now &rarr;</a>
-      {% if not request.user.is_authenticated %}
-        <a class="btn btn-hero-ghost" href="{% url 'accounts:register' %}">Create Account</a>
-      {% endif %}
-    </div>
-  </div>
-</section>
+What the reference carries here that this store does not have, and so is
+not drawn: coin/rewards tiles, flash-deal countdowns, a brand-mall strip,
+and percentage-off flags. There is no promotions model, no seller model
+and no compare-at price in this system. The banner slides below carry the
+store's real terms instead, and each one links somewhere that exists.
+{% endcomment %}
 
-<!-- ========================= VALUE PROPS ========================= -->
+<!-- =========================== BANNER RAIL =========================== -->
 <div class="shop-wrap">
-  <div class="props">
-    <div class="prop">
-      <span class="ic">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
-      </span>
-      <span>
-        <span class="t">Free delivery within Baliuag</span><br>
-        <span class="s">On orders over ₱500</span>
-      </span>
+  <div class="banner-rail">
+
+    <div class="banner-main" id="banner-rotator">
+      <a class="banner-slide banner-slide--a is-active" href="{% url 'orders:catalog' %}" data-slide>
+        <span class="eyebrow">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+          Free delivery
+        </span>
+        <h2>Groceries to your door</h2>
+        <p>Free delivery anywhere in Baliuag on orders over ₱500.</p>
+        <span class="banner-cue">Start shopping →</span>
+      </a>
+
+      <a class="banner-slide banner-slide--b" href="{% url 'orders:select_branch' %}" data-slide>
+        <span class="eyebrow">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
+          Three branches
+        </span>
+        <h2>Pick up near you</h2>
+        <p>Tarcan, Makinabang and Tiaong. Choose a branch to see what is on its shelves right now.</p>
+        <span class="banner-cue">Choose a branch →</span>
+      </a>
+
+      <a class="banner-slide banner-slide--c" href="{% url 'orders:catalog' %}" data-slide>
+        <span class="eyebrow">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
+          Cash on delivery
+        </span>
+        <h2>Pay when it arrives</h2>
+        <p>No card needed. Settle in cash at your door or at the counter.</p>
+        <span class="banner-cue">Browse products →</span>
+      </a>
+
+      {# Tabs, not decoration: each one moves the rotator, so each is a button. #}
+      <div class="banner-dots" role="tablist" aria-label="Store highlights">
+        <button class="banner-dot" type="button" role="tab" aria-selected="true"  aria-label="Free delivery"   data-dot></button>
+        <button class="banner-dot" type="button" role="tab" aria-selected="false" aria-label="Three branches"  data-dot></button>
+        <button class="banner-dot" type="button" role="tab" aria-selected="false" aria-label="Cash on delivery" data-dot></button>
+      </div>
     </div>
-    <div class="prop">
-      <span class="ic">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-      </span>
-      <span>
-        <span class="t">Wholesale prices available</span><br>
-        <span class="s">Bulk orders welcome</span>
-      </span>
+
+    <div class="banner-side">
+      <a class="banner-card" href="{% url 'orders:catalog' %}">
+        <span class="bc-ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+        </span>
+        <span class="bc-t">Wholesale prices</span>
+        <span class="bc-s">Bulk orders welcome — buy by the sack, box or case.</span>
+      </a>
+      <a class="banner-card" href="{% url 'download' %}">
+        <span class="bc-ic">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><line x1="10.5" y1="18.5" x2="13.5" y2="18.5"/></svg>
+        </span>
+        <span class="bc-t">Install the app</span>
+        <span class="bc-s">Order from your phone, even on a slow connection.</span>
+      </a>
     </div>
-    <div class="prop">
-      <span class="ic">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
-      </span>
-      <span>
-        <span class="t">3 branches near you</span><br>
-        <span class="s">Tarcan · Makinabang · Tiaong</span>
-      </span>
-    </div>
+
   </div>
 </div>
 
-<!-- ========================== CATEGORIES ========================== -->
-<section class="shop-wrap section">
-  <div class="section-head">
-    <h2>Shop by Category</h2>
-    <a href="{% url 'orders:catalog' %}">All categories &rarr;</a>
-  </div>
-  <div class="cats">
-    {% for c in categories %}
-    <a class="cat" href="{% url 'orders:catalog' %}?category={{ c.id }}">
-      <span class="ring">{{ c.category_name|category_emoji }}</span>
-      <span class="nm">{{ c.category_name }}</span>
+<!-- ========================== SERVICE ROW ==========================
+     The reference's ring of shortcut tiles. Every tile here is a route
+     that exists in urls.py — no placeholder tiles for features the store
+     does not run. -->
+<div class="shop-wrap">
+  <nav class="svc-row" aria-label="Store shortcuts">
+    <a class="svc" href="{% url 'orders:catalog' %}">
+      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
+      <span class="svc-nm">All Products</span>
     </a>
-    {% endfor %}
+    <a class="svc" href="{% url 'orders:select_branch' %}">
+      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+      <span class="svc-nm">Branches</span>
+    </a>
+    <a class="svc" href="{% url 'orders:cart' %}">
+      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg></span>
+      <span class="svc-nm">My Cart</span>
+    </a>
+    {% comment %}
+    A guest has no orders to track, so the link goes to sign-in with a
+    ?next — the same rule the announcement strip's commented-out block used.
+    {% endcomment %}
+    <a class="svc" href="{% if request.user.is_authenticated %}{% url 'orders:my_orders' %}{% else %}{% url 'accounts:login' %}?next={% url 'orders:my_orders' %}{% endif %}">
+      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 11h8M8 15h5"/></svg></span>
+      <span class="svc-nm">Track Order</span>
+    </a>
+    <a class="svc" href="{% url 'download' %}">
+      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+      <span class="svc-nm">Get the App</span>
+    </a>
+    <a class="svc" href="{% url 'accounts:profile' %}">
+      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>
+      <span class="svc-nm">My Account</span>
+    </a>
+  </nav>
+</div>
+
+<!-- =========================== CATEGORIES =========================== -->
+{% if categories %}
+<section class="shop-wrap section">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Categories</h2>
+      <a class="panel-more" href="{% url 'orders:catalog' %}">
+        See All
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </a>
+    </div>
+    {% comment %}
+    The glyph stays an emoji rather than becoming an SVG like the shortcut
+    tiles above: categories are rows the owner creates in the admin, so
+    there is no fixed set to draw icons for. category_emoji falls back to
+    📦 for any name it does not recognise, which an icon set cannot do.
+    {% endcomment %}
+    <div class="cat-grid">
+      {% for c in categories %}
+      <a class="cat" href="{% url 'orders:catalog' %}?category={{ c.id }}">
+        <span class="ring" aria-hidden="true">{{ c.category_name|category_emoji }}</span>
+        <span class="nm">{{ c.category_name }}</span>
+      </a>
+      {% endfor %}
+    </div>
   </div>
 </section>
+{% endif %}
 
-<!-- ======================= POPULAR PRODUCTS ======================= -->
+<!-- ========================== TOP PRODUCTS ==========================
+     Ranked by units actually sold. Hidden entirely when nothing has sold
+     yet — a "top products" rail on a store with no sales is a fiction. -->
+{% if best_sellers %}
 <section class="shop-wrap section">
-  <div class="section-head">
-    <h2>Popular Products</h2>
-    <a href="{% url 'orders:catalog' %}">View all &rarr;</a>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Top Products</h2>
+      <a class="panel-more" href="{% url 'orders:catalog' %}">
+        See All
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </a>
+    </div>
+    <div class="top-rail">
+      {% for p in best_sellers %}
+      <a class="top-item" href="{% url 'orders:product_detail' p.id %}">
+        <span class="top-media">
+          <span class="top-rank" aria-hidden="true">TOP</span>
+          {% include "partials/product_thumb.html" with product=p %}
+        </span>
+        <span class="top-sold">{{ p.units_sold }} sold</span>
+        <span class="top-nm">{{ p.product_name }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<!-- ========================= DISCOVER GRID ========================= -->
+<section class="shop-wrap section">
+  <div class="discover-head">
+    <h2>More to Discover</h2>
   </div>
   <div class="pgrid">
     {% for p in products %}
-    <div class="pcard">
+    <article class="pcard">
       <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{% include "partials/product_thumb.html" with product=p %}</a>
       <div class="body">
+        {% if p.category %}<span class="pcat">{{ p.category.category_name }}</span>{% endif %}
         <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
-        <div class="row-between">
-          <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
-          <span class="unit">per {{ p.unit_of_measure|lower }}</span>
+
+        {% comment %}
+        Stock across all branches, since the home page is not branch-scoped.
+        Same thresholds as the catalog card so the two never disagree about
+        what "low" means; the catalog narrows it once a branch is picked.
+        {% endcomment %}
+        {% if p.on_hand == 0 %}
+          <span class="stock-out">Out of stock</span>
+        {% elif p.on_hand <= 10 %}
+          <span class="stock-low">Only {{ p.on_hand }} left</span>
+        {% else %}
+          <span class="stock-ok">In stock</span>
+        {% endif %}
+
+        {% if p.units_sold %}<span class="psold">{{ p.units_sold }} sold</span>{% endif %}
+
+        <div class="pfoot">
+          <span class="price-cluster">
+            <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
+            <span class="unit">per {{ p.unit_of_measure|lower }}</span>
+          </span>
+          <a class="btn-cart cta" href="{% url 'orders:product_detail' p.id %}">View</a>
         </div>
-        <a class="btn btn-primary cta" href="{% url 'orders:product_detail' p.id %}">View product</a>
       </div>
-    </div>
+    </article>
     {% empty %}
     <div style="grid-column: 1 / -1;">
       <div class="card"><div class="empty">
@@ -100,4 +215,10 @@
     </div>
     {% endfor %}
   </div>
+
+  {% if products %}
+  <div class="row" style="justify-content:center; margin-top:24px;">
+    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">See all products →</a>
+  </div>
+  {% endif %}
 </section>

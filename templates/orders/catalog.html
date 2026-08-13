@@ -7,7 +7,7 @@
 
   <div class="section-head">
     <div>
-      <h2>Products</h2>
+      <h2>{% if search_query %}Results for “{{ search_query }}”{% else %}All Products{% endif %}</h2>
       <p class="gv-meta mb-0" id="result-summary">{% include "partials/catalog_result_summary.html" %}</p>
     </div>
   </div>
