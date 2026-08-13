@@ -2,8 +2,16 @@
 {% load shop_extras %}
 {% block title %}Your Cart — Gerlyn Variety Store{% endblock %}
 
+{% comment %}
+has-sticky moves to the BODY. The fixed checkout bar covers the bottom of
+the viewport, which is the footer once the page is scrolled all the way
+down — not just the end of this content block — so the space it needs has
+to be reserved past the footer, not inside the cart.
+{% endcomment %}
+{% block body_class %}shop{% if items %} has-sticky{% endif %}{% endblock %}
+
 {% block content %}
-<div class="shop-wrap section {% if items %}has-sticky{% endif %}">
+<div class="shop-wrap section">
   <div class="section-head">
     <div>
       <h2>Your Cart</h2>

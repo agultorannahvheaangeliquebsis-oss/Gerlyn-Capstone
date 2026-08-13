@@ -7,7 +7,8 @@
 
   <div class="section-head">
     <div>
-      <h2>{% if search_query %}Results for “{{ search_query }}”{% else %}All Products{% endif %}</h2>
+      {# h1, not h2: this is the page's own title, and the page had no h1 at all. #}
+      <h1>{% if search_query %}Results for “{{ search_query }}”{% else %}All Products{% endif %}</h1>
       <p class="gv-meta mb-0" id="result-summary">{% include "partials/catalog_result_summary.html" %}</p>
     </div>
   </div>

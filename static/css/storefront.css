@@ -290,6 +290,9 @@ body.shop {
 /* ------------------------------------------------------------ sections */
 .section { padding: 26px 0; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
+/* h1 as well as h2 — the catalog's title is the page's h1, and the two
+   must look identical wherever a .section-head is used. */
+.section-head h1,
 .section-head h2 { font: 700 22px/1.2 'Inter', system-ui, sans-serif; }
 
 /* Panel-style section — white card with a ruled header, as the reference
@@ -553,11 +556,44 @@ body.shop {
 }
 
 /* ----------------------------------------------------------- responsive */
+
+/* iOS SAFARI ZOOM-ON-FOCUS.
+   Safari zooms the whole page in when a text field with a font smaller than
+   16px takes focus, and it does not zoom back out afterwards — the shopper
+   is left magnified and scrolled sideways, and has to pinch back manually.
+   gerlyn.css sets 15px on every input, select and textarea, and the header
+   search box repeats it, so on a phone this fired on the search field of
+   EVERY page in the shop and on every checkout and register field.
+
+   16px is the threshold, and it is applied only under pointer: coarse, so
+   the desktop field sizing is untouched. Radio and checkbox inputs are
+   exempt in practice (Safari only zooms for text entry) but are cheap to
+   include and keep the rule simple.
+
+   NOTE: the same 15px comes from gerlyn.css, so internal/staff pages still
+   have this on a phone. Not changed here — that file is shared, and this
+   pass was scoped to the customer-facing shop. */
+/* Both conditions, not just pointer: a phone in "request desktop site" mode,
+   or any browser that reports a fine pointer despite a phone-sized viewport,
+   would otherwise miss the rule and zoom anyway. A touchscreen laptop
+   picking it up costs nothing — 16px inputs are fine on a desktop too. */
+@media (pointer: coarse), (max-width: 760px) {
+  body.shop input,
+  body.shop select,
+  body.shop textarea,
+  body.shop .input,
+  .search-box input { font-size: 16px; }
+}
+
 @media (max-width: 1100px) {
   .cat-grid { grid-template-columns: repeat(6, 1fr); }
 }
 @media (max-width: 900px) {
-  .cart-grid { grid-template-columns: 1fr; }
+  /* minmax(0, 1fr) again, same trap as .shop-nav: a bare 1fr floors at the
+     track's min-content, and the cart card's widest unbreakable row pushed
+     it 3px past a 320px screen. Explicitly allowing the track to shrink
+     below min-content is what stops the blowout. */
+  .cart-grid { grid-template-columns: minmax(0, 1fr); }
   /* The side panels stop being a side once the rotator is this narrow. */
   .banner-rail { grid-template-columns: 1fr; }
   .banner-side { grid-template-rows: none; grid-template-columns: 1fr 1fr; }
@@ -601,6 +637,11 @@ body.shop {
 
   .cat-grid { grid-template-columns: repeat(3, 1fr); }
   .svc-row { grid-template-columns: repeat(4, 1fr); }
+  /* Trim the sticky band. It holds the top 151px of an 844px phone screen
+     at all times, and on the cart the fixed checkout bar takes another 69 —
+     a quarter of the display gone before any content. */
+  .shop-nav { padding: 10px 16px 8px; }
+  .shop-quick { padding-bottom: 8px; }
   /* Two-up on a phone rather than the desktop card scaled down: the
      reference's proportions hold at ~170px, but its 24px price and 20px
      padding do not, so the type steps down with the track. */
@@ -625,7 +666,14 @@ body.shop {
     box-shadow: 0 -2px 10px rgba(23,37,30,.08);
   }
   .sticky-checkout .btn { flex: 1; }
-  .shop-main.has-sticky { padding-bottom: 88px; }
+  /* The spacer the fixed checkout bar needs. This was written as
+     `.shop-main.has-sticky`, but cart.html put the class on an inner
+     .shop-wrap — so the selector matched nothing and the 69px bar sat
+     directly on top of Place Order and Continue shopping, on the one screen
+     where that matters most. The class is on <body> now, so the reserved
+     space lands past the footer too, which is what the bar actually covers
+     once the page is scrolled to the end. */
+  body.has-sticky { padding-bottom: 88px; }
 }
 @media (min-width: 761px) {
   .sticky-checkout { display: none; }
@@ -887,6 +935,13 @@ body.shop-auth {
 }
 
 @media (max-width: 480px) {
+  /* "Gerlyn Variety Store" does not fit beside the cart and the account
+     menu at this width — it was ellipsing to "Gerlyn Vari…", which reads as
+     a broken layout rather than an abbreviation. Dropping the second half
+     outright is cleaner, and the logo's alt text still carries the full
+     name for anyone not reading it visually. */
+  .shop-brand-name strong + strong { display: none; }
+
   .shop-auth .shop-main { padding: 68px var(--s3) var(--s6); }
   .auth-card { padding: var(--s6) var(--s4) var(--s4); border-radius: 16px; }
   .auth-brand { top: 16px; left: 16px; font-size: 16px; }

@@ -10,7 +10,17 @@
   <link rel="apple-touch-icon" href="{% static 'img/icons/apple-touch-icon-180.png' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+  {% comment %}
+  A weight RANGE, not four cuts. body.shop puts Inter on the whole
+  storefront, which means every gerlyn.css component renders in it too —
+  and that file asks for 650 seven times (h1, h2, .gv-page-title and .btn
+  among them), 500 twice and 750 once. None of those were in the
+  400;600;700;800 list, so the browser was synthesising them, most visibly
+  on .btn, which appears on every page of the shop. Inter is a variable
+  font on Google Fonts, so 400..800 covers all of them in one file rather
+  than costing a request per cut.
+  {% endcomment %}
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap">
   {% comment %}
   The APP_VERSION query string rather than a number typed here: gerlyn.css is
   linked from four templates and account.css from ten, and the hand-typed

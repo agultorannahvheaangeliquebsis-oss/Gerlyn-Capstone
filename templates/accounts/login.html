@@ -97,7 +97,9 @@ CTA — is all here.
 
     {% if error %}<p class="field-error" id="login-error" role="alert">{{ error }}</p>{% endif %}
 
-    <button type="submit" class="btn btn-primary auth-submit">Sign In</button>
+    <button type="submit" class="btn btn-primary auth-submit" id="login-submit">
+      <span data-submit-label>Sign In</span>
+    </button>
   </form>
 
   <p class="auth-alt">
@@ -131,6 +133,44 @@ CTA — is all here.
     var v = input.value;
     input.focus();
     input.setSelectionRange(v.length, v.length);
+  });
+})();
+
+/* Submit feedback.
+
+   Signing in is a full page POST against a remote database, so there is a
+   real gap between the click and anything changing on screen — long enough
+   that people press the button again, which is a second authentication
+   round trip for a form that is already in flight.
+
+   Progressive enhancement: with no JS the button is an ordinary submit and
+   the form still works exactly as before. */
+(function () {
+  var form = document.querySelector('.auth-card form');
+  var btn = document.getElementById('login-submit');
+  if (!form || !btn) return;
+  var label = btn.querySelector('[data-submit-label]');
+
+  form.addEventListener('submit', function () {
+    /* Let the browser's own required-field check fail first — otherwise an
+       empty username disables the button on a submit that never leaves. */
+    if (!form.checkValidity()) return;
+
+    btn.disabled = true;
+    /* aria-busy, and the label really changes, so a screen reader is told
+       the state rather than being left on a button that stopped responding. */
+    btn.setAttribute('aria-busy', 'true');
+    if (label) label.textContent = 'Signing in…';
+  });
+
+  /* Coming back via the Back button can restore this page from the bfcache
+     with the DOM exactly as it was left — button disabled, label stuck on
+     "Signing in…" and no way to try again. Reset on restore. */
+  window.addEventListener('pageshow', function (e) {
+    if (!e.persisted) return;
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    if (label) label.textContent = 'Sign In';
   });
 })();
 </script>
