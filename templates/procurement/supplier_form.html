@@ -58,6 +58,17 @@
                 placeholder="Laguna Technical Park, Biñan">{{ profile.address|default:'' }}</textarea>
     </div>
 
+    <div class="field">
+      <label for="branch">Branch</label>
+      <select id="branch" name="branch">
+        <option value="">All branches</option>
+        {% for b in branches %}
+          <option value="{{ b.id }}" {% if profile.branch_id == b.id %}selected{% endif %}>{{ b.branch_name }}</option>
+        {% endfor %}
+      </select>
+      <p class="gv-meta" style="margin:4px 0 0;">Left as "All branches", this supplier appears in every branch's Purchase Order form. Assign one branch to limit it to just that branch.</p>
+    </div>
+
     <div class="row mt-2">
       <button type="submit" class="btn btn-primary">Save Supplier</button>
       <a href="{% url 'supplier_list' %}" class="btn">Cancel</a>

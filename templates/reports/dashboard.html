@@ -270,9 +270,9 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
   <div class="card-pad row-between wrap" style="border-bottom:1px solid var(--line);">
     <div>
       <h3>Restock Suggestions</h3>
-      <p class="gv-meta mb-0">{{ low_stock_count }} item{{ low_stock_count|pluralize }} at or below reorder level</p>
+      <p class="gv-meta mb-0">{{ low_stock_count }} floor stock item{{ low_stock_count|pluralize }} at or below reorder level</p>
     </div>
-    <a class="btn btn-primary" href="{% url 'procurement_add' %}">Create Purchase Order</a>
+    <a class="btn btn-primary" href="{% url 'transfer_create' %}">Create Stock Adjustment</a>
   </div>
   <div class="table-wrap">
     <table class="gv-table">

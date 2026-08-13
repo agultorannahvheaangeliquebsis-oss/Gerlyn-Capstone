@@ -10,7 +10,9 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 
-from core.scoping import scope_queryset, user_can_access_branch
+from django.db.models import Q
+
+from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, SUPPLIER, role_required
 
 from rest_framework import status
@@ -24,7 +26,7 @@ from .serializers import (
     ProcurementWriteSerializer,
     ProcurementStatusSerializer,
 )
-from inventory.models import Product, Inventory, StockMovement
+from inventory.models import Product, StockMovement, Warehouse, WarehouseStock
 from accounts.models import User
 
 
@@ -103,11 +105,23 @@ def procurement_add(request):
         messages.error(request, 'You do not have permission to create procurement orders.')
         return redirect('procurement_list')
 
-    products  = Product.objects.all()
-    suppliers = User.objects.filter(role=User.Role.SUPPLIER)
+    products = Product.objects.all()
 
     from branches.models import Branch
-    branches = Branch.objects.all()
+    user_branch = branch_for_user(request.user)  # None for Owner; the manager's branch otherwise
+
+    if user_branch:
+        # Pinned to one branch: only suppliers assigned to it (or unassigned,
+        # i.e. available to every branch) belong in this dropdown — a
+        # Branch Manager creating a PO for their branch should never see,
+        # or be able to pick, a supplier scoped to a different one.
+        branches = Branch.objects.filter(pk=user_branch.pk)
+        suppliers = User.objects.filter(role=User.Role.SUPPLIER).filter(
+            Q(supplier_profile__branch=user_branch) | Q(supplier_profile__branch__isnull=True)
+        )
+    else:
+        branches = Branch.objects.all()
+        suppliers = User.objects.filter(role=User.Role.SUPPLIER)
 
     if request.method == 'POST':
         if request.user.role == User.Role.BRANCH_MANAGER:
@@ -163,6 +177,7 @@ def procurement_add(request):
         'products': products,
         'suppliers': suppliers,
         'branches': branches,
+        'user_branch': user_branch,
     })
 
 
@@ -243,6 +258,20 @@ def delivery_receive(request, pk):
     items = proc.items.select_related('product').all()
 
     if request.method == 'POST':
+        # A received delivery stocks the WAREHOUSE, not the branch floor —
+        # Inventory (floor stock) only increases via an approved, released
+        # withdrawal slip (see transfer_approve). This is what the
+        # Inventory model's own docstring already documents; delivery_receive
+        # previously credited floor stock directly, silently orphaning the
+        # Warehouse -> StockTransfer -> Floor pipeline.
+        warehouse = Warehouse.objects.filter(branch=proc.branch).first()
+        if not warehouse:
+            messages.error(
+                request,
+                f'No warehouse is configured for {proc.branch.branch_name} — cannot receive stock.'
+            )
+            return redirect('delivery_list')
+
         received_map = request.POST.getlist('quantity_received')
         item_ids = request.POST.getlist('item_id')
 
@@ -261,22 +290,22 @@ def delivery_receive(request, pk):
                 if qty_received <= 0:
                     continue
 
-                inv, _ = Inventory.objects.get_or_create(
-                    product=item.product, branch=proc.branch,
+                ws, _ = WarehouseStock.objects.get_or_create(
+                    product=item.product, warehouse=warehouse,
                     defaults={'quantity_on_hand': 0, 'reorder_level': 0},
                 )
-                before = inv.quantity_on_hand
-                inv.quantity_on_hand += qty_received
-                inv.save()
+                before = ws.quantity_on_hand
+                ws.quantity_on_hand += qty_received
+                ws.save()
 
                 # Audit trail — every stock change is attributable.
                 StockMovement.objects.create(
-                    inventory=inv,
-                    location_type=StockMovement.LocationType.FLOOR,
+                    warehouse_stock=ws,
+                    location_type=StockMovement.LocationType.WAREHOUSE,
                     movement_type=StockMovement.MovementType.PROCUREMENT_RECEIVED,
                     quantity_change=qty_received,
                     quantity_before=before,
-                    quantity_after=inv.quantity_on_hand,
+                    quantity_after=ws.quantity_on_hand,
                     reference_id=proc.pk,
                     notes=f'Delivery for {proc.po_number}',
                     created_by=request.user,
@@ -296,7 +325,11 @@ def delivery_receive(request, pk):
                 f'delivered quantities differ from what was ordered.'
             )
         else:
-            messages.success(request, f'{proc.po_number} received in full. Stock updated.')
+            messages.success(
+                request,
+                f'{proc.po_number} received in full. Warehouse stock updated — '
+                f'create a Withdrawal Slip to move it onto the floor.'
+            )
         return redirect('procurement_detail', pk=pk)
 
     return render(request, 'procurement/delivery_receive.html', {
@@ -469,14 +502,17 @@ def supplier_form(request, pk=None):
             profile.contact_number = request.POST.get('contact_number', '')
             profile.supplier_category = request.POST.get('supplier_category', '')
             profile.address = request.POST.get('address', '')
+            profile.branch_id = request.POST.get('branch') or None
             profile.save()
 
         messages.success(request, f'Supplier "{name}" saved.')
         return redirect('supplier_list')
 
+    from branches.models import Branch
     return render(request, 'procurement/supplier_form.html', {
         'supplier': supplier,
         'profile': profile,
+        'branches': Branch.objects.all(),
     })
 
 

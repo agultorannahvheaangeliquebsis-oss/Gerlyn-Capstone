@@ -1,6 +1,6 @@
 {% extends "internal_base.html" %}
 {% load static %}
-{% block title %}Stock per Branch{% endblock %}
+{% block title %}Floor Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
@@ -54,8 +54,8 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Stock per Branch</h1>
-    <p class="gv-meta mb-0">Real-time inventory levels{% if user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
+    <h1>Floor Stock</h1>
+    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
   </div>
   {% if can_adjust %}
   <button type="button" class="btn btn-primary" id="open-adjust-modal">
@@ -118,6 +118,7 @@
         <th>Nearest Expiry</th>
         <th>Last Updated</th>
         <th>Status</th>
+        <th style="text-align:right;">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -135,10 +136,16 @@
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
+        <td data-label="Actions">
+          <button type="button" class="btn btn-sm btn-quiet" style="color:var(--action);"
+                  onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }}, '{{ row.inv.expiry_date|date:"Y-m-d"|default:"" }}')">
+            Edit
+          </button>
+        </td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="8">
+        <td colspan="9">
           <div class="empty">
             <span class="glyph">□</span>
             <h3>No stock records match</h3>
@@ -149,7 +156,7 @@
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="inventory-no-matches" hidden>
-        <td colspan="8">
+        <td colspan="9">
           <div class="empty">
             <span class="glyph">□</span>
             <h3>No stock records match</h3>
@@ -241,6 +248,51 @@
   </div>
 </div>
 {% endif %}
+
+<div class="modal-overlay" id="edit-inventory-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-inventory-title" style="max-width:420px;">
+    <div class="modal-head">
+      <h2 id="edit-inventory-title">Edit Inventory</h2>
+      <button type="button" class="modal-close" id="close-edit-inventory-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" id="edit-inventory-form" class="modal-body">
+      {% csrf_token %}
+      <div class="field">
+        <label>Product</label>
+        <div class="row"><span class="pill pill-info" id="edit-inventory-product"></span></div>
+      </div>
+      <div class="field">
+        <label>Branch</label>
+        <div class="row"><span class="pill pill-neutral" id="edit-inventory-branch"></span></div>
+      </div>
+      <div class="field">
+        <label for="edit-inventory-reorder">Reorder Level{% if can_edit_reorder %} <span style="color:var(--danger-dot);">*</span>{% endif %}</label>
+        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0"
+               {% if can_edit_reorder %}required{% else %}disabled{% endif %}>
+        {% if can_edit_reorder %}
+          <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Low Stock.</p>
+        {% else %}
+          <p class="gv-meta" style="margin:4px 0 0;">Only a Branch Manager or the Owner can change this — ask them if it needs adjusting.</p>
+        {% endif %}
+      </div>
+      <div class="field">
+        <label for="edit-inventory-expiry">Nearest Expiry (optional)</label>
+        <input type="date" id="edit-inventory-expiry" name="expiry_date">
+      </div>
+    </form>
+
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-edit-inventory-modal">Cancel</button>
+      <button type="submit" form="edit-inventory-form" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -298,4 +350,38 @@
 })();
 </script>
 {% endif %}
+<script>
+(function () {
+  var modal = document.getElementById('edit-inventory-modal');
+  var closeBtn = document.getElementById('close-edit-inventory-modal');
+  var cancelBtn = document.getElementById('cancel-edit-inventory-modal');
+  var form = document.getElementById('edit-inventory-form');
+  var productEl = document.getElementById('edit-inventory-product');
+  var branchEl = document.getElementById('edit-inventory-branch');
+  var reorderEl = document.getElementById('edit-inventory-reorder');
+  var expiryEl = document.getElementById('edit-inventory-expiry');
+  if (!modal) return;
+
+  function open() { modal.classList.add('is-open'); }
+  function close() { modal.classList.remove('is-open'); }
+
+  var editUrlTemplate = '{% url "inventory_edit" 0 %}';  // pk=0 placeholder, swapped per-row below
+
+  window.openEditInventory = function (pk, productName, branchName, reorderLevel, expiryDate) {
+    form.action = editUrlTemplate.replace('/0/', '/' + pk + '/');
+    productEl.textContent = productName;
+    branchEl.textContent = branchName;
+    reorderEl.value = reorderLevel;
+    expiryEl.value = expiryDate || '';
+    open();
+  };
+
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+  });
+})();
+</script>
 {% endblock %}
