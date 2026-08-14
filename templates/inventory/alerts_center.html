@@ -6,37 +6,61 @@
 <div class="page-head">
   <div>
     <h1>Alerts Center</h1>
-    <p class="gv-meta mb-0">{{ low_count }} low/critical stock · {{ expiring_count }} expiry alerts</p>
+    <p class="gv-meta mb-0">
+      {{ low_count }} low floor stock · {{ warehouse_low_count }} low warehouse stock ·
+      {{ expired_count }} expired · {{ expiring_soon_count }} expiring soon · {{ approaching_expiry_count }} approaching expiry
+    </p>
   </div>
-  <a class="btn btn-primary" href="{% url 'procurement_add' %}">Create Purchase Order</a>
 </div>
 
 <div class="stat-strip mb-6">
   <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
+    <div class="value" style="color:var(--danger-fg);">{{ expired_count }}</div>
+    <div class="label">Expired</div>
+  </div>
+  <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
     <div class="value" style="color:var(--danger-fg);">{{ critical_count }}</div>
-    <div class="label">Critical Stock</div>
+    <div class="label">Floor Critical</div>
   </div>
   <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
     <div class="value" style="color:var(--warn-fg);">{{ low_count }}</div>
-    <div class="label">Low / Critical Stock</div>
+    <div class="label">Low Floor Stock</div>
+  </div>
+  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
+    <div class="value" style="color:var(--warn-fg);">{{ warehouse_low_count }}</div>
+    <div class="label">Low Warehouse Stock</div>
+  </div>
+  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
+    <div class="value" style="color:var(--warn-fg);">{{ expiring_soon_count }}</div>
+    <div class="label">Expiring Soon (30d)</div>
   </div>
   <div class="stat" style="background:var(--info-bg); border-color:var(--info-bg);">
-    <div class="value" style="color:var(--info-fg);">{{ expiring_count }}</div>
-    <div class="label">Expiring within 14 days</div>
+    <div class="value" style="color:var(--info-fg);">{{ approaching_expiry_count }}</div>
+    <div class="label">Approaching Expiry (90d)</div>
   </div>
 </div>
 
 <div class="tabs">
-  <button type="button" class="tab active" id="tab-low" onclick="showTab('low')">
-    Low Stock Alerts <span class="count">{{ low_count }}</span>
+  <button type="button" class="tab active" id="tab-floor" onclick="showTab('floor')">
+    Low Floor Stock <span class="count">{{ low_count }}</span>
   </button>
-  <button type="button" class="tab" id="tab-exp" onclick="showTab('exp')">
-    Expiry Alerts <span class="count">{{ expiring_count }}</span>
+  <button type="button" class="tab" id="tab-warehouse" onclick="showTab('warehouse')">
+    Low Warehouse Stock <span class="count">{{ warehouse_low_count }}</span>
+  </button>
+  <button type="button" class="tab" id="tab-expired" onclick="showTab('expired')">
+    Expired <span class="count">{{ expired_count }}</span>
+  </button>
+  <button type="button" class="tab" id="tab-soon" onclick="showTab('soon')">
+    Expiring Soon <span class="count">{{ expiring_soon_count }}</span>
+  </button>
+  <button type="button" class="tab" id="tab-approaching" onclick="showTab('approaching')">
+    Approaching Expiry <span class="count">{{ approaching_expiry_count }}</span>
   </button>
 </div>
 
-<!-- ---------------------------------------------------------- low stock -->
-<div id="panel-low" class="card table-wrap">
+<!-- ------------------------------------------------------- low FLOOR stock -->
+<div id="panel-floor" class="card table-wrap">
+  <p class="gv-meta" style="padding:12px 16px 0;">Pull stock from the branch's own warehouse to fix these — see <a href="{% url 'transfer_create' %}">New Stock Adjustment</a>.</p>
   <table class="gv-table">
     <thead>
       <tr>
@@ -67,7 +91,7 @@
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}">Create PO</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}">Create Stock Adjustment</a>
           </span>
         </td>
       </tr>
@@ -77,7 +101,7 @@
           <div class="empty">
             <span class="glyph">✓</span>
             <h3>Nothing needs restocking</h3>
-            <p>Every product is above its reorder level.</p>
+            <p>Every branch's floor stock is above its reorder level.</p>
           </div>
         </td>
       </tr>
@@ -86,33 +110,41 @@
   </table>
 </div>
 
-<!-- ------------------------------------------------------------- expiry -->
-<div id="panel-exp" class="card table-wrap hidden">
+<!-- --------------------------------------------------- low WAREHOUSE stock -->
+<div id="panel-warehouse" class="card table-wrap hidden">
+  <p class="gv-meta" style="padding:12px 16px 0;">Order more from the supplier to fix these — see <a href="{% url 'procurement_add' %}">Create Purchase Order</a>.</p>
   <table class="gv-table">
     <thead>
       <tr>
         <th>Product</th>
         <th>Branch</th>
-        <th>Batch</th>
         <th class="num">Qty</th>
-        <th>Expiry</th>
-        <th class="num">Days Left</th>
-        <th>Status</th>
+        <th class="num">Reorder</th>
+        <th class="num">Suggested</th>
+        <th>Risk</th>
+        <th style="text-align:right;">Action</th>
       </tr>
     </thead>
     <tbody>
-      {% for row in expiry %}
+      {% for row in low_warehouse_stock %}
       <tr>
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
         <td data-label="Branch">{{ row.branch.branch_name }}</td>
-        <td data-label="Batch" class="sku">{{ row.batch.batch_number }}</td>
-        <td data-label="Qty" class="num">{{ row.quantity }}</td>
-        <td data-label="Expiry">{{ row.expiry_date|date:"Y-m-d" }}</td>
-        <td data-label="Days Left" class="num">{{ row.days_until_expiry }}</td>
-        <td data-label="Status">
-          {% if row.status == 'Expired' %}<span class="pill pill-danger">Expired</span>
-          {% elif row.status == 'Expiring Soon' %}<span class="pill pill-warn">Expiring Soon</span>
-          {% else %}<span class="pill pill-ok">Fresh</span>{% endif %}
+        <td data-label="Qty" class="num strong"
+            style="color:{% if row.risk == 'Critical' %}var(--danger-fg){% else %}var(--warn-fg){% endif %};">
+          {{ row.quantity_on_hand }}
+        </td>
+        <td data-label="Reorder" class="num gv-meta">{{ row.reorder_level }}</td>
+        <td data-label="Suggested" class="num strong" style="color:var(--ok-fg);">{{ row.suggested_qty }}</td>
+        <td data-label="Risk">
+          {% if row.risk == 'Critical' %}<span class="pill pill-danger">Critical</span>
+          {% elif row.risk == 'High' %}<span class="pill pill-warn">High</span>
+          {% else %}<span class="pill pill-neutral">Moderate</span>{% endif %}
+        </td>
+        <td data-label="Action">
+          <span class="row-actions">
+            <a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}">Create PO</a>
+          </span>
         </td>
       </tr>
       {% empty %}
@@ -120,8 +152,132 @@
         <td colspan="7">
           <div class="empty">
             <span class="glyph">✓</span>
+            <h3>Nothing needs reordering</h3>
+            <p>Every branch's warehouse stock is above its reorder level.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ------------------------------------------------------------- expired -->
+<div id="panel-expired" class="card table-wrap hidden">
+  <p class="gv-meta" style="padding:12px 16px 0;">Already past its expiry date — pull from the shelf/warehouse immediately and write it off via <a href="{% url 'transfer_create' %}">New Stock Adjustment</a>.</p>
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Branch</th>
+        <th>Location</th>
+        <th class="num">Qty</th>
+        <th>Expiry Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in expiry_expired %}
+      <tr>
+        <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
+        <td data-label="Branch">{{ row.branch.branch_name }}</td>
+        <td data-label="Location">
+          {% if row.location == 'Floor' %}<span class="pill pill-neutral">Floor</span>
+          {% else %}<span class="pill pill-info">Warehouse</span>{% endif %}
+        </td>
+        <td data-label="Qty" class="num strong" style="color:var(--danger-fg);">{{ row.quantity_on_hand }}</td>
+        <td data-label="Expiry Date" class="strong" style="color:var(--danger-fg);">{{ row.expiry_date|date:"Y-m-d" }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="5">
+          <div class="empty">
+            <span class="glyph">✓</span>
+            <h3>Nothing expired</h3>
+            <p>No floor or warehouse stock is past its expiry date.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- --------------------------------------------------------- expiring soon -->
+<div id="panel-soon" class="card table-wrap hidden">
+  <p class="gv-meta" style="padding:12px 16px 0;">Expiring within 30 days — prioritize selling these next.</p>
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Branch</th>
+        <th>Location</th>
+        <th class="num">Qty</th>
+        <th>Expiry Date</th>
+        <th class="num">Days Left</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in expiry_soon %}
+      <tr>
+        <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
+        <td data-label="Branch">{{ row.branch.branch_name }}</td>
+        <td data-label="Location">
+          {% if row.location == 'Floor' %}<span class="pill pill-neutral">Floor</span>
+          {% else %}<span class="pill pill-info">Warehouse</span>{% endif %}
+        </td>
+        <td data-label="Qty" class="num">{{ row.quantity_on_hand }}</td>
+        <td data-label="Expiry Date">{{ row.expiry_date|date:"Y-m-d" }}</td>
+        <td data-label="Days Left" class="num" style="color:var(--warn-fg);">{{ row.days_until_expiry }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="6">
+          <div class="empty">
+            <span class="glyph">✓</span>
             <h3>Nothing expiring soon</h3>
-            <p>No batches expire within the next 14 days.</p>
+            <p>No floor or warehouse stock expires within the next 30 days.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ----------------------------------------------------- approaching expiry -->
+<div id="panel-approaching" class="card table-wrap hidden">
+  <p class="gv-meta" style="padding:12px 16px 0;">Expiring within 90 days — an early heads-up so these can be prioritized before they become urgent.</p>
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Branch</th>
+        <th>Location</th>
+        <th class="num">Qty</th>
+        <th>Expiry Date</th>
+        <th class="num">Days Left</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in expiry_approaching %}
+      <tr>
+        <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
+        <td data-label="Branch">{{ row.branch.branch_name }}</td>
+        <td data-label="Location">
+          {% if row.location == 'Floor' %}<span class="pill pill-neutral">Floor</span>
+          {% else %}<span class="pill pill-info">Warehouse</span>{% endif %}
+        </td>
+        <td data-label="Qty" class="num">{{ row.quantity_on_hand }}</td>
+        <td data-label="Expiry Date">{{ row.expiry_date|date:"Y-m-d" }}</td>
+        <td data-label="Days Left" class="num gv-meta">{{ row.days_until_expiry }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="6">
+          <div class="empty">
+            <span class="glyph">✓</span>
+            <h3>Nothing approaching expiry</h3>
+            <p>No floor or warehouse stock expires within the next 90 days.</p>
           </div>
         </td>
       </tr>
@@ -133,19 +289,24 @@
 
 {% block extra_js %}
 <script>
+  var ALERT_PANELS = ['floor', 'warehouse', 'expired', 'soon', 'approaching'];
+
   function showTab(which) {
-    document.getElementById('panel-low').classList.toggle('hidden', which !== 'low');
-    document.getElementById('panel-exp').classList.toggle('hidden', which !== 'exp');
-    document.getElementById('tab-low').classList.toggle('active', which === 'low');
-    document.getElementById('tab-exp').classList.toggle('active', which === 'exp');
+    ALERT_PANELS.forEach(function (p) {
+      document.getElementById('panel-' + p).classList.toggle('hidden', which !== p);
+      document.getElementById('tab-' + p).classList.toggle('active', which === p);
+    });
   }
 
   // Deep-link support so the Dashboard's "Needs attention" rows (DESIGN.md 2b)
-  // can open the right tab: #expiring -> Expiry Alerts, anything else -> Low
-  // Stock. Panel contents are untouched; this only picks which one starts open.
+  // can open the right tab: #expiring -> Expired (most urgent first), #warehouse
+  // -> Low Warehouse Stock, anything else -> Low Floor Stock. Panel contents are
+  // untouched; this only picks which one starts open.
   (function () {
     function applyHash() {
-      showTab(window.location.hash === '#expiring' ? 'exp' : 'low');
+      if (window.location.hash === '#expiring') showTab('expired');
+      else if (window.location.hash === '#warehouse') showTab('warehouse');
+      else showTab('floor');
     }
     applyHash();
     window.addEventListener('hashchange', applyHash);

@@ -19,7 +19,10 @@ urlpatterns = [
     # Stock
     path('stock/', views.inventory_list, name='inventory_list'),
     path('stock/adjust/', views.stock_adjustment_add, name='stock_adjustment_add'),
+    path('stock/<int:pk>/edit/', views.inventory_edit, name='inventory_edit'),
     path('warehouse/', views.warehouse_stock_list, name='warehouse_stock_list'),
+    path('warehouse/<int:pk>/edit/', views.warehouse_stock_edit, name='warehouse_stock_edit'),
+    path('warehouse/request/', views.warehouse_stock_request, name='warehouse_stock_request'),
 
     # Alerts Center
     path('alerts/', views.alerts_center, name='alerts_center'),

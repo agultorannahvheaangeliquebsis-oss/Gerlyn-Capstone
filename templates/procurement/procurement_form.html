@@ -16,12 +16,21 @@
 
   <div class="card card-pad mb-4">
     <div class="grid-2">
-      <div class="field">
-        <label for="branch">Branch</label>
-        <select id="branch" name="branch" required>
-          {% for branch in branches %}<option value="{{ branch.id }}">{{ branch.branch_name }}</option>{% endfor %}
-        </select>
-      </div>
+      {% if user_branch %}
+        <input type="hidden" name="branch" value="{{ user_branch.id }}">
+        <div class="field">
+          <label>Branch</label>
+          <div class="row"><span class="pill pill-info">{{ user_branch.branch_name }}</span>
+            <span class="gv-meta">your assigned branch</span></div>
+        </div>
+      {% else %}
+        <div class="field">
+          <label for="branch">Branch</label>
+          <select id="branch" name="branch" required>
+            {% for branch in branches %}<option value="{{ branch.id }}">{{ branch.branch_name }}</option>{% endfor %}
+          </select>
+        </div>
+      {% endif %}
       <div class="field">
         <label for="supplier">Supplier</label>
         <select id="supplier" name="supplier" required>

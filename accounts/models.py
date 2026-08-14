@@ -301,6 +301,13 @@ class SupplierProfile(models.Model):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='supplier_profile'
     )
+    branch = models.ForeignKey(
+        'branches.Branch', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='suppliers',
+        help_text="Which branch this supplier serves. Left blank, the "
+                  "supplier is treated as available to every branch — "
+                  "assign one to scope it to just that branch's dropdowns."
+    )
     supplier_name     = models.CharField(max_length=100)
     contact_number    = models.CharField(max_length=20)
     address           = models.TextField(blank=True)
