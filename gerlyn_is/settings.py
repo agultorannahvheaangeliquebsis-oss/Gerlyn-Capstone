@@ -166,21 +166,15 @@ WSGI_APPLICATION = 'gerlyn_is.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'gerlyn_db'),
-        'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'Freakinnerd02-'),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '3306'),
-        # Reuse the MySQL connection across requests instead of paying a full
-        # TCP+auth handshake on every single page load (the main cause of
-        # per-page slowness on Railway). Django verifies the connection is
-        # still alive before reusing it, so a dropped connection can't cause
-        # silent failures.
+        'NAME': 'my_new_db',          # Pangalan ng database mo sa MySQL
+        'USER': 'root',               # Karaniwang 'root' sa local XAMPP/MySQL
+        'PASSWORD': 'Pringles03',     # Ang tamang password mo
+        'HOST': 'localhost',
+        'PORT': '3306',
         'CONN_MAX_AGE': 60,
         'CONN_HEALTH_CHECKS': True,
     }
 }
-
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
