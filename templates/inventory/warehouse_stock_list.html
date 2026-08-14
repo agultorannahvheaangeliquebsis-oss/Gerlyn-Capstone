@@ -64,18 +64,37 @@
   {% endif %}
 </div>
 
-<div class="stat-strip mb-4">
-  <div class="stat" style="background:var(--ok-bg); border-color:var(--ok-bg);">
-    <div class="value" style="color:var(--ok-fg);">{{ counts.in_stock }}</div>
-    <div class="label">In Stock</div>
+{% comment %}
+The one KPI card (DESIGN.md §Components), the same row Floor Stock, Stock
+Adjustments and the Reports tabs carry — .label then .value, no inline tints.
+
+This row used to be three permanently-painted .stat tiles: green, amber and
+red side by side, on every load. Two things were wrong with that. Colour was
+carrying category rather than status, so a warehouse with nothing wrong still
+showed a red "Critical" panel and the palette stopped meaning anything; and
+"In Stock" was painted the same green the Status column uses for a healthy
+row, which made a count of zero look like a pass. Tint is now gated on a
+non-zero count, so an all-clear warehouse is three plain white cards.
+
+In Stock takes no tint at all: it is the healthy figure, and there is no ok
+modifier on a KPI card precisely because "how many things are fine" is not a
+state anyone acts on. Low is .warn (act soon), Critical is .danger (act now) —
+the same two tints the Status column's pills use directly below.
+
+.compact because this row heads a dense table rather than a page.
+{% endcomment %}
+<div class="kpi-row compact mb-4">
+  <div class="kpi-card">
+    <span class="label">In Stock</span>
+    <span class="value">{{ counts.in_stock }}</span>
   </div>
-  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
-    <div class="value" style="color:var(--warn-fg);">{{ counts.low }}</div>
-    <div class="label">Low Stock</div>
+  <div class="kpi-card{% if counts.low %} warn{% endif %}">
+    <span class="label">Low Stock</span>
+    <span class="value">{{ counts.low }}</span>
   </div>
-  <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
-    <div class="value" style="color:var(--danger-fg);">{{ counts.critical }}</div>
-    <div class="label">Critical</div>
+  <div class="kpi-card{% if counts.critical %} danger{% endif %}">
+    <span class="label">Critical</span>
+    <span class="value">{{ counts.critical }}</span>
   </div>
 </div>
 
@@ -103,7 +122,7 @@
         <th class="num">Reorder Level</th>
         <th>Nearest Expiry</th>
         <th>Status</th>
-        <th style="text-align:right;">Actions</th>
+        <th class="end">Actions</th>
       </tr>
     </thead>
     <tbody>

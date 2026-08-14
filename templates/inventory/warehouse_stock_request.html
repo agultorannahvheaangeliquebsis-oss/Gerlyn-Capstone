@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="gv-meta" href="{% url 'warehouse_stock_list' %}">&larr; Warehouse Stock</a>
+    <a class="back-link" href="{% url 'warehouse_stock_list' %}">Warehouse Stock</a>
     <h1 class="mt-2">Request Stock to Floor</h1>
     <p class="gv-meta mb-0">
       Moves stock from {{ warehouse.name }} onto {{ warehouse.branch.branch_name }}'s floor once approved and released.
