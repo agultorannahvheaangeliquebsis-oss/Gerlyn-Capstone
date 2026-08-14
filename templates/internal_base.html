@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
+  <script src="{% static 'js/device-preview.js' %}"></script>
   <link rel="manifest" href="{% static 'manifest.json' %}">
   <meta name="theme-color" content="#1E7A4F">
   <link rel="apple-touch-icon" href="{% static 'img/icons/apple-touch-icon-180.png' %}">
@@ -212,7 +213,19 @@
     <main class="content">
       {% if messages %}
         {% for message in messages %}
-          <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>
+          {% if 'sheet' in message.tags %}
+            {# Opt-in success sheet — any view can trigger it with
+               messages.success(..., extra_tags='sheet'), not just Deliveries. #}
+            <div class="bottom-sheet" data-autoshow="1">
+              <div class="bottom-sheet-panel">
+                <span class="bottom-sheet-icon"><i data-lucide="check-circle"></i></span>
+                <p>{{ message }}</p>
+                <button type="button" class="btn btn-primary" data-sheet-dismiss>Done</button>
+              </div>
+            </div>
+          {% else %}
+            <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>
+          {% endif %}
         {% endfor %}
       {% endif %}
 
@@ -221,6 +234,11 @@
   </div>
 
   <!-- ========================= BOTTOM NAV (mobile) ==================== -->
+  {# Capped at 4 items on purpose. Alerts/Reports/Deliveries/Settings all
+     move into the "More" panel, which also fixes a pre-existing gap: Staff
+     has view-level access to Deliveries (see procurement/views.py's
+     role_required lists) but previously had zero nav path to it — the
+     desktop sidebar's Procurement section is Owner/Manager only. #}
   <nav class="bottom-nav">
     <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ dash_url }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -234,22 +252,29 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
       Stock
     </a>
-    {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
-    <a class="{% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
-      Alerts
-      {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
-    </a>
-    <a class="{% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-      Reports
-    </a>
-    {% endif %}
+    <details class="more-menu">
+      <summary class="{% if active_page == 'alerts' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'internal_settings' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        More
+        {% if alert_count and request.user.role == 'OWNER' or alert_count and request.user.role == 'BRANCH_MANAGER' %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+      </summary>
+      <div class="more-menu-panel">
+        {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+        <a class="more-menu-link {% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
+          Alerts {% if alert_count %}<span class="nav-badge nav-badge--inline">{{ alert_count }}</span>{% endif %}
+        </a>
+        <a class="more-menu-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
+        {% endif %}
+        <a class="more-menu-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
+        <a class="more-menu-link {% if active_page == 'internal_settings' %}active{% endif %}" href="{% url 'internal_settings' %}">Settings</a>
+      </div>
+    </details>
   </nav>
 
 </div>
 <script src="{% static 'js/sidebar.js' %}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>
+<script src="{% static 'js/bottom-sheet.js' %}" defer></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
 </body>
