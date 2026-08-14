@@ -167,9 +167,15 @@ WSGI_APPLICATION = 'gerlyn_is.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'gerlyn_db'),
+        # Read from the environment, fall back to a local XAMPP/MySQL default.
+        # The defaults are what one machine happens to use; the environment is
+        # what everyone else's machine and Railway use. Hardcoding these
+        # without the os.environ.get() wrapper points every teammate and the
+        # deploy at one person's local database, and .env stops being read at
+        # all — which is what happened in a5e1786 and is why this is back.
+        'NAME': os.environ.get('DB_NAME', 'my_new_db'),
         'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'Freakinnerd02-'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'Pringles03'),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '3306'),
         # Reuse the MySQL connection across requests instead of paying a full

@@ -3,10 +3,147 @@
 
 {% block extra_css %}
 {% include "partials/home_extra_css.html" %}
+<style>
+  .mobile-hero-box { display: none; }
+
+  @media (max-width: 768px) {
+    .desktop-hero-box { display: none !important; }
+    .mobile-hero-box { display: block !important; }
+
+    .mobile-content-wrapper > section:first-of-type,
+    .mobile-content-wrapper .hero-section,
+    .mobile-content-wrapper div[style*="background-color: #1E7A4F"],
+    .mobile-content-wrapper .props {
+      display: none !important;
+    }
+
+    .mobile-content-wrapper .section-head {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      flex-wrap: nowrap !important;
+      gap: 8px !important;
+    }
+
+    .mobile-content-wrapper .section-head h2 {
+      font-size: 17px !important;
+      white-space: nowrap !important;
+    }
+
+    .mobile-content-wrapper .section-head a {
+      font-size: 13px !important;
+      white-space: nowrap !important;
+      flex: none !important;
+    }
+
+    .mobile-content-wrapper .cats {
+      display: flex !important;
+      flex-wrap: nowrap !important;
+      overflow-x: auto !important;
+      gap: 14px !important;
+      padding-bottom: 4px !important;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .mobile-content-wrapper .cat {
+      flex: 0 0 auto !important;
+      width: 78px !important;
+      min-height: auto !important;
+      padding: 0 !important;
+      border: none !important;
+    }
+
+    .mobile-content-wrapper .cat .ring {
+      width: 60px !important;
+      height: 60px !important;
+      font-size: 26px !important;
+    }
+
+    .mobile-content-wrapper .cat .nm {
+      font-size: 12px !important;
+    }
+
+    /* Tighter vertical rhythm so sections don't feel oversized on mobile */
+    .mobile-content-wrapper .section {
+      padding: 16px 0 !important;
+    }
+  }
+</style>
 {% endblock %}
 
 {% block content %}
-{% include "partials/home_content.html" %}
+
+<!-- ================= DESKTOP VIEW ================= -->
+<div class="desktop-hero-box">
+    {% include "partials/home_content.html" %}
+</div>
+
+<!-- ================= MOBILE VIEW ================= -->
+<div class="mobile-hero-box">
+
+    <!-- Green Hero Banner -->
+    <section style="background-color: #1E7A4F; color: #ffffff; padding: 14px 14px 16px; margin-bottom: 10px;">
+        <div style="font-size: 10px; color: #A7F3D0; display: flex; align-items: center; gap: 5px; margin-bottom: 3px;">
+            <span>📍</span> Fresh stocks daily
+        </div>
+        <h1 style="font-size: 19px; font-weight: 800; line-height: 1.15; margin-bottom: 5px;">
+            Groceries Delivered to Your Door
+        </h1>
+        <p style="font-size: 11px; line-height: 1.35; color: #E5E7EB; margin-bottom: 10px;">
+            Cash on delivery available across Baliuag. Order before 6PM for next-day delivery.
+        </p>
+
+        <!-- Buttons -->
+        <div style="display: flex; gap: 7px;">
+            <a href="{% url 'orders:catalog' %}" style="flex: 1; background-color: #ffffff; color: #1E7A4F; text-align: center; font-weight: 700; padding: 7px 9px; border-radius: 9999px; text-decoration: none; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                Shop Now <span>›</span>
+            </a>
+            <a href="{% url 'accounts:register' %}" style="flex: 1; background-color: rgba(255,255,255,0.15); border: 1.5px solid #ffffff; color: #ffffff; text-align: center; font-weight: 700; padding: 7px 9px; border-radius: 9999px; text-decoration: none; font-size: 12px; display: flex; align-items: center; justify-content: center;">
+                Create Account
+            </a>
+        </div>
+
+        <!-- Slider Dots -->
+        <div style="display: flex; justify-content: center; gap: 5px; margin-top: 8px;">
+            <span style="width: 14px; height: 3px; background: #fff; border-radius: 2px;"></span>
+            <span style="width: 5px; height: 3px; background: rgba(255,255,255,0.4); border-radius: 2px;"></span>
+            <span style="width: 5px; height: 3px; background: rgba(255,255,255,0.4); border-radius: 2px;"></span>
+        </div>
+    </section>
+
+    <!-- 3 Promotional Cards -->
+    <div style="padding: 0 14px; display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;">
+        <div style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 10px; padding: 7px 9px; display: flex; align-items: center; gap: 7px;">
+            <span style="font-size: 15px;">🚚</span>
+            <div>
+                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">Free delivery within Baliuag</div>
+                <div style="font-size: 9.5px; color: #4B5563;">On orders over ₱500</div>
+            </div>
+        </div>
+        <div style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 10px; padding: 7px 9px; display: flex; align-items: center; gap: 7px;">
+            <span style="font-size: 15px;">🏷️</span>
+            <div>
+                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">New customer discount</div>
+                <div style="font-size: 9.5px; color: #4B5563;">10% off your first order</div>
+            </div>
+        </div>
+        <div style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 10px; padding: 7px 9px; display: flex; align-items: center; gap: 7px;">
+            <span style="font-size: 15px;">📦</span>
+            <div>
+                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">Bulk order discounts</div>
+                <div style="font-size: 9.5px; color: #4B5563;">Wholesale prices available</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backend Content (Shop by Category, atbp.) -->
+    <div class="mobile-content-wrapper">
+        {% include "partials/home_content.html" %}
+    </div>
+
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
