@@ -13,8 +13,8 @@ from datetime import datetime, timedelta
 from billing.models import BillingRecord
 
 from sales.models import SalesItem, SalesTransaction
-from inventory.models import Batch, Inventory
-from inventory.alerts import EXPIRY_WINDOW_DAYS, alert_summary
+from inventory.models import Inventory
+from inventory.alerts import EXPIRING_SOON_DAYS, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
@@ -590,10 +590,12 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
     Definitions, kept deliberately aligned with the destination pages:
       Low Stock      inventory.alerts.low_stock_alerts — the same engine the
                      Alerts Center and Restock Suggestions table already use.
-      Expiring Soon  inventory.alerts.expiry_alerts — batches with stock left
-                     that expire within EXPIRY_WINDOW_DAYS (14), plus any
-                     already past expiry. Escalates to danger once a batch has
-                     actually expired.
+      Expiring Soon  inventory.alerts.expiry_alerts — floor/warehouse stock
+                     expiring within EXPIRING_SOON_DAYS (30), plus any already
+                     past expiry. Escalates to danger once something has
+                     actually expired. The longer-horizon Approaching Expiry
+                     tier (90 days) is an early-warning list, not surfaced on
+                     this "needs attention now" panel.
       Pending POs    Draft + Ordered, i.e. raised but not yet Received or
                      Cancelled. Same set procurement_list totals as open_value.
       Pending Orders OPEN_ORDER_STATUSES, i.e. every order not yet Completed
@@ -606,11 +608,8 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
                      "overdue". Swap in a real query when due dates land.
     """
     low_count = summary['low_count']
-    expiring_count = summary['expiring_count']
-    expired_count = sum(
-        1 for r in summary['expiry']
-        if r['status'] == Batch.ExpiryStatus.EXPIRED
-    )
+    expired_count = summary['expired_count']
+    expiring_count = expired_count + summary['expiring_soon_count']
 
     pending_pos = procurement_qs.filter(
         status__in=[Procurement.Status.DRAFT, Procurement.Status.ORDERED]
@@ -640,8 +639,8 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
             'count': expiring_count,
             'pill': _attention_pill(expiring_count, escalated=expired_count > 0),
             'detail': (
-                f'{expiring_count} batch{"es" if expiring_count != 1 else ""} expiring within '
-                f'{EXPIRY_WINDOW_DAYS} days or already expired.'
+                f'{expiring_count} product{_plural(expiring_count)} expiring within '
+                f'{EXPIRING_SOON_DAYS} days or already past expiry.'
             ),
             'url': reverse('alerts_center') + '#expiring',
         },

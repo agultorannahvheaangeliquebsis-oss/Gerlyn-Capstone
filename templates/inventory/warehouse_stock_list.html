@@ -1,39 +1,225 @@
 {% extends 'internal_base.html' %}
+{% load static %}
 {% block title %}Warehouse Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
-{% block content %}
-<div style="padding:8px 4px;">
-  {# The 4px below the title was spacing to a subtitle that is now gone; it #}
-  {# takes over the 16px that paragraph carried, so the gap to the table holds. #}
-  <h2 style="margin:0 0 var(--s6);">Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% endif %}</h2>
+{% block branch_scope %}{% if warehouse %}{{ warehouse.branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
-  <div class="table-wrap">
+{% block extra_css %}
+<style>
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(23,37,30,.45);
+    align-items: center; justify-content: center;
+    padding: var(--s4);
+    z-index: 100;
+  }
+  .modal-overlay.is-open { display: flex; }
+  .modal-card {
+    background: var(--surface);
+    border-radius: var(--r-card);
+    box-shadow: var(--shadow-hero);
+    width: 100%; max-width: 420px;
+    max-height: calc(100vh - 64px);
+    display: flex; flex-direction: column;
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--s4) var(--s6);
+    border-bottom: 1px solid var(--line);
+  }
+  .modal-head h2 { font: 650 20px/1.25 system-ui, sans-serif; margin: 0; }
+  .modal-close {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: none;
+    width: 28px; height: 28px; padding: 0; margin: 0; line-height: 0;
+    border: none; background: none;
+    color: var(--ink-600); cursor: pointer; border-radius: var(--r-input);
+  }
+  .modal-close:hover { color: var(--ink-900); }
+  .modal-body {
+    padding: var(--s6);
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: var(--s4);
+  }
+  .modal-foot {
+    display: flex; justify-content: flex-end; gap: var(--s3);
+    padding: var(--s4) var(--s6);
+    border-top: 1px solid var(--line);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% endif %}</h1>
+    <p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% else %} across all branches{% endif %} — what a Stock Adjustment moves onto the floor</p>
+  </div>
+  {% if can_request_to_floor %}
+  <a class="btn btn-primary" href="{% url 'warehouse_stock_request' %}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Request Stock to Floor
+  </a>
+  {% endif %}
+</div>
+
+<div class="stat-strip mb-4">
+  <div class="stat" style="background:var(--ok-bg); border-color:var(--ok-bg);">
+    <div class="value" style="color:var(--ok-fg);">{{ counts.in_stock }}</div>
+    <div class="label">In Stock</div>
+  </div>
+  <div class="stat" style="background:var(--warn-bg); border-color:var(--warn-bg);">
+    <div class="value" style="color:var(--warn-fg);">{{ counts.low }}</div>
+    <div class="label">Low Stock</div>
+  </div>
+  <div class="stat" style="background:var(--danger-bg); border-color:var(--danger-bg);">
+    <div class="value" style="color:var(--danger-fg);">{{ counts.critical }}</div>
+    <div class="label">Critical</div>
+  </div>
+</div>
+
+<form method="GET" class="toolbar">
+  <input type="search" name="q" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off">
+  <select name="category" onchange="this.form.submit()">
+    <option value="">All Categories</option>
+    {% for c in categories %}
+      <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn">Search</button>
+</form>
+
+<div class="card table-wrap">
   <table class="gv-table">
     <thead>
       <tr>
         <th>Product</th>
+        <th>SKU</th>
         {% if not warehouse %}<th>Branch</th>{% endif %}
-        <th class="num">On Hand</th>
-        <th class="num">Reorder</th>
+        <th>Category</th>
+        <th>Unit</th>
+        <th class="num">Qty on Hand</th>
+        <th class="num">Reorder Level</th>
+        <th>Nearest Expiry</th>
         <th>Status</th>
+        <th style="text-align:right;">Actions</th>
       </tr>
     </thead>
     <tbody>
-      {% for s in stock_records %}
+      {% for row in rows %}
       <tr>
-        <td data-label="Product">{{ s.product.product_name }}</td>
-        {% if not warehouse %}<td data-label="Branch">{{ s.warehouse.branch.branch_name }}</td>{% endif %}
-        <td class="num" data-label="On Hand">{{ s.quantity_on_hand }}</td>
-        <td class="num" data-label="Reorder">{{ s.reorder_level }}</td>
+        <td data-label="Product" class="strong">{{ row.stock.product.product_name }}</td>
+        <td data-label="SKU" class="sku">{{ row.stock.product.sku_code }}</td>
+        {% if not warehouse %}<td data-label="Branch">{{ row.stock.warehouse.branch.branch_name }}</td>{% endif %}
+        <td data-label="Category" class="gv-meta">{{ row.stock.product.category.category_name|default:"—" }}</td>
+        <td data-label="Unit" class="gv-meta">{{ row.stock.product.unit_of_measure }}</td>
+        <td data-label="Qty on Hand" class="num strong">{{ row.stock.quantity_on_hand }}</td>
+        <td data-label="Reorder Level" class="num gv-meta">{{ row.stock.reorder_level }}</td>
+        <td data-label="Nearest Expiry">{{ row.stock.expiry_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Status">
-          {% if s.restock_flag %}<span style="color:#c0392b; font-weight:600;">Low</span>
-          {% else %}<span style="color:#1b7a43;">In stock</span>{% endif %}</td>
+          {% if row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
+          {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
+          {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
+        </td>
+        <td data-label="Actions">
+          <button type="button" class="btn btn-sm btn-quiet" style="color:var(--action);"
+                  onclick="openEditWarehouseStock({{ row.stock.pk }}, '{{ row.stock.product.product_name|escapejs }}', '{{ row.stock.warehouse.branch.branch_name|escapejs }}', {{ row.stock.reorder_level }}, '{{ row.stock.expiry_date|date:"Y-m-d"|default:"" }}')">
+            Edit
+          </button>
+        </td>
       </tr>
       {% empty %}
-      <tr><td colspan="5" style="padding:10px; color:#999;">No warehouse stock.</td></tr>
+      <tr>
+        <td colspan="10">
+          <div class="empty">
+            <span class="glyph">□</span>
+            <h3>No warehouse stock</h3>
+            <p>Stock lands here once a Purchase Order is received.</p>
+          </div>
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<div class="modal-overlay" id="edit-warehouse-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-warehouse-title" style="max-width:420px;">
+    <div class="modal-head">
+      <h2 id="edit-warehouse-title">Edit Warehouse Stock</h2>
+      <button type="button" class="modal-close" id="close-edit-warehouse-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" id="edit-warehouse-form" class="modal-body">
+      {% csrf_token %}
+      <div class="field">
+        <label>Product</label>
+        <div class="row"><span class="pill pill-info" id="edit-warehouse-product"></span></div>
+      </div>
+      <div class="field">
+        <label>Branch</label>
+        <div class="row"><span class="pill pill-neutral" id="edit-warehouse-branch"></span></div>
+      </div>
+      <div class="field">
+        <label for="edit-warehouse-reorder">Warehouse Reorder Level{% if can_edit_reorder %} <span style="color:var(--danger-dot);">*</span>{% endif %}</label>
+        <input type="number" id="edit-warehouse-reorder" name="reorder_level" min="0"
+               {% if can_edit_reorder %}required{% else %}disabled{% endif %}>
+        {% if can_edit_reorder %}
+          <p class="gv-meta" style="margin:4px 0 0;">Separate from the floor stock reorder level — changing this does not affect the floor threshold.</p>
+        {% else %}
+          <p class="gv-meta" style="margin:4px 0 0;">Only a Branch Manager or the Owner can change this — ask them if it needs adjusting.</p>
+        {% endif %}
+      </div>
+      <div class="field">
+        <label for="edit-warehouse-expiry">Nearest Expiry (optional)</label>
+        <input type="date" id="edit-warehouse-expiry" name="expiry_date">
+      </div>
+    </form>
+
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-edit-warehouse-modal">Cancel</button>
+      <button type="submit" form="edit-warehouse-form" class="btn btn-primary">Save</button>
+    </div>
   </div>
 </div>
+<script>
+(function () {
+  var modal = document.getElementById('edit-warehouse-modal');
+  var closeBtn = document.getElementById('close-edit-warehouse-modal');
+  var cancelBtn = document.getElementById('cancel-edit-warehouse-modal');
+  var form = document.getElementById('edit-warehouse-form');
+  var productEl = document.getElementById('edit-warehouse-product');
+  var branchEl = document.getElementById('edit-warehouse-branch');
+  var reorderEl = document.getElementById('edit-warehouse-reorder');
+  var expiryEl = document.getElementById('edit-warehouse-expiry');
+  if (!modal) return;
+
+  var editUrlTemplate = '{% url "warehouse_stock_edit" 0 %}';
+
+  function open() { modal.classList.add('is-open'); }
+  function close() { modal.classList.remove('is-open'); }
+
+  window.openEditWarehouseStock = function (pk, productName, branchName, reorderLevel, expiryDate) {
+    form.action = editUrlTemplate.replace('/0/', '/' + pk + '/');
+    productEl.textContent = productName;
+    branchEl.textContent = branchName;
+    reorderEl.value = reorderLevel;
+    expiryEl.value = expiryDate || '';
+    open();
+  };
+
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+  });
+})();
+</script>
 {% endblock %}

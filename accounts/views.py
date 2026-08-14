@@ -12,7 +12,7 @@ from .models import (
 
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect_by_role(request.user)
+        return redirect_by_role(request, request.user)
 
     error = None
     username = ''
@@ -24,7 +24,7 @@ def login_view(request):
 
         if user is not None:
             login(request, user)
-            return redirect_by_role(user)
+            return redirect_by_role(request, user)
         else:
             error = 'Invalid username or password.'
 
@@ -36,7 +36,7 @@ def logout_view(request):
     return redirect('/')
 
 
-def redirect_by_role(user):
+def redirect_by_role(request, user):
     role_redirects = {
         User.Role.OWNER: 'accounts:owner_dashboard',
         User.Role.BRANCH_MANAGER: 'accounts:manager_dashboard',
@@ -44,7 +44,16 @@ def redirect_by_role(user):
         User.Role.SUPPLIER: 'accounts:supplier_dashboard',
         User.Role.CUSTOMER: 'accounts:customer_dashboard',
     }
-    return redirect(role_redirects.get(user.role, 'accounts:login'))
+    target = role_redirects.get(user.role)
+    if target is None:
+        # An unrecognized role (bad data, or a role value that no longer
+        # exists) must never fall through to 'accounts:login' here — with
+        # login_view's own "already authenticated" redirect at the top,
+        # that becomes an infinite redirect loop instead of a login page.
+        logout(request)
+        messages.error(request, 'Your account has an invalid role. Contact the Owner to have it fixed.')
+        return redirect('accounts:login')
+    return redirect(target)
 
 
 @login_required(login_url='accounts:login')
@@ -170,6 +179,7 @@ INTERNAL_ROLE_CHOICES = [
     (User.Role.OWNER, 'Owner'),
     (User.Role.BRANCH_MANAGER, 'Branch Manager'),
     (User.Role.STAFF, 'Store Staff'),
+    (User.Role.SUPPLIER, 'Supplier'),
 ]
 
 
@@ -308,6 +318,10 @@ def user_form(request, pk=None):
             profile, _ = OwnerProfile.objects.get_or_create(user=target)
             profile.owner_name = full_name
             profile.save()
+        elif role == User.Role.SUPPLIER:
+            profile, _ = SupplierProfile.objects.get_or_create(user=target)
+            profile.supplier_name = full_name
+            profile.save()
 
         messages.success(request, f'User "{username}" saved.')
         return redirect('accounts:user_list')
@@ -363,7 +377,7 @@ def home_view(request):
     # has its own pre-existing bug unrelated to this fix.)
     from core.permissions import INTERNAL_ROLES
     if request.user.is_authenticated and request.user.role in INTERNAL_ROLES:
-        return redirect_by_role(request.user)
+        return redirect_by_role(request, request.user)
 
     from inventory.stats import attach_storefront_counts, best_sellers
 
@@ -388,7 +402,7 @@ def home_view(request):
 
 def register_view(request):
     if request.user.is_authenticated:
-        return redirect_by_role(request.user)
+        return redirect_by_role(request, request.user)
 
     if request.method == 'POST':
         username = request.POST.get('username')

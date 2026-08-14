@@ -1,5 +1,5 @@
 {% extends 'internal_base.html' %}
-{% block title %}Stock Withdrawals{% endblock %}
+{% block title %}Stock Adjustments{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 
 {% block extra_css %}
@@ -28,11 +28,12 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Stock Withdrawals</h1>
+    <h1>Stock Adjustments</h1>
+    <p class="gv-meta mb-0">Withdrawal slips, plus a complete log of every stock movement across the branch</p>
   </div>
   <a class="btn btn-primary" href="{% url 'transfer_create' %}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    New Withdrawal
+    New Stock Adjustment
   </a>
 </div>
 
@@ -67,7 +68,7 @@ across the full width leave the default block padding as empty card.
 {% endcomment %}
 <div class="kpi-row compact">
   <div class="kpi-card">
-    <span class="label">Released This Month</span>
+    <span class="label">Released in {{ month_label }}</span>
     <span class="value">{{ total_released_this_month }}</span>
   </div>
   <div class="kpi-card{% if pending_acknowledgment %} warn{% endif %}">
@@ -80,85 +81,144 @@ across the full width leave the default block padding as empty card.
   </div>
 </div>
 
-{% if pending_acknowledgment %}
-{% comment %}
-A plain .card, not the amber box this used to be. The KPI card directly above
-is already tinted .warn and already counts these, so a second amber panel four
-pixels below it spent the colour twice on one fact.
-{% endcomment %}
-<div class="card card-pad mb-4">
-  <h3 class="mb-4">Waiting on a branch to confirm receipt</h3>
-  {% for t in transfers %}{% if t.status == 'Released' %}
-    <div class="ack-row">
-      <div class="ack-slip">
-        <span class="sku strong">{{ t.slip_number }}</span>
-        <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
-        <span class="pill pill-neutral">{{ t.purpose }}</span>
-      </div>
-      <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
-        {% csrf_token %}
-        <label class="gv-meta" for="qty-{{ t.pk }}">Received</label>
-        <input id="qty-{{ t.pk }}" type="number" name="received_qty" min="0" inputmode="numeric">
-        <button class="btn btn-primary btn-sm" type="submit">Confirm receipt</button>
-      </form>
-      <form method="post" action="{% url 'transfer_flag_discrepancy' t.pk %}">
-        {% csrf_token %}
-        <input type="number" name="received_qty" min="0" placeholder="Qty" inputmode="numeric" aria-label="Quantity actually received">
-        <input type="text" name="flag_reason" placeholder="Reason" aria-label="Reason for the discrepancy">
-        <button class="btn btn-danger btn-sm" type="submit">Flag discrepancy</button>
-      </form>
-    </div>
-  {% endif %}{% endfor %}
+<div class="filter-tabs">
+  {% comment %}
+  .filter-tab, not the pill .tab: that component was removed from gerlyn.css
+  once its last user moved off it, so .tab here would render unstyled. The
+  slips tab carries no count — the three KPI cards above already break the
+  slips down, and a fourth number over the same rows would just be a total
+  competing with its own parts.
+  {% endcomment %}
+  <button type="button" class="filter-tab active" id="tab-slips" onclick="showTab('slips')">
+    {% include "partials/_status_icon.html" with icon="draft" %}Withdrawal Slips
+  </button>
+  <button type="button" class="filter-tab" id="tab-log" onclick="showTab('log')">
+    {% include "partials/_status_icon.html" with icon="all" %}Movement Log <span class="count count-neutral">{{ movement_log|length }}</span>
+  </button>
 </div>
-{% endif %}
 
-<div class="card table-wrap">
+<!-- ---------------------------------------------------------- slips tab -->
+<div id="panel-slips">
+  {% if pending_acknowledgment %}
+  {% comment %}
+  A plain .card, not the amber box this used to be. The KPI card directly above
+  is already tinted .warn and already counts these, so a second amber panel four
+  pixels below it spent the colour twice on one fact.
+  {% endcomment %}
+  <div class="card card-pad mb-4">
+    <h3 class="mb-4">Waiting on a branch to confirm receipt</h3>
+    {% for t in transfers %}{% if t.status == 'Released' %}
+      <div class="ack-row">
+        <div class="ack-slip">
+          <span class="sku strong">{{ t.slip_number }}</span>
+          <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
+          <span class="pill pill-neutral">{{ t.purpose }}</span>
+        </div>
+        <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
+          {% csrf_token %}
+          <label class="gv-meta" for="qty-{{ t.pk }}">Received</label>
+          <input id="qty-{{ t.pk }}" type="number" name="received_qty" min="0" inputmode="numeric">
+          <button class="btn btn-primary btn-sm" type="submit">Confirm receipt</button>
+        </form>
+        <form method="post" action="{% url 'transfer_flag_discrepancy' t.pk %}">
+          {% csrf_token %}
+          <input type="number" name="received_qty" min="0" placeholder="Qty" inputmode="numeric" aria-label="Quantity actually received">
+          <input type="text" name="flag_reason" placeholder="Reason" aria-label="Reason for the discrepancy">
+          <button class="btn btn-danger btn-sm" type="submit">Flag discrepancy</button>
+        </form>
+      </div>
+    {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card table-wrap">
+    <table class="gv-table">
+      <thead>
+        <tr>
+          <th>Slip ID</th>
+          <th>From → To</th>
+          <th>Requested By</th>
+          <th>Purpose</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th class="end">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in transfers %}
+        <tr>
+          <td data-label="Slip ID" class="sku strong">{{ t.slip_number }}</td>
+          <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</td>
+          <td data-label="Requested By">{{ t.requested_by.username|default:"—" }}</td>
+          <td data-label="Purpose"><span class="pill pill-neutral">{{ t.purpose }}</span></td>
+          {% comment %}
+          Status was plain text; every other list page in the app shows it as a
+          pill. Released takes .pill-warn to match the amber "Pending
+          Acknowledgment" card above, which counts exactly these rows — the tint
+          and the figure have to agree or the page argues with itself.
+          {% endcomment %}
+          <td data-label="Status">
+            {% if t.status == 'Acknowledged' %}<span class="pill pill-ok">Acknowledged</span>
+            {% elif t.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
+            {% elif t.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
+            {% elif t.status == 'Released' %}<span class="pill pill-warn">Released</span>
+            {% elif t.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
+            {% else %}<span class="pill pill-info">{{ t.status }}</span>{% endif %}
+          </td>
+          <td data-label="Date" class="gv-meta">{{ t.transfer_date|date:"Y-m-d" }}</td>
+          <td data-label="Action">
+            <span class="row-actions"><a class="btn btn-sm" href="{% url 'transfer_detail' t.pk %}">View</a></span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7">
+            <div class="empty">
+              <span class="glyph">□</span>
+              <h3>No withdrawal slips yet</h3>
+              <p>A withdrawal records stock leaving the shelf — damaged, expired, spoiled or on display — and stays open until the branch confirms what left.</p>
+              <a class="btn btn-primary mt-2" href="{% url 'transfer_create' %}">New Stock Adjustment</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ----------------------------------------------------------- log tab -->
+<div id="panel-log" class="card table-wrap hidden">
   <table class="gv-table">
     <thead>
       <tr>
-        <th>Withdrawal ID</th>
-        <th>From → To</th>
-        <th>Released By</th>
-        <th>Purpose</th>
-        <th>Status</th>
-        <th>Date</th>
-        <th class="end">Action</th>
+        <th>Date / Time</th>
+        <th>Product</th>
+        <th>Movement Type</th>
+        <th class="num">Quantity</th>
+        <th>Source</th>
+        <th>Destination</th>
+        <th>By</th>
       </tr>
     </thead>
     <tbody>
-      {% for t in transfers %}
+      {% for row in movement_log %}
       <tr>
-        <td data-label="Withdrawal ID" class="sku strong">{{ t.slip_number }}</td>
-        <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</td>
-        <td data-label="Released By">{{ t.requested_by.username|default:"—" }}</td>
-        <td data-label="Purpose"><span class="pill pill-neutral">{{ t.purpose }}</span></td>
-        {% comment %}
-        Status was plain text; every other list page in the app shows it as a
-        pill. Released takes .pill-warn to match the amber "Pending
-        Acknowledgment" card above, which counts exactly these rows — the tint
-        and the figure have to agree or the page argues with itself.
-        {% endcomment %}
-        <td data-label="Status">
-          {% if t.status == 'Acknowledged' %}<span class="pill pill-ok">Acknowledged</span>
-          {% elif t.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
-          {% elif t.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
-          {% elif t.status == 'Released' %}<span class="pill pill-warn">Released</span>
-          {% elif t.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
-          {% else %}<span class="pill pill-info">{{ t.status }}</span>{% endif %}
-        </td>
-        <td data-label="Date" class="gv-meta">{{ t.transfer_date|date:"Y-m-d" }}</td>
-        <td data-label="Action">
-          <span class="row-actions"><a class="btn btn-sm" href="{% url 'transfer_detail' t.pk %}">View</a></span>
-        </td>
+        <td data-label="Date / Time" class="gv-meta">{{ row.movement.created_at|date:"Y-m-d H:i" }}</td>
+        <td data-label="Product" class="strong">{{ row.product }}</td>
+        <td data-label="Movement Type"><span class="pill pill-neutral">{{ row.movement.movement_type }}</span></td>
+        <td data-label="Quantity" class="num strong">{{ row.quantity }}</td>
+        <td data-label="Source">{{ row.source }}</td>
+        <td data-label="Destination">{{ row.destination }}</td>
+        <td data-label="By" class="gv-meta">{{ row.movement.created_by.username|default:"—" }}</td>
       </tr>
       {% empty %}
       <tr>
         <td colspan="7">
           <div class="empty">
             <span class="glyph">□</span>
-            <h3>No stock withdrawals yet</h3>
-            <p>A withdrawal records stock leaving the warehouse for a branch, and stays open until that branch confirms what arrived.</p>
-            <a class="btn btn-primary mt-2" href="{% url 'transfer_create' %}">New Withdrawal</a>
+            <h3>No stock movement yet</h3>
+            <p>Every Purchase Order receipt, Stock Adjustment, and sale will show up here.</p>
           </div>
         </td>
       </tr>
@@ -166,4 +226,15 @@ pixels below it spent the colour twice on one fact.
     </tbody>
   </table>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function showTab(which) {
+    document.getElementById('panel-slips').classList.toggle('hidden', which !== 'slips');
+    document.getElementById('panel-log').classList.toggle('hidden', which !== 'log');
+    document.getElementById('tab-slips').classList.toggle('active', which === 'slips');
+    document.getElementById('tab-log').classList.toggle('active', which === 'log');
+  }
+</script>
 {% endblock %}

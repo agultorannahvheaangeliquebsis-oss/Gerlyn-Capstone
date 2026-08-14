@@ -1,48 +1,71 @@
 {% extends 'internal_base.html' %}
-{% block title %}New Stock Withdrawal{% endblock %}
+{% block title %}New Stock Adjustment{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
+
 {% block content %}
-<div style="padding:8px 4px; max-width:760px;">
-  <a class="back-link" href="{% url 'transfer_list' %}">Stock Withdrawals</a>
-  <h2 style="margin:8px 0;">New Stock Withdrawal</h2>
-
-  <form method="post">{% csrf_token %}
-    <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px;">
-      <label>Destination branch<br>
-        <select name="destination_branch" style="padding:8px; min-width:220px;">
-          <option value="">— None (write-off / display) —</option>
-          {% for b in branches %}<option value="{{ b.id }}">{{ b.branch_name }}</option>{% endfor %}
-        </select></label>
-      <label>Purpose<br>
-        <select name="purpose" style="padding:8px; min-width:200px;">
-          {% for val, label in purpose_choices %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
-        </select></label>
-      <label>Date<br><input type="date" name="transfer_date" style="padding:8px;"></label>
-    </div>
-
-    <h3>Items (from warehouse stock)</h3>
-    <div class="table-wrap">
-    <table class="gv-table">
-      <thead><tr><th>Product</th><th class="num">Available</th><th>Withdraw qty</th></tr></thead>
-      <tbody>
-      {% for ws in warehouse_stock %}
-      <tr>
-        <td data-label="Product">
-          {{ ws.product.product_name }}
-          <input type="hidden" name="product_id" value="{{ ws.product.id }}"></td>
-        <td class="num" data-label="Available">{{ ws.quantity_on_hand }}</td>
-        <td data-label="Withdraw qty">
-          <input type="number" name="quantity_requested" min="0" value="0" style="padding:6px; width:90px;"></td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="3" style="padding:8px; color:#999;">No warehouse stock available.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    </div>
-
-    <label style="display:block; margin:12px 0;">Notes<br><textarea name="notes" rows="2" style="width:100%; padding:8px;"></textarea></label>
-    <button type="submit" style="padding:10px 20px; background:#128a4f; color:#fff; border:0; border-radius:8px;">Create withdrawal</button>
-  </form>
+<div class="page-head">
+  <div>
+    <a class="gv-meta" href="{% url 'transfer_list' %}">&larr; Stock Adjustments</a>
+    <h1 class="mt-2">New Stock Adjustment</h1>
+    <p class="gv-meta mb-0">
+      For floor-level write-offs — damaged, expired, spoiled, sample/display, or other reasons stock leaves the shelf.
+      To move stock from the warehouse onto the floor, use <a href="{% url 'warehouse_stock_list' %}">Warehouse Stock &rarr; Request Stock to Floor</a> instead.
+    </p>
+  </div>
 </div>
+
+<form method="POST" id="adjustment-form">
+  {% csrf_token %}
+  <div class="card card-pad mb-4">
+    <div class="grid-2">
+      <div class="field">
+        <label for="purpose">Purpose</label>
+        <select id="purpose" name="purpose">
+          {% for val, label in purpose_choices %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="transfer_date">Date</label>
+        <input id="transfer_date" type="date" name="transfer_date">
+      </div>
+    </div>
+  </div>
+
+  <div class="card card-pad mb-4">
+    <h3 class="mb-4">Items (from branch floor stock)</h3>
+    <div class="table-wrap">
+      <table class="gv-table">
+        <thead><tr><th>Product</th><th class="num">On Hand</th><th>Write off qty</th></tr></thead>
+        <tbody>
+        {% for inv in floor_stock %}
+          <tr>
+            <td data-label="Product">
+              {{ inv.product.product_name }}
+              <input type="hidden" name="product_id" value="{{ inv.product.id }}">
+            </td>
+            <td class="num" data-label="On Hand">{{ inv.quantity_on_hand }}</td>
+            <td data-label="Write off qty">
+              <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3"><p class="gv-meta" style="padding:8px 0;">No floor stock available.</p></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card card-pad mb-4">
+    <div class="field">
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes" rows="2"></textarea>
+    </div>
+  </div>
+
+  <div class="row">
+    <button type="submit" class="btn btn-primary">Create Slip</button>
+    <a href="{% url 'transfer_list' %}" class="btn">Cancel</a>
+  </div>
+</form>
 {% endblock %}

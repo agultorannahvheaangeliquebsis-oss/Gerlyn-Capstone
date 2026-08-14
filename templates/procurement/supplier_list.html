@@ -23,7 +23,7 @@
 <div class="card table-wrap">
   <table class="gv-table" id="supplier-table">
     <thead>
-      <tr><th>Supplier</th><th>Category</th><th>Contact Person</th>
+      <tr><th>Supplier</th><th>Branch</th><th>Category</th><th>Contact Person</th>
           <th>Contact Number</th><th>Email</th><th>Address</th>
           {% if can_edit %}<th class="end">Actions</th>{% endif %}</tr>
     </thead>
@@ -31,6 +31,13 @@
       {% for s in suppliers %}
       <tr data-filter-text="{{ s.supplier_profile.supplier_name }}">
         <td data-label="Supplier" class="strong">{{ s.supplier_profile.supplier_name|default:s.username }}</td>
+        <td data-label="Branch">
+          {% if s.supplier_profile.branch %}
+            <span class="pill pill-neutral">{{ s.supplier_profile.branch.branch_name }}</span>
+          {% else %}
+            <span class="gv-meta">All branches</span>
+          {% endif %}
+        </td>
         <td data-label="Category">
           {% if s.supplier_profile.supplier_category %}
             <span class="pill pill-info">{{ s.supplier_profile.supplier_category }}</span>
@@ -50,7 +57,7 @@
         {% endif %}
       </tr>
       {% empty %}
-      <tr><td colspan="7"><div class="empty">
+      <tr><td colspan="8"><div class="empty">
         <span class="glyph">＋</span>
         <h3>No suppliers yet</h3>
         <p>Suppliers are who you raise purchase orders with.</p>
@@ -58,7 +65,7 @@
       </div></td></tr>
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
-      <tr id="supplier-no-matches" hidden><td colspan="7"><div class="empty">
+      <tr id="supplier-no-matches" hidden><td colspan="8"><div class="empty">
         <span class="glyph">＋</span>
         <h3>No suppliers match</h3>
         <p>No suppliers match "<span data-filter-empty-query></span>". Try a different search.</p>

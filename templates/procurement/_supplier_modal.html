@@ -83,6 +83,24 @@ stored, so the same expression falls through to empty.
         </div>
       </div>
 
+      {% comment %}
+      Blank option is meaningful, not filler: a supplier with no branch is
+      available to every branch, which is what the list column calls
+      "All branches". Compared with stringformat because form_data holds the
+      posted string while profile.branch_id is an int.
+      {% endcomment %}
+      <div class="field">
+        <label for="{{ which }}-supplier-branch">Branch</label>
+        {% firstof form_data.branch profile.branch_id '' as selected_branch %}
+        <select id="{{ which }}-supplier-branch" name="branch">
+          <option value="">All branches</option>
+          {% for b in branches %}
+          <option value="{{ b.pk }}"{% if b.pk|stringformat:"s" == selected_branch|stringformat:"s" %} selected{% endif %}>{{ b.branch_name }}</option>
+          {% endfor %}
+        </select>
+        <p class="gv-meta" style="margin:4px 0 0;">Left as "All branches", this supplier appears in every branch's Purchase Order form. Assign one branch to limit it to just that branch.</p>
+      </div>
+
       <div class="field">
         <label for="{{ which }}-supplier-address">Address</label>
         <textarea id="{{ which }}-supplier-address" name="address" rows="2"

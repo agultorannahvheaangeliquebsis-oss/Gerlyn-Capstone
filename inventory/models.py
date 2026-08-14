@@ -121,6 +121,12 @@ class WarehouseStock(models.Model):
     reorder_level = models.PositiveIntegerField(default=0)
     restock_flag = models.BooleanField(default=False)
     last_updated = models.DateTimeField(auto_now=True)
+    expiry_date = models.DateField(
+        null=True, blank=True,
+        help_text="Expiry date for the stock currently sitting in the warehouse. "
+                  "Independent of Inventory.expiry_date — the same product can have "
+                  "a different lot/expiry on the floor vs in the warehouse."
+    )
 
     def save(self, *args, **kwargs):
         self.restock_flag = self.quantity_on_hand <= self.reorder_level
@@ -310,7 +316,7 @@ class StockTransfer(models.Model):
     # --- existing fields (untouched) ----------------------------------------
     slip_number = models.CharField(
         max_length=20, unique=True, blank=True,
-        help_text="Auto-generated withdrawal ID e.g. WS-2026-001"
+        help_text="Auto-generated slip ID e.g. WS-2026-001"
     )
     warehouse = models.ForeignKey(
         Warehouse, on_delete=models.CASCADE,

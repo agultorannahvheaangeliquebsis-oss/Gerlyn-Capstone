@@ -115,6 +115,30 @@
     modalId: 'edit-user-modal',
     closerIds: ['close-edit-user-modal', 'cancel-edit-user-modal'],
   });
+
+  /* Assigned Branch only means anything for a Branch Manager or Staff — the
+     modal's label says so, this makes the field agree with the label instead
+     of leaving a live dropdown under it that the server would ignore. Clearing
+     the value on disable matters as much as the disable: a half-filled branch
+     left behind after switching the role to Owner would post nothing (disabled
+     fields are not submitted) yet still read as assigned on screen.
+
+     Runs for both modals, and once on load so an edit modal reopened by the
+     server after a rejected submit starts in the right state. */
+  ['add', 'edit'].forEach(function (which) {
+    var role = document.getElementById(which + '-user-role');
+    var branch = document.getElementById(which + '-user-branch');
+    if (!role || !branch) return;
+
+    function syncBranchField() {
+      var scoped = role.value === 'BRANCH_MANAGER' || role.value === 'STAFF';
+      branch.disabled = !scoped;
+      if (!scoped) branch.value = '';
+    }
+
+    role.addEventListener('change', syncBranchField);
+    syncBranchField();
+  });
 })();
 </script>
 {% endblock %}
