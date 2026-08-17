@@ -212,14 +212,19 @@ def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     totals (for the hero cards' delta %), and sales grouped by branch.
     Everything those surfaces render is derived from this, not re-queried.
     """
-    daily = _dashboard_daily_series(sales_qs, procurement_qs, start, end)
+    prev_start, prev_end, period_days = _previous_window(start, end)
+
+    # prev_end is start - 1 day (see _previous_window), so [prev_start, end]
+    # is one contiguous span. Fetched as a single _dashboard_daily_series
+    # call and split by index rather than two separate calls per source (4
+    # DB round trips -> 2): each round trip here costs far more than the
+    # extra row volume does, so halving the count is the win.
+    combined_daily = _dashboard_daily_series(sales_qs, procurement_qs, prev_start, end)
+    prev_daily, daily = combined_daily[:period_days], combined_daily[period_days:]
+
     totals = _dashboard_range_totals(daily)
     atv_points = _dashboard_atv_points(daily)
-
-    prev_start, prev_end, period_days = _previous_window(start, end)
-    prev_totals = _dashboard_range_totals(
-        _dashboard_daily_series(sales_qs, procurement_qs, prev_start, prev_end)
-    )
+    prev_totals = _dashboard_range_totals(prev_daily)
 
     range_start, range_end = local_range_bounds(start, end)
     branch_breakdown = _sales_by_branch_chart(
