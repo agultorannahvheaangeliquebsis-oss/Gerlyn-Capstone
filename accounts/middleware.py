@@ -48,12 +48,20 @@ class SessionTrackingMiddleware:
     """Keeps accounts.UserSession in sync with real Django sessions, so
     Settings > Sessions can list them without scanning django_session.
 
-    Tracked both before AND after the view: pre-view so a view like
+    Checked both before AND after the view: pre-view so a view like
     Settings > Sessions sees its OWN session already recorded (an
     already-authenticated request has a session_key from the moment
     SessionMiddleware loads the cookie, before this even runs); post-view
     to catch the login request itself, where request.session.session_key
     only becomes real partway through the view once login() runs.
+
+    Only actually hits the database once for an ordinary already-
+    authenticated request, though: the post-view check is skipped when the
+    session key hasn't changed since pre-view, since that means pre-view
+    already tracked it. Without this, every single authenticated page view
+    on the site paid for two get_or_create() round trips against MySQL
+    instead of one — a fixed tax on every click, independent of whatever
+    the view itself needed to do.
     """
 
     TOUCH_INTERVAL = timedelta(minutes=1)
@@ -62,11 +70,14 @@ class SessionTrackingMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        session_key_before = None
         if request.user.is_authenticated and request.session.session_key:
+            session_key_before = request.session.session_key
             self._track(request)
         response = self.get_response(request)
         if request.user.is_authenticated and request.session.session_key:
-            self._track(request)
+            if request.session.session_key != session_key_before:
+                self._track(request)
         return response
 
     def _track(self, request):
