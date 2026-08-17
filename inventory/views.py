@@ -17,6 +17,7 @@ from .alerts import alert_summary
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, role_required
+from core.refdata import cached_branches, cached_categories
 from core.scoping import branch_ids_for_user, user_can_access_branch
 from core.timebounds import local_month_bounds
 
@@ -46,7 +47,7 @@ def _product_list_context(request):
         .prefetch_related('inventory_records__branch', 'images')
         .all()
     )
-    categories = ProductCategory.objects.all()
+    categories = cached_categories()
 
     search_query = request.GET.get('q', '')
     category_filter = request.GET.get('category', '')
@@ -60,7 +61,8 @@ def _product_list_context(request):
         products = products.filter(category_id=category_filter)
 
     # Availability = the branches that actually carry the product.
-    branch_total = Branch.objects.count()
+    branches = cached_branches()
+    branch_total = len(branches)
     rows = []
     for p in products:
         names = sorted({i.branch.branch_name for i in p.inventory_records.all() if i.branch})
@@ -80,7 +82,7 @@ def _product_list_context(request):
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         'unit_choices': Product.UnitOfMeasure.choices,
         'next_sku': Product.next_sku_code(),
-        'branches': Branch.objects.all(),
+        'branches': branches,
         'add_selected_branches': None,  # None = fresh modal, default all branches checked
     }
 
@@ -531,8 +533,8 @@ def _inventory_list_context(request):
     return {
         'rows': rows,
         'counts': counts,
-        'branches': Branch.objects.all() if not user_branch else [],
-        'categories': ProductCategory.objects.all(),
+        'branches': cached_branches() if not user_branch else [],
+        'categories': cached_categories(),
         'search_query': search_query,
         'branch_filter': branch_filter,
         'category_filter': category_filter,
@@ -726,10 +728,13 @@ def warehouse_stock_list(request):
         'rows': rows,
         'counts': counts,
         'warehouse': warehouse,
-        'categories': ProductCategory.objects.all(),
+        'categories': cached_categories(),
         'search_query': search_query,
         'category_filter': category_filter,
-        'total_products': stock_records.count(),
+        # rows was built by fully iterating this exact (already-filtered)
+        # queryset above, so re-counting it is a second identical query for
+        # a number Python already has.
+        'total_products': len(rows),
         'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         # Only meaningful when pinned to one branch — Owner's "all warehouses"
         # view has no single branch to request stock TO, so the button is
