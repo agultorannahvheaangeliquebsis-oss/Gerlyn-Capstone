@@ -24,11 +24,21 @@ window.GerlynBarcodeScanner = (function () {
   // (POS, list-page search boxes). If `cameraBtn` is given and the browser
   // supports it, clicking it opens a live camera overlay and calls
   // onScan(code) on the first decode.
+  // Mobile virtual keyboards are unreliable about `keydown`'s `key`/`keyCode`
+  // for their Enter/Go/Done key — some report `keyCode 229` ("Unidentified",
+  // an IME composition placeholder) instead of a real Enter event, so a
+  // strict `e.key === 'Enter'` check can silently never fire on-device even
+  // though the same code works fine with synthetic/desktop keydown events.
+  // `keyCode 13` is the deprecated-but-still-universally-supported fallback.
+  function isEnterKey(e) {
+    return e.key === 'Enter' || e.keyCode === 13;
+  }
+
   function attach(input, { onScan, cameraBtn } = {}) {
     if (!input || typeof onScan !== 'function') return;
 
     input.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter') return;
+      if (!isEnterKey(e)) return;
       e.preventDefault();
       const value = input.value.trim();
       if (!value) return;
@@ -90,12 +100,20 @@ window.GerlynBarcodeScanner = (function () {
         });
     }
 
+    let lastLookedUp = null;
+
+    function lookupIfNew(code) {
+      if (!code || code === lastLookedUp) return;
+      lastLookedUp = code;
+      lookup(code);
+    }
+
     // Enter = "scan complete" (hardware scanner or manual typing + Enter).
     // Fast-keystroke detection: scanners "type" a whole code in a few
     // milliseconds, humans take 100ms+ per character — used only for a
     // distinct success flash, never to block or slow down input.
     input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') {
+      if (isEnterKey(e)) {
         e.preventDefault();
         const value = input.value.trim();
         if (!value) return;
@@ -104,14 +122,27 @@ window.GerlynBarcodeScanner = (function () {
           : Infinity;
         const isScan = value.length > 1 && (elapsed / value.length) < 35;
         keydownTimestamps = [];
+        lastLookedUp = value;
         lookup(value, { isScan: isScan });
         return;
       }
       keydownTimestamps.push(performance.now());
     });
 
+    // Safety net for mobile keyboards where the Enter/Go/Done key doesn't
+    // reliably produce a `keydown` event at all (some virtual keyboards
+    // swallow it entirely rather than mis-key it) — losing focus on the
+    // field (tapping elsewhere, or tapping the form's Save button) is a
+    // reliable signal that "typing is done" even when Enter never fires.
+    // Deduped via lastLookedUp so a normal Enter-then-blur doesn't look
+    // the same code up twice.
+    input.addEventListener('blur', function () {
+      lookupIfNew(input.value.trim());
+    });
+
     wireCameraButton(cameraBtn, function (code) {
       input.value = code;
+      lastLookedUp = code;
       lookup(code, { isScan: true });
     });
   }
