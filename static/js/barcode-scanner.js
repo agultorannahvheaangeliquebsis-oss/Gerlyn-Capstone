@@ -213,7 +213,20 @@ window.GerlynBarcodeScanner = (function () {
 
     html5QrCode
       .start(
-        { facingMode: 'environment' },
+        // Plain `{ facingMode: 'environment' }` lets the browser pick
+        // whatever default resolution it wants for the stream — on iOS
+        // Safari in particular that default is soft/low-detail enough
+        // that zxing-js (the only decoder available there; no native
+        // BarcodeDetector on iOS) can't resolve a real 1D barcode's
+        // narrow bars, even though the feed looks fine to the eye and a
+        // QR code still decodes. Requesting a high-res stream explicitly
+        // fixes that — `ideal` degrades gracefully on cameras/browsers
+        // that can't hit it.
+        {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         config,
         function onScanSuccess(decodedText) {
           if (stopped) return;
