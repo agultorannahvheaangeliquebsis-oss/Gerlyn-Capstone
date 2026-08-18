@@ -157,6 +157,13 @@ window.GerlynBarcodeScanner = (function () {
         Html5QrcodeSupportedFormats.EAN_8,
         Html5QrcodeSupportedFormats.CODE_128,
       ],
+      // Where available (Chrome/Android), decode via the browser's native
+      // BarcodeDetector instead of the bundled zxing-js fallback — zxing-js
+      // alone was failing to lock onto real 1D product barcodes (UPC/EAN)
+      // even with a clear, well-lit camera feed. Harmless on iOS Safari
+      // (no BarcodeDetector support): html5-qrcode silently falls back to
+      // zxing-js there, same as before.
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
     });
     let stopped = false;
 
@@ -191,7 +198,17 @@ window.GerlynBarcodeScanner = (function () {
 
     const config = {
       fps: 10,
-      qrbox: { width: 240, height: 240 },
+      // A square box suits QR codes but clips wide 1D barcodes (UPC/EAN/
+      // Code128) at the edges, which is why real product barcodes weren't
+      // decoding even with a steady, well-lit camera feed. Size the box
+      // off the actual viewfinder instead of a fixed square, and make it
+      // noticeably wider than tall so a whole UPC/EAN fits inside it.
+      qrbox: function (viewfinderWidth, viewfinderHeight) {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+        const boxWidth = Math.floor(Math.min(viewfinderWidth * 0.85, minEdge * 1.4));
+        const boxHeight = Math.floor(boxWidth * 0.55);
+        return { width: boxWidth, height: boxHeight };
+      },
     };
 
     html5QrCode
