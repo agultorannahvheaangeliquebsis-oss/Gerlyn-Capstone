@@ -209,24 +209,28 @@ window.GerlynBarcodeScanner = (function () {
         const boxHeight = Math.floor(boxWidth * 0.55);
         return { width: boxWidth, height: boxHeight };
       },
+      // `videoConstraints` (not the camera selector below) is html5-qrcode's
+      // documented way to raise stream resolution — the plain
+      // `{ facingMode: 'environment' }` camera selector otherwise leaves
+      // resolution up to the browser, and on iOS Safari that default is
+      // soft/low-detail enough that zxing-js (the only decoder available
+      // there; no native BarcodeDetector on iOS) can't resolve a real 1D
+      // barcode's narrow bars, even though a QR code still decodes fine at
+      // that resolution. `ideal` degrades gracefully on cameras that can't
+      // hit it. (Putting width/height on the camera-selector argument
+      // instead — the first fix attempt — fails html5-qrcode's internal
+      // validation of that argument and silently breaks start() entirely,
+      // which is why the camera stopped opening at all.)
+      videoConstraints: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
     };
 
     html5QrCode
       .start(
-        // Plain `{ facingMode: 'environment' }` lets the browser pick
-        // whatever default resolution it wants for the stream — on iOS
-        // Safari in particular that default is soft/low-detail enough
-        // that zxing-js (the only decoder available there; no native
-        // BarcodeDetector on iOS) can't resolve a real 1D barcode's
-        // narrow bars, even though the feed looks fine to the eye and a
-        // QR code still decodes. Requesting a high-res stream explicitly
-        // fixes that — `ideal` degrades gracefully on cameras/browsers
-        // that can't hit it.
-        {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
+        { facingMode: 'environment' },
         config,
         function onScanSuccess(decodedText) {
           if (stopped) return;
