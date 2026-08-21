@@ -4,7 +4,8 @@ from rest_framework import serializers
 from django.db import transaction
 
 from .models import SalesTransaction, SalesItem
-from inventory.models import Product, Inventory
+from core.scoping import user_can_access_branch
+from inventory.models import Product, Inventory, Batch
 from branches.models import Branch
 
 
@@ -117,6 +118,16 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         if not branch_id:
             raise serializers.ValidationError({'branchId': 'No branch assigned to your account.'})
 
+        # Staff/Manager are pinned to their own branch everywhere else in the
+        # app — a client-supplied branchId must not let them write a sale
+        # (and deduct stock) for a different one. Owner is unrestricted, and
+        # a Customer has no "home" branch to be pinned to in the first place.
+        if (user.role in (user.Role.STAFF, user.Role.BRANCH_MANAGER)
+                and not user_can_access_branch(user, branch_id)):
+            raise serializers.ValidationError(
+                {'branchId': 'You do not have access to that branch.'}
+            )
+
         order_type = validated_data['orderType']
 
         with transaction.atomic():
@@ -167,5 +178,8 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 )
                 inv.quantity_on_hand -= qty
                 inv.save()
+                # FEFO: drain whatever batches exist for this product/branch,
+                # nearest-expiry first — mirrors sales/views.py:_deduct_stock.
+                Batch.consume_fefo(product, inv.branch, qty)
 
         return txn

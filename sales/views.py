@@ -6,10 +6,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from accounts.models import User
+from billing.models import BillingRecord
 from branches.models import Branch
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.scoping import branch_ids_for_user, scope_queryset, user_can_access_branch
-from inventory.models import Inventory, Product, StockMovement
+from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
 
@@ -147,7 +148,7 @@ def transaction_detail(request, pk):
         'transaction': txn,
         'items': items,
         'billing': getattr(txn, 'billing_record', None),
-        'next_actions': _next_actions(txn),
+        'next_actions': _next_actions(txn, request.user),
     })
 
 
@@ -162,13 +163,31 @@ _FLOW = {
     SalesTransaction.OrderStatus.PENDING: ['Approved', 'Cancelled'],
     SalesTransaction.OrderStatus.APPROVED: ['Preparing', 'Cancelled'],
     SalesTransaction.OrderStatus.PREPARING: ['Completed', 'Cancelled'],
-    SalesTransaction.OrderStatus.COMPLETED: [],
+    # Completed -> Cancelled is the void path: unlike cancelling from any
+    # earlier stage (stock was never touched), this has to reverse the stock
+    # _deduct_stock already applied. Gated to Owner/Branch Manager only
+    # inside transaction_set_status — Staff can cancel an unfulfilled order
+    # but not undo a completed sale.
+    SalesTransaction.OrderStatus.COMPLETED: ['Cancelled'],
     SalesTransaction.OrderStatus.CANCELLED: [],
 }
 
 
-def _next_actions(txn):
-    return _FLOW.get(txn.order_status, [])
+def _next_actions(txn, user=None):
+    actions = _FLOW.get(txn.order_status, [])
+    if (txn.order_status == SalesTransaction.OrderStatus.COMPLETED
+            and user is not None and user.role not in [OWNER, BRANCH_MANAGER]):
+        # Staff can cancel an unfulfilled order but not void a completed
+        # one — don't offer a button transaction_set_status would reject.
+        actions = [a for a in actions if a != 'Cancelled']
+    return actions
+
+
+class _OrderActionError(Exception):
+    """Raised inside an atomic block (invalid transition, or _deduct_stock
+    hitting insufficient stock) so the whole block rolls back — including
+    any earlier line items already deducted in the same loop — instead of
+    partially applying a rejected action."""
 
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
@@ -183,37 +202,92 @@ def transaction_set_status(request, pk, new_status):
     if request.method != 'POST':
         return redirect('transaction_detail', pk=pk)
 
-    if new_status not in _next_actions(txn):
-        messages.error(
-            request,
-            f'Cannot move {txn.order_number} from {txn.order_status} to {new_status}.'
-        )
+    try:
+        with transaction.atomic():
+            # Re-fetch and lock so a second, concurrent POST advancing the
+            # same order (double-click, retry) can't also pass this guard
+            # against the same stale, pre-lock read — and can't both reach
+            # _deduct_stock for the same order.
+            locked_txn = SalesTransaction.objects.select_for_update().get(pk=pk)
+
+            if new_status not in _next_actions(locked_txn):
+                raise _OrderActionError(
+                    f'Cannot move {locked_txn.order_number} from '
+                    f'{locked_txn.order_status} to {new_status}.'
+                )
+
+            was_completed = locked_txn.order_status == SalesTransaction.OrderStatus.COMPLETED
+
+            if was_completed and new_status == SalesTransaction.OrderStatus.CANCELLED:
+                # Voiding a completed sale — undo what _deduct_stock already
+                # applied. Distinct from cancelling an earlier-stage order,
+                # which never touched stock in the first place. Reversing a
+                # completed sale is a materially bigger action (real stock,
+                # possibly real money, already moved), so it's restricted
+                # below to Owner/Branch Manager even though Staff can cancel
+                # unfulfilled orders.
+                if request.user.role not in [OWNER, BRANCH_MANAGER]:
+                    raise _OrderActionError(
+                        'Only the Owner or a Branch Manager can void a completed sale.'
+                    )
+                _reverse_stock(locked_txn, request.user)
+
+            # Deduct stock once, when an online order is completed.
+            if (new_status == SalesTransaction.OrderStatus.COMPLETED
+                    and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE):
+                _deduct_stock(locked_txn, request.user)
+
+            locked_txn.order_status = new_status
+            locked_txn.save()
+
+            if new_status == SalesTransaction.OrderStatus.CANCELLED:
+                # Keep billing in step — this is the one field
+                # transaction_set_status doesn't already own, so it used to
+                # sit at Pending indefinitely after a cancellation. A voided
+                # completed sale had real money involved (Paid or Pending);
+                # any actual refund happens outside the system (no payment
+                # gateway integration — see billing.PaymentMethod.COD) and
+                # this only reflects that in the record.
+                billing = getattr(locked_txn, 'billing_record', None)
+                if billing and billing.status != BillingRecord.PaymentStatus.CANCELLED:
+                    billing.status = BillingRecord.PaymentStatus.CANCELLED
+                    billing.confirmed_by = request.user
+                    billing.save()
+    except _OrderActionError as e:
+        messages.error(request, str(e))
         return redirect('transaction_detail', pk=pk)
-
-    with transaction.atomic():
-        # Deduct stock once, when an online order is completed.
-        if (new_status == SalesTransaction.OrderStatus.COMPLETED
-                and txn.transaction_type == SalesTransaction.TransactionType.ONLINE):
-            _deduct_stock(txn, request.user)
-
-        txn.order_status = new_status
-        txn.save()
 
     messages.success(request, f'{txn.order_number} is now {new_status}.')
     return redirect('transaction_detail', pk=pk)
 
 
 def _deduct_stock(txn, user):
-    """Deduct each line item from the order's branch floor stock + audit it."""
+    """Deduct each line item from the order's branch floor stock + audit it.
+
+    Locks each Inventory row (select_for_update) and raises
+    _OrderActionError instead of silently floor-ing at 0 (or skipping
+    entirely when no Inventory row exists at all) when there isn't enough —
+    the caller's atomic block rolls back the whole sale so a rejected sale
+    never partially applies.
+    """
     for item in txn.items.select_related('product').all():
-        inv = Inventory.objects.filter(
+        inv = Inventory.objects.select_for_update().filter(
             product=item.product, branch=txn.branch
         ).first()
-        if not inv:
-            continue
+        available = inv.quantity_on_hand if inv else 0
+        if available < item.quantity_sold:
+            raise _OrderActionError(
+                f'Not enough stock for {item.product.product_name} — '
+                f'available: {available}, needed: {item.quantity_sold}.'
+            )
         before = inv.quantity_on_hand
-        inv.quantity_on_hand = max(0, inv.quantity_on_hand - item.quantity_sold)
+        inv.quantity_on_hand -= item.quantity_sold
         inv.save()
+        # FEFO: drain whatever batches exist for this product/branch,
+        # nearest-expiry first. The aggregate Inventory row above remains
+        # the source of truth for quantity_on_hand regardless of whether
+        # batches happen to cover it.
+        Batch.consume_fefo(item.product, txn.branch, item.quantity_sold)
         StockMovement.objects.create(
             inventory=inv,
             location_type=StockMovement.LocationType.FLOOR,
@@ -223,6 +297,39 @@ def _deduct_stock(txn, user):
             quantity_after=inv.quantity_on_hand,
             reference_id=txn.pk,
             notes=f'Order {txn.order_number}',
+            created_by=user,
+        )
+
+
+def _reverse_stock(txn, user):
+    """Undo a completed sale's stock deduction when it's voided — the
+    inverse of _deduct_stock, called from transaction_set_status when a
+    COMPLETED order moves to Cancelled. If the original Inventory row was
+    deleted since the sale, get_or_create it rather than losing the
+    reversal (mirrors how a fresh receiving credits a possibly-new row).
+
+    Deliberately does NOT restore the batches Batch.consume_fefo drew down
+    at sale time — nothing records which specific batch(es) supplied a given
+    sale, so there's no correct batch to credit back. The aggregate
+    Inventory row (source of truth for quantity_on_hand) is fully reversed
+    either way; only the batch-level expiry breakdown is left as-is."""
+    for item in txn.items.select_related('product').all():
+        inv, _ = Inventory.objects.select_for_update().get_or_create(
+            product=item.product, branch=txn.branch,
+            defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+        )
+        before = inv.quantity_on_hand
+        inv.quantity_on_hand += item.quantity_sold
+        inv.save()
+        StockMovement.objects.create(
+            inventory=inv,
+            location_type=StockMovement.LocationType.FLOOR,
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+            quantity_change=inv.quantity_on_hand - before,
+            quantity_before=before,
+            quantity_after=inv.quantity_on_hand,
+            reference_id=txn.pk,
+            notes=f'Voided order {txn.order_number} — stock reversal',
             created_by=user,
         )
 
@@ -266,46 +373,57 @@ def transaction_add(request):
         errors.append('Add at least one item with a quantity.')
 
     if not errors:
-        with transaction.atomic():
-            txn = SalesTransaction.objects.create(
-                branch_id=branch_id,
-                staff=request.user if request.user.role == STAFF else None,
-                transaction_type=SalesTransaction.TransactionType.PHYSICAL,
-                mode_of_payment=mode_of_payment,
-                order_type=order_type,
-                order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
-                total_amount=0,
-            )
+        # Prices resolved and the total computed up front — same order as the
+        # DRF API's create() — instead of creating the transaction at
+        # total_amount=0 first (which left billing.signals creating an
+        # amount_due=0 BillingRecord) and patching both afterward.
+        resolved_items = []
+        total = 0
+        for product_id, qty in line_items:
+            product = Product.objects.get(pk=product_id)
+            price = price_for(product, order_type)
+            resolved_items.append((product, qty, price))
+            total += price * qty
 
-            total = 0
-            for product_id, qty in line_items:
-                product = Product.objects.get(pk=product_id)
-                price = price_for(product, order_type)
-                SalesItem.objects.create(
-                    transaction=txn, product=product,
-                    quantity_sold=qty, unit_price=price,
+        try:
+            with transaction.atomic():
+                txn = SalesTransaction.objects.create(
+                    branch_id=branch_id,
+                    staff=request.user if request.user.role == STAFF else None,
+                    transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+                    mode_of_payment=mode_of_payment,
+                    order_type=order_type,
+                    order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
+                    total_amount=total,
                 )
-                total += price * qty
 
-            txn.total_amount = total
-            txn.save()
+                for product, qty, price in resolved_items:
+                    SalesItem.objects.create(
+                        transaction=txn, product=product,
+                        quantity_sold=qty, unit_price=price,
+                    )
 
-            # Walk-in sales leave the shelf immediately.
-            _deduct_stock(txn, request.user)
+                # Walk-in sales leave the shelf immediately. Raises
+                # _OrderActionError (rolling back this whole atomic block,
+                # including the transaction/items just created above) if any
+                # line item is oversold.
+                _deduct_stock(txn, request.user)
 
-            # billing.signals already created the record; mark it paid.
-            billing = getattr(txn, 'billing_record', None)
-            if billing:
-                billing.amount_due = total
-                billing.payment_method = (
-                    mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
-                )
-                billing.status = 'Paid'
-                billing.confirmed_by = request.user
-                billing.save()
-
-        messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
-        return redirect('transaction_detail', pk=txn.pk)
+                # billing.signals already created the record; mark it paid.
+                billing = getattr(txn, 'billing_record', None)
+                if billing:
+                    billing.amount_due = total
+                    billing.payment_method = (
+                        mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
+                    )
+                    billing.status = 'Paid'
+                    billing.confirmed_by = request.user
+                    billing.save()
+        except _OrderActionError as e:
+            errors.append(str(e))
+        else:
+            messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
+            return redirect('transaction_detail', pk=txn.pk)
 
     # Rejected. Re-render the console with the modal open, the header
     # selections re-chosen, and the item rows rebuilt from what was posted —

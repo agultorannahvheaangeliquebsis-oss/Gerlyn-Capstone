@@ -1,3 +1,4 @@
+from django.db.models import Sum
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -43,10 +44,9 @@ def billing_list(request):
     if status_filter:
         records = records.filter(status=status_filter)
 
-    outstanding = sum(
-        r.amount_due for r in records
-        if r.status == BillingRecord.PaymentStatus.PENDING
-    )
+    outstanding = records.filter(
+        status=BillingRecord.PaymentStatus.PENDING
+    ).aggregate(total=Sum('amount_due'))['total'] or 0
 
     return render(request, 'billing/billing_list.html', {
         'records': records,
@@ -165,14 +165,29 @@ def billing_create(request, transaction_id):
 
 @login_required(login_url='accounts:login')
 def billing_confirm(request, pk):
-    record = get_object_or_404(BillingRecord, pk=pk)
+    record = get_object_or_404(
+        BillingRecord.objects.select_related('transaction'), pk=pk
+    )
 
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'You do not have permission to confirm payments.')
         return redirect('billing_detail', pk=pk)
 
+    # Same scoping rule as billing_detail/billing_create — without this, any
+    # Staff/Manager could confirm or reject a payment belonging to another
+    # branch just by knowing the record id.
+    if not user_can_access_branch(request.user, record.transaction.branch_id):
+        messages.error(request, 'That billing record is not available to you.')
+        return redirect('billing_list')
+
     if request.method == 'POST':
         new_status = request.POST.get('status')
+        # This form only ever offers Mark as Paid / Reject — anything else
+        # (a tampered POST) is rejected outright rather than persisted as an
+        # arbitrary string that would quietly break status-based filters.
+        if new_status not in (BillingRecord.PaymentStatus.PAID, BillingRecord.PaymentStatus.REJECTED):
+            messages.error(request, 'Invalid payment status.')
+            return redirect('billing_detail', pk=pk)
         record.status = new_status
         record.confirmed_by = request.user
         record.date_confirmed = timezone.now()

@@ -270,6 +270,36 @@ class Batch(models.Model):
         today = timezone.now().date()
         return (self.expiry_date - today).days
 
+    @classmethod
+    def consume_fefo(cls, product, branch, quantity):
+        """Deduct `quantity` units from this product/branch's batches,
+        nearest-expiry-first — the FEFO rule described in this model's own
+        docstring, actually enforced. Spans batches if the nearest one
+        doesn't cover the full amount.
+
+        Batch tracking is supplementary, not authoritative: most stock
+        isn't batch-tracked at all (batches are only auto-created from a
+        procurement receipt), so this only ever consumes what batches
+        actually exist — the aggregate Inventory/WarehouseStock row, which
+        the caller updates separately, remains the source of truth for
+        total quantity_on_hand regardless of batch coverage.
+
+        Must be called from within an existing transaction — locks each
+        batch row it touches.
+        """
+        remaining = quantity
+        batches = cls.objects.select_for_update().filter(
+            product=product, branch=branch, quantity__gt=0
+        ).order_by('expiry_date')
+        for batch in batches:
+            if remaining <= 0:
+                break
+            take = min(batch.quantity, remaining)
+            batch.quantity -= take
+            batch.save(update_fields=['quantity'])
+            remaining -= take
+        return quantity - remaining  # units actually consumed from batches
+
     def __str__(self):
         return (
             f"{self.batch_number} | "

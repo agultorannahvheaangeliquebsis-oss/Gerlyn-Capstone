@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User
+from core.refdata import bust_branches_cache
 from inventory.models import Inventory, Warehouse
 
 from .models import Branch
@@ -17,12 +18,16 @@ def _branch_list_context():
         product_count=Count('inventory', distinct=True),
     ).order_by('branch_name')
 
+    # One query for every branch's manager instead of one query per branch.
+    manager_by_branch_id = {}
+    for m in BranchManagerProfile.objects.filter(branch__in=branches):
+        manager_by_branch_id.setdefault(m.branch_id, m.manager_name)
+
     rows = []
     for b in branches:
-        manager = BranchManagerProfile.objects.filter(branch=b).first()
         rows.append({
             'branch': b,
-            'manager': manager.manager_name if manager else None,
+            'manager': manager_by_branch_id.get(b.pk),
             'staff_count': b.staff_count,
             'product_count': b.product_count,
         })
@@ -85,6 +90,7 @@ def branch_form(request, pk=None):
             branch.location = location
             branch.save()
             messages.success(request, f'Branch "{name}" updated.')
+        bust_branches_cache()
         return redirect('branch_list')
 
     context = _branch_list_context()
@@ -125,6 +131,7 @@ def branch_delete(request, pk):
             return redirect('branch_list')
         name = branch.branch_name
         branch.delete()
+        bust_branches_cache()
         messages.success(request, f'Branch "{name}" deleted.')
         return redirect('branch_list')
 

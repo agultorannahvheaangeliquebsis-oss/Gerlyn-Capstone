@@ -234,12 +234,16 @@ def deactivate_account(user):
 
 def send_email_change_verification(user, new_email, request):
     """
-    Stores pending_email and sends verification to the NEW address.
-    User.email is NOT changed yet — only after the link is clicked.
-    """
-    user.pending_email = new_email
-    user.save(update_fields=['pending_email'])
+    Sends verification to the NEW address, then stores pending_email only
+    once that send actually succeeds. User.email is NOT changed yet — only
+    after the link is clicked.
 
+    Order matters here: if send_mail() raises, we must not have already
+    committed pending_email — update_profile()'s duplicate check filters on
+    that field, so a single SMTP hiccup would otherwise permanently lock the
+    address out (including for whoever originally requested it) until
+    someone manually clears it.
+    """
     VerificationToken.objects.filter(
         user=user, purpose=VerificationToken.PURPOSE_EMAIL_CHANGE, is_used=False
     ).delete()
@@ -263,3 +267,6 @@ def send_email_change_verification(user, new_email, request):
         recipient_list=[new_email],
         fail_silently=False,
     )
+
+    user.pending_email = new_email
+    user.save(update_fields=['pending_email'])

@@ -30,8 +30,6 @@ CUSTOMER = "CUSTOMER"
 
 # Roles that operate the internal system (back office).
 INTERNAL_ROLES = frozenset({OWNER, BRANCH_MANAGER, STAFF})
-# Roles allowed to see/act on a branch's operational data.
-BRANCH_ROLES = frozenset({OWNER, BRANCH_MANAGER, STAFF})
 
 
 def user_has_role(user, roles) -> bool:
@@ -58,7 +56,7 @@ class RoleRequiredMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return redirect(settings.LOGIN_URL)
-        if self.allowed_roles and request.user.role not in self.allowed_roles:
+        if not self.allowed_roles or request.user.role not in self.allowed_roles:
             raise PermissionDenied(
                 "Your role does not have access to this page."
             )
@@ -81,7 +79,7 @@ def role_required(*roles):
         def _wrapped(request, *args, **kwargs):
             if not request.user.is_authenticated:
                 return redirect(settings.LOGIN_URL)
-            if roles and request.user.role not in roles:
+            if not roles or request.user.role not in roles:
                 raise PermissionDenied(
                     "Your role does not have access to this action."
                 )

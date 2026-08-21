@@ -17,7 +17,7 @@ from .alerts import alert_summary
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, role_required
-from core.refdata import cached_branches, cached_categories
+from core.refdata import bust_categories_cache, cached_branches, cached_categories
 from core.scoping import branch_ids_for_user, user_can_access_branch
 from core.timebounds import local_month_bounds
 
@@ -213,8 +213,13 @@ def product_add(request):
                     )
                 # Availability: a checked branch gets a zero-qty floor Inventory
                 # row so it shows up as stocked and ready for a withdrawal slip.
+                # A Branch Manager only gets to do this for their own branch —
+                # branch_ids comes straight from POST, so a tampered request
+                # (devtools/proxy) listing another branch must not create a
+                # stock row there. Owner is unrestricted, as everywhere else.
                 for branch_id in branch_ids:
-                    Inventory.objects.create(product=product, branch_id=branch_id)
+                    if branch_id.isdigit() and user_can_access_branch(request.user, int(branch_id)):
+                        Inventory.objects.create(product=product, branch_id=int(branch_id))
         except (ValueError, TypeError, IntegrityError, DecimalException):
             errors.append('Could not save the product — check that the prices are valid numbers.')
         else:
@@ -405,6 +410,7 @@ def category_form(request, pk=None):
             category.description = description
             category.save()
             messages.success(request, f'Category "{name}" updated.')
+        bust_categories_cache()
         return redirect('category_list')
 
     context = _category_list_context(request)
@@ -445,6 +451,7 @@ def category_delete(request, pk):
             return redirect('category_list')
         name = category.category_name
         category.delete()
+        bust_categories_cache()
         messages.success(request, f'Category "{name}" deleted.')
         return redirect('category_list')
 
@@ -736,10 +743,10 @@ def warehouse_stock_list(request):
         # a number Python already has.
         'total_products': len(rows),
         'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
-        # Only meaningful when pinned to one branch — Owner's "all warehouses"
-        # view has no single branch to request stock TO, so the button is
-        # hidden there rather than guessing which branch is meant.
-        'can_request_to_floor': warehouse is not None,
+        # Always available to any internal role — when there's no single
+        # pinned branch (Owner), warehouse_stock_request shows a branch
+        # picker first rather than the button being hidden outright.
+        'can_request_to_floor': True,
     })
 
 
@@ -951,13 +958,38 @@ def transfer_list(request):
     })
 
 
+class _InsufficientStockError(Exception):
+    """Raised inside a transfer_complete atomic block to abort the whole
+    release (and roll back everything applied so far in the loop) when the
+    current stock no longer covers an already-approved quantity."""
+
+
+def _safe_positive_int(value):
+    """int(value) if it's a clean positive integer, else None — used instead
+    of a bare int() in the transfer-quantity parsing below, which used to
+    raise an unhandled ValueError (500) on any non-numeric POST value."""
+    if value is None:
+        return None
+    value = str(value).strip()
+    if not value.isdigit():
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
 @login_required(login_url='accounts:login')
 def warehouse_stock_request(request):
     """Dedicated "Request Stock to Floor" entry point, reached from the
-    Warehouse Stock page — always a Branch Restock, always the user's own
-    branch, no Purpose picker. Separate on purpose from New Stock Adjustment
-    (transfer_create below), which now only handles floor-level write-offs,
-    so the two actions can never be confused for each other."""
+    Warehouse Stock page — always a Branch Restock, no Purpose picker.
+    Separate on purpose from New Stock Adjustment (transfer_create below),
+    which now only handles floor-level write-offs, so the two actions can
+    never be confused for each other.
+
+    Staff/Manager are pinned to their own branch as before. The Owner has no
+    single branch to default to, so they pick one via ?branch=<id> (or the
+    branch_id field on resubmit) — same pattern as the Floor Stock page's
+    Stock Adjustment modal, which shows a branch picker under the same
+    condition rather than hiding the action outright."""
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
@@ -965,14 +997,24 @@ def warehouse_stock_request(request):
         return redirect('warehouse_stock_list')
 
     user_branch = get_user_branch(request.user)
-    if not user_branch:
-        messages.error(request, 'This action needs a single assigned branch.')
-        return redirect('warehouse_stock_list')
+    if user_branch:
+        target_branch = user_branch
+    else:
+        branch_id = request.GET.get('branch') or request.POST.get('branch_id')
+        target_branch = Branch.objects.filter(pk=branch_id).first() if branch_id else None
+
+    if not target_branch:
+        # Owner hasn't picked a branch yet — show the picker instead of the
+        # item form (there's nothing to list warehouse stock FROM yet).
+        return render(request, 'inventory/warehouse_stock_request.html', {
+            'warehouse': None,
+            'branches': cached_branches(),
+        })
 
     try:
-        warehouse = Warehouse.objects.get(branch=user_branch)
+        warehouse = Warehouse.objects.get(branch=target_branch)
     except Warehouse.DoesNotExist:
-        messages.error(request, 'No warehouse found for your branch.')
+        messages.error(request, f'No warehouse found for {target_branch.branch_name}.')
         return redirect('warehouse_stock_list')
 
     warehouse_stock = WarehouseStock.objects.filter(
@@ -986,8 +1028,8 @@ def warehouse_stock_request(request):
         quantities = request.POST.getlist('quantity_requested')
 
         valid_items = [
-            (pid, qty) for pid, qty in zip(product_ids, quantities)
-            if pid and qty and int(qty) > 0
+            (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
+            if pid and _safe_positive_int(qty) is not None
         ]
 
         if not valid_items:
@@ -1001,7 +1043,7 @@ def warehouse_stock_request(request):
             transfer = StockTransfer.objects.create(
                 warehouse=warehouse,
                 source_branch=warehouse.branch,
-                destination_branch=user_branch,
+                destination_branch=target_branch,
                 purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
                 requested_by=request.user,
                 status=StockTransfer.Status.PENDING,
@@ -1012,7 +1054,7 @@ def warehouse_stock_request(request):
                 StockTransferItem.objects.create(
                     transfer=transfer,
                     product_id=product_id,
-                    quantity_requested=int(qty),
+                    quantity_requested=qty,
                     quantity_approved=0,
                 )
 
@@ -1075,8 +1117,8 @@ def transfer_create(request):
 
         # Validate at least one item
         valid_items = [
-            (pid, qty) for pid, qty in zip(product_ids, quantities)
-            if pid and qty and int(qty) > 0
+            (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
+            if pid and _safe_positive_int(qty) is not None
         ]
 
         if not valid_items:
@@ -1102,7 +1144,7 @@ def transfer_create(request):
                 StockTransferItem.objects.create(
                     transfer=transfer,
                     product_id=product_id,
-                    quantity_requested=int(qty),
+                    quantity_requested=qty,
                     quantity_approved=0,
                 )
 
@@ -1170,18 +1212,26 @@ def transfer_approve(request, pk):
                 is_restock = transfer.purpose == StockTransfer.Purpose.BRANCH_RESTOCK
 
                 for item, approved_qty in zip(items, approved_quantities):
-                    approved_qty = int(approved_qty or 0)
+                    # A bad/negative value here used to either 500 (bare
+                    # int()) or, worse, pass a negative straight through —
+                    # which on release would SUBTRACT a negative number,
+                    # i.e. add stock. Clamped to 0 so it just approves nothing.
+                    approved_qty = _safe_positive_int(approved_qty) or 0
 
                     # Branch Restock draws from the warehouse; write-offs
                     # (damaged/spoiled, sample/display, other) draw from
                     # what's already on the floor being written off.
+                    # select_for_update() locks the row for the rest of this
+                    # transaction so a second, concurrently-approved transfer
+                    # against the same product can't read the same
+                    # not-yet-committed quantity_on_hand.
                     if is_restock:
-                        stock = WarehouseStock.objects.filter(
+                        stock = WarehouseStock.objects.select_for_update().filter(
                             warehouse=transfer.warehouse, product=item.product
                         ).first()
                         location_label = 'warehouse'
                     else:
-                        stock = Inventory.objects.filter(
+                        stock = Inventory.objects.select_for_update().filter(
                             branch=transfer.source_branch, product=item.product
                         ).first()
                         location_label = 'floor'
@@ -1252,95 +1302,122 @@ def transfer_complete(request, pk):
     if request.method == 'POST':
         is_restock = transfer.purpose == StockTransfer.Purpose.BRANCH_RESTOCK
 
-        with transaction.atomic():
-            for item in transfer.items.select_related('product').all():
-                if item.quantity_approved <= 0:
-                    continue
+        try:
+            with transaction.atomic():
+                for item in transfer.items.select_related('product').all():
+                    if item.quantity_approved <= 0:
+                        continue
 
-                if is_restock:
-                    # 1. Deduct from warehouse stock
-                    ws = get_object_or_404(
-                        WarehouseStock,
-                        warehouse=transfer.warehouse,
-                        product=item.product
-                    )
-                    qty_before_warehouse = ws.quantity_on_hand
-                    ws.quantity_on_hand -= item.quantity_approved
-                    ws.save()
-
-                    # Log warehouse movement
-                    StockMovement.objects.create(
-                        warehouse_stock=ws,
-                        location_type=StockMovement.LocationType.WAREHOUSE,
-                        movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
-                        quantity_change=-item.quantity_approved,
-                        quantity_before=qty_before_warehouse,
-                        quantity_after=ws.quantity_on_hand,
-                        reference_id=transfer.pk,
-                        notes=f'Stock withdrawal {transfer.slip_number}',
-                        created_by=request.user,
-                    )
-
-                    # 2. Add to store floor inventory
-                    if transfer.destination_branch:
-                        inv, created = Inventory.objects.get_or_create(
-                            product=item.product,
-                            branch=transfer.destination_branch,
-                            defaults={
-                                'quantity_on_hand': 0,
-                                'reorder_level': 0
-                            }
+                    if is_restock:
+                        # 1. Deduct from warehouse stock. select_for_update()
+                        # locks the row, and the check below re-validates
+                        # against the CURRENT quantity_on_hand rather than
+                        # trusting the snapshot from approval time — another
+                        # transfer approved against the same product may have
+                        # already consumed the stock in between. Without this,
+                        # two approved transfers could both release and drive
+                        # quantity_on_hand negative.
+                        ws = get_object_or_404(
+                            WarehouseStock.objects.select_for_update(),
+                            warehouse=transfer.warehouse,
+                            product=item.product
                         )
+                        if item.quantity_approved > ws.quantity_on_hand:
+                            raise _InsufficientStockError(
+                                f'Not enough warehouse stock for {item.product.product_name} to '
+                                f'release this transfer — available: {ws.quantity_on_hand}, '
+                                f'approved: {item.quantity_approved}.'
+                            )
+                        qty_before_warehouse = ws.quantity_on_hand
+                        ws.quantity_on_hand -= item.quantity_approved
+                        ws.save()
+
+                        # Log warehouse movement
+                        StockMovement.objects.create(
+                            warehouse_stock=ws,
+                            location_type=StockMovement.LocationType.WAREHOUSE,
+                            movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
+                            quantity_change=-item.quantity_approved,
+                            quantity_before=qty_before_warehouse,
+                            quantity_after=ws.quantity_on_hand,
+                            reference_id=transfer.pk,
+                            notes=f'Stock withdrawal {transfer.slip_number}',
+                            created_by=request.user,
+                        )
+
+                        # 2. Add to store floor inventory
+                        if transfer.destination_branch:
+                            inv, created = Inventory.objects.get_or_create(
+                                product=item.product,
+                                branch=transfer.destination_branch,
+                                defaults={
+                                    'quantity_on_hand': 0,
+                                    'reorder_level': 0
+                                }
+                            )
+                            qty_before_floor = inv.quantity_on_hand
+                            inv.quantity_on_hand += item.quantity_approved
+                            inv.save()
+
+                            # Log floor movement
+                            StockMovement.objects.create(
+                                inventory=inv,
+                                location_type=StockMovement.LocationType.FLOOR,
+                                movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
+                                quantity_change=item.quantity_approved,
+                                quantity_before=qty_before_floor,
+                                quantity_after=inv.quantity_on_hand,
+                                reference_id=transfer.pk,
+                                notes=f'Withdrawal Slip {transfer.slip_number}',
+                                created_by=request.user,
+                            )
+                    else:
+                        # Write-off (damaged/spoiled, sample/display, other):
+                        # deducted straight from the floor — it's already on
+                        # the shelf, never touched the warehouse — and there's
+                        # no destination to credit. Same select_for_update +
+                        # re-check as the restock branch above: an
+                        # over-approved write-off used to silently clamp to 0
+                        # via max(0, ...) instead of being rejected.
+                        inv = get_object_or_404(
+                            Inventory.objects.select_for_update(),
+                            branch=transfer.source_branch, product=item.product
+                        )
+                        if item.quantity_approved > inv.quantity_on_hand:
+                            raise _InsufficientStockError(
+                                f'Not enough floor stock for {item.product.product_name} to '
+                                f'write off — available: {inv.quantity_on_hand}, '
+                                f'approved: {item.quantity_approved}.'
+                            )
                         qty_before_floor = inv.quantity_on_hand
-                        inv.quantity_on_hand += item.quantity_approved
+                        inv.quantity_on_hand -= item.quantity_approved
                         inv.save()
 
-                        # Log floor movement
                         StockMovement.objects.create(
                             inventory=inv,
                             location_type=StockMovement.LocationType.FLOOR,
-                            movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
-                            quantity_change=item.quantity_approved,
+                            movement_type=StockMovement.MovementType.MANUAL_OUT,
+                            quantity_change=-item.quantity_approved,
                             quantity_before=qty_before_floor,
                             quantity_after=inv.quantity_on_hand,
                             reference_id=transfer.pk,
-                            notes=f'Withdrawal Slip {transfer.slip_number}',
+                            notes=f'Withdrawal Slip {transfer.slip_number} — {transfer.purpose}',
                             created_by=request.user,
                         )
+
+                if is_restock:
+                    # Still needs the destination branch to confirm receipt.
+                    transfer.status = StockTransfer.Status.RELEASED
                 else:
-                    # Write-off (damaged/spoiled, sample/display, other):
-                    # deducted straight from the floor — it's already on
-                    # the shelf, never touched the warehouse — and there's
-                    # no destination to credit.
-                    inv = get_object_or_404(
-                        Inventory, branch=transfer.source_branch, product=item.product
-                    )
-                    qty_before_floor = inv.quantity_on_hand
-                    inv.quantity_on_hand = max(0, inv.quantity_on_hand - item.quantity_approved)
-                    inv.save()
-
-                    StockMovement.objects.create(
-                        inventory=inv,
-                        location_type=StockMovement.LocationType.FLOOR,
-                        movement_type=StockMovement.MovementType.MANUAL_OUT,
-                        quantity_change=-item.quantity_approved,
-                        quantity_before=qty_before_floor,
-                        quantity_after=inv.quantity_on_hand,
-                        reference_id=transfer.pk,
-                        notes=f'Withdrawal Slip {transfer.slip_number} — {transfer.purpose}',
-                        created_by=request.user,
-                    )
-
-            if is_restock:
-                # Still needs the destination branch to confirm receipt.
-                transfer.status = StockTransfer.Status.RELEASED
-            else:
-                # A write-off has no separate receiving party — releasing
-                # it IS the whole transaction, so it's done in one step.
-                transfer.status = StockTransfer.Status.ACKNOWLEDGED
-                transfer.acknowledged_by = request.user
-                transfer.received_qty = sum(i.quantity_approved for i in transfer.items.all())
-            transfer.save()
+                    # A write-off has no separate receiving party — releasing
+                    # it IS the whole transaction, so it's done in one step.
+                    transfer.status = StockTransfer.Status.ACKNOWLEDGED
+                    transfer.acknowledged_by = request.user
+                    transfer.received_qty = sum(i.quantity_approved for i in transfer.items.all())
+                transfer.save()
+        except _InsufficientStockError as e:
+            messages.error(request, str(e))
+            return redirect('transfer_detail', pk=pk)
 
         if is_restock:
             messages.success(

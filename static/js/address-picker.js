@@ -17,6 +17,7 @@ window.AddressPicker = (function () {
   var marker = null;
   var els = {};
   var searchDebounceTimer = null;
+  var searchAbortController = null;
   var currentOptions = {};
 
   function cacheEls() {
@@ -53,9 +54,21 @@ window.AddressPicker = (function () {
     });
   }
 
-  function fetchJSON(url, params) {
+  function fetchJSON(url, params, signal) {
     var qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return fetch(url + qs).then(function (res) { return res.json(); });
+    var opts = signal ? { signal: signal } : undefined;
+    return fetch(url + qs, opts)
+      .then(function (res) { return res.json(); })
+      .catch(function (err) {
+        // An aborted request (see doSearch) must stay rejected so the
+        // caller can tell "superseded by a newer request" apart from "the
+        // network actually failed" — re-throw just that case. Anything else
+        // (offline, a bad response) falls back to an empty result set
+        // instead of an unhandled rejection with the dropdown/suggestions
+        // just never populating.
+        if (err && err.name === 'AbortError') throw err;
+        return { results: [] };
+      });
   }
 
   function fillSelect(selectEl, results, placeholder) {
@@ -129,9 +142,21 @@ window.AddressPicker = (function () {
   }
 
   function doSearch(q) {
-    fetchJSON(urls.search, { q: q, locality: localityLabel() }).then(function (data) {
-      renderSuggestions(data.results || []);
-    });
+    // Abort the in-flight search before starting a new one — without this,
+    // an earlier keystroke's response can arrive after a later one and
+    // overwrite it with stale suggestions.
+    if (searchAbortController) searchAbortController.abort();
+    searchAbortController = new AbortController();
+    fetchJSON(urls.search, { q: q, locality: localityLabel() }, searchAbortController.signal)
+      .then(function (data) {
+        renderSuggestions(data.results || []);
+      })
+      .catch(function (err) {
+        // Superseded by a newer keystroke — the newer request's .then will
+        // update the UI; do nothing here rather than clearing suggestions
+        // that are about to be replaced anyway.
+        if (err && err.name === 'AbortError') return;
+      });
   }
 
   function renderSuggestions(results) {

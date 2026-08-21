@@ -1,3 +1,5 @@
+from django.contrib.auth import password_validation
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models import User
 
@@ -116,7 +118,7 @@ class UserCreateSerializer(serializers.Serializer):
     an empty profile first; this fills it in with the submitted details."""
     username = serializers.CharField()
     email = serializers.EmailField(required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, min_length=4)
+    password = serializers.CharField(write_only=True)
     role = serializers.ChoiceField(choices=User.Role.choices)
     fullName = serializers.CharField(required=False, allow_blank=True)
     contactNumber = serializers.CharField(required=False, allow_blank=True)
@@ -126,6 +128,18 @@ class UserCreateSerializer(serializers.Serializer):
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():
             raise serializers.ValidationError('Username already taken.')
+        return value
+
+    def validate_password(self, value):
+        # Same AUTH_PASSWORD_VALIDATORS enforced on self-service registration —
+        # an Owner-created account (including elevated roles) shouldn't be
+        # able to end up with a weaker password than a customer's.
+        try:
+            password_validation.validate_password(
+                value, user=User(username=self.initial_data.get('username', ''))
+            )
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
         return value
 
     def create(self, validated_data):

@@ -7,15 +7,39 @@
   <div>
     <a class="back-link" href="{% url 'warehouse_stock_list' %}">Warehouse Stock</a>
     <h1 class="mt-2">Request Stock to Floor</h1>
+    {% if warehouse %}
     <p class="gv-meta mb-0">
       Moves stock from {{ warehouse.name }} onto {{ warehouse.branch.branch_name }}'s floor once approved and released.
       For damaged, expired, spoiled, or other write-offs, use New Stock Adjustment instead.
     </p>
+    {% else %}
+    <p class="gv-meta mb-0">Choose which branch's warehouse to request stock from.</p>
+    {% endif %}
   </div>
 </div>
 
+{% if not warehouse %}
+<form method="GET" id="branch-pick-form">
+  <div class="card card-pad mb-4">
+    <div class="field">
+      <label for="pick-branch">Branch <span style="color:var(--danger-dot);">*</span></label>
+      <select id="pick-branch" name="branch" required>
+        <option value="">— Choose a branch —</option>
+        {% for b in branches %}
+          <option value="{{ b.id }}">{{ b.branch_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <button type="submit" class="btn btn-primary">Continue</button>
+    <a href="{% url 'warehouse_stock_list' %}" class="btn">Cancel</a>
+  </div>
+</form>
+{% else %}
 <form method="POST" id="request-form">
   {% csrf_token %}
+  <input type="hidden" name="branch_id" value="{{ warehouse.branch.id }}">
   <div class="card card-pad mb-4">
     <div class="grid-2">
       <div class="field">
@@ -66,4 +90,5 @@
     <a href="{% url 'warehouse_stock_list' %}" class="btn">Cancel</a>
   </div>
 </form>
+{% endif %}
 {% endblock %}

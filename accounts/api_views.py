@@ -6,6 +6,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.shortcuts import get_object_or_404
 from .serializers import UserSerializer, UserAdminSerializer, UserCreateSerializer, UserUpdateSerializer
 from .models import User
+from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
 
 
 class LoginView(APIView):
@@ -27,14 +28,22 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        if is_login_locked_out(username):
+            return Response(
+                {'detail': 'Too many failed attempts. Try again in a few minutes.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         user = authenticate(request, username=username, password=password)
 
         if user is None:
+            register_failed_login(username)
             return Response(
                 {'detail': 'Invalid username or password.'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+        clear_failed_logins(username)
         login(request, user)
         serializer = UserSerializer(user)
         return Response({

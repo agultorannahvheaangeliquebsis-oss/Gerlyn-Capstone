@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Procurement, ProcurementItem
-from inventory.models import Product, Inventory, Batch, Warehouse
+from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
 from branches.models import Branch
 
@@ -235,11 +235,20 @@ class ProcurementWriteSerializer(serializers.Serializer):
 # Preserves existing template view logic + adds Batch creation on Received.
 # =============================================================================
 
+class ProcurementReceivedItemSerializer(serializers.Serializer):
+    """One line of the optional `items` payload on a RECEIVED transition —
+    the actual delivered quantity for one ProcurementItem."""
+    itemId = serializers.IntegerField()
+    quantityReceived = serializers.IntegerField(min_value=0)
+
+
 class ProcurementStatusSerializer(serializers.Serializer):
     """
     Validates and applies a status transition.
-    On RECEIVED: updates quantity_received, updates Inventory,
-    and auto-creates a Batch record per item (for FEFO tracking).
+    On RECEIVED: updates quantity_received, credits WarehouseStock (never
+    Inventory — a delivery stocks the warehouse; floor stock only moves via
+    an approved, released withdrawal slip, same rule delivery_receive
+    enforces), and auto-creates a Batch record per item (for FEFO tracking).
     """
     status      = serializers.ChoiceField(choices=Procurement.Status.choices)
     receiptFlag = serializers.ChoiceField(
@@ -249,11 +258,21 @@ class ProcurementStatusSerializer(serializers.Serializer):
     )
     # Optional: override delivery date when marking as received
     deliveryDate = serializers.DateField(required=False, allow_null=True)
+    # Optional per-item received quantities for a RECEIVED transition. If
+    # omitted entirely, every item is assumed received in full — the same
+    # assumption this endpoint always made, kept as the default for any
+    # client that doesn't send per-item quantities yet.
+    items = ProcurementReceivedItemSerializer(many=True, required=False)
 
     def update(self, instance, validated_data):
         new_status   = validated_data['status']
         receipt_flag = validated_data.get('receiptFlag', Procurement.ReceiptFlag.NONE)
         delivery_date = validated_data.get('deliveryDate') or instance.delivery_date
+        submitted_items = {
+            entry['itemId']: entry['quantityReceived']
+            for entry in validated_data.get('items', [])
+        }
+        user = self.context.get('request').user if self.context.get('request') else None
 
         with transaction.atomic():
             instance.status       = new_status
@@ -264,35 +283,61 @@ class ProcurementStatusSerializer(serializers.Serializer):
 
             if new_status == Procurement.Status.RECEIVED:
                 received_date = delivery_date or timezone.now().date()
+                warehouse = Warehouse.objects.filter(branch=instance.branch).first()
+                if warehouse is None:
+                    raise serializers.ValidationError(
+                        {'detail': f'No warehouse is configured for {instance.branch.branch_name} — cannot receive stock.'}
+                    )
 
                 for item in instance.items.select_related('product').all():
-                    # --- Preserve original template view logic ---------------
-                    item.quantity_received = item.quantity_ordered
+                    # A quantity greater than what was ordered is rejected
+                    # rather than silently inflating stock — clamp to the
+                    # valid [0, quantity_ordered] range.
+                    requested_qty = submitted_items.get(item.id, item.quantity_ordered)
+                    qty_received = max(0, min(requested_qty, item.quantity_ordered))
+
+                    item.quantity_received = qty_received
                     item.save()
 
-                    inv, _ = Inventory.objects.get_or_create(
-                        product=item.product,
-                        branch=instance.branch,
-                        defaults={'quantity_on_hand': 0, 'reorder_level': 0}
-                    )
-                    inv.quantity_on_hand += item.quantity_ordered
-                    inv.save()
-                    # ---------------------------------------------------------
+                    if qty_received <= 0:
+                        continue
 
-                    # --- New: auto-create Batch record for FEFO tracking -----
-                    # Uses delivery_date as received_date.
-                    # expiry_date is not known at PO time — staff must update
-                    # it after physical inspection of the delivered goods.
-                    # We set it to None and the frontend can prompt for it.
+                    # A delivery stocks the WAREHOUSE, not the branch floor —
+                    # Inventory (floor stock) only increases via an approved,
+                    # released withdrawal slip. Locked for the rest of this
+                    # transaction so a double-submit of the same delivery
+                    # can't credit it twice.
+                    ws, _ = WarehouseStock.objects.select_for_update().get_or_create(
+                        product=item.product, warehouse=warehouse,
+                        defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+                    )
+                    before = ws.quantity_on_hand
+                    ws.quantity_on_hand += qty_received
+                    ws.save()
+
+                    StockMovement.objects.create(
+                        warehouse_stock=ws,
+                        location_type=StockMovement.LocationType.WAREHOUSE,
+                        movement_type=StockMovement.MovementType.PROCUREMENT_RECEIVED,
+                        quantity_change=qty_received,
+                        quantity_before=before,
+                        quantity_after=ws.quantity_on_hand,
+                        reference_id=instance.pk,
+                        notes=f'Delivery for {instance.po_number}',
+                        created_by=user,
+                    )
+
+                    # Auto-create a Batch record for FEFO tracking. Uses
+                    # delivery_date as received_date. expiry_date isn't known
+                    # at PO time — staff update it after physical inspection.
                     Batch.objects.create(
                         product=item.product,
                         branch=instance.branch,
                         procurement=instance,
-                        quantity=item.quantity_ordered,
+                        quantity=qty_received,
                         received_date=received_date,
                         expiry_date=received_date,  # placeholder — staff updates after inspection
                         notes=f"Auto-created from {instance.po_number}. Update expiry date after inspection.",
                     )
-                    # ---------------------------------------------------------
 
         return instance

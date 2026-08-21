@@ -33,3 +33,15 @@ def cached_categories():
         categories = list(ProductCategory.objects.all())
         cache.set('refdata:categories', categories, REFDATA_CACHE_SECONDS)
     return categories
+
+
+def bust_branches_cache():
+    """Call after any Branch create/update/delete so the next read is fresh
+    instead of serving a stale list for up to REFDATA_CACHE_SECONDS."""
+    cache.delete('refdata:branches')
+
+
+def bust_categories_cache():
+    """Call after any ProductCategory create/update/delete — same reasoning
+    as bust_branches_cache()."""
+    cache.delete('refdata:categories')

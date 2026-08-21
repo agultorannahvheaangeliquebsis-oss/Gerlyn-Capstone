@@ -8,6 +8,10 @@ class BillingRecord(models.Model):
         PENDING = 'Pending', 'Pending'
         PAID = 'Paid', 'Paid'
         REJECTED = 'Rejected', 'Rejected'
+        # The order behind this billing record was cancelled or voided —
+        # distinct from REJECTED, which means a submitted payment proof was
+        # specifically turned down, not that the order itself fell through.
+        CANCELLED = 'Cancelled', 'Cancelled'
 
     class PaymentMethod(models.TextChoices):
         CASH = 'Cash', 'Cash'

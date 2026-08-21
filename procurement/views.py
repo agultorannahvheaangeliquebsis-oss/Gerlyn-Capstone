@@ -237,6 +237,19 @@ def procurement_update_status(request, pk):
 # after a formal receipt validation, so digital stock matches physical goods.
 # =============================================================================
 
+class _DeliveryStatusError(Exception):
+    """Raised inside delivery_receive's atomic block (already processed, or
+    a bad/out-of-range received quantity) so the whole block rolls back
+    instead of partially crediting warehouse stock for a rejected receipt."""
+
+
+def _safe_nonneg_int(value):
+    """int(value) if it's a clean non-negative integer, else None."""
+    if value is None:
+        return None
+    value = str(value).strip()
+    return int(value) if value.isdigit() else None
+
 @login_required(login_url='accounts:login')
 def delivery_list(request):
     """Pick a purchase order to receive."""
@@ -298,48 +311,79 @@ def delivery_receive(request, pk):
         received_map = request.POST.getlist('quantity_received')
         item_ids = request.POST.getlist('item_id')
 
-        with transaction.atomic():
-            any_short = False
-            for item_id, qty_str in zip(item_ids, received_map):
-                item = proc.items.select_related('product').get(pk=item_id)
-                qty_received = int(qty_str or 0)
-
-                if qty_received != item.quantity_ordered:
-                    any_short = True
-
-                item.quantity_received = qty_received
-                item.save()
-
-                if qty_received <= 0:
-                    continue
-
-                ws, _ = WarehouseStock.objects.get_or_create(
-                    product=item.product, warehouse=warehouse,
-                    defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+        try:
+            with transaction.atomic():
+                # Re-fetch and lock so a double-submit (double-click, retry)
+                # can't both pass the RECEIVED/CANCELLED guard above (read
+                # before this transaction opened) and both credit warehouse
+                # stock for the same delivery.
+                locked_proc = get_object_or_404(
+                    Procurement.objects.select_for_update(), pk=pk
                 )
-                before = ws.quantity_on_hand
-                ws.quantity_on_hand += qty_received
-                ws.save()
+                if locked_proc.status == Procurement.Status.RECEIVED:
+                    raise _DeliveryStatusError(f'{locked_proc.po_number} was already received.')
+                if locked_proc.status == Procurement.Status.CANCELLED:
+                    raise _DeliveryStatusError(f'{locked_proc.po_number} was cancelled.')
 
-                # Audit trail — every stock change is attributable.
-                StockMovement.objects.create(
-                    warehouse_stock=ws,
-                    location_type=StockMovement.LocationType.WAREHOUSE,
-                    movement_type=StockMovement.MovementType.PROCUREMENT_RECEIVED,
-                    quantity_change=qty_received,
-                    quantity_before=before,
-                    quantity_after=ws.quantity_on_hand,
-                    reference_id=proc.pk,
-                    notes=f'Delivery for {proc.po_number}',
-                    created_by=request.user,
+                any_short = False
+                for item_id, qty_str in zip(item_ids, received_map):
+                    item = locked_proc.items.select_related('product').get(pk=item_id)
+                    qty_received = _safe_nonneg_int(qty_str)
+                    if qty_received is None:
+                        raise _DeliveryStatusError(
+                            f'Enter a valid received quantity for {item.product.product_name}.'
+                        )
+                    # A quantity greater than what was ordered is rejected
+                    # rather than silently inflating stock — under-delivery
+                    # is a normal short shipment (flagged below), but
+                    # over-delivery past what was ordered needs a human to
+                    # look at it, not a silent accept.
+                    if qty_received > item.quantity_ordered:
+                        raise _DeliveryStatusError(
+                            f'Received quantity for {item.product.product_name} '
+                            f'({qty_received}) cannot exceed what was ordered '
+                            f'({item.quantity_ordered}).'
+                        )
+
+                    if qty_received != item.quantity_ordered:
+                        any_short = True
+
+                    item.quantity_received = qty_received
+                    item.save()
+
+                    if qty_received <= 0:
+                        continue
+
+                    ws, _ = WarehouseStock.objects.select_for_update().get_or_create(
+                        product=item.product, warehouse=warehouse,
+                        defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+                    )
+                    before = ws.quantity_on_hand
+                    ws.quantity_on_hand += qty_received
+                    ws.save()
+
+                    # Audit trail — every stock change is attributable.
+                    StockMovement.objects.create(
+                        warehouse_stock=ws,
+                        location_type=StockMovement.LocationType.WAREHOUSE,
+                        movement_type=StockMovement.MovementType.PROCUREMENT_RECEIVED,
+                        quantity_change=qty_received,
+                        quantity_before=before,
+                        quantity_after=ws.quantity_on_hand,
+                        reference_id=locked_proc.pk,
+                        notes=f'Delivery for {locked_proc.po_number}',
+                        created_by=request.user,
+                    )
+
+                locked_proc.status = Procurement.Status.RECEIVED
+                locked_proc.receipt_flag = (
+                    Procurement.ReceiptFlag.DISCREPANCY if any_short
+                    else Procurement.ReceiptFlag.NONE
                 )
-
-            proc.status = Procurement.Status.RECEIVED
-            proc.receipt_flag = (
-                Procurement.ReceiptFlag.DISCREPANCY if any_short
-                else Procurement.ReceiptFlag.NONE
-            )
-            proc.save()
+                locked_proc.save()
+        except _DeliveryStatusError as e:
+            messages.error(request, str(e))
+            return redirect('procurement_detail', pk=pk)
 
         if any_short:
             messages.warning(
@@ -731,8 +775,10 @@ class ProcurementStatusUpdateAPIView(APIView):
         RECEIVED   -> no further transitions
 
     On RECEIVED:
-        - Sets quantity_received on each item
-        - Updates Inventory.quantity_on_hand for the branch
+        - Sets quantity_received on each item (per-item, if the client sends
+          `items`; otherwise assumes full receipt, same as before)
+        - Credits WarehouseStock.quantity_on_hand for the branch — never
+          Inventory (floor stock) directly, matching delivery_receive
         - Auto-creates a Batch record per item for FEFO expiry tracking
     """
     permission_classes = [IsAuthenticated]
@@ -762,20 +808,27 @@ class ProcurementStatusUpdateAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        serializer = ProcurementStatusSerializer(data=request.data)
+        serializer = ProcurementStatusSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         new_status = serializer.validated_data['status']
-        allowed    = self.ALLOWED_TRANSITIONS.get(proc.status, [])
 
-        if new_status not in allowed:
-            return Response(
-                {'detail': f"Cannot transition from '{proc.status}' to '{new_status}'."},
-                status=status.HTTP_400_BAD_REQUEST
+        with transaction.atomic():
+            # Re-fetch and lock so a double-submit (double-click, retry)
+            # can't both pass this same-transition check and both apply the
+            # RECEIVED branch's stock credit for one delivery.
+            locked_proc = get_object_or_404(
+                Procurement.objects.select_for_update(), pk=pk
             )
+            allowed = self.ALLOWED_TRANSITIONS.get(locked_proc.status, [])
+            if new_status not in allowed:
+                return Response(
+                    {'detail': f"Cannot transition from '{locked_proc.status}' to '{new_status}'."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            updated = serializer.update(locked_proc, serializer.validated_data)
 
-        updated    = serializer.update(proc, serializer.validated_data)
         read_serializer = ProcurementReadSerializer(updated)
         return Response(read_serializer.data)
 

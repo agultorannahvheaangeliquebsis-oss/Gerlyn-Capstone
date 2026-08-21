@@ -99,7 +99,7 @@ for this to be built from existing primitives, and that includes the grid.
       {% if chart.total %}
       <div class="pie-wrap">
         <div class="pie" role="img" aria-label="Purchase order status breakdown: {% for seg in chart.segments %}{{ seg.label }} {{ seg.count }}{% if not forloop.last %}, {% endif %}{% endfor %}"
-             style="background: conic-gradient({{ chart.gradient|safe }});"></div>
+             style="background: conic-gradient({{ chart.gradient }});"></div>
         <ul class="pie-legend">
           {% for seg in chart.segments %}
           <li><span class="pie-dot" style="background:{{ seg.colour }};"></span>{{ seg.label }}<span class="pie-count">{{ seg.count }}</span></li>

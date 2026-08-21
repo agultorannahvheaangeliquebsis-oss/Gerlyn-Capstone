@@ -1576,6 +1576,35 @@ def _billing_payment_breakdown(completed_records, total_revenue):
 # and working offline, per the deployment constraints.
 # =============================================================================
 
+# Excel/Sheets treats a cell starting with one of these as a formula to
+# evaluate rather than literal text — e.g. a customer-supplied reference
+# number of =cmd|'/c calc'!A1 would execute for whoever opens the export.
+_CSV_FORMULA_PREFIXES = ('=', '+', '-', '@')
+
+
+def _csv_safe(value):
+    """Prefix a leading apostrophe onto a string starting with a
+    formula-trigger character so spreadsheet software renders it as literal
+    text instead of evaluating it — the standard CSV-injection mitigation.
+    Only strings are touched; numeric cells (Decimal/int) pass through, so a
+    genuinely negative amount or quantity is never mistaken for this."""
+    if isinstance(value, str) and value.startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
+class _SafeCSVWriter:
+    """Wraps csv.writer so every row written anywhere in export_csv is
+    sanitized in one place, regardless of which `kind` branch built it —
+    rather than remembering to sanitize each field across every branch."""
+
+    def __init__(self, underlying):
+        self._underlying = underlying
+
+    def writerow(self, row):
+        self._underlying.writerow(_csv_safe(v) for v in row)
+
+
 @login_required(login_url='accounts:login')
 def export_csv(request, kind):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
@@ -1590,7 +1619,7 @@ def export_csv(request, kind):
     response['Content-Disposition'] = (
         f'attachment; filename="gerlyn-{kind}-{scope}-{today}.csv"'
     )
-    writer = csv.writer(response)
+    writer = _SafeCSVWriter(csv.writer(response))
 
     if kind == 'sales':
         qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer')
@@ -1630,7 +1659,7 @@ def export_csv(request, kind):
             ])
 
     elif kind == 'procurement':
-        qs = Procurement.objects.select_related('branch', 'supplier')
+        qs = Procurement.objects.select_related('branch', 'supplier', 'supplier__supplier_profile')
         if user_branch:
             qs = qs.filter(branch=user_branch)
         writer.writerow([

@@ -25,6 +25,7 @@ from .serializers import (
     StockMovementSerializer,
 )
 from accounts.models import User
+from .views import _InsufficientStockError
 
 
 # Branch scoping lives in core.scoping so the API and the template views can
@@ -447,7 +448,11 @@ class StockTransferApproveAPIView(APIView):
                 for item in items:
                     approved_qty = items_map.get(item.id, 0)
                     try:
-                        ws = WarehouseStock.objects.get(
+                        # Locked for the rest of this transaction so a second,
+                        # concurrently-approved transfer against the same
+                        # product can't read the same not-yet-committed
+                        # quantity_on_hand (mirrors the template path's fix).
+                        ws = WarehouseStock.objects.select_for_update().get(
                             warehouse=transfer.warehouse, product=item.product
                         )
                     except WarehouseStock.DoesNotExist:
@@ -505,54 +510,67 @@ class StockTransferReleaseAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        with transaction.atomic():
-            for item in transfer.items.select_related('product').all():
-                if item.quantity_approved <= 0:
-                    continue
+        try:
+            with transaction.atomic():
+                for item in transfer.items.select_related('product').all():
+                    if item.quantity_approved <= 0:
+                        continue
 
-                ws = get_object_or_404(
-                    WarehouseStock, warehouse=transfer.warehouse, product=item.product
-                )
-                qty_before_warehouse = ws.quantity_on_hand
-                ws.quantity_on_hand -= item.quantity_approved
-                ws.save()
-
-                StockMovement.objects.create(
-                    warehouse_stock=ws,
-                    location_type=StockMovement.LocationType.WAREHOUSE,
-                    movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
-                    quantity_change=-item.quantity_approved,
-                    quantity_before=qty_before_warehouse,
-                    quantity_after=ws.quantity_on_hand,
-                    reference_id=transfer.pk,
-                    notes=f'Stock withdrawal {transfer.slip_number}',
-                    created_by=request.user,
-                )
-
-                if transfer.destination_branch:
-                    inv, _ = Inventory.objects.get_or_create(
-                        product=item.product,
-                        branch=transfer.destination_branch,
-                        defaults={'quantity_on_hand': 0, 'reorder_level': 0}
+                    # Locked + re-checked against the CURRENT quantity_on_hand
+                    # rather than trusting the snapshot from approval time —
+                    # mirrors the template path's transfer_complete fix.
+                    ws = get_object_or_404(
+                        WarehouseStock.objects.select_for_update(),
+                        warehouse=transfer.warehouse, product=item.product
                     )
-                    qty_before_floor = inv.quantity_on_hand
-                    inv.quantity_on_hand += item.quantity_approved
-                    inv.save()
+                    if item.quantity_approved > ws.quantity_on_hand:
+                        raise _InsufficientStockError(
+                            f'Not enough warehouse stock for {item.product.product_name} to '
+                            f'release this transfer — available: {ws.quantity_on_hand}, '
+                            f'approved: {item.quantity_approved}.'
+                        )
+                    qty_before_warehouse = ws.quantity_on_hand
+                    ws.quantity_on_hand -= item.quantity_approved
+                    ws.save()
 
                     StockMovement.objects.create(
-                        inventory=inv,
-                        location_type=StockMovement.LocationType.FLOOR,
+                        warehouse_stock=ws,
+                        location_type=StockMovement.LocationType.WAREHOUSE,
                         movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
-                        quantity_change=item.quantity_approved,
-                        quantity_before=qty_before_floor,
-                        quantity_after=inv.quantity_on_hand,
+                        quantity_change=-item.quantity_approved,
+                        quantity_before=qty_before_warehouse,
+                        quantity_after=ws.quantity_on_hand,
                         reference_id=transfer.pk,
                         notes=f'Stock withdrawal {transfer.slip_number}',
                         created_by=request.user,
                     )
 
-            transfer.status = StockTransfer.Status.RELEASED
-            transfer.save()
+                    if transfer.destination_branch:
+                        inv, _ = Inventory.objects.get_or_create(
+                            product=item.product,
+                            branch=transfer.destination_branch,
+                            defaults={'quantity_on_hand': 0, 'reorder_level': 0}
+                        )
+                        qty_before_floor = inv.quantity_on_hand
+                        inv.quantity_on_hand += item.quantity_approved
+                        inv.save()
+
+                        StockMovement.objects.create(
+                            inventory=inv,
+                            location_type=StockMovement.LocationType.FLOOR,
+                            movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
+                            quantity_change=item.quantity_approved,
+                            quantity_before=qty_before_floor,
+                            quantity_after=inv.quantity_on_hand,
+                            reference_id=transfer.pk,
+                            notes=f'Stock withdrawal {transfer.slip_number}',
+                            created_by=request.user,
+                        )
+
+                transfer.status = StockTransfer.Status.RELEASED
+                transfer.save()
+        except _InsufficientStockError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(StockTransferSerializer(transfer).data)
 

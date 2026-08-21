@@ -8,6 +8,7 @@ from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
     CustomerProfile, SupplierProfile, Notification,
 )
+from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
 
 
 def login_view(request):
@@ -20,13 +21,19 @@ def login_view(request):
     if request.method == 'POST':
         username = request.POST.get('username', '')
         password = request.POST.get('password', '')
-        user = authenticate(request, username=username, password=password)
 
-        if user is not None:
-            login(request, user)
-            return redirect_by_role(request, user)
+        if is_login_locked_out(username):
+            error = 'Too many failed attempts. Try again in a few minutes.'
         else:
-            error = 'Invalid username or password.'
+            user = authenticate(request, username=username, password=password)
+
+            if user is not None:
+                clear_failed_logins(username)
+                login(request, user)
+                return redirect_by_role(request, user)
+            else:
+                register_failed_login(username)
+                error = 'Invalid username or password.'
 
     return render(request, 'accounts/login.html', {'error': error, 'username': username})
 
@@ -285,6 +292,15 @@ def user_form(request, pk=None):
     elif target is None and not password:
         errors.append('A password is required for a new user.')
 
+    if password:
+        try:
+            password_validation.validate_password(password, user=target)
+        except ValidationError as e:
+            errors.extend(e.messages)
+
+    if target is not None and target.pk == request.user.pk and role != target.role:
+        errors.append("You can't change your own role.")
+
     if not errors:
         if target is None:
             target = User.objects.create_user(
@@ -301,6 +317,23 @@ def user_form(request, pk=None):
             if password:
                 target.set_password(password)
             target.save()
+
+        # Role changed (or this is a new account) — drop any stale profile
+        # left over from a previous role. get_role_profile() resolves in a
+        # fixed order independent of the live `role` field, so a leftover
+        # profile from before a reassignment would otherwise keep winning
+        # over the new one.
+        current_role_attr = {
+            User.Role.OWNER: 'owner_profile',
+            User.Role.BRANCH_MANAGER: 'manager_profile',
+            User.Role.STAFF: 'staff_profile',
+            User.Role.SUPPLIER: 'supplier_profile',
+        }
+        for other_role, attr in current_role_attr.items():
+            if other_role != role:
+                stale = getattr(target, attr, None)
+                if stale is not None:
+                    stale.delete()
 
         # Keep the role profile's branch in step with the assignment.
         full_name = f'{first_name} {last_name}'.strip() or username

@@ -56,14 +56,20 @@
     <div class="col-md-7">
         <div class="stat-card p-3 bg-white h-100">
             <h6 class="fw-bold mb-3">Sales by Branch</h6>
-            <table class="table table-sm">
+            <div class="table-wrap">
+              <table class="gv-table">
                 <thead><tr><th>Branch</th><th>Orders</th><th>Sales</th></tr></thead>
                 <tbody>
                     {% for b in sales_by_branch %}
-                    <tr><td>{{ b.branch__branch_name }}</td><td>{{ b.count }}</td><td>₱{{ b.total }}</td></tr>
+                    <tr>
+                      <td data-label="Branch">{{ b.branch__branch_name }}</td>
+                      <td data-label="Orders">{{ b.count }}</td>
+                      <td data-label="Sales">₱{{ b.total }}</td>
+                    </tr>
                     {% endfor %}
                 </tbody>
-            </table>
+              </table>
+            </div>
         </div>
     </div>
     <div class="col-md-5">
@@ -81,20 +87,22 @@
 
 <div class="stat-card p-3 bg-white">
     <h6 class="fw-bold mb-3">Low Stock Alerts</h6>
-    <table class="table table-sm">
+    <div class="table-wrap">
+      <table class="gv-table">
         <thead><tr><th>Product</th><th>Branch</th><th>On Hand</th><th>Reorder Level</th></tr></thead>
         <tbody>
             {% for item in low_stock %}
-            <tr class="table-danger">
-                <td>{{ item.product.product_name }}</td>
-                <td>{{ item.branch.branch_name }}</td>
-                <td>{{ item.quantity_on_hand }}</td>
-                <td>{{ item.reorder_level }}</td>
+            <tr>
+                <td data-label="Product">{{ item.product.product_name }}</td>
+                <td data-label="Branch">{{ item.branch.branch_name }}</td>
+                <td data-label="On Hand" class="num" style="color:var(--danger-fg);">{{ item.quantity_on_hand }}</td>
+                <td data-label="Reorder Level" class="num">{{ item.reorder_level }}</td>
             </tr>
             {% endfor %}
-            {% if not low_stock %}<tr><td colspan="4" class="text-muted">No items need restocking.</td></tr>{% endif %}
+            {% if not low_stock %}<tr><td colspan="4" data-label="">No items need restocking.</td></tr>{% endif %}
         </tbody>
-    </table>
+      </table>
+    </div>
     <a href="{% url 'alerts_center' %}" class="small fw-bold text-decoration-none">View all alerts &rarr;</a>
 </div>
 {% endblock %}

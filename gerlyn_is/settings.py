@@ -42,7 +42,7 @@ SECRET_KEY = os.environ.get(
     'django-insecure-dev-only-key-change-me-in-dotenv',
 )
 
-DEBUG = env_bool('DJANGO_DEBUG', True)
+DEBUG = env_bool('DJANGO_DEBUG', False)
 
 # Add the server's LAN IP here so other branches can reach the system,
 # e.g. ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.50
@@ -173,9 +173,12 @@ DATABASES = {
         # without the os.environ.get() wrapper points every teammate and the
         # deploy at one person's local database, and .env stops being read at
         # all — which is what happened in a5e1786 and is why this is back.
-        'NAME': os.environ.get('DB_NAME', 'my_new_db'),
+        'NAME': os.environ.get('DB_NAME', 'gerlyn_db'),
         'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'Pringles03'),
+        # No fallback default here on purpose — a committed password, even a
+        # "local-only" one, is a credential sitting in git history. Set
+        # DB_PASSWORD in your .env; there's no working default without it.
+        'PASSWORD': os.environ['DB_PASSWORD'],
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '3306'),
         # Reuse the MySQL connection across requests instead of paying a full
