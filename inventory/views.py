@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.db import models, transaction, IntegrityError
 from django.http import JsonResponse
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from datetime import date
 from decimal import InvalidOperation as DecimalException
 
@@ -84,6 +85,11 @@ def _product_list_context(request):
         'next_sku': Product.next_sku_code(),
         'branches': branches,
         'add_selected_branches': None,  # None = fresh modal, default all branches checked
+        # Same idea for the tax checkboxes: on a fresh Add form the PWD/Senior
+        # eligibility box starts ticked, but on a redisplay an unticked box
+        # posts nothing and must stay unticked. product_add flips this to
+        # False when re-rendering a rejected submit.
+        'add_is_fresh': True,
     }
 
 
@@ -103,6 +109,18 @@ def _edit_modal_values(product, form_data=None):
         'unit_price': pick('unit_price', product.unit_price),
         'wholesale_price': pick('wholesale_price', product.wholesale_price),
         'description': pick('description', product.description),
+        # Checkboxes can't use pick(): an unticked box posts nothing, which
+        # pick() would read as "not supplied" and fall back to the stored
+        # True — making the box impossible to turn off. On a redisplay the
+        # posted data is the whole truth about what was ticked.
+        'is_vat_exempt': (
+            bool(form_data.get('is_vat_exempt')) if form_data is not None
+            else product.is_vat_exempt
+        ),
+        'is_pwd_senior_eligible': (
+            bool(form_data.get('is_pwd_senior_eligible')) if form_data is not None
+            else product.is_pwd_senior_eligible
+        ),
     }
 
 
@@ -203,6 +221,12 @@ def product_add(request):
                     unit_price=unit_price,
                     wholesale_price=wholesale_price or None,
                     description=description,
+                    # Tax/discount flags. The eligibility box is TICKED by
+                    # default in the form, so an absent value here means the
+                    # user deliberately unticked it, not that the field is
+                    # missing.
+                    is_vat_exempt=bool(request.POST.get('is_vat_exempt')),
+                    is_pwd_senior_eligible=bool(request.POST.get('is_pwd_senior_eligible')),
                 )
                 # request.FILES.getlist() returns EVERY file sent under name="images".
                 for index, image_file in enumerate(images):
@@ -235,6 +259,7 @@ def product_add(request):
         'add_errors': errors,
         'add_form_data': request.POST,
         'add_selected_branches': branch_ids,
+        'add_is_fresh': False,
     })
     return render(request, 'inventory/product_list.html', context)
 
@@ -275,6 +300,8 @@ def product_edit(request, pk):
                 product.unit_price = unit_price
                 product.wholesale_price = wholesale_price or None
                 product.description = description
+                product.is_vat_exempt = bool(request.POST.get('is_vat_exempt'))
+                product.is_pwd_senior_eligible = bool(request.POST.get('is_pwd_senior_eligible'))
                 product.save()
 
                 # 1. Delete images the user ticked for removal (file + row).
@@ -1302,10 +1329,57 @@ def transfer_complete(request, pk):
     if request.method == 'POST':
         is_restock = transfer.purpose == StockTransfer.Purpose.BRANCH_RESTOCK
 
+        # What was actually picked off the shelf, per item — scanned or typed
+        # on the release screen. A POST without these fields (the old direct
+        # "Release Stock" button, or any bookmarked form) means "release
+        # exactly what was approved", which is what this used to always do.
+        released_map = {}
+        posted_ids = request.POST.getlist('item_id')
+        posted_qtys = request.POST.getlist('quantity_released')
+        posted_methods = request.POST.getlist('release_method')
+        for idx, (item_id, qty) in enumerate(zip(posted_ids, posted_qtys)):
+            parsed = _safe_positive_int(qty)
+            released_map[str(item_id)] = {
+                'qty': 0 if parsed is None else parsed,
+                'method': (
+                    posted_methods[idx] if idx < len(posted_methods) else ''
+                ),
+            }
+
         try:
             with transaction.atomic():
+                any_short = False
                 for item in transfer.items.select_related('product').all():
                     if item.quantity_approved <= 0:
+                        continue
+
+                    posted = released_map.get(str(item.pk))
+                    qty_release = (
+                        item.quantity_approved if posted is None else posted['qty']
+                    )
+
+                    # Releasing more than was approved would route around the
+                    # approval itself — the approver decided the ceiling, and
+                    # a picker cannot raise it by scanning extra units.
+                    if qty_release > item.quantity_approved:
+                        raise _InsufficientStockError(
+                            f'{item.product.product_name}: {qty_release} picked but only '
+                            f'{item.quantity_approved} approved. Re-approve the slip if '
+                            f'more should go out.'
+                        )
+
+                    item.quantity_released = qty_release
+                    if posted is not None:
+                        item.release_method = (
+                            StockTransferItem.ReleaseMethod.SCAN
+                            if posted['method'] == 'Scan'
+                            else StockTransferItem.ReleaseMethod.MANUAL
+                        )
+                    item.save(update_fields=['quantity_released', 'release_method'])
+
+                    if qty_release < item.quantity_approved:
+                        any_short = True
+                    if qty_release <= 0:
                         continue
 
                     if is_restock:
@@ -1322,14 +1396,14 @@ def transfer_complete(request, pk):
                             warehouse=transfer.warehouse,
                             product=item.product
                         )
-                        if item.quantity_approved > ws.quantity_on_hand:
+                        if qty_release > ws.quantity_on_hand:
                             raise _InsufficientStockError(
                                 f'Not enough warehouse stock for {item.product.product_name} to '
                                 f'release this transfer — available: {ws.quantity_on_hand}, '
-                                f'approved: {item.quantity_approved}.'
+                                f'being released: {qty_release}.'
                             )
                         qty_before_warehouse = ws.quantity_on_hand
-                        ws.quantity_on_hand -= item.quantity_approved
+                        ws.quantity_on_hand -= qty_release
                         ws.save()
 
                         # Log warehouse movement
@@ -1337,7 +1411,7 @@ def transfer_complete(request, pk):
                             warehouse_stock=ws,
                             location_type=StockMovement.LocationType.WAREHOUSE,
                             movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
-                            quantity_change=-item.quantity_approved,
+                            quantity_change=-qty_release,
                             quantity_before=qty_before_warehouse,
                             quantity_after=ws.quantity_on_hand,
                             reference_id=transfer.pk,
@@ -1356,7 +1430,7 @@ def transfer_complete(request, pk):
                                 }
                             )
                             qty_before_floor = inv.quantity_on_hand
-                            inv.quantity_on_hand += item.quantity_approved
+                            inv.quantity_on_hand += qty_release
                             inv.save()
 
                             # Log floor movement
@@ -1364,7 +1438,7 @@ def transfer_complete(request, pk):
                                 inventory=inv,
                                 location_type=StockMovement.LocationType.FLOOR,
                                 movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
-                                quantity_change=item.quantity_approved,
+                                quantity_change=qty_release,
                                 quantity_before=qty_before_floor,
                                 quantity_after=inv.quantity_on_hand,
                                 reference_id=transfer.pk,
@@ -1383,21 +1457,21 @@ def transfer_complete(request, pk):
                             Inventory.objects.select_for_update(),
                             branch=transfer.source_branch, product=item.product
                         )
-                        if item.quantity_approved > inv.quantity_on_hand:
+                        if qty_release > inv.quantity_on_hand:
                             raise _InsufficientStockError(
                                 f'Not enough floor stock for {item.product.product_name} to '
                                 f'write off — available: {inv.quantity_on_hand}, '
-                                f'approved: {item.quantity_approved}.'
+                                f'being written off: {qty_release}.'
                             )
                         qty_before_floor = inv.quantity_on_hand
-                        inv.quantity_on_hand -= item.quantity_approved
+                        inv.quantity_on_hand -= qty_release
                         inv.save()
 
                         StockMovement.objects.create(
                             inventory=inv,
                             location_type=StockMovement.LocationType.FLOOR,
                             movement_type=StockMovement.MovementType.MANUAL_OUT,
-                            quantity_change=-item.quantity_approved,
+                            quantity_change=-qty_release,
                             quantity_before=qty_before_floor,
                             quantity_after=inv.quantity_on_hand,
                             reference_id=transfer.pk,
@@ -1405,6 +1479,9 @@ def transfer_complete(request, pk):
                             created_by=request.user,
                         )
 
+                released_total = sum(
+                    i.quantity_released for i in transfer.items.all()
+                )
                 if is_restock:
                     # Still needs the destination branch to confirm receipt.
                     transfer.status = StockTransfer.Status.RELEASED
@@ -1413,27 +1490,85 @@ def transfer_complete(request, pk):
                     # it IS the whole transaction, so it's done in one step.
                     transfer.status = StockTransfer.Status.ACKNOWLEDGED
                     transfer.acknowledged_by = request.user
-                    transfer.received_qty = sum(i.quantity_approved for i in transfer.items.all())
+                    transfer.received_qty = released_total
                 transfer.save()
         except _InsufficientStockError as e:
             messages.error(request, str(e))
             return redirect('transfer_detail', pk=pk)
 
+        short_note = (
+            ' Less was picked than approved — the shortfall is recorded per item.'
+            if any_short else ''
+        )
         if is_restock:
             messages.success(
                 request,
                 f'Withdrawal Slip {transfer.slip_number} released. '
-                f'Stock has been moved to the store floor.'
+                f'Stock has been moved to the store floor.{short_note}'
             )
         else:
             messages.success(
                 request,
                 f'Withdrawal Slip {transfer.slip_number} completed — '
-                f'floor stock adjusted for {transfer.purpose}.'
+                f'floor stock adjusted for {transfer.purpose}.{short_note}'
             )
         return redirect('transfer_detail', pk=pk)
 
-    return redirect('transfer_detail', pk=pk)
+    # GET: the release screen — pick the goods, scanning or counting by hand,
+    # then post the per-item quantities above. This used to redirect straight
+    # back to the detail page, because releasing was a single button with no
+    # per-item step to show.
+    items = transfer.items.select_related('product').all()
+    return render(request, 'inventory/transfer_release.html', {
+        'transfer': transfer,
+        'items': items,
+    })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def transfer_scan(request, pk):
+    """AJAX: resolve one scanned barcode against an approved slip's items.
+
+    The release-step twin of procurement.delivery_scan, and deliberately the
+    same shape — both answer "does this physical item match a line on this
+    document", and staff who learn one screen should not have to learn the
+    other. It differs in what it refuses: a product that is not on the slip
+    cannot be added here, because a picker adding lines would route around
+    the approval the slip exists to enforce.
+    """
+    if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
+        return JsonResponse({'ok': False, 'detail': 'Access denied.'}, status=403)
+
+    transfer = get_object_or_404(StockTransfer, pk=pk)
+    if not user_can_access_branch(request.user, transfer.source_branch_id):
+        return JsonResponse({'ok': False, 'detail': 'Wrong branch.'}, status=403)
+    if transfer.status != StockTransfer.Status.APPROVED:
+        return JsonResponse({'ok': False, 'detail': 'This slip is not awaiting release.'}, status=400)
+
+    code = (request.POST.get('code') or '').strip()
+    if not code:
+        return JsonResponse({'ok': False, 'detail': 'No code supplied.'}, status=400)
+
+    product = (
+        Product.objects.filter(barcode__iexact=code).first()
+        or Product.objects.filter(sku_code__iexact=code).first()
+    )
+    item = transfer.items.filter(product=product).first() if product else None
+
+    if item:
+        return JsonResponse({
+            'ok': True, 'status': 'matched',
+            'item_id': item.pk,
+            'product_name': item.product.product_name,
+            'quantity_approved': item.quantity_approved,
+        })
+    if product:
+        return JsonResponse({
+            'ok': True, 'status': 'not_on_slip',
+            'product_name': product.product_name,
+        })
+    return JsonResponse({'ok': True, 'status': 'unknown', 'code': code})
 
 
 # ─────────────────────────────────────────────

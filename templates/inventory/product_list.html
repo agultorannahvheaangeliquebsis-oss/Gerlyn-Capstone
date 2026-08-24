@@ -320,6 +320,8 @@
         </div>
       </div>
 
+      {% include "inventory/_tax_fields.html" with which="add" is_vat_exempt=add_form_data.is_vat_exempt is_pwd_senior_eligible=add_form_data.is_pwd_senior_eligible fresh=add_is_fresh %}
+
       <div class="field">
         <label for="add-description">Description</label>
         <textarea id="add-description" name="description" placeholder="Short product description…">{{ add_form_data.description|default:'' }}</textarea>
@@ -425,6 +427,8 @@
           </div>
         </div>
       </div>
+
+      {% include "inventory/_tax_fields.html" with which="edit" is_vat_exempt=edit_values.is_vat_exempt is_pwd_senior_eligible=edit_values.is_pwd_senior_eligible fresh=False %}
 
       <div class="field">
         <label for="edit-description">Description</label>

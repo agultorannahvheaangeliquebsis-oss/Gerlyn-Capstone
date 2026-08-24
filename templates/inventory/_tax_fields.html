@@ -1,0 +1,43 @@
+{% comment %}
+The two tax/discount toggles, shared by the Add and Edit Product modals.
+
+Parameters:
+  which                   "add" or "edit"; every element id is built from it
+  is_vat_exempt           current/posted value
+  is_pwd_senior_eligible  current/posted value
+  fresh                   True only for a never-submitted Add form, where the
+                          eligibility box defaults to ticked
+
+Why `fresh` exists: an unticked checkbox posts NOTHING, so on a redisplayed
+form "no value" means the user unticked it — not "use the default". Defaulting
+to ticked on every render would make the box impossible to turn off on a form
+that failed validation. The view applies the same rule server-side.
+{% endcomment %}
+<div class="field">
+  <label>Tax &amp; Discounts</label>
+
+  <label class="row" style="gap:8px; align-items:flex-start; margin-bottom:8px;">
+    <input type="checkbox" id="{{ which }}-vat-exempt" name="is_vat_exempt" value="1"
+           style="margin-top:3px;"{% if is_vat_exempt %} checked{% endif %}>
+    <span>
+      <strong>VAT-Exempt</strong>
+      <span class="gv-meta" style="display:block;">
+        This product never carries VAT. Leave unticked for ordinary goods — their
+        shelf price is treated as VAT-inclusive.
+      </span>
+    </span>
+  </label>
+
+  <label class="row" style="gap:8px; align-items:flex-start;">
+    <input type="checkbox" id="{{ which }}-pwd-senior" name="is_pwd_senior_eligible" value="1"
+           style="margin-top:3px;"{% if is_pwd_senior_eligible or fresh %} checked{% endif %}>
+    <span>
+      <strong>Eligible for PWD / Senior Citizen discount</strong>
+      <span class="gv-meta" style="display:block;">
+        Ticked for most retail goods. Untick it for products the statutory 20%
+        discount does not cover — at checkout, those lines stay at full price
+        even when a card is presented.
+      </span>
+    </span>
+  </label>
+</div>

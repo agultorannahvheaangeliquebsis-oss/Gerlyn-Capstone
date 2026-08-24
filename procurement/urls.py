@@ -7,12 +7,16 @@ urlpatterns = [
     path('', views.procurement_list, name='procurement_list'),
     path('add/', views.procurement_add, name='procurement_add'),
     path('<int:pk>/', views.procurement_detail, name='procurement_detail'),
+    path('<int:pk>/print/', views.procurement_print, name='procurement_print'),
     path('<int:pk>/update-status/', views.procurement_update_status,
          name='procurement_update_status'),
 
     # Deliveries (receive a PO into stock)
     path('deliveries/', views.delivery_list, name='delivery_list'),
     path('deliveries/<int:pk>/receive/', views.delivery_receive, name='delivery_receive'),
+    path('deliveries/<int:pk>/scan/', views.delivery_scan, name='delivery_scan'),
+    path('deliveries/<int:pk>/add-unexpected/', views.delivery_add_unexpected,
+         name='delivery_add_unexpected'),
     path('deliveries/history/', views.receiving_history, name='receiving_history'),
 
     # Supplier's own portal (role = SUPPLIER)
@@ -23,6 +27,15 @@ urlpatterns = [
     # Suppliers (managed by the store)
     path('suppliers/', views.supplier_list, name='supplier_list'),
     path('suppliers/add/', views.supplier_form, name='supplier_add'),
+    path('suppliers/<int:pk>/', views.supplier_detail, name='supplier_detail'),
     path('suppliers/<int:pk>/edit/', views.supplier_form, name='supplier_edit'),
     path('suppliers/<int:pk>/delete/', views.supplier_delete, name='supplier_delete'),
+
+    # Per-supplier product catalog (the sub-view under a supplier)
+    path('suppliers/<int:pk>/products/add/', views.supplier_product_add,
+         name='supplier_product_add'),
+    path('suppliers/<int:pk>/products/<int:link_pk>/remove/',
+         views.supplier_product_remove, name='supplier_product_remove'),
+    path('suppliers/<int:pk>/products/transfer/', views.supplier_product_transfer,
+         name='supplier_product_transfer'),
 ]

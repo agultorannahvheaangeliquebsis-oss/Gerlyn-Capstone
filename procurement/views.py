@@ -8,8 +8,10 @@ from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
+from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
+from django.views.decorators.http import require_POST
 
 from django.db.models import Q
 
@@ -21,7 +23,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Procurement, ProcurementItem
+from .models import (
+    Procurement, ProcurementItem, SupplierProduct, DeliveryScanLog,
+)
+from .services import transfer_supplier_products, SupplierTransferError
 from .serializers import (
     ProcurementReadSerializer,
     ProcurementWriteSerializer,
@@ -71,26 +76,96 @@ def procurement_list(request):
     })
 
 
+def _person_name(user):
+    """A person's display name, or '' when there is nobody.
+
+    Resolved here rather than in the template because a chained
+    `{{ x.get_full_name|default:x.username }}` raises VariableDoesNotExist
+    when `x` is null — a filter ARGUMENT is resolved strictly, unlike the
+    main variable position, which quietly yields ''. Older purchase orders
+    predate created_by and have it unset, so this is the normal case, not
+    an edge one.
+    """
+    if user is None:
+        return ''
+    return user.get_full_name() or user.username
+
+
+def _can_read_procurement(user, proc):
+    """Scoping the list is not enough — every per-order page must check too,
+    or anyone can read another branch's (or a rival supplier's) order by
+    editing the URL."""
+    if user.role == User.Role.SUPPLIER:
+        return proc.supplier_id == user.id
+    return user_can_access_branch(user, proc.branch_id)
+
+
 @login_required(login_url='accounts:login')
 def procurement_detail(request, pk):
     proc = get_object_or_404(
         Procurement.objects.select_related('branch', 'supplier'), pk=pk
     )
 
-    # Scoping the list is not enough — the detail page must check too, or anyone
-    # can read another branch's (or a rival supplier's) order by editing the URL.
-    if request.user.role == User.Role.SUPPLIER:
-        allowed = proc.supplier_id == request.user.id
-    else:
-        allowed = user_can_access_branch(request.user, proc.branch_id)
-
-    if not allowed:
+    if not _can_read_procurement(request.user, proc):
         messages.error(request, 'That purchase order is not available to you.')
         return redirect('procurement_list')
 
     items = proc.items.select_related('product').all()
     return render(request, 'procurement/procurement_detail.html', {
         'procurement': proc, 'items': items
+    })
+
+
+@login_required(login_url='accounts:login')
+def procurement_print(request, pk):
+    """The printable purchase order handed to (or emailed to) the supplier.
+
+    Read-only and server-rendered, so the browser's own print-to-PDF does the
+    output — the same approach the Reports pages already take, and it keeps a
+    PDF library out of the dependency list.
+    """
+    proc = get_object_or_404(
+        Procurement.objects.select_related(
+            'branch', 'supplier', 'supplier__supplier_profile',
+            'owner', 'owner__owner_profile',
+            'created_by',
+        ),
+        pk=pk,
+    )
+
+    if not _can_read_procurement(request.user, proc):
+        messages.error(request, 'That purchase order is not available to you.')
+        return redirect('procurement_list')
+
+    items = proc.items.select_related('product').all()
+
+    # total_cost is the stored figure and stays authoritative on the document.
+    # The line sum is computed alongside it purely so the template can show a
+    # mismatch rather than print a total that doesn't add up — that happens
+    # with legacy orders whose items were edited after the header was saved.
+    line_sum = sum((i.line_total for i in items), 0)
+
+    supplier_profile = getattr(proc.supplier, 'supplier_profile', None)
+
+    return render(request, 'procurement/po_print.html', {
+        'procurement': proc,
+        'items': items,
+        'line_sum': line_sum,
+        'totals_disagree': line_sum != proc.total_cost,
+        'supplier_profile': supplier_profile,
+        # Signature-block names, pre-resolved so the template never chains a
+        # lookup through a FK that may be null. Any of the three can legally
+        # be absent: created_by postdates the older orders, owner is only set
+        # when an Owner raised the PO, and a supplier may have no named
+        # contact person.
+        'prepared_by_name': _person_name(proc.created_by),
+        'authorized_by_name': _person_name(proc.owner),
+        'supplier_signatory': (
+            (supplier_profile.contact_person or supplier_profile.supplier_name)
+            if supplier_profile else ''
+        ),
+        'printed_on': timezone.localdate(),
+        'printed_by': _person_name(request.user),
     })
 
 
@@ -338,14 +413,21 @@ def delivery_receive(request, pk):
                     # is a normal short shipment (flagged below), but
                     # over-delivery past what was ordered needs a human to
                     # look at it, not a silent accept.
-                    if qty_received > item.quantity_ordered:
+                    #
+                    # Unexpected items are the sanctioned way to record goods
+                    # nobody ordered: they carry quantity_ordered=0 by
+                    # construction, so this guard would reject every one of
+                    # them. They are flagged as a discrepancy below instead,
+                    # which is the "a human looks at it" the guard is for.
+                    if not item.is_unexpected and qty_received > item.quantity_ordered:
                         raise _DeliveryStatusError(
                             f'Received quantity for {item.product.product_name} '
                             f'({qty_received}) cannot exceed what was ordered '
-                            f'({item.quantity_ordered}).'
+                            f'({item.quantity_ordered}). If this product arrived '
+                            f'without being ordered, add it as an unexpected item.'
                         )
 
-                    if qty_received != item.quantity_ordered:
+                    if item.is_unexpected or qty_received != item.quantity_ordered:
                         any_short = True
 
                     item.quantity_received = qty_received
@@ -403,7 +485,135 @@ def delivery_receive(request, pk):
     return render(request, 'procurement/delivery_receive.html', {
         'procurement': proc,
         'items': items,
+        # The "add unexpected item" picker. Excludes what's already on the
+        # order, so the only thing it can offer is a genuinely new line.
+        'addable_products': Product.objects.exclude(
+            pk__in=items.values_list('product_id', flat=True)
+        ).order_by('product_name'),
+        'scan_count': proc.scan_logs.count(),
     })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def delivery_scan(request, pk):
+    """AJAX: resolve one scanned barcode against this purchase order's lines.
+
+    POST rather than GET despite reading like a lookup — every call writes a
+    DeliveryScanLog row, and the point of that log is that it records what
+    actually happened at the loading bay, including scans on a receipt that
+    was later abandoned. Batching the log until submit would lose exactly the
+    cases worth having it for.
+
+    Never mutates quantity_received. The running count lives in the form until
+    the user submits it, so a mis-scan is fixed by editing the field like any
+    other typo — the log keeps the mis-scan, the receipt keeps the correction.
+    """
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        return JsonResponse({'ok': False, 'detail': 'Access denied.'}, status=403)
+
+    proc = get_object_or_404(Procurement, pk=pk)
+    if not user_can_access_branch(request.user, proc.branch_id):
+        return JsonResponse({'ok': False, 'detail': 'Wrong branch.'}, status=403)
+    if proc.status in (Procurement.Status.RECEIVED, Procurement.Status.CANCELLED):
+        return JsonResponse({'ok': False, 'detail': 'This order is closed.'}, status=400)
+
+    code = (request.POST.get('code') or '').strip()
+    if not code:
+        return JsonResponse({'ok': False, 'detail': 'No code supplied.'}, status=400)
+
+    # Same resolution order as inventory.barcode_lookup — real barcode first,
+    # then our own SKU, which covers products that never got a manufacturer
+    # code assigned.
+    product = (
+        Product.objects.filter(barcode__iexact=code).first()
+        or Product.objects.filter(sku_code__iexact=code).first()
+    )
+
+    item = None
+    if product:
+        item = proc.items.filter(product=product).first()
+
+    DeliveryScanLog.objects.create(
+        procurement=proc,
+        procurement_item=item,
+        scanned_code=code,
+        matched_product=product,
+        was_unexpected=item is None,
+        scanned_by=request.user,
+    )
+
+    if item:
+        return JsonResponse({
+            'ok': True, 'status': 'matched',
+            'item_id': item.pk,
+            'product_name': item.product.product_name,
+            'quantity_ordered': item.quantity_ordered,
+        })
+
+    if product:
+        # Real product, wrong order. Distinguished from an unknown code
+        # because the fix differs: this one can be added to the PO in a
+        # click, the other needs someone to identify the goods first.
+        return JsonResponse({
+            'ok': True, 'status': 'not_on_order',
+            'product_id': product.pk,
+            'product_name': product.product_name,
+            'sku_code': product.sku_code,
+        })
+
+    return JsonResponse({'ok': True, 'status': 'unknown', 'code': code})
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def delivery_add_unexpected(request, pk):
+    """Add a product that arrived but wasn't on the purchase order.
+
+    It becomes a real line so the receipt reflects what physically turned up,
+    but with quantity_ordered=0 and is_unexpected=True — the pair says
+    "nobody ordered this" without hiding that it arrived. The receiving
+    screen's over-delivery guard skips these rows for exactly that reason.
+    """
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    proc = get_object_or_404(Procurement, pk=pk)
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('delivery_list')
+    if proc.status in (Procurement.Status.RECEIVED, Procurement.Status.CANCELLED):
+        messages.error(request, f'{proc.po_number} is closed.')
+        return redirect('procurement_detail', pk=pk)
+
+    product = get_object_or_404(Product, pk=request.POST.get('product'))
+
+    if proc.items.filter(product=product).exists():
+        messages.info(request, f'{product.product_name} is already on this order.')
+        return redirect('delivery_receive', pk=pk)
+
+    # Best-effort cost: what this supplier normally charges, if we know it.
+    # Zero otherwise — an unpriced line is honest about being unpriced, and
+    # guessing a cost would quietly corrupt the order total.
+    link = SupplierProduct.objects.filter(
+        supplier=proc.supplier, product=product
+    ).first()
+
+    ProcurementItem.objects.create(
+        procurement=proc,
+        product=product,
+        quantity_ordered=0,
+        quantity_received=0,
+        cost_price=link.default_cost_price if link and link.default_cost_price else 0,
+        is_unexpected=True,
+    )
+    messages.success(
+        request,
+        f'{product.product_name} added as an unexpected item. Enter the quantity '
+        f'that arrived, then confirm the receipt.'
+    )
+    return redirect('delivery_receive', pk=pk)
 
 
 @login_required(login_url='accounts:login')
@@ -506,8 +716,15 @@ def supplier_set_delivery_date(request, pk):
 
 @login_required(login_url='accounts:login')
 def _supplier_list_context(request):
+    from django.db.models import Count
+
     suppliers = User.objects.filter(role=User.Role.SUPPLIER).select_related(
         'supplier_profile'
+    ).annotate(
+        # Drives the Products column, which links into the per-supplier
+        # product sub-view. Annotated rather than counted per row in the
+        # template, which would be one query per supplier.
+        product_count=Count('supplied_products', distinct=True)
     ).order_by('supplier_profile__supplier_name')
 
     search_query = request.GET.get('q', '')
@@ -627,6 +844,164 @@ def supplier_form(request, pk=None):
     return render(request, 'procurement/supplier_list.html', context)
 
 
+# -----------------------------------------------------------------------------
+# SUPPLIER DETAIL — the per-supplier product sub-view.
+#
+# Which products a supplier carries used to be answerable only by reading back
+# through past purchase orders. SupplierProduct makes it a real, editable
+# mapping; these views are its UI.
+# -----------------------------------------------------------------------------
+
+@login_required(login_url='accounts:login')
+def supplier_detail(request, pk):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    supplier = get_object_or_404(
+        User.objects.select_related('supplier_profile'),
+        pk=pk, role=User.Role.SUPPLIER,
+    )
+
+    links = SupplierProduct.objects.filter(supplier=supplier).select_related(
+        'product', 'product__category'
+    )
+
+    # Products this supplier doesn't already carry — the "Add Product" picker.
+    # Excluding the existing ones up front is what stops a user picking a
+    # product that would only bounce off the unique constraint.
+    available = Product.objects.exclude(
+        pk__in=links.values_list('product_id', flat=True)
+    ).order_by('product_name')
+
+    # Everyone else, for the transfer destination dropdown.
+    other_suppliers = User.objects.filter(
+        role=User.Role.SUPPLIER
+    ).exclude(pk=supplier.pk).select_related('supplier_profile').order_by(
+        'supplier_profile__supplier_name'
+    )
+
+    return render(request, 'procurement/supplier_detail.html', {
+        'supplier': supplier,
+        'profile': getattr(supplier, 'supplier_profile', None),
+        'links': links,
+        'available_products': available,
+        'other_suppliers': other_suppliers,
+        'can_edit': request.user.role == User.Role.OWNER,
+        'recent_orders': Procurement.objects.filter(
+            supplier=supplier
+        ).select_related('branch').order_by('-order_date')[:5],
+    })
+
+
+@login_required(login_url='accounts:login')
+def supplier_product_add(request, pk):
+    """Link a product to this supplier's catalog."""
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage supplier products.')
+        return redirect('supplier_detail', pk=pk)
+
+    supplier = get_object_or_404(User, pk=pk, role=User.Role.SUPPLIER)
+    if request.method != 'POST':
+        return redirect('supplier_detail', pk=pk)
+
+    product_id = request.POST.get('product')
+    if not product_id:
+        messages.error(request, 'Choose a product to add.')
+        return redirect('supplier_detail', pk=pk)
+
+    product = get_object_or_404(Product, pk=product_id)
+
+    cost = request.POST.get('default_cost_price') or None
+    lead = request.POST.get('lead_time_days') or None
+
+    # get_or_create rather than create: the picker already excludes what the
+    # supplier carries, but a stale form or a double-submit can still arrive
+    # with a duplicate, and that should be a no-op rather than a 500 off the
+    # unique constraint.
+    link, created = SupplierProduct.objects.get_or_create(
+        supplier=supplier, product=product,
+        defaults={
+            'supplier_sku': request.POST.get('supplier_sku', '').strip(),
+            'default_cost_price': cost,
+            'lead_time_days': lead,
+            'is_preferred': bool(request.POST.get('is_preferred')),
+        },
+    )
+
+    if created:
+        messages.success(request, f'{product.product_name} added to this supplier.')
+    else:
+        messages.info(request, f'{product.product_name} is already on this supplier.')
+    return redirect('supplier_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+def supplier_product_remove(request, pk, link_pk):
+    """Unlink a product without transferring it — it simply ends up with no
+    current supplier."""
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage supplier products.')
+        return redirect('supplier_detail', pk=pk)
+
+    if request.method != 'POST':
+        return redirect('supplier_detail', pk=pk)
+
+    link = get_object_or_404(
+        SupplierProduct.objects.select_related('product'),
+        pk=link_pk, supplier_id=pk,
+    )
+    name = link.product.product_name
+    link.delete()
+    messages.success(request, f'{name} removed from this supplier.')
+    return redirect('supplier_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+def supplier_product_transfer(request, pk):
+    """Move selected products from this supplier to another one.
+
+    Handles both the per-row action and the multi-select bulk action — the
+    row action just posts a single product_ids value, so there is one code
+    path and one set of rules.
+    """
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can transfer supplier products.')
+        return redirect('supplier_detail', pk=pk)
+
+    source = get_object_or_404(User, pk=pk, role=User.Role.SUPPLIER)
+    if request.method != 'POST':
+        return redirect('supplier_detail', pk=pk)
+
+    product_ids = request.POST.getlist('product_ids')
+    dest_id = request.POST.get('to_supplier')
+
+    if not product_ids:
+        messages.error(request, 'Select at least one product to transfer.')
+        return redirect('supplier_detail', pk=pk)
+    if not dest_id:
+        messages.error(request, 'Choose the supplier to transfer to.')
+        return redirect('supplier_detail', pk=pk)
+
+    dest = get_object_or_404(User, pk=dest_id, role=User.Role.SUPPLIER)
+
+    try:
+        moved, merged = transfer_supplier_products(product_ids, source, dest)
+    except SupplierTransferError as e:
+        messages.error(request, str(e))
+        return redirect('supplier_detail', pk=pk)
+
+    dest_name = getattr(dest.supplier_profile, 'supplier_name', dest.username)
+    note = f'{moved} product{"" if moved == 1 else "s"} transferred to {dest_name}.'
+    if merged:
+        note += (
+            f' {merged} {"was" if merged == 1 else "were"} already on that '
+            f'supplier and {"has" if merged == 1 else "have"} been consolidated.'
+        )
+    messages.success(request, note)
+    return redirect('supplier_detail', pk=pk)
+
+
 @login_required(login_url='accounts:login')
 def supplier_delete(request, pk):
     if request.user.role != User.Role.OWNER:
@@ -637,6 +1012,10 @@ def supplier_delete(request, pk):
     open_orders = Procurement.objects.filter(supplier=supplier).exclude(
         status__in=[Procurement.Status.RECEIVED, Procurement.Status.CANCELLED]
     ).count()
+    # Deleting cascades SupplierProduct away silently, so surface the count
+    # and point at the transfer flow — moving the catalog to another supplier
+    # is almost always what's actually wanted before retiring one.
+    linked_products = SupplierProduct.objects.filter(supplier=supplier).count()
 
     if request.method == 'POST':
         if open_orders:
@@ -653,6 +1032,7 @@ def supplier_delete(request, pk):
     return render(request, 'procurement/supplier_confirm_delete.html', {
         'supplier': supplier,
         'open_orders': open_orders,
+        'linked_products': linked_products,
     })
 
 

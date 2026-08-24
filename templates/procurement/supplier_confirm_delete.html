@@ -18,6 +18,21 @@
   </div>
   {% endif %}
 
+  {% comment %}
+  A warning, not a block: unlike an open order, a mapped product is not a
+  transaction left dangling — the products themselves survive, they just end
+  up with no current supplier. Worth saying out loud though, since moving the
+  catalog somewhere else is usually the intent when a supplier is retired.
+  {% endcomment %}
+  {% if linked_products %}
+  <div class="banner banner-warn mt-4">
+    {{ linked_products }} product{{ linked_products|pluralize }} {{ linked_products|pluralize:"is,are" }}
+    mapped to this supplier and will be unmapped. The products themselves are not deleted.
+    <a href="{% url 'supplier_detail' supplier.pk %}">Transfer them to another supplier</a> first
+    if they should stay associated with someone.
+  </div>
+  {% endif %}
+
   <form method="POST" class="row mt-6">
     {% csrf_token %}
     <button type="submit" class="btn btn-danger-solid" {% if open_orders %}disabled{% endif %}>

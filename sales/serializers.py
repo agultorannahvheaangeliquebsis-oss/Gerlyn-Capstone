@@ -4,6 +4,7 @@ from rest_framework import serializers
 from django.db import transaction
 
 from .models import SalesTransaction, SalesItem
+from .pricing import price_cart
 from core.scoping import user_can_access_branch
 from inventory.models import Product, Inventory, Batch
 from branches.models import Branch
@@ -138,8 +139,8 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             # oversold cart is rejected outright instead of being silently
             # short-filled (fine when staff are watching; not fine for
             # unattended customer checkout).
-            resolved_items = []
-            total = 0
+            cart_lines = []
+            inventories = []
             for item in items_data:
                 product = Product.objects.get(id=item['productId'])
                 qty = item['quantity']
@@ -155,8 +156,19 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {'items': f'Not enough stock for {product.product_name}.'}
                     )
-                resolved_items.append((product, qty, unit_price, inv))
-                total += unit_price * qty
+                cart_lines.append((product, qty, unit_price))
+                inventories.append(inv)
+
+            # Same pricing engine as the POS, so a VAT-exempt product is
+            # exempt on both paths and reports don't undercount VAT on
+            # API-created sales.
+            #
+            # No discount is ever claimed here: this endpoint serves online
+            # and customer-facing checkout, where nobody has presented a PWD
+            # or OSCA card to a cashier. Accepting a claim over the wire would
+            # mean granting a statutory discount on an unverified assertion.
+            priced = price_cart(cart_lines, discount_claimed=False)
+            total = priced['total_amount']
 
             txn = SalesTransaction.objects.create(
                 branch_id=branch_id,
@@ -167,14 +179,18 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 order_type=order_type,
                 delivery_address=validated_data.get('deliveryAddress', ''),
                 total_amount=total,
+                total_vat_amount=priced['total_vat_amount'],
             )
 
-            for product, qty, unit_price, inv in resolved_items:
+            for line, inv in zip(priced['lines'], inventories):
+                product, qty = line['product'], line['quantity']
                 SalesItem.objects.create(
                     transaction=txn,
                     product=product,
                     quantity_sold=qty,
-                    unit_price=unit_price,
+                    unit_price=line['unit_price'],
+                    is_vat_exempt_line=line['is_vat_exempt_line'],
+                    vat_amount=line['vat_amount'],
                 )
                 inv.quantity_on_hand -= qty
                 inv.save()

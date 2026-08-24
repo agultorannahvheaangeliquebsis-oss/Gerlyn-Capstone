@@ -33,6 +33,7 @@ urlpatterns = [
     path('withdrawals/<int:pk>/', views.transfer_detail, name='transfer_detail'),
     path('withdrawals/<int:pk>/approve/', views.transfer_approve, name='transfer_approve'),
     path('withdrawals/<int:pk>/release/', views.transfer_complete, name='transfer_complete'),
+    path('withdrawals/<int:pk>/scan/', views.transfer_scan, name='transfer_scan'),
     path('withdrawals/<int:pk>/confirm/', views.transfer_confirm_receipt, name='transfer_confirm_receipt'),
     path('withdrawals/<int:pk>/flag/', views.transfer_flag_discrepancy, name='transfer_flag_discrepancy'),
 ]

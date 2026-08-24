@@ -1,0 +1,320 @@
+{% extends "internal_base.html" %}
+{% block title %}{{ profile.supplier_name|default:supplier.username }}{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% comment %}
+The per-supplier sub-view: who they are, and — the part that's new — exactly
+which products they carry, with the ability to move those products to another
+supplier.
+
+Transfer is a metadata change only; procurement.services says why past orders
+are deliberately not rewritten. The banner above the table says the same thing
+in the user's words, because "transfer" reads like it might rewrite history.
+{% endcomment %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'supplier_list' %}">Suppliers</a>
+    <h1 class="mt-2">{{ profile.supplier_name|default:supplier.username }}
+      {% if profile.branch %}<span class="pill pill-neutral">{{ profile.branch.branch_name }}</span>
+      {% else %}<span class="pill pill-neutral">All branches</span>{% endif %}
+    </h1>
+  </div>
+  {% if can_edit %}
+  <a class="btn" href="{% url 'supplier_list' %}?edit={{ supplier.pk }}">Edit Supplier</a>
+  {% endif %}
+</div>
+
+<div class="grid-2 mb-4">
+  <div class="card card-pad">
+    <h3 class="mb-4">Supplier Details</h3>
+    <table class="gv-table kv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Category</td><td style="text-align:right;">
+          {% if profile.supplier_category %}<span class="pill pill-info">{{ profile.supplier_category }}</span>{% else %}—{% endif %}</td></tr>
+        <tr><td class="gv-meta">Contact person</td><td style="text-align:right;">{{ profile.contact_person|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Contact number</td><td class="num" style="text-align:right;">{{ profile.contact_number|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Email</td><td style="text-align:right;">{{ supplier.email|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Address</td><td style="text-align:right;">{{ profile.address|default:"—" }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card card-pad">
+    <h3 class="mb-4">Recent Orders</h3>
+    {% for o in recent_orders %}
+    <div class="row-between" style="padding:7px 0; border-bottom:1px solid var(--line);">
+      <a href="{% url 'procurement_detail' o.pk %}" class="strong">{{ o.po_number }}</a>
+      <span class="gv-meta">{{ o.branch.branch_name }} · {{ o.order_date|date:"d M Y" }}</span>
+      <span class="num">₱{{ o.total_cost|floatformat:2 }}</span>
+    </div>
+    {% empty %}
+    <p class="gv-meta">No purchase orders have been raised with this supplier yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="page-head">
+  <div>
+    <h2>Products</h2>
+    <p class="gv-meta mb-0">{{ links|length }} product{{ links|length|pluralize }} mapped to this supplier.</p>
+  </div>
+  {% if can_edit %}
+  <button type="button" class="btn btn-primary" id="open-add-product-modal">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Add Product
+  </button>
+  {% endif %}
+</div>
+
+{% if can_edit and links %}
+{% comment %}
+The bulk bar and the table live in ONE form, so the checkboxes the table
+renders are the same inputs the transfer posts. A separate form around the bar
+would submit nothing.
+{% endcomment %}
+<form method="POST" action="{% url 'supplier_product_transfer' supplier.pk %}" id="transfer-form"
+      data-confirm="The selected products will move to the chosen supplier. Past purchase orders are not changed."
+      data-confirm-title="Transfer these products?"
+      data-confirm-ok="Transfer">
+  {% csrf_token %}
+  <div class="toolbar">
+    <span class="gv-meta" id="selection-count">No products selected</span>
+    <select name="to_supplier" class="grow" style="max-width:280px;">
+      <option value="">Transfer selected to…</option>
+      {% for s in other_suppliers %}
+      <option value="{{ s.pk }}">{{ s.supplier_profile.supplier_name|default:s.username }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn" type="submit" id="transfer-btn" disabled>Transfer</button>
+  </div>
+{% endif %}
+
+<div class="card table-wrap">
+  <table class="gv-table" id="supplier-products">
+    <thead>
+      <tr>
+        {% if can_edit and links %}<th style="width:34px;"><input type="checkbox" id="select-all" aria-label="Select all products"></th>{% endif %}
+        <th>Product</th><th>Category</th><th>Supplier SKU</th>
+        <th class="num">Default Cost</th><th class="num">Lead Time</th><th>Preferred</th>
+        {% if can_edit %}<th class="end">Actions</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for link in links %}
+      <tr>
+        {% if can_edit and links %}
+        <td><input type="checkbox" name="product_ids" value="{{ link.product_id }}"
+                   class="row-select" aria-label="Select {{ link.product.product_name }}"></td>
+        {% endif %}
+        <td data-label="Product" class="strong">
+          {{ link.product.product_name }}
+          <div class="gv-meta">{{ link.product.sku_code }}</div>
+        </td>
+        <td data-label="Category">{{ link.product.category.category_name|default:"—" }}</td>
+        <td data-label="Supplier SKU" class="gv-meta">{{ link.supplier_sku|default:"—" }}</td>
+        <td data-label="Default Cost" class="num">
+          {% if link.default_cost_price %}₱{{ link.default_cost_price|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td data-label="Lead Time" class="num">
+          {% if link.lead_time_days %}{{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }}{% else %}—{% endif %}</td>
+        <td data-label="Preferred">
+          {% if link.is_preferred %}<span class="pill pill-ok">Preferred</span>{% else %}—{% endif %}</td>
+        {% if can_edit %}
+        <td data-label="Actions">
+          <span class="row-actions">
+            {% comment %}
+            Per-row transfer posts to the same endpoint as the bulk bar with a
+            single product_ids value, so both paths hit identical rules. The
+            destination select is inside the row form — the bulk bar's select
+            belongs to the other form and would not be submitted here.
+            {% endcomment %}
+            <button type="button" class="btn btn-sm" data-open-row-transfer="{{ link.pk }}">Transfer</button>
+            <button type="submit" form="remove-{{ link.pk }}" class="btn btn-sm btn-danger">Remove</button>
+          </span>
+        </td>
+        {% endif %}
+      </tr>
+      {% empty %}
+      <tr><td colspan="8"><div class="empty">
+        <span class="glyph">＋</span>
+        <h3>No products mapped yet</h3>
+        <p>Add the products you buy from this supplier so purchase orders can be raised against them.</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if can_edit and links %}
+</form>
+
+{% comment %}
+Remove forms live OUTSIDE the transfer form — nested forms are invalid HTML
+and the inner one is dropped by the parser, which would make Remove silently
+submit the transfer instead. Each button references its form by id.
+{% endcomment %}
+{% for link in links %}
+<form method="POST" action="{% url 'supplier_product_remove' supplier.pk link.pk %}" id="remove-{{ link.pk }}" hidden
+      data-confirm="{{ link.product.product_name }} will no longer be mapped to this supplier. The product itself is not deleted."
+      data-confirm-title="Remove this product?"
+      data-confirm-variant="warn"
+      data-confirm-ok="Remove">
+  {% csrf_token %}
+</form>
+{% endfor %}
+
+{# Per-row transfer: one modal, retargeted to whichever row was clicked. #}
+<div class="modal-overlay" id="row-transfer-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="row-transfer-title">
+    <div class="modal-head">
+      <h2 id="row-transfer-title">Transfer Product</h2>
+      <button type="button" class="modal-close" id="close-row-transfer-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <form method="POST" action="{% url 'supplier_product_transfer' supplier.pk %}" class="modal-body" id="row-transfer-form">
+      {% csrf_token %}
+      <input type="hidden" name="product_ids" id="row-transfer-product">
+      <p class="gv-meta">
+        Moving <strong id="row-transfer-name"></strong> changes which supplier this
+        product is bought from going forward. Purchase orders already raised are not changed.
+      </p>
+      <div class="field">
+        <label for="row-transfer-dest">Transfer to</label>
+        <select id="row-transfer-dest" name="to_supplier" required>
+          <option value="">Choose a supplier…</option>
+          {% for s in other_suppliers %}
+          <option value="{{ s.pk }}">{{ s.supplier_profile.supplier_name|default:s.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-row-transfer-modal">Cancel</button>
+      <button type="submit" form="row-transfer-form" class="btn btn-primary">Transfer</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if can_edit %}
+<div class="modal-overlay" id="add-product-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-product-title">
+    <div class="modal-head">
+      <h2 id="add-product-title">Add Product to Supplier</h2>
+      <button type="button" class="modal-close" id="close-add-product-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <form method="POST" action="{% url 'supplier_product_add' supplier.pk %}" class="modal-body" id="add-product-form">
+      {% csrf_token %}
+      <div class="field">
+        <label for="add-product-select">Product</label>
+        {# Only products this supplier does not already carry — the view excludes the rest. #}
+        <select id="add-product-select" name="product" required>
+          <option value="">Choose a product…</option>
+          {% for p in available_products %}
+          <option value="{{ p.pk }}">{{ p.product_name }} ({{ p.sku_code }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="add-product-sku">Supplier SKU <span class="gv-meta">— optional</span></label>
+          <input id="add-product-sku" type="text" name="supplier_sku" placeholder="Their code for it">
+        </div>
+        <div class="field">
+          <label for="add-product-cost">Default Cost Price <span class="gv-meta">— optional</span></label>
+          <input id="add-product-cost" type="number" name="default_cost_price" step="0.01" min="0" placeholder="0.00">
+        </div>
+      </div>
+      <div class="field">
+        <label for="add-product-lead">Lead Time (days) <span class="gv-meta">— optional</span></label>
+        <input id="add-product-lead" type="number" name="lead_time_days" min="0" placeholder="7">
+      </div>
+      <label class="row" style="gap:8px; align-items:center;">
+        <input type="checkbox" name="is_preferred" value="1">
+        <span>Preferred supplier for this product</span>
+      </label>
+    </form>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-add-product-modal">Cancel</button>
+      <button type="submit" form="add-product-form" class="btn btn-primary">Add Product</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  {% if can_edit %}
+  initModal({
+    modalId: 'add-product-modal',
+    openerIds: ['open-add-product-modal'],
+    closerIds: ['close-add-product-modal', 'cancel-add-product-modal'],
+  });
+  {% endif %}
+
+  {% if can_edit and links %}
+  initModal({
+    modalId: 'row-transfer-modal',
+    closerIds: ['close-row-transfer-modal', 'cancel-row-transfer-modal'],
+  });
+
+  // --- bulk selection -------------------------------------------------
+  // The Transfer button stays disabled until something is ticked, so the
+  // "select at least one product" server error is a backstop rather than
+  // the normal way of finding out.
+  var selectAll = document.getElementById('select-all');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('.row-select'));
+  var btn = document.getElementById('transfer-btn');
+  var count = document.getElementById('selection-count');
+
+  function sync() {
+    var n = rows.filter(function (r) { return r.checked; }).length;
+    btn.disabled = n === 0;
+    count.textContent = n === 0
+      ? 'No products selected'
+      : n + ' product' + (n === 1 ? '' : 's') + ' selected';
+    if (selectAll) {
+      selectAll.checked = n === rows.length && n > 0;
+      selectAll.indeterminate = n > 0 && n < rows.length;
+    }
+  }
+
+  rows.forEach(function (r) { r.addEventListener('change', sync); });
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      rows.forEach(function (r) { r.checked = selectAll.checked; });
+      sync();
+    });
+  }
+  sync();
+
+  // --- per-row transfer ------------------------------------------------
+  // Reads the product id and name off the clicked row rather than rendering
+  // one modal per row.
+  document.querySelectorAll('[data-open-row-transfer]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var tr = b.closest('tr');
+      var cb = tr.querySelector('.row-select');
+      document.getElementById('row-transfer-product').value = cb.value;
+      document.getElementById('row-transfer-name').textContent =
+        tr.querySelector('.strong').childNodes[0].textContent.trim();
+      // Matches what initModal's own openModal() does — its closers reset
+      // both, so the body scroll lock has to be set here or it never clears.
+      document.getElementById('row-transfer-modal').classList.add('is-open');
+      document.body.style.overflow = 'hidden';
+    });
+  });
+  {% endif %}
+})();
+</script>
+{% endblock %}

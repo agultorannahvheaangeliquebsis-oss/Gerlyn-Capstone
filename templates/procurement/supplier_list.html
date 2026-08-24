@@ -23,14 +23,15 @@
 <div class="card table-wrap">
   <table class="gv-table" id="supplier-table">
     <thead>
-      <tr><th>Supplier</th><th>Branch</th><th>Category</th><th>Contact Person</th>
+      <tr><th>Supplier</th><th>Branch</th><th>Category</th><th class="num">Products</th><th>Contact Person</th>
           <th>Contact Number</th><th>Email</th><th>Address</th>
           {% if can_edit %}<th class="end">Actions</th>{% endif %}</tr>
     </thead>
     <tbody>
       {% for s in suppliers %}
       <tr data-filter-text="{{ s.supplier_profile.supplier_name }}">
-        <td data-label="Supplier" class="strong">{{ s.supplier_profile.supplier_name|default:s.username }}</td>
+        <td data-label="Supplier" class="strong">
+          <a href="{% url 'supplier_detail' s.pk %}">{{ s.supplier_profile.supplier_name|default:s.username }}</a></td>
         <td data-label="Branch">
           {% if s.supplier_profile.branch %}
             <span class="pill pill-neutral">{{ s.supplier_profile.branch.branch_name }}</span>
@@ -42,6 +43,14 @@
           {% if s.supplier_profile.supplier_category %}
             <span class="pill pill-info">{{ s.supplier_profile.supplier_category }}</span>
           {% else %}—{% endif %}
+        </td>
+        {# Links into the supplier's product sub-view — the same place the row's name goes. #}
+        <td data-label="Products" class="num">
+          {% if s.product_count %}
+            <a href="{% url 'supplier_detail' s.pk %}">{{ s.product_count }}</a>
+          {% else %}
+            <span class="gv-meta">None</span>
+          {% endif %}
         </td>
         <td data-label="Contact Person">{{ s.supplier_profile.contact_person|default:"—" }}</td>
         <td data-label="Contact Number" class="num">{{ s.supplier_profile.contact_number|default:"—" }}</td>
@@ -57,7 +66,7 @@
         {% endif %}
       </tr>
       {% empty %}
-      <tr><td colspan="8"><div class="empty">
+      <tr><td colspan="9"><div class="empty">
         <span class="glyph">＋</span>
         <h3>No suppliers yet</h3>
         <p>Suppliers are who you raise purchase orders with.</p>
@@ -65,7 +74,7 @@
       </div></td></tr>
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
-      <tr id="supplier-no-matches" hidden><td colspan="8"><div class="empty">
+      <tr id="supplier-no-matches" hidden><td colspan="9"><div class="empty">
         <span class="glyph">＋</span>
         <h3>No suppliers match</h3>
         <p>No suppliers match "<span data-filter-empty-query></span>". Try a different search.</p>

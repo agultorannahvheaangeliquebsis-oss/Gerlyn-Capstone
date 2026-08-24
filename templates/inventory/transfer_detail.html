@@ -33,12 +33,24 @@
   <h3>Items</h3>
   <div class="table-wrap">
   <table class="gv-table">
-    <thead><tr><th>Product</th><th class="num">Requested</th><th class="num">Approved</th></tr></thead>
+    <thead><tr><th>Product</th><th class="num">Requested</th><th class="num">Approved</th>
+      {% comment %}
+      Only meaningful once picking has happened — before that the column
+      would be a wall of zeros that reads like nothing was approved.
+      {% endcomment %}
+      {% if transfer.status == 'Released' or transfer.status == 'Acknowledged' or transfer.status == 'Discrepancy' %}
+      <th class="num">Picked</th><th>How</th>{% endif %}</tr></thead>
     <tbody>
     {% for it in items %}
     <tr><td data-label="Product">{{ it.product.product_name }}</td>
         <td class="num" data-label="Requested">{{ it.quantity_requested }}</td>
-        <td class="num" data-label="Approved">{{ it.quantity_approved }}</td></tr>
+        <td class="num" data-label="Approved">{{ it.quantity_approved }}</td>
+        {% if transfer.status == 'Released' or transfer.status == 'Acknowledged' or transfer.status == 'Discrepancy' %}
+        <td class="num" data-label="Picked">
+          {{ it.quantity_released }}{% if it.quantity_released < it.quantity_approved %}
+          <span class="pill pill-warn">Short</span>{% endif %}</td>
+        <td data-label="How"><span class="gv-meta">{{ it.get_release_method_display|default:"—" }}</span></td>
+        {% endif %}</tr>
     {% endfor %}
     </tbody>
   </table>
@@ -48,8 +60,11 @@
     {% if transfer.status == 'Pending' %}
       <a class="btn green" style="padding:8px 16px; background:#128a4f; color:#fff; border-radius:8px; text-decoration:none;" href="{% url 'transfer_approve' transfer.pk %}">Review &amp; Approve</a>
     {% elif transfer.status == 'Approved' %}
-      <form method="post" action="{% url 'transfer_complete' transfer.pk %}">{% csrf_token %}
-        <button type="submit" style="padding:8px 16px; background:#128a4f; color:#fff; border:0; border-radius:8px;">Release Stock</button></form>
+      {% comment %}
+      A link now, not a direct POST: releasing goes through a picking screen
+      where each item is scanned or counted before any stock moves.
+      {% endcomment %}
+      <a class="btn green" style="padding:8px 16px; background:#128a4f; color:#fff; border-radius:8px; text-decoration:none;" href="{% url 'transfer_complete' transfer.pk %}">Pick &amp; Release Stock</a>
     {% elif transfer.status == 'Released' %}
       <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" style="display:flex; gap:6px; flex-wrap:wrap;">{% csrf_token %}
         <input type="number" name="received_qty" placeholder="received qty" style="padding:6px; flex:1 1 120px;">
