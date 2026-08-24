@@ -34,6 +34,32 @@
     if (openGroups[id] === true) setGroupOpen(btn, true);   // restore user's choice
   });
 
+  /* Sidebar scroll position: every nav click is a normal <a href> that fully
+     reloads the page (this is server-rendered, not a SPA), so without this
+     the .sb-nav list snaps back to the top on every click even though the
+     open/collapsed state above survives. sessionStorage (not localStorage)
+     because this is per-browsing-session scroll, not a lasting preference.
+     Restored after the open-groups pass above, since expanding a group
+     changes .sb-nav's scrollHeight and could otherwise clamp the restore. */
+  var SCROLL_KEY = 'gv-nav-scroll';
+  var sbNav = document.querySelector('.sb-nav');
+  if (sbNav) {
+    var savedScroll = 0;
+    try { savedScroll = parseInt(sessionStorage.getItem(SCROLL_KEY), 10) || 0; } catch (e) {}
+    if (savedScroll) sbNav.scrollTop = savedScroll;
+
+    var scrollSaveTimer;
+    sbNav.addEventListener('scroll', function () {
+      clearTimeout(scrollSaveTimer);
+      scrollSaveTimer = setTimeout(function () {
+        try { sessionStorage.setItem(SCROLL_KEY, String(sbNav.scrollTop)); } catch (e) {}
+      }, 100);
+    });
+    window.addEventListener('pagehide', function () {
+      try { sessionStorage.setItem(SCROLL_KEY, String(sbNav.scrollTop)); } catch (e) {}
+    });
+  }
+
   /* Sidebar collapse: remembers the collapsed/expanded state across page
      loads. A collapsed rail has nowhere to show a group's sub-items, so
      clicking its icon expands the sidebar back out (smooth width transition,
