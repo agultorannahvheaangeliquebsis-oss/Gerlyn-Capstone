@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="view-transition" content="same-origin">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
   <link rel="manifest" href="{% static 'manifest.json' %}">
   <meta name="theme-color" content="#1E7A4F">
@@ -337,6 +338,7 @@ DOM — it is off-screen until focused (see .skip-link).
 </div>
 <script src="{% static 'js/sidebar.js' %}" defer></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/bottom-sheet.js' %}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}

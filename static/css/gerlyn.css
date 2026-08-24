@@ -1556,6 +1556,123 @@ input::placeholder { color: var(--ink-500); }
   100% { background: transparent; }
 }
 
+/* ---------------------------------------------------- bottom message sheet
+   internal_base.html renders this for Django messages tagged 'sheet' (e.g.
+   messages.success(..., extra_tags='sheet')) instead of a plain banner —
+   see procurement/views.py's delivery-received confirmation. Driven by
+   static/js/bottom-sheet.js: .is-open triggers the slide-up/fade-in
+   transition below; swipe-down and backdrop-tap dismiss it the same way.
+   (No separate reduced-motion fallback needed — the global catch-all further
+   down this file already collapses every transition/animation to ~0.) */
+.bottom-sheet {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(23, 37, 30, 0);
+  pointer-events: none;
+  transition: background .28s ease;
+}
+.bottom-sheet.is-open { background: rgba(23, 37, 30, .45); pointer-events: auto; }
+.bottom-sheet-panel {
+  position: relative;
+  width: 100%; max-width: 480px;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -10px 30px rgba(23, 37, 30, .18);
+  padding: 30px var(--s6) calc(var(--s6) + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; align-items: center; gap: var(--s3);
+  text-align: center;
+  transform: translateY(100%);
+  transition: transform .32s cubic-bezier(.2, .8, .25, 1);
+}
+.bottom-sheet-panel::before {
+  content: "";
+  position: absolute; top: 10px; left: 50%;
+  width: 36px; height: 4px; margin-left: -18px;
+  border-radius: var(--r-pill); background: var(--line);
+}
+.bottom-sheet.is-open .bottom-sheet-panel { transform: translateY(0); }
+.bottom-sheet-icon {
+  width: 52px; height: 52px; border-radius: 50%; flex: none;
+  background: var(--green-50); color: var(--action);
+  display: flex; align-items: center; justify-content: center;
+}
+.bottom-sheet-icon svg { width: 26px; height: 26px; }
+.bottom-sheet-panel p { margin: 0; font: 500 15.5px/1.5 system-ui, sans-serif; color: var(--ink-900); }
+.bottom-sheet-panel .btn { width: 100%; margin-top: var(--s2); }
+
+/* ---------------------------------------------------- bottom nav "More"
+   A compact anchored popover (same visual language as .avatar-menu-panel /
+   .daterange-panel), not a full sheet — it only ever holds 2-4 links.
+   Outside-click-to-close is wired in sidebar.js next to .avatar-menu's. */
+.more-menu { position: relative; flex: 1; display: flex; }
+.more-menu > summary {
+  flex: 1; list-style: none; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-height: var(--touch); padding: 6px 2px;
+  color: var(--ink-600); font: 600 11px/1.1 system-ui, sans-serif;
+  border-radius: var(--r-input); position: relative;
+}
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu > summary svg { width: 20px; height: 20px; }
+.more-menu > summary.active,
+.more-menu[open] > summary { color: var(--action-700); background: var(--green-50); }
+.more-menu-panel {
+  position: absolute; bottom: calc(100% + 10px); right: -6px; z-index: 30;
+  min-width: 190px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+  display: flex; flex-direction: column; gap: 2px;
+  transform: translateY(6px); opacity: 0;
+  animation: moreMenuIn .16s ease forwards;
+}
+@keyframes moreMenuIn { to { transform: translateY(0); opacity: 1; } }
+.more-menu-link {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 40px; padding: 0 12px;
+  border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
+  font: 600 13.5px/1 system-ui, sans-serif;
+}
+.more-menu-link:hover, .more-menu-link.active { background: var(--line-soft); color: var(--ink-900); }
+/* Reset the absolute badge position .bottom-nav .nav-badge sets (this panel
+   is nested inside <nav class="bottom-nav">, so that rule reaches it too)
+   back to an inline badge that sits next to the link's own label. */
+.more-menu-link .nav-badge--inline { position: static; margin: 0; }
+
+/* --------------------------------------------------------- tap feedback
+   A brief scale-down on press so touch targets feel responsive instead of
+   inert — the #1 thing that reads as "not a native app" on a tapped list.
+   Scoped to coarse/no-hover pointers so it doesn't fire on a desktop mouse
+   click, and skipped under reduced-motion (the media condition itself
+   excludes it, so the global reduced-motion catch-all never needs to). */
+@media (hover: none) and (pointer: coarse) and (prefers-reduced-motion: no-preference) {
+  .btn:active, .sb-item:active, .sb-tree-file:active, .bottom-nav a:active,
+  .stat-hero[data-kpi-key]:active, .attn-row:active, .attn-card:active,
+  .attn-chip:active, .feed-row:active, .tab:active, .pcard:active, .cat:active,
+  .more-menu > summary:active, .avatar-menu-link:active {
+    transform: scale(.97);
+    transition: transform .1s ease;
+  }
+}
+
+/* --------------------------------------------------- cross-page transitions
+   Opts every navigation into the browser's native View Transition
+   (Chromium-based browsers; a silent no-op everywhere else, since it's just
+   a <meta> the rest of the stack ignores). Pairs with the same-origin meta
+   tag in internal_base.html / public_base.html <head>. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root), ::view-transition-new(root) {
+    animation-duration: .22s;
+    animation-timing-function: cubic-bezier(.2, .8, .25, 1);
+  }
+}
+/* The view-transition pseudo-elements live outside the normal DOM tree, so
+   the blanket `*, *::before, *::after` reduced-motion rule further down this
+   file (which covers every other transition/animation added above) can't
+   reach them — they need their own opt-out. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+}
+
 /* ---------------------------------------------------------------- skip link
    WCAG 2.4.1 Bypass Blocks. The sidebar is a deep collapsible tree, so
    without this a keyboard user tabs the whole nav to reach content on every

@@ -83,11 +83,11 @@
     try { localStorage.setItem(COLLAPSE_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0'); } catch (e) {}
   }
 
-  /* Header avatar menu (mobile Administration entry point): close it when
-     the user taps/clicks anywhere outside, since <details> only closes
-     natively on re-toggle. */
+  /* Header avatar menu (mobile Administration entry point) and the bottom-nav
+     "More" menu: close them when the user taps/clicks anywhere outside,
+     since <details> only closes natively on re-toggle. */
   document.addEventListener('click', function (e) {
-    document.querySelectorAll('.avatar-menu[open]').forEach(function (d) {
+    document.querySelectorAll('.avatar-menu[open], .more-menu[open]').forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;
     });
   });

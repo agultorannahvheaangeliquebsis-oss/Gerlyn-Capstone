@@ -395,7 +395,8 @@ def delivery_receive(request, pk):
             messages.success(
                 request,
                 f'{proc.po_number} received in full. Warehouse stock updated — '
-                f'create a Withdrawal Slip to move it onto the floor.'
+                f'create a Withdrawal Slip to move it onto the floor.',
+                extra_tags='sheet',
             )
         return redirect('procurement_detail', pk=pk)
 
