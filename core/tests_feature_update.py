@@ -33,44 +33,65 @@ class PricingTests(TestCase):
     """
 
     class FakeProduct:
-        def __init__(self, price, vat_exempt=False, eligible=True):
+        def __init__(self, price, vat_exempt=False, pwd=True, senior=True):
             self.unit_price = Decimal(price)
             self.is_vat_exempt = vat_exempt
-            self.is_pwd_senior_eligible = eligible
+            self.is_pwd_eligible = pwd
+            self.is_senior_eligible = senior
 
     def test_discount_comes_off_the_vat_exclusive_price(self):
         # ₱112.00 inclusive -> ₱100.00 exclusive -> less 20% -> ₱80.00.
         # Taking 20% off ₱112.00 would charge ₱89.60, which is the mistake
         # this ordering exists to prevent.
-        line = price_line(self.FakeProduct('112.00'), 1, discount_claimed=True)
+        line = price_line(self.FakeProduct('112.00'), 1, discount_type='PWD')
         self.assertEqual(line['unit_price'], Decimal('80.00'))
         self.assertEqual(line['discount_amount'], Decimal('20.00'))
         self.assertNotEqual(line['unit_price'], Decimal('89.60'))
 
     def test_a_discounted_line_becomes_vat_exempt(self):
-        line = price_line(self.FakeProduct('112.00'), 1, discount_claimed=True)
+        line = price_line(self.FakeProduct('112.00'), 1, discount_type='Senior')
         self.assertTrue(line['is_vat_exempt_line'])
         self.assertEqual(line['vat_amount'], Decimal('0.00'))
 
     def test_an_ineligible_product_is_untouched_by_a_claim(self):
         line = price_line(
-            self.FakeProduct('112.00', eligible=False), 1, discount_claimed=True
+            self.FakeProduct('112.00', pwd=False, senior=False), 1,
+            discount_type='PWD',
         )
         self.assertEqual(line['unit_price'], Decimal('112.00'))
         self.assertEqual(line['discount_amount'], Decimal('0.00'))
+
+    def test_each_claim_type_reads_its_own_eligibility_flag(self):
+        # The whole point of splitting the flag: a product can be covered by
+        # one statute and excluded from the other.
+        senior_only = self.FakeProduct('112.00', pwd=False, senior=True)
+
+        under_senior = price_line(senior_only, 1, discount_type='Senior')
+        under_pwd = price_line(senior_only, 1, discount_type='PWD')
+
+        self.assertEqual(under_senior['unit_price'], Decimal('80.00'))
+        self.assertEqual(under_pwd['unit_price'], Decimal('112.00'))
+
+    def test_no_claim_type_means_no_discount(self):
+        # A product ticked for both still pays full price when nobody
+        # presented a card.
+        for claim in (None, 'None', ''):
+            line = price_line(self.FakeProduct('112.00'), 1, discount_type=claim)
+            self.assertEqual(line['unit_price'], Decimal('112.00'))
+            self.assertEqual(line['discount_amount'], Decimal('0.00'))
 
     def test_an_exempt_product_is_not_vat_stripped_before_discounting(self):
         # Its shelf price never contained VAT, so the 20% comes off the whole
         # ₱100.00, not off ₱89.29.
         line = price_line(
-            self.FakeProduct('100.00', vat_exempt=True), 1, discount_claimed=True
+            self.FakeProduct('100.00', vat_exempt=True), 1, discount_type='PWD'
         )
         self.assertEqual(line['unit_price'], Decimal('80.00'))
 
     def test_an_undiscounted_vatable_line_still_charges_the_shelf_price(self):
         # VAT is recorded for reporting but never added on top — the customer
         # pays what the shelf says.
-        line = price_line(self.FakeProduct('112.00'), 2, discount_claimed=False)
+        line = price_line(self.FakeProduct('112.00'), 2, discount_type=None)
         self.assertEqual(line['subtotal'], Decimal('224.00'))
         self.assertEqual(line['vat_amount'], Decimal('24.00'))
 
@@ -78,10 +99,10 @@ class PricingTests(TestCase):
         cart = price_cart(
             [
                 (self.FakeProduct('112.00'), 2),
-                (self.FakeProduct('50.00', eligible=False), 1),
+                (self.FakeProduct('50.00', pwd=False, senior=False), 1),
                 (self.FakeProduct('100.00', vat_exempt=True), 3),
             ],
-            discount_claimed=True,
+            discount_type='Senior',
         )
         self.assertEqual(
             cart['gross_amount'] - cart['total_discount_amount'],
@@ -490,7 +511,8 @@ class FeatureUpdateTests(TestCase):
         product = Product.objects.first()
         product.unit_price = Decimal(price)
         product.is_vat_exempt = False
-        product.is_pwd_senior_eligible = True
+        product.is_pwd_eligible = True
+        product.is_senior_eligible = True
         product.save()
         branch = Branch.objects.first()
         inventory, _ = Inventory.objects.get_or_create(
@@ -547,7 +569,8 @@ class FeatureUpdateTests(TestCase):
 
     def test_an_ineligible_product_stays_at_full_price_under_a_claim(self):
         product, branch = self.vatable_product()
-        product.is_pwd_senior_eligible = False
+        product.is_pwd_eligible = False
+        product.is_senior_eligible = False
         product.save()
 
         self.sell(
@@ -560,3 +583,44 @@ class FeatureUpdateTests(TestCase):
         txn = SalesTransaction.objects.latest('pk')
         self.assertEqual(txn.total_amount, Decimal('112.00'))
         self.assertEqual(txn.total_discount_amount, Decimal('0.00'))
+
+    def test_a_senior_only_product_is_not_discounted_under_a_pwd_claim(self):
+        # End-to-end version of the split: the two statutes are gated
+        # separately all the way through to what the customer is billed.
+        product, branch = self.vatable_product()
+        product.is_pwd_eligible = False
+        product.save()
+
+        self.sell(
+            self.login(self.owner().username), branch, product, 1,
+            discount_type='PWD',
+            discount_id_number='PWD-999',
+            discount_holder_name='Jose Cruz',
+        )
+        self.assertEqual(
+            SalesTransaction.objects.latest('pk').total_amount, Decimal('112.00')
+        )
+
+        self.sell(
+            self.login(self.owner().username), branch, product, 1,
+            discount_type='Senior',
+            discount_id_number='OSCA-12345',
+            discount_holder_name='Maria Santos',
+        )
+        self.assertEqual(
+            SalesTransaction.objects.latest('pk').total_amount, Decimal('80.00')
+        )
+
+    def test_a_new_product_is_eligible_for_neither_discount_by_default(self):
+        # Nothing is ticked for the user: eligibility has to be chosen, so a
+        # product added without touching the boxes never quietly discounts.
+        self.login(self.owner().username).post('/inventory/products/add/', {
+            'product_name': 'Untouched Boxes Product',
+            'unit_of_measure': Product.UnitOfMeasure.PIECE,
+            'unit_price': '112.00',
+        }, follow=True)
+
+        product = Product.objects.get(product_name='Untouched Boxes Product')
+        self.assertFalse(product.is_pwd_eligible)
+        self.assertFalse(product.is_senior_eligible)
+        self.assertFalse(product.is_vat_exempt)

@@ -85,11 +85,6 @@ def _product_list_context(request):
         'next_sku': Product.next_sku_code(),
         'branches': branches,
         'add_selected_branches': None,  # None = fresh modal, default all branches checked
-        # Same idea for the tax checkboxes: on a fresh Add form the PWD/Senior
-        # eligibility box starts ticked, but on a redisplay an unticked box
-        # posts nothing and must stay unticked. product_add flips this to
-        # False when re-rendering a rejected submit.
-        'add_is_fresh': True,
     }
 
 
@@ -112,14 +107,20 @@ def _edit_modal_values(product, form_data=None):
         # Checkboxes can't use pick(): an unticked box posts nothing, which
         # pick() would read as "not supplied" and fall back to the stored
         # True — making the box impossible to turn off. On a redisplay the
-        # posted data is the whole truth about what was ticked.
+        # posted data is the whole truth about what was ticked. Every tax box
+        # starts unticked on a fresh Add form, so there is no default to
+        # preserve here — only what the user actually chose.
         'is_vat_exempt': (
             bool(form_data.get('is_vat_exempt')) if form_data is not None
             else product.is_vat_exempt
         ),
-        'is_pwd_senior_eligible': (
-            bool(form_data.get('is_pwd_senior_eligible')) if form_data is not None
-            else product.is_pwd_senior_eligible
+        'is_pwd_eligible': (
+            bool(form_data.get('is_pwd_eligible')) if form_data is not None
+            else product.is_pwd_eligible
+        ),
+        'is_senior_eligible': (
+            bool(form_data.get('is_senior_eligible')) if form_data is not None
+            else product.is_senior_eligible
         ),
     }
 
@@ -221,12 +222,12 @@ def product_add(request):
                     unit_price=unit_price,
                     wholesale_price=wholesale_price or None,
                     description=description,
-                    # Tax/discount flags. The eligibility box is TICKED by
-                    # default in the form, so an absent value here means the
-                    # user deliberately unticked it, not that the field is
-                    # missing.
+                    # Tax/discount flags. All three boxes start unticked, so
+                    # an absent value simply means "not ticked" — a product is
+                    # only discount-eligible when someone says so.
                     is_vat_exempt=bool(request.POST.get('is_vat_exempt')),
-                    is_pwd_senior_eligible=bool(request.POST.get('is_pwd_senior_eligible')),
+                    is_pwd_eligible=bool(request.POST.get('is_pwd_eligible')),
+                    is_senior_eligible=bool(request.POST.get('is_senior_eligible')),
                 )
                 # request.FILES.getlist() returns EVERY file sent under name="images".
                 for index, image_file in enumerate(images):
@@ -259,7 +260,6 @@ def product_add(request):
         'add_errors': errors,
         'add_form_data': request.POST,
         'add_selected_branches': branch_ids,
-        'add_is_fresh': False,
     })
     return render(request, 'inventory/product_list.html', context)
 
@@ -301,7 +301,8 @@ def product_edit(request, pk):
                 product.wholesale_price = wholesale_price or None
                 product.description = description
                 product.is_vat_exempt = bool(request.POST.get('is_vat_exempt'))
-                product.is_pwd_senior_eligible = bool(request.POST.get('is_pwd_senior_eligible'))
+                product.is_pwd_eligible = bool(request.POST.get('is_pwd_eligible'))
+                product.is_senior_eligible = bool(request.POST.get('is_senior_eligible'))
                 product.save()
 
                 # 1. Delete images the user ticked for removal (file + row).

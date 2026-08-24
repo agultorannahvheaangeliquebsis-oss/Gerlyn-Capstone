@@ -167,7 +167,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             # and customer-facing checkout, where nobody has presented a PWD
             # or OSCA card to a cashier. Accepting a claim over the wire would
             # mean granting a statutory discount on an unverified assertion.
-            priced = price_cart(cart_lines, discount_claimed=False)
+            priced = price_cart(cart_lines, discount_type=None)
             total = priced['total_amount']
 
             txn = SalesTransaction.objects.create(

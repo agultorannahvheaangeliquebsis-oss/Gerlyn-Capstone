@@ -55,19 +55,29 @@ class Product(models.Model):
     description = models.TextField(blank=True)
 
     # --- tax / statutory-discount flags -------------------------------------
-    # Two independent booleans, not one: a product can be VAT-exempt without
-    # qualifying for the PWD/Senior discount (and vice versa). See
-    # sales.pricing for how the pair is actually applied at checkout.
+    # Three independent booleans, not one: a product can be VAT-exempt without
+    # qualifying for either statutory discount (and vice versa). See
+    # sales.pricing for how they are actually applied at checkout.
     is_vat_exempt = models.BooleanField(
         default=False,
         help_text="This product never carries VAT, regardless of who buys it "
                   "(e.g. agricultural goods in their original state)."
     )
-    is_pwd_senior_eligible = models.BooleanField(
-        default=True,
-        help_text="This product qualifies for the statutory 20% PWD / Senior "
-                  "Citizen discount. Defaults on — most retail goods qualify; "
-                  "untick it for the excluded ones."
+    # PWD and Senior Citizen are two separate statutes (RA 10754 and RA 9994)
+    # with their own exclusion lists, so a product can qualify for one and not
+    # the other. Both default OFF: eligibility is a decision someone has to
+    # make per product, and a wrong tick quietly under-charges every sale.
+    is_pwd_eligible = models.BooleanField(
+        default=False,
+        help_text="This product qualifies for the statutory 20% PWD discount "
+                  "(RA 10754). Off by default — tick it only for goods the "
+                  "discount actually covers."
+    )
+    is_senior_eligible = models.BooleanField(
+        default=False,
+        help_text="This product qualifies for the statutory 20% Senior "
+                  "Citizen discount (RA 9994). Off by default — tick it only "
+                  "for goods the discount actually covers."
     )
 
     def __str__(self):

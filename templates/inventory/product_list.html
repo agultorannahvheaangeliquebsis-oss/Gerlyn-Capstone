@@ -320,7 +320,7 @@
         </div>
       </div>
 
-      {% include "inventory/_tax_fields.html" with which="add" is_vat_exempt=add_form_data.is_vat_exempt is_pwd_senior_eligible=add_form_data.is_pwd_senior_eligible fresh=add_is_fresh %}
+      {% include "inventory/_tax_fields.html" with which="add" is_vat_exempt=add_form_data.is_vat_exempt is_pwd_eligible=add_form_data.is_pwd_eligible is_senior_eligible=add_form_data.is_senior_eligible %}
 
       <div class="field">
         <label for="add-description">Description</label>
@@ -428,7 +428,7 @@
         </div>
       </div>
 
-      {% include "inventory/_tax_fields.html" with which="edit" is_vat_exempt=edit_values.is_vat_exempt is_pwd_senior_eligible=edit_values.is_pwd_senior_eligible fresh=False %}
+      {% include "inventory/_tax_fields.html" with which="edit" is_vat_exempt=edit_values.is_vat_exempt is_pwd_eligible=edit_values.is_pwd_eligible is_senior_eligible=edit_values.is_senior_eligible %}
 
       <div class="field">
         <label for="edit-description">Description</label>

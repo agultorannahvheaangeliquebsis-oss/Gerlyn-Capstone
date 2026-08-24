@@ -33,10 +33,29 @@ from decimal import Decimal, ROUND_HALF_UP
 VAT_RATE = Decimal('0.12')
 VAT_DIVISOR = Decimal('1') + VAT_RATE
 
-# Statutory PWD / Senior Citizen discount.
+# Statutory PWD / Senior Citizen discount. Both statutes set the same 20%.
 PWD_SENIOR_DISCOUNT_RATE = Decimal('0.20')
 
+# Which product flag each claim type is gated on. PWD and Senior are separate
+# statutes with separate exclusion lists, so a product can qualify for one and
+# not the other — the mapping lives here so the POS, the API and the receipt
+# can never disagree about which flag a claim reads.
+DISCOUNT_ELIGIBILITY_FIELD = {
+    'PWD': 'is_pwd_eligible',
+    'Senior': 'is_senior_eligible',
+}
+
 PESO = Decimal('0.01')
+
+
+def discount_applies_to(product, discount_type):
+    """True when a claim of `discount_type` reaches this product.
+
+    `discount_type` is the transaction-level claim ('PWD', 'Senior', 'None'
+    or None). Anything that is not a recognised claim type means no discount.
+    """
+    field = DISCOUNT_ELIGIBILITY_FIELD.get(discount_type)
+    return bool(field) and bool(getattr(product, field, False))
 
 
 def peso(amount):
@@ -54,16 +73,16 @@ def vat_exclusive(vat_inclusive_price):
     return Decimal(vat_inclusive_price) / VAT_DIVISOR
 
 
-def price_line(product, quantity, unit_price=None, discount_claimed=False):
+def price_line(product, quantity, unit_price=None, discount_type=None):
     """Work out what one cart line actually costs.
 
     `unit_price` overrides the product's own price — the caller passes
     wholesale_price for a wholesale order, so the tier decision stays in the
     caller and the tax decision stays here.
 
-    `discount_claimed` is the transaction-level fact (a card was presented).
-    Whether it reaches THIS line is decided here, by the product's own
-    eligibility flag.
+    `discount_type` is the transaction-level claim ('PWD', 'Senior', or
+    None/'None' for no claim). Whether it reaches THIS line is decided here,
+    by the product's own eligibility flag for that specific statute.
 
     Returns a dict with the per-unit net price plus the per-line breakdown
     that gets frozen onto SalesItem.
@@ -71,7 +90,7 @@ def price_line(product, quantity, unit_price=None, discount_claimed=False):
     quantity = int(quantity)
     listed = Decimal(product.unit_price if unit_price is None else unit_price)
 
-    applies = bool(discount_claimed) and product.is_pwd_senior_eligible
+    applies = discount_applies_to(product, discount_type)
 
     if applies:
         # Strip VAT first (if the product carried any), then discount. The
@@ -114,7 +133,7 @@ def price_line(product, quantity, unit_price=None, discount_claimed=False):
     }
 
 
-def price_cart(lines, discount_claimed=False):
+def price_cart(lines, discount_type=None):
     """Price a whole cart.
 
     `lines` is an iterable of (product, quantity) or (product, quantity,
@@ -128,7 +147,7 @@ def price_cart(lines, discount_claimed=False):
         result = price_line(
             product, quantity,
             unit_price=unit_price,
-            discount_claimed=discount_claimed,
+            discount_type=discount_type,
         )
         result['product'] = product
         result['quantity'] = int(quantity)

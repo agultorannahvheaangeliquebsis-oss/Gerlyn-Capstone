@@ -76,8 +76,9 @@ basket because they forgot to pick a branch.
       {% comment %}
       PWD / Senior Citizen discount. Claimed once for the whole sale, because
       the card belongs to one person — which LINES it reaches is decided per
-      product by is_pwd_senior_eligible, and the cart tags the ones it misses
-      so the cashier is never surprised by the total.
+      product by the eligibility flag matching the claim (is_pwd_eligible or
+      is_senior_eligible), and the cart tags the ones it misses so the cashier
+      is never surprised by the total.
 
       The ID and name are required whenever a claim is made: the discount is
       conditioned on presenting an ID, and a claim with none recorded is the
@@ -143,9 +144,10 @@ basket because they forgot to pick a branch.
                         data-retail="{{ p.unit_price }}"
                         data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
                         data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}"
-                        {# The cart preview needs both flags to mirror sales.pricing exactly. #}
+                        {# The cart preview needs every flag to mirror sales.pricing exactly. #}
                         data-vat-exempt="{% if p.is_vat_exempt %}1{% else %}0{% endif %}"
-                        data-discountable="{% if p.is_pwd_senior_eligible %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
+                        data-pwd-eligible="{% if p.is_pwd_eligible %}1{% else %}0{% endif %}"
+                        data-senior-eligible="{% if p.is_senior_eligible %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
               {% endfor %}
             </select>
           </div>

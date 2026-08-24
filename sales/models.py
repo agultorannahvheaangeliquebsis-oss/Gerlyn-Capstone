@@ -96,7 +96,8 @@ class SalesTransaction(models.Model):
     # --- statutory discount (PWD / Senior Citizen) --------------------------
     # Claimed once per transaction, not per line: the discount belongs to a
     # cardholder, and one sale has one cardholder. Which LINES it actually
-    # reaches is decided per product by Product.is_pwd_senior_eligible.
+    # reaches is decided per product, by whichever eligibility flag matches
+    # the claim — Product.is_pwd_eligible or Product.is_senior_eligible.
     class DiscountType(models.TextChoices):
         NONE = 'None', 'None'
         PWD = 'PWD', 'PWD'

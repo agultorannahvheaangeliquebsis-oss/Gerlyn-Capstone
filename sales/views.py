@@ -414,7 +414,7 @@ def transaction_add(request):
             product = Product.objects.get(pk=product_id)
             cart_lines.append((product, qty, price_for(product, order_type)))
 
-        priced = price_cart(cart_lines, discount_claimed=discount_claimed)
+        priced = price_cart(cart_lines, discount_type=discount_type)
         total = priced['total_amount']
 
         try:

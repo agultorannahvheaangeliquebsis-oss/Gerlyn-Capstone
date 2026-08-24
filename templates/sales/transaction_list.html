@@ -194,9 +194,17 @@ function posPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionD
 var POS_VAT_RATE = 0.12;
 var POS_DISCOUNT_RATE = 0.20;
 
-function posPriceLine(opt, price, qty, discountClaimed) {
+// Mirrors sales.pricing.discount_applies_to: PWD and Senior are separate
+// statutes, so each claim type reads its own per-product flag.
+function posDiscountApplies(opt, discountType) {
+  if (discountType === 'PWD') return opt.dataset.pwdEligible === '1';
+  if (discountType === 'Senior') return opt.dataset.seniorEligible === '1';
+  return false;
+}
+
+function posPriceLine(opt, price, qty, discountType) {
   var vatExempt = opt.dataset.vatExempt === '1';
-  var applies = discountClaimed && opt.dataset.discountable === '1';
+  var applies = posDiscountApplies(opt, discountType);
 
   if (applies) {
     var base = vatExempt ? price : price / (1 + POS_VAT_RATE);
@@ -235,20 +243,21 @@ function posRecalc() {
 
     var qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
     if (qty < 0) qty = 0;
-    var line = posPriceLine(opt, price, qty, discountClaimed);
+    var line = posPriceLine(opt, price, qty, discountType);
 
     // Say WHY a line didn't drop when a discount is on — otherwise the total
     // just looks wrong to the cashier.
-    if (discountClaimed && opt.dataset.discountable !== '1') skipped++;
+    var ineligible = discountClaimed && !posDiscountApplies(opt, discountType);
+    if (ineligible) skipped++;
     var tag = row.querySelector('.js-skip-tag');
-    if (discountClaimed && opt.dataset.discountable !== '1') {
+    if (ineligible) {
       if (!tag) {
         tag = document.createElement('span');
         tag.className = 'js-skip-tag gv-meta';
         tag.style.color = 'var(--warn-fg)';
         row.querySelector('.js-product').parentNode.appendChild(tag);
       }
-      tag.textContent = 'Not discount-eligible';
+      tag.textContent = 'Not eligible for ' + discountType + ' discount';
     } else if (tag) {
       tag.remove();
     }
