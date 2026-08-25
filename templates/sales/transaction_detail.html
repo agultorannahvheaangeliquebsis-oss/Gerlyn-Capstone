@@ -72,6 +72,24 @@
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ transaction.mode_of_payment }}</td></tr>
         {% if transaction.delivery_address %}
         <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ transaction.delivery_address }}</td></tr>{% endif %}
+        {% comment %}
+        The statutory-discount record. Shown only when a claim was made — the
+        ID is what makes the discount defensible if it is ever questioned, so
+        it belongs on the transaction, not just in the audit log.
+        {% endcomment %}
+        {% if transaction.discount_type != 'None' %}
+        <tr><td class="gv-meta">Discount</td><td style="text-align:right;">
+          <span class="pill pill-ok">{{ transaction.get_discount_type_display }}</span></td></tr>
+        <tr><td class="gv-meta">ID presented</td><td style="text-align:right;">
+          {{ transaction.discount_id_number|default:"—" }}
+          {% if transaction.discount_holder_name %}<div class="gv-meta">{{ transaction.discount_holder_name }}</div>{% endif %}</td></tr>
+        <tr><td class="gv-meta">Less: discount</td>
+            <td class="num" style="text-align:right; color:var(--ok-fg);">−₱{{ transaction.total_discount_amount|floatformat:2 }}</td></tr>
+        {% endif %}
+        {% if transaction.total_vat_amount %}
+        <tr><td class="gv-meta">VAT (included)</td>
+            <td class="num" style="text-align:right;">₱{{ transaction.total_vat_amount|floatformat:2 }}</td></tr>
+        {% endif %}
         <tr><td class="gv-meta">Total</td>
             <td class="num" style="text-align:right;"><span class="gv-metric" style="color:var(--action);">₱{{ transaction.total_amount|floatformat:2 }}</span></td></tr>
       </tbody>

@@ -54,6 +54,32 @@ class Product(models.Model):
     )
     description = models.TextField(blank=True)
 
+    # --- tax / statutory-discount flags -------------------------------------
+    # Three independent booleans, not one: a product can be VAT-exempt without
+    # qualifying for either statutory discount (and vice versa). See
+    # sales.pricing for how they are actually applied at checkout.
+    is_vat_exempt = models.BooleanField(
+        default=False,
+        help_text="This product never carries VAT, regardless of who buys it "
+                  "(e.g. agricultural goods in their original state)."
+    )
+    # PWD and Senior Citizen are two separate statutes (RA 10754 and RA 9994)
+    # with their own exclusion lists, so a product can qualify for one and not
+    # the other. Both default OFF: eligibility is a decision someone has to
+    # make per product, and a wrong tick quietly under-charges every sale.
+    is_pwd_eligible = models.BooleanField(
+        default=False,
+        help_text="This product qualifies for the statutory 20% PWD discount "
+                  "(RA 10754). Off by default — tick it only for goods the "
+                  "discount actually covers."
+    )
+    is_senior_eligible = models.BooleanField(
+        default=False,
+        help_text="This product qualifies for the statutory 20% Senior "
+                  "Citizen discount (RA 9994). Off by default — tick it only "
+                  "for goods the discount actually covers."
+    )
+
     def __str__(self):
         return f"{self.product_name} ({self.sku_code})"
 
@@ -438,6 +464,26 @@ class StockTransferItem(models.Model):
     quantity_approved = models.PositiveIntegerField(
         default=0,
         help_text="Can differ from requested — approver may release partial quantity"
+    )
+
+    # --- release-step fields ------------------------------------------------
+    # StockTransfer.received_qty is one number for the whole slip, which is
+    # enough for the acknowledge step but not for the release screen: picking
+    # goods off a shelf is per-item, so scanning needs a per-item counter to
+    # know when each row is done.
+    class ReleaseMethod(models.TextChoices):
+        SCAN = 'Scan', 'Scanned'
+        MANUAL = 'Manual', 'Manual'
+
+    quantity_released = models.PositiveIntegerField(
+        default=0,
+        help_text="Actually picked at release time. Drives per-item release status."
+    )
+    release_method = models.CharField(
+        max_length=10, choices=ReleaseMethod.choices, blank=True,
+        help_text="How quantity_released was captured. Recorded for audit only — "
+                  "a scanned count is not treated as more authoritative than a "
+                  "typed one, since not every product carries a barcode."
     )
 
     def __str__(self):

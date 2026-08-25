@@ -73,6 +73,48 @@ basket because they forgot to pick a branch.
         </div>
       </div>
 
+      {% comment %}
+      PWD / Senior Citizen discount. Claimed once for the whole sale, because
+      the card belongs to one person — which LINES it reaches is decided per
+      product by the eligibility flag matching the claim (is_pwd_eligible or
+      is_senior_eligible), and the cart tags the ones it misses so the cashier
+      is never surprised by the total.
+
+      The ID and name are required whenever a claim is made: the discount is
+      conditioned on presenting an ID, and a claim with none recorded is the
+      first thing an audit asks about. The view enforces this too.
+      {% endcomment %}
+      <div class="field" style="border:1px solid var(--line); border-radius:var(--r-md,10px); padding:12px;">
+        <label class="row" style="gap:8px; align-items:center; margin:0;">
+          <input type="checkbox" id="pos-discount-toggle" value="1"
+                 {% if pos_form_data.discount_type and pos_form_data.discount_type != 'None' %}checked{% endif %}>
+          <strong>Apply PWD / Senior Citizen discount</strong>
+          <span class="gv-meta">{{ pos_discount_rate_pct }}% off the VAT-exclusive price</span>
+        </label>
+
+        <div id="pos-discount-fields" class="grid-2" style="margin-top:12px;" hidden>
+          <div class="field">
+            <label for="pos-discount-type">Discount Type</label>
+            <select id="pos-discount-type" name="discount_type" onchange="posRecalc()">
+              <option value="None">— None —</option>
+              {% for value, label in pos_discount_choices %}
+                <option value="{{ value }}" {% if pos_form_data.discount_type == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="pos-discount-id">ID Number</label>
+            <input type="text" id="pos-discount-id" name="discount_id_number"
+                   placeholder="PWD / OSCA ID" value="{{ pos_form_data.discount_id_number|default:'' }}">
+          </div>
+          <div class="field">
+            <label for="pos-discount-name">Name on ID</label>
+            <input type="text" id="pos-discount-name" name="discount_holder_name"
+                   placeholder="Full name" value="{{ pos_form_data.discount_holder_name|default:'' }}">
+          </div>
+        </div>
+      </div>
+
       <div class="row-between">
         <h3>Items</h3>
         <button type="button" class="btn btn-sm" onclick="posAddRow()">+ Add Item</button>
@@ -101,7 +143,11 @@ basket because they forgot to pick a branch.
                         data-sku="{{ p.sku_code|lower }}"
                         data-retail="{{ p.unit_price }}"
                         data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
-                        data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
+                        data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}"
+                        {# The cart preview needs every flag to mirror sales.pricing exactly. #}
+                        data-vat-exempt="{% if p.is_vat_exempt %}1{% else %}0{% endif %}"
+                        data-pwd-eligible="{% if p.is_pwd_eligible %}1{% else %}0{% endif %}"
+                        data-senior-eligible="{% if p.is_senior_eligible %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
               {% endfor %}
             </select>
           </div>
@@ -123,9 +169,32 @@ basket because they forgot to pick a branch.
         </div>
       </template>
 
-      <div class="row-between" style="border-top:1px solid var(--line); padding-top:16px;">
-        <span class="gv-label">Total</span>
-        <span class="gv-metric" id="pos-grand-total" style="color:var(--action);">₱0.00</span>
+      {% comment %}
+      The receipt-style breakdown. Only the rows that apply are shown — a sale
+      with no exempt goods and no discount collapses back to a single Total,
+      which is what it was before this existed.
+      {% endcomment %}
+      <div style="border-top:1px solid var(--line); padding-top:16px;">
+        <div class="row-between" id="pos-gross-row" hidden>
+          <span class="gv-meta">Subtotal</span>
+          <span class="gv-meta" id="pos-gross">₱0.00</span>
+        </div>
+        <div class="row-between" id="pos-exempt-row" hidden>
+          <span class="gv-meta">VAT-exempt sales</span>
+          <span class="gv-meta" id="pos-exempt">₱0.00</span>
+        </div>
+        <div class="row-between" id="pos-vat-row" hidden>
+          <span class="gv-meta">VAT ({{ pos_vat_rate_pct }}%, included)</span>
+          <span class="gv-meta" id="pos-vat">₱0.00</span>
+        </div>
+        <div class="row-between" id="pos-discount-row" hidden>
+          <span class="gv-meta" id="pos-discount-label">Less: PWD/Senior discount</span>
+          <span class="gv-meta" id="pos-discount" style="color:var(--ok-fg);">−₱0.00</span>
+        </div>
+        <div class="row-between" style="margin-top:6px;">
+          <span class="gv-label">Amount Due</span>
+          <span class="gv-metric" id="pos-grand-total" style="color:var(--action);">₱0.00</span>
+        </div>
       </div>
     </form>
 

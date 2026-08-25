@@ -1,0 +1,271 @@
+{% extends "internal_base.html" %}
+{% load static %}
+{% block title %}{{ procurement.po_number }} — Purchase Order{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+{% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
+
+{% comment %}
+The printable purchase order. It extends internal_base so it previews inside
+the app shell (back link, nav, the Print button) — the global @media print
+block in gerlyn.css already strips all of that chrome, and .po-doc below
+restyles what's left into a document rather than a dashboard card.
+
+Deliberately read-only: nothing here posts. Editing a PO happens on the
+detail page; this is the artefact that leaves the building.
+{% endcomment %}
+
+{% block extra_css %}
+<style>
+  /* A document, not a dashboard. Fixed to a page-width column so what's on
+     screen is what comes out of the printer. */
+  .po-doc {
+    max-width: 210mm;
+    margin: 0 auto;
+    background: #fff;
+    color: #111;
+    padding: 18mm 16mm;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md, 10px);
+  }
+  .po-letterhead {
+    display: flex; justify-content: space-between;
+    align-items: flex-start; gap: 24px;
+    border-bottom: 2px solid #111; padding-bottom: 14px;
+  }
+  .po-store-name { font-size: 19px; font-weight: 700; line-height: 1.25; }
+  .po-store-sub  { font-size: 12px; color: #555; margin-top: 2px; }
+  .po-doc-title  { font-size: 22px; font-weight: 700; letter-spacing: .06em; text-align: right; }
+  .po-doc-meta   { font-size: 12px; text-align: right; margin-top: 6px; line-height: 1.6; }
+  .po-doc-meta strong { font-size: 13px; }
+
+  /* Supplier / deliver-to, side by side. Falls to one column on a narrow
+     screen; print always gets the two-up layout since the page is A4. */
+  .po-parties {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 22px; margin: 18px 0;
+  }
+  @media (max-width: 700px) { .po-parties { grid-template-columns: 1fr; } }
+  .po-party { border: 1px solid #bbb; padding: 11px 13px; }
+  .po-party h4 {
+    margin: 0 0 7px; font-size: 10px; letter-spacing: .09em;
+    text-transform: uppercase; color: #555; font-weight: 700;
+  }
+  .po-party .name { font-weight: 700; font-size: 14px; }
+  .po-party div  { font-size: 12px; line-height: 1.65; }
+
+  .po-terms {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 0; border: 1px solid #bbb; margin-bottom: 18px;
+  }
+  @media (max-width: 700px) { .po-terms { grid-template-columns: 1fr; } }
+  .po-term { padding: 9px 13px; border-right: 1px solid #bbb; }
+  .po-term:last-child { border-right: 0; }
+  .po-term .k {
+    font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+    color: #555; font-weight: 700;
+  }
+  .po-term .v { font-size: 13px; font-weight: 600; margin-top: 3px; }
+
+  .po-items { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .po-items th {
+    text-align: left; font-size: 10px; letter-spacing: .07em;
+    text-transform: uppercase; padding: 8px 9px;
+    border-bottom: 2px solid #111; border-top: 1px solid #111;
+  }
+  .po-items td { padding: 8px 9px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  .po-items .num { text-align: right; white-space: nowrap; }
+  .po-items tfoot td {
+    border-bottom: 0; border-top: 2px solid #111;
+    padding-top: 11px; font-weight: 700; font-size: 14px;
+  }
+  .po-sku { font-size: 11px; color: #666; }
+
+  /* Signature blocks. The lines are printed empty on purpose — these get
+     signed in ink. The names underneath are who the system says is
+     responsible, so a signature can be checked against one. */
+  .po-signatures {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 26px; margin-top: 40px;
+  }
+  @media (max-width: 700px) { .po-signatures { grid-template-columns: 1fr; gap: 32px; } }
+  .po-sign .rule { border-bottom: 1px solid #111; height: 42px; }
+  .po-sign .who  { font-size: 12.5px; font-weight: 700; margin-top: 6px; }
+  .po-sign .role {
+    font-size: 10px; letter-spacing: .07em;
+    text-transform: uppercase; color: #555; margin-top: 2px;
+  }
+  .po-foot {
+    margin-top: 26px; padding-top: 10px; border-top: 1px solid #ddd;
+    font-size: 10.5px; color: #666; display: flex;
+    justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .po-void {
+    border: 1px dashed #a00; color: #a00; font-size: 12px;
+    padding: 8px 12px; margin-bottom: 16px; font-weight: 600;
+  }
+
+  @media print {
+    /* internal_base's shell is already hidden by the global print block;
+       this just drops the document's own on-screen framing. */
+    .po-doc { border: 0; border-radius: 0; padding: 0; max-width: none; }
+    .po-items { font-size: 11.5px; }
+    .po-items thead { display: table-header-group; }   /* repeat header across pages */
+    .po-items tr { break-inside: avoid; }
+    .po-signatures { break-inside: avoid; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head no-print">
+  <div>
+    <a class="back-link" href="{% url 'procurement_detail' procurement.pk %}">{{ procurement.po_number }}</a>
+    <h1 class="mt-2">Purchase Order</h1>
+  </div>
+  <button type="button" class="btn btn-primary" onclick="window.print()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
+    Print
+  </button>
+</div>
+
+{% if totals_disagree %}
+{% comment %}
+Never silently print a total that doesn't add up — say so on screen, and let
+it print too, so nobody signs a document with a broken figure.
+{% endcomment %}
+<div class="banner banner-warn">
+  The stored order total (₱{{ procurement.total_cost|floatformat:2 }}) does not match the
+  sum of the line items (₱{{ line_sum|floatformat:2 }}). Check the order before sending this to the supplier.
+</div>
+{% endif %}
+
+<div class="po-doc">
+
+  {% if procurement.status == 'Cancelled' %}
+  <div class="po-void">This purchase order was CANCELLED and is not valid for delivery.</div>
+  {% elif procurement.status == 'Draft' %}
+  <div class="po-void">DRAFT — not yet placed with the supplier.</div>
+  {% endif %}
+
+  <div class="po-letterhead">
+    <div>
+      <div class="po-store-name">Gerlyn Variety Store</div>
+      <div class="po-store-sub">{{ procurement.branch.branch_name }}</div>
+      <div class="po-store-sub">{{ procurement.branch.location }}</div>
+    </div>
+    <div>
+      <div class="po-doc-title">PURCHASE ORDER</div>
+      <div class="po-doc-meta">
+        <strong>{{ procurement.po_number }}</strong><br>
+        Order date: {{ procurement.order_date|date:"d M Y" }}
+      </div>
+    </div>
+  </div>
+
+  <div class="po-parties">
+    <div class="po-party">
+      <h4>Supplier</h4>
+      {% if procurement.supplier %}
+        <div class="name">{{ supplier_profile.supplier_name|default:procurement.supplier.username }}</div>
+        {% if supplier_profile.contact_person %}<div>Attn: {{ supplier_profile.contact_person }}</div>{% endif %}
+        {% if supplier_profile.contact_number %}<div>{{ supplier_profile.contact_number }}</div>{% endif %}
+        {% if procurement.supplier.email %}<div>{{ procurement.supplier.email }}</div>{% endif %}
+        {% if supplier_profile.address %}<div>{{ supplier_profile.address }}</div>{% endif %}
+      {% else %}
+        <div class="name">—</div>
+        <div>No supplier assigned to this order.</div>
+      {% endif %}
+    </div>
+
+    <div class="po-party">
+      <h4>Deliver To</h4>
+      <div class="name">Gerlyn Variety Store — {{ procurement.branch.branch_name }}</div>
+      <div>{{ procurement.branch.location }}</div>
+    </div>
+  </div>
+
+  <div class="po-terms">
+    <div class="po-term">
+      <div class="k">Target Delivery Date</div>
+      <div class="v">{{ procurement.delivery_date|date:"d M Y"|default:"To be confirmed" }}</div>
+    </div>
+    <div class="po-term">
+      <div class="k">Prepared By</div>
+      <div class="v">{{ prepared_by_name|default:"—" }}</div>
+    </div>
+    <div class="po-term">
+      <div class="k">Status</div>
+      <div class="v">{{ procurement.status }}</div>
+    </div>
+  </div>
+
+  <table class="po-items">
+    <thead>
+      <tr>
+        <th style="width:34px;">#</th>
+        <th>Item Description</th>
+        <th class="num">Unit</th>
+        <th class="num">Qty</th>
+        <th class="num">Unit Cost</th>
+        <th class="num">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td class="num">{{ forloop.counter }}</td>
+        <td>
+          <strong>{{ item.product.product_name|default:"(product removed)" }}</strong>
+          {% if item.product.sku_code %}<div class="po-sku">{{ item.product.sku_code }}</div>{% endif %}
+        </td>
+        <td class="num">{{ item.product.unit_of_measure|default:"—" }}</td>
+        <td class="num">{{ item.quantity_ordered }}</td>
+        <td class="num">₱{{ item.cost_price|floatformat:2 }}</td>
+        <td class="num">₱{{ item.line_total|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" style="padding:22px 9px; text-align:center; color:#666;">
+        This purchase order has no line items.
+      </td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="5" class="num">TOTAL COST</td>
+        <td class="num">₱{{ procurement.total_cost|floatformat:2 }}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  {% comment %}
+  A blank name is fine here — the line still prints and gets signed in ink.
+  &nbsp; keeps the block's height so the three signature boxes stay aligned
+  whether or not the system knows who is signing.
+  {% endcomment %}
+  <div class="po-signatures">
+    <div class="po-sign">
+      <div class="rule"></div>
+      <div class="who">{{ prepared_by_name|default:"&nbsp;" }}</div>
+      <div class="role">Prepared By</div>
+    </div>
+    <div class="po-sign">
+      <div class="rule"></div>
+      <div class="who">{{ authorized_by_name|default:"&nbsp;" }}</div>
+      <div class="role">Authorized By — Owner</div>
+    </div>
+    <div class="po-sign">
+      <div class="rule"></div>
+      <div class="who">{{ supplier_signatory|default:"&nbsp;" }}</div>
+      <div class="role">Received / Acknowledged By — Supplier</div>
+    </div>
+  </div>
+
+  <div class="po-foot">
+    <span>
+      Goods are accepted only after receipt validation at the delivering branch.
+      Quantities short-delivered are recorded against this order.
+    </span>
+    <span>Printed {{ printed_on|date:"d M Y" }} by {{ printed_by }}</span>
+  </div>
+</div>
+{% endblock %}

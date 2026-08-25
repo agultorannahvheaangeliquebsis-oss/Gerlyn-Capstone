@@ -93,6 +93,37 @@ class SalesTransaction(models.Model):
         help_text="Required for Online orders; blank for Physical"
     )
 
+    # --- statutory discount (PWD / Senior Citizen) --------------------------
+    # Claimed once per transaction, not per line: the discount belongs to a
+    # cardholder, and one sale has one cardholder. Which LINES it actually
+    # reaches is decided per product, by whichever eligibility flag matches
+    # the claim — Product.is_pwd_eligible or Product.is_senior_eligible.
+    class DiscountType(models.TextChoices):
+        NONE = 'None', 'None'
+        PWD = 'PWD', 'PWD'
+        SENIOR = 'Senior', 'Senior Citizen'
+
+    discount_type = models.CharField(
+        max_length=10, choices=DiscountType.choices,
+        default=DiscountType.NONE
+    )
+    discount_id_number = models.CharField(
+        max_length=50, blank=True,
+        help_text="PWD / OSCA ID presented at the counter. Required when a "
+                  "discount is claimed — this is the recordkeeping the "
+                  "statutory discount is conditioned on."
+    )
+    discount_holder_name = models.CharField(max_length=150, blank=True)
+    total_discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0
+    )
+    total_vat_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        help_text="VAT actually embedded across all lines, summed. Recorded "
+                  "for reporting — it is already inside total_amount, not "
+                  "added on top of it."
+    )
+
     def save(self, *args, **kwargs):
         is_new = self.pk is None
         super().save(*args, **kwargs)
@@ -125,7 +156,28 @@ class SalesItem(models.Model):
         max_digits=12, decimal_places=2, editable=False
     )
 
+    # --- tax / discount breakdown, frozen at sale time ----------------------
+    # Stored rather than recomputed on read: a product's price and its
+    # VAT/discount flags can both change later, but a past receipt has to keep
+    # showing what the customer was actually charged.
+    is_vat_exempt_line = models.BooleanField(
+        default=False,
+        help_text="This line carried no VAT — either the product is flagged "
+                  "VAT-exempt, or a PWD/Senior discount applied to it"
+    )
+    vat_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="VAT embedded in this line's subtotal (not added on top)"
+    )
+    discount_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="PWD/Senior discount taken off this line"
+    )
+
     def save(self, *args, **kwargs):
+        # unit_price is the price this line was actually sold at — for a
+        # discounted line, sales.pricing has already reduced it, so subtotal
+        # stays a plain qty x price and needs no discount arithmetic here.
         self.subtotal = self.quantity_sold * self.unit_price
         super().save(*args, **kwargs)
 

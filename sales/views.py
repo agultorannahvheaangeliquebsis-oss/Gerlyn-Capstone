@@ -13,6 +13,7 @@ from core.scoping import branch_ids_for_user, scope_queryset, user_can_access_br
 from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
+from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
 def price_for(product, order_type):
@@ -57,6 +58,14 @@ def _pos_context(request):
             if c[0] in ['Cash', 'GCash', 'Card']
         ],
         'pos_order_type_choices': SalesTransaction.OrderType.choices,
+        # Only the two real claims — "None" is the absence of a claim, and
+        # rendering it as a third radio invites picking it as if it were one.
+        'pos_discount_choices': [
+            c for c in SalesTransaction.DiscountType.choices
+            if c[0] != SalesTransaction.DiscountType.NONE
+        ],
+        'pos_discount_rate_pct': int(PWD_SENIOR_DISCOUNT_RATE * 100),
+        'pos_vat_rate_pct': int(VAT_RATE * 100),
     }
 
 
@@ -364,6 +373,17 @@ def transaction_add(request):
         if pid and q and q.isdigit() and int(q) > 0
     ]
 
+    # --- PWD / Senior Citizen discount ------------------------------------
+    # Claimed once for the sale. The ID number is not optional: the statutory
+    # discount is conditioned on presenting one, and a claim with no ID on
+    # record is exactly what an audit would ask about.
+    discount_type = request.POST.get('discount_type') or SalesTransaction.DiscountType.NONE
+    if discount_type not in SalesTransaction.DiscountType.values:
+        discount_type = SalesTransaction.DiscountType.NONE
+    discount_claimed = discount_type != SalesTransaction.DiscountType.NONE
+    discount_id_number = request.POST.get('discount_id_number', '').strip() if discount_claimed else ''
+    discount_holder_name = request.POST.get('discount_holder_name', '').strip() if discount_claimed else ''
+
     # The same two checks, collected instead of redirected. A redirect threw
     # away every item row the cashier had already rung up.
     errors = []
@@ -371,19 +391,31 @@ def transaction_add(request):
         errors.append('Please choose a branch for this sale.')
     if not line_items:
         errors.append('Add at least one item with a quantity.')
+    if discount_claimed and not discount_id_number:
+        errors.append(
+            f'Enter the {discount_type} ID number — a discount cannot be '
+            f'recorded without it.'
+        )
+    if discount_claimed and not discount_holder_name:
+        errors.append(f'Enter the name on the {discount_type} ID.')
 
     if not errors:
         # Prices resolved and the total computed up front — same order as the
         # DRF API's create() — instead of creating the transaction at
         # total_amount=0 first (which left billing.signals creating an
         # amount_due=0 BillingRecord) and patching both afterward.
-        resolved_items = []
-        total = 0
+        #
+        # sales.pricing owns the VAT and PWD/Senior arithmetic; this only
+        # decides the price TIER (retail vs wholesale) and hands the lines
+        # over. Keeping the two apart is what stops a discounted wholesale
+        # line from being computed off the retail price by accident.
+        cart_lines = []
         for product_id, qty in line_items:
             product = Product.objects.get(pk=product_id)
-            price = price_for(product, order_type)
-            resolved_items.append((product, qty, price))
-            total += price * qty
+            cart_lines.append((product, qty, price_for(product, order_type)))
+
+        priced = price_cart(cart_lines, discount_type=discount_type)
+        total = priced['total_amount']
 
         try:
             with transaction.atomic():
@@ -395,12 +427,24 @@ def transaction_add(request):
                     order_type=order_type,
                     order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
                     total_amount=total,
+                    discount_type=discount_type,
+                    discount_id_number=discount_id_number,
+                    discount_holder_name=discount_holder_name,
+                    total_discount_amount=priced['total_discount_amount'],
+                    total_vat_amount=priced['total_vat_amount'],
                 )
 
-                for product, qty, price in resolved_items:
+                for line in priced['lines']:
                     SalesItem.objects.create(
-                        transaction=txn, product=product,
-                        quantity_sold=qty, unit_price=price,
+                        transaction=txn, product=line['product'],
+                        quantity_sold=line['quantity'],
+                        # The already-discounted unit price — SalesItem.save
+                        # multiplies it out, so the discount must be in the
+                        # price, not applied again on top of the subtotal.
+                        unit_price=line['unit_price'],
+                        is_vat_exempt_line=line['is_vat_exempt_line'],
+                        vat_amount=line['vat_amount'],
+                        discount_amount=line['discount_amount'],
                     )
 
                 # Walk-in sales leave the shelf immediately. Raises

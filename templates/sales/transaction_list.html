@@ -187,12 +187,51 @@ function posRemoveRow(btn) {
 }
 function posPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 
+// VAT and discount rates, mirroring sales/pricing.py. This preview and the
+// server MUST agree — a cashier who quotes one number and charges another has
+// an argument at the counter — so the order of operations here is deliberately
+// the same one that module documents: strip VAT first, THEN take the 20% off.
+var POS_VAT_RATE = 0.12;
+var POS_DISCOUNT_RATE = 0.20;
+
+// Mirrors sales.pricing.discount_applies_to: PWD and Senior are separate
+// statutes, so each claim type reads its own per-product flag.
+function posDiscountApplies(opt, discountType) {
+  if (discountType === 'PWD') return opt.dataset.pwdEligible === '1';
+  if (discountType === 'Senior') return opt.dataset.seniorEligible === '1';
+  return false;
+}
+
+function posPriceLine(opt, price, qty, discountType) {
+  var vatExempt = opt.dataset.vatExempt === '1';
+  var applies = posDiscountApplies(opt, discountType);
+
+  if (applies) {
+    var base = vatExempt ? price : price / (1 + POS_VAT_RATE);
+    var unitDiscount = base * POS_DISCOUNT_RATE;
+    var net = base - unitDiscount;
+    return { unit: net, sub: net * qty, discount: unitDiscount * qty, vat: 0, exempt: true };
+  }
+  if (vatExempt) {
+    return { unit: price, sub: price * qty, discount: 0, vat: 0, exempt: true };
+  }
+  var lineTotal = price * qty;
+  return {
+    unit: price, sub: lineTotal, discount: 0,
+    vat: lineTotal - lineTotal / (1 + POS_VAT_RATE), exempt: false,
+  };
+}
+
 function posRecalc() {
   // Wholesale orders bill at the wholesale price — show that to the cashier
   // BEFORE the sale is recorded, not after.
   var wholesale = document.getElementById('pos-order-type').value === 'Wholesale';
-  var total = 0;
-  var missing = 0;
+  var discountSelect = document.getElementById('pos-discount-type');
+  var discountType = discountSelect ? discountSelect.value : 'None';
+  var discountClaimed = discountType !== 'None';
+
+  var total = 0, gross = 0, vatTotal = 0, discountTotal = 0, exemptTotal = 0;
+  var missing = 0, skipped = 0;
 
   posRows.querySelectorAll('.item-row').forEach(function (row) {
     var opt = row.querySelector('.js-product').selectedOptions[0];
@@ -203,11 +242,50 @@ function posRecalc() {
     if (wholesale && opt.dataset.hasWholesale === '0') missing++;
 
     var qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
-    var sub = price * (qty > 0 ? qty : 0);
-    row.querySelector('.js-price').value = posPeso(price);
-    row.querySelector('.js-sub').value = posPeso(sub);
-    total += sub;
+    if (qty < 0) qty = 0;
+    var line = posPriceLine(opt, price, qty, discountType);
+
+    // Say WHY a line didn't drop when a discount is on — otherwise the total
+    // just looks wrong to the cashier.
+    var ineligible = discountClaimed && !posDiscountApplies(opt, discountType);
+    if (ineligible) skipped++;
+    var tag = row.querySelector('.js-skip-tag');
+    if (ineligible) {
+      if (!tag) {
+        tag = document.createElement('span');
+        tag.className = 'js-skip-tag gv-meta';
+        tag.style.color = 'var(--warn-fg)';
+        row.querySelector('.js-product').parentNode.appendChild(tag);
+      }
+      tag.textContent = 'Not eligible for ' + discountType + ' discount';
+    } else if (tag) {
+      tag.remove();
+    }
+
+    row.querySelector('.js-price').value = posPeso(line.unit);
+    row.querySelector('.js-sub').value = posPeso(line.sub);
+    total += line.sub;
+    gross += line.sub + line.discount;
+    vatTotal += line.vat;
+    discountTotal += line.discount;
+    if (line.exempt) exemptTotal += line.sub;
   });
+
+  function showRow(rowId, valueId, amount, text) {
+    var row = document.getElementById(rowId);
+    if (!row) return;
+    row.hidden = amount <= 0.004;
+    document.getElementById(valueId).textContent = text || posPeso(amount);
+  }
+  showRow('pos-gross-row', 'pos-gross', discountTotal, posPeso(gross));
+  showRow('pos-exempt-row', 'pos-exempt', exemptTotal);
+  showRow('pos-vat-row', 'pos-vat', vatTotal);
+  showRow('pos-discount-row', 'pos-discount', discountTotal, '−' + posPeso(discountTotal));
+  if (discountClaimed) {
+    document.getElementById('pos-discount-label').textContent =
+      'Less: ' + discountType + ' discount'
+      + (skipped ? ' (' + skipped + ' item(s) not eligible)' : '');
+  }
 
   document.getElementById('pos-grand-total').textContent = posPeso(total);
 
@@ -223,6 +301,34 @@ function posRecalc() {
     hint.style.color = 'var(--ok-fg)';
   }
 }
+
+// Discount toggle: reveals the ID fields and switches the type select between
+// "None" and a real claim. Unticking resets to None rather than just hiding
+// the fields, so a hidden select can never post a claim the cashier can't see.
+(function () {
+  var toggle = document.getElementById('pos-discount-toggle');
+  var fields = document.getElementById('pos-discount-fields');
+  var typeSel = document.getElementById('pos-discount-type');
+  if (!toggle || !fields || !typeSel) return;
+
+  function sync() {
+    fields.hidden = !toggle.checked;
+    if (toggle.checked) {
+      // Default to the first real claim so ticking the box actually does
+      // something; leaving it on "None" would look broken.
+      if (typeSel.value === 'None') typeSel.selectedIndex = 1;
+      document.getElementById('pos-discount-id').required = true;
+      document.getElementById('pos-discount-name').required = true;
+    } else {
+      typeSel.value = 'None';
+      document.getElementById('pos-discount-id').required = false;
+      document.getElementById('pos-discount-name').required = false;
+    }
+    posRecalc();
+  }
+  toggle.addEventListener('change', sync);
+  sync();
+})();
 
 (function () {
   // A rejected submit sends the basket back; otherwise open with one row.

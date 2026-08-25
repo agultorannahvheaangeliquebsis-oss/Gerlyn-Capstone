@@ -1,0 +1,268 @@
+{% extends "internal_base.html" %}
+{% load static %}
+{% load l10n %}
+{% block title %}Release {{ transfer.slip_number }}{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
+{% block branch_scope %}{{ transfer.source_branch.branch_name }}{% endblock %}
+
+{% comment %}
+The release step of a stock withdrawal: someone physically pulls the approved
+goods off the shelf. Scanning belongs HERE and not at the request or
+acknowledge steps — this is the only point in the chain where a person is
+handling individual units and can get the count wrong.
+
+Same scan-to-verify shape as the delivery receiving screen, on purpose: it is
+the same job (confirm what's physically moving against what a document
+authorised), so it should not be a second thing to learn.
+{% endcomment %}
+
+{% block extra_css %}
+<style>
+  .scan-panel { border-left: 3px solid var(--brand); }
+  .scan-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .scan-row .input { flex: 1 1 240px; min-width: 0; }
+
+  .gv-table tbody tr.v-complete td { background: color-mix(in srgb, var(--ok, #1E7A4F) 8%, transparent); }
+  .gv-table tbody tr.v-partial  td { background: color-mix(in srgb, var(--warn, #B45309) 9%, transparent); }
+  .gv-table tbody tr.v-over     td { background: color-mix(in srgb, var(--danger, #B42318) 9%, transparent); }
+  .gv-table tbody tr.just-scanned td { animation: scanflash .6s ease-out; }
+  @keyframes scanflash {
+    from { background: color-mix(in srgb, var(--brand) 34%, transparent); }
+    to   { background: transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .gv-table tbody tr.just-scanned td { animation: none; }
+  }
+  .v-badge {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .scan-tally { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; }
+  .scan-tally b { font-size: 17px; display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'transfer_detail' transfer.pk %}">{{ transfer.slip_number }}</a>
+    <h1 class="mt-2">Release Stock</h1>
+  </div>
+</div>
+
+<div class="banner banner-info">
+  {% if transfer.purpose == 'Branch Restock' %}
+    Releasing moves the picked quantities out of {{ transfer.warehouse.name }} and onto
+    {{ transfer.destination_branch.branch_name }}'s floor. The destination branch still
+    has to acknowledge receipt afterwards.
+  {% else %}
+    This is a <strong>{{ transfer.purpose }}</strong> write-off — releasing deducts the picked
+    quantities from {{ transfer.source_branch.branch_name }}'s floor stock and closes the slip.
+    There is no receiving party.
+  {% endif %}
+</div>
+
+<div class="card card-pad mb-4 scan-panel no-print">
+  <div class="row-between wrap mb-4">
+    <div>
+      <h3 class="mb-0">Scan to Verify</h3>
+      <p class="gv-meta mb-0">
+        Scan each unit as you pick it. Products without a barcode are counted by hand —
+        both fill in the same column, and neither is treated as more reliable than the other.
+      </p>
+    </div>
+    <div class="scan-tally">
+      <span><b id="tally-complete">0</b><span class="gv-meta">Complete</span></span>
+      <span><b id="tally-partial">0</b><span class="gv-meta">Partial</span></span>
+      <span><b id="tally-pending">0</b><span class="gv-meta">Not started</span></span>
+    </div>
+  </div>
+
+  <div class="scan-row">
+    <input type="text" id="scan-input" class="input" autocomplete="off"
+           inputmode="none" placeholder="Scan or type a barcode, then press Enter">
+    <button type="button" class="btn" id="scan-camera-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Camera
+    </button>
+  </div>
+  <p class="gv-meta" id="scan-status" aria-live="polite" style="margin:8px 0 0; min-height:1.2em;"></p>
+</div>
+
+<form method="POST" id="release-form"
+      data-confirm="Stock will move as counted below. This cannot be undone from this screen."
+      data-confirm-title="Release this withdrawal?"
+      data-confirm-ok="Release stock">
+  {% csrf_token %}
+  <div class="card table-wrap mb-4">
+    <table class="gv-table" id="release-table">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th class="num">Requested</th>
+          <th class="num">Approved</th>
+          <th class="num">Picked</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr data-item-id="{{ item.pk }}" data-approved="{{ item.quantity_approved|unlocalize }}">
+          <td data-label="Product" class="strong">
+            {{ item.product.product_name }}
+            <div class="gv-meta">
+              {{ item.product.sku_code }}{% if item.product.barcode %} · {{ item.product.barcode }}
+              {% else %} · <span title="No barcode on file — count this one by hand.">no barcode</span>{% endif %}
+            </div>
+            <input type="hidden" name="item_id" value="{{ item.pk }}">
+            {# Set to Scan by the scan handler; anything typed leaves it Manual. #}
+            <input type="hidden" name="release_method" value="Manual" class="method-input">
+          </td>
+          <td data-label="Requested" class="num">{{ item.quantity_requested }}</td>
+          <td data-label="Approved" class="num strong">{{ item.quantity_approved }}</td>
+          <td data-label="Picked" class="num">
+            <input type="number" name="quantity_released" min="0" class="qty-input"
+                   max="{{ item.quantity_approved|unlocalize }}"
+                   value="{{ item.quantity_approved|unlocalize }}"
+                   style="max-width:120px; margin-left:auto;">
+          </td>
+          <td data-label="Status"><span class="v-badge"></span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="row">
+    <button type="submit" class="btn btn-primary" id="release-btn">Release Stock</button>
+    <a href="{% url 'transfer_detail' transfer.pk %}" class="btn">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/barcode-scanner.js' %}"></script>
+<script>
+(function () {
+  var input   = document.getElementById('scan-input');
+  var camera  = document.getElementById('scan-camera-btn');
+  var status  = document.getElementById('scan-status');
+  var rows    = Array.prototype.slice.call(
+                  document.querySelectorAll('#release-table tbody tr'));
+  var csrf    = document.querySelector('#release-form [name=csrfmiddlewaretoken]').value;
+  var scanUrl = '{% url "transfer_scan" transfer.pk %}';
+
+  function setStatus(text, kind) {
+    status.textContent = text;
+    status.style.color = kind === 'bad' ? 'var(--danger, #B42318)'
+                       : kind === 'good' ? 'var(--ok, #1E7A4F)' : '';
+  }
+
+  function paintRow(tr) {
+    var approved = parseInt(tr.dataset.approved, 10) || 0;
+    var got = parseInt(tr.querySelector('.qty-input').value, 10);
+    if (isNaN(got)) got = 0;
+    var badge = tr.querySelector('.v-badge');
+
+    tr.classList.remove('v-complete', 'v-partial', 'v-over');
+
+    if (got > approved) {
+      badge.textContent = 'Over by ' + (got - approved);
+      badge.style.color = 'var(--danger, #B42318)';
+      tr.classList.add('v-over');
+      return 'over';
+    }
+    if (got === approved && approved > 0) {
+      badge.textContent = 'Complete';
+      badge.style.color = 'var(--ok, #1E7A4F)';
+      tr.classList.add('v-complete');
+      return 'complete';
+    }
+    if (got > 0) {
+      badge.textContent = 'Short · ' + got + '/' + approved;
+      badge.style.color = 'var(--warn, #B45309)';
+      tr.classList.add('v-partial');
+      return 'partial';
+    }
+    badge.textContent = 'Not picked';
+    badge.style.color = '';
+    return 'pending';
+  }
+
+  function repaint() {
+    var n = { complete: 0, partial: 0, pending: 0, over: 0 };
+    rows.forEach(function (tr) { n[paintRow(tr)]++; });
+    document.getElementById('tally-complete').textContent = n.complete;
+    document.getElementById('tally-partial').textContent = n.partial;
+    document.getElementById('tally-pending').textContent = n.pending;
+
+    // Picking more than was approved is refused server-side — the approver
+    // set the ceiling. Block the button too, so nobody keeps scanning into
+    // a submit that cannot succeed.
+    document.getElementById('release-btn').disabled = n.over > 0;
+    if (n.over > 0) {
+      setStatus('More picked than approved. Correct the count, or have the slip '
+                + 're-approved for the larger quantity.', 'bad');
+    }
+  }
+
+  rows.forEach(function (tr) {
+    tr.querySelector('.qty-input').addEventListener('input', function () {
+      // Typing is a manual count even on a row that was scanned earlier —
+      // the last thing that set the number is what release_method records.
+      tr.querySelector('.method-input').value = 'Manual';
+      repaint();
+    });
+  });
+  repaint();
+
+  function bump(itemId) {
+    var tr = rows.filter(function (r) { return r.dataset.itemId === String(itemId); })[0];
+    if (!tr) return null;
+    var field = tr.querySelector('.qty-input');
+    var current = parseInt(field.value, 10);
+    field.value = (isNaN(current) ? 0 : current) + 1;
+    tr.querySelector('.method-input').value = 'Scan';
+
+    tr.classList.remove('just-scanned');
+    void tr.offsetWidth;
+    tr.classList.add('just-scanned');
+    tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    repaint();
+    return field.value;
+  }
+
+  GerlynBarcodeScanner.attach(input, {
+    cameraBtn: camera,
+    onScan: function (code) {
+      setStatus('Looking up ' + code + '…');
+      var body = new FormData();
+      body.append('code', code);
+      body.append('csrfmiddlewaretoken', csrf);
+
+      fetch(scanUrl, { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) { setStatus(d.detail || 'Scan failed.', 'bad'); return; }
+          if (d.status === 'matched') {
+            var now = bump(d.item_id);
+            setStatus(d.product_name + ' — ' + now + ' of ' + d.quantity_approved + ' picked.', 'good');
+          } else if (d.status === 'not_on_slip') {
+            // No "add it anyway" here, unlike receiving: adding a line would
+            // route around the approval this slip exists to enforce.
+            setStatus(d.product_name + ' is not on this withdrawal slip. Put it back, or '
+                      + 'raise a new slip for it.', 'bad');
+          } else {
+            setStatus('No product matches ' + d.code + '.', 'bad');
+          }
+        })
+        .catch(function () { setStatus('Could not reach the server. Count this one by hand.', 'bad'); });
+    },
+  });
+
+  input.addEventListener('focus', function () { input.removeAttribute('inputmode'); });
+  input.focus();
+})();
+</script>
+{% endblock %}
