@@ -399,6 +399,18 @@
       </div>
 
       <div class="field">
+        <label for="edit-barcode">Barcode</label>
+        <div class="row" style="gap:8px;">
+          <input type="text" id="edit-barcode" name="barcode" class="input grow"
+                 placeholder="Scan a barcode, or type one and press Enter" autocomplete="off"
+                 value="{{ edit_values.barcode }}">
+          <button type="button" class="btn" id="edit-barcode-scan-btn" title="Scan with camera">📷 Scan</button>
+        </div>
+        <span class="barcode-status" id="edit-barcode-status"></span>
+        <div id="edit-barcode-match" class="banner banner-info" style="display:none; margin-top:8px;"></div>
+      </div>
+
+      <div class="field">
         <label for="edit-product-name">Product Name <span style="color:var(--danger-dot);">*</span></label>
         <input id="edit-product-name" type="text" name="product_name" value="{{ edit_values.product_name }}" required>
       </div>
@@ -665,4 +677,42 @@
   });
 })();
 </script>
+{% if edit_product %}
+<script>
+(function () {
+  var input = document.getElementById('edit-barcode');
+  var btn = document.getElementById('edit-barcode-scan-btn');
+  var status = document.getElementById('edit-barcode-status');
+  var matchBanner = document.getElementById('edit-barcode-match');
+  if (!input) return;
+
+  // A lookup that resolves back to the product already open in this modal
+  // is not a collision — it's just this product's own barcode being
+  // re-submitted unchanged (or scanned again to confirm it) — so that case
+  // is deliberately excluded from the "already exists" warning below.
+  var editingProductId = {{ edit_product.pk }};
+
+  GerlynBarcodeScanner.attachBarcodeField(input, {
+    lookupUrl: '{% url "barcode_lookup" %}',
+    cameraBtn: btn,
+    statusEl: status,
+    notFoundMessage: 'No existing product uses this code — safe to save.',
+    onFound: function (product) {
+      if (product.id === editingProductId) {
+        matchBanner.style.display = 'none';
+        return;
+      }
+      matchBanner.style.display = 'block';
+      matchBanner.innerHTML =
+        'A different product already uses this barcode: <strong>' +
+        product.product_name.replace(/</g, '&lt;') +
+        '</strong> — saving will fail unless you change it or clear this one.';
+    },
+    onNotFound: function () {
+      matchBanner.style.display = 'none';
+    },
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -113,6 +113,7 @@ def _edit_modal_values(product, form_data=None):
     return {
         'sku_code': product.sku_code,  # locked — never editable via this form
         'product_name': pick('product_name', product.product_name),
+        'barcode': pick('barcode', product.barcode or ''),
         'category_id': pick('category', str(product.category_id or '')),
         'unit_of_measure': pick('unit_of_measure', product.unit_of_measure),
         'unit_price': pick('unit_price', product.unit_price),
@@ -293,6 +294,7 @@ def product_edit(request, pk):
         return redirect(f"{reverse('product_list')}?edit={pk}")
 
     product_name = request.POST.get('product_name', '').strip()
+    barcode = request.POST.get('barcode', '').strip() or None
     unit_price = request.POST.get('unit_price', '').strip()
     wholesale_price = request.POST.get('wholesale_price', '').strip()
     description = request.POST.get('description', '').strip()
@@ -302,6 +304,10 @@ def product_edit(request, pk):
         errors.append('Product name is required.')
     if not unit_price:
         errors.append('Retail price is required.')
+    # Excludes this product itself — re-saving with its own existing barcode
+    # unchanged must not read as a collision.
+    if barcode and Product.objects.filter(barcode__iexact=barcode).exclude(pk=product.pk).exists():
+        errors.append(f'Barcode "{barcode}" is already assigned to another product.')
 
     if not errors:
         try:
@@ -310,6 +316,7 @@ def product_edit(request, pk):
                 # sku_code is locked in the edit modal — never trust a posted
                 # value for it, so it can't be tampered with client-side.
                 product.product_name = product_name
+                product.barcode = barcode
                 product.unit_of_measure = request.POST.get('unit_of_measure')
                 product.unit_price = unit_price
                 product.wholesale_price = wholesale_price or None
