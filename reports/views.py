@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from billing.models import BillingRecord
 
 from sales.models import SalesItem, SalesTransaction
-from inventory.models import Inventory
+from inventory.models import Inventory, WarehouseStock
 from inventory.alerts import EXPIRING_SOON_DAYS, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
@@ -38,19 +38,139 @@ def get_user_branch(user):
     return None
 
 
-def _scoped_querysets(user):
-    """Sales/procurement/inventory querysets scoped to user's branch (all, for Owner)."""
+def _scoped_querysets(user, override_branch_id=None):
+    """Sales/procurement/inventory/warehouse querysets scoped to the
+    EFFECTIVE branch: a Branch Manager or Staff account's own branch always
+    wins regardless of `override_branch_id` (they have no selector to send
+    one from — see operational_dashboard), an Owner's explicit
+    branch-selector choice is honoured when given, and an Owner with no
+    choice made sees every branch, same as before this parameter existed.
+    """
     sales_qs = SalesTransaction.objects.all()
     procurement_qs = Procurement.objects.all()
     inventory_qs = Inventory.objects.select_related('product', 'branch').all()
+    warehouse_qs = WarehouseStock.objects.select_related('product', 'warehouse__branch').all()
 
-    user_branch = get_user_branch(user)
-    if user_branch:
-        sales_qs = sales_qs.filter(branch=user_branch)
-        procurement_qs = procurement_qs.filter(branch=user_branch)
-        inventory_qs = inventory_qs.filter(branch=user_branch)
+    effective_branch = get_user_branch(user)
+    if effective_branch is None and user.role == User.Role.OWNER and override_branch_id:
+        effective_branch = Branch.objects.filter(pk=override_branch_id).first()
 
-    return sales_qs, procurement_qs, inventory_qs, user_branch
+    if effective_branch:
+        sales_qs = sales_qs.filter(branch=effective_branch)
+        procurement_qs = procurement_qs.filter(branch=effective_branch)
+        inventory_qs = inventory_qs.filter(branch=effective_branch)
+        warehouse_qs = warehouse_qs.filter(warehouse__branch=effective_branch)
+
+    return sales_qs, procurement_qs, inventory_qs, warehouse_qs, effective_branch
+
+
+# --- Dashboard: Inventory summary + Sales Trend by Branch ----------------
+# Brings the Inventory Report's headline numbers and a new multi-branch
+# trend chart onto the Dashboard, so the Owner/Manager/Staff don't have to
+# leave it to see them. Two different scoping rules apply here, both driven
+# by operational_dashboard:
+#   Reactive to the branch selector  — Total Products (Floor/Warehouse),
+#     Inventory Value, Total Units, Low/Critical, Top Products. Fed
+#     querysets already narrowed by _scoped_querysets' override_branch_id.
+#   Always every branch the viewer can see, ignoring the selector — the
+#     Inventory Value by Branch chart and the Sales Trend by Branch chart,
+#     same rule the Sales-by-Branch donut already follows (see
+#     _dashboard_branch_breakdown). Fed querysets scoped only by
+#     branch_ids_for_user, never by the selector's override.
+
+def _dashboard_product_counts(inventory_qs, warehouse_qs):
+    """Distinct product counts for the Total Products (Floor) / (Warehouse)
+    KPI cards. Deliberately two separate figures, not one combined count —
+    a product sitting only in the warehouse and one only on the floor are
+    both real facts worth seeing, and folding them into one number would
+    hide exactly that gap.
+
+    One formula serves both the "All Branches" and "one branch selected"
+    cases: the queryset is already branch-filtered (or not) by the caller,
+    so counting distinct product_id here naturally dedupes across branches
+    when unfiltered, and narrows to one branch's own products when not.
+    """
+    floor_count = inventory_qs.values('product_id').distinct().count()
+    warehouse_count = warehouse_qs.values('product_id').distinct().count()
+    return floor_count, warehouse_count
+
+
+def _dashboard_inventory_metrics(inventory_qs):
+    """Inventory Value / Total Units / Low-Critical Items — the reactive
+    trio next to Total Products, same figures the Inventory Report computes
+    for its KPI row, computed here over whatever branch scope the caller's
+    queryset already carries."""
+    records = list(inventory_qs)
+    total_value = sum(
+        (_inventory_unit_cost(inv) * inv.quantity_on_hand for inv in records),
+        0,
+    )
+    total_units = sum(inv.quantity_on_hand for inv in records)
+    low_critical_count = sum(1 for inv in records if inv.restock)
+    return total_value, total_units, low_critical_count
+
+
+def _sales_trend_by_branch_chart(sales_qs, branches, start, end,
+                                  width=760, height=220, pad_x=24, pad_y=24):
+    """
+    One line per branch, daily sales over [start, end], sharing a single
+    Y-scale so the lines are actually comparable to each other — unlike the
+    KPI rail's per-metric graph, which only ever needs to compare a series
+    against itself.
+
+    Always covers every branch the viewer can see (branch_ids_for_user),
+    never the branch-selector's override — see the module note above and
+    operational_dashboard. `sales_qs` must already reflect that scope;
+    `branches` is the matching list of Branch objects to draw one line each
+    for, in the same order every time so a branch's colour and legend
+    position never shift between requests.
+
+    Reuses _dashboard_daily_series per branch — there are at most a handful
+    of branches, so N small queries stays cheap, and it keeps this chart's
+    bucketing identical to every other daily chart on the page rather than
+    hand-rolling a second grouped query that could drift out of sync.
+    """
+    n_days = (end - start).days + 1
+    day_labels = [(start + timedelta(n)).isoformat() for n in range(n_days)]
+
+    series_by_branch = []
+    all_values = []
+    for branch in branches:
+        daily = _dashboard_daily_series(
+            sales_qs.filter(branch=branch), Procurement.objects.none(), start, end
+        )
+        values = [float(d['sales']) for d in daily]
+        series_by_branch.append((branch.branch_name, values))
+        all_values.extend(values)
+
+    if not any(all_values):
+        return {'lines': [], 'labels': day_labels, 'peak': ''}
+
+    lo, hi = min(all_values), max(all_values)
+    span = hi - lo
+    plot_width = width - 2 * pad_x
+    step = plot_width / (n_days - 1) if n_days > 1 else 0
+
+    def y_for(v):
+        if span == 0:
+            return height / 2
+        return pad_y + (1 - (v - lo) / span) * (height - 2 * pad_y)
+
+    lines = []
+    for i, (name, values) in enumerate(series_by_branch):
+        coords = [(round(pad_x + j * step, 1), round(y_for(v), 1)) for j, v in enumerate(values)]
+        lines.append({
+            'name': name,
+            'colour': SALES_BRANCH_RAMP[i % len(SALES_BRANCH_RAMP)],
+            'polyline': ' '.join(f'{x},{y}' for x, y in coords),
+            'total_display': _compact_peso(sum(values)),
+        })
+
+    return {
+        'lines': lines,
+        'labels': day_labels,
+        'peak': f'Peak day: {_compact_peso(hi)}',
+    }
 
 
 # --- Dashboard KPI graph geometry --------------------------------------
@@ -203,6 +323,38 @@ def _previous_window(start, end):
     return prev_end - timedelta(days=period_days - 1), prev_end, period_days
 
 
+def _dashboard_branch_breakdown(sales_qs, start, end, prev_start, prev_end):
+    """
+    The Sales-by-Branch donut + its legend's previous-window comparison,
+    extracted out of _dashboard_metrics so it can also be called with a
+    DIFFERENT sales_qs than the one driving the KPI rail — see
+    operational_dashboard's branch selector: this donut is one of the charts
+    that always compares every branch the viewer can see, never narrowed to
+    whichever single branch the selector currently has picked, while the KPI
+    rail itself does narrow. Behaviour for the KPI rail's own call is
+    unchanged — this is a pure extraction, not a logic change.
+    """
+    range_start, range_end = local_range_bounds(start, end)
+    branch_breakdown = _sales_by_branch_chart(
+        sales_qs.filter(transaction_date__gte=range_start, transaction_date__lt=range_end)
+    )
+
+    # Per-branch totals for the previous window, so each donut legend row can
+    # show a real trend pill instead of a rule invented from its share alone.
+    # Accumulated in Python the same way _sales_by_branch_chart does, keeping
+    # the two sides of the comparison built identically.
+    prev_range_start, prev_range_end = local_range_bounds(prev_start, prev_end)
+    prev_branch_totals = {}
+    prev_rows = sales_qs.filter(
+        transaction_date__gte=prev_range_start, transaction_date__lt=prev_range_end
+    ).values_list('branch__branch_name', 'total_amount')
+    for name, amount in prev_rows:
+        key = name or 'Unassigned'
+        prev_branch_totals[key] = prev_branch_totals.get(key, 0) + (amount or 0)
+
+    return branch_breakdown, prev_branch_totals
+
+
 def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     """
     The single data source for the Dashboard's date-range-scoped surfaces
@@ -226,23 +378,9 @@ def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     atv_points = _dashboard_atv_points(daily)
     prev_totals = _dashboard_range_totals(prev_daily)
 
-    range_start, range_end = local_range_bounds(start, end)
-    branch_breakdown = _sales_by_branch_chart(
-        sales_qs.filter(transaction_date__gte=range_start, transaction_date__lt=range_end)
+    branch_breakdown, prev_branch_totals = _dashboard_branch_breakdown(
+        sales_qs, start, end, prev_start, prev_end
     )
-
-    # Per-branch totals for the previous window, so each donut legend row can
-    # show a real trend pill instead of a rule invented from its share alone.
-    # Accumulated in Python the same way _sales_by_branch_chart does, keeping
-    # the two sides of the comparison built identically.
-    prev_range_start, prev_range_end = local_range_bounds(prev_start, prev_end)
-    prev_branch_totals = {}
-    prev_rows = sales_qs.filter(
-        transaction_date__gte=prev_range_start, transaction_date__lt=prev_range_end
-    ).values_list('branch__branch_name', 'total_amount')
-    for name, amount in prev_rows:
-        key = name or 'Unassigned'
-        prev_branch_totals[key] = prev_branch_totals.get(key, 0) + (amount or 0)
 
     # Whether the previous window holds anything at all is a property of the
     # RANGE, not of any one metric — when it is empty every KPI is equally
@@ -882,7 +1020,25 @@ def operational_dashboard(request):
         messages.error(request, 'You do not have permission to view this page.')
         return render(request, 'reports/no_access.html')
 
-    sales_qs, procurement_qs, _inventory_qs, user_branch = _scoped_querysets(request.user)
+    # Branch selector (Owner only — Manager/Staff are already pinned to their
+    # own branch everywhere in the app, so a selector would do nothing for
+    # them). Picking a branch re-scopes every REACTIVE surface below to it,
+    # exactly as if the Owner were that branch's own manager for as long as
+    # it's selected — see _scoped_querysets. A fixed set of charts (Sales by
+    # Branch, Inventory Value by Branch, Sales Trend by Branch) deliberately
+    # ignore this and always compare every branch the viewer can see; those
+    # are built later from `always_branch_ids`, never from `effective_branch`.
+    show_branch_selector = request.user.role == User.Role.OWNER
+    branch_filter = request.GET.get('branch', '') if show_branch_selector else ''
+    # A non-numeric value (tampered URL) must not reach the ORM as a pk
+    # lookup — Branch.objects.filter(pk='abc') raises ValueError rather than
+    # returning no rows, since the pk field is numeric.
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+
+    sales_qs, procurement_qs, inventory_qs, warehouse_qs, user_branch = _scoped_querysets(
+        request.user, override_branch_id=branch_filter or None
+    )
 
     now = timezone.localtime()
     today = now.date()
@@ -920,13 +1076,68 @@ def operational_dashboard(request):
     kpi_cards, kpi_graphs, kpi_compare_note = _dashboard_kpi_payload(
         metrics, range_start, range_end
     )
-    branch_breakdown = metrics['branch_breakdown']
-    branch_legend = _branch_legend_rows(branch_breakdown, metrics['prev_branch_totals'])
+
+    # `always_*` below never sees `branch_filter` — these three surfaces
+    # (Sales by Branch, Inventory Value by Branch, Sales Trend by Branch)
+    # always compare every branch the viewer's ROLE can see, regardless of
+    # what the Owner's selector currently has picked. branch_ids_for_user is
+    # the same pre-existing helper Alerts Center uses: None for Owner (every
+    # branch), a Manager/Staff's own single branch otherwise.
+    always_branch_ids = branch_ids_for_user(request.user)
+    always_sales_qs = SalesTransaction.objects.all()
+    always_inventory_qs = Inventory.objects.select_related('product', 'branch').all()
+    always_branches = Branch.objects.all()
+    if always_branch_ids is not None:
+        always_sales_qs = always_sales_qs.filter(branch_id__in=always_branch_ids)
+        always_inventory_qs = always_inventory_qs.filter(branch_id__in=always_branch_ids)
+        always_branches = always_branches.filter(id__in=always_branch_ids)
+    always_branches = list(always_branches.order_by('branch_name'))
+
+    prev_start, prev_end, _period_days = _previous_window(range_start, range_end)
+    branch_breakdown, prev_branch_totals = _dashboard_branch_breakdown(
+        always_sales_qs, range_start, range_end, prev_start, prev_end
+    )
+    branch_legend = _branch_legend_rows(branch_breakdown, prev_branch_totals)
+
+    # No pre-filter by date here — _sales_trend_by_branch_chart calls
+    # _dashboard_daily_series per branch, which already applies its own
+    # local_range_bounds()-converted filter internally (see that function).
+    sales_trend_by_branch = _sales_trend_by_branch_chart(
+        always_sales_qs, always_branches, range_start, range_end
+    )
+
+    always_inventory_records = list(always_inventory_qs)
+    for inv in always_inventory_records:
+        inv.value = _inventory_unit_cost(inv) * inv.quantity_on_hand
+    inventory_value_by_branch = _inventory_value_chart(
+        _inventory_branch_summary(always_inventory_records)
+    )
+
+    # --- Inventory summary + Top Products (reactive to the branch selector,
+    # same trio the Inventory/Sales Reports already compute — see the module
+    # note above _dashboard_product_counts). Inventory is a snapshot (no date
+    # axis, matching the Inventory Report tab); Top Products is range-scoped
+    # like the KPI rail, so _top_products needs the same datetime conversion
+    # _dashboard_branch_breakdown applies internally — done explicitly here
+    # since _top_products, unlike _dashboard_daily_series, filters nothing
+    # on its own.
+    total_products_floor, total_products_warehouse = _dashboard_product_counts(
+        inventory_qs, warehouse_qs
+    )
+    inventory_value, inventory_units, inventory_low_critical = _dashboard_inventory_metrics(
+        inventory_qs
+    )
+    range_dt_start, range_dt_end = local_range_bounds(range_start, range_end)
+    top_products = _top_products(
+        sales_qs.filter(transaction_date__gte=range_dt_start, transaction_date__lt=range_dt_end)
+    )
 
     # --- Restock suggestions + "needs attention" list (same engine as the
-    # Alerts Center — one alert_summary() call feeds both) ---
-    branch_ids = branch_ids_for_user(request.user)
-    summary = alert_summary(branch_ids)
+    # Alerts Center — one alert_summary() call feeds both). Reactive: an
+    # Owner viewing one branch sees just that branch's alerts, same as that
+    # branch's own manager would.
+    reactive_branch_ids = [user_branch.id] if user_branch else None
+    summary = alert_summary(reactive_branch_ids)
     restock = summary['low_stock']
     needs_attention = _needs_attention_rows(summary, procurement_qs, sales_qs)
 
@@ -971,9 +1182,9 @@ def operational_dashboard(request):
         'range_start': range_start,
         'range_end': range_end,
         'active_range': active_range,
-        # The Dashboard has no other filters to preserve when the range
-        # changes, so the control carries nothing (DESIGN.md §2e).
-        'daterange_carry': [],
+        # Changing the range must not silently drop the branch selection —
+        # same reasoning as the Reports tabs' own daterange_carry.
+        'daterange_carry': [('branch', branch_filter)],
         # low_stock_count still feeds the Restock Suggestions header; the four
         # quiet stat tiles it used to sit beside are gone (duplicated the Needs
         # Attention rows / were static catalog facts, not daily decisions).
@@ -986,6 +1197,23 @@ def operational_dashboard(request):
         'user_branch': user_branch,
         'today': today,
         'active_page': 'dashboard',
+
+        # --- Branch selector (Owner only) ---
+        'show_branch_selector': show_branch_selector,
+        'branch_filter': branch_filter,
+        'branches': Branch.objects.all() if show_branch_selector else [],
+
+        # --- Inventory summary + Top Products (reactive) ---
+        'total_products_floor': total_products_floor,
+        'total_products_warehouse': total_products_warehouse,
+        'inventory_value': inventory_value,
+        'inventory_units': inventory_units,
+        'inventory_low_critical': inventory_low_critical,
+        'top_products': top_products,
+
+        # --- Always-every-branch comparison charts ---
+        'inventory_value_by_branch': inventory_value_by_branch,
+        'sales_trend_by_branch': sales_trend_by_branch,
     })
 
 

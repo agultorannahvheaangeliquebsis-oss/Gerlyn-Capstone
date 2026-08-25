@@ -142,6 +142,21 @@
 <form method="GET" class="toolbar" data-live-filter="#product-table tbody tr[data-filter-text]" data-filter-empty-target="#product-no-matches">
   <input type="search" name="q" id="product-search-input" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off">
   <button type="button" class="btn" id="product-scan-btn" title="Scan a barcode to search">📷 Scan</button>
+  {% if show_branch_filter %}
+  {% comment %}
+  Owner only — the catalog itself has no owning branch (a product's
+  Availability column already shows every branch that carries it), so this
+  narrows the list to products carried at one branch rather than scoping a
+  branch-owned field. Manager/Staff see the same unrestricted catalog
+  everyone else does, so they get no selector.
+  {% endcomment %}
+  <select name="branch" onchange="this.form.submit()">
+    <option value="">All Branches</option>
+    {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
   <select name="category" onchange="this.form.submit()">
     <option value="">All Categories</option>
     {% for c in categories %}
@@ -201,7 +216,7 @@
           <div class="empty">
             <span class="glyph">＋</span>
             <h3>No products found</h3>
-            <p>{% if search_query or category_filter %}Try clearing the search or category filter.{% else %}The catalog is empty. Add your first product to get started.{% endif %}</p>
+            <p>{% if search_query or category_filter or branch_filter %}Try clearing the search, branch or category filter.{% else %}The catalog is empty. Add your first product to get started.{% endif %}</p>
             {% if can_edit %}<button type="button" class="btn btn-primary mt-2" id="open-add-modal-empty">Add Product</button>{% endif %}
           </div>
         </td>

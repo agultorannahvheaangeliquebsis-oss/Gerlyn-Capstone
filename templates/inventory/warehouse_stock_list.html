@@ -53,8 +53,8 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% endif %}</h1>
-    <p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% else %} across all branches{% endif %} — what a Stock Adjustment moves onto the floor</p>
+    <h1>Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% elif filter_branch %} — {{ filter_branch.branch_name }}{% endif %}</h1>
+    <p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% elif filter_branch %} for {{ filter_branch.branch_name }}{% else %} across all branches{% endif %} — what a Stock Adjustment moves onto the floor</p>
   </div>
   {% if can_request_to_floor %}
   <a class="btn btn-primary" href="{% url 'warehouse_stock_request' %}">
@@ -74,12 +74,15 @@ carrying category rather than status, so a warehouse with nothing wrong still
 showed a red "Critical" panel and the palette stopped meaning anything; and
 "In Stock" was painted the same green the Status column uses for a healthy
 row, which made a count of zero look like a pass. Tint is now gated on a
-non-zero count, so an all-clear warehouse is three plain white cards.
+non-zero count, so an all-clear warehouse is plain white cards.
 
 In Stock takes no tint at all: it is the healthy figure, and there is no ok
 modifier on a KPI card precisely because "how many things are fine" is not a
-state anyone acts on. Low is .warn (act soon), Critical is .danger (act now) —
-the same two tints the Status column's pills use directly below.
+state anyone acts on. Low is .warn (act soon), Critical and No Stock share
+.danger (act now, No Stock just worse) — the same tints the Status column's
+pills use directly below. Thresholds (and the shared function computing all
+four tiers for both this page and Floor Stock) live in
+inventory.alerts.stock_status().
 
 .compact because this row heads a dense table rather than a page.
 {% endcomment %}
@@ -96,10 +99,26 @@ the same two tints the Status column's pills use directly below.
     <span class="label">Critical</span>
     <span class="value">{{ counts.critical }}</span>
   </div>
+  <div class="kpi-card{% if counts.no_stock %} danger{% endif %}">
+    <span class="label">No Stock</span>
+    <span class="value">{{ counts.no_stock }}</span>
+  </div>
 </div>
 
 <form method="GET" class="toolbar">
   <input type="search" name="q" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off">
+  {% if branches %}
+  {% comment %}
+  Owner only — a Manager/Staff account is already pinned to its own single
+  warehouse above, so this selector would do nothing for them.
+  {% endcomment %}
+  <select name="branch" onchange="this.form.submit()">
+    <option value="">All Branches</option>
+    {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
   <select name="category" onchange="this.form.submit()">
     <option value="">All Categories</option>
     {% for c in categories %}
@@ -137,7 +156,8 @@ the same two tints the Status column's pills use directly below.
         <td data-label="Reorder Level" class="num gv-meta">{{ row.stock.reorder_level }}</td>
         <td data-label="Nearest Expiry">{{ row.stock.expiry_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Status">
-          {% if row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
+          {% if row.status == "No Stock" %}<span class="pill pill-danger">No Stock</span>
+          {% elif row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>

@@ -81,6 +81,24 @@ across the full width leave the default block padding as empty card.
   </div>
 </div>
 
+{% if branches %}
+<form method="GET" class="toolbar">
+  {% comment %}
+  Owner only — a Manager/Staff account is already pinned to its own branch's
+  slips above, so this selector would do nothing for them. Narrows both tabs:
+  the Withdrawal Slips list (by source branch) and the Movement Log (by
+  either side of the movement) — see transfer_list's movement_branch_ids.
+  {% endcomment %}
+  <select name="branch" onchange="this.form.submit()">
+    <option value="">All Branches</option>
+    {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn">Filter</button>
+</form>
+{% endif %}
+
 <div class="filter-tabs">
   {% comment %}
   .filter-tab, not the pill .tab: that component was removed from gerlyn.css

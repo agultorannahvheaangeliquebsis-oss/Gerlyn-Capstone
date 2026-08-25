@@ -14,7 +14,7 @@ from .models import (
     Warehouse, WarehouseStock,
     StockTransfer, StockTransferItem, StockMovement
 )
-from .alerts import alert_summary
+from .alerts import alert_summary, stock_status
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
@@ -52,6 +52,16 @@ def _product_list_context(request):
 
     search_query = request.GET.get('q', '')
     category_filter = request.GET.get('category', '')
+    # The catalog itself has no owning branch — a product just carries
+    # Inventory rows at whichever branches stock it — so this filter narrows
+    # the LIST to products carried at the chosen branch rather than scoping a
+    # branch-owned field. Owner only: Manager/Staff already see the same
+    # unrestricted catalog everyone else does, so a selector here would only
+    # ever have one meaningful choice for them.
+    show_branch_filter = request.user.role == User.Role.OWNER
+    branch_filter = request.GET.get('branch', '') if show_branch_filter else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
 
     if search_query:
         products = products.filter(
@@ -60,6 +70,8 @@ def _product_list_context(request):
         )
     if category_filter:
         products = products.filter(category_id=category_filter)
+    if branch_filter:
+        products = products.filter(inventory_records__branch_id=branch_filter)
 
     # Availability = the branches that actually carry the product.
     branches = cached_branches()
@@ -79,6 +91,8 @@ def _product_list_context(request):
         'categories': categories,
         'search_query': search_query,
         'category_filter': category_filter,
+        'show_branch_filter': show_branch_filter,
+        'branch_filter': branch_filter,
         'total_count': Product.objects.count(),
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         'unit_choices': Product.UnitOfMeasure.choices,
@@ -534,6 +548,11 @@ def _inventory_list_context(request):
     branch_filter = request.GET.get('branch', '')
     category_filter = request.GET.get('category', '')
     status_filter = request.GET.get('status', '')
+    # A non-numeric value (tampered URL) must not reach the ORM as a pk
+    # lookup — .filter(branch_id='abc') raises ValueError rather than
+    # returning no rows, since the pk field is numeric.
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
 
     if search_query:
         records = records.filter(
@@ -547,19 +566,17 @@ def _inventory_list_context(request):
 
     rows = []
     # Keys are template-safe (no spaces) so they can be used with dot lookup.
-    counts = {'in_stock': 0, 'low': 0, 'critical': 0}
-    key_for = {'Critical': 'critical', 'Low Stock': 'low', 'In Stock': 'in_stock'}
+    counts = {'in_stock': 0, 'low': 0, 'critical': 0, 'no_stock': 0}
+    key_for = {
+        'Critical': 'critical', 'Low Stock': 'low',
+        'In Stock': 'in_stock', 'No Stock': 'no_stock',
+    }
     for r in records:
         # Computed live from quantity_on_hand/reorder_level, not from the
         # stored Inventory.restock flag — that flag is only ever recomputed
         # inside Inventory.save(), so anything that bypasses save() (bulk
         # update, a data import) leaves it stale with nothing to catch it.
-        if r.reorder_level and r.quantity_on_hand <= r.reorder_level * 0.5:
-            status = 'Critical'
-        elif r.quantity_on_hand <= r.reorder_level:
-            status = 'Low Stock'
-        else:
-            status = 'In Stock'
+        status = stock_status(r.quantity_on_hand, r.reorder_level)
         counts[key_for[status]] += 1
         if status_filter and status != status_filter:
             continue
@@ -712,6 +729,12 @@ def warehouse_stock_list(request):
     # Get the warehouse for this user's branch
     user_branch = get_user_branch(request.user)
 
+    # Owner-only branch filter — a Manager/Staff account is already pinned to
+    # its own single warehouse above, so a selector would do nothing for them.
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+
     if user_branch:
         try:
             warehouse = Warehouse.objects.get(branch=user_branch)
@@ -726,11 +749,13 @@ def warehouse_stock_list(request):
             )
             return redirect('inventory_list')
     else:
-        # Owner sees all warehouses
+        # Owner sees all warehouses, narrowed to one via branch_filter if set.
         stock_records = WarehouseStock.objects.select_related(
             'product', 'product__category', 'warehouse', 'warehouse__branch'
         ).all()
         warehouse = None
+        if branch_filter:
+            stock_records = stock_records.filter(warehouse__branch_id=branch_filter)
 
     search_query = request.GET.get('q', '')
     category_filter = request.GET.get('category', '')
@@ -747,15 +772,14 @@ def warehouse_stock_list(request):
     # write that bypasses save() would leave the stored flag stale with
     # nothing to catch it, so this reads the real numbers every time.
     rows = []
-    counts = {'in_stock': 0, 'low': 0, 'critical': 0}
+    counts = {'in_stock': 0, 'low': 0, 'critical': 0, 'no_stock': 0}
+    key_for = {
+        'Critical': 'critical', 'Low Stock': 'low',
+        'In Stock': 'in_stock', 'No Stock': 'no_stock',
+    }
     for s in stock_records:
-        if s.reorder_level and s.quantity_on_hand <= s.reorder_level * 0.5:
-            status = 'Critical'
-        elif s.quantity_on_hand <= s.reorder_level:
-            status = 'Low Stock'
-        else:
-            status = 'In Stock'
-        counts['critical' if status == 'Critical' else 'low' if status == 'Low Stock' else 'in_stock'] += 1
+        status = stock_status(s.quantity_on_hand, s.reorder_level)
+        counts[key_for[status]] += 1
         rows.append({'stock': s, 'status': status})
 
     return render(request, 'inventory/warehouse_stock_list.html', {
@@ -766,6 +790,9 @@ def warehouse_stock_list(request):
         'categories': cached_categories(),
         'search_query': search_query,
         'category_filter': category_filter,
+        'branches': cached_branches() if not user_branch else [],
+        'branch_filter': branch_filter,
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
         # rows was built by fully iterating this exact (already-filtered)
         # queryset above, so re-counting it is a second identical query for
         # a number Python already has.
@@ -923,6 +950,13 @@ def transfer_list(request):
     purpose_filter = request.GET.get('purpose', '')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
+    # Owner-only branch filter — Manager/Staff are already pinned to their own
+    # branch's transfers above, so a selector would do nothing for them.
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        transfers = transfers.filter(source_branch_id=branch_filter)
 
     if search_query:
         transfers = transfers.filter(
@@ -966,14 +1000,21 @@ def transfer_list(request):
         status=StockTransfer.Status.DISCREPANCY
     ).count()
 
+    # The Movement Log tab shares this page, so the same branch choice narrows
+    # it too — [int(branch_filter)] when the Owner has picked one, otherwise
+    # the pre-existing role-based scoping (None = every branch for the Owner).
+    movement_branch_ids = [int(branch_filter)] if branch_filter else branch_ids_for_user(request.user)
+
     return render(request, 'inventory/transfer_list.html', {
         'transfers': transfers,
-        'movement_log': _movement_log(branch_ids_for_user(request.user)),
+        'movement_log': _movement_log(movement_branch_ids),
         'search_query': search_query,
         'status_filter': status_filter,
         'purpose_filter': purpose_filter,
         'date_from': date_from,
         'date_to': date_to,
+        'branches': cached_branches() if not user_branch else [],
+        'branch_filter': branch_filter,
         'status_choices': StockTransfer.Status.choices,
         'purpose_choices': StockTransfer.Purpose.choices,
         'total_released_this_month': total_released_this_month,

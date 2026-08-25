@@ -6,15 +6,31 @@ report that needs "what needs reordering / what's expiring". Keeping the
 logic here (not copy-pasted into each view) guarantees every screen shows
 the same numbers.
 
-Severity model
---------------
-low-stock  : quantity_on_hand <= reorder_level
+Severity model (Alerts Center ranking — low_stock_alerts/low_warehouse_stock_alerts)
+--------------------------------------------------------------------------------
+Only ever applied to rows already at or below reorder_level, to rank how
+urgently each one needs restocking:
   Critical : quantity_on_hand <= 50% of reorder_level
   High     : quantity_on_hand <= 80% of reorder_level
   Moderate : quantity_on_hand <= reorder_level
 
 Suggested reorder quantity = reorder_level * 2 - quantity_on_hand
 (brings stock back to ~2x the reorder point — matches the UI mockups).
+
+Stock status (Floor Stock / Warehouse Stock list pages — stock_status())
+--------------------------------------------------------------------
+A different, simpler tier a row is always in exactly one of — the label
+shown in the Status column and the KPI counts above it. Not the same scale
+as the severity model above: reorder_level is the dividing line between
+Critical and Low Stock here, not a threshold Low Stock sits below.
+  No Stock  : quantity_on_hand == 0
+  Critical  : 0 < quantity_on_hand <= reorder_level
+  Low Stock : reorder_level < quantity_on_hand <= 110% of reorder_level
+  In Stock  : quantity_on_hand > 110% of reorder_level
+A reorder_level of 0 collapses Low Stock to nothing (110% of 0 is still 0),
+so anything above 0 reads straight as In Stock — reorder_level is expected
+to always be set in practice, so this is treated as a non-issue rather than
+special-cased.
 
 Two independent low-stock alert types, never mixed:
   low_stock_alerts()           -> Inventory (branch FLOOR stock).
@@ -52,6 +68,21 @@ APPROACHING_EXPIRY_DAYS = 90
 def suggested_reorder_qty(quantity_on_hand: int, reorder_level: int) -> int:
     """How many units to reorder to reach ~2x the reorder point."""
     return max(reorder_level * 2 - quantity_on_hand, 0)
+
+
+def stock_status(quantity_on_hand: int, reorder_level: int) -> str:
+    """Return 'No Stock' | 'Critical' | 'Low Stock' | 'In Stock' — the Status
+    column tier for one Floor Stock / Warehouse Stock row. See the module
+    docstring's "Stock status" section for the exact thresholds; this is the
+    one place they're defined, shared by both list pages so they can't drift
+    out of sync with each other."""
+    if quantity_on_hand == 0:
+        return "No Stock"
+    if quantity_on_hand <= reorder_level:
+        return "Critical"
+    if quantity_on_hand <= reorder_level * 1.1:
+        return "Low Stock"
+    return "In Stock"
 
 
 def stock_risk(quantity_on_hand: int, reorder_level: int) -> str:

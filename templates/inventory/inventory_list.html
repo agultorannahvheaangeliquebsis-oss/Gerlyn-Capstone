@@ -74,27 +74,30 @@
 {% comment %}
 The one KPI card (DESIGN.md §2) — the same component as the Dashboard rail and
 the four Reports tabs, not a third lookalike. `.stat` is the quiet tile for
-secondary figures; these three are the headline of the page, so they take the
-card. Reading order is .label → .value, so the figure is named before it is
-read, rather than after it as it was here.
+secondary figures; these are the headline of the page, so they take the card.
+Reading order is .label → .value, so the figure is named before it is read,
+rather than after it as it was here.
 
 Tint is status, never category. gerlyn.css reserves .warn for "waiting on
 someone" and .danger for "act now", so both are gated on the count being
 non-zero: a branch with nothing wrong used to render an amber "Low Stock 0" and
 a red "Critical 0", a traffic light that lit up the same way no matter what the
 stock was doing. Colour now only appears when someone has to act on it, and it
-matches the .pill-warn/.pill-danger already in the Status column below.
+matches the .pill-warn/.pill-danger already in the Status column below. No
+Stock reuses .danger rather than inventing a fifth tint — it's still squarely
+"act now", just a worse case of it than Critical.
 
 In Stock takes no tint at all — there is no .ok card variant, because green is
 the Dashboard's selected-card colour and giving it a fourth meaning here is the
 thing that rule exists to prevent.
 
 No sub-text under the figures, by request. The thresholds these buckets are
-computed from ("at or below half the reorder level") are consequently not
-stated anywhere on this page — the Status column shows each row's verdict, not
-the rule behind it. The rule still lives in _inventory_list_context().
+computed from (reorder_level is the Critical/Low Stock line; Low Stock runs up
+to 110% of it) are consequently not stated anywhere on this page — the Status
+column shows each row's verdict, not the rule behind it. The rule lives in
+inventory.alerts.stock_status(), shared with Warehouse Stock's identical row.
 
-.compact because this row heads a table, not a graph panel, and three cards
+.compact because this row heads a table, not a graph panel, and four cards
 across the full width leave the default block padding as empty card.
 {% endcomment %}
 <div class="kpi-row compact">
@@ -109,6 +112,10 @@ across the full width leave the default block padding as empty card.
   <div class="kpi-card{% if counts.critical %} danger{% endif %}">
     <span class="label">Critical</span>
     <span class="value">{{ counts.critical }}</span>
+  </div>
+  <div class="kpi-card{% if counts.no_stock %} danger{% endif %}">
+    <span class="label">No Stock</span>
+    <span class="value">{{ counts.no_stock }}</span>
   </div>
 </div>
 
@@ -134,6 +141,7 @@ across the full width leave the default block padding as empty card.
     <option value="In Stock" {% if status_filter == "In Stock" %}selected{% endif %}>In Stock</option>
     <option value="Low Stock" {% if status_filter == "Low Stock" %}selected{% endif %}>Low Stock</option>
     <option value="Critical" {% if status_filter == "Critical" %}selected{% endif %}>Critical</option>
+    <option value="No Stock" {% if status_filter == "No Stock" %}selected{% endif %}>No Stock</option>
   </select>
   <button type="submit" class="btn">Search</button>
 </form>
@@ -164,7 +172,8 @@ across the full width leave the default block padding as empty card.
         <td data-label="Nearest Expiry">{{ row.inv.expiry_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Last Updated" class="gv-meta">{{ row.inv.last_stock_update|date:"Y-m-d" }}</td>
         <td data-label="Status">
-          {% if row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
+          {% if row.status == "No Stock" %}<span class="pill pill-danger">No Stock</span>
+          {% elif row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
@@ -310,7 +319,7 @@ across the full width leave the default block padding as empty card.
         <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0"
                {% if can_edit_reorder %}required{% else %}disabled{% endif %}>
         {% if can_edit_reorder %}
-          <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Low Stock.</p>
+          <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Critical.</p>
         {% else %}
           <p class="gv-meta" style="margin:4px 0 0;">Only a Branch Manager or the Owner can change this — ask them if it needs adjusting.</p>
         {% endif %}
