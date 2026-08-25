@@ -74,7 +74,7 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'withdrawals' %}open{% endif %}" id="tree-inventory">
           <li class="sb-tree-inner">
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            {% if module_access.products %}
             {% comment %}
             Categories is no longer its own nav item — it is reached from the
             Products page, which is where you are when you need it. It still
@@ -83,9 +83,13 @@ DOM — it is off-screen until focused (see .skip-link).
             {% endcomment %}
             <a class="sb-tree-file {% if active_page == 'products' or active_page == 'categories' %}sb-tree-file--active{% endif %}" href="{% url 'product_list' %}"><span class="sb-label">Product Master List</span></a>
             {% endif %}
+            {% if module_access.floor_stock %}
             <a class="sb-tree-file {% if active_page == 'stock' %}sb-tree-file--active{% endif %}" href="{% url 'inventory_list' %}"><span class="sb-label">Floor Stock</span></a>
+            {% endif %}
+            {% if module_access.warehouse_stock %}
             <a class="sb-tree-file {% if active_page == 'warehouse_stock' %}sb-tree-file--active{% endif %}" href="{% url 'warehouse_stock_list' %}"><span class="sb-label">Warehouse Stock</span></a>
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            {% endif %}
+            {% if module_access.withdrawals %}
             <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Withdrawals</span></a>
             {% endif %}
           </li>
@@ -93,7 +97,7 @@ DOM — it is off-screen until focused (see .skip-link).
       </div>
 
       {# -------------------------------------------------------- Procurement #}
-      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+      {% if module_access.procurement or module_access.deliveries %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-procurement" title="Procurement"
           aria-expanded="{% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}true{% else %}false{% endif %}">
@@ -103,17 +107,20 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}" id="tree-procurement">
           <li class="sb-tree-inner">
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            {% if module_access.procurement %}
             <a class="sb-tree-file {% if active_page == 'suppliers' %}sb-tree-file--active{% endif %}" href="{% url 'supplier_list' %}"><span class="sb-label">Suppliers</span></a>
-            {% endif %}
             <a class="sb-tree-file {% if active_page == 'procurement' %}sb-tree-file--active{% endif %}" href="{% url 'procurement_list' %}"><span class="sb-label">Purchase Orders</span></a>
+            {% endif %}
+            {% if module_access.deliveries %}
             <a class="sb-tree-file {% if active_page == 'deliveries' %}sb-tree-file--active{% endif %}" href="{% url 'delivery_list' %}"><span class="sb-label">Deliveries</span></a>
+            {% endif %}
           </li>
         </ul>
       </div>
       {% endif %}
 
       {# --------------------------------------------------------- Financials #}
+      {% if module_access.sales_pos or module_access.billing %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-financials" title="Financials"
           aria-expanded="{% if active_page == 'orders' or active_page == 'billing' %}true{% else %}false{% endif %}">
@@ -123,16 +130,19 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}" id="tree-financials">
           <li class="sb-tree-inner">
+            {% if module_access.sales_pos %}
             <a class="sb-tree-file {% if active_page == 'orders' %}sb-tree-file--active{% endif %}" href="{% url 'transaction_list' %}"><span class="sb-label">Sales &amp; Orders</span></a>
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            {% endif %}
+            {% if module_access.billing %}
             <a class="sb-tree-file {% if active_page == 'billing' %}sb-tree-file--active{% endif %}" href="{% url 'billing_list' %}"><span class="sb-label">Billing</span></a>
             {% endif %}
           </li>
         </ul>
       </div>
+      {% endif %}
 
       {# -------------------------------------------------- System / Monitoring #}
-      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+      {% if module_access.reports or module_access.alerts %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-monitoring" title="System &amp; Monitoring"
           aria-expanded="{% if active_page == 'reports' or active_page == 'alerts' %}true{% else %}false{% endif %}">
@@ -143,11 +153,15 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}" id="tree-monitoring">
           <li class="sb-tree-inner">
+            {% if module_access.reports %}
             <a class="sb-tree-file {% if active_page == 'reports' %}sb-tree-file--active{% endif %}" href="{% url 'reports_dashboard' %}"><span class="sb-label">Reports</span></a>
+            {% endif %}
+            {% if module_access.alerts %}
             <a class="sb-tree-file {% if active_page == 'alerts' %}sb-tree-file--active{% endif %}" href="{% url 'alerts_center' %}">
               <span class="sb-label">Alerts</span>
               {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
             </a>
+            {% endif %}
           </li>
         </ul>
       </div>
@@ -298,38 +312,46 @@ DOM — it is off-screen until focused (see .skip-link).
   <!-- ========================= BOTTOM NAV (mobile) ==================== -->
   {% comment %}
   Capped at 4 items on purpose. Alerts/Reports/Deliveries/Settings all move
-  into the "More" panel, which also fixes a pre-existing gap: Staff has
-  view-level access to Deliveries (see procurement/views.py's role_required
-  lists) but previously had zero nav path to it — the desktop sidebar's
-  Procurement section is Owner/Manager only.
+  into the "More" panel. Each item here and in that panel is gated by
+  module_access (core.module_permissions) — the same per-user module
+  permissions the desktop sidebar uses — so a Staff/Manager account only
+  ever sees a nav path to a section it actually has.
   {% endcomment %}
   <nav class="bottom-nav">
     <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ dash_url }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       Home
     </a>
+    {% if module_access.sales_pos %}
     <a class="{% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
       Orders
     </a>
+    {% endif %}
+    {% if module_access.floor_stock %}
     <a class="{% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
       Stock
     </a>
+    {% endif %}
     <details class="more-menu">
       <summary class="{% if active_page == 'alerts' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'internal_settings' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         More
-        {% if alert_count and request.user.role == 'OWNER' or alert_count and request.user.role == 'BRANCH_MANAGER' %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+        {% if alert_count and module_access.alerts %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
       </summary>
       <div class="more-menu-panel">
-        {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+        {% if module_access.alerts %}
         <a class="more-menu-link {% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
           Alerts {% if alert_count %}<span class="nav-badge nav-badge--inline">{{ alert_count }}</span>{% endif %}
         </a>
+        {% endif %}
+        {% if module_access.reports %}
         <a class="more-menu-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
         {% endif %}
+        {% if module_access.deliveries %}
         <a class="more-menu-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
+        {% endif %}
         <a class="more-menu-link {% if active_page == 'internal_settings' %}active{% endif %}" href="{% url 'internal_settings' %}">Settings</a>
       </div>
     </details>

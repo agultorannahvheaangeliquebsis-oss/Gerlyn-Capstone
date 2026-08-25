@@ -88,6 +88,18 @@ blank means "keep the current one", which is what an empty field already says.
         </div>
       </div>
 
+      <div class="field" id="{{ which }}-user-modules-field">
+        <label>Module Access <span class="gv-meta">— managers &amp; staff only; which sections this account can see</span></label>
+        <div class="grid-2" style="gap:6px 16px;">
+          {% for code, label in module_choices %}
+            <label class="row" style="gap:8px; font-weight:400;">
+              <input type="checkbox" name="allowed_modules" value="{{ code }}" {% if code in modules %}checked{% endif %}>
+              {{ label }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
       <div class="field">
         <label for="{{ which }}-user-password">
           Password

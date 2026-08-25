@@ -19,7 +19,7 @@ from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
 from core.scoping import branch_ids_for_user
-from core.permissions import OWNER, BRANCH_MANAGER, role_required
+from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.timebounds import (
     local_day_bounds, local_month_bounds, local_range_bounds,
     parse_iso_date, range_from_request, resolve_date_range,
@@ -1018,7 +1018,7 @@ def _daily_sales_series(sales_qs, start, end):
     return series
 
 
-@role_required(OWNER, BRANCH_MANAGER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def reports_dashboard(request):
     """
     The Reports hub — opens straight onto the Sales Report: every transaction
@@ -1703,7 +1703,7 @@ def export_csv(request, kind):
 
 @login_required(login_url='accounts:login')
 def billing_report(request):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 
@@ -1773,7 +1773,7 @@ def billing_report(request):
 
 @login_required(login_url='accounts:login')
 def sales_report(request):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 
@@ -1788,7 +1788,7 @@ def sales_report(request):
 
 @login_required(login_url='accounts:login')
 def inventory_report(request):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 
@@ -1876,7 +1876,7 @@ def _daily_spend_series(records, start, end):
 
 @login_required(login_url='accounts:login')
 def procurement_report(request):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 

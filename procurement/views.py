@@ -14,7 +14,7 @@ from django.utils.crypto import get_random_string
 from django.db.models import Q
 
 from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
-from core.permissions import OWNER, BRANCH_MANAGER, SUPPLIER, role_required
+from core.permissions import OWNER, BRANCH_MANAGER, STAFF, SUPPLIER, role_required
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -36,7 +36,7 @@ from accounts.models import User
 # These still work for any admin/template-based pages.
 # =============================================================================
 
-@role_required(OWNER, BRANCH_MANAGER, SUPPLIER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF, SUPPLIER)
 def procurement_list(request):
     procurements = Procurement.objects.select_related('branch', 'supplier', 'owner').all()
 
@@ -65,8 +65,12 @@ def procurement_list(request):
         'counts': counts,
         'status_filter': status_filter,
         'today': timezone.now().date(),
+        # Staff can now view this list (see core.module_permissions), but
+        # creating a PO stays Owner/Manager-only — procurement_add's own role
+        # check has always enforced that; this just stops offering a button
+        # Staff would only get rejected from now that they can reach the page.
         'can_create': request.user.role in [
-            User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+            User.Role.OWNER, User.Role.BRANCH_MANAGER
         ],
     })
 
@@ -530,7 +534,7 @@ def _supplier_list_context(request):
 
 @login_required(login_url='accounts:login')
 def supplier_list(request):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 

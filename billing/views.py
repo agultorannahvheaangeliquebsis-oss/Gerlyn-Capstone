@@ -8,10 +8,10 @@ from .models import BillingRecord
 from sales.models import SalesTransaction
 from accounts.models import User
 from core.scoping import user_can_access_branch
-from core.permissions import OWNER, BRANCH_MANAGER, CUSTOMER, SUPPLIER, role_required
+from core.permissions import OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER, role_required
 
 
-@role_required(OWNER, BRANCH_MANAGER, CUSTOMER, SUPPLIER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER)
 def billing_list(request):
     records = BillingRecord.objects.select_related('transaction', 'transaction__branch').all()
 

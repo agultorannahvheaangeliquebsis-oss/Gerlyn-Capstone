@@ -1,4 +1,5 @@
 """Template context available on every page."""
+from core.module_permissions import module_access_map
 from core.permissions import INTERNAL_ROLES
 from core.scoping import branch_ids_for_user
 from core.version import APP_VERSION
@@ -6,6 +7,18 @@ from core.version import APP_VERSION
 
 def app_version(request):
     return {"APP_VERSION": APP_VERSION}
+
+
+def module_access(request):
+    """Exposes `module_access.<code>` for the sidebar (and anywhere else
+    that needs to hide a link to a section a Staff/Manager account can't
+    see — see core.module_permissions). Owner/Supplier/Customer always read
+    as True for every code, so templates don't need a role check alongside
+    this one."""
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return {}
+    return {"module_access": module_access_map(user)}
 
 
 # Maps the resolved URL name of the current request to the sidebar's
@@ -23,7 +36,7 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     "product_delete": "products", "product_detail": "products",
     "category_list": "categories", "category_add": "categories",
     "category_edit": "categories", "category_delete": "categories",
-    "inventory_list": "stock", "warehouse_stock_list": "stock",
+    "inventory_list": "stock", "warehouse_stock_list": "warehouse_stock",
     "transfer_list": "withdrawals", "transfer_create": "withdrawals",
     "transfer_detail": "withdrawals", "transfer_approve": "withdrawals",
     "transfer_complete": "withdrawals", "transfer_confirm_receipt": "withdrawals",

@@ -9,6 +9,7 @@ from .models import (
     CustomerProfile, SupplierProfile, Notification,
 )
 from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
+from core.module_permissions import ALL_MODULE_CODES, MODULE_REGISTRY
 
 
 def login_view(request):
@@ -237,6 +238,15 @@ def _user_list_context(request):
         'form_role_choices': INTERNAL_ROLE_CHOICES,
         'branches': Branch.objects.all(),
         'active_count': users.filter(is_active=True).count(),
+        # The module-access checkbox panel — only meaningful for Staff/
+        # Manager, shown/hidden by JS based on the role select. add_modules
+        # defaults to everything checked for a freshly-opened Add modal
+        # (the Owner is deliberately setting this account up from scratch,
+        # unlike the non-privilege-escalating backfill default used for
+        # pre-existing accounts) — overwritten by user_form on a rejected
+        # submit so a retry keeps whatever was actually checked.
+        'module_choices': [(code, label) for code, (label, _urls) in MODULE_REGISTRY.items()],
+        'add_modules': ALL_MODULE_CODES,
     }
 
 
@@ -257,6 +267,7 @@ def user_list(request):
                 'show_edit_modal': True,
                 'edit_target': target,
                 'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
+                'edit_modules': target.allowed_modules or [],
             })
 
     return render(request, 'accounts/user_list.html', context)
@@ -280,6 +291,12 @@ def user_form(request, pk=None):
     first_name = request.POST.get('first_name', '').strip()
     last_name = request.POST.get('last_name', '').strip()
     password = request.POST.get('password', '').strip()
+    # Filtered against the real registry so a tampered POST can't smuggle an
+    # unknown code into the field — it'd be harmless (nothing gates on an
+    # unrecognized code) but there's no reason to store it either.
+    submitted_modules = [
+        c for c in request.POST.getlist('allowed_modules') if c in ALL_MODULE_CODES
+    ]
 
     # The same three checks, in the same order, collected rather than
     # redirected — a redirect discarded the whole form, and this one has
@@ -356,6 +373,14 @@ def user_form(request, pk=None):
             profile.supplier_name = full_name
             profile.save()
 
+        # Module access only ever means anything for Staff/Manager (Owner is
+        # exempt, Supplier/Customer have their own separate portals) — left
+        # untouched for any other role rather than overwritten with an
+        # empty list that would just be ignored anyway.
+        if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
+            target.allowed_modules = submitted_modules
+            target.save(update_fields=['allowed_modules'])
+
         messages.success(request, f'User "{username}" saved.')
         return redirect('accounts:user_list')
 
@@ -365,6 +390,7 @@ def user_form(request, pk=None):
             'show_edit_modal': True,
             'edit_target': target,
             'edit_branch_id': branch_id,
+            'edit_modules': submitted_modules,
             'edit_errors': errors,
             'edit_form_data': request.POST,
         })
@@ -372,6 +398,7 @@ def user_form(request, pk=None):
         context.update({
             'show_add_modal': True,
             'add_branch_id': branch_id,
+            'add_modules': submitted_modules,
             'add_errors': errors,
             'add_form_data': request.POST,
         })

@@ -16,7 +16,7 @@ from .models import (
 from .alerts import alert_summary
 from accounts.models import User
 from branches.models import Branch
-from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, role_required
+from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
 from core.scoping import branch_ids_for_user, user_can_access_branch
 from core.timebounds import local_month_bounds
@@ -467,7 +467,7 @@ def category_delete(request, pk):
 # inventory.alerts engine so these numbers match the Dashboard exactly.
 # ─────────────────────────────────────────────
 
-@role_required(OWNER, BRANCH_MANAGER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def alerts_center(request):
     branch_ids = branch_ids_for_user(request.user)  # None = all branches
     summary = alert_summary(branch_ids)
@@ -877,7 +877,7 @@ def _movement_log(branch_ids=None):
 # WITHDRAWAL SLIP (STOCK TRANSFER) VIEWS
 # ─────────────────────────────────────────────
 
-@role_required(OWNER, BRANCH_MANAGER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def transfer_list(request):
     transfers = StockTransfer.objects.select_related(
         'source_branch', 'destination_branch',
