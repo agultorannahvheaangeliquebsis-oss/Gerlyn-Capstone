@@ -98,7 +98,7 @@ body.shop {
 }
 .shop-brand:hover { color: #fff; }
 .shop-brand .brand-mark img {
-  width: 42px; height: 42px; border-radius: 10px; display: block;
+  width: 42px; height: 42px; border-radius: 6px; display: block;
   background: #fff;
 }
 /* Wordmark over trading line, the reference's stacked lockup. */
@@ -306,7 +306,7 @@ body.shop {
    a phone. */
 .search-box .search-submit {
   flex: none; width: 36px; min-width: 36px; min-height: 36px; padding: 0;
-  border-radius: 6px;
+  border-radius: 3px;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .search-box .search-submit svg { flex: none; }
@@ -452,7 +452,7 @@ body.shop {
 }
 .banner-card:hover { box-shadow: 0 6px 18px rgba(23,37,30,.10); transform: translateY(-2px); color: var(--ink-900); }
 .banner-card .bc-ic {
-  width: 34px; height: 34px; border-radius: 9px; background: #fff; flex: none;
+  width: 34px; height: 34px; border-radius: 5px; background: #fff; flex: none;
   display: grid; place-items: center; color: var(--action); margin-bottom: 6px;
 }
 .banner-card .bc-t { font: 700 15.5px/1.25 'Inter', system-ui, sans-serif; }
@@ -486,7 +486,7 @@ body.shop {
 }
 .svc:hover { color: var(--action-700); }
 .svc .svc-ic {
-  width: 46px; height: 46px; border-radius: 13px; flex: none;
+  width: 46px; height: 46px; border-radius: 7px; flex: none;
   background: var(--green-50); color: var(--action);
   display: grid; place-items: center;
   transition: transform .15s ease, color .15s ease;
@@ -566,7 +566,7 @@ body.shop {
    The letter is aria-hidden and the name below it is the accessible label:
    read aloud, "R, Rice & Grains" is noise. */
 .cat .ring {
-  width: 56px; height: 56px; border-radius: 14px;
+  width: 56px; height: 56px; border-radius: 8px;
   background: var(--green-50); color: var(--action-700);
   display: flex; align-items: center; justify-content: center;
   font: 700 22px/1 'Inter', system-ui, sans-serif;
@@ -661,7 +661,7 @@ body.shop {
   /* No hard border: the reference separates the card from the page with a
      soft shadow alone. The hairline is kept only as a near-invisible edge so
      the card still has a boundary on a white background. */
-  border: 1px solid rgba(23,37,30,.06); border-radius: 9px; background: #fff;
+  border: 1px solid rgba(23,37,30,.06); border-radius: 5px; background: #fff;
   overflow: hidden; display: flex; flex-direction: column;
   box-shadow: 0 1px 2px rgba(23,37,30,.05), 0 4px 14px rgba(23,37,30,.05);
   transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
@@ -795,7 +795,7 @@ body.shop {
   min-height: 34px; padding: 0 12px;
   /* Squared off to sit inside the card's 10px corner: a full pill next to a
      near-square card read as two different design languages. */
-  border-radius: 7px; border: 1px solid var(--green-100);
+  border-radius: 4px; border: 1px solid var(--green-100);
   background: var(--green-50); color: var(--action-700);
   font: 600 12.5px/1 'Inter', system-ui, sans-serif; cursor: pointer;
   /* Three of the four CTA branches render as <a>, which arrives underlined
@@ -827,7 +827,7 @@ body.shop {
 /* The staff-account note in the product page's buy panel, where the Add to
    Cart button would otherwise be. */
 .pdp-note {
-  margin: 0; padding: 12px 14px; border-radius: 8px;
+  margin: 0; padding: 12px 14px; border-radius: 4px;
   background: var(--line-soft); border: 1px solid var(--line);
   font: 400 13.5px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-700);
 }
@@ -1004,7 +1004,10 @@ body.shop {
   .shop-status { display: none; }
 
   .cat-grid { grid-template-columns: repeat(3, 1fr); }
-  .svc-row { grid-template-columns: repeat(4, 1fr); }
+  /* Three, not four. The row is five tiles since "Get the App" came out
+     of it, and a four-column grid leaves the fifth alone on its own row.
+     3 + 2 reads as a block; 4 + 1 reads as something having broken. */
+  .svc-row { grid-template-columns: repeat(3, 1fr); }
   /* Trim the sticky band. It holds the top 151px of an 844px phone screen
      at all times, and on the cart the fixed checkout bar takes another 69 —
      a quarter of the display gone before any content. */
@@ -1015,7 +1018,7 @@ body.shop {
   /* Two-up on a phone. The card's own container queries handle everything
      inside it from here — this only sets how many fit across. */
   .pgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-  .pcard { border-radius: 8px; }
+  .pcard { border-radius: 4px; }
   .banner-side { grid-template-columns: 1fr; }
 
   /* Sticky checkout bar — the running total is always visible. */
@@ -1136,135 +1139,148 @@ body.shop .toast-stack { top: 182px; }
 /* ======================================================================
    AUTH SCREEN  (.shop-auth)
 
-   The sign-in page as a room of its own rather than a card dropped into
-   the shop layout. Every selector here is scoped under .shop-auth, which
-   only login.html sets, so none of it reaches the catalog, the cart or
-   any other page that loads this file.
+   The marketplace sign-in shape: a slim white bar naming the screen, one
+   full-bleed brand band split into an identity panel and the form card,
+   then the ordinary storefront footer. Every selector here is scoped under
+   .shop-auth or an .auth- prefix, and .shop-auth is set by login.html
+   alone, so none of it reaches the catalog, the cart or any other page
+   that loads this file.
 
-   The backdrop is the brand's own green mist, not the blue of the design
-   reference this was modelled on: the reference's sky put a colour on the
-   largest surface in the app that appears nowhere else in it, directly
-   behind a green brand mark. Same composition — soft gradient, one
-   floating card, a medallion over the title — in the palette the rest of
-   the product already speaks.
+   The band is the brand's own --action green, not the reference's orange:
+   the reference paints the largest surface in the app a colour that
+   appears nowhere else in it, directly behind a green brand mark. Same
+   composition, in the palette the rest of the product already speaks.
+
+   This replaces a single glass card floating on a green mist. The card had
+   nothing beside it, so the widest part of the screen was empty gradient
+   and the store's name appeared only as a 17px corner mark. The split band
+   gives that half of the fold the mark and the sentence that says what the
+   store sells, and the card stops carrying the branding on its own.
    ====================================================================== */
-/* Column, so the announcement bar and the footer keep their own bands and
-   the card's band takes whatever is left. Without this the centring block
-   below claimed a full 100vh of its own and pushed the footer off the fold
-   on every screen. .toast-stack is position:fixed and sits outside the flow,
-   so it is unaffected. */
+/* Column, so the band takes the room the bar and the footer leave rather
+   than claiming a 100vh of its own and pushing the footer off the fold.
+   .toast-stack is position:fixed and sits outside the flow, unaffected. */
 body.shop-auth {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(900px 520px at 50% -8%, #FFFFFF 0%, rgba(255,255,255,0) 62%),
-    linear-gradient(180deg, var(--green-100) 0%, var(--green-50) 40%, #FFFFFF 100%);
-  background-attachment: fixed;
+  background: var(--surface);
 }
-/* Only the nav bar goes. The announcement above it and the footer below are
-   store information, not navigation — the delivery threshold is worth as
-   much to someone signing in as to someone browsing, and the branch list is
-   how a customer checks this is the store they meant. What is wrong on this
-   page is the nav specifically: its right-hand action is a "Log in" button
-   pointing at the page you are already on. */
-/* The strip as well as the header. .shop-announce is a SIBLING of <header>,
-   not a child, so hiding .shop-header alone left a green utility band sitting
-   above the sign-in page's full-bleed backdrop with the corner wordmark
-   jammed underneath it — two different pages' chrome on one screen. The whole
-   point of this class is that sign-in is a room of its own. */
+/* The storefront nav goes, and the utility strip with it. The nav's
+   right-hand action is a "Log in" button pointing at the page you are
+   already on, and .shop-announce is a SIBLING of <header>, not a child —
+   hiding the header alone left a green utility band stranded above this
+   page's own bar, which is two different pages' chrome on one screen. */
 .shop-auth .shop-header,
 .shop-auth .shop-announce { display: none; }
 .shop-auth .shop-main {
   flex: 1;
-  display: grid;
-  place-items: center;
-  /* The positioning context for .auth-brand. Anchoring the mark here rather
-     than to the viewport is what keeps it clear of the announcement bar,
-     whose height this page does not need to know. */
-  position: relative;
-  padding: 72px var(--s4) var(--s8);
+  display: flex;
+  flex-direction: column;
+  /* min-height:0 against the global .shop-main{min-height:60vh}: inside a
+     flex column that floor fights `flex:1` on the band below. */
+  min-height: 0;
 }
+/* The band runs straight into the footer's rule. .shop-footer's own
+   margin-top would otherwise leave a white gutter between the green and
+   the border, which reads as the page having stopped early. */
+.shop-auth .shop-footer { margin-top: 0; }
 
-/* Brand mark, top-left. It is also the way back out of this page now that
-   the nav is gone, so it is a link and not a decoration. */
-.auth-brand {
-  position: absolute; top: 22px; left: 24px;
+/* ------------------------------------------------------------- top bar
+   The mark, and nothing else. It carried the screen's name and a link out
+   as well; the card below states which screen this is in its own h1, and
+   the mark is the way back to the shop now that the nav is hidden — so it
+   is a link and not a decoration. */
+.auth-topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-soft);
+}
+.auth-topbar-inner {
+  display: flex; align-items: center; gap: var(--s4);
+  min-height: 74px;
+}
+.auth-topbar-brand {
   display: inline-flex; align-items: center; gap: 10px;
   text-decoration: none; color: var(--ink-900);
-  font: 700 17px/1 system-ui, sans-serif;
+  font: 400 19px/1 'Inter', system-ui, sans-serif;
+  /* Never the half that ellipses — the screen title beside it is the
+     shorter string and the one that can afford to shrink. */
+  flex: none;
 }
-.auth-brand img {
-  width: 34px; height: 34px; border-radius: 10px; display: block;
+.auth-topbar-brand img {
+  width: 36px; height: 36px; border-radius: 7px; display: block;
   box-shadow: var(--shadow-card);
 }
-.auth-brand:hover { color: var(--action); }
+.auth-topbar-brand strong { font-weight: 750; color: var(--action); }
+.auth-topbar-brand:hover { color: var(--action); }
 
+/* ---------------------------------------------------------------- band */
+.auth-band {
+  flex: 1;
+  display: flex; align-items: center;
+  background: var(--action);
+  padding: var(--s12) 0;
+}
+/* A fixed right column, not a fraction: the card is a fixed-width object
+   at every size the reference uses it at, and letting it take a share of
+   the row stretched the inputs to 600px on a desktop monitor. */
+.auth-band-inner {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: var(--s12);
+  align-items: center;
+}
+
+/* --------------------------------------------------------- identity half
+   Decorative — hidden below 860px, where the card is the whole point of
+   the screen and the store's name is already in the bar directly above. */
+.auth-hero { text-align: center; color: #fff; }
+.auth-hero-mark {
+  width: 164px; height: 164px; display: block;
+  margin: 0 auto var(--s6);
+  border-radius: 26px; object-fit: cover; background: #fff;
+  box-shadow: 0 14px 40px rgba(0,0,0,.18);
+}
+.auth-hero-name {
+  margin: 0 0 var(--s4);
+  font: 800 38px/1.15 'Inter', system-ui, sans-serif;
+  letter-spacing: -.4px;
+}
+/* rgba white rather than a tint token: this sits on the brand green, and
+   at 18px it still clears contrast comfortably at .92. */
+.auth-hero-tag {
+  margin: 0;
+  font: 400 18px/1.6 'Inter', system-ui, sans-serif;
+  color: rgba(255,255,255,.92);
+}
+
+/* ---------------------------------------------------------------- card
+   Opaque white on the band. The previous card was translucent with a
+   backdrop-filter because it floated on a pale gradient; over a saturated
+   green that same treatment tints every input and the submit button. */
 .auth-card {
-  width: 100%; max-width: 420px;
-  background: rgba(255,255,255,.78);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,.85);
-  border-radius: 20px;
-  box-shadow: 0 18px 48px rgba(23,37,30,.10), 0 2px 8px rgba(23,37,30,.05);
-  padding: var(--s8) var(--s6) var(--s6);
-  position: relative; overflow: hidden;
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--r-card);
+  box-shadow: 0 10px 34px rgba(23,37,30,.20);
+  padding: var(--s6);
 }
-/* The tint the reference carries across the top of the card. Sits behind
-   the content on its own layer so it cannot pick up the text's stacking. */
-.auth-card::before {
-  content: ""; position: absolute; inset: 0 0 auto; height: 140px;
-  background: linear-gradient(180deg, var(--green-50) 0%, rgba(255,255,255,0) 100%);
-  pointer-events: none;
-}
-.auth-card > * { position: relative; }
-
-.auth-badge {
-  width: 56px; height: 56px; margin: 0 auto var(--s4);
-  border-radius: 16px; background: var(--surface);
-  display: grid; place-items: center; color: var(--action);
-  box-shadow: 0 4px 14px rgba(23,37,30,.10);
-}
-.auth-badge svg { width: 26px; height: 26px; display: block; }
-/* The logo variant: a slightly larger medallion with the artwork filling it,
-   so the mark reads at the size the header uses rather than sitting as a
-   stamp inside a white tile. object-fit:cover keeps a non-square logo from
-   distorting. */
-.auth-badge--logo {
-  width: 68px; height: 68px; padding: 0; overflow: hidden;
-  background: #fff;
-}
-.auth-badge--logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
 .auth-title {
-  font: 700 25px/1.2 system-ui, sans-serif;
-  text-align: center; margin: 0 0 6px; color: var(--ink-900);
-}
-.auth-sub {
-  text-align: center; margin: 0 0 var(--s6);
-  font: 400 14.5px/1.5 system-ui, sans-serif; color: var(--ink-500);
+  margin: 0 0 var(--s6);
+  font: 700 21px/1.3 'Inter', system-ui, sans-serif;
+  color: var(--ink-900);
 }
 
 /* Static labels, sitting above their field.
 
    These used to float onto the top border and notch it, in a chip painted
-   --surface. Two things were wrong with that, and both are visible at once
-   the moment a browser fills the form:
-
-     · the chip is opaque white, but .auth-card is rgba(255,255,255,.78)
-       over a green gradient, so it was never the same colour as the thing
-       behind it — the notch read as a sticker laid across the border
-       rather than a gap in it;
-     · Chrome repaints an autofilled input #E8F0FE and ignores
-       background-color, so the field went pale blue while the chip stayed
-       white, and the mismatch became unmissable.
-
-   A label above the box has no seam to hide and no state to be in. It is
-   also what every other form in this app already does — register.html,
-   which sits one link away, has never floated its labels — so login was
-   the odd screen out. .field's own column layout does the work; the only
-   thing this needs to add is the icon's positioning context. */
+   --surface, which never matched the translucent card behind it and went
+   visibly wrong the moment Chrome repainted an autofilled input #E8F0FE.
+   A label above the box has no seam to hide and no state to be in, and it
+   is what every other form in this app already does — register.html, one
+   link away, has never floated its labels. .field's own column layout does
+   the work; the only thing this adds is the icon's positioning context. */
 .auth-card .field.auth-field {
   display: flex; flex-direction: column; gap: 7px;
   margin: 0 0 var(--s4);
@@ -1277,7 +1293,7 @@ body.shop-auth {
    box-plus-label. */
 .auth-input-wrap { position: relative; display: block; }
 .auth-card .auth-field input {
-  min-height: 52px;
+  min-height: 50px;
   padding: 0 14px 0 44px;
 }
 .auth-field-icon {
@@ -1303,7 +1319,7 @@ body.shop-auth {
    glyph is 18px, and it clears its own room in the input's padding. */
 .auth-card .auth-field input.has-reveal { padding-right: 50px; }
 .auth-reveal {
-  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
   width: 44px; height: 44px; padding: 0;
   display: grid; place-items: center;
   background: none; border: none; cursor: pointer;
@@ -1313,13 +1329,22 @@ body.shop-auth {
 .auth-reveal svg { width: 18px; height: 18px; display: block; }
 
 .auth-submit {
-  width: 100%; margin-top: var(--s4);
-  min-height: 48px; font-size: 15.5px; border-radius: 10px;
+  width: 100%; margin-top: var(--s2);
+  min-height: 48px; font-size: 15.5px; border-radius: var(--r-input);
 }
+/* .field-error carries a negative top margin so it tucks under the field it
+   belongs to. That pulls the button up with it, to 8px below the message on
+   a failed sign-in — the one render where the two are on screen together. */
+.auth-card .field-error + .auth-submit { margin-top: var(--s4); }
+/* Ruled off, so the way to the other account screen reads as leaving the
+   form rather than as one more row inside it. */
 .auth-alt {
-  text-align: center; margin: var(--s6) 0 0;
-  font: 400 14px/1.5 system-ui, sans-serif; color: var(--ink-500);
+  text-align: center;
+  margin: var(--s6) 0 0; padding-top: var(--s4);
+  border-top: 1px solid var(--line-soft);
+  font: 400 14px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-500);
 }
+.auth-alt a { font-weight: 700; color: var(--action); }
 
 @media (prefers-reduced-motion: no-preference) {
   .auth-card { animation: auth-in .22s ease-out; }
@@ -1329,19 +1354,128 @@ body.shop-auth {
   }
 }
 
+/* ------------------------------------------------- create account
+   The same band and the same card, widened to what a form of this many
+   fields needs, and tightened so it still lands inside one screen on a
+   laptop. Every rule is a modifier — the sign-in card is untouched. */
+/* 660, not 468. The fields inside pair off two to a row, so this is the
+   width that makes eight of them five rows instead of eight — the card was
+   running ~900px tall down one edge of a band whose other half was empty. */
+.auth-band-inner--wide { grid-template-columns: minmax(0, 1fr) 660px; }
+/* Rows are 46px rather than 50px and sit 12px apart rather than 16px.
+   Across seven of them that is ~110px, which is the difference between the
+   Create Account button being on the fold and being below it. */
+.auth-card--wide .auth-field input { min-height: 46px; }
+.auth-card--wide .field.auth-field { margin-bottom: var(--s3); }
+
+/* Title and its line of sub-copy read as one block, so the s6 of air goes
+   under the pair rather than between them. */
+.auth-head { margin-bottom: var(--s6); }
+.auth-head .auth-title { margin-bottom: 5px; }
+.auth-sub {
+  margin: 0;
+  font: 400 13.5px/1.5 'Inter', system-ui, sans-serif;
+  color: var(--ink-500);
+}
+
+/* Two fields to a row, paired by what they are: the two halves of a name,
+   the two ways to identify the account, the password and its confirmation,
+   the two optional details. Only column-gap — the rows are spaced by each
+   field's own margin-bottom, so a hint under one cell cannot push its
+   neighbour's box out of line.
+
+   align-items:start so a cell carrying a hint (or the address block, which
+   is a summary and a button) does not stretch the plain field beside it. */
+.auth-row-2 {
+  display: grid; grid-template-columns: 1fr 1fr;
+  column-gap: var(--s4);
+  align-items: start;
+}
+
+/* "(optional)" inside the label, in the label's own line rather than as a
+   separate note under the field: what a person needs to know about an
+   optional field is that they may skip it, and they decide that while
+   reading the label. */
+.auth-optional { font-weight: 400; color: var(--ink-500); }
+/* Helper text under a field. --ink-500, not --ink-400: this runs at 12.5px,
+   far below the size that lets the lighter grey pass contrast. */
+.auth-hint {
+  margin: 6px 0 0;
+  font: 400 12.5px/1.45 'Inter', system-ui, sans-serif;
+  color: var(--ink-500);
+}
+
+/* The address slot. Dashed and muted while empty, solid and full-strength
+   once the picker has filled it — the state is the border, so it reads
+   without having to parse the sentence inside. */
+.auth-address-summary {
+  border: 1px dashed var(--line); border-radius: var(--r-input);
+  padding: 10px 12px;
+  font: 400 13px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-500);
+}
+.auth-address-summary.is-set {
+  border-style: solid; border-color: var(--line);
+  color: var(--ink-900);
+}
+.auth-address-btn { margin-top: 8px; align-self: flex-start; }
+
+/* ----------------------------------------------------------- responsive
+   Widest breakpoint first, narrowing down. The order matters here: the two
+   cards share .auth-card, so a max-width set for the narrow one at a later
+   breakpoint would otherwise win over the wide one's at an earlier one. */
+
+/* The wide card gives up the identity panel before it gives up its second
+   column. Both into 1200px leaves the hero ~380px — narrower than the
+   wordmark at 38px — while folding the card to one column would undo the
+   whole reason it is wide. */
+@media (max-width: 1200px) {
+  .auth-band-inner--wide { grid-template-columns: minmax(0, 1fr); }
+  .auth-band-inner--wide .auth-hero { display: none; }
+  .auth-card--wide { max-width: 660px; margin: 0 auto; }
+}
+
+@media (max-width: 1024px) {
+  .auth-band { padding: var(--s8) 0; }
+  .auth-band-inner { grid-template-columns: minmax(0, 1fr) 372px; gap: var(--s8); }
+  .auth-hero-mark { width: 128px; height: 128px; border-radius: 22px; }
+  .auth-hero-name { font-size: 30px; }
+  .auth-hero-tag { font-size: 16px; }
+}
+
+/* One column below this, and the identity half goes rather than stacking:
+   a 128px logo and a tagline above the card push the first field under the
+   fold on a phone, on the one screen the visitor came here to use.
+   :not(--wide) because the wide card set its own width at 1200 and this
+   rule would otherwise crush it to the sign-in card's 420. */
+@media (max-width: 860px) {
+  .auth-band-inner { grid-template-columns: minmax(0, 1fr); }
+  .auth-hero { display: none; }
+  .auth-card:not(.auth-card--wide) { max-width: 420px; margin: 0 auto; }
+}
+
+/* Below this the paired columns are narrower than the placeholders inside
+   them, so the pairs stack. */
+@media (max-width: 600px) {
+  .auth-row-2 { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 480px) {
   /* "Gerlyn Variety Store" does not fit beside the cart and the account
      menu at this width — it was ellipsing to "Gerlyn Vari…", which reads as
      a broken layout rather than an abbreviation. Dropping the second half
      outright is cleaner, and the logo's alt text still carries the full
-     name for anyone not reading it visually. */
+     name for anyone not reading it visually. (Storefront header, not this
+     page's bar — that one folds separately, just below.) */
   .shop-brand-name strong + strong { display: none; }
 
-  .shop-auth .shop-main { padding: 68px var(--s3) var(--s6); }
-  .auth-card { padding: var(--s6) var(--s4) var(--s4); border-radius: 16px; }
-  .auth-brand { top: 16px; left: 16px; font-size: 16px; }
-  .auth-title { font-size: 22px; }
+  .auth-topbar-inner { min-height: 60px; }
+  .auth-topbar-brand { font-size: 16px; gap: 8px; }
+  .auth-topbar-brand img { width: 30px; height: 30px; }
+  .auth-band { padding: var(--s6) 0; }
+  .auth-card { padding: var(--s4); }
+  .auth-title { margin-bottom: var(--s4); }
 }
+
 
 
 /* ======================================================================
@@ -1368,11 +1502,11 @@ body.shop-auth {
 .about-hero {
   text-align: center; padding: 34px 20px 38px;
   background: linear-gradient(160deg, var(--green-50) 0%, #fff 78%);
-  border: 1px solid var(--green-100); border-radius: 10px;
+  border: 1px solid var(--green-100); border-radius: 6px;
   margin-bottom: 22px;
 }
 .about-mark {
-  width: 66px; height: 66px; border-radius: 18px; overflow: hidden;
+  width: 66px; height: 66px; border-radius: 10px; overflow: hidden;
   display: inline-flex; margin-bottom: 14px;
 }
 .about-mark img { width: 100%; height: 100%; object-fit: cover; }
@@ -1390,11 +1524,11 @@ body.shop-auth {
   gap: 14px; margin-bottom: 22px;
 }
 .about-card {
-  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 20px;
 }
 .about-ic {
-  width: 42px; height: 42px; border-radius: 11px;
+  width: 42px; height: 42px; border-radius: 6px;
   background: var(--green-50); color: var(--action);
   display: grid; place-items: center; margin-bottom: 12px;
 }
@@ -1415,7 +1549,7 @@ body.shop-auth {
 }
 .branch-list li:first-child { border-top: 0; }
 .branch-ic {
-  width: 34px; height: 34px; border-radius: 9px; flex: none;
+  width: 34px; height: 34px; border-radius: 5px; flex: none;
   background: var(--green-50); color: var(--action);
   display: grid; place-items: center;
 }
@@ -1449,7 +1583,7 @@ body.shop-auth {
   align-items: start;
 }
 .filter-rail {
-  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 18px 16px; position: sticky; top: 16px;
 }
 .rail-heading {
@@ -1479,7 +1613,7 @@ body.shop-auth {
 .rail-list { list-style: none; margin: 0; padding: 0; }
 .rail-item {
   display: flex; align-items: center;
-  padding: 6px 10px; border-radius: 6px;
+  padding: 6px 10px; border-radius: 3px;
   font: 400 13.5px/1.35 'Inter', system-ui, sans-serif;
   color: var(--ink-700); text-decoration: none;
   transition: background .12s ease, color .12s ease;
@@ -1519,7 +1653,7 @@ body.shop-auth {
    session's shopping branch and cannot be two places). */
 .rail-check {
   position: relative; display: flex; align-items: center; gap: 10px;
-  padding: 7px 8px; border-radius: 6px; cursor: pointer;
+  padding: 7px 8px; border-radius: 3px; cursor: pointer;
   font: 400 13.5px/1.35 'Inter', system-ui, sans-serif; color: var(--ink-700);
   transition: background .12s ease, color .12s ease;
   min-height: 34px;
@@ -1530,7 +1664,7 @@ body.shop-auth {
   margin: 0; opacity: 0; cursor: pointer;
 }
 .rail-box {
-  flex: none; width: 18px; height: 18px; border-radius: 5px;
+  flex: none; width: 18px; height: 18px; border-radius: 3px;
   border: 1.5px solid var(--line); background: #fff;
   display: grid; place-items: center; color: #fff;
   transition: background .12s ease, border-color .12s ease;
@@ -1570,7 +1704,7 @@ body.shop-auth {
 .results-bar {
   display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 12px;
-  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 10px 14px; margin-bottom: 16px;
 }
 .sort-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
@@ -1580,7 +1714,7 @@ body.shop-auth {
 }
 .sort-pill {
   display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px;
-  border: 1px solid var(--line); border-radius: 7px; background: #fff;
+  border: 1px solid var(--line); border-radius: 4px; background: #fff;
   font: 600 13px/1 'Inter', system-ui, sans-serif; color: var(--ink-700);
   text-decoration: none; white-space: nowrap;
   transition: background .15s ease, color .15s ease, border-color .15s ease;
@@ -1593,7 +1727,7 @@ body.shop-auth {
 .view-btn {
   width: 32px; height: 32px; padding: 0; cursor: pointer;
   display: grid; place-items: center;
-  border: 1px solid var(--line); border-radius: 7px;
+  border: 1px solid var(--line); border-radius: 4px;
   background: #fff; color: var(--ink-700);
 }
 .view-btn:hover { background: var(--green-50); color: var(--action-700); }
@@ -1623,7 +1757,7 @@ body.shop-auth {
 .pcard { position: relative; }
 .bulk-flag {
   position: absolute; top: 9px; left: 9px; z-index: 2;
-  padding: 2px 7px; border-radius: 5px;
+  padding: 2px 7px; border-radius: 3px;
   background: #FDE68A; color: #78350F;
   font: 700 10px/1.4 'Inter', system-ui, sans-serif; letter-spacing: .04em;
 }
@@ -1689,11 +1823,11 @@ body.shop-auth {
 .pdp {
   display: grid; grid-template-columns: minmax(260px, 400px) minmax(0, 1fr);
   gap: 26px; align-items: start;
-  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 22px; margin-bottom: 18px;
 }
 .pdp-frame {
-  aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden; background: #fff;
+  aspect-ratio: 1 / 1; border-radius: 4px; overflow: hidden; background: #fff;
   border: 1px solid var(--line-soft);
   display: flex; align-items: center; justify-content: center;
 }
@@ -1702,13 +1836,13 @@ body.shop-auth {
 .pdp-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .pdp-thumbs img {
   width: 64px; height: 64px; object-fit: cover; cursor: pointer;
-  border-radius: 7px; border: 1px solid var(--line);
+  border-radius: 4px; border: 1px solid var(--line);
 }
 
 .pdp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border-radius: 6px;
+  padding: 4px 10px; border-radius: 3px;
   font: 600 12px/1.4 'Inter', system-ui, sans-serif;
 }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
@@ -1729,7 +1863,7 @@ body.shop-auth {
 /* The price in its own tinted band — what stops the biggest number on the
    page from reading as a continuation of the SKU line above it. */
 .price-band {
-  background: #FFF6F0; border: 1px solid #FBDCC8; border-radius: 8px;
+  background: #FFF6F0; border: 1px solid #FBDCC8; border-radius: 4px;
   padding: 16px 18px; margin-bottom: 18px;
 }
 .price-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
@@ -1744,7 +1878,7 @@ body.shop-auth {
   font: 400 13.5px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-700);
 }
 .bulk-badge {
-  padding: 3px 8px; border-radius: 5px; flex: none;
+  padding: 3px 8px; border-radius: 3px; flex: none;
   background: #FDE68A; color: #78350F;
   font: 700 10.5px/1.4 'Inter', system-ui, sans-serif; letter-spacing: .05em;
 }
@@ -1756,7 +1890,7 @@ body.shop-auth {
 }
 .qty-stepper {
   display: inline-flex; align-items: stretch;
-  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
   background: #fff;
 }
 .qty-btn {
@@ -1784,7 +1918,7 @@ body.shop-auth {
   display: inline-flex; align-items: center; gap: 8px;
   background: var(--green-50); color: var(--action-700);
   border: 1px solid var(--action); min-height: var(--touch); padding: 0 18px;
-  border-radius: 8px; cursor: pointer; text-decoration: none;
+  border-radius: 4px; cursor: pointer; text-decoration: none;
   font: 600 14px/1 'Inter', system-ui, sans-serif;
 }
 .btn-ghost-green:hover { background: var(--action); color: #fff; }
@@ -1794,7 +1928,7 @@ body.shop-auth {
   gap: 16px; margin-bottom: 8px;
 }
 .pdp-panel {
-  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 20px;
 }
 .pdp-panel h2 {
@@ -1851,7 +1985,7 @@ body.shop-auth {
   display: inline-flex; align-items: center; gap: 10px;
   text-decoration: none; color: inherit; margin-bottom: 12px;
 }
-.footer-mark img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; }
+.footer-mark img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; }
 .footer-mark span { font: 400 16px/1.2 'Inter', system-ui, sans-serif; }
 .footer-blurb {
   font: 400 13.5px/1.65 'Inter', system-ui, sans-serif;

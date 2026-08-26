@@ -73,12 +73,20 @@ heading changing every six seconds.
         <span class="bc-t">Wholesale prices</span>
         <span class="bc-s">Bulk orders welcome — buy by the sack, box or case.</span>
       </a>
-      <a class="banner-card" href="{% url 'download' %}">
+      {% comment %}
+      This was "Install the app". .banner-side is a 1fr 1fr grid, so deleting
+      the card outright would have left the lower half of the rail empty next
+      to a full-height rotator — it is replaced, not removed. The copy is the
+      delivery threshold the announcement strip and the footer already state,
+      pointing at the branch list, which is where a shopper picks between
+      having it delivered and collecting it.
+      {% endcomment %}
+      <a class="banner-card" href="{% url 'orders:select_branch' %}">
         <span class="bc-ic">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><line x1="10.5" y1="18.5" x2="13.5" y2="18.5"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
         </span>
-        <span class="bc-t">Install the app</span>
-        <span class="bc-s">Order from your phone, even on a slow connection.</span>
+        <span class="bc-t">Delivery or pickup</span>
+        <span class="bc-s">Free delivery within Baliuag over ₱500, or collect at a branch.</span>
       </a>
     </div>
 
@@ -110,10 +118,6 @@ heading changing every six seconds.
     <a class="svc" href="{% if request.user.is_authenticated %}{% url 'orders:my_orders' %}{% else %}{% url 'accounts:login' %}?next={% url 'orders:my_orders' %}{% endif %}">
       <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 11h8M8 15h5"/></svg></span>
       <span class="svc-nm">Track Order</span>
-    </a>
-    <a class="svc" href="{% url 'download' %}">
-      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-      <span class="svc-nm">Get the App</span>
     </a>
     <a class="svc" href="{% url 'accounts:profile' %}">
       <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>

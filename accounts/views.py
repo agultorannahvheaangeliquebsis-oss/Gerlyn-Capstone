@@ -543,6 +543,27 @@ def home_view(request):
         'best_sellers': best_sellers(limit=8),
     })
 
+def _register_form_values(request):
+    """What the visitor typed, so a rejected POST can re-render it filled in.
+
+    register_view rejects on four separate conditions and every one of them
+    used to `render(...)` with no context at all — the form came back blank
+    and the shopper retyped eight fields to fix one of them. The address
+    keys are here too: they are hidden inputs the map picker fills, and
+    losing them silently threw away the pin as well.
+
+    The two password fields are deliberately absent. A password re-rendered
+    into HTML is a password in the browser's view-source and in whatever
+    proxy cached the response.
+    """
+    keep = (
+        'username', 'email', 'first_name', 'last_name', 'contact_number',
+        'address', 'type', 'region', 'province', 'city', 'barangay',
+        'street_detail', 'latitude', 'longitude',
+    )
+    return {k: request.POST.get(k, '') for k in keep}
+
+
 def register_view(request):
     if request.user.is_authenticated:
         return redirect_by_role(request, request.user)
@@ -559,22 +580,22 @@ def register_view(request):
 
         if password1 != password2:
             messages.error(request, 'Passwords do not match.')
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         try:
             password_validation.validate_password(password1)
         except ValidationError as e:
             for error in e.messages:
                 messages.error(request, error)
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         if User.objects.filter(username=username).exists():
             messages.error(request, 'Username already taken.')
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         if User.objects.filter(email=email).exists():
             messages.error(request, 'Email already registered.')
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         user = User.objects.create_user(
             username=username,

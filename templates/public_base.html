@@ -36,8 +36,9 @@
 {% comment %}
 body_class defaults to the plain shop shell, so every page that does not
 override it renders exactly as before. Sign In adds shop-auth to trade the
-storefront header and footer for a full-bleed backdrop — see the AUTH SCREEN
-section in storefront.css, which is scoped entirely under that class.
+storefront header for a bar of its own above a full-bleed brand band — see
+the AUTH SCREEN section in storefront.css, which is scoped entirely under
+that class. The footer below it is this file's, unchanged.
 {% endcomment %}
 <body class="{% block body_class %}shop{% endblock %}">
 
@@ -64,12 +65,13 @@ stated.
         {% t "Our Branches" %}
       </a>
     </span>
+    {% comment %}
+    No "Get the App" here any more. Gerlyn is a website — there is no build
+    in any store, and the strip was offering an install of something that
+    does not exist as a product. The download page and its route are still
+    there; nothing in the storefront points at them.
+    {% endcomment %}
     <span class="shop-announce-links">
-      <a href="{% url 'download' %}">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        {% t "Get the App" %}
-      </a>
-      <span class="shop-announce-sep" aria-hidden="true"></span>
       {% comment %}
       The Help Center is @login_required, so an anonymous shopper clicking a
       link labelled "Need help?" would land on a sign-in form — a login wall
@@ -205,10 +207,6 @@ white-on-white.
               <a href="{% url 'accounts:profile' %}" class="user-menu-item">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               {% t "Settings" %}
-            </a>
-            <a href="{% url 'download' %}" class="user-menu-item">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              {% t "Download App" %}
             </a>
             <div class="user-menu-divider"></div>
             <a href="{% url 'accounts:logout' %}" class="user-menu-item user-menu-item--danger">
@@ -366,7 +364,6 @@ one task the page exists for.
         {% if request.user.is_authenticated %}
         <li><a href="{% url 'accounts:help_center' %}">{% t "Help Center" %}</a></li>
         {% endif %}
-        <li><a href="{% url 'download' %}">{% t "Get the App" %}</a></li>
       </ul>
     </nav>
 

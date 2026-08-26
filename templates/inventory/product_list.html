@@ -188,7 +188,7 @@
           {% with imgs=row.product.images.all %}
             {% if imgs %}
               <img src="{{ imgs.0.image.url }}" alt="{{ imgs.0.alt_text }}"
-                   style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
+                   style="width:40px; height:40px; object-fit:cover; border-radius:3px;">
             {% else %}
               <span class="gv-meta">—</span>
             {% endif %}
@@ -473,7 +473,7 @@
               <svg class="icon-undo" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
             </button>
             <img src="{{ img.image.url }}" alt="{{ img.alt_text }}"
-                 style="width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:6px;">
+                 style="width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:3px;">
             <label class="gv-meta img-thumb-meta">
               <input type="radio" name="primary_image" value="{{ img.pk }}" {% if img.is_primary %}checked{% endif %}>
               Main
