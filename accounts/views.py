@@ -4,6 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
     CustomerProfile, SupplierProfile, Notification,
@@ -12,9 +13,44 @@ from .rate_limit import clear_failed_logins, is_login_locked_out, register_faile
 from core.module_permissions import ALL_MODULE_CODES, MODULE_REGISTRY
 
 
+def safe_next(request):
+    """The requested post-login destination, but only if it is ours.
+
+    `next` reaches us from a query string on the way in and from a hidden
+    field on the way back out, either of which an attacker can set, and
+    redirect() will happily send the browser to another origin. Anything
+    off-site (or absent) returns None and the caller falls back to the
+    role dashboard.
+    """
+    nxt = request.POST.get('next') or request.GET.get('next')
+    if nxt and url_has_allowed_host_and_scheme(
+        nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return nxt
+    return None
+
+
+def _post_login_redirect(request, user):
+    """Where a signed-in user goes: their requested `next`, else their own
+    dashboard.
+
+    The role is validated FIRST. Preferring `next` before that check would
+    let an account with an unplaceable role stay logged in and browse, which
+    is the exact state _reject_invalid_role exists to prevent — the bad role
+    has to be caught however the user arrived.
+    """
+    target = _role_target(user)
+    if target is None:
+        return _reject_invalid_role(request)
+    return redirect(safe_next(request) or target)
+
+
 def login_view(request):
+    # `next` is honoured here as well as after a successful POST: someone who
+    # is already signed in and follows a "Log in to buy" link should land on
+    # the product, not be bounced to a dashboard for having a live session.
     if request.user.is_authenticated:
-        return redirect_by_role(request, request.user)
+        return _post_login_redirect(request, request.user)
 
     error = None
     username = ''
@@ -31,12 +67,29 @@ def login_view(request):
             if user is not None:
                 clear_failed_logins(username)
                 login(request, user)
-                return redirect_by_role(request, user)
+                # Back to whatever they were doing. A shopper who hit "Log in
+                # to buy" on a product card was one click from ordering it;
+                # dropping them on the customer dashboard instead made them
+                # find that product a second time. Same for a staff session
+                # that timed out mid-page — @login_required already appends
+                # ?next=, and until now this view threw it away.
+                #
+                # An internal role sent to the storefront home is not a
+                # special case: home_view redirects INTERNAL_ROLES to their
+                # own dashboard, so that lands correctly on its own.
+                return _post_login_redirect(request, user)
             else:
                 register_failed_login(username)
                 error = 'Invalid username or password.'
 
-    return render(request, 'accounts/login.html', {'error': error, 'username': username})
+    return render(request, 'accounts/login.html', {
+        'error': error,
+        'username': username,
+        # Round-trips the destination through the POST so it survives a failed
+        # attempt — otherwise a typo in the password quietly costs the shopper
+        # their place.
+        'next': safe_next(request) or '',
+    })
 
 
 def logout_view(request):
@@ -44,7 +97,15 @@ def logout_view(request):
     return redirect('/')
 
 
-def redirect_by_role(request, user):
+def _role_target(user):
+    """The URL name of a user's own landing page, or None if the role is bad.
+
+    Split out of redirect_by_role so login_view can prefer a validated `next`
+    over the dashboard without duplicating the role table. Deliberately pure
+    — it neither logs anyone out nor redirects — so that the invalid-role
+    handling stays in one visible place at each call site instead of being a
+    side effect of asking where someone belongs.
+    """
     role_redirects = {
         User.Role.OWNER: 'accounts:owner_dashboard',
         User.Role.BRANCH_MANAGER: 'accounts:manager_dashboard',
@@ -52,15 +113,26 @@ def redirect_by_role(request, user):
         User.Role.SUPPLIER: 'accounts:supplier_dashboard',
         User.Role.CUSTOMER: 'accounts:customer_dashboard',
     }
-    target = role_redirects.get(user.role)
+    return role_redirects.get(user.role)
+
+
+def _reject_invalid_role(request):
+    """Log out a user whose role we cannot place, and send them to sign-in.
+
+    An unrecognized role (bad data, or a value that no longer exists) must
+    never fall through to 'accounts:login' while still authenticated — with
+    login_view's own "already authenticated" redirect at the top, that is an
+    infinite redirect loop instead of a login page.
+    """
+    logout(request)
+    messages.error(request, 'Your account has an invalid role. Contact the Owner to have it fixed.')
+    return redirect('accounts:login')
+
+
+def redirect_by_role(request, user):
+    target = _role_target(user)
     if target is None:
-        # An unrecognized role (bad data, or a role value that no longer
-        # exists) must never fall through to 'accounts:login' here — with
-        # login_view's own "already authenticated" redirect at the top,
-        # that becomes an infinite redirect loop instead of a login page.
-        logout(request)
-        messages.error(request, 'Your account has an invalid role. Contact the Owner to have it fixed.')
-        return redirect('accounts:login')
+        return _reject_invalid_role(request)
     return redirect(target)
 
 
@@ -439,13 +511,20 @@ def home_view(request):
     if request.user.is_authenticated and request.user.role in INTERNAL_ROLES:
         return redirect_by_role(request, request.user)
 
-    from inventory.stats import attach_storefront_counts, best_sellers
+    from inventory.stats import (
+        attach_storefront_counts, best_sellers, in_stock_product_ids,
+    )
 
     # 12, not 8: the discover grid runs four across on a desktop, and eight
     # left the second row half-empty.
+    #
+    # Filtered to in-stock in the QUERY rather than after the slice, or the
+    # grid would quietly shrink below 12 whenever the first twelve products
+    # happened to include an empty one.
     products = attach_storefront_counts(
         list(
             Product.objects.select_related('category')
+            .filter(id__in=in_stock_product_ids())
             .prefetch_related('images')[:12]
         )
     )
@@ -455,6 +534,10 @@ def home_view(request):
         'products': products,
         'branches': branches,
         'categories': categories,
+        # The discover grid's Add-to-cart button needs to know whether a
+        # branch has been chosen, same as the catalog does — without it every
+        # card would render the "Choose a branch" branch forever.
+        'selected_branch_id': request.session.get('branch_id'),
         # Empty on a store with no sales yet — the rail hides itself rather
         # than showing a "top products" list nobody has bought.
         'best_sellers': best_sellers(limit=8),

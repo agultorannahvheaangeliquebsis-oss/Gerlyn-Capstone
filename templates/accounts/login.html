@@ -3,6 +3,14 @@
 {% block title %}Sign In — Gerlyn Variety Store{% endblock %}
 {% block body_class %}shop shop-auth{% endblock %}
 
+{% comment %}
+No footer on this screen. The storefront footer is a four-column sitemap,
+and under a single sign-in card it was more page than the task needs —
+every link on it is a way to leave the one thing this page is for. The
+copyright line goes with it; it is on every other page of the shop.
+{% endcomment %}
+{% block footer %}{% endblock %}
+
 {% block content %}
 {% comment %}
 Modelled on a reference sign-in screen, with three of its elements left out
@@ -22,18 +30,26 @@ The composition the reference is actually made of — gradient backdrop, one
 floating card, medallion over a centred title, icon-led fields, full-width
 CTA — is all here.
 {% endcomment %}
+{% comment %}
+The corner mark is wordmark-only now. The medallion below carries the store
+logo, and the same logo twice on one short screen read as a duplicated asset
+rather than as branding — this one keeps the way back to the shop, which is
+the job it was actually doing.
+{% endcomment %}
 <a class="auth-brand" href="{% url 'orders:catalog' %}">
-  <img src="{% static 'img/logo.jpg' %}" alt="">
-  <span>Gerlyn</span>
+  <span>Gerlyn Variety Store</span>
 </a>
 
 <div class="auth-card">
-  <span class="auth-badge" aria-hidden="true">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-      <polyline points="10 17 15 12 10 7"/>
-      <line x1="15" y1="12" x2="3" y2="12"/>
-    </svg>
+  {% comment %}
+  The store logo, centred over the title, in place of the generic sign-in
+  arrow that used to sit here. alt is empty and the span is aria-hidden
+  because the h1 directly beneath already names the page and the store —
+  a screen reader announcing "Gerlyn Variety Store logo, Sign in, Welcome
+  back to Gerlyn Variety Store" says the name three times.
+  {% endcomment %}
+  <span class="auth-badge auth-badge--logo" aria-hidden="true">
+    <img src="{% static 'img/logo.jpg' %}" alt="">
   </span>
 
   <h1 class="auth-title">Sign in</h1>
@@ -41,6 +57,13 @@ CTA — is all here.
 
   <form method="POST">
     {% csrf_token %}
+    {% comment %}
+    Carries the destination through the POST so it survives a failed attempt
+    — a typo in the password should not quietly cost the shopper their place.
+    accounts.views.safe_next validates it against this host before any
+    redirect, so a hand-edited value cannot bounce anyone off-site.
+    {% endcomment %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
     {% comment %}
     Label first, then the input — plain reading order. This field used to

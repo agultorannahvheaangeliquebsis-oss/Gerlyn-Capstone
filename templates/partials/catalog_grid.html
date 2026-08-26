@@ -1,43 +1,52 @@
 {% comment %}
-Product card. Hierarchy taken from the design reference, top to bottom:
+Product card. Hierarchy, top to bottom:
 
-    category → name → stock status → social proof → price + action
+    bulk flag → category → name → social proof → price + action
 
-Three rows of that reference have no field behind them in this system and
-are therefore not drawn rather than invented:
+Deliberately not drawn, because there is no field behind them and a card is
+the easiest place in a storefront to state something the store never said:
 
   · the wishlist heart      — no wishlist model; a button that does nothing
                               is worse than no button
   · the ★★★★☆ rating         — no review model. The "N sold" line takes that
                               slot instead, and it is a real SalesItem sum
                               (inventory/stats.py), shown only when non-zero
-  · the struck-through price — Product has one price field. A fake "was"
-                              price is a false discount claim, not styling
+  · the struck-through price — Product has one retail price. A fake "was"
+                              price is a false discount claim, not styling.
+                              wholesale_price is a bulk rate, so it is
+                              labelled as one rather than struck through
+  · a brand line             — Product has no brand/manufacturer column
 
-The four CTA branches below (out of stock / guest / no branch chosen / add)
-are unchanged from before the redesign — only their markup is.
+There is no stock badge and no out-of-stock state at all here: the
+storefront hides anything at zero (inventory.stats.in_stock_product_ids),
+so every card that renders is a card you can buy from.
 {% endcomment %}
 {% for row in rows %}
 <article class="pcard">
+  {% if row.product.wholesale_price %}
+    <span class="bulk-flag">BULK RATE</span>
+  {% endif %}
   <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{% include "partials/product_thumb.html" with product=row.product %}</a>
   <div class="body">
-    {% if row.product.category %}
-      <span class="pcat">{{ row.product.category.category_name }}</span>
-    {% endif %}
+    {% comment %}
+    Category left, sold count right, on one line. Stacked down the left edge
+    these two left most of the card's width empty while pushing the price
+    further down it.
+    {% endcomment %}
+    <div class="pmeta">
+      {% if row.product.category %}
+        <span class="pcat">{{ row.product.category.category_name }}</span>
+      {% endif %}
+      {% if row.product.units_sold %}
+        <span class="psold">{{ row.product.units_sold }} sold</span>
+      {% endif %}
+    </div>
 
     <a class="name" href="{% url 'orders:product_detail' row.product.id %}">{{ row.product.product_name }}</a>
 
-    {# Honest stock signals — never hide a shortage. #}
-    {% if row.qty == 0 %}
-      <span class="stock-out">Out of stock</span>
-    {% elif row.qty <= 10 %}
-      <span class="stock-low">Only {{ row.qty }} left</span>
-    {% else %}
-      <span class="stock-ok">In stock</span>
-    {% endif %}
 
-    {% if row.product.units_sold %}
-      <span class="psold">{{ row.product.units_sold }} sold</span>
+    {% if row.product.description %}
+      <p class="pdesc">{{ row.product.description }}</p>
     {% endif %}
 
     <div class="pfoot">
@@ -46,10 +55,23 @@ are unchanged from before the redesign — only their markup is.
         <span class="unit">per {{ row.product.unit_of_measure|lower }}</span>
       </span>
 
-      {% if row.qty == 0 %}
-        <button class="btn-cart cta" disabled>Out of stock</button>
-      {% elif not request.user.is_authenticated %}
-        <a class="btn-cart cta" href="{% url 'accounts:login' %}">Log in to buy</a>
+      {% comment %}
+      No out-of-stock branch here any more: customer_views.product_catalog
+      drops zero-quantity rows before the grid is rendered, so a card for
+      something unavailable never reaches this template. The product DETAIL
+      page still carries that branch, because a bookmarked or shared link to
+      an out-of-stock product must still open rather than 404.
+      {% endcomment %}
+      {% if not request.user.is_authenticated %}
+        <a class="btn-cart cta" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
+      {% elif request.user.role != 'CUSTOMER' %}
+        {% comment %}
+        The cart is customer-only (orders.customer_views.customer_required).
+        Offering "Add to cart" to a staff or owner session and refusing it on
+        submit is how the redirect loop was reachable in the first place —
+        say so on the card instead of after the click.
+        {% endcomment %}
+        <span class="btn-cart cta is-inert" aria-disabled="true">Customer accounts only</span>
       {% elif not selected_branch_id %}
         <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
       {% else %}

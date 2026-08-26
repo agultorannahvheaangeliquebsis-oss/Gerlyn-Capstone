@@ -2,91 +2,204 @@
 {% load shop_extras %}
 {% block title %}{{ product.product_name }} — Gerlyn Variety Store{% endblock %}
 
+{% comment %}
+Two rows: the buying panel (photo + price + quantity + CTA), then the two
+panels underneath — the description the owner typed, and where the product
+is actually on a shelf.
+
+The design reference for this page pairs the description with a
+Specifications table and a downloadable spec sheet. Neither is drawn here:
+Product has no attribute columns to fill a spec table with, and there is no
+document model behind a spec-sheet PDF. Branch availability takes that
+second slot instead — a real question a shopper has, and one this system
+can actually answer.
+{% endcomment %}
+
 {% block content %}
 <div class="shop-wrap section">
-  <p class="mb-4"><a class="back-link" href="{% url 'orders:catalog' %}">Products</a></p>
+  <nav class="crumbs" aria-label="Breadcrumb">
+    <a href="/">Home</a>
+    <span class="crumb-sep" aria-hidden="true">›</span>
+    <a href="{% url 'orders:catalog' %}">Products</a>
+    <span class="crumb-sep" aria-hidden="true">›</span>
+    <span class="crumb-current" aria-current="page">{{ product.product_name }}</span>
+  </nav>
 
-  <div class="grid-2" style="grid-template-columns: minmax(260px, 380px) 1fr; align-items:start;">
-    <!-- image gallery -->
-    <div>
+  <div class="pdp">
+
+    <!-- ───────────────────────── media ───────────────────────── -->
+    <div class="pdp-media">
       {% with gallery=product.images.all %}
         {% if gallery %}
-          <div class="card" style="aspect-ratio:1/1; overflow:hidden;">
+          <div class="pdp-frame">
             <img id="main-image"
                  src="{{ gallery.0.image.url }}"
-                 alt="{{ gallery.0.alt_text|default:product.product_name }}"
-                 style="width:100%; height:100%; object-fit:cover;">
+                 alt="{{ gallery.0.alt_text|default:product.product_name }}">
           </div>
 
           {% if gallery|length > 1 %}
-          <div class="row wrap" style="gap:8px; margin-top:8px;">
+          <div class="pdp-thumbs">
             {% for img in gallery %}
               <img src="{{ img.image.url }}"
                    alt="{{ img.alt_text|default:product.product_name }}"
-                   onclick="document.getElementById('main-image').src='{{ img.image.url }}'"
-                   style="width:64px; height:64px; object-fit:cover; cursor:pointer;
-                          border-radius:6px;">
+                   onclick="document.getElementById('main-image').src='{{ img.image.url }}'">
             {% endfor %}
           </div>
           {% endif %}
         {% else %}
-          <!-- no photos uploaded yet: keep the emoji placeholder -->
-          <div class="card" style="aspect-ratio:1/1; background:var(--green-50); display:flex;
-                                   align-items:center; justify-content:center; font-size:120px;">
-            {{ product|product_emoji }}
-          </div>
+          {# no photos uploaded yet: the emoji placeholder on the tinted panel #}
+          <div class="pdp-frame pdp-frame--empty">{{ product|product_emoji }}</div>
         {% endif %}
       {% endwith %}
     </div>
 
-    <!-- info -->
-    <div>
-      <span class="pill pill-neutral">{{ product.category.category_name|default:"Uncategorised" }}</span>
-      <h1 class="mt-2">{{ product.product_name }}</h1>
-      <p class="gv-meta">SKU {{ product.sku_code }} · sold per {{ product.unit_of_measure|lower }}</p>
-
-      <div class="row" style="gap:12px; align-items:baseline; margin:16px 0;">
-        <span class="gv-metric" style="color:var(--action);">₱{{ product.unit_price|floatformat:2 }}</span>
-        {% if product.wholesale_price %}
-          <span class="gv-meta">Wholesale ₱{{ product.wholesale_price|floatformat:2 }}</span>
+    <!-- ───────────────────────── buy panel ───────────────────────── -->
+    <div class="pdp-info">
+      <div class="pdp-chips">
+        {% if nav_categories %}<span class="chip chip-cat">{{ product.category.category_name|default:"Uncategorised" }}</span>{% endif %}
+        {% comment %}
+        Stock across every branch. The panel underneath breaks it down, so
+        this chip answers only "can I get this at all".
+        {% endcomment %}
+        {% if product.on_hand == 0 %}
+          <span class="chip chip-out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
+        {% elif product.on_hand <= 10 %}
+          <span class="chip chip-low"><span class="dot" aria-hidden="true"></span>Only {{ product.on_hand }} left</span>
+        {% else %}
+          <span class="chip chip-ok"><span class="dot" aria-hidden="true"></span>In Stock</span>
         {% endif %}
       </div>
 
-      <!-- honest per-branch availability -->
-      <div class="card card-pad mb-4">
-        <h3 class="mb-4">Availability by branch</h3>
-        <div class="stack">
-          {% for bs in branch_stock %}
-          <div class="row-between">
-            <span>{{ bs.branch.branch_name }}</span>
-            {% if not bs.available %}
-              <span class="pill pill-danger">Out of stock</span>
-            {% elif bs.qty <= 10 %}
-              <span class="pill pill-warn">Only {{ bs.qty }} left</span>
-            {% else %}
-              <span class="pill pill-ok">In stock</span>
-            {% endif %}
-          </div>
-          {% endfor %}
+      <h1 class="pdp-title">{{ product.product_name }}</h1>
+      <p class="pdp-sku">
+        SKU {{ product.sku_code }}
+        {% if product.category %}· {{ product.category.category_name }}{% endif %}
+        {% if product.units_sold %}· {{ product.units_sold }} sold{% endif %}
+      </p>
+
+      {% comment %}
+      The price sits in its own tinted band so the biggest number on the page
+      stops reading as part of the SKU line above it.
+
+      The bulk figure is a SECOND price, not a struck-through "was" price:
+      Product.wholesale_price is what the same unit costs on a sack/box/case
+      order, so it is badged BULK and set beside the retail one. Striking the
+      retail price through — the way the reference marks a discount — would
+      claim a markdown the store has not made.
+      {% endcomment %}
+      <div class="price-band">
+        <div class="price-main">
+          <span class="price-now">₱{{ product.unit_price|floatformat:2 }}</span>
+          <span class="price-unit">per {{ product.unit_of_measure|lower }}</span>
         </div>
+        {% if product.wholesale_price %}
+          <p class="price-bulk">
+            <span class="bulk-badge">BULK</span>
+            ₱{{ product.wholesale_price|floatformat:2 }} per {{ product.unit_of_measure|lower }} on sack, box or case orders
+          </p>
+        {% endif %}
       </div>
 
       {% if not request.user.is_authenticated %}
-        <a class="btn btn-primary" href="{% url 'accounts:login' %}">Log in to buy</a>
+        <a class="btn btn-primary" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
+      {% elif request.user.role != 'CUSTOMER' %}
+        {% comment %}
+        The storefront cart is customer-only — see
+        orders.customer_views.customer_required. Rendering a live Add to Cart
+        for a staff or owner session and refusing it on submit is what made
+        the login redirect loop reachable; the panel says so up front now.
+        {% endcomment %}
+        <p class="pdp-note">You are signed in to a staff account. The shop cart is for
+        customer accounts — staff sales go through the POS.</p>
       {% elif not selected_branch_id %}
         <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
+      {% elif product.on_hand == 0 %}
+        <button class="btn" disabled>Out of stock</button>
       {% else %}
-        <form method="POST" action="{% url 'orders:add_to_cart' product.id %}" class="row wrap" style="gap:12px;" data-add-to-cart>
+        {% comment %}
+        One <form>, two submits, differing only in where the shopper lands:
+
+          Add to Cart — data-add-to-cart, so toast.js POSTs it over fetch and
+                        the shopper keeps their place to carry on browsing.
+          Buy Now     — carries name="next", so the server redirects to the
+                        cart; data-skip-ajax tells toast.js to leave this one
+                        alone and let the browser follow that redirect.
+
+        Checkout is POST-only (customer_views.checkout bounces a GET back to
+        the cart), so Buy Now goes to the cart rather than pretending to jump
+        to a checkout screen that would bounce them anyway.
+        {% endcomment %}
+        <form method="POST" action="{% url 'orders:add_to_cart' product.id %}" class="buy-row" data-add-to-cart>
           {% csrf_token %}
-          <input type="hidden" name="next" value="{% url 'orders:cart' %}">
-          <div class="field" style="width:110px;">
+
+          <div class="qty-field">
             <label for="quantity">Quantity</label>
-            <input id="quantity" type="number" name="quantity" min="1" value="1">
+            {% comment %}
+            A real <input type="number"> with the buttons driving it, not two
+            buttons over a hidden field: typing "12" stays possible, the field
+            still validates, and it still submits with no JS at all. The
+            steppers are the only part that needs script, so they are
+            aria-hidden and untabbable — the input beside them is already
+            operable by keyboard.
+            {% endcomment %}
+            <div class="qty-stepper" data-qty-stepper>
+              <button type="button" class="qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
+              <input id="quantity" type="number" name="quantity" min="1" step="1" value="1"
+                     inputmode="numeric" aria-label="Quantity">
+              <button type="button" class="qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
+            </div>
           </div>
-          <button type="submit" class="btn btn-primary" style="align-self:flex-end;">Add to Cart</button>
+
+          <div class="buy-actions">
+            <button type="submit" class="btn btn-ghost-green">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+              Add to Cart
+            </button>
+            <button type="submit" class="btn btn-primary" name="next" value="{% url 'orders:cart' %}" data-skip-ajax>
+              Buy Now
+            </button>
+          </div>
         </form>
       {% endif %}
     </div>
+  </div>
+
+  <!-- ─────────────────── description + availability ─────────────────── -->
+  <div class="pdp-panels">
+    <section class="pdp-panel">
+      <h2>Product description</h2>
+      {% if product.description %}
+        <p class="pdp-desc">{{ product.description|linebreaksbr }}</p>
+      {% else %}
+        {% comment %}
+        Said plainly rather than left as an empty panel: the description is a
+        field the owner fills in from Inventory → Products, and "none yet" is
+        a different message from "this product has nothing to say".
+        {% endcomment %}
+        <p class="pdp-desc pdp-desc--empty">No description has been added for this product yet.</p>
+      {% endif %}
+    </section>
+
+    <section class="pdp-panel">
+      <h2>Available at</h2>
+      <ul class="avail-list">
+        {% for bs in branch_stock %}
+        <li>
+          <span class="avail-branch">{{ bs.branch.branch_name }}</span>
+          {% if not bs.available %}
+            <span class="pill pill-danger">Out of stock</span>
+          {% elif bs.qty <= 10 %}
+            <span class="pill pill-warn">Only {{ bs.qty }} left</span>
+          {% else %}
+            <span class="pill pill-ok">In stock</span>
+          {% endif %}
+        </li>
+        {% empty %}
+        <li><span class="avail-branch">No branches recorded.</span></li>
+        {% endfor %}
+      </ul>
+      <p class="avail-note">Stock is counted per branch. Pick the branch you will collect from, or have it delivered.</p>
+    </section>
   </div>
 
   {% if related %}
@@ -94,14 +207,43 @@
     <div class="section-head"><h2>You might also like</h2></div>
     <div class="pgrid">
       {% for p in related %}
-      <div class="pcard">
+      <article class="pcard">
         <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{% include "partials/product_thumb.html" with product=p %}</a>
         <div class="body">
           <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
-          <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
-          <a class="btn" href="{% url 'orders:product_detail' p.id %}">View</a>
+          <div class="pfoot">
+            <span class="price-cluster">
+              <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
+              <span class="unit">per {{ p.unit_of_measure|lower }}</span>
+            </span>
+            {% comment %}
+            Same CTA branches as the catalog and home cards — this slot was a
+            second "View" link, which from a product page only led to another
+            product page the shopper then had to act on all over again.
+            {% endcomment %}
+            {% if p.on_hand == 0 %}
+              <button class="btn-cart cta" disabled>Out of stock</button>
+            {% elif not request.user.is_authenticated %}
+              <a class="btn-cart cta" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
+            {% elif request.user.role != 'CUSTOMER' %}
+              <span class="btn-cart cta is-inert" aria-disabled="true">Customer accounts only</span>
+            {% elif not selected_branch_id %}
+              <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
+            {% else %}
+              <form class="cta" method="POST" action="{% url 'orders:add_to_cart' p.id %}" data-add-to-cart>
+                {% csrf_token %}
+                <input type="hidden" name="quantity" value="1">
+                <input type="hidden" name="next" value="{{ request.path }}">
+                <button class="btn-cart" type="submit"
+                        aria-label="Add {{ p.product_name }} to cart">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+                  Add to cart
+                </button>
+              </form>
+            {% endif %}
+          </div>
         </div>
-      </div>
+      </article>
       {% endfor %}
     </div>
   </section>

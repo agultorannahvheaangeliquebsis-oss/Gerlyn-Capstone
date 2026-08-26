@@ -80,7 +80,12 @@
   }
 
   // Build a toast node matching public_base.html's markup, append it, wire it.
-  function showToast({ message, level = 'success', undoUrl = '' }) {
+  //
+  // The success toast carries two actions, not one. "Undo" reverses the add;
+  // "View cart" is the step a shopper actually wants next and otherwise costs
+  // them a hunt for the cart icon in the header. Both are inside the same
+  // .toast-actions row so a toast with only one of them still lays out.
+  function showToast({ message, level = 'success', undoUrl = '', cartUrl = '' }) {
     const toast = document.createElement('div');
     toast.className = `toast toast-${level}`;
     toast.setAttribute('role', 'status');
@@ -90,10 +95,20 @@
     const undoBtn = undoUrl
       ? '<button type="button" class="toast-undo" data-undo>Undo</button>'
       : '';
+    // An <a>, not a button: it navigates, so it should middle-click and
+    // open-in-new-tab like any other link. href is set via setAttribute below
+    // rather than interpolated, so a URL can never inject markup here.
+    const cartLink = cartUrl
+      ? '<a class="toast-link" data-toast-cart>View cart</a>'
+      : '';
+    const actions = (undoBtn || cartLink)
+      ? '<div class="toast-actions">' + undoBtn + cartLink + '</div>'
+      : '';
     toast.innerHTML =
       '<span class="toast-dot" aria-hidden="true"></span>' +
-      '<div class="toast-body"><p class="toast-msg"></p>' + undoBtn + '</div>' +
+      '<div class="toast-body"><p class="toast-msg"></p>' + actions + '</div>' +
       '<button type="button" class="toast-close" data-toast-close aria-label="Dismiss">&times;</button>';
+    if (cartUrl) toast.querySelector('[data-toast-cart]').setAttribute('href', cartUrl);
     // textContent, not innerHTML, so a product name can never inject markup.
     toast.querySelector('.toast-msg').textContent = message;
 
@@ -112,6 +127,9 @@
   document.addEventListener('submit', async (e) => {
     const form = e.target.closest('form[data-add-to-cart]');
     if (!form) return;
+    // "Buy Now" shares this form but wants the server's redirect to the cart,
+    // so it opts out of the fetch path and submits normally.
+    if (e.submitter && e.submitter.hasAttribute('data-skip-ajax')) return;
     e.preventDefault();
     const btn = form.querySelector('button[type="submit"]');
     if (btn) btn.disabled = true;
@@ -130,7 +148,7 @@
         return;
       }
       updateCartBadge(data.cart_count);
-      showToast({ message: data.message, undoUrl: data.undo_url });
+      showToast({ message: data.message, undoUrl: data.undo_url, cartUrl: data.cart_url });
     } catch (err) {
       // Network/JSON failure — fall back to a normal form submit so the add
       // still goes through (accepting the reload) rather than silently dropping.

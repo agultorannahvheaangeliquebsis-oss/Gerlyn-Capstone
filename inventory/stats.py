@@ -45,6 +45,28 @@ def on_hand_by_product(product_ids=None, branch_id=None):
     return {r['product_id']: r['n'] or 0 for r in rows if r['product_id']}
 
 
+def in_stock_product_ids(branch_id=None):
+    """Ids of products with at least one unit on a shelf.
+
+    The storefront hides anything at zero, so this is the gate every listing
+    passes through — catalog, home grid, best sellers, related products and
+    the header's search suggestions — and having it in one place is what
+    stops those five from drifting into five different definitions of
+    "available".
+
+    Scoped to a branch when one is chosen, summed across all branches when
+    not, matching on_hand_by_product. A product with no Inventory row at all
+    is absent from the map and therefore excluded, which is correct: nothing
+    is on a shelf for it anywhere.
+
+    Returns a set for O(1) `__in` membership on the caller side; the query
+    itself is one grouped scan of Inventory, not one per product.
+    """
+    return {
+        pid for pid, qty in on_hand_by_product(branch_id=branch_id).items() if qty > 0
+    }
+
+
 def attach_storefront_counts(products, branch_id=None):
     """
     Hang `units_sold` and `on_hand` on each product in `products`.
@@ -74,11 +96,14 @@ def best_sellers(limit=8):
     """
     from inventory.models import Product
 
+    # Sold AND still on a shelf. A best-seller rail is a buy-this rail, so a
+    # product that sold well and then ran out belongs off it rather than at
+    # the top of it — the storefront hides out-of-stock everywhere else too.
     ranked = list(
         Product.objects.select_related('category')
         .prefetch_related('images')
         .annotate(units_sold=Sum('sales_items__quantity_sold'))
-        .filter(units_sold__gt=0)
+        .filter(units_sold__gt=0, id__in=in_stock_product_ids())
         .order_by('-units_sold')[:limit]
     )
     # on_hand only — units_sold is already annotated above, and letting

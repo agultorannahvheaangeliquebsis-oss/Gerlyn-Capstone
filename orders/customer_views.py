@@ -1,17 +1,21 @@
 from decimal import Decimal
+from functools import wraps
+from urllib.parse import quote
 
 from django.contrib import messages
-from django.contrib.auth.decorators import user_passes_test
 from django.db import transaction
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
 from inventory.models import Inventory, Product, ProductCategory
-from inventory.stats import units_sold_by_product
+from inventory.stats import (
+    attach_storefront_counts, in_stock_product_ids, units_sold_by_product,
+)
 from sales.models import SalesItem, SalesTransaction
 
 # Cap on how many rows the live-search dropdown shows at once.
@@ -20,9 +24,104 @@ SEARCH_SUGGESTION_LIMIT = 8
 # Free delivery threshold shown on the cart meter.
 FREE_DELIVERY_OVER = Decimal('500')
 
+# Catalog sort orders. The dict is the single source of truth for both the
+# <select> the template renders and the validation of ?sort= — an unknown or
+# hand-edited value falls back to DEFAULT_SORT rather than 500ing on a
+# missing key.
+#
+# "Popular" is the reference's "Featured" slot filled with a real figure —
+# units actually sold — rather than a curation flag no one in this system can
+# set. There is no featured/pinned column on Product, so a literal "Featured"
+# order would just be an arbitrary one wearing an editorial label.
+SORT_OPTIONS = {
+    'popular': {
+        'label': 'Popular',
+        'key': lambda r: (-r['product'].units_sold, r['product'].product_name),
+    },
+    'price_asc': {
+        'label': 'Price: Low to High',
+        'key': lambda r: (r['product'].unit_price, r['product'].product_name),
+    },
+    'price_desc': {
+        'label': 'Price: High to Low',
+        'key': lambda r: (-r['product'].unit_price, r['product'].product_name),
+    },
+    'name': {
+        'label': 'Name A–Z',
+        'key': lambda r: r['product'].product_name.lower(),
+    },
+}
+DEFAULT_SORT = 'popular'
+
 
 def is_customer(user):
     return user.is_authenticated and user.role == 'CUSTOMER'
+
+
+def customer_required(view):
+    """Gate the cart and checkout on a CUSTOMER account, without looping.
+
+    @customer_required sent BOTH kinds of refusal to the login
+    page, and for a signed-in staff or owner account that is an infinite
+    redirect: login_view honours ?next= for a user who is already
+    authenticated, so it hands them straight back to the view that just
+    refused them, which sends them to login again. The browser gives up with
+    ERR_TOO_MANY_REDIRECTS; from the shopper's side, "Add to cart" simply
+    does nothing. It is reproducible in three lines with the test client,
+    which raises RedirectCycleError.
+
+    The two refusals are not the same thing and no longer get the same
+    answer. Someone with no session is asked to sign in, with their
+    destination preserved so the button they pressed still happens
+    afterwards. Someone signed in to a non-customer account is TOLD why —
+    the storefront cart belongs to customer accounts; staff sell through the
+    POS — and left on the catalog, which they can still read.
+
+    The AJAX branch matters because add_to_cart has one: catalog-live.js
+    expects JSON, and a 302 to an HTML page would surface as a silent
+    failure rather than a message.
+    """
+    @wraps(view)
+    def _wrapped(request, *args, **kwargs):
+        user = request.user
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+
+        if not user.is_authenticated:
+            if is_ajax:
+                return JsonResponse(
+                    {'ok': False, 'error': 'Please sign in to continue.'}, status=401
+                )
+            return redirect(f"{reverse('accounts:login')}?next={quote(request.get_full_path())}")
+
+        if not is_customer(user):
+            error = (
+                'The shop cart is for customer accounts. '
+                'Staff sales go through the POS instead.'
+            )
+            if is_ajax:
+                return JsonResponse({'ok': False, 'error': error}, status=403)
+            messages.error(request, error)
+            return redirect('orders:catalog')
+
+        return view(request, *args, **kwargs)
+
+    return _wrapped
+
+
+def _safe_next(request):
+    """The POSTed `next`, but only if it points back into this site.
+
+    `next` is attacker-controllable, and redirect() will happily send the
+    browser to another origin, so it is validated here rather than trusted.
+    Returns None when absent or off-site, and the caller falls back to its
+    own default.
+    """
+    nxt = request.POST.get('next')
+    if nxt and url_has_allowed_host_and_scheme(
+        nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return nxt
+    return None
 
 
 def _cart_items(request):
@@ -54,21 +153,63 @@ def _cart_items(request):
 # ─────────────────────────────────────────────
 
 def product_catalog(request):
-    branch_id = request.session.get('branch_id')
     branches = Branch.objects.all()
+
+    # Branch is two things at once, and the rail has to serve both.
+    #
+    # As a FILTER it is multi-select: tick several and the grid lists what
+    # any of them has on the shelf. As the SHOPPING branch it stays single,
+    # because the cart is per-branch — stock and prices differ between
+    # branches, and a line item has to come from one of them.
+    #
+    # The two are reconciled by the rule that is true of both: an order needs
+    # exactly one branch. Tick one and it becomes the shopping branch. Tick
+    # none or several and there is no single answer, so the session branch is
+    # dropped and the cards fall back to "Choose a branch" — which is the
+    # browsing state the storefront already had, not a new one.
+    #
+    # Only when `branch` is actually in the query string. A shopper who chose
+    # a branch and then clicked Shop in the nav arrives with no parameters at
+    # all, and forgetting their branch on a plain navigation would be a bug,
+    # not a filter.
+    branch_id = request.session.get('branch_id')
+    if 'branch' in request.GET:
+        wanted = [b for b in request.GET.getlist('branch') if b.isdigit()]
+        # Round-tripped through the database rather than trusted: an id that
+        # names no branch would otherwise sit in the URL, tick nothing in the
+        # rail, and quietly filter the grid down to zero rows.
+        valid = list(branches.filter(pk__in=wanted).values_list('pk', flat=True))
+        if len(valid) == 1 and valid[0] != branch_id:
+            _start_shopping_at(request, branches.get(pk=valid[0]))
+            branch_id = valid[0]
+        elif len(valid) != 1 and branch_id is not None:
+            request.session.pop('branch_id', None)
+            messages.info(
+                request,
+                'Browsing more than one branch, so no branch is set for your cart. '
+                'Choose a single branch when you are ready to order.'
+            )
+            branch_id = None
+        branch_filters = [str(pk) for pk in valid]
+    else:
+        branch_filters = [str(branch_id)] if branch_id else []
 
     stock = Inventory.objects.select_related(
         'product', 'product__category'
     ).prefetch_related('product__images')
-    if branch_id:
-        stock = stock.filter(branch_id=branch_id)
+    if branch_filters:
+        stock = stock.filter(branch_id__in=branch_filters)
 
     search_query = request.GET.get('q', '')
-    category_filter = request.GET.get('category', '')
+    # getlist, not get: the rail is a checklist now, so "Rice AND Canned
+    # goods" is a question a shopper can ask. Non-numeric values are dropped
+    # rather than passed to the ORM, which raises on a bad pk instead of
+    # simply matching nothing.
+    category_filters = [c for c in request.GET.getlist('category') if c.isdigit()]
     if search_query:
         stock = stock.filter(product__product_name__icontains=search_query)
-    if category_filter:
-        stock = stock.filter(product__category_id=category_filter)
+    if category_filters:
+        stock = stock.filter(product__category_id__in=category_filters)
 
     # Collapse to one row per product when no branch is chosen; keep the
     # best availability so stock signals stay honest.
@@ -78,7 +219,13 @@ def product_catalog(request):
         if key not in rows or inv.quantity_on_hand > rows[key]['qty']:
             rows[key] = {'product': inv.product, 'qty': inv.quantity_on_hand}
 
-    ordered_rows = sorted(rows.values(), key=lambda r: r['product'].product_name)
+    # The storefront does not list what it cannot sell. Filtered AFTER the
+    # collapse above, not before it: with no branch chosen a product can be
+    # empty at one branch and stocked at another, and dropping the empty row
+    # early would have hidden a product that is genuinely available.
+    rows = {pid: row for pid, row in rows.items() if row['qty'] > 0}
+
+    ordered_rows = list(rows.values())
 
     # The card shows a "N sold" line where the design reference shows a star
     # rating — there is no review model, and this is a real figure. One
@@ -87,13 +234,39 @@ def product_catalog(request):
     for row in ordered_rows:
         row['product'].units_sold = sold.get(row['product'].id, 0)
 
+    # Sorted in Python, not in the queryset: `rows` above already collapsed
+    # multiple branch Inventory rows down to one entry per product, and
+    # units_sold was only just attached, so there is no queryset left to
+    # order by either of them. The list is one page of products, not a table
+    # scan, so the cost is nil.
+    sort = request.GET.get('sort', '')
+    if sort not in SORT_OPTIONS:
+        sort = DEFAULT_SORT
+    ordered_rows.sort(key=SORT_OPTIONS[sort]['key'])
+
     context = {
         'rows': ordered_rows,
         'branches': branches,
         'selected_branch_id': branch_id,
         'categories': ProductCategory.objects.all(),
         'search_query': search_query,
-        'category_filter': category_filter,
+        'category_filters': category_filters,
+        'branch_filters': branch_filters,
+        'sort': sort,
+        # Everything except `sort`, pre-encoded, so the sort links can carry
+        # the live filters without the template having to loop the category
+        # list into a query string by hand — which it cannot do correctly now
+        # that there can be several of them.
+        'filter_qs': _filter_querystring(search_query, category_filters, branch_filters),
+        # The unfiltered figure behind "N of M items". Counted from Product
+        # rather than from the grid so it does not move when a category or a
+        # branch is picked — "12 of 12" and "3 of 12" are the two readings
+        # that make the pair worth printing at all.
+        'total_count': Product.objects.count(),
+        'sort_options': [
+            {'value': value, 'label': option['label']}
+            for value, option in SORT_OPTIONS.items()
+        ],
         'cart_count': len(request.session.get('cart', {})),
     }
 
@@ -115,9 +288,13 @@ def search_suggestions(request):
     if len(query) < 2:
         return JsonResponse({'results': []})
 
+    # Suggestions lead straight to a product page, so they pass the same
+    # in-stock gate as the listings — otherwise the one place a shopper can
+    # still reach an unavailable product is the search box.
     products = (
         Product.objects.select_related('category')
         .filter(Q(product_name__icontains=query) | Q(sku_code__icontains=query))
+        .filter(id__in=in_stock_product_ids(request.session.get('branch_id')))
         .order_by('product_name')[:SEARCH_SUGGESTION_LIMIT]
     )
 
@@ -136,6 +313,12 @@ def search_suggestions(request):
 
 def product_detail(request, product_id):
     product = get_object_or_404(Product, id=product_id)
+    # Same treatment the grid cards get, so the detail page can show the
+    # "In stock · N sold" line instead of making the shopper infer both from
+    # the per-branch table below it. Not branch-scoped: this line describes
+    # the product across the store, and the table underneath is what breaks
+    # it down per branch.
+    attach_storefront_counts([product])
     branches = Branch.objects.all()
 
     branch_stock = []
@@ -150,10 +333,39 @@ def product_detail(request, product_id):
     return render(request, 'orders/product_detail.html', {
         'product': product,
         'branch_stock': branch_stock,
-        'related': Product.objects.filter(category=product.category).exclude(id=product.id).prefetch_related('images')[:6],
+        # attach_storefront_counts so the related cards can offer the same
+        # Add-to-cart CTA as the catalog and home grids instead of a "View"
+        # link back into another product page. Scoped to the chosen branch
+        # when there is one, so the stock line matches what the cart will
+        # actually accept.
+        # Only what is actually buyable — a "You might also like" rail is a
+        # recommendation, and recommending something out of stock wastes the
+        # click. Same gate the catalog and home grids use.
+        'related': attach_storefront_counts(
+            list(
+                Product.objects.filter(category=product.category)
+                .exclude(id=product.id)
+                .filter(id__in=in_stock_product_ids(request.session.get('branch_id')))
+                .select_related('category')
+                .prefetch_related('images')[:6]
+            ),
+            branch_id=request.session.get('branch_id'),
+        ),
         'selected_branch_id': request.session.get('branch_id'),
         'cart_count': len(request.session.get('cart', {})),
     })
+
+
+def _filter_querystring(search_query, category_filters, branch_filters):
+    """`q` and every ticked category and branch, urlencoded, without `sort`."""
+    params = QueryDict(mutable=True)
+    if search_query:
+        params['q'] = search_query
+    if category_filters:
+        params.setlist('category', category_filters)
+    if branch_filters:
+        params.setlist('branch', branch_filters)
+    return params.urlencode()
 
 
 def _start_shopping_at(request, branch):
@@ -216,26 +428,45 @@ def clear_branch(request):
 # CART + CHECKOUT — customers only
 # ─────────────────────────────────────────────
 
-@user_passes_test(is_customer)
+@customer_required
 def add_to_cart(request, product_id):
     branch_id = request.session.get('branch_id')
     if not branch_id:
         messages.info(request, 'Choose a branch first so we can check stock.')
         return redirect('orders:select_branch')
 
-    inv = get_object_or_404(Inventory, product_id=product_id, branch_id=branch_id)
     qty = int(request.POST.get('quantity', 1) or 1)
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+    back = _safe_next(request)
+
+    # Not get_object_or_404: the home page's discover grid is not
+    # branch-scoped, so it can legitimately offer a product the chosen branch
+    # has never stocked (no Inventory row at all, which is different from a
+    # row reading zero). That is a normal shopping outcome, not a broken URL —
+    # a 404 page would also break the AJAX path, which expects JSON back.
+    inv = Inventory.objects.filter(
+        product_id=product_id, branch_id=branch_id
+    ).select_related('product', 'branch').first()
+    if inv is None:
+        product = get_object_or_404(Product, pk=product_id)
+        error = f'{product.product_name} is not carried at your selected branch.'
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': error}, status=409)
+        messages.error(request, error)
+        return redirect(back or 'orders:catalog')
 
     cart = request.session.get('cart', {})
     already = cart.get(str(product_id), 0)
 
     if already + qty > inv.quantity_on_hand:
-        error = f'Only {inv.quantity_on_hand} of {inv.product.product_name} left at this branch.'
+        if inv.quantity_on_hand == 0:
+            error = f'{inv.product.product_name} is out of stock at your selected branch.'
+        else:
+            error = f'Only {inv.quantity_on_hand} of {inv.product.product_name} left at this branch.'
         if is_ajax:
             return JsonResponse({'ok': False, 'error': error}, status=409)
         messages.error(request, error)
-        return redirect('orders:catalog')
+        return redirect(back or 'orders:catalog')
 
     cart[str(product_id)] = already + qty
     request.session['cart'] = cart
@@ -250,12 +481,16 @@ def add_to_cart(request, product_id):
             'message': success,
             'cart_count': len(cart),
             'undo_url': reverse('orders:undo_add'),
+            # The confirmation toast offers "View cart" beside "Undo" — the
+            # step a shopper usually wants next, which otherwise costs them a
+            # hunt for the cart icon up in the header.
+            'cart_url': reverse('orders:cart'),
         })
     messages.success(request, success, extra_tags='undoable')
-    return redirect(request.POST.get('next') or 'orders:catalog')
+    return redirect(back or 'orders:catalog')
 
 
-@user_passes_test(is_customer)
+@customer_required
 def undo_add(request):
     """Reverse the most recent Add to Cart — backs the toast's Undo button.
 
@@ -282,7 +517,7 @@ def undo_add(request):
     return redirect(request.META.get('HTTP_REFERER') or 'orders:catalog')
 
 
-@user_passes_test(is_customer)
+@customer_required
 def update_cart(request, product_id):
     """Bump one line up or down. Floors at 1 and never exceeds branch stock."""
     if request.method != 'POST':
@@ -327,7 +562,7 @@ def update_cart(request, product_id):
     return redirect('orders:cart')
 
 
-@user_passes_test(is_customer)
+@customer_required
 def remove_from_cart(request, product_id):
     """Drop a line from the cart completely."""
     if request.method != 'POST':
@@ -340,7 +575,7 @@ def remove_from_cart(request, product_id):
     return redirect('orders:cart')
 
 
-@user_passes_test(is_customer)
+@customer_required
 def view_cart(request):
     items, total = _cart_items(request)
     remaining = max(FREE_DELIVERY_OVER - total, Decimal('0'))
@@ -361,7 +596,7 @@ def view_cart(request):
     })
 
 
-@user_passes_test(is_customer)
+@customer_required
 def checkout(request):
     branch_id = request.session.get('branch_id')
     cart = request.session.get('cart', {})
@@ -444,7 +679,7 @@ STATUS_BLURB = {
 }
 
 
-@user_passes_test(is_customer)
+@customer_required
 def my_orders(request):
     orders = (
         SalesTransaction.objects.filter(customer=request.user)
@@ -474,7 +709,7 @@ def my_orders(request):
     })
 
 
-@user_passes_test(is_customer)
+@customer_required
 def track_order(request, transaction_id):
     """Follow one order through its stages."""
     sale = get_object_or_404(
@@ -504,7 +739,7 @@ def track_order(request, transaction_id):
     })
 
 
-@user_passes_test(is_customer)
+@customer_required
 def order_confirmation(request, transaction_id):
     sale = get_object_or_404(
         SalesTransaction.objects.select_related('branch'),

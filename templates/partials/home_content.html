@@ -123,7 +123,7 @@ heading changing every six seconds.
 </div>
 
 <!-- =========================== CATEGORIES =========================== -->
-{% if categories %}
+{% if nav_categories %}
 <section class="shop-wrap section">
   <div class="panel">
     <div class="panel-head">
@@ -134,15 +134,18 @@ heading changing every six seconds.
       </a>
     </div>
     {% comment %}
-    The glyph stays an emoji rather than becoming an SVG like the shortcut
-    tiles above: categories are rows the owner creates in the admin, so
-    there is no fixed set to draw icons for. category_emoji falls back to
-    📦 for any name it does not recognise, which an icon set cannot do.
+    The tile carries the category's initial on a tinted square, not an SVG
+    icon and no longer an emoji: categories are rows the owner types in, so
+    there is no fixed set to draw icons for, and the emoji map only knew
+    eight names — everything else fell back to the same 📦, which made a row
+    of categories look like a row of identical boxes. An initial always
+    exists and always differs. category_tint keys the colour off the id so
+    it survives a rename; see the .cat .ring rules in storefront.css.
     {% endcomment %}
     <div class="cat-grid">
-      {% for c in categories %}
+      {% for c in nav_categories %}
       <a class="cat" href="{% url 'orders:catalog' %}?category={{ c.id }}">
-        <span class="ring" aria-hidden="true">{{ c.category_name|category_emoji }}</span>
+        <span class="ring {{ c|category_tint }}" aria-hidden="true">{{ c.category_name|first|upper }}</span>
         <span class="nm">{{ c.category_name }}</span>
       </a>
       {% endfor %}
@@ -190,30 +193,62 @@ heading changing every six seconds.
     <article class="pcard">
       <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{% include "partials/product_thumb.html" with product=p %}</a>
       <div class="body">
-        {% if p.category %}<span class="pcat">{{ p.category.category_name }}</span>{% endif %}
-        <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
-
         {% comment %}
-        Stock across all branches, since the home page is not branch-scoped.
-        Same thresholds as the catalog card so the two never disagree about
-        what "low" means; the catalog narrows it once a branch is picked.
-        {% endcomment %}
-        {% if p.on_hand == 0 %}
-          <span class="stock-out">Out of stock</span>
-        {% elif p.on_hand <= 10 %}
-          <span class="stock-low">Only {{ p.on_hand }} left</span>
-        {% else %}
-          <span class="stock-ok">In stock</span>
-        {% endif %}
+        Category left, sold count right, on one line — same row the catalog
+        card uses, so the two grids read identically.
 
-        {% if p.units_sold %}<span class="psold">{{ p.units_sold }} sold</span>{% endif %}
+        No stock line any more: accounts.views.home_view filters this grid to
+        in-stock products, so every card here is buyable and a badge saying
+        so on all of them carries no information.
+        {% endcomment %}
+        <div class="pmeta">
+          {% if p.category %}<span class="pcat">{{ p.category.category_name }}</span>{% endif %}
+          {% if p.units_sold %}<span class="psold">{{ p.units_sold }} sold</span>{% endif %}
+        </div>
+
+        <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
 
         <div class="pfoot">
           <span class="price-cluster">
             <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
             <span class="unit">per {{ p.unit_of_measure|lower }}</span>
           </span>
-          <a class="btn-cart cta" href="{% url 'orders:product_detail' p.id %}">View</a>
+          {% comment %}
+          Same four CTA branches as the catalog card (partials/catalog_grid.html)
+          so a product offers the same action wherever it is shown. This slot
+          used to be a plain "View" link into the product page, which meant the
+          home grid was the one place a shopper could see a price and a stock
+          line but not act on either.
+
+          This grid is all-branch (the home page is not branch-scoped) while
+          the cart is branch-scoped, so a product listed here can still be
+          absent from the chosen branch. That is caught server-side in
+          orders.customer_views.add_to_cart, which names the branch in the
+          error rather than guessing here.
+          {% endcomment %}
+          {% if not request.user.is_authenticated %}
+            <a class="btn-cart cta" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
+          {% elif request.user.role != 'CUSTOMER' %}
+            <span class="btn-cart cta is-inert" aria-disabled="true">Customer accounts only</span>
+          {% elif not selected_branch_id %}
+            <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
+          {% else %}
+            <form class="cta" method="POST" action="{% url 'orders:add_to_cart' p.id %}" data-add-to-cart>
+              {% csrf_token %}
+              <input type="hidden" name="quantity" value="1">
+              {# Without JS the POST redirects; send the shopper back here, not to the catalog. #}
+              <input type="hidden" name="next" value="{{ request.path }}">
+              {% comment %}
+              The name is in the label so screen-reader users hear which product
+              this adds — every card's button reads "Add to cart" otherwise.
+              {% endcomment %}
+              <button class="btn-cart" type="submit"
+                      aria-label="Add {{ p.product_name }} to cart">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+                Add to cart
+              </button>
+            </form>
+          {% endif %}
         </div>
       </div>
     </article>

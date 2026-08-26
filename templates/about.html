@@ -1,0 +1,121 @@
+{% extends "public_base.html" %}
+{% load static %}
+{% load i18n_extra %}
+
+{% block title %}About Us — Gerlyn Variety Store{% endblock %}
+
+{% comment %}
+The storefront's public About page, in the shop nav beside Products.
+
+Every fact on this page is one the store already states somewhere else in
+the app — the delivery threshold from the banner rotator, the payment
+methods from checkout, the branches from the database. Nothing here is
+invented copy: an About page that claims a founding year, a staff count or
+an "our mission" the owner never wrote is the easiest place in a storefront
+to put words in someone's mouth.
+
+accounts/about.html is the same store facts inside the logged-in Settings
+shell, reached from the account sidebar. This one is what a shopper who has
+never signed in sees, so it carries the storefront chrome instead.
+{% endcomment %}
+
+{% block content %}
+<div class="shop-wrap section">
+
+  <nav class="crumbs" aria-label="Breadcrumb">
+    <a href="/">{% t "Home" %}</a>
+    <span class="crumb-sep" aria-hidden="true">›</span>
+    <span class="crumb-current" aria-current="page">{% t "About Us" %}</span>
+  </nav>
+
+  <section class="about-hero">
+    <span class="brand-mark about-mark">
+      <img src="{% static 'img/logo.jpg' %}" alt="">
+    </span>
+    <h1>{% t "Gerlyn Variety Store" %}</h1>
+    <p class="about-lead">
+      {% t "A neighbourhood variety store in Baliuag, Bulacan — the same shelves you already walk, now open from your phone." %}
+    </p>
+    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">{% t "Browse products" %} →</a>
+  </section>
+
+  <div class="about-grid">
+    <div class="about-card">
+      <span class="about-ic" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+      </span>
+      <h2>{% t "Delivery" %}</h2>
+      <p>{% t "Free delivery anywhere in Baliuag on orders over ₱500. Below that, or outside the area, you can still collect at any branch." %}</p>
+    </div>
+
+    <div class="about-card">
+      <span class="about-ic" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18v13H3z"/><path d="M3 7l2-4h14l2 4"/><path d="M9 12h6"/></svg>
+      </span>
+      <h2>{% t "Bulk and wholesale" %}</h2>
+      <p>{% t "Buy by the sack, box or case. Products with a wholesale price show it on the product page, next to the retail price." %}</p>
+    </div>
+
+    <div class="about-card">
+      <span class="about-ic" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
+      </span>
+      <h2>{% t "Ways to pay" %}</h2>
+      <p>{% t "Cash, GCash, card, bank transfer, cash on delivery, or pay at the store. No card is needed to order." %}</p>
+    </div>
+
+    <div class="about-card">
+      <span class="about-ic" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 8h14M5 16h14"/><circle cx="12" cy="12" r="9"/></svg>
+      </span>
+      <h2>{% t "Statutory discounts" %}</h2>
+      <p>{% t "PWD and Senior Citizen discounts are honoured at the counter on eligible items, with a valid ID." %}</p>
+    </div>
+  </div>
+
+  {% comment %}
+  Branches come from the database, not a hardcoded list — the footer names
+  three today and would quietly lie the day a fourth one opens.
+  {% endcomment %}
+  {% if branches %}
+  <section class="panel about-branches" id="branches">
+    <div class="panel-head">
+      <h2>{% t "Our branches" %}</h2>
+      <a class="panel-more" href="{% url 'orders:select_branch' %}">
+        {% t "Choose a branch" %}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </a>
+    </div>
+    <ul class="branch-list">
+      {% for b in branches %}
+      <li>
+        <span class="branch-ic" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        </span>
+        <span class="branch-nm">{{ b.branch_name }}</span>
+        {% if b.location %}<span class="branch-loc">{{ b.location }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% comment %}
+  The Help Center is @login_required. Offering it unconditionally sent every
+  signed-out reader — which is most of the traffic this page gets, since it is
+  the public About page — to a login form when they asked for help. They get
+  the branches, which are right above and need no account.
+  {% endcomment %}
+  <p class="about-help">
+    {% if request.user.is_authenticated %}
+      {% t "Need a hand?" %}
+      <a href="{% url 'accounts:help_center' %}">{% t "Visit the Help Center" %}</a>
+      {% t "or drop by any branch above." %}
+    {% else %}
+      {% t "Need a hand? Drop by any branch above, or" %}
+      <a href="{% url 'accounts:login' %}">{% t "sign in" %}</a>
+      {% t "to reach the Help Center." %}
+    {% endif %}
+  </p>
+</div>
+{% endblock %}

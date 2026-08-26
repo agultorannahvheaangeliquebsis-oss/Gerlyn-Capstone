@@ -10,17 +10,27 @@
   if (!form || !summary || !grid) return;
 
   const input = form.querySelector('input[type="search"]');
-  const select = form.querySelector('select[name="category"]');
   if (!input) return;
 
   const DEBOUNCE_MS = 250;
   let debounceTimer = null;
   let abortController = null;
 
+  // Category and sort are chosen by following a link now, not by changing a
+  // <select> inside this form, so they live in the URL rather than in a field
+  // this script can read. Carrying them forward off location.search is what
+  // stops a keystroke in the search box from silently resetting the shopper
+  // back to "All products, sorted by Popular".
   function targetUrl() {
+    const current = new URLSearchParams(window.location.search);
     const params = new URLSearchParams();
     if (input.value.trim()) params.set('q', input.value.trim());
-    if (select && select.value) params.set('category', select.value);
+    // getAll/append, not get/set: the filter rail is a checklist, so there
+    // can be several `category` values in play and set() would keep only the
+    // last one — typing in the search box would silently drop every category
+    // the shopper ticked but one.
+    current.getAll('category').forEach(function (c) { params.append('category', c); });
+    if (current.get('sort')) params.set('sort', current.get('sort'));
     const qs = params.toString();
     return window.location.pathname + (qs ? '?' + qs : '');
   }
@@ -61,7 +71,4 @@
     debounceTimer = setTimeout(load, DEBOUNCE_MS);
   });
 
-  if (select) {
-    select.addEventListener('change', load);
-  }
 })();

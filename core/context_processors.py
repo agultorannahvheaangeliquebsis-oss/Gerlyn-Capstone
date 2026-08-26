@@ -89,12 +89,51 @@ def nav_categories(request):
     the order pages all extend — none of which were passing categories of their
     own, so the row would have rendered empty on most of the shop.
 
-    Costs nothing on internal pages: a sliced QuerySet is lazy, and no internal
-    template names this variable, so the query is never executed there.
-    """
-    from inventory.models import ProductCategory
+    Empty while the store has fewer than two categories, which is what every
+    storefront surface keys its category UI off — the chips under the search,
+    the Shop menu, the footer column, the home page tiles, the catalog's
+    Category filter and the line on each product card.
 
-    return {"nav_categories": ProductCategory.objects.all()[:8]}
+    A lone category is not a choice. With one row in the table ("General",
+    holding every product), the chip row offered a filter that filters
+    nothing, the rail asked the shopper to pick between "All products" and
+    the only category there is, and every card in the grid carried the same
+    word. None of that told anyone anything; it just spent space saying
+    "General" six times per screen. The moment a second category exists all
+    of it comes back on its own — this is a threshold, not a deletion, and
+    nothing about the category is removed from the database or the internal
+    system.
+
+    Costs nothing on internal pages: SimpleLazyObject defers the query until
+    a template actually reads the variable, and no internal template names
+    it, so it is never executed there.
+    """
+    from django.utils.functional import SimpleLazyObject
+
+    def _categories():
+        from inventory.models import ProductCategory
+
+        cats = list(ProductCategory.objects.all()[:8])
+        return cats if len(cats) > 1 else []
+
+    return {"nav_categories": SimpleLazyObject(_categories)}
+
+
+def nav_branches(request):
+    """
+    Expose `nav_branches` for the storefront footer's Visit Us column.
+
+    Same reasoning as nav_categories: the footer lives in public_base.html,
+    which most of the shop extends, and none of those views pass branches.
+    Listing them from the database rather than hardcoding three names is what
+    keeps the footer from quietly lying the day a fourth branch opens.
+
+    Lazy QuerySet, so internal pages — which never name this variable — pay
+    nothing for it.
+    """
+    from branches.models import Branch
+
+    return {"nav_branches": Branch.objects.all()}
 
 
 ALERT_COUNT_CACHE_SECONDS = 30
@@ -135,3 +174,28 @@ def alerts(request):
 
     cache.set(cache_key, count, ALERT_COUNT_CACHE_SECONDS)
     return {"alert_count": count}
+
+
+def nav_selected_branch(request):
+    """
+    Expose `nav_selected_branch` for the storefront nav bar's status line.
+
+    The design reference puts a standing promise ("orders processed within 24
+    hours") in that slot. This store has no such SLA recorded anywhere, and a
+    delivery promise invented in a template is a claim the business never
+    made — so the slot carries the one fact the session actually knows: which
+    branch the shopper is buying from, with a link to change it when they are
+    not on one yet.
+
+    Only queries when a branch has been chosen, so staff pages and first-time
+    visitors pay nothing. Fail-safe: a nav bar must never break a render.
+    """
+    branch_id = request.session.get('branch_id') if hasattr(request, 'session') else None
+    if not branch_id:
+        return {}
+    try:
+        from branches.models import Branch
+
+        return {"nav_selected_branch": Branch.objects.filter(pk=branch_id).first()}
+    except Exception:
+        return {}
