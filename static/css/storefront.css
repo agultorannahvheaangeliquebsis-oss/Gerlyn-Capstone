@@ -359,19 +359,25 @@ body.shop {
   display: grid; grid-template-columns: 2.2fr 1fr; gap: 12px;
   padding: 16px 0;
 }
-/* aspect-ratio with NO min-height. The two together fight: once min-height
-   wins, the ratio resolves the width from that height, and the box grew
-   9px wider than its own grid track (measured 503px inside a 494px rail).
-   The narrow breakpoint below drops the ratio instead and pins a height. */
-/* 1320/440, not 1320/390. At the 1280 container the old ratio gave the box
-   244px, and a two-line headline plus eyebrow, blurb, cue and the dot strip
-   need ~190px of content in a box whose padding leaves 158 — so the centred
-   block overflowed and the "Start shopping" underline landed on the dots.
-   The ratio is what sets the height (the slides are absolute and contribute
-   none), so the height is what had to give. */
+/* min-height, not aspect-ratio.
+
+   A ratio resolves a height of its own, and a grid item that has one will
+   not stretch to its row — so the rail's height was set by whichever column
+   was taller and only the side column ever grew into it. Two cards whose
+   copy runs to a second line made that column ~15px taller than the banner,
+   and the two ended on different lines.
+
+   A minimum height has no such opinion: it keeps the banner in roughly the
+   3:1 shape the design wants, and the default stretch takes it the rest of
+   the way to the row, so the two columns finish level whatever the cards
+   say. The floor is what the ratio used to give at the 1280 container —
+   below ~285px a two-line headline plus eyebrow, blurb, cue and the dot
+   strip stop fitting the padding, which is why the old ratio was widened
+   from 1320/390 to 1320/440 in the first place. The slides are absolutely
+   positioned and contribute no height, so nothing else sets it. */
 .banner-main {
   position: relative; border-radius: var(--r-card); overflow: hidden;
-  aspect-ratio: 1320 / 440;
+  min-height: clamp(285px, 21.5vw, 320px);
 }
 /* The bottom padding is the dot strip's height, not a guess: the slide had
    no vertical padding at all, so its centred block ran to the very bottom of
@@ -957,7 +963,7 @@ body.shop {
      and a line of copy. Below the two-column breakpoint the ratio is
      dropped and the height fixed instead. The slides are position:absolute
      so they contribute no height of their own; this value is the height. */
-  .banner-main { aspect-ratio: auto; min-height: 290px; }
+  .banner-main { min-height: 290px; }
 
   /* iPad portrait is 768px: the brand's second line and the nav row's status
      line are the two pieces of the header that are nice-to-have, so they are
