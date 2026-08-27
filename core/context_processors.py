@@ -199,3 +199,48 @@ def nav_selected_branch(request):
         return {"nav_selected_branch": Branch.objects.filter(pk=branch_id).first()}
     except Exception:
         return {}
+
+
+def customer_nav(request):
+    """
+    Expose `cart_count` and `notification_count` for the storefront header's
+    icon row (bell · account · cart).
+
+    Both used to be per-view context: cart_count was passed by seven views in
+    orders/customer_views.py and by nothing else, so the badge on the cart
+    button simply vanished the moment a shopper stepped onto an account page
+    — the same header, the same session, a different number. A header that
+    lives in public_base.html needs its numbers from something that runs on
+    every render of public_base.html, which is this.
+
+    Those views still pass their own cart_count and still win: view context
+    overrides a context processor, and the value is identical either way.
+
+    Fail-safe on both counts — a badge must never break a page render.
+    """
+    out = {}
+
+    session = getattr(request, "session", None)
+    if session is not None:
+        try:
+            cart = session.get("cart", {})
+            out["cart_count"] = len(cart)
+            # No cart_product_ids any more. It existed so a card could paint
+            # its Add-to-cart button in the added state on first load; the
+            # tick is now a two-second receipt for a press (see toast.js
+            # markAdded), and painting one on load would have a card take
+            # credit for an add made on some earlier page. The badge above is
+            # what says what the cart holds.
+        except Exception:
+            pass
+
+    user = getattr(request, "user", None)
+    if user is not None and user.is_authenticated:
+        try:
+            out["notification_count"] = user.notifications.filter(
+                is_read=False
+            ).count()
+        except Exception:
+            pass
+
+    return out

@@ -1069,23 +1069,70 @@ def confirm_password_change(request, token):
 @login_required(login_url='accounts:login')
 def notifications_view(request):
     """
-    Displays all notifications for the logged-in user ordered by latest.
+    The notifications page: what the store has sent, and what it is allowed
+    to send.
+
+    These were two pages until now — an inbox at /notifications/ and a
+    preferences screen at /profile/notification-preferences/ — sitting as two
+    rows in the account rail under names that differ by one word. Reading a
+    notification and deciding whether to receive that kind of notification are
+    the same errand, and splitting them meant the answer to "why am I getting
+    these?" was never on the page showing them.
     """
     notifications = request.user.notifications.all().order_by('-created_at')
+    prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
     return render(request, 'accounts/notifications.html', {
         'notifications': notifications,
+        'unread_count': sum(1 for n in notifications if not n.is_read),
+        'pref_rows': [
+            {'field': f, 'label': label, 'sub': sub, 'on': getattr(prefs, f)}
+            for f, label, sub in NOTIFICATION_PREFERENCE_ROWS
+        ],
         'active_page': 'notifications',
     })
 
 
+@require_POST
 @login_required(login_url='accounts:login')
 def mark_notification_read(request, pk):
     """
-    Marks a specific notification as read and redirects back.
+    Marks a specific notification as read.
+
+    POST, not the GET link this used to be: marking something read changes
+    stored state, and a plain <a href> hands that change to anything that
+    follows links on the page — a prefetcher, a crawler, an accessibility
+    tool walking the DOM — which is how an inbox empties itself without
+    anyone having clicked.
     """
     notification = get_object_or_404(Notification, pk=pk, user=request.user)
-    notification.is_read = True
-    notification.save()
+    if notification.is_read:
+        messages.info(request, "That notification was already marked as read.")
+    else:
+        notification.is_read = True
+        notification.save(update_fields=['is_read'])
+        messages.success(request, "Marked as read.")
+    return redirect('accounts:notifications')
+
+
+@require_POST
+@login_required(login_url='accounts:login')
+def mark_all_notifications_read(request):
+    """
+    Clears the unread badge in one action.
+
+    Without this the only way to empty a header badge showing, say, 14 is to
+    press "Mark as read" fourteen times — and the badge is on every page of
+    the storefront, so an inbox nobody clears is a number that follows the
+    shopper around the shop forever.
+    """
+    updated = request.user.notifications.filter(is_read=False).update(is_read=True)
+    if updated:
+        messages.success(
+            request,
+            f"Marked {updated} notification{'' if updated == 1 else 's'} as read.",
+        )
+    else:
+        messages.info(request, "You have no unread notifications.")
     return redirect('accounts:notifications')
 
 
@@ -1199,13 +1246,49 @@ def address_set_default(request, pk):
 # NOTIFICATION PREFERENCES
 # ============================================================
 
+# The four switches, in the order they are drawn: field name, label,
+# description. One table rather than four hand-copied blocks of markup — the
+# template repeated the same nine lines per switch, so adding a fifth meant
+# copying it a fifth time and remembering to change three strings inside.
+#
+# The English strings live here, not only in the template, for two reasons:
+# the confirmation message after a save has to name the switch that moved
+# ("Delivery reminders turned off", never "delivery_reminders"), and the same
+# list has to reject an unknown ?field=. They stay verbatim so {% t %} still
+# finds them in accounts/translations.py, which carries a Filipino line for
+# every one.
+NOTIFICATION_PREFERENCE_ROWS = [
+    ('order_updates', 'Order updates',
+     'Status changes and delivery confirmations'),
+    ('promotions', 'Promotions & deals',
+     'Discounts and flash sales'),
+    ('delivery_reminders', 'Delivery reminders',
+     'Reminders before your order arrives'),
+    ('newsletter', 'Newsletter',
+     'Monthly store news and updates'),
+]
+NOTIFICATION_PREFERENCE_LABELS = {f: label for f, label, _ in NOTIFICATION_PREFERENCE_ROWS}
+
+
+def _preferences_anchor():
+    """Where the preferences card sits on the merged page, so a save returns
+    the reader to the switch they just flipped instead of the top of their
+    inbox. A function rather than a module constant: reverse() at import time
+    runs before the URLconf is loaded."""
+    return reverse('accounts:notifications') + '#preferences'
+
+
 @login_required(login_url='accounts:login')
 def notification_preferences_view(request):
-    prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
-    return render(request, 'accounts/notification_preferences.html', {
-        'prefs': prefs,
-        'active_page': 'notification_preferences',
-    })
+    """
+    Permanently redirects to the merged notifications page.
+
+    The route stays rather than being deleted: it has been the preferences
+    URL for the life of the settings section, so it is in browser histories
+    and autocompletes, and a 404 there teaches nothing. A 301 sends those
+    straight to the card that replaced it.
+    """
+    return redirect(_preferences_anchor(), permanent=True)
 
 
 @login_required(login_url='accounts:login')
@@ -1214,12 +1297,21 @@ def notification_preferences_update(request):
     prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
 
     field = request.POST.get('field')
-    valid_fields = {'order_updates', 'promotions', 'delivery_reminders', 'newsletter'}
-    if field in valid_fields:
-        setattr(prefs, field, request.POST.get('value') == 'on')
-        prefs.save(update_fields=[field])
+    if field not in NOTIFICATION_PREFERENCE_LABELS:
+        # Previously this fell through to a bare redirect: an unknown field
+        # saved nothing and said nothing, so a typo'd switch looked exactly
+        # like a working one that had simply been left alone.
+        messages.error(request, "That notification setting doesn't exist.")
+        return redirect(_preferences_anchor())
 
-    return redirect('accounts:notification_preferences')
+    on = request.POST.get('value') == 'on'
+    setattr(prefs, field, on)
+    prefs.save(update_fields=[field])
+    messages.success(
+        request,
+        f"{NOTIFICATION_PREFERENCE_LABELS[field]} turned {'on' if on else 'off'}.",
+    )
+    return redirect(_preferences_anchor())
 
 
 # ============================================================

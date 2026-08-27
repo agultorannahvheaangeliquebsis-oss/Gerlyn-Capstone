@@ -18,7 +18,12 @@ const APP_SHELL = [
   '/static/js/toast.js',
   '/static/js/address-picker.js',
   '/static/js/pwa.js',
+  // Both marks: logo.jpg is what the internal shell, the auth screens and
+  // the About page still point at; logo.png is the same artwork with the
+  // studio white keyed out, which is what the storefront header and footer
+  // use so the mark sits on the green band without a plate behind it.
   '/static/img/logo.jpg',
+  '/static/img/logo.png',
   '/static/img/icons/icon-192.png',
   '/static/img/icons/icon-512.png',
   '/static/manifest.json',

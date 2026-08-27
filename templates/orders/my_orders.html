@@ -1,66 +1,122 @@
 {% extends "public_base.html" %}
-{% load shop_extras %}
+{% load static %}
+{% load i18n_extra %}
+
 {% block title %}My Orders — Gerlyn Variety Store{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
+{% endblock %}
+
+{% comment %}
+Orders and Settings are one screen now, not two. This page used to be a
+full-width .shop-wrap list reached from a header dropdown, while every
+settings page was a two-column shell with a rail down the left — so moving
+between a customer's orders and their profile swapped the entire layout under
+them. It now renders in the same shell as the rest of the account: the rail is
+Settings, and this is the page it opens on, which is where the account link in
+the header lands.
+{% endcomment %}
 {% block content %}
-<div class="shop-wrap section">
-  <div class="section-head">
-    <div>
-      <h2>My Orders</h2>
-      <p class="gv-meta mb-0">{{ counts.all }} order{{ counts.all|pluralize }} · {{ counts.active }} still in progress</p>
-    </div>
-  </div>
+<div class="account-wrap">
 
-  {% comment %}
-  "In progress" aggregates Pending/Confirmed/Being packed, so it takes the
-  info tint rather than Being packed's warn — for a customer an order in
-  progress is the normal case, not something to act on.
-  {% endcomment %}
-  <div class="filter-tabs">
-    <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
-    <a class="filter-tab {% if status_filter == 'active' %}active{% endif %}" href="?status=active">{% include "partials/_status_icon.html" with icon="box" %}In progress <span class="count count-info">{{ counts.active }}</span></a>
-    <a class="filter-tab {% if status_filter == 'completed' %}active{% endif %}" href="?status=completed">{% include "partials/_status_icon.html" with icon="check-circle" %}Completed <span class="count count-ok">{{ counts.completed }}</span></a>
-  </div>
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">{% t "Home" %}</a>
+    <span class="sep">›</span>
+    <span class="current">{% t "My Orders" %}</span>
+  </nav>
 
-  <div class="stack">
-    {% for o in orders %}
-    <div class="card card-pad">
-      <div class="row-between wrap" style="align-items:flex-start; gap:16px;">
-        <div>
-          <div class="row wrap" style="gap:10px;">
-            <span class="sku" style="font-weight:700; font-size:16px;">{{ o.order_number }}</span>
-            {% if o.order_status == 'Completed' %}<span class="pill pill-ok">Completed</span>
-            {% elif o.order_status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
-            {% elif o.order_status == 'Preparing' %}<span class="pill pill-warn">Being packed</span>
-            {% elif o.order_status == 'Approved' %}<span class="pill pill-info">Confirmed</span>
-            {% else %}<span class="pill pill-neutral">Waiting for the store</span>{% endif %}
+  <h1 class="gv-page-title">{% t "My Orders" %}</h1>
+
+  <div class="account-grid">
+
+    {% include "accounts/_account_sidebar.html" %}
+
+    <!-- ── Right content ── -->
+    <div class="stack">
+
+      {% comment %}
+      Five tabs, and every one of them is a place an order can actually be:
+      In progress covers Pending and Approved (the store's move), To receive
+      covers Preparing (the customer's wait), and the two terminal states get
+      a tab each. Cancelled had nowhere to live before — a cancelled order
+      appeared only under All, which is the one tab a customer scrolls past.
+
+      The tint on each count follows the same language as the pills in the
+      rows below: info for work in progress, warn for something waiting on
+      you, ok for done, danger for cancelled.
+      {% endcomment %}
+      <div class="filter-tabs">
+        <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">
+          {% include "partials/_status_icon.html" with icon="all" %}{% t "All" %}
+          <span class="count">{{ counts.all }}</span>
+        </a>
+        <a class="filter-tab {% if status_filter == 'active' %}active{% endif %}" href="?status=active">
+          {% include "partials/_status_icon.html" with icon="clock" %}{% t "In progress" %}
+          <span class="count count-info">{{ counts.active }}</span>
+        </a>
+        <a class="filter-tab {% if status_filter == 'to_receive' %}active{% endif %}" href="?status=to_receive">
+          {% include "partials/_status_icon.html" with icon="box" %}{% t "To receive" %}
+          <span class="count count-warn">{{ counts.to_receive }}</span>
+        </a>
+        <a class="filter-tab {% if status_filter == 'completed' %}active{% endif %}" href="?status=completed">
+          {% include "partials/_status_icon.html" with icon="check-circle" %}{% t "Completed" %}
+          <span class="count count-ok">{{ counts.completed }}</span>
+        </a>
+        <a class="filter-tab {% if status_filter == 'cancelled' %}active{% endif %}" href="?status=cancelled">
+          {% include "partials/_status_icon.html" with icon="x-circle" %}{% t "Cancelled" %}
+          <span class="count count-danger">{{ counts.cancelled }}</span>
+        </a>
+      </div>
+
+      {% for o in orders %}
+      <div class="card">
+        <div class="order-row">
+          <div>
+            <div class="order-row-head">
+              <span class="order-row-num">{{ o.order_number }}</span>
+              {% if o.order_status == 'Completed' %}<span class="pill pill-ok">{% t "Completed" %}</span>
+              {% elif o.order_status == 'Cancelled' %}<span class="pill pill-danger">{% t "Cancelled" %}</span>
+              {% elif o.order_status == 'Preparing' %}<span class="pill pill-warn">{% t "Being packed" %}</span>
+              {% elif o.order_status == 'Approved' %}<span class="pill pill-info">{% t "Confirmed" %}</span>
+              {% else %}<span class="pill pill-neutral">{% t "Waiting for the store" %}</span>{% endif %}
+            </div>
+            <div class="order-row-meta">
+              {{ o.transaction_date|date:"F d, Y" }} · {{ o.branch.branch_name }}
+              · {{ o.mode_of_payment }}
+              {% if o.billing_record.status == 'Paid' %}
+                · <span style="color:var(--ok-fg); font-weight:600;">{% t "Paid" %}</span>
+              {% else %}
+                · <span style="color:var(--warn-fg); font-weight:600;">{% t "Not yet paid" %}</span>
+              {% endif %}
+            </div>
           </div>
-          <div class="gv-meta mt-2">
-            {{ o.transaction_date|date:"F d, Y" }} · {{ o.branch.branch_name }}
-            · {{ o.mode_of_payment }}
-            {% if o.billing_record.status == 'Paid' %}
-              · <span style="color:var(--ok-fg); font-weight:600;">Paid</span>
-            {% else %}
-              · <span style="color:var(--warn-fg); font-weight:600;">Not yet paid</span>
-            {% endif %}
+          <div class="order-row-side">
+            <div class="order-row-total">₱{{ o.total_amount|floatformat:2 }}</div>
+            <a class="btn btn-sm" href="{% url 'orders:track_order' o.pk %}">{% t "Track order" %}</a>
           </div>
         </div>
-        <div style="text-align:right;">
-          <div class="gv-metric" style="color:var(--action); font-size:22px;">₱{{ o.total_amount|floatformat:2 }}</div>
-          <a class="btn btn-sm mt-2" href="{% url 'orders:track_order' o.pk %}">Track order</a>
+      </div>
+      {% empty %}
+      <div class="card">
+        <div class="empty">
+          {% comment %}
+          A line-drawn cart, not the 🛒 this slot used to carry. An emoji is
+          a font the browser picks, so the glyph arrived in a different style
+          on every OS — and in full colour beside a page whose every other
+          mark is a 2px grey stroke.
+          {% endcomment %}
+          <span class="glyph" aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+          </span>
+          <h3>{% t "No orders yet" %}</h3>
+          <p>{% if status_filter %}{% t "Nothing in this tab — try “All”." %}{% else %}{% t "When you place an order it'll show up here, and you can follow its progress." %}{% endif %}</p>
+          <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">{% t "Start shopping" %}</a>
         </div>
       </div>
-    </div>
-    {% empty %}
-    <div class="card">
-      <div class="empty">
-        <span class="glyph">🛒</span>
-        <h3>No orders yet</h3>
-        <p>{% if status_filter %}Nothing in this tab — try “All”.{% else %}When you place an order it'll show up here, and you can follow its progress.{% endif %}</p>
-        <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">Start shopping</a>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+      {% endfor %}
+
+    </div>{# end right column #}
+  </div>{# end account-grid #}
 </div>
 {% endblock %}

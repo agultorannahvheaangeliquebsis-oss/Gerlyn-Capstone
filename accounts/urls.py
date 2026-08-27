@@ -41,6 +41,7 @@ urlpatterns = [
     # --- New: Notifications ---
     path('notifications/', views.notifications_view, name='notifications'),
     path('notifications/<int:pk>/read/', views.mark_notification_read, name='mark_notification_read'),
+    path('notifications/read-all/', views.mark_all_notifications_read, name='mark_all_notifications_read'),
 
     # --- New: Addresses ---
     path('profile/addresses/', views.addresses_view, name='addresses'),

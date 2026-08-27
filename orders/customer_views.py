@@ -474,17 +474,18 @@ def add_to_cart(request, product_id):
     request.session['last_added'] = {'id': str(product_id), 'qty': qty}
     success = f'Added {inv.product.product_name} to your cart.'
     if is_ajax:
-        # No redirect — the storefront JS shows the toast in place, so the
-        # customer keeps their scroll position instead of jumping to the top.
+        # No redirect — the storefront JS confirms the add on the button
+        # itself, so the customer keeps their scroll position instead of
+        # jumping to the top of a re-rendered page.
+        #
+        # No undo_url/cart_url either: those fed the success toast's two
+        # buttons, and there is no success toast any more. The Undo path
+        # still exists for the message rendered on the no-JavaScript POST
+        # below, which carries its own URL from the template.
         return JsonResponse({
             'ok': True,
             'message': success,
             'cart_count': len(cart),
-            'undo_url': reverse('orders:undo_add'),
-            # The confirmation toast offers "View cart" beside "Undo" — the
-            # step a shopper usually wants next, which otherwise costs them a
-            # hunt for the cart icon up in the header.
-            'cart_url': reverse('orders:cart'),
         })
     messages.success(request, success, extra_tags='undoable')
     return redirect(back or 'orders:catalog')
@@ -688,23 +689,42 @@ def my_orders(request):
         .order_by('-transaction_date')
     )
 
-    status_filter = request.GET.get('status', '')
-    counts = {
-        'all': orders.count(),
-        'active': orders.exclude(
-            order_status__in=['Completed', 'Cancelled']
-        ).count(),
-        'completed': orders.filter(order_status='Completed').count(),
+    # Which lifecycle statuses each tab stands for. One table, read twice —
+    # once to count and once to filter — so a tab can never show a number it
+    # then fails to list.
+    #
+    # 'active' used to mean everything that was neither Completed nor
+    # Cancelled, which included Preparing. Now that Preparing has a tab of its
+    # own ("To receive" — the order is packed and waiting to be handed over),
+    # leaving it in both would have made the two counts overlap and the totals
+    # across the bar exceed All. In progress is therefore the part of the
+    # lifecycle the STORE is still working through, and To receive the part
+    # the CUSTOMER is waiting on.
+    tab_statuses = {
+        'active': ['Pending', 'Approved'],
+        'to_receive': ['Preparing'],
+        'completed': ['Completed'],
+        'cancelled': ['Cancelled'],
     }
-    if status_filter == 'active':
-        orders = orders.exclude(order_status__in=['Completed', 'Cancelled'])
-    elif status_filter == 'completed':
-        orders = orders.filter(order_status='Completed')
+
+    status_filter = request.GET.get('status', '')
+    if status_filter not in tab_statuses:
+        status_filter = ''          # an unknown ?status= falls back to All
+
+    counts = {'all': orders.count()}
+    counts.update({
+        tab: orders.filter(order_status__in=statuses).count()
+        for tab, statuses in tab_statuses.items()
+    })
+
+    if status_filter:
+        orders = orders.filter(order_status__in=tab_statuses[status_filter])
 
     return render(request, 'orders/my_orders.html', {
         'orders': orders,
         'counts': counts,
         'status_filter': status_filter,
+        'active_page': 'orders',
         'cart_count': len(request.session.get('cart', {})),
     })
 

@@ -47,8 +47,8 @@ can actually answer.
           </div>
           {% endif %}
         {% else %}
-          {# no photos uploaded yet: the emoji placeholder on the tinted panel #}
-          <div class="pdp-frame pdp-frame--empty">{{ product|product_emoji }}</div>
+          {# no photos uploaded yet: the category glyph on the tinted panel #}
+          <div class="pdp-frame pdp-frame--empty">{{ product|product_icon }}</div>
         {% endif %}
       {% endwith %}
     </div>
@@ -151,9 +151,26 @@ can actually answer.
           </div>
 
           <div class="buy-actions">
+            {% comment %}
+            Two glyphs and two labels, with CSS showing one pair — the same
+            trick the card button uses. A successful add is confirmed on this
+            button (tick, solid dark green, the word "Added") instead of in a
+            toast, and toast.js puts it back two seconds later.
+
+            Not rendered from cart_product_ids: the tick is a receipt for the
+            press that just happened, not a record of what the cart holds —
+            that is the header badge's job, and the badge does not expire.
+
+            .btn-ghost-green carries a min-width wide enough for the longer of
+            the two labels, so the button does not shrink when it says "Added"
+            and grow back when it stops — a control that resizes under the
+            pointer is a control you can miss on the second click.
+            {% endcomment %}
             <button type="submit" class="btn btn-ghost-green">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-              Add to Cart
+              <svg class="ico-add" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+              <svg class="ico-added" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5"/></svg>
+              <span class="lbl-add">Add to Cart</span>
+              <span class="lbl-added">Added</span>
             </button>
             <button type="submit" class="btn btn-primary" name="next" value="{% url 'orders:cart' %}" data-skip-ajax>
               Buy Now
@@ -217,30 +234,20 @@ can actually answer.
               <span class="unit">per {{ p.unit_of_measure|lower }}</span>
             </span>
             {% comment %}
-            Same CTA branches as the catalog and home cards — this slot was a
-            second "View" link, which from a product page only led to another
-            product page the shopper then had to act on all over again.
+            Same CTA as the catalog and home cards — this slot was a second
+            "View" link, which from a product page only led to another product
+            page the shopper then had to act on all over again.
+
+            The branches used to be written out here a third time, and this
+            copy had already fallen behind the other two: its button never
+            drew the added tick. The shared partial is the whole control now.
+
+            No out-of-stock branch, for the same reason the catalog grid has
+            none: customer_views.product_detail already filters `related` to
+            in_stock_product_ids, so a card for something unavailable never
+            reaches this loop.
             {% endcomment %}
-            {% if p.on_hand == 0 %}
-              <button class="btn-cart cta" disabled>Out of stock</button>
-            {% elif not request.user.is_authenticated %}
-              <a class="btn-cart cta" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
-            {% elif request.user.role != 'CUSTOMER' %}
-              <span class="btn-cart cta is-inert" aria-disabled="true">Customer accounts only</span>
-            {% elif not selected_branch_id %}
-              <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
-            {% else %}
-              <form class="cta" method="POST" action="{% url 'orders:add_to_cart' p.id %}" data-add-to-cart>
-                {% csrf_token %}
-                <input type="hidden" name="quantity" value="1">
-                <input type="hidden" name="next" value="{{ request.path }}">
-                <button class="btn-cart" type="submit"
-                        aria-label="Add {{ p.product_name }} to cart">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-                  Add to cart
-                </button>
-              </form>
-            {% endif %}
+            {% include "partials/_add_to_cart.html" with product=p %}
           </div>
         </div>
       </article>

@@ -20,8 +20,7 @@
     <span class="current">{% t "My Profile" %}</span>
   </nav>
 
-  <h1 class="gv-page-title" style="margin-bottom:4px;">{% t "Settings" %}</h1>
-  <p class="gv-meta" style="margin-bottom:24px;">{% t "Manage your profile, addresses, and preferences" %}</p>
+  <h1 class="gv-page-title">{% t "Settings" %}</h1>
 
   <div class="account-grid">
 
@@ -188,7 +187,7 @@
                     Verified
                   </span>
                 {% else %}
-                  <span class="unverified-badge">⚠ Unverified</span>
+                  <span class="unverified-badge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg> Unverified</span>
                 {% endif %}
                 {% if pending_email %}
                   <div class="pending-notice">Pending: {{ pending_email }}</div>

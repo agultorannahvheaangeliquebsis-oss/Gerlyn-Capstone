@@ -1,13 +1,24 @@
 // Storefront toast notifications. public_base.html renders each Django message
 // into #toast-stack; this slides them in, auto-dismisses them, and wires the
-// "Undo" button on the Add-to-Cart toast to the undo endpoint. It also handles
-// Add-to-Cart forms over fetch so the page never reloads (and never jumps back
-// to the top) — raising the confirmation toast in place. No build, no deps.
+// "Undo" button (still used by any server-rendered undoable message) to the
+// undo endpoint. It also handles Add-to-Cart forms over fetch so the page
+// never reloads and never jumps back to the top.
+//
+// A SUCCESSFUL add no longer raises a toast: it is confirmed on the button
+// itself, which turns to a tick in solid dark green for two seconds and then
+// turns back into the cart glyph — see markAdded() below. A FAILED one still
+// toasts, because a refusal has a reason and the button has no room to give
+// one. No build, no deps.
 (function () {
   const stack = document.getElementById('toast-stack');
   if (!stack) return;
 
   const VISIBLE_MS = 4500;   // how long a toast lingers before it leaves
+  const ADDED_MS = 2000;     // how long the tick stays before the cart returns
+  // Per-button timers, keyed by the element: a grid can have several buttons
+  // counting down at once, and a WeakMap lets a card the catalog swaps out
+  // mid-countdown be collected instead of pinned by its own timer entry.
+  const addedTimers = new WeakMap();
   const csrfToken = document
     .querySelector('meta[name="csrf-token"]')
     ?.getAttribute('content') || '';
@@ -23,17 +34,70 @@
   function updateCartBadge(count) {
     const cartBtn = document.querySelector('.cart-btn');
     if (!cartBtn) return;
-    let badge = cartBtn.querySelector('.cart-badge');
+    let badge = cartBtn.querySelector('.shop-icon-badge');
     if (count > 0) {
       if (!badge) {
         badge = document.createElement('span');
-        badge.className = 'cart-badge';
+        badge.className = 'shop-icon-badge';
         cartBtn.appendChild(badge);
       }
       badge.textContent = count;
     } else if (badge) {
       badge.remove();
     }
+  }
+
+  // Confirm the add ON the button: the cart glyph becomes a tick and the
+  // button goes solid dark green (see .btn-cart--add.is-added in
+  // storefront.css). This replaces the success toast, which said the same
+  // thing in a panel that covered the corner of the page and then took it
+  // away again — the state now lives on the control that caused it.
+  //
+  // And it hands the button back after ADDED_MS. The tick is a receipt for
+  // one press, not a record of what the cart holds: left up, a grid a shopper
+  // has been through reads as a wall of ticks with no cart glyph left to
+  // press, and the mark stops meaning "that worked" the moment it means "this
+  // is in your cart". The header badge carries what the cart holds, and it
+  // does not expire.
+  function markAdded(btn) {
+    if (!btn) return;
+    btn.classList.add('is-added');
+    // A repeat press restarts the two seconds rather than stacking a second
+    // timer that would clear the tick early, mid-way through the new one.
+    clearTimeout(addedTimers.get(btn));
+    addedTimers.set(btn, setTimeout(() => {
+      btn.classList.remove('is-added');
+      addedTimers.delete(btn);
+    }, ADDED_MS));
+
+    // Restart the pulse even if the button is already in the added state, so
+    // a second add on the same card is visibly a second add.
+    btn.classList.remove('is-added-now');
+    void btn.offsetWidth;                      // force a reflow to re-trigger
+    btn.classList.add('is-added-now');
+    btn.addEventListener('animationend', () => btn.classList.remove('is-added-now'), { once: true });
+  }
+
+  // The tick is the whole confirmation and the tick is purely visual, so the
+  // add has to be said out loud somewhere: this polite live region is what a
+  // screen reader gets in place of the toast that used to be announced.
+  //
+  // It is also why the button's aria-label stays "Add <product> to cart"
+  // throughout. Renaming the control to "Added" for two seconds would tell a
+  // reader what happened in the one place that is supposed to say what
+  // pressing it does — and then rename it back under their cursor.
+  let liveRegion;
+  function announce(message) {
+    if (!liveRegion) {
+      liveRegion = document.createElement('p');
+      liveRegion.className = 'sr-only';
+      liveRegion.setAttribute('aria-live', 'polite');
+      document.body.appendChild(liveRegion);
+    }
+    // Clear first, on a tick of its own: assigning the same string twice is
+    // not a change, and adding the same product again would announce nothing.
+    liveRegion.textContent = '';
+    setTimeout(() => { liveRegion.textContent = message; }, 60);
   }
 
   async function undo(toast) {
@@ -81,34 +145,26 @@
 
   // Build a toast node matching public_base.html's markup, append it, wire it.
   //
-  // The success toast carries two actions, not one. "Undo" reverses the add;
-  // "View cart" is the step a shopper actually wants next and otherwise costs
-  // them a hunt for the cart icon in the header. Both are inside the same
-  // .toast-actions row so a toast with only one of them still lays out.
-  function showToast({ message, level = 'success', undoUrl = '', cartUrl = '' }) {
+  // Live toasts are refusals now, nothing else, so this builds a plain one
+  // with no actions in it: "Undo" and "View cart" were the success toast's
+  // buttons, and the success toast is gone — an add that worked is confirmed
+  // on the button by markAdded(). undo() above is still reached, but only
+  // from the undoable message public_base.html renders when the add went
+  // through a normal form POST because JavaScript never ran.
+  //
+  // role="alert", not the "status" the server-rendered messages use: this
+  // one always says why something the shopper just asked for did NOT happen
+  // ("Only 3 left at this branch"), and it takes itself away again after
+  // VISIBLE_MS whether or not a polite announcement has had its turn.
+  function showToast({ message, level = 'error' }) {
     const toast = document.createElement('div');
     toast.className = `toast toast-${level}`;
-    toast.setAttribute('role', 'status');
+    toast.setAttribute('role', 'alert');
     toast.dataset.toast = '';
-    if (undoUrl) toast.dataset.undoUrl = undoUrl;
-
-    const undoBtn = undoUrl
-      ? '<button type="button" class="toast-undo" data-undo>Undo</button>'
-      : '';
-    // An <a>, not a button: it navigates, so it should middle-click and
-    // open-in-new-tab like any other link. href is set via setAttribute below
-    // rather than interpolated, so a URL can never inject markup here.
-    const cartLink = cartUrl
-      ? '<a class="toast-link" data-toast-cart>View cart</a>'
-      : '';
-    const actions = (undoBtn || cartLink)
-      ? '<div class="toast-actions">' + undoBtn + cartLink + '</div>'
-      : '';
     toast.innerHTML =
       '<span class="toast-dot" aria-hidden="true"></span>' +
-      '<div class="toast-body"><p class="toast-msg"></p>' + actions + '</div>' +
+      '<div class="toast-body"><p class="toast-msg"></p></div>' +
       '<button type="button" class="toast-close" data-toast-close aria-label="Dismiss">&times;</button>';
-    if (cartUrl) toast.querySelector('[data-toast-cart]').setAttribute('href', cartUrl);
     // textContent, not innerHTML, so a product name can never inject markup.
     toast.querySelector('.toast-msg').textContent = message;
 
@@ -144,11 +200,15 @@
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        // Errors still toast. "Only 3 left at this branch" is a REASON, and
+        // there is nowhere on a card to put one — the button state below can
+        // say that something happened, never why something didn't.
         showToast({ message: data.error || 'Could not add to cart.', level: 'error' });
         return;
       }
       updateCartBadge(data.cart_count);
-      showToast({ message: data.message, undoUrl: data.undo_url, cartUrl: data.cart_url });
+      markAdded(btn);
+      announce(data.message || 'Added to your cart.');
     } catch (err) {
       // Network/JSON failure — fall back to a normal form submit so the add
       // still goes through (accepting the reload) rather than silently dropping.

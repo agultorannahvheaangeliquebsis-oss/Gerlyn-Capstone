@@ -62,34 +62,7 @@ so every card that renders is a card you can buy from.
       page still carries that branch, because a bookmarked or shared link to
       an out-of-stock product must still open rather than 404.
       {% endcomment %}
-      {% if not request.user.is_authenticated %}
-        <a class="btn-cart cta" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
-      {% elif request.user.role != 'CUSTOMER' %}
-        {% comment %}
-        The cart is customer-only (orders.customer_views.customer_required).
-        Offering "Add to cart" to a staff or owner session and refusing it on
-        submit is how the redirect loop was reachable in the first place —
-        say so on the card instead of after the click.
-        {% endcomment %}
-        <span class="btn-cart cta is-inert" aria-disabled="true">Customer accounts only</span>
-      {% elif not selected_branch_id %}
-        <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
-      {% else %}
-        <form class="cta" method="POST" action="{% url 'orders:add_to_cart' row.product.id %}" data-add-to-cart>
-          {% csrf_token %}
-          <input type="hidden" name="quantity" value="1">
-          {% comment %}
-          The name is in the label so screen-reader users hear which product
-          this adds — every card's button reads "Add to cart" otherwise, and
-          the visible text alone would not distinguish them.
-          {% endcomment %}
-          <button class="btn-cart" type="submit"
-                  aria-label="Add {{ row.product.product_name }} to cart">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-            Add to cart
-          </button>
-        </form>
-      {% endif %}
+      {% include "partials/_add_to_cart.html" with product=row.product %}
     </div>
   </div>
 </article>
@@ -97,7 +70,7 @@ so every card that renders is a card you can buy from.
 <div style="grid-column: 1 / -1;">
   <div class="card">
     <div class="empty">
-      <span class="glyph">🔍</span>
+      <span class="glyph" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
       <h3>No products found</h3>
       <p>Try a different search, or browse all categories.</p>
       <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">Show everything</a>

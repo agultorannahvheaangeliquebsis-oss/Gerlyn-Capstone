@@ -49,14 +49,20 @@ body.shop {
 /* --------------------------------------------------------------- header
    The search bar is the primary control of a shop, so it gets the coloured
    band and the widest column. White on --action is 5.31:1. */
-/* The price ink. The reference sets every peso figure in orange against the
-   green chrome, which is what makes a price findable on a page that is
-   otherwise green and grey. #C2410C measures 5.21:1 on white — AA at any
-   size, so it holds for the 13px unit line as well as the 24px figure.
-   Defined here rather than in gerlyn.css: only the storefront prices in
-   orange, and the internal panels must keep their neutral figures. */
+/* The price ink. It was #C2410C, orange, on the reference's argument that a
+   warm figure is findable on chrome that is otherwise green and grey. In this
+   store it read as a warning instead — the same family the error toast and
+   the low-stock line use — so a price looked like something had gone wrong.
+   The brand green says "price" without borrowing the alarm palette.
+
+   --action, not --action-700: it is 5.31:1 on white, AA at any size, so it
+   holds for the 12px unit line as well as the 19px figure, and it stays
+   distinct from the near-black --ink-900 the product name runs in. Prices sit
+   on white cards, never on the green bands, so it never meets its own colour.
+   Defined here rather than in gerlyn.css: this is the storefront's price ink,
+   and the internal panels must keep their neutral figures. */
 :root {
-  --price-fg: #C2410C;
+  --price-fg: var(--action);
 }
 
 .shop-header {
@@ -97,9 +103,23 @@ body.shop {
   text-decoration: none; color: #fff;
 }
 .shop-brand:hover { color: #fff; }
+/* No plate behind the mark. .brand-mark carries a --brand fill, a 6px corner
+   and overflow:hidden for the internal sidebar, and the storefront copy sat
+   on top of that with a white square of its own — so the logo arrived on the
+   green band inside a white tile it never needed.
+
+   The source it points at is logo.png, not logo.jpg: the JPEG has the studio
+   white baked into its pixels, so no amount of CSS could have removed it.
+   logo.png is that file with the backdrop keyed out, and it is 901x595 —
+   object-fit:cover on a 42px SQUARE would have cropped the wordmark's ends
+   off, hence contain and an auto width. */
+.shop-brand .brand-mark {
+  width: auto; height: auto; border-radius: 0;
+  background: none; overflow: visible;
+}
 .shop-brand .brand-mark img {
-  width: 42px; height: 42px; border-radius: 6px; display: block;
-  background: #fff;
+  width: auto; height: 42px; max-height: 42px; border-radius: 0;
+  display: block; object-fit: contain; background: none;
 }
 /* Wordmark over trading line, the reference's stacked lockup. */
 .shop-brand-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -279,9 +299,8 @@ body.shop {
 .shop-announce a:focus-visible,
 .shop-brand:focus-visible,
 .shop-quick a:focus-visible,
-.cart-btn:focus-visible,
-.shop-header-actions > .btn:focus-visible,
-.user-menu-trigger:focus-visible {
+.shop-icon-btn:focus-visible,
+.shop-header-actions > .btn:focus-visible {
   outline-color: #fff;
 }
 
@@ -329,24 +348,59 @@ body.shop {
 .search-result-price { font: 700 13.5px/1 system-ui, sans-serif; color: var(--action-700); }
 .search-empty { padding: 14px; font: 400 13.5px/1.4 system-ui, sans-serif; color: var(--ink-700); }
 
-.cart-btn { position: relative; }
-.cart-badge {
-  position: absolute; top: -7px; right: -7px;
-  min-width: 20px; height: 20px; padding: 0 5px;
+/* Bell, account, cart — one control, three uses. All three used to be
+   different objects: the cart a filled white square, the account a bordered
+   pill with a caret, and there was no bell at all. On a coloured band a white
+   plate is a second surface the eye has to resolve before it can find the
+   glyph, so nothing sits behind these now; the tint on hover is the only
+   plate any of them gets.
+
+   44px is the floor, not the icon size — the glyph inside is 21px and the
+   rest is the tap target WCAG 2.2 SC 2.5.8 asks for. */
+.shop-icon-btn {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 44px; min-height: 44px; padding: 0 6px;
+  border: 0; border-radius: var(--r-input);
+  background: none; color: #fff; text-decoration: none;
+  font: 600 14px/1 'Inter', system-ui, sans-serif;
+  transition: background .12s ease;
+}
+.shop-icon-btn:hover { background: rgba(255,255,255,.16); color: #fff; }
+.shop-icon-btn svg { flex: none; }
+/* The name beside the account glyph. It is what a shopper clicks to reach
+   their orders, so it keeps its label where the other two do not — and it
+   truncates rather than pushing the cart off the band on a long username. */
+.shop-account-btn { padding-right: 12px; }
+.shop-account-name {
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Amber on white-cased green: the badge sits ON the header band, so its ring
+   is the band's own colour rather than white — a white ring around an amber
+   dot on green reads as a third object.
+
+   Centred by flex, not by line-height. It was `height: 18px` with
+   `line-height: 18px`, and `* { box-sizing: border-box }` means the 2px ring
+   comes OUT of that 18 — so an 18px line box was being centred inside a 14px
+   content box and the digit sat two pixels low in its own circle. At 11px
+   type that is a visible tilt, and it is the whole reason the badge read as
+   broken. align-items/justify-content owe nothing to the font metrics.
+
+   16px, down from 18: the glyph it rides on is 21px, and a badge five sixths
+   the size of the icon stops being a mark on the cart and becomes an object
+   beside it. Nudged in from the corner far enough to clear the cart's rim
+   while still overlapping the glyph box, which is what makes it read as
+   attached to the cart rather than floating in the button's padding. */
+.shop-icon-badge {
+  position: absolute; top: 2px; right: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 3px;
   border-radius: var(--r-pill); background: #B45309; color: #fff;
-  font: 700 11.5px/20px 'Inter', system-ui, sans-serif; text-align: center;
-  border: 2px solid #fff;
+  font: 700 10px/1 'Inter', system-ui, sans-serif;
+  border: 2px solid var(--action);
+  /* The badge is a label on the link, never a second target inside it. */
+  pointer-events: none;
 }
-/* On the green band the cart reverses: white square, green glyph. The word
-   "Cart" is gone from the button — the reference's is icon-and-count only,
-   and the aria-label carries the name (with the count) for a screen reader. */
-.shop-header .cart-btn {
-  width: 44px; min-width: 44px; height: 44px; padding: 0;
-  display: inline-grid; place-items: center;
-  border-radius: var(--r-input);
-  background: #fff; color: var(--action-700); border-color: #fff;
-}
-.shop-header .cart-btn:hover { background: var(--green-50); color: var(--action-700); }
 
 .shop-main { min-height: 60vh; }
 
@@ -821,11 +875,80 @@ body.shop {
 }
 .btn-cart.is-inert { opacity: 1; cursor: default; font-weight: 500; }
 .btn-cart svg { flex: none; }
+
+/* ---- the icon-only Add to cart -------------------------------------------
+   Small and wordless. The label read "Add to cart" at 12.5px, which on a 200px
+   card is a line of text the eye has to READ to find a control it would have
+   recognised by shape — and it is the only control on the card, so nothing
+   is ambiguous once the words are gone.
+
+   It spanned the whole right half of the footer for a while, on the argument
+   that a label's real value is the tap target it buys, so keep the target and
+   drop the words. That bought target at the cost of the thing the footer is
+   for: a wordless green slab half the card wide, sitting beside the price it
+   is supposed to be secondary to. Sized to its glyph, it reads as a control
+   and the price reads as the content — 44x34 is still a comfortable mouse
+   target, and the pointer:coarse block below restores the full 44 square
+   where a thumb has to hit it.
+
+   34px tall, the same as every other .btn-cart on a card. It sat at 44 for a
+   while, which made it the tallest object in a footer whose other half is a
+   two-line price cluster about 40px high. 34 clears WCAG 2.2 SC 2.5.8 (24px)
+   with room.
+
+   Both glyphs are in the markup and CSS picks one, so the tick costs no
+   innerHTML rewrite and no reflow when toast.js swaps the state and swaps it
+   back two seconds later. */
+.pcard .pfoot .cta--icon { flex: 0 0 auto; min-width: 0; }
+/* min-height is deliberately NOT on a .pcard-prefixed selector: at (0,3,0) it
+   would outrank the pointer:coarse rule below, which is (0,1,0), and the
+   touch floor would silently never apply. */
+.btn-cart--add {
+  width: auto; min-width: 44px;
+  min-height: 34px; padding: 0 12px; gap: 0;
+  justify-content: center;
+}
+.btn-cart--add svg { width: 17px; height: 17px; }
+.btn-cart--add .ico-added { display: none; }
+/* Wordless in the grid. The labels are in the markup for the LIST view, which
+   has the width for them (see .pgrid.is-list further down) — one button that
+   both views share rather than two that can drift apart. */
+.btn-cart--add .btn-cart-label { display: none; }
+
+/* Added: a tick, and a solid, brighter green than the button's own outline —
+   the confirmation should read as a lit-up state, not as the button going
+   dark. --action it is, and not one of the vivid greens a #22C55E pill is
+   drawn in: white on those measures 2-3:1, and the word "Added" beside the
+   tick is 12.5px text that has to clear 4.5:1. --action carries white at
+   5.31:1. The glyph changes SHAPE as well as colour, which is what a
+   colour-blind reader is left with either way. */
+.btn-cart--add.is-added,
+.btn-cart--add.is-added:hover {
+  background: var(--action); border-color: var(--action); color: #fff;
+}
+.btn-cart--add.is-added .ico-add { display: none; }
+.btn-cart--add.is-added .ico-added { display: block; }
+/* One pulse on the frame the tick appears, so an add registers as an event
+   and not just a button that was always green. Suppressed under
+   prefers-reduced-motion, where the colour and glyph swap alone still say it.
+   .is-added-now is set by toast.js and removed when the animation ends. */
+@keyframes cartAdded {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.09); }
+  100% { transform: scale(1); }
+}
+.btn-cart--add.is-added-now { animation: cartAdded .28s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .btn-cart--add.is-added-now { animation: none; }
+}
 /* The one control on a card a thumb has to hit, so on a touch screen it
    keeps the full 44px. A mouse does not need it, and the compact button is
    the point. */
 @media (pointer: coarse) {
   .btn-cart { min-height: var(--touch); padding: 0 14px; font-size: 13px; }
+  /* Same floor, said explicitly. The icon button has no text to fall back on
+     if a future edit to the line above ever scopes it to labelled variants. */
+  .btn-cart--add { min-height: var(--touch); }
 }
 
 /* Honest stock signals — never hide a shortage. Uppercased to match the
@@ -868,6 +991,22 @@ body.shop {
   width: 72px; height: 72px; border-radius: var(--r-input); background: var(--green-50);
   display: flex; align-items: center; justify-content: center; font-size: 32px;
 }
+
+/* The category glyph that stands in for a product photo — shop_extras'
+   product_icon, drawn at 1em so the three containers that hold it keep
+   sizing it with font-size exactly as they sized the emoji it replaces
+   (.pcard .thumb 46px, .cart-thumb 32px, .pdp-frame--empty 110px).
+
+   The colour is set here because those containers never set one: the glyph
+   would otherwise inherit body ink and sit on the pale-green tile as a grey
+   smudge. --action-700 is the darker of the two greens, which is what makes
+   a 1.5px stroke hold at 26px as well as at 110px.
+
+   vertical-align matters only in the two order tables (confirmation and
+   track-order) where the glyph runs INLINE beside an item name; an inline
+   SVG aligns to the baseline by default and hangs a third of its height
+   below the text it accompanies. */
+.prod-glyph { color: var(--action-700); vertical-align: -.18em; flex: none; }
 .qty-stepper { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
 .qty-stepper form { margin: 0; }
 .qty-btn {
@@ -877,7 +1016,25 @@ body.shop {
 }
 .qty-btn:hover:not(:disabled) { background: var(--green-50); border-color: var(--action); }
 .qty-btn:disabled { opacity: .4; cursor: not-allowed; }
-.qty-value { min-width: 32px; text-align: center; font-weight: 600; font-size: 15px; }
+/* The number between − and +.
+ *
+ * It used to be `min-width: 32px; text-align: center` and nothing else — an
+ * inline span. That was written for the stepper defined a few lines above it
+ * (30px buttons, 4px gap), but a SECOND .qty-stepper further down this file
+ * (the product page's joined pill) wins on source order and sets
+ * `align-items: stretch`. So this span became a stretched flex item 44px tall
+ * with its text sitting on the first line box: the digit rode at the top of
+ * the control while the two buttons beside it were centred. Centring it in
+ * its own box is what puts the number back on the same line as the signs.
+ *
+ * The side rules match .qty-stepper input's, so the cart's stepper and the
+ * product page's are the same object with the same three cells. */
+.qty-value {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 46px; min-height: 44px; padding: 0 6px;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  font: 600 15px/1 'Inter', system-ui, sans-serif; color: var(--ink-900);
+}
 .cart-line-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .cart-line-right form { margin: 0; }
 .cart-remove {
@@ -1744,16 +1901,75 @@ body.shop-auth {
    the two views can never disagree about what a card says. */
 .pgrid.is-list { grid-template-columns: 1fr; }
 .pgrid.is-list .pcard { flex-direction: row; align-items: stretch; }
+/* 136, down from 168: a list row is for scanning a lot of products, and the
+   picture is the least of what distinguishes one bag of rice from another —
+   the name and the price are. Narrower media also shortens the row, which is
+   the whole reason a shopper switched to this view. */
 .pgrid.is-list .pcard .thumb {
-  width: 168px; flex: none; aspect-ratio: auto; padding: 14px;
+  width: 136px; flex: none; aspect-ratio: auto; padding: 12px;
 }
-.pgrid.is-list .pcard .thumb img { inset: 14px; width: calc(100% - 28px); height: calc(100% - 28px); }
-.pgrid.is-list .pcard .body { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 0 20px; }
-.pgrid.is-list .pcard .pcat,
-.pgrid.is-list .pcard .name,
-.pgrid.is-list .pcard .pdesc,
-.pgrid.is-list .pcard .psold { flex-basis: 100%; }
-.pgrid.is-list .pcard .pfoot { flex-basis: 100%; margin-top: 10px; padding-top: 12px; }
+.pgrid.is-list .pcard .thumb img { inset: 12px; width: calc(100% - 24px); height: calc(100% - 24px); }
+.pgrid.is-list .pcard .body { padding: 12px 16px; }
+/* Two columns, not a wrapping row: everything the product SAYS down the left,
+   everything it COSTS and the way to buy it down the right.
+
+   It was one flex row with every child at flex-basis: 100%, which is a column
+   wearing a row's clothes — the price and the button ended up on a full-width
+   line under the description, so a list of six products put its six prices at
+   six different heights depending on how long each description ran, and the
+   eye could not run down them. Grid areas pin the price column to a constant
+   right edge whatever the left column does.
+
+   `desc` is declared even though .pdesc only renders when the product has a
+   description: an area with no item in it collapses to a zero row, and the
+   two remaining lines still sit against the same price block. */
+.pgrid.is-list .pcard .body {
+  display: grid; align-content: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "meta foot"
+    "name foot"
+    "desc foot";
+  column-gap: 24px; row-gap: 4px;
+}
+/* Flush left, not pushed apart. On a card the meta line spans the card's own
+   width and the two ends read as two corners of one object; across a list row
+   the same rule threw "43 sold" against the price column, where it read as a
+   line of the price block. Together on the left they read as what they are —
+   two notes about the product, above its name. */
+.pgrid.is-list .pcard .pmeta  { grid-area: meta; justify-content: flex-start; gap: 8px; }
+/* The dot rides on the sold count, not on the category: .pcat clips its own
+   overflow to an ellipsis, and a separator inside that box gets clipped with
+   the name it was meant to follow. :not(:last-child) is on the count instead
+   — a row with no sold figure gets no orphaned dot either way. */
+.pgrid.is-list .pcard .psold:not(:first-child)::before {
+  content: "·"; margin-right: 8px; color: var(--ink-400);
+}
+.pgrid.is-list .pcard .name   { grid-area: name; margin-bottom: 0; -webkit-line-clamp: 1; }
+.pgrid.is-list .pcard .pdesc  { grid-area: desc; margin: 4px 0 0; -webkit-line-clamp: 1; }
+/* The price column. Right-aligned so the peso figures line up with the
+   button's right edge and with each other down the page — a column of
+   numbers is only scannable if it shares an edge. */
+.pgrid.is-list .pcard .pfoot {
+  grid-area: foot; align-self: center;
+  flex-direction: column; align-items: flex-end; justify-content: center;
+  flex-wrap: nowrap; gap: 10px;
+  margin: 0; padding: 0; min-width: 172px;
+}
+.pgrid.is-list .pcard .price-cluster { align-items: flex-end; text-align: right; }
+/* The button gets its words back here, and the full width of the column with
+   them. The grid card drops the label because the card is 200px wide and the
+   glyph is unambiguous; a list row has the width, and at this size a lone
+   44px icon floating at the end of a wide row is a target you have to look
+   for. .cta--icon's margin-left: auto is what the column already does. */
+.pgrid.is-list .pcard .pfoot .cta--icon { flex: 1 1 auto; width: 100%; }
+.pgrid.is-list .btn-cart--add { width: 100%; min-height: 38px; gap: 8px; }
+.pgrid.is-list .btn-cart--add .lbl-add { display: inline; }
+/* ...and swaps them for the two seconds it is confirming, the same pair the
+   product page swaps. Both hidden again in the grid, where the tick alone is
+   the whole message. */
+.pgrid.is-list .btn-cart--add.is-added .lbl-add { display: none; }
+.pgrid.is-list .btn-cart--add.is-added .lbl-added { display: inline; }
 .pgrid.is-list .bulk-flag { top: 10px; left: 10px; }
 
 /* ------------------------------------------------- card additions */
@@ -1786,8 +2002,13 @@ body.shop-auth {
    button spanning the card and adding a row of height to every card in the
    grid. The button keeps its text, so nothing is lost but decoration. */
 @container (max-width: 247px) {
-  .pcard .pfoot .btn-cart svg { display: none; }
-  .pcard .btn-cart { padding: 0 11px; }
+  /* Drops the glyph so the LABEL still fits on a narrow card — which is only
+     coherent for the three CTA branches that have a label. :not() exempts the
+     icon-only Add to cart, whose glyph is the whole control: this rule is
+     (0,3,1) and beat .btn-cart--add.is-added .ico-added at (0,3,0), so every
+     card in a 216px track rendered an empty green box. */
+  .pcard .pfoot .btn-cart:not(.btn-cart--add) svg { display: none; }
+  .pcard .btn-cart:not(.btn-cart--add) { padding: 0 11px; }
 }
 
 /* Below ~200px the pair genuinely does not fit, and forcing it either wrapped
@@ -1799,6 +2020,15 @@ body.shop-auth {
   .pcard .pfoot .cta,
   .pcard .pfoot .btn,
   .pcard .pfoot .btn-cart { width: 100%; }
+  /* ...except the icon-only one, which is 44px wide and never was the reason
+     the row stopped fitting. Stacking it spends a whole extra row of card
+     height on a control the width of a thumbnail, and stretching it brings
+     back the full-width slab this variant exists to avoid. The rules above
+     are (0,3,0) and so are these — they win on order, not weight, so they
+     have to stay below. */
+  .pcard .pfoot:has(.cta--icon) { flex-direction: row; align-items: center; }
+  .pcard .pfoot .cta--icon,
+  .pcard .pfoot .cta--icon .btn-cart--add { width: auto; }
 }
 
 /* Phone-width track. The description is the first thing to go: two clamped
@@ -1810,7 +2040,7 @@ body.shop-auth {
   .pcard .price { font-size: 17px; }
   .pcard .pdesc { display: none; }
   .pcard .psku { margin-bottom: 5px; }
-  .pcard .btn-cart { padding: 0 9px; font-size: 12.5px; }
+  .pcard .btn-cart:not(.btn-cart--add) { padding: 0 9px; font-size: 12.5px; }
   .pcard .thumb { padding: 10px 10px 4px; }
   .pcard .thumb img { inset: 10px 10px 4px; width: calc(100% - 20px); height: calc(100% - 14px); }
 }
@@ -1868,8 +2098,10 @@ body.shop-auth {
 
 /* The price in its own tinted band — what stops the biggest number on the
    page from reading as a continuation of the SKU line above it. */
+/* Tinted with the price's own hue, not the old warm one: a green figure in a
+   peach box read as two different claims in one panel. */
 .price-band {
-  background: #FFF6F0; border: 1px solid #FBDCC8; border-radius: 4px;
+  background: var(--green-50); border: 1px solid var(--green-300); border-radius: 4px;
   padding: 16px 18px; margin-bottom: 18px;
 }
 .price-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
@@ -1921,13 +2153,43 @@ body.shop-auth {
 /* Outlined green, the reference secondary buy button. --action-700 on
    --green-50 is 6.94:1. */
 .btn-ghost-green {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   background: var(--green-50); color: var(--action-700);
   border: 1px solid var(--action); min-height: var(--touch); padding: 0 18px;
   border-radius: 4px; cursor: pointer; text-decoration: none;
   font: 600 14px/1 'Inter', system-ui, sans-serif;
+  /* Wide enough for "Add to Cart", which is the longer of the two labels this
+     button swaps between — so the two-second "Added" does not shrink it and
+     let it grow back under the pointer. */
+  min-width: 152px;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 .btn-ghost-green:hover { background: var(--action); color: #fff; }
+/* Added, on the product page's own buy button: the cart glyph becomes a tick
+   and the outline fills in with the solid dark green — the same confirmation
+   the card button gives, because a successful add here raises no toast
+   either, and the same two seconds before it goes back. Both glyphs and both
+   labels are in the markup and CSS picks a pair, so neither swap costs a
+   reflow.
+   White on --action is 5.31:1, and the glyph changes SHAPE as well as
+   colour — which is what a colour-blind reader is left with. */
+.btn-ghost-green .ico-added,
+.btn-ghost-green .lbl-added { display: none; }
+.btn-ghost-green.is-added,
+.btn-ghost-green.is-added:hover {
+  background: var(--action); border-color: var(--action); color: #fff;
+}
+.btn-ghost-green.is-added .ico-add,
+.btn-ghost-green.is-added .lbl-add { display: none; }
+.btn-ghost-green.is-added .ico-added { display: block; }
+.btn-ghost-green.is-added .lbl-added { display: inline; }
+/* One pulse on the frame the tick appears, so a repeat add on a page the
+   shopper is already standing on still reads as an event. Shares the
+   cartAdded keyframe declared with the card button above. */
+.btn-ghost-green.is-added-now { animation: cartAdded .28s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .btn-ghost-green.is-added-now { animation: none; }
+}
 
 .pdp-panels {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -1991,7 +2253,7 @@ body.shop-auth {
   display: inline-flex; align-items: center; gap: 10px;
   text-decoration: none; color: inherit; margin-bottom: 12px;
 }
-.footer-mark img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; }
+.footer-mark img { width: auto; height: 40px; border-radius: 0; object-fit: contain; }
 .footer-mark span { font: 400 16px/1.2 'Inter', system-ui, sans-serif; }
 .footer-blurb {
   font: 400 13.5px/1.65 'Inter', system-ui, sans-serif;
@@ -2027,9 +2289,42 @@ body.shop-auth {
   .footer-grid { grid-auto-flow: row; grid-template-columns: 1fr; }
 }
 
-/* ------------------------------------------------ toast actions row */
-.toast-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 6px; }
-.toast-link {
-  font: 600 13px/1 'Inter', system-ui, sans-serif;
-  color: var(--action-700); text-decoration: underline; cursor: pointer;
-}
+/* ======================================================================
+   CART PAGE  (body.shop-cart)
+
+   A tightening pass, scoped to this page. The Order Summary column ran
+   24px of card padding, a 16px gap under the heading, another 16 under the
+   free-delivery meter, 16 between every field in the .stack and 24 above
+   it — roughly a third of a 340px column spent on air, on the one screen
+   where a shopper wants the whole thing in view at once before committing.
+
+   Every selector here is prefixed with body.shop-cart or a cart-only class.
+   .card-pad, .stack, .field and .summary-line are shared with the internal
+   shell and most of the storefront; editing them at the source would have
+   moved every panel in the app to tidy one column.
+   ====================================================================== */
+body.shop-cart .section { padding-block: 18px; }
+body.shop-cart .section-head { margin-bottom: 12px; }
+
+/* Item rows: 16px above and below each row plus a 14px column gap put ~46px
+   between one product name and the next on a list whose rows are 72px tall. */
+body.shop-cart .cart-row { padding: 10px 0; gap: 12px; }
+body.shop-cart .cart-thumb { width: 60px; height: 60px; font-size: 26px; }
+body.shop-cart .cart-row { grid-template-columns: 60px 1fr auto; }
+body.shop-cart .qty-stepper { margin-top: 6px; }
+
+.cart-summary { padding: 16px; }
+.cart-summary h3 { margin-bottom: 10px; }
+.cart-summary .cart-meter { margin-bottom: 12px; }
+.cart-summary .cart-meter p { margin-bottom: 6px; }
+.cart-summary .summary-line { padding: 5px 0; }
+.cart-summary .summary-total { padding-top: 10px; margin-top: 6px; }
+/* The checkout form: the fields are short and their labels sit directly on
+   them, so 16px between each was reading as four separate panels rather than
+   one form. */
+.cart-summary form.stack { gap: 10px; margin-top: 14px; }
+.cart-summary .field { gap: 4px; }
+.cart-summary .banner { margin-top: 2px; }
+/* Place Order and Continue shopping are one pair; the .stack gap held them
+   as far apart as the unrelated fields above. */
+.cart-summary form.stack > .btn + .btn { margin-top: -4px; }

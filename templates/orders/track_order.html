@@ -98,7 +98,7 @@
       <tbody>
         {% for item in items %}
         <tr>
-          <td data-label="Item"><span style="margin-right:8px;">{{ item.product|product_emoji }}</span>{{ item.product.product_name }}</td>
+          <td data-label="Item"><span style="margin-right:8px;">{{ item.product|product_icon }}</span>{{ item.product.product_name }}</td>
           <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
           <td data-label="Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
           <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>

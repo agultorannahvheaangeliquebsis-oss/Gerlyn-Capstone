@@ -8,16 +8,29 @@ the viewport, which is the footer once the page is scrolled all the way
 down — not just the end of this content block — so the space it needs has
 to be reserved past the footer, not inside the cart.
 {% endcomment %}
-{% block body_class %}shop{% if items %} has-sticky{% endif %}{% endblock %}
+{% comment %}
+shop-cart is the hook for this page's own spacing pass (see the CART PAGE
+block at the end of storefront.css). A class rather than edits to .card-pad,
+.stack and .summary-line themselves: those three are shared with the internal
+shell and half the storefront, and tightening them there would have moved
+every panel in the app to fix one column.
+{% endcomment %}
+{% block body_class %}shop shop-cart{% if items %} has-sticky{% endif %}{% endblock %}
 
 {% block content %}
 <div class="shop-wrap section">
+  {% comment %}
+  The subtitle under this heading printed "No branch selected" whenever no
+  branch was chosen — a line whose whole content was the absence of a fact,
+  on the page a shopper reaches with items already in hand. The branch, once
+  picked, is stated in the storefront nav bar's status line on every page of
+  the shop, so nothing is lost by keeping this heading to itself; when there
+  IS a branch it still names it.
+  {% endcomment %}
   <div class="section-head">
     <div>
       <h2>Your Cart</h2>
-      <p class="gv-meta mb-0">
-        {% if branch %}Collecting from {{ branch.branch_name }}{% else %}No branch selected{% endif %}
-      </p>
+      {% if branch %}<p class="gv-meta mb-0">Collecting from {{ branch.branch_name }}</p>{% endif %}
     </div>
   </div>
 
@@ -27,7 +40,7 @@ to be reserved past the footer, not inside the cart.
     <div class="card card-pad">
       {% for it in items %}
       <div class="cart-row">
-        <div class="cart-thumb">{{ it.product|product_emoji }}</div>
+        <div class="cart-thumb">{{ it.product|product_icon }}</div>
         <div>
           <a href="{% url 'orders:product_detail' it.product.id %}"
              style="font-weight:600; text-decoration:none; color:var(--ink-900);">{{ it.product.product_name }}</a>
@@ -70,16 +83,16 @@ to be reserved past the footer, not inside the cart.
     </div>
 
     <!-- summary -->
-    <div class="card card-pad">
-      <h3 class="mb-4">Order Summary</h3>
+    <div class="card card-pad cart-summary">
+      <h3>Order Summary</h3>
 
       <!-- free-delivery meter -->
-      <div class="mb-4">
+      <div class="cart-meter">
         {% if qualifies %}
-          <p class="stock-ok mb-2">✓ You've unlocked free delivery within Baliuag</p>
+          <p class="stock-ok">✓ You've unlocked free delivery within Baliuag</p>
           <div class="meter"><span style="width:100%;"></span></div>
         {% else %}
-          <p class="gv-meta mb-2">Add ₱{{ remaining_for_free|floatformat:2 }} more for free delivery</p>
+          <p class="gv-meta">Add ₱{{ remaining_for_free|floatformat:2 }} more for free delivery</p>
           <div class="meter"><span style="width:{{ progress_pct }}%;"></span></div>
         {% endif %}
       </div>
@@ -92,7 +105,7 @@ to be reserved past the footer, not inside the cart.
         <span class="gv-metric" style="color:var(--action);">₱{{ total|floatformat:2 }}</span>
       </div>
 
-      <form method="POST" action="{% url 'orders:checkout' %}" class="stack mt-6">
+      <form method="POST" action="{% url 'orders:checkout' %}" class="stack">
         {% csrf_token %}
         <div class="field">
           <label for="mode_of_payment">Payment method</label>
@@ -132,7 +145,7 @@ to be reserved past the footer, not inside the cart.
   {% else %}
   <div class="card">
     <div class="empty">
-      <span class="glyph">🛒</span>
+      <span class="glyph" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg></span>
       <h3>Your cart is empty</h3>
       <p>Add some products to get started.</p>
       <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">Browse Products</a>

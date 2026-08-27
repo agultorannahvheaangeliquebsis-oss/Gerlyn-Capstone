@@ -102,7 +102,7 @@ white-on-white.
 <header class="shop-header">
   <div class="shop-wrap shop-nav">
     <a class="shop-brand" href="/">
-      <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
+      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="Gerlyn Variety Store"></span>
       {% comment %}
       Two lines, the way the reference stacks a wordmark over its trading
       name. The second line is the store's own description from the footer
@@ -184,37 +184,34 @@ white-on-white.
     </nav>
     {% endif %}
 
+    {% comment %}
+    Three bare icons on the green band, no white pills behind them. The
+    account control used to be a bordered trigger opening a dropdown of three
+    links; two of those (My Orders, Settings) now live one click away — the
+    name goes straight to My Orders, and Settings is the rail down the left of
+    that page — and Sign out moved into that same rail. A menu whose contents
+    are all reachable without it is a click that buys nothing.
+    {% endcomment %}
     <div class="shop-header-actions">
       {% if request.user.is_authenticated %}
-        <div class="user-menu" id="user-menu">
-          <button class="user-menu-trigger" onclick="toggleUserMenu(event)" aria-expanded="false" aria-haspopup="true">
-            <span class="user-avatar">
-              {{ request.user.get_full_name|first|upper|default:request.user.username|first|upper }}
-            </span>
-            <span class="user-menu-name">{{ request.user.first_name|default:request.user.username }}</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="user-menu-caret"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="user-menu-panel" id="user-menu-panel">
-            <div class="user-menu-header">
-              <span class="user-menu-fullname">{{ request.user.get_full_name|default:request.user.username }}</span>
-              <span class="user-menu-email">{{ request.user.email }}</span>
-            </div>
-            <div class="user-menu-divider"></div>
-              <a href="{% url 'orders:my_orders' %}" class="user-menu-item">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-              {% t "My Orders" %}
-            </a>
-              <a href="{% url 'accounts:profile' %}" class="user-menu-item">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              {% t "Settings" %}
-            </a>
-            <div class="user-menu-divider"></div>
-            <a href="{% url 'accounts:logout' %}" class="user-menu-item user-menu-item--danger">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              {% t "Sign out" %}
-            </a>
-          </div>
-        </div>
+        {% comment %}
+        The count is IN the accessible name rather than only in the badge:
+        the badge is a decorative span to a screen reader unless the number
+        is spoken, and "Notifications" alone tells a non-sighted shopper
+        nothing about whether there is anything to read.
+        {% endcomment %}
+        <a class="shop-icon-btn" href="{% url 'accounts:notifications' %}"
+           aria-label="{% t 'Notifications' %}{% if notification_count %} ({{ notification_count }} {% t 'unread' %}){% endif %}"
+           title="{% t 'Notifications' %}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          {% if notification_count %}<span class="shop-icon-badge">{{ notification_count }}</span>{% endif %}
+        </a>
+
+        <a class="shop-icon-btn shop-account-btn" href="{% url 'orders:my_orders' %}"
+           title="{% t 'My Orders' %}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          <span class="shop-account-name">{{ request.user.first_name|default:request.user.username }}</span>
+        </a>
       {% else %}
         {% comment %}
         Outlined, not filled: the reference keeps its sign-in as the quieter
@@ -226,14 +223,15 @@ white-on-white.
 
       {% comment %}
       aria-label rather than the visible text alone: the label span is gone
-      from the button entirely now — the reference's cart is a square icon
-      with a count on it — and the SVG beside it is decorative, which would
-      otherwise leave the link with no accessible name at all.
+      from the button entirely now — the cart is an icon with a count on it —
+      and the SVG beside it is decorative, which would otherwise leave the
+      link with no accessible name at all.
       {% endcomment %}
-      <a class="cart-btn btn btn-primary" href="{% url 'orders:cart' %}"
-         aria-label="{% t 'Cart' %}{% if cart_count %} ({{ cart_count }}){% endif %}">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-        {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
+      <a class="shop-icon-btn cart-btn" href="{% url 'orders:cart' %}"
+         aria-label="{% t 'Cart' %}{% if cart_count %} ({{ cart_count }}){% endif %}"
+         title="{% t 'Cart' %}">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+        {% if cart_count %}<span class="shop-icon-badge">{{ cart_count }}</span>{% endif %}
       </a>
     </div>
   </div>
@@ -340,7 +338,7 @@ one task the page exists for.
 
     <div class="footer-brand">
       <a class="footer-mark" href="/">
-        <img src="{% static 'img/logo.jpg' %}" alt="">
+        <img src="{% static 'img/logo.png' %}" alt="">
         <span><strong>Gerlyn</strong> Variety Store</span>
       </a>
       <p class="footer-blurb">
@@ -397,74 +395,6 @@ one task the page exists for.
   </div>
 </footer>
 {% endblock %}
-
-<style>
-/* The trigger sits on the green header band now, so its border, text and
-   avatar all invert. The dropdown panel below it stays on white and keeps
-   the original ink colours. */
-.user-menu { position: relative; }
-.user-menu-trigger {
-  display: flex; align-items: center; gap: 8px;
-  background: none; border: 1.5px solid rgba(255,255,255,.55);
-  border-radius: var(--r-pill); padding: 4px 10px 4px 4px;
-  cursor: pointer; font: 600 14px/1 'Inter', system-ui, sans-serif;
-  color: #fff; min-height: 44px;
-  transition: background .12s ease, border-color .12s ease;
-}
-.user-menu-trigger:hover { background: rgba(255,255,255,.14); border-color: #fff; }
-.user-avatar {
-  width: 30px; height: 30px; border-radius: 50%;
-  background: #fff; color: var(--action-700);
-  display: flex; align-items: center; justify-content: center;
-  font: 700 13px/1 'Inter', system-ui, sans-serif; flex: none;
-}
-.user-menu-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-menu-caret { color: rgba(255,255,255,.85); transition: transform .18s ease; flex: none; }
-.user-menu-trigger[aria-expanded="true"] .user-menu-caret { transform: rotate(180deg); }
-.user-menu-panel {
-  display: none; position: absolute; top: calc(100% + 8px); right: 0;
-  min-width: 220px; background: var(--surface);
-  border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: 0 8px 24px rgba(23,37,30,.12); z-index: 100;
-  padding: 6px; animation: menuIn .15s ease;
-}
-.user-menu-panel.is-open { display: flex; flex-direction: column; }
-@keyframes menuIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.user-menu-header { display: flex; flex-direction: column; padding: 8px 12px 10px; gap: 3px; }
-.user-menu-fullname { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-900); }
-.user-menu-email { font: 400 12.5px/1.2 system-ui, sans-serif; color: var(--ink-400); }
-.user-menu-divider { height: 1px; background: var(--line-soft); margin: 4px 0; }
-.user-menu-item {
-  display: flex; align-items: center; gap: 10px;
-  min-height: 40px; padding: 0 12px;
-  border-radius: var(--r-input); color: var(--ink-700);
-  text-decoration: none; font: 600 14px/1 system-ui, sans-serif;
-  transition: background .1s ease;
-}
-.user-menu-item:hover { background: var(--line-soft); color: var(--ink-900); }
-.user-menu-item--danger { color: var(--danger-fg); }
-.user-menu-item--danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
-</style>
-
-<script>
-function toggleUserMenu(e) {
-  e.stopPropagation();
-  const trigger = document.getElementById('user-menu').querySelector('.user-menu-trigger');
-  const panel   = document.getElementById('user-menu-panel');
-  const isOpen  = panel.classList.toggle('is-open');
-  trigger.setAttribute('aria-expanded', isOpen);
-}
-document.addEventListener('click', function(e) {
-  const menu = document.getElementById('user-menu');
-  if (menu && !menu.contains(e.target)) {
-    document.getElementById('user-menu-panel').classList.remove('is-open');
-    menu.querySelector('.user-menu-trigger').setAttribute('aria-expanded', 'false');
-  }
-});
-</script>
 
 <script>
 /* Shop menu in the white nav row. Click to open (not hover): a hover menu is

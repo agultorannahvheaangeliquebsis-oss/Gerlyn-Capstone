@@ -217,49 +217,14 @@ heading changing every six seconds.
             <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
             <span class="unit">per {{ p.unit_of_measure|lower }}</span>
           </span>
-          {% comment %}
-          Same four CTA branches as the catalog card (partials/catalog_grid.html)
-          so a product offers the same action wherever it is shown. This slot
-          used to be a plain "View" link into the product page, which meant the
-          home grid was the one place a shopper could see a price and a stock
-          line but not act on either.
-
-          This grid is all-branch (the home page is not branch-scoped) while
-          the cart is branch-scoped, so a product listed here can still be
-          absent from the chosen branch. That is caught server-side in
-          orders.customer_views.add_to_cart, which names the branch in the
-          error rather than guessing here.
-          {% endcomment %}
-          {% if not request.user.is_authenticated %}
-            <a class="btn-cart cta" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
-          {% elif request.user.role != 'CUSTOMER' %}
-            <span class="btn-cart cta is-inert" aria-disabled="true">Customer accounts only</span>
-          {% elif not selected_branch_id %}
-            <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
-          {% else %}
-            <form class="cta" method="POST" action="{% url 'orders:add_to_cart' p.id %}" data-add-to-cart>
-              {% csrf_token %}
-              <input type="hidden" name="quantity" value="1">
-              {# Without JS the POST redirects; send the shopper back here, not to the catalog. #}
-              <input type="hidden" name="next" value="{{ request.path }}">
-              {% comment %}
-              The name is in the label so screen-reader users hear which product
-              this adds — every card's button reads "Add to cart" otherwise.
-              {% endcomment %}
-              <button class="btn-cart" type="submit"
-                      aria-label="Add {{ p.product_name }} to cart">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-                Add to cart
-              </button>
-            </form>
-          {% endif %}
+          {% include "partials/_add_to_cart.html" with product=p %}
         </div>
       </div>
     </article>
     {% empty %}
     <div style="grid-column: 1 / -1;">
       <div class="card"><div class="empty">
-        <span class="glyph">📦</span>
+        <span class="glyph" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg></span>
         <h3>No products yet</h3>
         <p>Check back soon — we're stocking the shelves.</p>
       </div></div>
