@@ -68,11 +68,13 @@
      hard-coded corner in this file, storefront.css and account.css with it,
      so nothing is left rounder than the tokens it sits beside.
 
-     --r-pill is NOT part of that: 999px is not a corner radius, it is the
-     shape of a status chip or a count badge, and dropping it to 7px would
-     turn every one of those into a small rounded rectangle rather than
-     making it "less round". Circles (border-radius: 50%) are left alone for
-     the same reason — an avatar is a circle, not a very rounded square. */
+     --r-pill (999px) is reserved for things whose shape carries meaning:
+     count badges, meter tracks, and controls the eye should read as
+     pressable. Static status lozenges are NOT among them — a fully round
+     label looks like a button you can tap, so .pill sits on --r-card and
+     keeps the same corner as the card it is printed on. Circles
+     (border-radius: 50%) are left alone — an avatar is a circle, not a very
+     rounded square. */
   --r-input: 4px;
   --r-card: 7px;
   --r-pill: 999px;
@@ -406,12 +408,14 @@ input::placeholder { color: var(--ink-500); }
 /* ------------------------------------------------------------ status pills
    Always a FULL text label — pills size to content so "Low Stock" can never
    be truncated, and the label is what makes them readable for colour-blind
-   staff. (They used to carry a leading ::before dot as well, but it was
-   painted in currentColor — the same hue as the text — so it conveyed no
-   information the label didn't already, and just added visual noise.) */
+   staff. --r-card, not --r-pill: these are read-only state, and a 999px
+   corner made them look like tappable filters sitting in the table. (They
+   used to carry a leading ::before dot as well, but it was painted in
+   currentColor — the same hue as the text — so it conveyed no information
+   the label didn't already, and just added visual noise.) */
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px; border-radius: var(--r-pill);
+  padding: 3px 10px; border-radius: var(--r-card);
   font: 600 13px/1.6 var(--font-sans);
   white-space: nowrap;
 }
