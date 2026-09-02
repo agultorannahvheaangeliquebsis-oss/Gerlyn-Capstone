@@ -44,7 +44,7 @@ def create_user_profile(sender, instance, created, **kwargs):
 def cleanup_session_tracking(sender, request, user, **kwargs):
     """Drops the UserSession row for whichever session is being logged out.
     Fires before logout() flushes the session, so session_key here is still
-    the real one being destroyed — covers manual "Sign out" and the
+    the real one being destroyed — covers manual "Logout" and the
     idle-timeout logout alike, since both go through this same signal."""
     session_key = request.session.session_key
     if session_key:

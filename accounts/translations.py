@@ -22,7 +22,7 @@ TRANSLATIONS = {
         'log in': 'mag-log in',
         'My Orders': 'Aking mga Order',
         'Settings': 'Mga Setting',
-        'Sign out': 'Mag-sign Out',
+        'Logout': 'Mag-log Out',
         'Search products, brands…': 'Maghanap ng produkto, brand…',
         'Search': 'Maghanap',
         'Track Order': 'Subaybayan ang Order',

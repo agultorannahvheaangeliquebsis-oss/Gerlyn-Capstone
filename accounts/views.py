@@ -1380,7 +1380,7 @@ def session_revoke(request, pk):
 
     target = get_object_or_404(UserSession, pk=pk, user=request.user)
     if target.session_key == request.session.session_key:
-        messages.error(request, "That's your current session — use Sign out for that instead.")
+        messages.error(request, "That's your current session — use Logout for that instead.")
         return _sessions_redirect(request.user)
 
     DjangoSession.objects.filter(session_key=target.session_key).delete()

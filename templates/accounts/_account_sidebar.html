@@ -68,13 +68,13 @@ them never changes the furniture.
   <div class="account-nav-sep"></div>
 
   {% comment %}
-  Sign out was the last row of the header dropdown. Removing that menu without
+  Logout was the last row of the header dropdown. Removing that menu without
   rehoming this would have left a signed-in shopper with no way out of their
   own account, so it takes the foot of the rail — the one surface present on
   every account page.
   {% endcomment %}
   <a href="{% url 'accounts:logout' %}" class="account-nav-link account-nav-link--danger">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-    {% t "Sign out" %}
+    {% t "Logout" %}
   </a>
 </aside>
