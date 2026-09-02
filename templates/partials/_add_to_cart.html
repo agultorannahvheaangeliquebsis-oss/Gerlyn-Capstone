@@ -18,8 +18,16 @@ Expects `product` and `selected_branch_id` in context.
   Offering "Add to cart" to a staff or owner session and refusing it on
   submit is how the redirect loop was reachable in the first place — say so
   on the card instead of after the click.
+
+  Two words, because .btn-cart is `white-space: nowrap` and this pill sits in
+  the footer row beside the price. "Customer accounts only" is 22 characters
+  — about 178px of unbreakable button on a card whose whole footer is ~330px
+  — so it could not share the row with a peso figure and .pfoot wrapped it
+  onto a line of its own, making every staff-session card taller than the
+  customer cards next to it. At 14 characters it is the same size as "Choose
+  a branch" and sits where every other branch's button sits.
   {% endcomment %}
-  <span class="btn-cart cta is-inert" aria-disabled="true">Customer accounts only</span>
+  <span class="btn-cart cta is-inert" aria-disabled="true">Customers only</span>
 {% elif not selected_branch_id %}
   <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
 {% else %}
