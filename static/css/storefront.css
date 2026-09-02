@@ -511,9 +511,10 @@ body.shop {
   color: var(--ink-900); transition: box-shadow .18s ease, transform .18s ease;
 }
 .banner-card:hover { box-shadow: 0 6px 18px rgba(23,37,30,.10); transform: translateY(-2px); color: var(--ink-900); }
+/* The icon sits straight on the card tint — no white chip behind it. */
 .banner-card .bc-ic {
-  width: 34px; height: 34px; border-radius: 5px; background: #fff; flex: none;
-  display: grid; place-items: center; color: var(--action); margin-bottom: 6px;
+  display: grid; place-items: center; justify-content: start;
+  color: var(--action); margin-bottom: 6px;
 }
 .banner-card .bc-t { font: 700 15.5px/1.25 'Inter', system-ui, sans-serif; }
 .banner-card .bc-s { font: 400 13px/1.4 'Inter', system-ui, sans-serif; color: var(--ink-600); }
@@ -545,9 +546,13 @@ body.shop {
   transition: color .15s ease;
 }
 .svc:hover { color: var(--action-700); }
+/* No chip fill. The glyph carries the shortcut on its own; the row of
+   five --green-50 squares read as five filled buttons sitting inside an
+   already-bordered white panel. The 46px box stays so the icon keeps its
+   own line above the label and the columns keep their rhythm. */
 .svc .svc-ic {
-  width: 46px; height: 46px; border-radius: 7px; flex: none;
-  background: var(--green-50); color: var(--action);
+  width: 46px; height: 46px; flex: none;
+  background: none; color: var(--action);
   display: grid; place-items: center;
   transition: transform .15s ease, color .15s ease;
 }
@@ -1296,6 +1301,7 @@ body.shop .toast-stack { top: 182px; }
      home_extra_js.html under the same query, so this only covers the dots. */
   .pcard, .banner-card { transition: border-color .15s ease, box-shadow .15s ease; }
   .pcard:hover, .pcard:focus-within, .banner-card:hover { transform: none; }
+  .about-card:hover, .about-card:focus-within { transform: none; }
   .banner-slide { transition: opacity .15s ease, visibility .15s ease; }
 }
 
@@ -1668,11 +1674,23 @@ body.shop-auth {
   border: 1px solid var(--green-100); border-radius: 6px;
   margin-bottom: 22px;
 }
+/* Bare mark, no plate. .brand-mark is shared with the sidebar, login,
+   register and download headers and paints a solid var(--brand) tile behind
+   its image, which on this hero showed as a green rounded square around the
+   logo; and .brand-mark img caps height at 40px, which cropped the square
+   artwork inside the 66px tile and left green bands above and below it.
+   Both are unset here rather than in gerlyn.css so the pages that do want
+   the tile keep it — the storefront header does the same thing at
+   .shop-brand .brand-mark. Paired with logo.png (transparent) instead of
+   logo.jpg (baked-on white), so the mark sits straight on the hero wash. */
 .about-mark {
-  width: 66px; height: 66px; border-radius: 10px; overflow: hidden;
-  display: inline-flex; margin-bottom: 14px;
+  width: auto; height: auto; border-radius: 0; background: none;
+  overflow: visible; display: inline-flex; margin-bottom: 14px;
 }
-.about-mark img { width: 100%; height: 100%; object-fit: cover; }
+.about-mark img {
+  width: auto; height: 64px; max-height: 64px;
+  object-fit: contain; display: block;
+}
 .about-hero h1 {
   font: 700 30px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-900);
   margin-bottom: 10px;
@@ -1682,18 +1700,40 @@ body.shop-auth {
   max-width: 60ch; margin: 0 auto 20px;
 }
 
+/* 2×2 below the story block, collapsing to a single column on mobile — the
+   count is fixed rather than auto-fit so the second row can't reflow into a
+   3+1 at some in-between width. minmax(0, 1fr) rather than 1fr so a long
+   unbroken word can't push a column past its share. The single `gap` keeps
+   the row and column spacing identical in both the grid and the stack, and
+   grid's default align-items: stretch is what evens out card heights within
+   a row, so a short blurb doesn't leave a gap beside a tall one. */
 .about-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px; margin-bottom: 22px;
 }
 .about-card {
   background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 20px;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
+/* Nothing in these four cards navigates, so the hover is the product card's
+   state at half strength: the green edge and a green-cast shadow, without the
+   2px ring .pcard uses to mark a card the shopper is about to act on.
+   :focus-within is in the selector for the day one of these blurbs gains a
+   link — a keyboard reader tabbing into it then gets the same signal. */
+.about-card:hover,
+.about-card:focus-within {
+  border-color: var(--green-300);
+  box-shadow: 0 6px 18px rgba(30,122,79,.12);
+  transform: translateY(-2px);
+}
+/* Bare glyph, no plate. The green rounded tile this used to paint behind the
+   icon read as a status pill on a page where nothing carries a status — the
+   same shape .about-badge and the KPI pills use to mean something. The icon
+   keeps the brand green, so it still leads the eye into the heading. */
 .about-ic {
-  width: 42px; height: 42px; border-radius: 6px;
-  background: var(--green-50); color: var(--action);
-  display: grid; place-items: center; margin-bottom: 12px;
+  display: flex; align-items: center; color: var(--action);
+  margin-bottom: 10px;
 }
 .about-card h2 {
   font: 700 16px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900);
@@ -1709,11 +1749,23 @@ body.shop-auth {
 .branch-list li {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 14px 18px; border-top: 1px solid var(--line-soft);
+  transition: background .15s ease;
 }
 .branch-list li:first-child { border-top: 0; }
+/* A row wash rather than the cards' edge-and-lift: these are rows inside a
+   panel that already has its own border, and a per-row border would draw a
+   box inside a box. --green-50 is what every other row in the product hovers
+   to (.gv-table tbody tr, .shop-menu-item, .rail-item), so the branch list
+   answers the pointer the same way the rest of the app does. The rows aren't
+   links — the panel head's "Choose a branch" is — so this is a reading aid
+   for keeping your place down a four-row list, not a click affordance. */
+.branch-list li:hover { background: var(--green-50); }
+/* No chip fill, matching .about-ic above. The 34px box stays: it is the icon
+   column for four stacked rows, and collapsing it to the 18px glyph would
+   pull every branch name left of the panel head's own text. */
 .branch-ic {
-  width: 34px; height: 34px; border-radius: 5px; flex: none;
-  background: var(--green-50); color: var(--action);
+  width: 34px; height: 34px; flex: none;
+  background: none; color: var(--action);
   display: grid; place-items: center;
 }
 .branch-nm { font: 600 15px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900); }
@@ -1727,10 +1779,60 @@ body.shop-auth {
 }
 .about-help a { color: var(--action-700); }
 
+/* The anniversary pill and the tagline sit inside .about-hero, which is
+   text-align: center. The pill is display:block + width:max-content rather
+   than inline-block: .about-mark above it is inline-flex, so an inline pill
+   flows up beside the logo instead of onto its own line under it. */
+.about-badge {
+  display: block; width: max-content; margin: 0 auto 12px; padding: 5px 13px;
+  border-radius: 999px; background: var(--green-50);
+  border: 1px solid var(--green-100); color: var(--action-700);
+  font: 600 12.5px/1.3 'Inter', system-ui, sans-serif; letter-spacing: .02em;
+}
+.about-tag {
+  font: 600 15px/1.5 'Inter', system-ui, sans-serif; color: var(--action-700);
+  margin: -6px 0 18px;
+}
+
+/* Prose block. The measure is capped well below the card grid's width —
+   full-bleed 15px paragraphs across a 1100px wrap are unreadable — and the
+   capped column is centred in the card rather than left-hugging it, so the
+   block reads as deliberate beside the centred hero above it. The cap is a
+   px value, not ch: ch resolves against each element's own font size, so a
+   shared 74ch made the 20px h2 box wider than the 15px paragraphs and threw
+   the heading's left edge out of alignment with the prose under it. */
+.about-story {
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 30px 24px; margin-bottom: 22px;
+}
+.about-story h2,
+.about-story p { max-width: 700px; margin-inline: auto; margin-top: 0; }
+.about-story h2 {
+  font: 700 20px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  margin-bottom: 14px;
+}
+.about-story p {
+  font: 400 15px/1.75 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  margin-bottom: 14px;
+}
+.about-story p:last-child { margin-bottom: 0; }
+
+.about-social { text-align: center; margin-bottom: 10px; }
+.about-social a {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: 600 14.5px/1.5 'Inter', system-ui, sans-serif;
+  color: var(--action-700); text-decoration: none;
+}
+.about-social a:hover { text-decoration: underline; }
+
 @media (max-width: 640px) {
   .about-hero { padding: 26px 16px 30px; }
   .about-hero h1 { font-size: 24px; }
   .about-lead { font-size: 15px; }
+  .about-story { padding: 20px 16px; }
+  .about-story h2 { font-size: 18px; }
+  .about-story p { font-size: 14.5px; }
+  .about-grid { grid-template-columns: 1fr; }
 }
 
 /* ======================================================================

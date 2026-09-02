@@ -206,22 +206,15 @@ white-on-white.
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           {% if notification_count %}<span class="shop-icon-badge">{{ notification_count }}</span>{% endif %}
         </a>
-
-        <a class="shop-icon-btn shop-account-btn" href="{% url 'orders:my_orders' %}"
-           title="{% t 'My Orders' %}">
-          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-          <span class="shop-account-name">{{ request.user.first_name|default:request.user.username }}</span>
-        </a>
-      {% else %}
-        {% comment %}
-        Outlined, not filled: the reference keeps its sign-in as the quieter
-        of the two controls in this corner, because the cart is the one a
-        shopper mid-purchase is reaching for.
-        {% endcomment %}
-        <a class="btn shop-signin" href="{% url 'accounts:login' %}">{% t "Sign In" %}</a>
       {% endif %}
 
       {% comment %}
+      The cart sits in the middle of the cluster — bell, cart, account — and
+      so it is written between them rather than after both. It is outside the
+      is_authenticated branch on purpose: a guest builds a cart before signing
+      in, so the icon has to survive the branch that the bell and the account
+      name do not.
+
       aria-label rather than the visible text alone: the label span is gone
       from the button entirely now — the cart is an icon with a count on it —
       and the SVG beside it is decorative, which would otherwise leave the
@@ -233,6 +226,25 @@ white-on-white.
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
         {% if cart_count %}<span class="shop-icon-badge">{{ cart_count }}</span>{% endif %}
       </a>
+
+      {% if request.user.is_authenticated %}
+        <a class="shop-icon-btn shop-account-btn" href="{% url 'orders:my_orders' %}"
+           title="{% t 'My Orders' %}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          <span class="shop-account-name">{{ request.user.first_name|default:request.user.username }}</span>
+        </a>
+      {% else %}
+        {% comment %}
+        Sign In holds the account slot at the end of the cluster, the same
+        place the signed-in name occupies, so the corner does not reshuffle
+        when a shopper logs in.
+
+        Outlined, not filled: the reference keeps its sign-in as the quieter
+        of the two controls in this corner, because the cart is the one a
+        shopper mid-purchase is reaching for.
+        {% endcomment %}
+        <a class="btn shop-signin" href="{% url 'accounts:login' %}">{% t "Sign In" %}</a>
+      {% endif %}
     </div>
   </div>
 

@@ -7,12 +7,18 @@
 {% comment %}
 The storefront's public About page, in the shop nav beside Products.
 
-Every fact on this page is one the store already states somewhere else in
-the app — the delivery threshold from the banner rotator, the payment
-methods from checkout, the branches from the database. Nothing here is
-invented copy: an About page that claims a founding year, a staff count or
-an "our mission" the owner never wrote is the easiest place in a storefront
-to put words in someone's mouth.
+The service facts on this page are ones the store already states somewhere
+else in the app — the delivery threshold from the banner rotator, the
+payment methods from checkout, the branches from the database. Keep it that
+way: an About page that claims a founding year, a staff count or an "our
+mission" the owner never wrote is the easiest place in a storefront to put
+words in someone's mouth.
+
+"Our story" is the one block that is narrative rather than fact. The
+ten-year milestone and the branch names came from the owner; the texture
+around them is written, not reported, and is pending the owner's read. It
+carries no founding year, headcount or revenue figure on purpose — those
+are exactly the claims the paragraph above warns about.
 
 accounts/about.html is the same store facts inside the logged-in Settings
 shell, reached from the account sidebar. This one is what a shopper who has
@@ -30,13 +36,25 @@ never signed in sees, so it carries the storefront chrome instead.
 
   <section class="about-hero">
     <span class="brand-mark about-mark">
-      <img src="{% static 'img/logo.jpg' %}" alt="">
+      <img src="{% static 'img/logo.png' %}" alt="">
     </span>
+    <span class="about-badge">{% t "Celebrating 10 years in 2026" %}</span>
     <h1>{% t "Gerlyn Variety Store" %}</h1>
     <p class="about-lead">
-      {% t "A neighbourhood variety store in Baliuag, Bulacan — the same shelves you already walk, now open from your phone." %}
+      {% t "Ten years of serving Baliwag — one counter at a time. From a single variety store to four branches, we are still the neighbours you send the kids to." %}
     </p>
+    <p class="about-tag">{% t "Sa Gerlyn, Lahat Panalo." %}</p>
     <a class="btn btn-primary" href="{% url 'orders:catalog' %}">{% t "Browse products" %} →</a>
+  </section>
+
+  <section class="about-story">
+    <h2>{% t "Our story" %}</h2>
+    <p>
+      {% t "Gerlyn Variety Store started with one counter and one family. We stocked what the neighbours actually needed: rice, canned goods, soap, the late-night sachet. What kept people coming back was simple — we knew them, and we remembered what they buy." %}
+    </p>
+    <p>
+      {% t "Ten years on, that one store has become four. Gerlyn Variety Store, Gerlyn Mega Save Mini Mart, Gerlyn Bigasan and Gerlyn Savers Mini Mart serve Tiaong and Tarcan Makinabang. Groceries, household goods, bulk supplies, rice by the sack — still family-run, still here in Baliwag." %}
+    </p>
   </section>
 
   <div class="about-grid">
@@ -45,7 +63,7 @@ never signed in sees, so it carries the storefront chrome instead.
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
       </span>
       <h2>{% t "Delivery" %}</h2>
-      <p>{% t "Free delivery anywhere in Baliuag on orders over ₱500. Below that, or outside the area, you can still collect at any branch." %}</p>
+      <p>{% t "Free delivery anywhere in Baliwag on orders over ₱500 — we bring it to your gate. Below ₱500, or outside the area, you can still collect at whichever branch is closest to you. No delivery surprises at checkout." %}</p>
     </div>
 
     <div class="about-card">
@@ -53,7 +71,7 @@ never signed in sees, so it carries the storefront chrome instead.
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18v13H3z"/><path d="M3 7l2-4h14l2 4"/><path d="M9 12h6"/></svg>
       </span>
       <h2>{% t "Bulk and wholesale" %}</h2>
-      <p>{% t "Buy by the sack, box or case. Products with a wholesale price show it on the product page, next to the retail price." %}</p>
+      <p>{% t "Buy by the sack, box or case at wholesale prices. Products with a wholesale rate show it right on the product page, beside the retail price, so you can see the break before you commit. Good for sari-sari store owners, karinderyas and big households." %}</p>
     </div>
 
     <div class="about-card">
@@ -61,7 +79,7 @@ never signed in sees, so it carries the storefront chrome instead.
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
       </span>
       <h2>{% t "Ways to pay" %}</h2>
-      <p>{% t "Cash, GCash, card, bank transfer, cash on delivery, or pay at the store. No card is needed to order." %}</p>
+      <p>{% t "Cash, GCash, card, bank transfer, cash on delivery, or simply pay at the store. No card is needed to place an order — reserve it online and settle at the counter. Whichever is easiest for you works for us." %}</p>
     </div>
 
     <div class="about-card">
@@ -69,7 +87,7 @@ never signed in sees, so it carries the storefront chrome instead.
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 8h14M5 16h14"/><circle cx="12" cy="12" r="9"/></svg>
       </span>
       <h2>{% t "Statutory discounts" %}</h2>
-      <p>{% t "PWD and Senior Citizen discounts are honoured at the counter on eligible items, with a valid ID." %}</p>
+      <p>{% t "PWD and Senior Citizen discounts are honoured at the counter on eligible items, with a valid ID. Present it when you pay, or when your order is handed over. The same discount applies online or in person, as the law provides." %}</p>
     </div>
   </div>
 
@@ -99,6 +117,18 @@ never signed in sees, so it carries the storefront chrome instead.
     </ul>
   </section>
   {% endif %}
+
+  {% comment %}
+  Opens in a new tab with rel="noopener" — the page is leaving the site for
+  Facebook, and a bare target="_blank" hands the opened tab a window.opener
+  handle back into this one.
+  {% endcomment %}
+  <p class="about-social">
+    <a href="https://www.facebook.com/gerlynwholesaleretail" target="_blank" rel="noopener">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.07C24 5.44 18.63.07 12 .07S0 5.44 0 12.07c0 5.99 4.39 10.95 10.13 11.85v-8.38H7.08v-3.47h3.05V9.43c0-3.01 1.79-4.67 4.53-4.67 1.31 0 2.69.24 2.69.24v2.95h-1.51c-1.49 0-1.96.93-1.96 1.87v2.25h3.33l-.53 3.47h-2.8v8.38C19.61 23.02 24 18.06 24 12.07z"/></svg>
+      {% t "Find us on Facebook" %}
+    </a>
+  </p>
 
   {% comment %}
   The Help Center is @login_required. Offering it unconditionally sent every
