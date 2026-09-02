@@ -1,0 +1,87 @@
+{% comment %}
+The internal system's empty-state art, one copy for every module.
+
+Every .empty block used to draw its own character in the 48px circle — □ for
+"no rows", ＋ for "none created yet", ✓ for an all-clear, ! for a block, ₱ for
+billing. Five different alphabets, none of them line art, and all of them at
+the mercy of the viewer's emoji font: □ in particular is literally the glyph a
+font renders when it has nothing to draw, so the most common empty state in
+the system was indistinguishable from a broken one. The Scan buttons carried a
+📷 for the same reason, which rendered full-colour on Windows and flat on
+Linux and matched nothing else on the page.
+
+These are the same 24x24 / stroke-2 / currentColor drawings as the rest of the
+internal UI, and six of them are deliberately the SAME paths as
+partials/_status_icon.html and reports/_row_icon.html rather than new art:
+box, truck, cart, peso, alert and check-circle. A purchase order is one truck
+across the Reports tab bar, the status filters and this empty state. A second
+truck would say there are two kinds of purchase order.
+
+Usage: {% include "partials/_empty_icon.html" with icon="box" %}
+Colour comes from .empty .glyph via currentColor; size from the width/height
+attributes below.
+
+The width/height attributes are NOT redundant with the .empty .glyph svg rule.
+An <svg> carrying only a viewBox has no intrinsic size, so a stale or missing
+stylesheet falls it back to the SVG default of 300x150 and a 24px mark becomes
+a block the width of the page — the same failure _status_icon.html documents
+from 2026-08-10, when a browser held an older /static/css/gerlyn.css.
+
+Which mark goes where is a distinction the old glyphs collapsed: "No suppliers
+yet" (nothing has been created) and "No suppliers match" (a filter hid them)
+both drew ＋, which invited someone looking at a filtered table to go and
+create a duplicate. Nothing-created states carry the icon of the THING; a
+filtered-empty state carries `search`, which points at the filter instead.
+{% endcomment %}
+{% if icon == 'box' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+{% elif icon == 'truck' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 16V5h11v11"/><path d="M14 9h4l3 3.5V16h-7"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg>
+{% elif icon == 'cart' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+{% elif icon == 'peso' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 20V4h5a4 4 0 0 1 0 8H6"/><path d="M6 16h8"/></svg>
+{% elif icon == 'alert' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg>
+{% elif icon == 'check-circle' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg>
+{% elif icon == 'search' %}
+  {# Filtered-empty ONLY. The rows may well exist — the filter is hiding them. #}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+{% elif icon == 'chart' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="m7.5 15 3.5-4.5 3 2.5L20 7"/></svg>
+{% elif icon == 'activity' %}
+  {# The Recent Activity feed, which is a stream rather than one record type. #}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5-7 5 14L17 12h4"/></svg>
+{% elif icon == 'transfer' %}
+  {# Stock leaving and returning — withdrawal slips and branch movement. #}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13"/><path d="m13 4 4 4-4 4"/><path d="M20 16H7"/><path d="m11 20-4-4 4-4"/></svg>
+{% elif icon == 'store' %}
+  {# A branch: the awning marks it as a shopfront, not the supplier factory. #}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5V20h16v-9.5"/><path d="M3 10 5 4h14l2 6a2.6 2.6 0 0 1-5 0 2.6 2.6 0 0 1-5 0 2.6 2.6 0 0 1-5 0Z"/><path d="M10 20v-5h4v5"/></svg>
+{% elif icon == 'supplier' %}
+  {# A factory, paired against `store` so the two never read as one building. #}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M4 21v-9l5.5 3.2V12l5.5 3.2V5h4v16"/></svg>
+{% elif icon == 'tag' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 12.5 12 21l-9-9V3h9z"/><path d="M7.8 7.8h.01"/></svg>
+{% elif icon == 'image' %}
+  {# Proof-of-payment screenshots, which are the only uploads in the system. #}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m3.5 17 4.5-4.5 3.5 3.5 3-3 6 6"/></svg>
+{% elif icon == 'lock' %}
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+{% elif icon == 'camera' %}
+  {% comment %}The barcode Scan buttons. Sized 16 to sit in a .btn beside
+  14.5px text, not 24 like the empty-state marks above.{% endcomment %}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8a1 1 0 0 1 1-1h3l1.6-2.2h6.8L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><circle cx="12" cy="13" r="3.4"/></svg>
+{% elif icon == 'flag' %}
+  {# Flag Discrepancy on a stock transfer — the one place a flag is raised. #}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 5h11l-2 3.5L16 12H5"/></svg>
+{% elif icon == 'check' %}
+  {# A bare tick for buttons — the circled form above is for empty states. #}
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5"/></svg>
+{% endif %}
+{% comment %}
+No {% else %}. A misspelled name draws nothing at all, which is visible in a
+second; a fallback would quietly render a plausible-looking wrong mark and
+nobody would know the name was wrong — the same reasoning as _status_icon.html.
+{% endcomment %}

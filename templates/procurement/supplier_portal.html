@@ -155,7 +155,7 @@
     {% empty %}
     <div class="card">
       <div class="empty">
-        <span class="glyph">□</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
         <h3>No purchase orders yet</h3>
         <p>When Gerlyn Variety Store places an order with you, it appears here.</p>
       </div>

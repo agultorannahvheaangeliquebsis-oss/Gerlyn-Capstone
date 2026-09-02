@@ -18,6 +18,8 @@ TRANSLATIONS = {
         'Products': 'Mga Produkto',
         'Cart': 'Cart',
         'Log in': 'Mag-log In',
+        'Log In': 'Mag-log In',
+        'log in': 'mag-log in',
         'My Orders': 'Aking mga Order',
         'Settings': 'Mga Setting',
         'Sign out': 'Mag-sign Out',

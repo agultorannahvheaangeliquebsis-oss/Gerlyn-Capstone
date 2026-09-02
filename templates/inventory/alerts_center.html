@@ -110,7 +110,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}">Create Stock Adjustment</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Create Stock Adjustment</a>
           </span>
         </td>
       </tr>
@@ -118,7 +118,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
       <tr>
         <td colspan="7">
           <div class="empty">
-            <span class="glyph">✓</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing needs restocking</h3>
             <p>Every branch's floor stock is above its reorder level.</p>
           </div>
@@ -162,7 +162,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}">Create PO</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Create PO</a>
           </span>
         </td>
       </tr>
@@ -170,7 +170,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
       <tr>
         <td colspan="7">
           <div class="empty">
-            <span class="glyph">✓</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing needs reordering</h3>
             <p>Every branch's warehouse stock is above its reorder level.</p>
           </div>
@@ -210,7 +210,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
       <tr>
         <td colspan="5">
           <div class="empty">
-            <span class="glyph">✓</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing expired</h3>
             <p>No floor or warehouse stock is past its expiry date.</p>
           </div>
@@ -252,7 +252,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
       <tr>
         <td colspan="6">
           <div class="empty">
-            <span class="glyph">✓</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing expiring soon</h3>
             <p>No floor or warehouse stock expires within the next 30 days.</p>
           </div>
@@ -294,7 +294,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
       <tr>
         <td colspan="6">
           <div class="empty">
-            <span class="glyph">✓</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing approaching expiry</h3>
             <p>No floor or warehouse stock expires within the next 90 days.</p>
           </div>

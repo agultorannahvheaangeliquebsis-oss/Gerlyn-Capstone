@@ -53,7 +53,8 @@
         <td data-label="Last Login" class="gv-meta">{{ r.user.last_login|date:"Y-m-d H:i"|default:"Never" }}</td>
         <td data-label="Actions">
           <span class="row-actions">
-            <a class="btn btn-sm" href="{% url 'accounts:user_list' %}?edit={{ r.user.pk }}">Edit</a>
+            <a class="icon-btn icon-btn-action" href="{% url 'accounts:user_list' %}?edit={{ r.user.pk }}"
+               title="Edit" aria-label="Edit {{ r.user.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></a>
             {% if r.user.pk != request.user.pk %}
             {% comment %}
             The confirm is on the deactivate direction only. Reactivating
@@ -68,9 +69,13 @@
                   data-confirm-ok="Deactivate"
                   {% endif %}>
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm {% if r.user.is_active %}btn-danger{% endif %}">
-                {% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}
-              </button>
+              {% if r.user.is_active %}
+              <button type="submit" class="icon-btn icon-btn-danger"
+                      title="Deactivate" aria-label="Deactivate {{ r.user.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M17 8l5 5M22 8l-5 5"/></svg></button>
+              {% else %}
+              <button type="submit" class="icon-btn icon-btn-action"
+                      title="Reactivate" aria-label="Reactivate {{ r.user.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg></button>
+              {% endif %}
             </form>
             {% endif %}
           </span>
@@ -78,14 +83,14 @@
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">
-        <span class="glyph">＋</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
         <h3>No users match</h3>
         <p>Try clearing the search or role filter.</p>
       </div></td></tr>
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="user-no-matches" hidden><td colspan="7"><div class="empty">
-        <span class="glyph">＋</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
         <h3>No users match</h3>
         <p>No users match "<span data-filter-empty-query></span>". Try a different search.</p>
       </div></td></tr>

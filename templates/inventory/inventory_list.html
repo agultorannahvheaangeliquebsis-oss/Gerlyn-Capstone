@@ -28,7 +28,7 @@
     padding: var(--s4) var(--s6);
     border-bottom: 1px solid var(--line);
   }
-  .modal-head h2 { font: 650 20px/1.25 system-ui, sans-serif; margin: 0; }
+  .modal-head h2 { font: 650 20px/1.25 var(--font-sans); margin: 0; }
   .modal-close {
     display: inline-flex; align-items: center; justify-content: center;
     flex: none;
@@ -121,7 +121,7 @@ across the full width leave the default block padding as empty card.
 
 <form method="GET" class="toolbar" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
   <input type="search" name="q" id="inventory-search-input" class="input grow" placeholder="Search product…" value="{{ search_query }}" autocomplete="off">
-  <button type="button" class="btn" id="inventory-scan-btn" title="Scan a barcode to search">📷 Scan</button>
+  <button type="button" class="btn" id="inventory-scan-btn" title="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
   {% if branches %}
   <select name="branch" onchange="this.form.submit()">
     <option value="">All Branches</option>
@@ -178,17 +178,18 @@ across the full width leave the default block padding as empty card.
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
         <td data-label="Actions">
-          <button type="button" class="btn btn-sm btn-quiet" style="color:var(--action);"
-                  onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }}, '{{ row.inv.expiry_date|date:"Y-m-d"|default:"" }}')">
-            Edit
-          </button>
+          <span class="row-actions">
+            <button type="button" class="icon-btn icon-btn-action"
+                    title="Edit" aria-label="Edit stock for {{ row.inv.product.product_name }}"
+                    onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }}, '{{ row.inv.expiry_date|date:"Y-m-d"|default:"" }}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+          </span>
         </td>
       </tr>
       {% empty %}
       <tr>
         <td colspan="9">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No stock records match</h3>
             <p>Try clearing the filters, or add stock by receiving a delivery.</p>
           </div>
@@ -199,7 +200,7 @@ across the full width leave the default block padding as empty card.
       <tr id="inventory-no-matches" hidden>
         <td colspan="9">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No stock records match</h3>
             <p>No products match "<span data-filter-empty-query></span>". Try a different search.</p>
           </div>
@@ -235,7 +236,7 @@ across the full width leave the default block padding as empty card.
         <div class="row" style="gap:8px;">
           <input type="text" id="adjust-barcode" class="input grow"
                  placeholder="Scan a barcode, or type one and press Enter" autocomplete="off">
-          <button type="button" class="btn" id="adjust-barcode-scan-btn" title="Scan with camera">📷 Scan</button>
+          <button type="button" class="btn" id="adjust-barcode-scan-btn" title="Scan with camera">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
         </div>
         <span class="barcode-status" id="adjust-barcode-status"></span>
       </div>

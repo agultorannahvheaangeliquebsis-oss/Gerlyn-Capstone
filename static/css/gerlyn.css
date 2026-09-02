@@ -1,11 +1,18 @@
 /* ==========================================================================
    GerlynPLUS Design System
    Implements the "Gerlyn Variety Store Redesign" foundation.
-   Self-contained: no CDN, no external fonts. System sans, 16px base.
+   Roboto (Google Fonts, linked from both base templates) at 16px base.
+   Every rule takes its family from --font-sans below, so the stack is
+   changed in one place rather than in the ~230 `font:` shorthands.
    ========================================================================== */
 
 /* ---------------------------------------------------------------- tokens */
 :root {
+  /* Typography. Roboto is linked in internal_base.html and public_base.html;
+     the tail is what renders in the gap before it arrives, or if Google Fonts
+     is unreachable. */
+  --font-sans: 'Roboto', -apple-system, 'Segoe UI', Arial, sans-serif;
+
   /* Brand. #2E9E6B is the identity colour, but anything with WHITE TEXT on it
      uses --action (#1E7A4F) so it passes WCAG AA. Never put white text on
      --brand for small text. */
@@ -97,20 +104,31 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink-900);
-  font: 400 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 400 16px/1.5 var(--font-sans);
 }
 a { color: var(--action); }
 a:hover { color: var(--action-700); }
 
+/* Form controls and buttons do not inherit font-family from body — the UA
+   sheet gives them the OS default instead, which is the whole thing this
+   change is undoing. The typed selector list below (.input, input[type=text]
+   and friends) sets the family in its `font:` shorthand, but it names eight
+   input types and misses file, submit, url, time and datetime-local, plus
+   any bare <button>. Family only here, so every size and weight set
+   elsewhere survives. */
+button, input, select, textarea, optgroup {
+  font-family: var(--font-sans);
+}
+
 /* Type scale */
-.gv-metric { font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.gv-page-title { font: 650 24px/1.25 system-ui, sans-serif; margin: 0; }
-h1 { font: 650 24px/1.25 system-ui, sans-serif; margin: 0; }
-h2 { font: 650 24px/1.25 system-ui, sans-serif; margin: 0; }
-h3, .gv-card-title { font: 600 18px/1.3 system-ui, sans-serif; margin: 0; }
-.gv-meta { font: 400 14px/1.45 system-ui, sans-serif; color: var(--ink-600); }
+.gv-metric { font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; }
+.gv-page-title { font: 650 24px/1.25 var(--font-sans); margin: 0; }
+h1 { font: 650 24px/1.25 var(--font-sans); margin: 0; }
+h2 { font: 650 24px/1.25 var(--font-sans); margin: 0; }
+h3, .gv-card-title { font: 600 18px/1.3 var(--font-sans); margin: 0; }
+.gv-meta { font: 400 14px/1.45 var(--font-sans); color: var(--ink-600); }
 .gv-label {
-  font: 700 12px/1.2 system-ui, sans-serif;
+  font: 700 12px/1.2 var(--font-sans);
   letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
 }
 .gv-muted { color: var(--ink-600); }
@@ -133,7 +151,7 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: var(--touch); padding: 0 18px;
   border-radius: var(--r-input);
-  font: 650 14.5px/1 system-ui, sans-serif;
+  font: 650 14.5px/1 var(--font-sans);
   text-decoration: none; cursor: pointer;
   border: 1.5px solid var(--input-line);
   background: var(--surface); color: var(--ink-900);
@@ -153,6 +171,30 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 .btn-sm { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
 .btn[disabled], .btn:disabled { opacity: .5; cursor: not-allowed; }
 
+/* ----------------------------------------------------------- icon action */
+/* Every internal table's Actions column is icon-only. The verbs (Edit,
+   Delete, View…) repeat on every row, so once the icon is learned the word
+   is noise — and three text buttons per row turned the column into a wall
+   of boxes. The name still has to exist for anyone not reading the picture:
+   aria-label carries it to screen readers, title shows it on hover. An
+   icon-only control with neither has no accessible name at all, so both
+   stay on every one of these. */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none; width: 36px; height: 36px; padding: 0;
+  border: 1.5px solid transparent; border-radius: var(--r-input);
+  background: transparent; color: var(--ink-700);
+  cursor: pointer; text-decoration: none;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.icon-btn svg { display: block; width: 18px; height: 18px; }
+.icon-btn:hover { background: var(--line-soft); color: var(--ink-900); }
+/* Tinted on hover only, so a resting row stays quiet and the colour still
+   says which button is the destructive one the moment you reach for it. */
+.icon-btn-action:hover { background: var(--green-50); color: var(--action-700); }
+.icon-btn-danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
+.icon-btn[disabled], .icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+
 /* ---------------------------------------------------------------- inputs */
 /* input[type=tel] belongs on this list. It was missing, so the three
    phone-number fields in the app — profile, internal settings and the
@@ -168,13 +210,13 @@ input[type=tel], select, textarea {
   border-radius: var(--r-input);
   background: var(--surface);
   color: var(--ink-900);
-  font: 400 15px/1.4 system-ui, sans-serif;
+  font: 400 15px/1.4 var(--font-sans);
   width: 100%;
 }
 textarea { padding: 10px 14px; min-height: 80px; resize: vertical; max-width: 100%; }
 input::placeholder { color: var(--ink-500); }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field > label { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-700); }
+.field > label { font: 600 14px/1.2 var(--font-sans); color: var(--ink-700); }
 
 /* Floating-label field: opt in with .field-float. Markup order must be
    input then label, and the input needs placeholder=" " so :placeholder-shown
@@ -188,7 +230,7 @@ input::placeholder { color: var(--ink-500); }
   left: 15px;
   top: 50%;
   transform: translateY(-50%);
-  font: 400 15px/1.4 system-ui, sans-serif;
+  font: 400 15px/1.4 var(--font-sans);
   color: var(--ink-700);
   background: transparent;
   pointer-events: none;
@@ -213,7 +255,7 @@ input::placeholder { color: var(--ink-500); }
 }
 .field-error {
   margin: calc(-1 * var(--s4) + 6px) 0 0;
-  font: 500 13px/1.4 system-ui, sans-serif;
+  font: 500 13px/1.4 var(--font-sans);
   color: var(--danger-fg);
 }
 
@@ -260,7 +302,7 @@ input::placeholder { color: var(--ink-500); }
 .stat-hero .label, .kpi-card .label { display: block; }
 .stat-hero .value, .kpi-card .value {
   display: block; margin-top: 2px;
-  font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums;
 }
 /* .stat-foot removed — every KPI card across the app dropped its qualifying
    sub-text ("at cost", "23 orders", "above reorder level") by request. A card
@@ -308,7 +350,7 @@ input::placeholder { color: var(--ink-500); }
    an absence, so it must not outweigh the figures it is explaining. */
 .kpi-compare-note {
   margin: var(--s3) 0 0;
-  font: 400 13px/1.45 system-ui, sans-serif;
+  font: 400 13px/1.45 var(--font-sans);
   color: var(--ink-500);
 }
 
@@ -344,7 +386,7 @@ input::placeholder { color: var(--ink-500); }
 }
 /* 30px against the h3's 18px. At the 20px it replaces, the label and the
    figure were close enough in size and weight that neither one led. */
-.kpi-graph-value { font: 700 30px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.kpi-graph-value { font: 700 30px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; }
 /* .gv-meta.kpi-graph-peak, not .kpi-graph-peak alone — .gv-meta sets 14px in
    the same single-class breath, so on specificity alone this would win only
    by sitting later in the file. Left-aligned once it wraps to its own line,
@@ -355,11 +397,11 @@ input::placeholder { color: var(--ink-500); }
   background: var(--line-soft); border: 1px solid var(--line);
   border-radius: var(--r-card); padding: var(--s4) var(--s4);
 }
-.stat .value { font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.stat .label, .stat-hero .label, .kpi-card .label { font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-600); }
+.stat .value { font: 700 20px/1.2 var(--font-sans); font-variant-numeric: tabular-nums; }
+.stat .label, .stat-hero .label, .kpi-card .label { font: 400 14px/1.4 var(--font-sans); color: var(--ink-600); }
 .stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s3); }
-.trend-up { color: var(--ok-fg); font: 600 13px/1 system-ui, sans-serif; }
-.trend-down { color: var(--danger-fg); font: 600 13px/1 system-ui, sans-serif; }
+.trend-up { color: var(--ok-fg); font: 600 13px/1 var(--font-sans); }
+.trend-down { color: var(--danger-fg); font: 600 13px/1 var(--font-sans); }
 
 /* ------------------------------------------------------------ status pills
    Always a FULL text label — pills size to content so "Low Stock" can never
@@ -370,7 +412,7 @@ input::placeholder { color: var(--ink-500); }
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 3px 10px; border-radius: var(--r-pill);
-  font: 600 13px/1.6 system-ui, sans-serif;
+  font: 600 13px/1.6 var(--font-sans);
   white-space: nowrap;
 }
 .pill-ok     { background: var(--ok-bg);     color: var(--ok-fg); }
@@ -386,7 +428,7 @@ input::placeholder { color: var(--ink-500); }
 .gv-table th {
   position: sticky; top: 0; z-index: 1;
   background: var(--line-soft);
-  font: 700 12px/1.2 system-ui, sans-serif;
+  font: 700 12px/1.2 var(--font-sans);
   letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
   text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line);
   white-space: nowrap;
@@ -406,7 +448,7 @@ input::placeholder { color: var(--ink-500); }
 .gv-table th.end, .gv-table td.end { text-align: right; }
 .gv-table .sku { color: var(--ink-500); font-variant-numeric: tabular-nums; }
 .gv-table .strong { font-weight: 600; }
-.row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.row-actions { display: flex; gap: 2px; align-items: center; justify-content: flex-end; }
 
 /* ---------------------------------------------------------- empty states */
 .empty {
@@ -419,7 +461,17 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: center; justify-content: center;
   font-size: 22px; font-weight: 700;
 }
-.empty h3 { font: 600 18px/1.3 system-ui, sans-serif; }
+/* Every internal empty state now fills this circle from
+   partials/_empty_icon.html instead of typing a character into it. The
+   font-size and font-weight above are kept, not dead: the storefront's own
+   empty states (cart, order confirmation) still set a text glyph here, and
+   they are outside this change.
+
+   The 24px is a duplicate of the width/height attributes the partial writes
+   on each <svg>, and deliberately so -- see the note in that file about a
+   viewBox-only <svg> falling back to 300x150 when this stylesheet is stale. */
+.empty .glyph svg { display: block; width: 24px; height: 24px; }
+.empty h3 { font: 600 18px/1.3 var(--font-sans); }
 .empty p { color: var(--ink-600); font-size: 14px; margin: 0; }
 /* The `display: flex` above is a class selector, so it outranks the browser's
    own `[hidden] { display: none }` and the attribute silently does nothing.
@@ -538,36 +590,18 @@ input::placeholder { color: var(--ink-500); }
    plain inline <span>, which is what let long store names get hard-clipped
    by the sidebar instead of ellipsizing. */
 .sb-logo-text { min-width: 0; flex: 1 1 auto; }
-.sb-logo-name { display: block; font: 750 15px/1.2 system-ui, sans-serif; }
-.sb-logo-sub { display: block; font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-500); }
+.sb-logo-name { display: block; font: 750 15px/1.2 var(--font-sans); }
+.sb-logo-sub { display: block; font: 400 12px/1.2 var(--font-sans); color: var(--ink-500); }
 
-/* Neutral, not green-tinted. The chip used to be a filled --green-50 card,
-   which put a second solid green block in a rail whose one job is to show
-   which row you are on — the selected item and "who am I" were competing in
-   the same colour, and the chip is on every page while the selection moves.
-   Green is now the selection's alone; the avatar keeps it because a 34px disc
-   reads as identity, not as a state. 11px inline rather than the nav rows' 12
-   because this row is the only one with a border: 1px + 11px puts the avatar
-   on the same 12px icon column as the brand mark above and every nav icon
-   below. */
-.sb-who {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 11px; margin-bottom: var(--s3);
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--r-input);
-  text-decoration: none; color: inherit;
-}
-.sb-who:hover { background: var(--line-soft); color: inherit; }
-.sb-who-name { color: var(--ink-900); }
+/* The sidebar's "who am I" card is gone — identity lives in the header
+   avatar's menu now, so the rail's only green is the selected row. .avatar
+   stays: it is the header disc (and the storefront's), not a sidebar part. */
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
   background: var(--action); color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px;
 }
-.sb-who-text { min-width: 0; flex: 1 1 auto; }
-.sb-who-name { display: block; font: 600 14px/1.2 system-ui, sans-serif; }
-.sb-who-role { display: block; font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-600); }
 
 /* --------------------------------------------------------------- nav rows
    Shared row look for top-level links, tree-group headers, and tree files. */
@@ -591,9 +625,15 @@ input::placeholder { color: var(--ink-500); }
   min-height: var(--touch); padding: 0 12px;
   border: 0; border-radius: var(--r-input);
   background: transparent; color: var(--ink-700); text-decoration: none;
-  font: 600 14.5px/1.3 system-ui, sans-serif; cursor: pointer; text-align: left;
+  font: 600 14.5px/1.3 var(--font-sans); cursor: pointer; text-align: left;
 }
-.sb-item:hover, .sb-tree-toggle:hover, .sb-tree-file:hover { background: var(--line-soft); color: var(--ink-900); }
+/* Hover: soft green wash, green text/icon, and a 3px accent bar down the left
+   edge. The bar is an inset shadow, not a border, so the row does not shift or
+   lose padding on hover. Same green that already marks an open tree branch. */
+.sb-item:hover, .sb-tree-toggle:hover, .sb-tree-file:hover {
+  background: var(--green-50); color: var(--action-700);
+  box-shadow: inset 3px 0 0 var(--action);
+}
 .sb-item svg, .sb-tree-toggle > svg:first-child { width: 18px; height: 18px; flex: none; }
 
 /* Active/selected item: solid dark-forest-green pill, white text for AA
@@ -601,15 +641,18 @@ input::placeholder { color: var(--ink-500); }
    grey hover style (equal-specificity tie would otherwise let :hover win). */
 .sb-item--active,
 .sb-item--active:hover {
-  background: var(--action-700); color: #fff;
+  background: var(--action-700); color: #fff; box-shadow: none;
 }
 .sb-item--danger { color: var(--danger-fg); }
-.sb-item--danger:hover { background: var(--danger-bg); }
+.sb-item--danger:hover {
+  background: var(--danger-bg); color: var(--danger-fg);
+  box-shadow: inset 3px 0 0 var(--danger-fg);
+}
 
 .nav-badge {
   flex: none; margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px;
   border-radius: var(--r-pill); background: var(--danger-dot); color: #fff;
-  font: 700 11.5px/20px system-ui, sans-serif; text-align: center;
+  font: 700 11.5px/20px var(--font-sans); text-align: center;
 }
 
 /* --------------------------------------------------- grouped nav dropdowns
@@ -645,10 +688,10 @@ input::placeholder { color: var(--ink-500); }
 .sb-tree.open { grid-template-rows: 1fr; }
 .sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
 .sb-tree-file { min-height: 38px; font-weight: 500; color: var(--ink-600); }
-.sb-tree-file:hover { color: var(--ink-900); }
+.sb-tree-file:hover { color: var(--action-700); }
 .sb-tree-file--active,
 .sb-tree-file--active:hover {
-  background: var(--action-700); color: #fff; font-weight: 600;
+  background: var(--action-700); color: #fff; font-weight: 600; box-shadow: none;
 }
 
 /* min-width: 0 lets the label actually shrink inside its flex row instead of
@@ -687,26 +730,11 @@ input::placeholder { color: var(--ink-500); }
 }
 .app.sidebar-collapsed .sb-toggle svg { width: 14px; height: 14px; }
 .app.sidebar-collapsed .sb-logo-text,
-.app.sidebar-collapsed .sb-who-text,
 .app.sidebar-collapsed .sb-logo-name,
 .app.sidebar-collapsed .sb-logo-sub,
-.app.sidebar-collapsed .sb-who-name,
-.app.sidebar-collapsed .sb-who-role,
 .app.sidebar-collapsed .sb-label,
 .app.sidebar-collapsed .sb-chevron,
 .app.sidebar-collapsed .sb-tree-toggle .nav-badge { display: none; }
-.app.sidebar-collapsed .sb-who {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  margin: 0 auto var(--s3);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 50%;
-}
 .app.sidebar-collapsed .sb-item,
 .app.sidebar-collapsed .sb-tree-toggle {
   justify-content: center;
@@ -717,6 +745,11 @@ input::placeholder { color: var(--ink-500); }
   margin: 0 auto;
   border-radius: 50%;
 }
+/* Collapsed rail: the rows are 44px circles, so drop the left accent bar and
+   keep hover as a plain green wash — an inset bar on a circle reads as a
+   crescent, not a rail. */
+.app.sidebar-collapsed .sb-item:hover,
+.app.sidebar-collapsed .sb-tree-toggle:hover { box-shadow: none; }
 .app.sidebar-collapsed .sb-item svg,
 .app.sidebar-collapsed .sb-tree-toggle > svg:first-child {
   margin: 0;
@@ -759,22 +792,35 @@ input::placeholder { color: var(--ink-500); }
    the left, so the bar was restating it on every page while the line that
    actually said where you were sat under it in 12.5px grey. The section line
    is the only line now and takes the title's weight. */
-.topbar-section { font: 600 15px/1.2 system-ui, sans-serif; color: var(--ink-900); }
+.topbar-section { font: 600 15px/1.2 var(--font-sans); color: var(--ink-900); }
 .branch-chip {
   display: inline-flex; align-items: center; gap: 6px;
   height: 38px; padding: 0 14px; border-radius: var(--r-pill);
   background: var(--green-50); color: var(--action-700);
   border: 1px solid var(--green-300);
-  font: 600 13.5px/1 system-ui, sans-serif;
+  font: 600 13.5px/1 var(--font-sans);
 }
-/* Header avatar menu: on desktop this is just the avatar (Administration
-   already lives in the sidebar there). At <=860px the sidebar is hidden, so
-   the trigger becomes clickable and the panel is allowed to render — see
-   the @media block below. */
-.avatar-menu { position: relative; }
-.avatar-menu-trigger { display: flex; list-style: none; cursor: default; }
-.avatar-menu-trigger::-webkit-details-marker { display: none; }
-.avatar-menu-panel { display: none; }
+/* Header avatar: a link straight to My Profile, not a menu. It was a
+   <details> panel listing the signed-in name, My Profile, the owner's
+   Administration links and Logout; every one of those rows exists in the
+   sidebar or, below 860px where the sidebar is display:none, in the bottom
+   nav's More panel — so the panel was a second click in front of the one
+   destination people actually wanted. The disc itself is unchanged; what
+   is new is the hit area and ring around it, since it now behaves like a
+   link rather than a disclosure. */
+.avatar-link {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; text-decoration: none;
+  /* The disc is 34px; the padded box is 40px, so the tap target clears the
+     minimum without the green circle growing. */
+  padding: 3px;
+  box-shadow: 0 0 0 0 var(--green-300);
+  transition: box-shadow .14s ease;
+}
+.avatar-link:hover { box-shadow: 0 0 0 3px var(--green-300); }
+/* On Settings itself the ring stays lit, the way an .sb-item--active row
+   marks the page you are on. */
+.avatar-link--active { box-shadow: 0 0 0 3px var(--green-300); }
 
 .content { padding: var(--s6) var(--s8) var(--s12); }
 /* align-items: center, not flex-start. flex-start was right while every page
@@ -793,7 +839,7 @@ input::placeholder { color: var(--ink-500); }
    subtitles-under-h1 removal above, because it is not a restatement of the
    heading. It carries today's date, which nothing else on that page shows
    (the range control reads "Last 30 days", not a date). Dashboard only. */
-.page-greet { font: 400 14px/1.45 system-ui, sans-serif; color: var(--ink-600); margin: 3px 0 0; }
+.page-greet { font: 400 14px/1.45 var(--font-sans); color: var(--ink-600); margin: 3px 0 0; }
 /* ------------------------------------------------------------ breadcrumb
    Lived in account.css, which only the customer account pages load — so the
    internal shell could not use the component it already had. It is page
@@ -807,7 +853,7 @@ input::placeholder { color: var(--ink-500); }
    earns its place when the chain is genuinely three deep. */
 .breadcrumb {
   display: flex; align-items: center; gap: 6px;
-  font: 400 13.5px/1 system-ui, sans-serif;
+  font: 400 13.5px/1 var(--font-sans);
   color: var(--ink-500); margin-bottom: var(--s3);
 }
 .breadcrumb a { color: var(--ink-500); text-decoration: none; }
@@ -829,7 +875,7 @@ input::placeholder { color: var(--ink-500); }
    above the title, in the same green as the page's primary button, sitting on
    its own underline.
 
-   The arrow is a masked SVG, not the &larr; character. system-ui draws that
+   The arrow is a masked SVG, not the &larr; character. The UI font draws that
    glyph as a hairline that reads optically lighter than the label beside it,
    and it shifts shape across platforms; a 2.5px stroke matches the 600-weight
    text everywhere. Masking rather than an <img> keeps it currentColor, so one
@@ -841,7 +887,7 @@ input::placeholder { color: var(--ink-500); }
    where the link goes. */
 .back-link {
   display: inline-flex; align-items: center; gap: 7px;
-  font: 600 13.5px/1 system-ui, sans-serif;
+  font: 600 13.5px/1 var(--font-sans);
   color: var(--ink-500); text-decoration: none;
 }
 .back-link::before {
@@ -899,7 +945,7 @@ input::placeholder { color: var(--ink-500); }
   padding: var(--s4) var(--s6);
   border-bottom: 1px solid var(--line);
 }
-.modal-head h2 { font: 650 20px/1.25 system-ui, sans-serif; margin: 0; }
+.modal-head h2 { font: 650 20px/1.25 var(--font-sans); margin: 0; }
 .modal-close {
   display: inline-flex; align-items: center; justify-content: center;
   flex: none;
@@ -955,7 +1001,7 @@ input::placeholder { color: var(--ink-500); }
 .confirm-warn   .confirm-icon { background: var(--warn-bg);   color: var(--warn-cta); }
 
 .confirm-title {
-  font: 650 20px/1.25 system-ui, sans-serif;
+  font: 650 20px/1.25 var(--font-sans);
   margin: 0; color: var(--ink-900);
 }
 /* --ink-500, not --ink-400: this runs at 14.5px, below the 18.66px-bold
@@ -1006,31 +1052,15 @@ input::placeholder { color: var(--ink-500); }
   .bottom-nav a {
     flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
     min-height: var(--touch); padding: 6px 2px; text-decoration: none;
-    color: var(--ink-600); font: 600 11px/1.1 system-ui, sans-serif;
+    color: var(--ink-600); font: 600 11px/1.1 var(--font-sans);
     border-radius: var(--r-input); position: relative;
   }
   .bottom-nav a.active { color: var(--action-700); background: var(--green-50); }
   .bottom-nav svg { width: 20px; height: 20px; }
   .bottom-nav .nav-badge {
     position: absolute; top: 2px; right: 22%; margin: 0;
-    min-width: 16px; height: 16px; font: 700 10px/16px system-ui, sans-serif;
+    min-width: 16px; height: 16px; font: 700 10px/16px var(--font-sans);
   }
-
-  .avatar-menu-trigger { cursor: pointer; }
-  .avatar-menu-panel {
-    flex-direction: column; gap: 2px;
-    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
-    min-width: 210px; padding: 6px;
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--r-card); box-shadow: 0 8px 24px rgba(0,0,0,.14);
-  }
-  .avatar-menu[open] .avatar-menu-panel { display: flex; }
-  .avatar-menu-link {
-    display: flex; align-items: center; min-height: 40px; padding: 0 12px;
-    border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
-    font: 600 13.5px/1 system-ui, sans-serif;
-  }
-  .avatar-menu-link:hover { background: var(--line-soft); color: var(--ink-900); }
 
   /* Tables -> stacked cards. Each td carries its header in data-label. */
   .gv-table thead { display: none; }
@@ -1048,12 +1078,15 @@ input::placeholder { color: var(--ink-500); }
   .gv-table td:last-child { border-bottom: 0; }
   .gv-table td::before {
     content: attr(data-label);
-    font: 700 12px/1.2 system-ui, sans-serif;
+    font: 700 12px/1.2 var(--font-sans);
     letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
     text-align: left; flex: none;
   }
   .gv-table td.num { text-align: right; }
-  .row-actions { justify-content: flex-end; }
+  .row-actions { justify-content: flex-end; gap: 4px; }
+  /* Stacked cards are touched, not clicked — take the icon buttons up
+     to the full tap target instead of the 36px desktop square. */
+  .icon-btn { width: var(--touch); height: var(--touch); }
   .page-head { flex-direction: column; align-items: stretch; }
   .toolbar .input, .toolbar select { min-width: 0; width: 100%; }
   .toolbar-card { flex-direction: column; align-items: stretch; }
@@ -1100,7 +1133,7 @@ input::placeholder { color: var(--ink-500); }
 @media print {
   .sidebar, .bottom-nav, .topbar, .tabs, .toolbar, .no-print,
   .report-tabs, .toolbar-card,
-  .btn, .row-actions, .banner { display: none !important; }
+  .btn, .icon-btn, .row-actions, .banner { display: none !important; }
   .main { margin-left: 0; }
   .content { padding: 0; }
   body { background: #fff; }
@@ -1141,7 +1174,7 @@ input::placeholder { color: var(--ink-500); }
 .filter-tab .count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 22px; padding: 0 6px; border-radius: var(--r-pill);
-  font: 700 12px/1.7 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  font: 700 12px/1.7 var(--font-sans); font-variant-numeric: tabular-nums;
   background: var(--line-soft); color: var(--ink-700);
 }
 .filter-tab .count-neutral { background: var(--line-soft); color: var(--ink-600); }
@@ -1162,7 +1195,7 @@ input::placeholder { color: var(--ink-500); }
 .report-tab {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 0 2px 12px; margin-bottom: -1.5px;
-  font: 600 14.5px/1 system-ui, sans-serif;
+  font: 600 14.5px/1 var(--font-sans);
   color: var(--ink-600); text-decoration: none;
   border-bottom: 2.5px solid transparent;
   min-height: var(--touch);
@@ -1196,7 +1229,7 @@ input::placeholder { color: var(--ink-500); }
 .filter-tab {
   display: inline-flex; align-items: center; gap: var(--s2);
   padding: 0 2px 12px; margin-bottom: -1.5px;
-  font: 600 14.5px/1 system-ui, sans-serif;
+  font: 600 14.5px/1 var(--font-sans);
   color: var(--ink-600); text-decoration: none;
   /* border:0 before border-bottom, not after — Alerts Center's tabs are real
      <button>s (they switch panels in place rather than navigating), and a
@@ -1240,7 +1273,7 @@ input::placeholder { color: var(--ink-500); }
   print-color-adjust: exact; -webkit-print-color-adjust: exact;
 }
 .pie-legend { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 10px; }
-.pie-legend li { display: flex; align-items: center; gap: 8px; font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-700); }
+.pie-legend li { display: flex; align-items: center; gap: 8px; font: 400 14px/1.4 var(--font-sans); color: var(--ink-700); }
 .pie-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .pie-count { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 /* The Dashboard's donut legend carries a per-branch status pill as well as
@@ -1270,7 +1303,7 @@ input::placeholder { color: var(--ink-500); }
 .hbar-chart { display: flex; flex-direction: column; gap: var(--s4); }
 .hbar-row { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); align-items: center; }
 .hbar-label {
-  font: 600 14px/1.3 system-ui, sans-serif; color: var(--ink-700); text-align: right;
+  font: 600 14px/1.3 var(--font-sans); color: var(--ink-700); text-align: right;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .hbar-track { position: relative; height: 22px; background: var(--line-soft); border-radius: 3px; }
@@ -1278,10 +1311,10 @@ input::placeholder { color: var(--ink-500); }
   position: absolute; left: 0; top: 0; height: 100%; min-width: 4px; background: var(--brand); border-radius: 3px;
   print-color-adjust: exact; -webkit-print-color-adjust: exact;
 }
-.hbar-value { font: 600 13.5px/1 system-ui, sans-serif; color: var(--ink-900); font-variant-numeric: tabular-nums; }
+.hbar-value { font: 600 13.5px/1 var(--font-sans); color: var(--ink-900); font-variant-numeric: tabular-nums; }
 .hbar-axis { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); margin-top: var(--s1); }
 .hbar-axis-ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--line-soft); padding-top: 6px; }
-.hbar-axis-ticks span { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.hbar-axis-ticks span { font: 400 12px/1 var(--font-sans); color: var(--ink-500); font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------ dashboard "Needs Attention"
    DESIGN.md §2b. Three presentations of the same check, chosen server-side
@@ -1360,28 +1393,28 @@ input::placeholder { color: var(--ink-500); }
    on identical tint and the count read as loose text. Lift it onto --surface;
    the pill keeps its own -fg, so the status colour still comes through. */
 .attn-card .pill { background: var(--surface); }
-.attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 system-ui, sans-serif; color: var(--status-ink); }
+.attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 var(--font-sans); color: var(--status-ink); }
 /* 1.4 and 2px, matching the title/sub pairing in .feed-row beside it: the
    detail is this title's second line, not a paragraph under it. The sentence
    itself was cut back in _needs_attention_rows to fit that. */
-.attn-card-body { font: 400 13px/1.4 system-ui, sans-serif; color: var(--ink-700); margin-top: 2px; }
+.attn-card-body { font: 400 13px/1.4 var(--font-sans); color: var(--ink-700); margin-top: 2px; }
 /* §3: the CTA takes the card's status colour, not --action. Hover deepens to
    the status's own -fg (warn 5.43:1, danger 7.01:1) rather than --action-700,
    which would jump hue mid-interaction. */
-.attn-card-go { align-self: center; white-space: nowrap; font: 700 13.5px/1 system-ui, sans-serif; color: var(--status-cta, var(--action)); }
+.attn-card-go { align-self: center; white-space: nowrap; font: 700 13.5px/1 var(--font-sans); color: var(--status-cta, var(--action)); }
 .attn-card:hover .attn-card-go { color: var(--status-ink, var(--action-700)); }
 
 .attn-clear { padding: var(--s4) var(--s6); }
 .attn-clear-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
 .attn-clear-label {
-  font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
+  font: 600 11px/1 var(--font-sans); text-transform: uppercase;
   letter-spacing: .07em; color: var(--ink-500); white-space: nowrap;
 }
 .attn-clear-rule { height: 1px; flex: 1; background: var(--line); }
 .attn-clear-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
 .attn-chip {
   display: flex; align-items: center; gap: var(--s2); min-height: var(--touch);
-  padding: var(--s2) 11px; font: 400 13.5px/1.3 system-ui, sans-serif;
+  padding: var(--s2) 11px; font: 400 13.5px/1.3 var(--font-sans);
   color: var(--ink-600); text-decoration: none;
   background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-input);
 }
@@ -1390,8 +1423,14 @@ input::placeholder { color: var(--ink-500); }
   width: 16px; height: 16px; flex: none; border-radius: var(--r-pill);
   background: var(--ok-bg); color: var(--ok-fg);
   display: flex; align-items: center; justify-content: center;
-  font: 700 10px/1 system-ui, sans-serif;
+  font: 700 10px/1 var(--font-sans);
 }
+/* The tick is the 16px `check` from partials/_empty_icon.html, scaled down
+   here rather than given its own copy at 10px -- one drawing, two sizes.
+   Without this rule the SVG falls back to its own 16px attributes and exactly
+   fills the 16px circle, edge to edge: tight, but still a tick. That is the
+   whole reason the attributes are on the <svg> at all. */
+.attn-check svg { display: block; width: 10px; height: 10px; }
 @media (max-width: 520px) {
   .attn-clear-grid { grid-template-columns: 1fr; }
 }
@@ -1406,7 +1445,7 @@ input::placeholder { color: var(--ink-500); }
   display: inline-flex; align-items: center; gap: 8px; list-style: none;
   min-height: var(--touch); padding: 0 14px; border-radius: var(--r-input);
   border: 1.5px solid var(--input-line); background: var(--surface);
-  color: var(--ink-900); font: 600 14px/1 system-ui, sans-serif; cursor: pointer;
+  color: var(--ink-900); font: 600 14px/1 var(--font-sans); cursor: pointer;
 }
 .daterange-trigger::-webkit-details-marker { display: none; }
 .daterange-trigger:hover { border-color: var(--brand); }
@@ -1425,7 +1464,7 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: center; width: 100%; text-align: left;
   min-height: var(--touch); padding: 0 12px; border-radius: var(--r-input);
   border: none; background: none; color: var(--ink-700);
-  font: 500 14px/1 system-ui, sans-serif; cursor: pointer;
+  font: 500 14px/1 var(--font-sans); cursor: pointer;
 }
 .daterange-preset:hover { background: var(--line-soft); color: var(--ink-900); }
 .daterange-preset.is-active { background: var(--green-50); color: var(--action-700); font-weight: 650; }
@@ -1435,11 +1474,11 @@ input::placeholder { color: var(--ink-500); }
   border-top: 1px solid var(--line);
 }
 .daterange-custom-head {
-  font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
+  font: 600 11px/1 var(--font-sans); text-transform: uppercase;
   letter-spacing: .07em; color: var(--ink-500); padding: 0 12px;
 }
 .daterange-field { display: flex; align-items: center; gap: var(--s2); padding: 0 12px; }
-.daterange-field > span { width: 38px; font: 400 13px/1 system-ui, sans-serif; color: var(--ink-600); }
+.daterange-field > span { width: 38px; font: 400 13px/1 var(--font-sans); color: var(--ink-600); }
 .daterange-field input[type=date] { flex: 1; min-width: 0; width: auto; }
 .daterange-custom .btn-primary { margin: 0 12px; }
 @media (max-width: 520px) {
@@ -1507,11 +1546,11 @@ input::placeholder { color: var(--ink-500); }
    block. The leading is the only thing binding them — there is no other
    device holding a pair together. */
 .feed-title, .feed-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed-title { font: 600 13.5px/1.3 system-ui, sans-serif; }
-.feed-sub { font: 400 12.5px/1.3 system-ui, sans-serif; color: var(--ink-600); }
+.feed-title { font: 600 13.5px/1.3 var(--font-sans); }
+.feed-sub { font: 400 12.5px/1.3 var(--font-sans); color: var(--ink-600); }
 .feed-right { flex: none; text-align: right; }
-.feed-amount { display: block; font: 700 13.5px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.feed-time { display: block; font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.feed-amount { display: block; font: 700 13.5px/1.3 var(--font-sans); font-variant-numeric: tabular-nums; }
+.feed-time { display: block; font: 400 12px/1.3 var(--font-sans); color: var(--ink-500); font-variant-numeric: tabular-nums; }
 /* In-app camera barcode scanner overlay (static/js/barcode-scanner.js). In
    gerlyn.css rather than account.css/storefront.css since it's used from
    internal admin pages (POS, Inventory, Products) that don't load those. */
@@ -1530,7 +1569,7 @@ input::placeholder { color: var(--ink-500); }
 .barcode-scan-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px; border-bottom: 1px solid var(--line);
-  font: 650 16px/1.2 system-ui, sans-serif; color: var(--ink-900);
+  font: 650 16px/1.2 var(--font-sans); color: var(--ink-900);
 }
 .barcode-scan-close {
   border: none; background: none; cursor: pointer;
@@ -1542,18 +1581,22 @@ input::placeholder { color: var(--ink-500); }
   width: 100%; min-height: 280px; background: #000;
 }
 .barcode-scan-hint {
-  margin: 0; padding: 12px 18px; font: 400 13px/1.4 system-ui, sans-serif;
+  margin: 0; padding: 12px 18px; font: 400 13px/1.4 var(--font-sans);
   color: var(--ink-600); text-align: center;
 }
 
 /* Shared "Barcode" field status line (Add Product / Stock Adjustment) —
    static/js/barcode-scanner.js's attachBarcodeField() sets both the text
    and one of these modifier classes after every lookup. */
+/* flex, not block, so the success tick attachBarcodeField() prepends sits on
+   the text's centre line rather than its baseline. An empty status line still
+   holds its 18px, so the field below does not jump when a lookup reports. */
 .barcode-status {
-  display: block; margin-top: 6px;
-  font: 600 13px/1.4 system-ui, sans-serif;
+  display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  font: 600 13px/1.4 var(--font-sans);
   min-height: 18px;
 }
+.barcode-status-icon { flex: none; display: flex; }
 .barcode-status-pending { color: var(--ink-500); font-weight: 400; }
 .barcode-status-success { color: var(--ok-fg); }
 .barcode-status-info { color: var(--warn-fg); }
@@ -1611,7 +1654,7 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: center; justify-content: center;
 }
 .bottom-sheet-icon svg { width: 26px; height: 26px; }
-.bottom-sheet-panel p { margin: 0; font: 500 15.5px/1.5 system-ui, sans-serif; color: var(--ink-900); }
+.bottom-sheet-panel p { margin: 0; font: 500 15.5px/1.5 var(--font-sans); color: var(--ink-900); }
 .bottom-sheet-panel .btn { width: 100%; margin-top: var(--s2); }
 
 /* ---------------------------------------------------- bottom nav "More"
@@ -1623,7 +1666,7 @@ input::placeholder { color: var(--ink-500); }
   flex: 1; list-style: none; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   min-height: var(--touch); padding: 6px 2px;
-  color: var(--ink-600); font: 600 11px/1.1 system-ui, sans-serif;
+  color: var(--ink-600); font: 600 11px/1.1 var(--font-sans);
   border-radius: var(--r-input); position: relative;
 }
 .more-menu > summary::-webkit-details-marker { display: none; }
@@ -1640,17 +1683,30 @@ input::placeholder { color: var(--ink-500); }
   animation: moreMenuIn .16s ease forwards;
 }
 @keyframes moreMenuIn { to { transform: translateY(0); opacity: 1; } }
-.more-menu-link {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+/* Scoped through .bottom-nav, which is where this panel always lives. The
+   rows are inside <nav class="bottom-nav">, so `.bottom-nav a` reaches them
+   at 0,1,1 and out-specifies a bare `.more-menu-link` — the rows were being
+   drawn as the nav's own tabs are, centred in an 11px column, rather than as
+   the menu rows they are. 0,2,0 here settles it. */
+.bottom-nav .more-menu-link {
+  flex: none;
+  display: flex; flex-direction: row;
+  align-items: center; justify-content: space-between; gap: 8px;
   min-height: 40px; padding: 0 12px;
   border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
-  font: 600 13.5px/1 system-ui, sans-serif;
+  font: 600 13.5px/1 var(--font-sans);
 }
-.more-menu-link:hover, .more-menu-link.active { background: var(--line-soft); color: var(--ink-900); }
+.bottom-nav .more-menu-link:hover,
+.bottom-nav .more-menu-link.active { background: var(--line-soft); color: var(--ink-900); }
 /* Reset the absolute badge position .bottom-nav .nav-badge sets (this panel
    is nested inside <nav class="bottom-nav">, so that rule reaches it too)
    back to an inline badge that sits next to the link's own label. */
-.more-menu-link .nav-badge--inline { position: static; margin: 0; }
+.bottom-nav .more-menu-link .nav-badge--inline { position: static; margin: 0; }
+/* Logout, the one row in here that ends the session rather than moving the
+   user around inside it — the same colour the sidebar's .sb-item--danger
+   gives it, so the two places it now lives read alike. */
+.bottom-nav .more-menu-link--danger { color: var(--danger-fg); }
+.bottom-nav .more-menu-link--danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
 
 /* --------------------------------------------------------- tap feedback
    A brief scale-down on press so touch targets feel responsive instead of
@@ -1662,7 +1718,7 @@ input::placeholder { color: var(--ink-500); }
   .btn:active, .sb-item:active, .sb-tree-file:active, .bottom-nav a:active,
   .stat-hero[data-kpi-key]:active, .attn-row:active, .attn-card:active,
   .attn-chip:active, .feed-row:active, .tab:active, .pcard:active, .cat:active,
-  .more-menu > summary:active, .avatar-menu-link:active {
+  .more-menu > summary:active, .bottom-nav .more-menu-link:active, .avatar-link:active {
     transform: scale(.97);
     transition: transform .1s ease;
   }
@@ -1697,7 +1753,7 @@ input::placeholder { color: var(--ink-500); }
   display: inline-flex; align-items: center; min-height: var(--touch);
   padding: 0 18px; border-radius: var(--r-input);
   background: var(--action); color: #fff; text-decoration: none;
-  font: 600 14px/1 system-ui, sans-serif;
+  font: 600 14px/1 var(--font-sans);
   box-shadow: var(--shadow-hero);
 }
 .skip-link:focus { top: var(--s4); }

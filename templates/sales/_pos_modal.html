@@ -125,7 +125,7 @@ basket because they forgot to pick a branch.
         <div class="row" style="gap:8px;">
           <input type="text" id="pos-scan-input" class="input grow"
                  placeholder="Scan a barcode, or type a SKU and press Enter" autocomplete="off">
-          <button type="button" class="btn" id="pos-scan-camera-btn" title="Scan with camera">📷 Scan</button>
+          <button type="button" class="btn" id="pos-scan-camera-btn" title="Scan with camera">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
         </div>
         <span class="gv-meta" id="pos-scan-status"></span>
       </div>

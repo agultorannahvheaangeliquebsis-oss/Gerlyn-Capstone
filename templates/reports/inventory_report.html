@@ -91,7 +91,7 @@ three tabs carry the control in .page-head.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
       <h3>No stock recorded</h3>
     </div>
     {% endif %}
@@ -147,7 +147,7 @@ three tabs carry the control in .page-head.
       </tr>
       {% empty %}
       <tr><td colspan="6"><div class="empty">
-        <span class="glyph">□</span><h3>No stock records</h3></div></td></tr>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span><h3>No stock records</h3></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

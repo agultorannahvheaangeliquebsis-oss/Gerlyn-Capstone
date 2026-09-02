@@ -90,7 +90,7 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       is stated once below the rail instead.
       {% endcomment %}
       {% if card.delta %}
-      <span class="stat-status"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ card.delta.pill }}">{% include "reports/_delta_arrow.html" with dir=card.delta.dir %}{{ card.delta.text }}</span></span>
       {% endif %}
     </button>
     {% endfor %}
@@ -158,7 +158,7 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
     drawing a fabricated zero line.
     {% endcomment %}
     <div class="empty" id="kpi-graph-empty" {% if default_kpi_graph.points %}hidden{% endif %}>
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
       <h3>Nothing to chart</h3>
       <p>No activity for this metric in {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}.</p>
     </div>
@@ -195,9 +195,9 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
         line: the ring and legend already answer "across how many".
         {% endcomment %}
         <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="-2"
-              style="font: 700 17px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ branch_chart.total_display }}</text>
+              style="font: 700 17px/1 var(--font-sans); font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ branch_chart.total_display }}</text>
         <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="14"
-              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+              style="font: 400 11px/1 var(--font-sans); fill: var(--ink-600);">
           {{ branch_chart.branch_count }} branch{{ branch_chart.branch_count|pluralize:"es" }}</text>
       </svg>
       <ul class="pie-legend with-status">
@@ -213,7 +213,7 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
       <h3>No sales to chart</h3>
       <p>Nothing recorded between {{ range_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.</p>
     </div>
@@ -295,7 +295,7 @@ since the lines alone don't label themselves.
     </ul>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
       <h3>Nothing to chart</h3>
       <p>No activity for {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}.</p>
     </div>
@@ -338,7 +338,7 @@ per-branch question in a way a branch-comparison chart is not.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
       <h3>No stock recorded</h3>
     </div>
     {% endif %}
@@ -363,9 +363,9 @@ per-branch question in a way a branch-comparison chart is not.
           {% endfor %}
         </g>
         <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="-2"
-              style="font: 700 17px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ top_products.total_display }}</text>
+              style="font: 700 17px/1 var(--font-sans); font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ top_products.total_display }}</text>
         <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="14"
-              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+              style="font: 400 11px/1 var(--font-sans); fill: var(--ink-600);">
           {{ top_products.product_count }} product{{ top_products.product_count|pluralize }}</text>
       </svg>
       <ul class="pie-legend">
@@ -380,7 +380,7 @@ per-branch question in a way a branch-comparison chart is not.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
       <h3>No products sold</h3>
       <p>Nothing recorded between {{ range_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.</p>
     </div>
@@ -448,7 +448,7 @@ status. Rows are built from reports/views.py::_recent_activity.
   {% empty %}
   <div class="card-pad">
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="activity" %}</span>
       <h3>Nothing posted yet</h3>
       <p>Sales, purchase orders and payments appear here as they are recorded.</p>
     </div>
@@ -520,7 +520,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
     <div class="attn-clear-grid">
       {% for row in needs_attention.all_clear %}
       <a href="{{ row.url }}" class="attn-chip">
-        <span class="attn-check" aria-hidden="true">&check;</span>{{ row.label }}
+        <span class="attn-check" aria-hidden="true">{% include "partials/_empty_icon.html" with icon="check" %}</span>{{ row.label }}
       </a>
       {% endfor %}
     </div>
@@ -632,7 +632,7 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
   {% endcomment %}
   <div class="card-pad">
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
       <h3>No open orders</h3>
       <p>Every order has been completed or cancelled. New ones appear here while they wait on action.</p>
     </div>

@@ -20,7 +20,7 @@ way out of it instead of a dead form.
 {% if not suppliers or not products %}
 <div class="card">
   <div class="empty">
-    <span class="glyph">＋</span>
+    <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
     {% if not suppliers and not products %}
       <h3>Nothing to order, and no one to order from</h3>
       <p>A purchase order is addressed to a supplier and lists products. Add at least one of each, then come back here.</p>

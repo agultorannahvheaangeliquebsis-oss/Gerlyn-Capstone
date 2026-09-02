@@ -141,7 +141,7 @@ Only Pending Collection is ever tinted; the money cards are plain.
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">
-        <span class="glyph">₱</span><h3>No billing records</h3></div></td></tr>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span><h3>No billing records</h3></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

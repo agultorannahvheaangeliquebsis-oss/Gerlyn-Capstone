@@ -28,7 +28,7 @@
     padding: var(--s4) var(--s6);
     border-bottom: 1px solid var(--line);
   }
-  .modal-head h2 { font: 650 20px/1.25 system-ui, sans-serif; margin: 0; }
+  .modal-head h2 { font: 650 20px/1.25 var(--font-sans); margin: 0; }
   .modal-close {
     display: inline-flex; align-items: center; justify-content: center;
     flex: none;
@@ -162,17 +162,18 @@ inventory.alerts.stock_status().
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
         <td data-label="Actions">
-          <button type="button" class="btn btn-sm btn-quiet" style="color:var(--action);"
-                  onclick="openEditWarehouseStock({{ row.stock.pk }}, '{{ row.stock.product.product_name|escapejs }}', '{{ row.stock.warehouse.branch.branch_name|escapejs }}', {{ row.stock.reorder_level }}, '{{ row.stock.expiry_date|date:"Y-m-d"|default:"" }}')">
-            Edit
-          </button>
+          <span class="row-actions">
+            <button type="button" class="icon-btn icon-btn-action"
+                    title="Edit" aria-label="Edit warehouse stock for {{ row.stock.product.product_name }}"
+                    onclick="openEditWarehouseStock({{ row.stock.pk }}, '{{ row.stock.product.product_name|escapejs }}', '{{ row.stock.warehouse.branch.branch_name|escapejs }}', {{ row.stock.reorder_level }}, '{{ row.stock.expiry_date|date:"Y-m-d"|default:"" }}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+          </span>
         </td>
       </tr>
       {% empty %}
       <tr>
         <td colspan="10">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
             <h3>No warehouse stock</h3>
             <p>Stock lands here once a Purchase Order is received.</p>
           </div>
