@@ -71,6 +71,28 @@
   {% endif %}
 </div>
 
+{% if branches %}
+{% comment %}
+Branch picker, same .filter-tabs component and same no-counts styling as
+Catalog's (templates/orders/catalog.html) — each tab already says which
+branch it is, so a per-branch badge would only repeat the label. Unlike
+Catalog, there's no session-scoped branch here to set/clear via a dedicated
+view: this page is already driven by ?branch= on the toolbar form below, so
+each tab is a link built with {% templatetag openblock %} querystring
+{% templatetag closeblock %}, which swaps branch while preserving q/category/status.
+That makes the tab bar and the "All Branches" <select> two views of the same
+branch_filter — clicking either keeps both in sync — and the KPI row and
+table above/below both re-render from _inventory_list_context() with no
+client-side filtering to keep correct alongside the status/category filters.
+{% endcomment %}
+<div class="filter-tabs" role="tablist" aria-label="Filter by branch">
+  <a class="filter-tab{% if not branch_filter %} active{% endif %}" href="{% querystring branch=None %}" role="tab" aria-selected="{% if not branch_filter %}true{% else %}false{% endif %}">All Branches</a>
+  {% for b in branches %}
+  <a class="filter-tab{% if branch_filter == b.id|stringformat:"s" %} active{% endif %}" href="{% querystring branch=b.id %}" role="tab" aria-selected="{% if branch_filter == b.id|stringformat:"s" %}true{% else %}false{% endif %}">{{ b.branch_name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% comment %}
 The one KPI card (DESIGN.md §2) — the same component as the Dashboard rail and
 the four Reports tabs, not a third lookalike. `.stat` is the quiet tile for

@@ -33,14 +33,14 @@
   </div>
   {% comment %}
   Two create actions, because there are two of them in the system and they
-  move stock in opposite directions. The primary one is the restock — it is
-  what staff do daily — and it lives on Warehouse Stock, since you pick from
-  what the stockroom actually has; this button just points there rather than
-  opening a second, stock-less copy of that form.
+  move stock in opposite directions. Both point straight at their own form —
+  warehouse_stock_request (also linked from Warehouse Stock's own button)
+  resolves the branch and its stock itself, so there's nothing to gain by
+  routing through the Warehouse Stock list first.
   {% endcomment %}
   <div class="row" style="gap:var(--s2);">
     <a class="btn" href="{% url 'transfer_create' %}">Report Damaged / Lost Stock</a>
-    <a class="btn btn-primary" href="{% url 'warehouse_stock_list' %}">
+    <a class="btn btn-primary" href="{% url 'warehouse_stock_request' %}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
       Request Stock to Floor
     </a>
@@ -202,7 +202,7 @@ across the full width leave the default block padding as empty card.
               <p>Two things land here: a <strong>restock</strong>, moving stock from the warehouse onto the shelf, and a <strong>write-off</strong>, recording stock that left the shelf for good — damaged, expired, spoiled or on display. Both stay open until someone approves and releases them.</p>
               <div class="row mt-2" style="gap:var(--s2); justify-content:center;">
                 <a class="btn" href="{% url 'transfer_create' %}">Report Damaged / Lost Stock</a>
-                <a class="btn btn-primary" href="{% url 'warehouse_stock_list' %}">Request Stock to Floor</a>
+                <a class="btn btn-primary" href="{% url 'warehouse_stock_request' %}">Request Stock to Floor</a>
               </div>
             </div>
           </td>
