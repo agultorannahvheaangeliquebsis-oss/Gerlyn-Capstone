@@ -698,15 +698,19 @@ def _branch_legend_rows(breakdown, prev_branch_totals):
 # the same querysets/engines the destination pages use, so the badge and the
 # page it links to can never disagree.
 
-def _attention_pill(count, escalated=False):
+def _attention_tone(count, escalated=False):
     """
-    Pill variant for a count badge: nothing outstanding is `ok`, an
+    Tone for a Needs Attention count badge: nothing outstanding is `ok`, an
     outstanding count that carries a hard failure (critical stock, already-
     expired batches) is `danger`, anything else is `warn`.
+
+    A bare tone rather than a CSS class, because the template spends it on
+    two different things — the .count-* badge and the .attn-card--danger
+    escalation — and a view has no business naming either component.
     """
     if not count:
-        return 'pill-ok'
-    return 'pill-danger' if escalated else 'pill-warn'
+        return 'ok'
+    return 'danger' if escalated else 'warn'
 
 
 # An order is "open" until it reaches a terminal status — Completed and
@@ -775,7 +779,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
         {
             'key': 'low_stock', 'icon': 'alert', 'label': 'Low Stock',
             'count': low_count,
-            'pill': _attention_pill(low_count, escalated=summary['critical_count'] > 0),
+            'tone': _attention_tone(low_count, escalated=summary['critical_count'] > 0),
             # Details are one clause each, no trailing qualifier: this is a
             # row's second line, not a paragraph. "across your branches" went
             # because the panel is already branch-scoped for whoever is
@@ -788,7 +792,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
         {
             'key': 'expiring', 'icon': 'clock', 'label': 'Expiring Soon',
             'count': expiring_count,
-            'pill': _attention_pill(expiring_count, escalated=expired_count > 0),
+            'tone': _attention_tone(expiring_count, escalated=expired_count > 0),
             'detail': (
                 f'{expiring_count} product{_plural(expiring_count)} expiring within '
                 f'{EXPIRING_SOON_DAYS} days or already past expiry.'
@@ -798,7 +802,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
         {
             'key': 'pending_pos', 'icon': 'truck', 'label': 'Pending POs',
             'count': pending_pos,
-            'pill': _attention_pill(pending_pos),
+            'tone': _attention_tone(pending_pos),
             'detail': (
                 f'{pending_pos} purchase order{_plural(pending_pos)} raised but not yet received.'
             ),
@@ -807,7 +811,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
         {
             'key': 'pending_orders', 'icon': 'cart', 'label': 'Unfulfilled Orders',
             'count': pending_orders,
-            'pill': _attention_pill(pending_orders),
+            'tone': _attention_tone(pending_orders),
             'detail': (
                 f'{pending_orders} order{_plural(pending_orders)} still pending, approved or '
                 f'preparing.'
@@ -817,7 +821,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
         {
             'key': 'overdue_billing', 'icon': 'peso', 'label': 'Overdue Billing',
             'count': overdue_billing,
-            'pill': _attention_pill(overdue_billing),
+            'tone': _attention_tone(overdue_billing),
             'detail': (
                 f'{overdue_billing} billing record{_plural(overdue_billing)} past its due date.'
             ),

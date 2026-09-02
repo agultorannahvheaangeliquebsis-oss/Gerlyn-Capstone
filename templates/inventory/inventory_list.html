@@ -255,7 +255,7 @@ across the full width leave the default block padding as empty card.
         <input type="hidden" name="branch_id" value="{{ user_branch.id }}">
         <div class="field">
           <label>Branch</label>
-          <div class="row"><span class="pill pill-info">{{ user_branch.branch_name }}</span>
+          <div class="field-static">{{ user_branch.branch_name }}
             <span class="gv-meta">your assigned branch</span></div>
         </div>
       {% else %}
@@ -309,11 +309,11 @@ across the full width leave the default block padding as empty card.
       {% csrf_token %}
       <div class="field">
         <label>Product</label>
-        <div class="row"><span class="pill pill-info" id="edit-inventory-product"></span></div>
+        <div class="field-static" id="edit-inventory-product"></div>
       </div>
       <div class="field">
         <label>Branch</label>
-        <div class="row"><span class="pill pill-neutral" id="edit-inventory-branch"></span></div>
+        <div class="field-static" id="edit-inventory-branch"></div>
       </div>
       <div class="field">
         <label for="edit-inventory-reorder">Reorder Level{% if can_edit_reorder %} <span style="color:var(--danger-dot);">*</span>{% endif %}</label>

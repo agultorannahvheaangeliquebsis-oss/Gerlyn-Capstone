@@ -130,7 +130,7 @@ across the full width leave the default block padding as empty card.
         <div class="ack-slip">
           <span class="sku strong">{{ t.slip_number }}</span>
           <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
-          <span class="pill pill-neutral">{{ t.purpose }}</span>
+          <span class="tag">{{ t.purpose }}</span>
         </div>
         <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
           {% csrf_token %}
@@ -168,7 +168,7 @@ across the full width leave the default block padding as empty card.
           <td data-label="Slip ID" class="sku strong">{{ t.slip_number }}</td>
           <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</td>
           <td data-label="Requested By">{{ t.requested_by.username|default:"—" }}</td>
-          <td data-label="Purpose"><span class="pill pill-neutral">{{ t.purpose }}</span></td>
+          <td data-label="Purpose"><span class="tag">{{ t.purpose }}</span></td>
           {% comment %}
           Status was plain text; every other list page in the app shows it as a
           pill. Released takes .pill-warn to match the amber "Pending
@@ -225,7 +225,7 @@ across the full width leave the default block padding as empty card.
       <tr>
         <td data-label="Date / Time" class="gv-meta">{{ row.movement.created_at|date:"Y-m-d H:i" }}</td>
         <td data-label="Product" class="strong">{{ row.product }}</td>
-        <td data-label="Movement Type"><span class="pill pill-neutral">{{ row.movement.movement_type }}</span></td>
+        <td data-label="Movement Type"><span class="tag">{{ row.movement.movement_type }}</span></td>
         <td data-label="Quantity" class="num strong">{{ row.quantity }}</td>
         <td data-label="Source">{{ row.source }}</td>
         <td data-label="Destination">{{ row.destination }}</td>

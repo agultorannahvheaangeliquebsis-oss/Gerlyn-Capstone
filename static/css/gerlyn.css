@@ -220,6 +220,19 @@ input::placeholder { color: var(--ink-500); }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { font: 600 14px/1.2 var(--font-sans); color: var(--ink-700); }
 
+/* The value of a field that is fixed and always will be: the branch you are
+   scoped to, the product row you opened the edit modal from. It is printed
+   as text at the input's own size and ink so it lines up with the real
+   controls beside it — NOT as a pill. A pill here reads as a status the form
+   is reporting, or worse as something clickable, when all it is is the
+   answer to the label above it. */
+.field-static {
+  min-height: 28px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font: 400 15px/1.4 var(--font-sans);
+  color: var(--ink-900);
+}
+
 /* Floating-label field: opt in with .field-float. Markup order must be
    input then label, and the input needs placeholder=" " so :placeholder-shown
    tracks "is empty" for the CSS-only label state. */
@@ -424,6 +437,27 @@ input::placeholder { color: var(--ink-500); }
 .pill-danger { background: var(--danger-bg); color: var(--danger-fg); }
 .pill-info   { background: var(--info-bg);   color: var(--info-fg); }
 .pill-neutral{ background: var(--line-soft); color: var(--ink-600); }
+
+/* ------------------------------------------------------------ neutral tag
+   A .tag is a CLASSIFICATION, not a state: which category a product is in,
+   which branch a row belongs to, Retail vs Wholesale, Floor vs Warehouse.
+   These have no good or bad value, so they must never borrow the .pill-*
+   tints — an "Online" order painted --info-bg reads as a status the eye
+   then tries to rank against Paid and Completed in the next column.
+
+   Deliberately one variant and no colour modifiers. The moment a tag can be
+   ok/warn/danger it is a status pill again. Outlined rather than filled, and
+   a lighter weight than .pill, so a row of tags recedes behind the one
+   tinted pill that actually carries state. */
+.tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px; border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-600);
+  font: 500 12.5px/1.6 var(--font-sans);
+  white-space: nowrap;
+}
 
 /* ---------------------------------------------------------------- tables
    48px rows, sticky header, faint zebra, right-aligned numbers, 16px data. */
@@ -1170,22 +1204,30 @@ input::placeholder { color: var(--ink-500); }
    DESIGN.md, and each page maps its badge to the same pill its own Status
    column uses, so scanning the tab bar and scanning the table are one act.
 
+   Written unscoped, because a count badge is not a tab thing. Anywhere a
+   number hangs off a label it already belongs to — "Inbox 4", "Receive
+   Stock · 2 waiting", a Needs Attention row — this is the component, and a
+   .pill is not: a pill is a standalone value in its own column, and using
+   one for a number that only means anything next to its parent makes the
+   count look like the row's status. It keeps --r-pill; a badge is one of the
+   two shapes 999px is actually for.
+
    The .count-* modifiers match this rule's specificity exactly and win on
-   source order alone. Written as a bare `.count-ok` they would be (0,1,0),
-   the neutral default below would outrank every one of them, and the whole
-   palette would silently collapse to grey. For the same reason, never add a
-   colour to the base rule — it is the unclassed fallback. */
-.filter-tab .count {
+   source order alone — which is why the base rule had to lose its
+   `.filter-tab` ancestor at the same time as the modifiers, not before. Keep
+   all six on one level. For the same reason, never add a colour to the base
+   rule — it is the unclassed fallback. */
+.count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 22px; padding: 0 6px; border-radius: var(--r-pill);
   font: 700 12px/1.7 var(--font-sans); font-variant-numeric: tabular-nums;
   background: var(--line-soft); color: var(--ink-700);
 }
-.filter-tab .count-neutral { background: var(--line-soft); color: var(--ink-600); }
-.filter-tab .count-info    { background: var(--info-bg);   color: var(--info-fg); }
-.filter-tab .count-warn    { background: var(--warn-bg);   color: var(--warn-fg); }
-.filter-tab .count-ok      { background: var(--ok-bg);     color: var(--ok-fg); }
-.filter-tab .count-danger  { background: var(--danger-bg); color: var(--danger-fg); }
+.count-neutral { background: var(--line-soft); color: var(--ink-600); }
+.count-info    { background: var(--info-bg);   color: var(--info-fg); }
+.count-warn    { background: var(--warn-bg);   color: var(--warn-fg); }
+.count-ok      { background: var(--ok-bg);     color: var(--ok-fg); }
+.count-danger  { background: var(--danger-bg); color: var(--danger-fg); }
 
 /* A .filter-tabs bar carries tabs and nothing else. Three attempts at hanging a
    page summary off it — above the bar as .filter-head/.filter-summary, then as

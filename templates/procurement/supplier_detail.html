@@ -17,8 +17,8 @@ in the user's words, because "transfer" reads like it might rewrite history.
   <div>
     <a class="back-link" href="{% url 'supplier_list' %}">Suppliers</a>
     <h1 class="mt-2">{{ profile.supplier_name|default:supplier.username }}
-      {% if profile.branch %}<span class="pill pill-neutral">{{ profile.branch.branch_name }}</span>
-      {% else %}<span class="pill pill-neutral">All branches</span>{% endif %}
+      {% if profile.branch %}<span class="tag">{{ profile.branch.branch_name }}</span>
+      {% else %}<span class="tag">All branches</span>{% endif %}
     </h1>
   </div>
   {% if can_edit %}
@@ -32,7 +32,7 @@ in the user's words, because "transfer" reads like it might rewrite history.
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
         <tr><td class="gv-meta">Category</td><td style="text-align:right;">
-          {% if profile.supplier_category %}<span class="pill pill-info">{{ profile.supplier_category }}</span>{% else %}—{% endif %}</td></tr>
+          {% if profile.supplier_category %}<span class="tag">{{ profile.supplier_category }}</span>{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Contact person</td><td style="text-align:right;">{{ profile.contact_person|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Contact number</td><td class="num" style="text-align:right;">{{ profile.contact_number|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Email</td><td style="text-align:right;">{{ supplier.email|default:"—" }}</td></tr>

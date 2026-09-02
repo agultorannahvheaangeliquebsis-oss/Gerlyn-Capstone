@@ -19,7 +19,7 @@
         <div class="row" style="gap:10px;">
           <span class="sku" style="font-weight:700;">{{ p.po_number }}</span>
           <span style="font-weight:600;">{% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</span>
-          <span class="pill pill-neutral">{{ p.branch.branch_name }}</span>
+          <span class="tag">{{ p.branch.branch_name }}</span>
         </div>
         <div class="gv-meta mt-2">
           Expected

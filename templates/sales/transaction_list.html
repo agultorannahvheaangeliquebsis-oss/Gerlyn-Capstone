@@ -89,13 +89,13 @@
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
         <td data-label="Customer">
           {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}
-            <span class="pill pill-info">Online</span>
+            <span class="tag">Online</span>
           {% else %}Walk-in{% endif %}
         </td>
         <td data-label="Branch">{{ t.branch.branch_name }}</td>
         <td data-label="Type">
-          {% if t.order_type == "Wholesale" %}<span class="pill pill-info">Wholesale</span>
-          {% else %}<span class="pill pill-neutral">Retail</span>{% endif %}
+          {% if t.order_type == "Wholesale" %}<span class="tag">Wholesale</span>
+          {% else %}<span class="tag">Retail</span>{% endif %}
         </td>
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
         <td data-label="Payment" class="gv-meta">{{ t.mode_of_payment }}</td>

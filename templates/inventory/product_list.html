@@ -196,7 +196,7 @@
         </td>
         <td data-label="SKU" class="sku">{{ row.product.sku_code }}</td>
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
-        <td data-label="Category"><span class="pill pill-neutral">{{ row.product.category.category_name|default:"—" }}</span></td>
+        <td data-label="Category"><span class="tag">{{ row.product.category.category_name|default:"—" }}</span></td>
         <td data-label="Unit">{{ row.product.unit_of_measure }}</td>
         <td data-label="Retail" class="num">₱{{ row.product.unit_price|floatformat:2 }}</td>
         <td data-label="Wholesale" class="num">{% if row.product.wholesale_price %}₱{{ row.product.wholesale_price|floatformat:2 }}{% else %}—{% endif %}</td>

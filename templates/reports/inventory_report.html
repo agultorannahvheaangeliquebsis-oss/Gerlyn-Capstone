@@ -114,8 +114,8 @@ three tabs carry the control in .page-head.
         <td data-label="Total Units" class="num">{{ row.units }} units</td>
         <td data-label="Inventory Value" class="num strong">₱{{ row.value|floatformat:2 }}</td>
         <td data-label="Low/Critical Items">
-          {% if row.low_critical %}<span class="pill pill-danger">{{ row.low_critical }} item{{ row.low_critical|pluralize }}</span>
-          {% else %}<span class="pill pill-ok">0 items</span>{% endif %}
+          {% if row.low_critical %}<span class="count count-danger" aria-label="{{ row.low_critical }} item{{ row.low_critical|pluralize }}">{{ row.low_critical }}</span>
+          {% else %}<span class="count count-ok" aria-label="no items">0</span>{% endif %}
         </td>
       </tr>
       {% empty %}

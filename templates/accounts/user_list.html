@@ -40,10 +40,10 @@
           <span class="gv-meta">{{ r.user.email|default:"—" }}</span>
         </td>
         <td data-label="Role">
-          {% if r.user.role == 'OWNER' %}<span class="pill pill-ok">Owner</span>
-          {% elif r.user.role == 'BRANCH_MANAGER' %}<span class="pill pill-info">Manager</span>
-          {% elif r.user.role == 'SUPPLIER' %}<span class="pill pill-warn">Supplier</span>
-          {% else %}<span class="pill pill-neutral">Staff</span>{% endif %}
+          {% if r.user.role == 'OWNER' %}<span class="tag">Owner</span>
+          {% elif r.user.role == 'BRANCH_MANAGER' %}<span class="tag">Manager</span>
+          {% elif r.user.role == 'SUPPLIER' %}<span class="tag">Supplier</span>
+          {% else %}<span class="tag">Staff</span>{% endif %}
         </td>
         <td data-label="Branch">{{ r.branch }}</td>
         <td data-label="Status">

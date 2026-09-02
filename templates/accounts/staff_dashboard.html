@@ -28,7 +28,7 @@
         <div style="font-weight:600; font-size:16px;">Check Inventory</div>
         <p class="gv-meta mb-0" style="margin-top:4px;">View current stock at {{ branch.branch_name }}</p>
       </div>
-      <span class="pill pill-info">{{ total_products }} item{{ total_products|pluralize }}</span>
+      <span class="count count-info" aria-label="{{ total_products }} item{{ total_products|pluralize }}">{{ total_products }}</span>
     </div>
   </a>
   <a class="card card-pad" href="{% url 'delivery_list' %}" style="display:block; text-decoration:none; color:inherit;">
@@ -38,9 +38,9 @@
         <p class="gv-meta mb-0" style="margin-top:4px;">Record deliveries against a purchase order</p>
       </div>
       {% if pending_deliveries_count %}
-        <span class="pill pill-warn">{{ pending_deliveries_count }} waiting</span>
+        <span class="count count-warn" aria-label="{{ pending_deliveries_count }} waiting">{{ pending_deliveries_count }}</span>
       {% else %}
-        <span class="pill pill-ok">0 waiting</span>
+        <span class="count count-ok" aria-label="none waiting">0</span>
       {% endif %}
     </div>
   </a>

@@ -200,8 +200,8 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
         <td data-label="Branch">{{ row.branch.branch_name }}</td>
         <td data-label="Location">
-          {% if row.location == 'Floor' %}<span class="pill pill-neutral">Floor</span>
-          {% else %}<span class="pill pill-info">Warehouse</span>{% endif %}
+          {% if row.location == 'Floor' %}<span class="tag">Floor</span>
+          {% else %}<span class="tag">Warehouse</span>{% endif %}
         </td>
         <td data-label="Qty" class="num strong" style="color:var(--danger-fg);">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date" class="strong" style="color:var(--danger-fg);">{{ row.expiry_date|date:"Y-m-d" }}</td>
@@ -241,8 +241,8 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
         <td data-label="Branch">{{ row.branch.branch_name }}</td>
         <td data-label="Location">
-          {% if row.location == 'Floor' %}<span class="pill pill-neutral">Floor</span>
-          {% else %}<span class="pill pill-info">Warehouse</span>{% endif %}
+          {% if row.location == 'Floor' %}<span class="tag">Floor</span>
+          {% else %}<span class="tag">Warehouse</span>{% endif %}
         </td>
         <td data-label="Qty" class="num">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date">{{ row.expiry_date|date:"Y-m-d" }}</td>
@@ -283,8 +283,8 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
         <td data-label="Branch">{{ row.branch.branch_name }}</td>
         <td data-label="Location">
-          {% if row.location == 'Floor' %}<span class="pill pill-neutral">Floor</span>
-          {% else %}<span class="pill pill-info">Warehouse</span>{% endif %}
+          {% if row.location == 'Floor' %}<span class="tag">Floor</span>
+          {% else %}<span class="tag">Warehouse</span>{% endif %}
         </td>
         <td data-label="Qty" class="num">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date">{{ row.expiry_date|date:"Y-m-d" }}</td>

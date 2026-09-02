@@ -62,8 +62,8 @@
       <tbody>
         <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ transaction.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Channel</td><td style="text-align:right;">
-          {% if transaction.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
-          {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td></tr>
+          {% if transaction.transaction_type == "Online" %}<span class="tag">Online</span>
+          {% else %}<span class="tag">In-Store</span>{% endif %}</td></tr>
         <tr><td class="gv-meta">Customer</td><td style="text-align:right;">
           {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
           {% else %}Walk-in{% endif %}</td></tr>
@@ -79,7 +79,7 @@
         {% endcomment %}
         {% if transaction.discount_type != 'None' %}
         <tr><td class="gv-meta">Discount</td><td style="text-align:right;">
-          <span class="pill pill-ok">{{ transaction.get_discount_type_display }}</span></td></tr>
+          <span class="tag">{{ transaction.get_discount_type_display }}</span></td></tr>
         <tr><td class="gv-meta">ID presented</td><td style="text-align:right;">
           {{ transaction.discount_id_number|default:"—" }}
           {% if transaction.discount_holder_name %}<div class="gv-meta">{{ transaction.discount_holder_name }}</div>{% endif %}</td></tr>

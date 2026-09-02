@@ -34,14 +34,14 @@
           <a href="{% url 'supplier_detail' s.pk %}">{{ s.supplier_profile.supplier_name|default:s.username }}</a></td>
         <td data-label="Branch">
           {% if s.supplier_profile.branch %}
-            <span class="pill pill-neutral">{{ s.supplier_profile.branch.branch_name }}</span>
+            <span class="tag">{{ s.supplier_profile.branch.branch_name }}</span>
           {% else %}
             <span class="gv-meta">All branches</span>
           {% endif %}
         </td>
         <td data-label="Category">
           {% if s.supplier_profile.supplier_category %}
-            <span class="pill pill-info">{{ s.supplier_profile.supplier_category }}</span>
+            <span class="tag">{{ s.supplier_profile.supplier_category }}</span>
           {% else %}—{% endif %}
         </td>
         {# Links into the supplier's product sub-view — the same place the row's name goes. #}

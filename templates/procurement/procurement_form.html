@@ -52,7 +52,7 @@ way out of it instead of a dead form.
         <input type="hidden" name="branch" value="{{ user_branch.id }}">
         <div class="field">
           <label>Branch</label>
-          <div class="row"><span class="pill pill-info">{{ user_branch.branch_name }}</span>
+          <div class="field-static">{{ user_branch.branch_name }}
             <span class="gv-meta">your assigned branch</span></div>
         </div>
       {% else %}

@@ -40,7 +40,7 @@ basket because they forgot to pick a branch.
         {% if pos_user_branch %}
           <div class="field">
             <label>Branch</label>
-            <div class="row"><span class="pill pill-info">{{ pos_user_branch.branch_name }}</span>
+            <div class="field-static">{{ pos_user_branch.branch_name }}
               <span class="gv-meta">your assigned branch</span></div>
           </div>
         {% else %}

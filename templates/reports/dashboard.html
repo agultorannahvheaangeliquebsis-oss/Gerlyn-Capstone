@@ -487,10 +487,10 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
 
   {% if needs_attention.actionable|length == 1 %}
     {% for row in needs_attention.actionable %}
-    <a href="{{ row.url }}" class="attn-card{% if row.pill == 'pill-danger' %} attn-card--danger{% endif %}">
+    <a href="{{ row.url }}" class="attn-card{% if row.tone == 'danger' %} attn-card--danger{% endif %}">
       <span class="attn-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=row.icon %}</span>
       <span>
-        <span class="attn-card-title">{{ row.label }} <span class="pill {{ row.pill }}">{{ row.count }}</span></span>
+        <span class="attn-card-title">{{ row.label }} <span class="count count-{{ row.tone }}">{{ row.count }}</span></span>
         <span class="attn-card-body">{{ row.detail }}</span>
       </span>
       <span class="attn-card-go">Review &rarr;</span>
@@ -504,7 +504,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
         {{ row.label }}
       </span>
       <span class="attn-end">
-        <span class="pill {{ row.pill }}">{{ row.count }}</span>
+        <span class="count count-{{ row.tone }}">{{ row.count }}</span>
         <span class="attn-chevron" aria-hidden="true">&rsaquo;</span>
       </span>
     </a>
@@ -610,8 +610,8 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
             {% else %}Walk-in{% endif %}</td>
           <td data-label="Branch">{{ t.branch.branch_name }}</td>
           <td data-label="Channel">
-            {% if t.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
-            {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td>
+            {% if t.transaction_type == "Online" %}<span class="tag">Online</span>
+            {% else %}<span class="tag">In-Store</span>{% endif %}</td>
           <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
           <td data-label="Status">
             {% if t.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>

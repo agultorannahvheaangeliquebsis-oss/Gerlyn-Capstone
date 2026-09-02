@@ -49,7 +49,7 @@ against gerlyn.css rather than the Bootstrap classes it was written for
           <span class="account-card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             {% t "Inbox" %}
-            {% if unread_count %}<span class="pill pill-info">{{ unread_count }} {% t "unread" %}</span>{% endif %}
+            {% if unread_count %}<span class="count count-info" aria-label="{{ unread_count }} {% t "unread" %}">{{ unread_count }}</span>{% endif %}
           </span>
           {% comment %}
           Both controls for this card in one cluster on the right: the one

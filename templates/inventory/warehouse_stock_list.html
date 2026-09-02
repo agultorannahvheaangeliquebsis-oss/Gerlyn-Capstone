@@ -200,11 +200,11 @@ inventory.alerts.stock_status().
       {% csrf_token %}
       <div class="field">
         <label>Product</label>
-        <div class="row"><span class="pill pill-info" id="edit-warehouse-product"></span></div>
+        <div class="field-static" id="edit-warehouse-product"></div>
       </div>
       <div class="field">
         <label>Branch</label>
-        <div class="row"><span class="pill pill-neutral" id="edit-warehouse-branch"></span></div>
+        <div class="field-static" id="edit-warehouse-branch"></div>
       </div>
       <div class="field">
         <label for="edit-warehouse-reorder">Warehouse Reorder Level{% if can_edit_reorder %} <span style="color:var(--danger-dot);">*</span>{% endif %}</label>
