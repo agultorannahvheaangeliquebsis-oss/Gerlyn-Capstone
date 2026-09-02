@@ -182,7 +182,7 @@ class AcceptanceTests(TestCase):
             quantity_requested=40, quantity_approved=40,
         )
 
-        self.login('ben').post(f'/inventory/withdrawals/{transfer.pk}/flag/', {
+        self.login('ben').post(f'/inventory/stock-requests/{transfer.pk}/flag/', {
             'received_qty': 30, 'flag_reason': '10 damaged in transit',
         })
 

@@ -342,7 +342,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
       <h3>Restock Suggestions</h3>
       <p class="gv-meta mb-0">{{ low_stock_count }} floor stock item{{ low_stock_count|pluralize }} at or below reorder level</p>
     </div>
-    <a class="btn btn-primary" href="{% url 'transfer_create' %}">Create Stock Adjustment</a>
+    <a class="btn btn-primary" href="{% url 'warehouse_stock_request' %}">Request Stock to Floor</a>
   </div>
   <div class="table-wrap">
     <table class="gv-table">

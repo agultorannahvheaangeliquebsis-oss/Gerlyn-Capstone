@@ -18,13 +18,13 @@ Suggested reorder quantity = reorder_level * 2 - quantity_on_hand
 
 Two independent low-stock alert types, never mixed:
   low_stock_alerts()           -> Inventory (branch FLOOR stock).
-                                   Correct action: a Stock Adjustment,
+                                   Correct action: Request Stock to Floor,
                                    pulling from that branch's own warehouse.
   low_warehouse_stock_alerts() -> WarehouseStock (branch WAREHOUSE stock).
                                    Correct action: a Purchase Order to the
                                    supplier.
 A floor alert must never suggest a PO, and a warehouse alert must never
-suggest a Stock Adjustment — each function/template only ever points to
+suggest a stock request — each function/template only ever points to
 its own correct next step.
 
 Expiry alerts
@@ -118,7 +118,7 @@ def low_warehouse_stock_alerts(branch_ids=None):
     Return low/critical WAREHOUSE-stock rows as dicts, ordered most-urgent
     first — same shape as low_stock_alerts(), but sourced from
     WarehouseStock instead of Inventory. The correct action for these is a
-    Purchase Order (never a Stock Adjustment, which pulls FROM the
+    Purchase Order (never a stock request, which pulls FROM the
     warehouse — it can't fix the warehouse itself running low).
 
     `branch_ids=None` -> all branches (Owner). Pass a list to scope to a

@@ -342,13 +342,20 @@ class Batch(models.Model):
 
 class StockTransfer(models.Model):
     """
-    A stock withdrawal: goods issued out of the warehouse under an
-    approval chain (request -> approve -> release -> acknowledge),
-    either to a branch or as a write-off.
+    One slip through the approval chain (request -> approve -> release
+    -> acknowledge). Two shapes, told apart by `purpose`:
 
-    Named "Stock Withdrawals" in the UI. Not to be confused with
-    stock_adjustment_add, which is a direct count correction with no
-    approval chain and keeps the name "Stock Adjustment".
+      Branch Restock  -> "Request Stock to Floor" in the UI. Moves stock
+                         warehouse -> floor. Nothing leaves the business.
+      anything else   -> "Report Damaged / Lost Stock". Deducts from the
+                         floor only; the goods are gone.
+
+    Both are listed together under "Stock Requests", where the Type column
+    is what separates them.
+
+    Neither is the Floor Stock page's "Correct Stock Count"
+    (stock_adjustment_add) — that is a direct count fix with no approval
+    chain and no slip at all.
 
     slip_number/WS- are left alone on purpose: they identify records
     that already exist.

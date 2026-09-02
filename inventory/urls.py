@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, re_path
 
 from . import views
 
@@ -27,13 +27,19 @@ urlpatterns = [
     # Alerts Center
     path('alerts/', views.alerts_center, name='alerts_center'),
 
-    # Withdrawal slips (stock transfers)
-    path('withdrawals/', views.transfer_list, name='transfer_list'),
-    path('withdrawals/new/', views.transfer_create, name='transfer_create'),
-    path('withdrawals/<int:pk>/', views.transfer_detail, name='transfer_detail'),
-    path('withdrawals/<int:pk>/approve/', views.transfer_approve, name='transfer_approve'),
-    path('withdrawals/<int:pk>/release/', views.transfer_complete, name='transfer_complete'),
-    path('withdrawals/<int:pk>/scan/', views.transfer_scan, name='transfer_scan'),
-    path('withdrawals/<int:pk>/confirm/', views.transfer_confirm_receipt, name='transfer_confirm_receipt'),
-    path('withdrawals/<int:pk>/flag/', views.transfer_flag_discrepancy, name='transfer_flag_discrepancy'),
+    # Stock request slips (restocks and write-offs)
+    path('stock-requests/', views.transfer_list, name='transfer_list'),
+    path('stock-requests/new/', views.transfer_create, name='transfer_create'),
+    path('stock-requests/<int:pk>/', views.transfer_detail, name='transfer_detail'),
+    path('stock-requests/<int:pk>/approve/', views.transfer_approve, name='transfer_approve'),
+    path('stock-requests/<int:pk>/release/', views.transfer_complete, name='transfer_complete'),
+    path('stock-requests/<int:pk>/scan/', views.transfer_scan, name='transfer_scan'),
+    path('stock-requests/<int:pk>/confirm/', views.transfer_confirm_receipt, name='transfer_confirm_receipt'),
+    path('stock-requests/<int:pk>/flag/', views.transfer_flag_discrepancy, name='transfer_flag_discrepancy'),
+
+    # These paths were /withdrawals/... back when the UI called these slips
+    # "Stock Withdrawals". Unnamed and last on purpose: nothing reverses to
+    # them, they only catch a bookmark or a pasted link. Keep this below the
+    # real routes so it can never shadow one.
+    re_path(r'^withdrawals/(?P<rest>.*)$', views.legacy_withdrawal_redirect),
 ]

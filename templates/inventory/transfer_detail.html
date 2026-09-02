@@ -3,7 +3,7 @@
 {% block page_subtitle %}Inventory{% endblock %}
 {% block content %}
 <div style="padding:8px 4px; max-width:800px;">
-  <a class="back-link" href="{% url 'transfer_list' %}">Stock Withdrawals</a>
+  <a class="back-link" href="{% url 'transfer_list' %}">Stock Requests</a>
   <h2 style="margin:8px 0;">{{ transfer.slip_number }}
     <span style="font-size:14px; padding:2px 10px; border-radius:12px; background:#eef; color:#334;">{{ transfer.status }}</span>
   </h2>
@@ -11,7 +11,7 @@
   <div class="stack" style="gap:8px; margin:12px 0;">
     <div class="row wrap" style="gap:8px 32px;">
       <div><span style="color:#888;">From</span> {{ transfer.source_branch }}</div>
-      <div><span style="color:#888;">To</span> {{ transfer.destination_branch|default:"N/A (write-off/display)" }}</div>
+      <div><span style="color:#888;">To</span> {{ transfer.destination_branch|default:"— (written off, not moved)" }}</div>
     </div>
     <div class="row wrap" style="gap:8px 32px;">
       <div><span style="color:#888;">Purpose</span> {{ transfer.purpose }}</div>
@@ -57,14 +57,27 @@
   </div>
 
   <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+    {% comment %}
+    Approving and releasing are Owner/Branch Manager actions. Staff used to
+    see both buttons and get bounced with a permission error on click; now
+    they see what the slip is waiting for instead.
+    {% endcomment %}
     {% if transfer.status == 'Pending' %}
+      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
       <a class="btn green" style="padding:8px 16px; background:#128a4f; color:#fff; border-radius:8px; text-decoration:none;" href="{% url 'transfer_approve' transfer.pk %}">Review &amp; Approve</a>
+      {% else %}
+      <p class="gv-meta">Waiting for a Branch Manager or the Owner to approve this slip.</p>
+      {% endif %}
     {% elif transfer.status == 'Approved' %}
+      {% if request.user.role != 'OWNER' and request.user.role != 'BRANCH_MANAGER' %}
+      <p class="gv-meta">Approved — waiting for a Branch Manager or the Owner to pick and release the stock.</p>
+      {% else %}
       {% comment %}
       A link now, not a direct POST: releasing goes through a picking screen
       where each item is scanned or counted before any stock moves.
       {% endcomment %}
       <a class="btn green" style="padding:8px 16px; background:#128a4f; color:#fff; border-radius:8px; text-decoration:none;" href="{% url 'transfer_complete' transfer.pk %}">Pick &amp; Release Stock</a>
+      {% endif %}
     {% elif transfer.status == 'Released' %}
       <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" style="display:flex; gap:6px; flex-wrap:wrap;">{% csrf_token %}
         <input type="number" name="received_qty" placeholder="received qty" style="padding:6px; flex:1 1 120px;">

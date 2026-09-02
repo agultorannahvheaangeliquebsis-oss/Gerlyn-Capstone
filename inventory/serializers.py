@@ -202,7 +202,7 @@ class BatchSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
-# STOCK TRANSFER (Withdrawal Slip)
+# STOCK TRANSFER (Stock Slip)
 # =============================================================================
 
 class StockTransferItemSerializer(serializers.ModelSerializer):

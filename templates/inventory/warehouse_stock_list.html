@@ -54,7 +54,7 @@
 <div class="page-head">
   <div>
     <h1>Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% endif %}</h1>
-    <p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% else %} across all branches{% endif %} — what a Stock Adjustment moves onto the floor</p>
+    <p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% else %} across all branches{% endif %} — what a stock request moves onto the floor</p>
   </div>
   {% if can_request_to_floor %}
   <a class="btn btn-primary" href="{% url 'warehouse_stock_request' %}">

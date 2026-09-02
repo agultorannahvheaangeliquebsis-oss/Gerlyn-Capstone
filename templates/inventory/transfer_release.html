@@ -6,7 +6,7 @@
 {% block branch_scope %}{{ transfer.source_branch.branch_name }}{% endblock %}
 
 {% comment %}
-The release step of a stock withdrawal: someone physically pulls the approved
+The release step of a stock slip: someone physically pulls the approved
 goods off the shelf. Scanning belongs HERE and not at the request or
 acknowledge steps — this is the only point in the chain where a person is
 handling individual units and can get the count wrong.
@@ -91,7 +91,7 @@ authorised), so it should not be a second thing to learn.
 
 <form method="POST" id="release-form"
       data-confirm="Stock will move as counted below. This cannot be undone from this screen."
-      data-confirm-title="Release this withdrawal?"
+      data-confirm-title="Release this slip?"
       data-confirm-ok="Release stock">
   {% csrf_token %}
   <div class="card table-wrap mb-4">
@@ -251,7 +251,7 @@ authorised), so it should not be a second thing to learn.
           } else if (d.status === 'not_on_slip') {
             // No "add it anyway" here, unlike receiving: adding a line would
             // route around the approval this slip exists to enforce.
-            setStatus(d.product_name + ' is not on this withdrawal slip. Put it back, or '
+            setStatus(d.product_name + ' is not on this slip. Put it back, or '
                       + 'raise a new slip for it.', 'bad');
           } else {
             setStatus('No product matches ' + d.code + '.', 'bad');

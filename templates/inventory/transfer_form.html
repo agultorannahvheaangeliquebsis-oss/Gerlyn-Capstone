@@ -1,14 +1,14 @@
 {% extends 'internal_base.html' %}
-{% block title %}New Stock Adjustment{% endblock %}
+{% block title %}Report Damaged / Lost Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="back-link" href="{% url 'transfer_list' %}">Stock Adjustments</a>
-    <h1 class="mt-2">New Stock Adjustment</h1>
+    <a class="back-link" href="{% url 'transfer_list' %}">Stock Requests</a>
+    <h1 class="mt-2">Report Damaged / Lost Stock</h1>
     <p class="gv-meta mb-0">
-      For floor-level write-offs — damaged, expired, spoiled, sample/display, or other reasons stock leaves the shelf.
+      Records stock leaving the shelf for good — damaged, expired, spoiled, put on display, or any other reason it can no longer be sold. Floor stock only; the warehouse is not touched.
       To move stock from the warehouse onto the floor, use <a href="{% url 'warehouse_stock_list' %}">Warehouse Stock &rarr; Request Stock to Floor</a> instead.
     </p>
   </div>

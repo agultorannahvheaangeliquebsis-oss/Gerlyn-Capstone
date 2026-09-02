@@ -434,7 +434,7 @@ class FeatureUpdateTests(TestCase):
         slip, item, stock = self.approved_slip(quantity=10)
 
         self.login(self.owner().username).post(
-            f'/inventory/withdrawals/{slip.pk}/release/', {
+            f'/inventory/stock-requests/{slip.pk}/release/', {
                 'item_id': [str(item.pk)],
                 'quantity_released': ['7'],
                 'release_method': ['Scan'],
@@ -453,7 +453,7 @@ class FeatureUpdateTests(TestCase):
         slip, item, stock = self.approved_slip(quantity=5)
 
         self.login(self.owner().username).post(
-            f'/inventory/withdrawals/{slip.pk}/release/', {
+            f'/inventory/stock-requests/{slip.pk}/release/', {
                 'item_id': [str(item.pk)],
                 'quantity_released': ['9'],
                 'release_method': ['Scan'],
@@ -473,7 +473,7 @@ class FeatureUpdateTests(TestCase):
         slip, item, stock = self.approved_slip(quantity=4)
 
         self.login(self.owner().username).post(
-            f'/inventory/withdrawals/{slip.pk}/release/', {}
+            f'/inventory/stock-requests/{slip.pk}/release/', {}
         )
 
         slip.refresh_from_db()
@@ -490,7 +490,7 @@ class FeatureUpdateTests(TestCase):
         stranger.save()
 
         payload = self.login(self.owner().username).post(
-            f'/inventory/withdrawals/{slip.pk}/scan/', {'code': 'SLIPTEST-STRANGER'}
+            f'/inventory/stock-requests/{slip.pk}/scan/', {'code': 'SLIPTEST-STRANGER'}
         ).json()
 
         self.assertEqual(payload['status'], 'not_on_slip')

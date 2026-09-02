@@ -1,5 +1,5 @@
 {% extends 'internal_base.html' %}
-{% block title %}Stock Adjustments{% endblock %}
+{% block title %}Stock Requests{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 
 {% block extra_css %}
@@ -28,13 +28,23 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Stock Adjustments</h1>
-    <p class="gv-meta mb-0">Withdrawal slips, plus a complete log of every stock movement across the branch</p>
+    <h1>Stock Requests</h1>
+    <p class="gv-meta mb-0">Restock requests and write-offs, plus a complete log of every stock movement across the branch</p>
   </div>
-  <a class="btn btn-primary" href="{% url 'transfer_create' %}">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    New Stock Adjustment
-  </a>
+  {% comment %}
+  Two create actions, because there are two of them in the system and they
+  move stock in opposite directions. The primary one is the restock — it is
+  what staff do daily — and it lives on Warehouse Stock, since you pick from
+  what the stockroom actually has; this button just points there rather than
+  opening a second, stock-less copy of that form.
+  {% endcomment %}
+  <div class="row" style="gap:var(--s2);">
+    <a class="btn" href="{% url 'transfer_create' %}">Report Damaged / Lost Stock</a>
+    <a class="btn btn-primary" href="{% url 'warehouse_stock_list' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Request Stock to Floor
+    </a>
+  </div>
 </div>
 
 {% comment %}
@@ -90,7 +100,7 @@ across the full width leave the default block padding as empty card.
   competing with its own parts.
   {% endcomment %}
   <button type="button" class="filter-tab active" id="tab-slips" onclick="showTab('slips')">
-    {% include "partials/_status_icon.html" with icon="draft" %}Withdrawal Slips
+    {% include "partials/_status_icon.html" with icon="draft" %}Slips
   </button>
   <button type="button" class="filter-tab" id="tab-log" onclick="showTab('log')">
     {% include "partials/_status_icon.html" with icon="all" %}Movement Log <span class="count count-neutral">{{ movement_log|length }}</span>
@@ -138,7 +148,7 @@ across the full width leave the default block padding as empty card.
           <th>Slip ID</th>
           <th>From → To</th>
           <th>Requested By</th>
-          <th>Purpose</th>
+          <th>Type</th>
           <th>Status</th>
           <th>Date</th>
           <th class="end">Action</th>
@@ -150,7 +160,20 @@ across the full width leave the default block padding as empty card.
           <td data-label="Slip ID" class="sku strong">{{ t.slip_number }}</td>
           <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</td>
           <td data-label="Requested By">{{ t.requested_by.username|default:"—" }}</td>
-          <td data-label="Purpose"><span class="pill pill-neutral">{{ t.purpose }}</span></td>
+          {% comment %}
+          "Type" rather than the raw Purpose value: a slip is either stock
+          coming ONTO the floor or stock leaving it for good, and that is the
+          distinction someone scanning this list needs first. The purpose
+          still shows, as the qualifier it actually is.
+          {% endcomment %}
+          <td data-label="Type">
+            {% if t.purpose == 'Branch Restock' %}
+              <span class="pill pill-info">Restock</span>
+            {% else %}
+              <span class="pill pill-neutral">Write-off</span>
+              <span class="gv-meta">{{ t.purpose }}</span>
+            {% endif %}
+          </td>
           {% comment %}
           Status was plain text; every other list page in the app shows it as a
           pill. Released takes .pill-warn to match the amber "Pending
@@ -175,9 +198,12 @@ across the full width leave the default block padding as empty card.
           <td colspan="7">
             <div class="empty">
               <span class="glyph">□</span>
-              <h3>No withdrawal slips yet</h3>
-              <p>A withdrawal records stock leaving the shelf — damaged, expired, spoiled or on display — and stays open until the branch confirms what left.</p>
-              <a class="btn btn-primary mt-2" href="{% url 'transfer_create' %}">New Stock Adjustment</a>
+              <h3>No stock requests yet</h3>
+              <p>Two things land here: a <strong>restock</strong>, moving stock from the warehouse onto the shelf, and a <strong>write-off</strong>, recording stock that left the shelf for good — damaged, expired, spoiled or on display. Both stay open until someone approves and releases them.</p>
+              <div class="row mt-2" style="gap:var(--s2); justify-content:center;">
+                <a class="btn" href="{% url 'transfer_create' %}">Report Damaged / Lost Stock</a>
+                <a class="btn btn-primary" href="{% url 'warehouse_stock_list' %}">Request Stock to Floor</a>
+              </div>
             </div>
           </td>
         </tr>
@@ -206,7 +232,7 @@ across the full width leave the default block padding as empty card.
       <tr>
         <td data-label="Date / Time" class="gv-meta">{{ row.movement.created_at|date:"Y-m-d H:i" }}</td>
         <td data-label="Product" class="strong">{{ row.product }}</td>
-        <td data-label="Movement Type"><span class="pill pill-neutral">{{ row.movement.movement_type }}</span></td>
+        <td data-label="Movement Type"><span class="pill pill-neutral">{{ row.label }}</span></td>
         <td data-label="Quantity" class="num strong">{{ row.quantity }}</td>
         <td data-label="Source">{{ row.source }}</td>
         <td data-label="Destination">{{ row.destination }}</td>
@@ -218,7 +244,7 @@ across the full width leave the default block padding as empty card.
           <div class="empty">
             <span class="glyph">□</span>
             <h3>No stock movement yet</h3>
-            <p>Every Purchase Order receipt, Stock Adjustment, and sale will show up here.</p>
+            <p>Every purchase order receipt, restock, write-off, count correction and sale will show up here.</p>
           </div>
         </td>
       </tr>

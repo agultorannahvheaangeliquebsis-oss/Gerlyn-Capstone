@@ -17,7 +17,7 @@ from .models import (
 from .alerts import alert_summary
 from accounts.models import User
 from branches.models import Branch
-from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, role_required
+from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
 from core.scoping import branch_ids_for_user, user_can_access_branch
 from core.timebounds import local_month_bounds
@@ -149,7 +149,7 @@ def product_list(request):
 @login_required(login_url='accounts:login')
 def barcode_lookup(request):
     """AJAX: resolve a scanned/typed code to product details for the shared
-    barcode field on Add Product and Stock Adjustment. Checks the real
+    barcode field on Add Product and Correct Stock Count. Checks the real
     `barcode` field first, falling back to `sku_code` (covers codes that
     were only ever assigned internally). Returns {'found': False} for no
     match — an expected, handled outcome here, not an error."""
@@ -237,7 +237,7 @@ def product_add(request):
                         is_primary=(index == 0),  # first upload becomes the hero image
                     )
                 # Availability: a checked branch gets a zero-qty floor Inventory
-                # row so it shows up as stocked and ready for a withdrawal slip.
+                # row so it shows up as stocked and ready to request to the floor.
                 # A Branch Manager only gets to do this for their own branch —
                 # branch_ids comes straight from POST, so a tampered request
                 # (devtools/proxy) listing another branch must not create a
@@ -599,7 +599,7 @@ def inventory_edit(request, pk):
     Owner/Branch Manager only — its reorder threshold too. Staff can update
     the expiry date but not the reorder level, which is a planning decision
     above their role; this never touches quantity_on_hand though, so unlike
-    Stock Adjustment it needs no audit trail for either field."""
+    Correct Stock Count it needs no audit trail for either field."""
     if request.user.role not in INTERNAL_ROLES:
         messages.error(request, 'Access denied.')
         return redirect('inventory_list')
@@ -634,14 +634,14 @@ def inventory_edit(request, pk):
 
 @login_required(login_url='accounts:login')
 def stock_adjustment_add(request):
-    """Direct floor-stock correction — bumps Inventory.quantity_on_hand
-    without going through the normal Warehouse -> StockTransfer chain, so
-    it's restricted to Owner/Branch Manager and exists for corrections,
-    spot-counts, and initial seeding, not as a substitute for withdrawal
-    slips. Every adjustment is logged as a StockMovement for the same
-    traceability the transfer flow gets."""
+    """"Correct Stock Count" on the Floor Stock page — bumps
+    Inventory.quantity_on_hand directly, without going through the normal
+    Warehouse -> StockTransfer chain, so it's restricted to Owner/Branch
+    Manager and exists for spot-counts and initial seeding, not as a
+    substitute for a restock request. Every correction is logged as a
+    StockMovement for the same traceability the slip flow gets."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
-        messages.error(request, 'Only the Owner or a Branch Manager can make a stock adjustment.')
+        messages.error(request, 'Only the Owner or a Branch Manager can correct a stock count.')
         return redirect('inventory_list')
 
     if request.method != 'POST':
@@ -689,11 +689,15 @@ def stock_adjustment_add(request):
             quantity_change=int(quantity),
             quantity_before=qty_before,
             quantity_after=inv.quantity_on_hand,
-            notes=f'Manual stock adjustment by {request.user.get_full_name() or request.user.username}',
+            notes=f'Stock count correction by {request.user.get_full_name() or request.user.username}',
             created_by=request.user,
         )
 
-    messages.success(request, f'Added {quantity} to {product.product_name} at {branch.branch_name}.')
+    messages.success(
+        request,
+        f'Count corrected: added {quantity} to {product.product_name} '
+        f'at {branch.branch_name}.'
+    )
     return redirect('inventory_list')
 
 
@@ -819,11 +823,27 @@ def warehouse_stock_edit(request, pk):
 
 
 # ─────────────────────────────────────────────
-# STOCK MOVEMENT LOG — the audit trail behind Stock Adjustments' Movement
+# STOCK MOVEMENT LOG — the audit trail behind Stock Requests' Movement
 # Log tab. StockMovement rows are already created by every stock-affecting
 # action in the app (PO receiving, a released restock/write-off, a sale) —
 # this only reads and formats them, it never moves stock itself.
 # ─────────────────────────────────────────────
+
+# What each movement_type is called in the log. The stored values are
+# internal ("Manual Out", "Adjustment") and were being printed raw, so the
+# log named things nobody would find anywhere else in the UI. Mapping here
+# rather than renaming the choice labels keeps existing rows readable
+# without a data migration.
+MOVEMENT_LABELS = {
+    StockMovement.MovementType.SALE: 'Sale',
+    StockMovement.MovementType.PROCUREMENT_RECEIVED: 'Delivery received',
+    StockMovement.MovementType.WAREHOUSE_TO_FLOOR: 'Restock to floor',
+    StockMovement.MovementType.FLOOR_TO_WAREHOUSE: 'Returned to warehouse',
+    StockMovement.MovementType.MANUAL_IN: 'Manual stock in',
+    StockMovement.MovementType.MANUAL_OUT: 'Write-off',
+    StockMovement.MovementType.ADJUSTMENT: 'Count correction',
+}
+
 
 def _describe_movement(m):
     """(product name, source label, destination label) for one StockMovement.
@@ -897,15 +917,22 @@ def _movement_log(branch_ids=None):
             'source': source,
             'destination': destination,
             'quantity': abs(m.quantity_change),
+            'label': MOVEMENT_LABELS.get(m.movement_type, m.movement_type),
         })
     return rows
 
 
 # ─────────────────────────────────────────────
-# WITHDRAWAL SLIP (STOCK TRANSFER) VIEWS
+# STOCK SLIP (STOCK TRANSFER) VIEWS — restocks and write-offs
 # ─────────────────────────────────────────────
 
-@role_required(OWNER, BRANCH_MANAGER)
+# STAFF included deliberately: they can raise a restock request, record a
+# write-off and confirm receipt of a released slip, and every one of those
+# views redirects here on success. Excluding them meant a staff member
+# submitted a request and landed on a 403 instead of a confirmation. The
+# queryset below is already branch-scoped, and the per-slip actions stay
+# role-gated in their own views.
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def transfer_list(request):
     transfers = StockTransfer.objects.select_related(
         'source_branch', 'destination_branch',
@@ -1009,14 +1036,14 @@ def _safe_positive_int(value):
 def warehouse_stock_request(request):
     """Dedicated "Request Stock to Floor" entry point, reached from the
     Warehouse Stock page — always a Branch Restock, no Purpose picker.
-    Separate on purpose from New Stock Adjustment (transfer_create below),
-    which now only handles floor-level write-offs, so the two actions can
-    never be confused for each other.
+    Separate on purpose from Report Damaged / Lost Stock (transfer_create
+    below), which only handles floor-level write-offs, so the two actions
+    can never be confused for each other.
 
     Staff/Manager are pinned to their own branch as before. The Owner has no
     single branch to default to, so they pick one via ?branch=<id> (or the
     branch_id field on resubmit) — same pattern as the Floor Stock page's
-    Stock Adjustment modal, which shows a branch picker under the same
+    Correct Stock Count modal, which shows a branch picker under the same
     condition rather than hiding the action outright."""
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
@@ -1100,16 +1127,17 @@ def warehouse_stock_request(request):
 
 @login_required(login_url='accounts:login')
 def transfer_create(request):
-    """New Stock Adjustment — floor-level write-offs only (damaged/spoiled,
-    sample/display, other). Restocking the floor FROM the warehouse is now
-    its own dedicated flow (see warehouse_stock_request, reached from the
-    Warehouse Stock page's "Request Stock to Floor" button) — keeping the
-    two entry points separate is the whole point: a write-off never touches
-    the warehouse, and a restock request never touches the floor directly."""
+    """"Report Damaged / Lost Stock" — floor-level write-offs only
+    (damaged/spoiled, sample/display, other). Restocking the floor FROM the
+    warehouse is its own dedicated flow (see warehouse_stock_request,
+    reached from the Warehouse Stock page's "Request Stock to Floor"
+    button) — keeping the two entry points separate is the whole point: a
+    write-off never touches the warehouse, and a restock request never
+    reduces floor stock."""
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
-        messages.error(request, 'You do not have permission to create stock withdrawals.')
+        messages.error(request, 'You do not have permission to report damaged or lost stock.')
         return redirect('transfer_list')
 
     user_branch = get_user_branch(request.user)
@@ -1178,8 +1206,7 @@ def transfer_create(request):
 
         messages.success(
             request,
-            f'Stock Adjustment {transfer.slip_number} created successfully. '
-            f'Awaiting approval.'
+            f'Write-off {transfer.slip_number} recorded — awaiting approval.'
         )
         return redirect('transfer_list')
 
@@ -1202,7 +1229,7 @@ def transfer_detail(request, pk):
     # (The list is scoped; without this the detail leaks via the URL.)
     if not (user_can_access_branch(request.user, transfer.source_branch_id)
             or user_can_access_branch(request.user, transfer.destination_branch_id)):
-        messages.error(request, 'That stock withdrawal is not available to you.')
+        messages.error(request, 'That stock slip is not available to you.')
         return redirect('transfer_list')
 
     items = transfer.items.select_related('product').all()
@@ -1222,7 +1249,7 @@ def transfer_approve(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.source_branch_id):
-        messages.error(request, 'That stock withdrawal belongs to another branch.')
+        messages.error(request, 'That stock slip belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.PENDING:
@@ -1320,7 +1347,7 @@ def transfer_complete(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.source_branch_id):
-        messages.error(request, 'That stock withdrawal belongs to another branch.')
+        messages.error(request, 'That stock slip belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.APPROVED:
@@ -1416,7 +1443,7 @@ def transfer_complete(request, pk):
                             quantity_before=qty_before_warehouse,
                             quantity_after=ws.quantity_on_hand,
                             reference_id=transfer.pk,
-                            notes=f'Stock withdrawal {transfer.slip_number}',
+                            notes=f'Stock request {transfer.slip_number}',
                             created_by=request.user,
                         )
 
@@ -1443,7 +1470,7 @@ def transfer_complete(request, pk):
                                 quantity_before=qty_before_floor,
                                 quantity_after=inv.quantity_on_hand,
                                 reference_id=transfer.pk,
-                                notes=f'Withdrawal Slip {transfer.slip_number}',
+                                notes=f'Stock request {transfer.slip_number}',
                                 created_by=request.user,
                             )
                     else:
@@ -1476,7 +1503,7 @@ def transfer_complete(request, pk):
                             quantity_before=qty_before_floor,
                             quantity_after=inv.quantity_on_hand,
                             reference_id=transfer.pk,
-                            notes=f'Withdrawal Slip {transfer.slip_number} — {transfer.purpose}',
+                            notes=f'Write-off {transfer.slip_number} — {transfer.purpose}',
                             created_by=request.user,
                         )
 
@@ -1504,14 +1531,14 @@ def transfer_complete(request, pk):
         if is_restock:
             messages.success(
                 request,
-                f'Withdrawal Slip {transfer.slip_number} released. '
+                f'Stock request {transfer.slip_number} released. '
                 f'Stock has been moved to the store floor.{short_note}'
             )
         else:
             messages.success(
                 request,
-                f'Withdrawal Slip {transfer.slip_number} completed — '
-                f'floor stock adjusted for {transfer.purpose}.{short_note}'
+                f'Write-off {transfer.slip_number} completed — '
+                f'floor stock reduced for {transfer.purpose}.{short_note}'
             )
         return redirect('transfer_detail', pk=pk)
 
@@ -1573,7 +1600,7 @@ def transfer_scan(request, pk):
 
 
 # ─────────────────────────────────────────────
-# WITHDRAWAL SLIP: ACKNOWLEDGMENT (receiving side)
+# STOCK SLIP: ACKNOWLEDGMENT (receiving side)
 # The destination branch confirms it received the released stock, or flags
 # a discrepancy if the received quantity differs from what was released.
 # ─────────────────────────────────────────────
@@ -1590,11 +1617,11 @@ def transfer_confirm_receipt(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.destination_branch_id):
-        messages.error(request, 'That stock withdrawal belongs to another branch.')
+        messages.error(request, 'That stock slip belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.RELEASED:
-        messages.error(request, 'Only released withdrawals can be acknowledged.')
+        messages.error(request, 'Only released slips can be acknowledged.')
         return redirect('transfer_detail', pk=pk)
 
     if request.method != 'POST':
@@ -1633,11 +1660,11 @@ def transfer_flag_discrepancy(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.destination_branch_id):
-        messages.error(request, 'That stock withdrawal belongs to another branch.')
+        messages.error(request, 'That stock slip belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.RELEASED:
-        messages.error(request, 'Only released withdrawals can be flagged.')
+        messages.error(request, 'Only released slips can be flagged.')
         return redirect('transfer_detail', pk=pk)
 
     if request.method != 'POST':
@@ -1692,3 +1719,18 @@ def transfer_flag_discrepancy(request, pk):
         f'(released {approved_total}, received {received_qty}).'
     )
     return redirect('transfer_detail', pk=pk)
+
+
+def legacy_withdrawal_redirect(request, rest=''):
+    """Send /inventory/withdrawals/... to its /inventory/stock-requests/...
+    equivalent. The slips did not change, only what they are called, so a
+    bookmarked slip should still open rather than 404.
+
+    Permanent, and built from request.path rather than a hardcoded prefix so
+    it survives the app being mounted somewhere other than /inventory/. Note
+    a 301 turns any POST into a GET — that is fine for the bookmarks this
+    exists for, and nothing in the app posts to these paths any more.
+    """
+    url = request.path.replace('/withdrawals/', '/stock-requests/', 1)
+    query = request.META.get('QUERY_STRING')
+    return redirect(f'{url}?{query}' if query else url, permanent=True)

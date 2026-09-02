@@ -67,12 +67,12 @@ DOM — it is off-screen until focused (see .skip-link).
       {# ---------------------------------------------------------- Inventory #}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-inventory" title="Inventory"
-          aria-expanded="{% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'stock_requests' %}true{% else %}false{% endif %}">
           <i data-lucide="package"></i>
           <span class="sb-label">Inventory</span>
           <i class="sb-chevron" data-lucide="chevron-right"></i>
         </button>
-        <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'withdrawals' %}open{% endif %}" id="tree-inventory">
+        <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'stock_requests' %}open{% endif %}" id="tree-inventory">
           <li class="sb-tree-inner">
             {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
             {% comment %}
@@ -85,9 +85,13 @@ DOM — it is off-screen until focused (see .skip-link).
             {% endif %}
             <a class="sb-tree-file {% if active_page == 'stock' %}sb-tree-file--active{% endif %}" href="{% url 'inventory_list' %}"><span class="sb-label">Floor Stock</span></a>
             <a class="sb-tree-file {% if active_page == 'warehouse_stock' %}sb-tree-file--active{% endif %}" href="{% url 'warehouse_stock_list' %}"><span class="sb-label">Warehouse Stock</span></a>
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
-            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Withdrawals</span></a>
-            {% endif %}
+            {% comment %}
+            No longer manager-only. Staff raise restock requests, record
+            write-offs and confirm receipt of released slips — all of which
+            land on this page — so hiding it left them with no way back to
+            their own request. The list itself is scoped to their branch.
+            {% endcomment %}
+            <a class="sb-tree-file {% if active_page == 'stock_requests' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Requests</span></a>
           </li>
         </ul>
       </div>
