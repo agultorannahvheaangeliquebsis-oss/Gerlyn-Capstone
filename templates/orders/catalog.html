@@ -2,6 +2,19 @@
 {% load shop_extras static %}
 {% block title %}Products — Gerlyn Variety Store{% endblock %}
 
+{% comment %}
+Suppressed here — the Filters rail's own Branch checklist below already
+covers "which branch am I shopping at", so the header's status line would
+just repeat it. See public_base.html's own comment on this block.
+{% endcomment %}
+{% block shop_status %}{% endblock %}
+
+{% comment %}
+Suppressed here too — the Filters rail's own Category checklist below is the
+same list, one row down. See public_base.html's own comment on this block.
+{% endcomment %}
+{% block shop_quick_categories %}{% endblock %}
+
 {% block content %}
 <div class="shop-wrap section">
 
@@ -49,14 +62,20 @@
       same state as having chosen none, where the cards ask you to pick one
       before ordering.
 
-      No auto-submit on change. With multi-select lists, reloading on every
-      tick means ticking three boxes costs three page loads and loses the
-      last two clicks to the reload; and settling on a single branch starts
-      a fresh cart, which should be something you press a button to do
-      rather than something a stray tap does. Apply is that button, and it
-      works with JavaScript off.
+      Ticking a box updates the grid immediately (catalog-live.js) — there is
+      no Apply button, because there is nothing left for one to do. Clear
+      stays a real link so the rail still works with JavaScript off;
+      catalog-live.js intercepts its click when it's running, resetting the
+      boxes themselves (not just the grid) before the same live fetch.
+
+      No-JS fallback: with no submit button, an unticked box only takes
+      effect once something else in this form submits (typing then pressing
+      Enter has no field to press it in here, so in practice that means
+      Clear, or a category/branch link elsewhere on the storefront). That
+      trade is deliberate — the entire point of removing Apply is that nobody
+      running JS should need a button at all.
       {% endcomment %}
-      <form class="rail-form" method="GET" action="{% url 'orders:catalog' %}">
+      <form class="rail-form" method="GET" action="{% url 'orders:catalog' %}" data-catalog-live-filters>
         {% comment %}
         The search term and sort in play ride along, so applying a filter
         does not silently drop what the shopper already asked for.
@@ -114,12 +133,23 @@
           </ul>
         </fieldset>
 
+        {% if category_filters or branch_filters or search_query %}
         <div class="rail-actions">
-          <button class="btn btn-primary rail-apply" type="submit">Apply filters</button>
-          {% if category_filters or branch_filters or search_query %}
-            <a class="rail-clear" href="{% url 'orders:catalog' %}?sort={{ sort }}">Clear filters</a>
-          {% endif %}
+          {% comment %}
+          &branch= (empty) is not decorative — without it this URL has no
+          `branch` key at all, which orders.customer_views.product_catalog
+          reads as "no branch info in this request" and answers by reusing
+          whatever branch is still in the session, rather than "explicitly
+          clear it". That gap is why Clear filters looked like it worked
+          (the boxes reset) while the grid kept showing only the
+          last-selected branch: the session was never actually told to let
+          go of it. See the Branch fieldset's own hidden input above, which
+          exists for exactly this reason on every other request this rail
+          sends.
+          {% endcomment %}
+          <a class="rail-clear" href="{% url 'orders:catalog' %}?sort={{ sort }}&amp;branch=">Clear filters</a>
         </div>
+        {% endif %}
       </form>
     </aside>
 
@@ -130,12 +160,22 @@
         to show all of them, each one is a real URL a shopper can bookmark or
         share, and it works with JavaScript off. aria-current marks the live
         one so it is not colour alone that says which is active.
+
+        href still carries filter_qs — the filters this exact page was
+        rendered with — so the link is correct on its own for a no-JS
+        request or a bookmark/share. But filter_qs is baked at render time,
+        so it goes stale the moment a live filter change (catalog-live.js)
+        updates the grid without a page reload. data-sort is what lets
+        catalog-live.js intercept the click and rebuild the URL from the
+        rail's CURRENT, live state instead of that frozen one — see its
+        comment on this exact staleness.
         {% endcomment %}
         <div class="sort-row">
           <span class="sort-label">Sort by</span>
           {% for option in sort_options %}
             <a class="sort-pill {% if sort == option.value %}active{% endif %}"
                {% if sort == option.value %}aria-current="true"{% endif %}
+               data-sort="{{ option.value }}"
                href="?sort={{ option.value }}{% if filter_qs %}&amp;{{ filter_qs }}{% endif %}">{{ option.label }}</a>
           {% endfor %}
         </div>
