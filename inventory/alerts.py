@@ -45,21 +45,21 @@ its own correct next step.
 
 Expiry alerts
 -------------
-Sourced from Inventory.expiry_date (floor) and WarehouseStock.expiry_date
-(warehouse) — the fields managers actually set from the Floor Stock /
-Warehouse Stock edit modals. Three severity tiers, a product falls into
-exactly one (its most urgent applicable tier):
+Sourced from Batch — one row per lot, floor and warehouse both (see the
+Batch model's own docstring for how a lot's real expiry now survives a
+restock instead of being merged into one field). Three severity tiers, a
+batch falls into exactly one (its most urgent applicable tier):
   Expired             : expiry_date <= today
   Expiring Soon       : today < expiry_date <= today + 30 days
   Approaching Expiry  : today + 30 days < expiry_date <= today + 90 days
-Only rows with an expiry_date set are ever considered.
+Only batches with an expiry_date set are ever considered.
 """
 from datetime import timedelta
 
 from django.db.models import F
 from django.utils import timezone
 
-from .models import Inventory, WarehouseStock
+from .models import Batch, Inventory, WarehouseStock
 
 EXPIRING_SOON_DAYS = 30
 APPROACHING_EXPIRY_DAYS = 90
@@ -202,55 +202,49 @@ def _expiry_tier(days_until_expiry):
 def expiry_alerts(branch_ids=None):
     """
     Return {"Expired": [...], "Expiring Soon": [...], "Approaching Expiry": [...]},
-    each a list of rows sourced from both floor stock (Inventory) and
-    warehouse stock (WarehouseStock), nearest expiry first. Each row is
-    labeled with its `location` ("Floor" or "Warehouse") since the same
-    product can be expiring in both places at once, independently.
+    each a list of rows sourced from Batch — one row per lot, floor and
+    warehouse both, nearest expiry first. Each row is labeled with its
+    `location` ("Floor" or "Warehouse") since the same product can have lots
+    expiring in both places at once, independently.
+
+    Batch-sourced rather than Inventory/WarehouseStock's own expiry_date:
+    those aggregate fields no longer carry real per-lot expiry (see the
+    Batch model's docstring) — a row here already IS one lot, so no
+    per-product/branch grouping is needed the way the old aggregate-field
+    version needed.
     """
-    today = timezone.now().date()
+    # localdate(), not now().date(): under USE_TZ, now() is UTC — from
+    # midnight to 8am Asia/Manila time that's still "yesterday" in UTC, which
+    # would misclassify a row expiring today as one more day fresh than it is.
+    today = timezone.localdate()
     cutoff = today + timedelta(days=APPROACHING_EXPIRY_DAYS)
     tiers = {"Expired": [], "Expiring Soon": [], "Approaching Expiry": []}
 
-    floor_qs = (
-        Inventory.objects.filter(expiry_date__isnull=False, expiry_date__lte=cutoff)
+    qs = (
+        Batch.objects.filter(
+            expiry_date__isnull=False, expiry_date__lte=cutoff, quantity__gt=0
+        )
         .select_related("product", "branch")
     )
     if branch_ids is not None:
-        floor_qs = floor_qs.filter(branch_id__in=branch_ids)
+        qs = qs.filter(branch_id__in=branch_ids)
 
-    for inv in floor_qs:
-        days = (inv.expiry_date - today).days
+    for batch in qs:
+        days = (batch.expiry_date - today).days
         tier = _expiry_tier(days)
         if tier is None:
             continue
         tiers[tier].append({
-            "product": inv.product,
-            "branch": inv.branch,
-            "location": "Floor",
-            "quantity_on_hand": inv.quantity_on_hand,
-            "expiry_date": inv.expiry_date,
+            "product": batch.product,
+            "branch": batch.branch,
+            "location": "Floor" if batch.location == Batch.Location.FLOOR else "Warehouse",
+            "quantity_on_hand": batch.quantity,
+            "expiry_date": batch.expiry_date,
             "days_until_expiry": days,
-        })
-
-    warehouse_qs = (
-        WarehouseStock.objects.filter(expiry_date__isnull=False, expiry_date__lte=cutoff)
-        .select_related("product", "warehouse", "warehouse__branch")
-    )
-    if branch_ids is not None:
-        warehouse_qs = warehouse_qs.filter(warehouse__branch_id__in=branch_ids)
-
-    for ws in warehouse_qs:
-        days = (ws.expiry_date - today).days
-        tier = _expiry_tier(days)
-        if tier is None:
-            continue
-        tiers[tier].append({
-            "product": ws.product,
-            "branch": ws.warehouse.branch,
-            "location": "Warehouse",
-            "quantity_on_hand": ws.quantity_on_hand,
-            "expiry_date": ws.expiry_date,
-            "days_until_expiry": days,
+            # What the Expired tab's "Confirm Write-Off" action
+            # (inventory.views.expiry_write_off) targets — one specific lot,
+            # not the whole product/branch row.
+            "batch_id": batch.pk,
         })
 
     for rows in tiers.values():

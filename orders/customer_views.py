@@ -131,7 +131,7 @@ def _cart_items(request):
     items, total = [], Decimal('0')
 
     for product_id, qty in cart.items():
-        inv = Inventory.objects.select_related('product').filter(
+        inv = Inventory.objects.sellable().select_related('product').filter(
             product_id=product_id, branch_id=branch_id
         ).first()
         if not inv:
@@ -142,8 +142,8 @@ def _cart_items(request):
             'product': inv.product,
             'quantity': qty,
             'subtotal': subtotal,
-            'in_stock': inv.quantity_on_hand,
-            'short': qty > inv.quantity_on_hand,
+            'in_stock': inv.available_qty,
+            'short': qty > inv.available_qty,
         })
     return items, total
 
@@ -194,7 +194,11 @@ def product_catalog(request):
     else:
         branch_filters = [str(branch_id)] if branch_id else []
 
-    stock = Inventory.objects.select_related(
+    # sellable() annotates available_qty — the non-expired portion of each
+    # row's stock — so a product with an expired lot at one branch and a
+    # fresh one at another (or even a fresh AND an expired lot in the same
+    # row) is never hidden entirely, just correctly sized.
+    stock = Inventory.objects.sellable().select_related(
         'product', 'product__category'
     ).prefetch_related('product__images')
     if branch_filters:
@@ -216,8 +220,8 @@ def product_catalog(request):
     rows = {}
     for inv in stock:
         key = inv.product_id
-        if key not in rows or inv.quantity_on_hand > rows[key]['qty']:
-            rows[key] = {'product': inv.product, 'qty': inv.quantity_on_hand}
+        if key not in rows or inv.available_qty > rows[key]['qty']:
+            rows[key] = {'product': inv.product, 'qty': inv.available_qty}
 
     # The storefront does not list what it cannot sell. Filtered AFTER the
     # collapse above, not before it: with no branch chosen a product can be
@@ -323,11 +327,11 @@ def product_detail(request, product_id):
 
     branch_stock = []
     for branch in branches:
-        inv = Inventory.objects.filter(product=product, branch=branch).first()
+        inv = Inventory.objects.sellable().filter(product=product, branch=branch).first()
         branch_stock.append({
             'branch': branch,
-            'available': bool(inv and inv.quantity_on_hand > 0),
-            'qty': inv.quantity_on_hand if inv else 0,
+            'available': bool(inv and inv.available_qty > 0),
+            'qty': inv.available_qty if inv else 0,
         })
 
     return render(request, 'orders/product_detail.html', {
@@ -444,7 +448,7 @@ def add_to_cart(request, product_id):
     # has never stocked (no Inventory row at all, which is different from a
     # row reading zero). That is a normal shopping outcome, not a broken URL —
     # a 404 page would also break the AJAX path, which expects JSON back.
-    inv = Inventory.objects.filter(
+    inv = Inventory.objects.sellable().filter(
         product_id=product_id, branch_id=branch_id
     ).select_related('product', 'branch').first()
     if inv is None:
@@ -458,11 +462,11 @@ def add_to_cart(request, product_id):
     cart = request.session.get('cart', {})
     already = cart.get(str(product_id), 0)
 
-    if already + qty > inv.quantity_on_hand:
-        if inv.quantity_on_hand == 0:
+    if already + qty > inv.available_qty:
+        if inv.available_qty == 0:
             error = f'{inv.product.product_name} is out of stock at your selected branch.'
         else:
-            error = f'Only {inv.quantity_on_hand} of {inv.product.product_name} left at this branch.'
+            error = f'Only {inv.available_qty} of {inv.product.product_name} left at this branch.'
         if is_ajax:
             return JsonResponse({'ok': False, 'error': error}, status=409)
         messages.error(request, error)
@@ -531,7 +535,7 @@ def update_cart(request, product_id):
         messages.info(request, 'That item is no longer in your cart.')
         return redirect('orders:cart')
 
-    inv = Inventory.objects.select_related('product').filter(
+    inv = Inventory.objects.sellable().select_related('product').filter(
         product_id=product_id, branch_id=branch_id
     ).first()
     if not inv:
@@ -548,10 +552,10 @@ def update_cart(request, product_id):
 
     action = request.POST.get('action')
     if action == 'increase':
-        if cart[key] >= inv.quantity_on_hand:
+        if cart[key] >= inv.available_qty:
             messages.error(
                 request,
-                f'Only {inv.quantity_on_hand} of {inv.product.product_name} left at this branch.'
+                f'Only {inv.available_qty} of {inv.product.product_name} left at this branch.'
             )
         else:
             cart[key] += 1
@@ -614,14 +618,23 @@ def checkout(request):
         # the shelf when staff mark it Completed in the Order Console.
         planned = []
         for product_id, qty in cart.items():
-            inv = get_object_or_404(
-                Inventory.objects.select_for_update().select_related('product'),
-                product_id=product_id, branch_id=branch_id,
-            )
-            if inv.quantity_on_hand < qty:
+            # Not get_object_or_404: no Inventory row at all for this
+            # product/branch must fall through to the same friendly
+            # "not enough left" message as a genuine shortfall, not a 404
+            # page mid-checkout.
+            inv = Inventory.objects.select_for_update().sellable().select_related(
+                'product'
+            ).filter(product_id=product_id, branch_id=branch_id).first()
+            # available_qty already nets out anything expired since this
+            # was added to the cart — it may be less than the row's raw
+            # quantity_on_hand, which still counts expired stock.
+            available = inv.available_qty if inv else 0
+            if available < qty:
+                product = inv.product if inv else Product.objects.filter(pk=product_id).first()
+                product_name = product.product_name if product else 'This item'
                 messages.error(
                     request,
-                    f'Sorry — only {inv.quantity_on_hand} of {inv.product.product_name} left.'
+                    f'Sorry — only {available} of {product_name} left.'
                 )
                 transaction.set_rollback(True)
                 return redirect('orders:cart')

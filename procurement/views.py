@@ -11,6 +11,7 @@ from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 
 from django.db.models import Q
@@ -32,7 +33,7 @@ from .serializers import (
     ProcurementWriteSerializer,
     ProcurementStatusSerializer,
 )
-from inventory.models import Product, StockMovement, Warehouse, WarehouseStock
+from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
 from accounts.models import User
 
 
@@ -389,6 +390,9 @@ def delivery_receive(request, pk):
 
         received_map = request.POST.getlist('quantity_received')
         item_ids = request.POST.getlist('item_id')
+        # One expiry_date input per table row, same DOM order as item_ids —
+        # optional per line, since not every product's lot needs tracking.
+        expiry_map = request.POST.getlist('expiry_date')
 
         try:
             with transaction.atomic():
@@ -405,8 +409,9 @@ def delivery_receive(request, pk):
                     raise _DeliveryStatusError(f'{locked_proc.po_number} was cancelled.')
 
                 any_short = False
-                for item_id, qty_str in zip(item_ids, received_map):
+                for idx, (item_id, qty_str) in enumerate(zip(item_ids, received_map)):
                     item = locked_proc.items.select_related('product').get(pk=item_id)
+                    expiry_str = expiry_map[idx].strip() if idx < len(expiry_map) else ''
                     qty_received = _safe_nonneg_int(qty_str)
                     if qty_received is None:
                         raise _DeliveryStatusError(
@@ -459,6 +464,22 @@ def delivery_receive(request, pk):
                         reference_id=locked_proc.pk,
                         notes=f'Delivery for {locked_proc.po_number}',
                         created_by=request.user,
+                    )
+
+                    # A new Batch, always — even a blank expiry_date is its
+                    # own lot rather than being folded into an existing
+                    # batch that happens to share one. Two deliveries of the
+                    # same product landing the same week are still two
+                    # separate lots; batches only merge when FEFO actually
+                    # ties them together at consumption time, never here.
+                    Batch.objects.create(
+                        product=item.product,
+                        branch=locked_proc.branch,
+                        location=Batch.Location.WAREHOUSE,
+                        procurement=locked_proc,
+                        quantity=qty_received,
+                        received_date=timezone.localdate(),
+                        expiry_date=parse_date(expiry_str) if expiry_str else None,
                     )
 
                 locked_proc.status = Procurement.Status.RECEIVED

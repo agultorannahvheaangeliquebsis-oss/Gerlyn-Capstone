@@ -5,13 +5,14 @@ from django.contrib import messages
 from django.db import models, transaction, IntegrityError
 from django.http import JsonResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 from datetime import date
 from decimal import InvalidOperation as DecimalException
 
 from .models import (
     ProductCategory, Product, ProductImage, Inventory,
-    Warehouse, WarehouseStock,
+    Warehouse, WarehouseStock, Batch,
     StockTransfer, StockTransferItem, StockMovement
 )
 from .alerts import alert_summary, stock_status
@@ -537,6 +538,72 @@ def alerts_center(request):
     })
 
 
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+@require_POST
+def expiry_write_off(request, pk):
+    """Confirm-and-remove one expired Floor Stock BATCH, reached from the
+    Expired tab of Alerts Center. Zeroes just that lot — not the whole
+    product/branch row, which may still have other, unexpired batches — and
+    logs it as a write-off. A deliberate, one-way action a human triggers,
+    never anything automatic.
+
+    Distinct from inventory_edit (Owner/Branch Manager only, for the
+    reorder level): this only ever zeroes a lot that is ALREADY expired, so
+    it is open to Staff too — "only after staff confirms the expiry" is the
+    whole point of this action existing.
+    """
+    batch = get_object_or_404(
+        Batch.objects.select_related('product', 'branch'),
+        pk=pk, location=Batch.Location.FLOOR,
+    )
+    if not user_can_access_branch(request.user, batch.branch_id):
+        messages.error(request, 'That batch belongs to another branch.')
+        return redirect('alerts_center')
+
+    if not batch.expiry_date or batch.expiry_date > timezone.localdate():
+        messages.error(
+            request,
+            f'{batch.product.product_name} at {batch.branch.branch_name} is not past its expiry date.'
+        )
+        return redirect('alerts_center')
+
+    with transaction.atomic():
+        locked = Batch.objects.select_for_update().get(pk=batch.pk)
+        before = locked.quantity
+        if before > 0:
+            locked.quantity = 0
+            locked.save(update_fields=['quantity'])
+
+            # Batches back the aggregate row's quantity_on_hand — writing
+            # off a lot has to bring the row down with it, the same as any
+            # other floor-stock-reducing movement.
+            inv = get_object_or_404(
+                Inventory.objects.select_for_update(),
+                product=locked.product, branch=locked.branch,
+            )
+            inv_before = inv.quantity_on_hand
+            inv.quantity_on_hand = max(inv.quantity_on_hand - before, 0)
+            inv.save()
+
+            StockMovement.objects.create(
+                inventory=inv,
+                location_type=StockMovement.LocationType.FLOOR,
+                movement_type=StockMovement.MovementType.MANUAL_OUT,
+                quantity_change=-before,
+                quantity_before=inv_before,
+                quantity_after=inv.quantity_on_hand,
+                notes=f'Expired batch {locked.batch_number} written off by '
+                      f'{request.user.get_full_name() or request.user.username}',
+                created_by=request.user,
+            )
+
+    messages.success(
+        request,
+        f'{batch.product.product_name} at {batch.branch.branch_name} written off ({before} unit{"s" if before != 1 else ""}).'
+    )
+    return redirect('alerts_center')
+
+
 # ─────────────────────────────────────────────
 # STORE FLOOR INVENTORY VIEW
 # ─────────────────────────────────────────────
@@ -571,13 +638,15 @@ def _inventory_list_context(request):
     if category_filter:
         records = records.filter(product__category_id=category_filter)
 
-    rows = []
+    records = list(records)
+
     # Keys are template-safe (no spaces) so they can be used with dot lookup.
     counts = {'in_stock': 0, 'low': 0, 'critical': 0, 'no_stock': 0}
     key_for = {
         'Critical': 'critical', 'Low Stock': 'low',
         'In Stock': 'in_stock', 'No Stock': 'no_stock',
     }
+    matching = []
     for r in records:
         # Computed live from quantity_on_hand/reorder_level, not from the
         # stored Inventory.restock flag — that flag is only ever recomputed
@@ -587,7 +656,34 @@ def _inventory_list_context(request):
         counts[key_for[status]] += 1
         if status_filter and status != status_filter:
             continue
-        rows.append({'inv': r, 'status': status})
+        matching.append((r, status))
+
+    # One table row per BATCH, not per product/branch — a restock with a
+    # different expiry never merges into an existing row this way (see the
+    # Batch model's docstring). Each batch row still carries its parent
+    # product/branch's aggregate qty_on_hand/reorder_level/status, since
+    # those are row-level facts a single lot doesn't have its own version of.
+    pairs = {(r.product_id, r.branch_id) for r, _ in matching}
+    batches_by_pair = {}
+    if pairs:
+        batch_qs = Batch.objects.filter(
+            location=Batch.Location.FLOOR, quantity__gt=0
+        ).order_by(models.F('expiry_date').asc(nulls_last=True))
+        for b in batch_qs:
+            key = (b.product_id, b.branch_id)
+            if key in pairs:
+                batches_by_pair.setdefault(key, []).append(b)
+
+    rows = []
+    for r, status in matching:
+        batches = batches_by_pair.get((r.product_id, r.branch_id))
+        if batches:
+            for b in batches:
+                rows.append({'inv': r, 'status': status, 'batch': b})
+        else:
+            # No batch to show (typically a 0-quantity "No Stock" row) —
+            # still needs a row, or it would simply vanish from the table.
+            rows.append({'inv': r, 'status': status, 'batch': None})
 
     return {
         'rows': rows,
@@ -600,7 +696,6 @@ def _inventory_list_context(request):
         'status_filter': status_filter,
         'user_branch': user_branch,
         'can_adjust': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
-        'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         'adjust_products': Product.objects.order_by('product_name'),
     }
 
@@ -619,13 +714,18 @@ def inventory_list(request):
 
 @login_required(login_url='accounts:login')
 def inventory_edit(request, pk):
-    """Set the nearest-expiry date for one existing Inventory row, and — for
-    Owner/Branch Manager only — its reorder threshold too. Staff can update
-    the expiry date but not the reorder level, which is a planning decision
-    above their role; this never touches quantity_on_hand though, so unlike
-    Stock Adjustment it needs no audit trail for either field."""
-    if request.user.role not in INTERNAL_ROLES:
-        messages.error(request, 'Access denied.')
+    """Set the reorder threshold for one existing Inventory row. Owner/Branch
+    Manager only — Staff can view Floor Stock but not change it, matching
+    Stock Adjustment's own gating.
+
+    Expiry is no longer set here: it lives on that row's Batches now (see
+    the Batch model's docstring), each with its own lot and expiry_date, so
+    there is no single "the row's expiry" left to edit — receiving a
+    delivery or a stock adjustment is what sets a lot's expiry going
+    forward.
+    """
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Only the Owner or a Branch Manager can edit Floor Stock.')
         return redirect('inventory_list')
     if request.method != 'POST':
         return redirect('inventory_list')
@@ -635,23 +735,17 @@ def inventory_edit(request, pk):
         messages.error(request, 'That inventory record belongs to another branch.')
         return redirect('inventory_list')
 
-    can_edit_reorder = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
-    expiry_date = request.POST.get('expiry_date', '').strip()
+    reorder_level = request.POST.get('reorder_level', '').strip()
+    if not reorder_level.isdigit():
+        messages.error(request, 'Enter a valid reorder level.')
+        return redirect('inventory_list')
 
-    if can_edit_reorder:
-        reorder_level = request.POST.get('reorder_level', '').strip()
-        if not reorder_level.isdigit():
-            messages.error(request, 'Enter a valid reorder level.')
-            return redirect('inventory_list')
-        inv.reorder_level = int(reorder_level)
-
-    inv.expiry_date = expiry_date or None
+    inv.reorder_level = int(reorder_level)
     inv.save()
 
     messages.success(
         request,
-        f'{"Reorder level and expiry date" if can_edit_reorder else "Expiry date"} '
-        f'for {inv.product.product_name} at {inv.branch.branch_name} updated.'
+        f'Reorder level for {inv.product.product_name} at {inv.branch.branch_name} updated.'
     )
     return redirect('inventory_list')
 
@@ -702,8 +796,6 @@ def stock_adjustment_add(request):
         inv, _created = Inventory.objects.get_or_create(product=product, branch=branch)
         qty_before = inv.quantity_on_hand
         inv.quantity_on_hand += int(quantity)
-        if expiry_date:
-            inv.expiry_date = expiry_date
         inv.save()
 
         StockMovement.objects.create(
@@ -715,6 +807,19 @@ def stock_adjustment_add(request):
             quantity_after=inv.quantity_on_hand,
             notes=f'Manual stock adjustment by {request.user.get_full_name() or request.user.username}',
             created_by=request.user,
+        )
+
+        # A correction/spot-count is its own lot too — it must not silently
+        # widen an existing batch's quantity (or worse, have no batch at all
+        # and drift the row's batches out of sync with quantity_on_hand).
+        Batch.objects.create(
+            product=product,
+            branch=branch,
+            location=Batch.Location.FLOOR,
+            quantity=int(quantity),
+            received_date=timezone.localdate(),
+            expiry_date=parse_date(expiry_date) if expiry_date else None,
+            notes='Manual stock adjustment',
         )
 
     messages.success(request, f'Added {quantity} to {product.product_name} at {branch.branch_name}.')
@@ -747,7 +852,7 @@ def warehouse_stock_list(request):
             warehouse = Warehouse.objects.get(branch=user_branch)
             stock_records = WarehouseStock.objects.filter(
                 warehouse=warehouse
-            ).select_related('product', 'product__category')
+            ).select_related('product', 'product__category', 'warehouse', 'warehouse__branch')
         except Warehouse.DoesNotExist:
             messages.error(
                 request,
@@ -778,16 +883,40 @@ def warehouse_stock_list(request):
     # restock_flag — same reasoning as Inventory's floor-stock status: a
     # write that bypasses save() would leave the stored flag stale with
     # nothing to catch it, so this reads the real numbers every time.
-    rows = []
+    stock_records = list(stock_records)
     counts = {'in_stock': 0, 'low': 0, 'critical': 0, 'no_stock': 0}
     key_for = {
         'Critical': 'critical', 'Low Stock': 'low',
         'In Stock': 'in_stock', 'No Stock': 'no_stock',
     }
-    for s in stock_records:
-        status = stock_status(s.quantity_on_hand, s.reorder_level)
+    matching = [(s, stock_status(s.quantity_on_hand, s.reorder_level)) for s in stock_records]
+    for _, status in matching:
         counts[key_for[status]] += 1
-        rows.append({'stock': s, 'status': status})
+
+    # One table row per BATCH, not per product/warehouse — see
+    # inventory.views._inventory_list_context's identical treatment of
+    # Floor Stock, and the Batch model's own docstring for why. Batch has no
+    # warehouse FK (it's keyed by branch — a branch has exactly one
+    # warehouse), so rows are matched on (product, branch) throughout.
+    pairs = {(s.product_id, s.warehouse.branch_id) for s, _ in matching}
+    batches_by_pair = {}
+    if pairs:
+        batch_qs = Batch.objects.filter(
+            location=Batch.Location.WAREHOUSE, quantity__gt=0
+        ).order_by(models.F('expiry_date').asc(nulls_last=True))
+        for b in batch_qs:
+            key = (b.product_id, b.branch_id)
+            if key in pairs:
+                batches_by_pair.setdefault(key, []).append(b)
+
+    rows = []
+    for s, status in matching:
+        batches = batches_by_pair.get((s.product_id, s.warehouse.branch_id))
+        if batches:
+            for b in batches:
+                rows.append({'stock': s, 'status': status, 'batch': b})
+        else:
+            rows.append({'stock': s, 'status': status, 'batch': None})
 
     return render(request, 'inventory/warehouse_stock_list.html', {
         'active_page': 'warehouse_stock',
@@ -800,10 +929,9 @@ def warehouse_stock_list(request):
         'branches': cached_branches() if not user_branch else [],
         'branch_filter': branch_filter,
         'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
-        # rows was built by fully iterating this exact (already-filtered)
-        # queryset above, so re-counting it is a second identical query for
-        # a number Python already has.
-        'total_products': len(rows),
+        # Distinct products, not len(rows) — rows is now one-per-batch, so a
+        # product with two lots would otherwise count itself twice.
+        'total_products': len(matching),
         'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         # Always available to any internal role — when there's no single
         # pinned branch (Owner), warehouse_stock_request shows a branch
@@ -814,14 +942,17 @@ def warehouse_stock_list(request):
 
 @login_required(login_url='accounts:login')
 def warehouse_stock_edit(request, pk):
-    """Set the expiry date for one WarehouseStock row, and — for Owner/Branch
-    Manager only — its reorder threshold too. Mirrors inventory_edit's role
-    split for the floor-stock version: Staff can flag an expiry date but not
-    change the reorder threshold, which is a planning decision above their
-    role. Reorder level stays independent of Inventory's — editing one never
-    touches the other."""
-    if request.user.role not in INTERNAL_ROLES:
-        messages.error(request, 'Access denied.')
+    """Set the reorder threshold for one WarehouseStock row. Owner/Branch
+    Manager only, matching Floor Stock's inventory_edit.
+
+    Previously Staff could set this row's expiry date here (just not its
+    reorder level) — that's no longer a thing this endpoint does at all:
+    expiry now lives on that row's Batches, each with its own lot (see the
+    Batch model's docstring), so there is no single row-level expiry left
+    for Staff to set, and nothing else remains here for them to edit.
+    """
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Only the Owner or a Branch Manager can edit Warehouse Stock.')
         return redirect('warehouse_stock_list')
     if request.method != 'POST':
         return redirect('warehouse_stock_list')
@@ -831,23 +962,18 @@ def warehouse_stock_edit(request, pk):
         messages.error(request, 'That warehouse stock record belongs to another branch.')
         return redirect('warehouse_stock_list')
 
-    can_edit_reorder = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
-    expiry_date = request.POST.get('expiry_date', '').strip()
+    reorder_level = request.POST.get('reorder_level', '').strip()
+    if not reorder_level.isdigit():
+        messages.error(request, 'Enter a valid reorder level.')
+        return redirect('warehouse_stock_list')
 
-    if can_edit_reorder:
-        reorder_level = request.POST.get('reorder_level', '').strip()
-        if not reorder_level.isdigit():
-            messages.error(request, 'Enter a valid reorder level.')
-            return redirect('warehouse_stock_list')
-        ws.reorder_level = int(reorder_level)
-
-    ws.expiry_date = expiry_date or None
+    ws.reorder_level = int(reorder_level)
     ws.save()
 
     messages.success(
         request,
-        f'{"Warehouse reorder level and expiry date" if can_edit_reorder else "Warehouse expiry date"} '
-        f'for {ws.product.product_name} at {ws.warehouse.branch.branch_name} updated.'
+        f'Warehouse reorder level for {ws.product.product_name} '
+        f'at {ws.warehouse.branch.branch_name} updated.'
     )
     return redirect('warehouse_stock_list')
 
@@ -1053,6 +1179,44 @@ def _safe_positive_int(value):
     return parsed if parsed > 0 else None
 
 
+def _try_auto_approve(transfer, is_restock):
+    """If the requester is the Owner, approve this brand-new transfer in
+    full immediately — there is nobody above the Owner to approve it, so
+    transfer_approve's separate step would otherwise just make them approve
+    their own request. Falls back to leaving it Pending (unchanged) if any
+    item doesn't have enough stock for its full requested quantity right
+    now, the same shortfall transfer_approve's own check would reject —
+    auto-approval only ever grants exactly what a manual approval already
+    would have.
+
+    Must be called from inside the same transaction that created `transfer`
+    and its items, before anything outside this function reads their
+    Pending/0-approved state.
+    """
+    if transfer.requested_by is None or transfer.requested_by.role != User.Role.OWNER:
+        return
+
+    items = list(transfer.items.select_related('product').all())
+    for item in items:
+        if is_restock:
+            stock = WarehouseStock.objects.select_for_update().filter(
+                warehouse=transfer.warehouse, product=item.product
+            ).first()
+        else:
+            stock = Inventory.objects.select_for_update().filter(
+                branch=transfer.source_branch, product=item.product
+            ).first()
+        if stock is None or item.quantity_requested > stock.quantity_on_hand:
+            return  # leave Pending for a human to resolve the shortfall
+
+    for item in items:
+        item.quantity_approved = item.quantity_requested
+        item.save(update_fields=['quantity_approved'])
+    transfer.status = StockTransfer.Status.APPROVED
+    transfer.approved_by = transfer.requested_by
+    transfer.save(update_fields=['status', 'approved_by'])
+
+
 @login_required(login_url='accounts:login')
 def warehouse_stock_request(request):
     """Dedicated "Request Stock to Floor" entry point, reached from the
@@ -1134,10 +1298,19 @@ def warehouse_stock_request(request):
                     quantity_approved=0,
                 )
 
-        messages.success(
-            request,
-            f'Stock request {transfer.slip_number} created — awaiting approval.'
-        )
+            _try_auto_approve(transfer, is_restock=True)
+
+        if transfer.status == StockTransfer.Status.APPROVED:
+            messages.success(
+                request,
+                f'Stock request {transfer.slip_number} approved automatically — '
+                f'ready to release.'
+            )
+        else:
+            messages.success(
+                request,
+                f'Stock request {transfer.slip_number} created — awaiting approval.'
+            )
         return redirect('transfer_list')
 
     return render(request, 'inventory/warehouse_stock_request.html', {
@@ -1224,11 +1397,20 @@ def transfer_create(request):
                     quantity_approved=0,
                 )
 
-        messages.success(
-            request,
-            f'Stock Adjustment {transfer.slip_number} created successfully. '
-            f'Awaiting approval.'
-        )
+            _try_auto_approve(transfer, is_restock=False)
+
+        if transfer.status == StockTransfer.Status.APPROVED:
+            messages.success(
+                request,
+                f'Stock Adjustment {transfer.slip_number} approved automatically — '
+                f'ready to release.'
+            )
+        else:
+            messages.success(
+                request,
+                f'Stock Adjustment {transfer.slip_number} created successfully. '
+                f'Awaiting approval.'
+            )
         return redirect('transfer_list')
 
     return render(request, 'inventory/transfer_form.html', {
@@ -1494,6 +1676,52 @@ def transfer_complete(request, pk):
                                 notes=f'Withdrawal Slip {transfer.slip_number}',
                                 created_by=request.user,
                             )
+
+                            # 3. Batches: consume the SOURCE warehouse's
+                            # nearest-expiry lots first, and create one
+                            # matching FLOOR batch per lot consumed — this is
+                            # what stops a restock with a different expiry
+                            # from merging into whatever the floor already
+                            # had. Two lots split across this one release
+                            # become two floor batches, each keeping its own
+                            # real expiry_date.
+                            consumed = Batch.consume_fefo(
+                                item.product, transfer.source_branch,
+                                Batch.Location.WAREHOUSE, qty_release,
+                            )
+                            for source_batch, taken in consumed:
+                                Batch.objects.create(
+                                    product=item.product,
+                                    branch=transfer.destination_branch,
+                                    location=Batch.Location.FLOOR,
+                                    source_batch=source_batch,
+                                    procurement=source_batch.procurement,
+                                    quantity=taken,
+                                    received_date=timezone.localdate(),
+                                    expiry_date=source_batch.expiry_date,
+                                    notes=f'Restocked via {transfer.slip_number}',
+                                )
+                            # Safety net: the aggregate WarehouseStock row
+                            # above already confirmed enough TOTAL quantity
+                            # existed, but if its batches don't quite cover
+                            # qty_release (a gap somewhere, not expected once
+                            # every write path stays batch-in-sync), the
+                            # floor side still received the full amount, so
+                            # it needs a batch for whatever wasn't traceable
+                            # to a specific lot rather than silently drifting
+                            # out of sync with quantity_on_hand.
+                            untracked = qty_release - sum(t for _, t in consumed)
+                            if untracked > 0:
+                                Batch.objects.create(
+                                    product=item.product,
+                                    branch=transfer.destination_branch,
+                                    location=Batch.Location.FLOOR,
+                                    quantity=untracked,
+                                    received_date=timezone.localdate(),
+                                    expiry_date=None,
+                                    notes=f'Restocked via {transfer.slip_number} '
+                                          f'(no matching warehouse batch found)',
+                                )
                     else:
                         # Write-off (damaged/spoiled, sample/display, other):
                         # deducted straight from the floor — it's already on
@@ -1526,6 +1754,14 @@ def transfer_complete(request, pk):
                             reference_id=transfer.pk,
                             notes=f'Withdrawal Slip {transfer.slip_number} — {transfer.purpose}',
                             created_by=request.user,
+                        )
+                        # A write-off pulls from the floor's own nearest-
+                        # expiry batches first — the stock most worth
+                        # clearing out is exactly what FEFO already orders
+                        # ahead of everything else.
+                        Batch.consume_fefo(
+                            item.product, transfer.source_branch,
+                            Batch.Location.FLOOR, qty_release,
                         )
 
                 released_total = sum(
@@ -1727,6 +1963,28 @@ def transfer_flag_discrepancy(request, pk):
                     notes=f'Discrepancy on {transfer.slip_number}: {reason}',
                     created_by=request.user,
                 )
+                # Keep batches in step with the corrected aggregate: fewer
+                # units arriving than released means some of what
+                # transfer_complete just credited to a batch never actually
+                # showed up, so it comes back out FEFO-first; more arriving
+                # means an untraceable extra lot (nobody knows which
+                # warehouse batch it really came from).
+                actual_change = inv.quantity_on_hand - qty_before
+                if actual_change < 0:
+                    Batch.consume_fefo(
+                        first_item.product, transfer.destination_branch,
+                        Batch.Location.FLOOR, -actual_change,
+                    )
+                elif actual_change > 0:
+                    Batch.objects.create(
+                        product=first_item.product,
+                        branch=transfer.destination_branch,
+                        location=Batch.Location.FLOOR,
+                        quantity=actual_change,
+                        received_date=timezone.localdate(),
+                        expiry_date=None,
+                        notes=f'Discrepancy on {transfer.slip_number}: {reason}',
+                    )
 
         transfer.status = StockTransfer.Status.DISCREPANCY
         transfer.acknowledged_by = request.user

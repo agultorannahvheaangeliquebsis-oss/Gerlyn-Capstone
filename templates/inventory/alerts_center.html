@@ -183,7 +183,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
 
 <!-- ------------------------------------------------------------- expired -->
 <div id="panel-expired" class="card table-wrap hidden">
-  <p class="gv-meta" style="padding:12px 16px 0;">Already past its expiry date — pull from the shelf/warehouse immediately and write it off via <a href="{% url 'transfer_create' %}">New Stock Adjustment</a>.</p>
+  <p class="gv-meta" style="padding:12px 16px 0;">Already past its expiry date — pull from the shelf/warehouse immediately. Floor stock can be confirmed and written off directly below; warehouse stock still goes through <a href="{% url 'transfer_create' %}">New Stock Adjustment</a>.</p>
   <table class="gv-table">
     <thead>
       <tr>
@@ -192,6 +192,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <th>Location</th>
         <th class="num">Qty</th>
         <th>Expiry Date</th>
+        <th class="end">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -205,10 +206,18 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Qty" class="num strong" style="color:var(--danger-fg);">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date" class="strong" style="color:var(--danger-fg);">{{ row.expiry_date|date:"Y-m-d" }}</td>
+        <td data-label="Actions">
+          {% if row.location == 'Floor' %}
+          <button type="button" class="btn btn-sm btn-danger"
+                  onclick="openWriteOffConfirm({{ row.batch_id }}, '{{ row.product.product_name|escapejs }}', '{{ row.branch.branch_name|escapejs }}', {{ row.quantity_on_hand }})">
+            Write Off
+          </button>
+          {% endif %}
+        </td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="5">
+        <td colspan="6">
           <div class="empty">
             <span class="glyph">✓</span>
             <h3>Nothing expired</h3>
@@ -219,6 +228,40 @@ opens instead of standing alone as a figure that double-counts its neighbour.
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+{% comment %}
+Confirm-and-remove for one expired Floor Stock row (inventory.views.
+expiry_write_off) — a real confirm step, not a native confirm() dialog, same
+visual language as the rest of the app's destructive confirmations (e.g.
+Product Master List's image-delete confirm).
+{% endcomment %}
+<div class="modal-overlay" id="writeoff-confirm">
+  <div class="modal-card confirm-card confirm-danger" role="alertdialog" aria-modal="true"
+       aria-labelledby="writeoff-confirm-title" aria-describedby="writeoff-confirm-text">
+    <div class="modal-head" style="border-bottom:none; padding-bottom:0; justify-content:flex-end;">
+      <button type="button" class="modal-close" id="writeoff-confirm-close" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="confirm-body">
+      <span class="confirm-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6"/><path d="M10 11v6M14 11v6"/></svg>
+      </span>
+      <h2 class="confirm-title" id="writeoff-confirm-title">Write off this stock?</h2>
+      <p class="confirm-text" id="writeoff-confirm-text">
+        <strong id="writeoff-confirm-detail"></strong> will be removed from Floor Stock
+        and logged as an expiry write-off. This cannot be undone.
+      </p>
+    </div>
+    <form method="POST" id="writeoff-confirm-form">
+      {% csrf_token %}
+    </form>
+    <div class="confirm-foot">
+      <button type="button" class="btn" id="writeoff-confirm-cancel">Cancel</button>
+      <button type="submit" form="writeoff-confirm-form" class="btn btn-danger-solid">Write off</button>
+    </div>
+  </div>
 </div>
 
 <!-- --------------------------------------------------------- expiring soon -->
@@ -330,5 +373,33 @@ opens instead of standing alone as a figure that double-counts its neighbour.
     applyHash();
     window.addEventListener('hashchange', applyHash);
   })();
+</script>
+<script>
+(function () {
+  var modal = document.getElementById('writeoff-confirm');
+  var closeBtn = document.getElementById('writeoff-confirm-close');
+  var cancelBtn = document.getElementById('writeoff-confirm-cancel');
+  var form = document.getElementById('writeoff-confirm-form');
+  var detailEl = document.getElementById('writeoff-confirm-detail');
+  if (!modal) return;
+
+  var writeOffUrlTemplate = '{% url "expiry_write_off" 0 %}';  // pk=0 placeholder, swapped per-row below
+
+  function open() { modal.classList.add('is-open'); document.body.style.overflow = 'hidden'; }
+  function close() { modal.classList.remove('is-open'); document.body.style.overflow = ''; }
+
+  window.openWriteOffConfirm = function (pk, productName, branchName, qty) {
+    form.action = writeOffUrlTemplate.replace('/0/', '/' + pk + '/');
+    detailEl.textContent = qty + ' unit' + (qty !== 1 ? 's' : '') + ' of ' + productName + ' at ' + branchName;
+    open();
+  };
+
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+  });
+})();
 </script>
 {% endblock %}

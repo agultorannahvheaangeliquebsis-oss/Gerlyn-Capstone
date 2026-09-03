@@ -60,6 +60,9 @@ that only worked by scanning would be unusable for those lines.
   Count the goods first. Recording a receipt adds these quantities to
   {{ procurement.branch.branch_name }}'s stock — if what arrived differs from what was
   ordered, enter the real number and the order is flagged as a discrepancy.
+  Enter each line's expiry date if it's printed on the lot — it stays with that
+  delivery's stock all the way to the shelf, so a later restock with a
+  different date never overwrites it.
 </div>
 
 {# ------------------------------------------------------------------ scan #}
@@ -103,6 +106,7 @@ that only worked by scanning would be unusable for those lines.
           <th class="num">Ordered</th>
           <th class="num">Cost Price</th>
           <th class="num">Quantity Received</th>
+          <th>Expiry Date</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -129,6 +133,9 @@ that only worked by scanning would be unusable for those lines.
             <input type="number" name="quantity_received" min="0" class="qty-input"
                    value="{% if item.is_unexpected %}0{% else %}{{ item.quantity_ordered|unlocalize }}{% endif %}"
                    style="max-width:120px; margin-left:auto;">
+          </td>
+          <td data-label="Expiry Date">
+            <input type="date" name="expiry_date" style="max-width:150px;">
           </td>
           <td data-label="Status"><span class="v-badge"></span></td>
         </tr>

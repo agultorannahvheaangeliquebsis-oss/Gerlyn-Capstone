@@ -89,6 +89,13 @@ class AcceptanceTests(TestCase):
         juan = User.objects.get(username='juan')
         branch = Branch.objects.get(branch_name='Tarcan')
         inv = Inventory.objects.filter(branch=branch, quantity_on_hand__gt=20).first()
+        # seed_demo populates some already-expired rows for the Alerts
+        # Center's Expired tab, and this lookup could land on one of those —
+        # an expired row is no longer sellable (Inventory.objects.sellable()).
+        # This test is about the deduct-once behaviour, not expiry, so it
+        # clears the field explicitly.
+        inv.expiry_date = None
+        inv.save()
         before = inv.quantity_on_hand
 
         customer = self.login('juan')

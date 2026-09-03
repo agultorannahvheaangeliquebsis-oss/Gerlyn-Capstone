@@ -1,5 +1,8 @@
 
 from django.db import models
+from django.db.models import F
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 from branches.models import Branch
 
 
@@ -170,11 +173,69 @@ class WarehouseStock(models.Model):
         unique_together = ('warehouse', 'product')
 
 
+class InventoryQuerySet(models.QuerySet):
+    def sellable(self):
+        """Annotates every row with `available_qty` — the portion of this
+        product/branch's FLOOR stock that is NOT past its expiry_date,
+        summed across its Batches.
+
+        This is batch-aware, not a whole-row exclusion: a product with one
+        expired lot and one fresh lot still shows the fresh quantity as
+        buyable, rather than the product disappearing entirely just because
+        SOME of its stock has expired. Used by every customer-facing and
+        point-of-sale code path that checks what can actually be sold — read
+        `available_qty` there, never the raw `quantity_on_hand`, which still
+        counts expired stock until someone confirms a write-off.
+
+        Deliberately NOT applied to internal Floor Stock management (listing,
+        editing, alerts, reports) — staff still need to see and act on the
+        true quantity_on_hand regardless of expiry.
+
+        A row with NO batches at all falls back to its raw quantity_on_hand
+        rather than reading as 0. Every real write path creates a matching
+        batch now (see the Batch model's docstring), so this only matters
+        for stock that predates batch-tracking or was written by something
+        that bypassed it — in that case there is no expiry information to
+        act on, so the safe assumption is "available", not "expired". This
+        is different from a row whose batches ARE all expired, which
+        correctly still nets out to 0 below.
+        """
+        today = timezone.localdate()
+        floor_batches = Batch.objects.filter(
+            product_id=models.OuterRef('product_id'),
+            branch_id=models.OuterRef('branch_id'),
+            location=Batch.Location.FLOOR,
+        )
+        non_expired_sum = (
+            floor_batches
+            .filter(models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gte=today))
+            .values('product_id')
+            .annotate(total=models.Sum('quantity'))
+            .values('total')
+        )
+        return self.annotate(
+            has_batches=models.Exists(floor_batches),
+            available_qty=models.Case(
+                models.When(
+                    has_batches=True,
+                    then=Coalesce(
+                        models.Subquery(non_expired_sum, output_field=models.IntegerField()),
+                        models.Value(0),
+                    ),
+                ),
+                default=models.F('quantity_on_hand'),
+                output_field=models.IntegerField(),
+            ),
+        )
+
+
 class Inventory(models.Model):
     """
     Store floor stock only.
     Stock enters here via a completed StockTransfer from the warehouse.
     """
+    objects = InventoryQuerySet.as_manager()
+
     # --- existing fields (untouched) ----------------------------------------
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE,
@@ -219,18 +280,33 @@ class Inventory(models.Model):
 
 class Batch(models.Model):
     """
-    Represents one delivery lot of a product at a specific branch.
-    Multiple batches can exist per product per branch, each with
-    their own expiry date.
+    One received lot of a product at a specific branch, in ONE location
+    (warehouse or floor) — the real, authoritative record of "how much of
+    this product, at this expiry, is sitting where". Inventory.quantity_on_hand
+    and WarehouseStock.quantity_on_hand remain the aggregate totals (what the
+    Floor/Warehouse Stock KPI cards and reorder-level alerts key off), but
+    that total is now always the sum of that product/branch/location's
+    batches — every write path that changes quantity_on_hand also creates or
+    consumes a matching Batch, so the two can't drift apart.
 
-    FEFO rule: when stock is deducted (via a sale), the batch with
-    the nearest expiry_date is consumed first.
+    A product/branch/location can have several batches at once, each with
+    its own expiry_date — restocking with a new delivery never overwrites an
+    older lot's expiry, it just adds another batch alongside it.
+
+    FEFO rule: stock always moves out of the nearest-expiry batch first,
+    whether that's a sale (floor), a write-off (floor), or a warehouse->floor
+    release (warehouse) — see consume_fefo().
     """
+
+    class Location(models.TextChoices):
+        WAREHOUSE = 'Warehouse', 'Warehouse'
+        FLOOR = 'Floor', 'Floor'
 
     class ExpiryStatus(models.TextChoices):
         FRESH = 'Fresh', 'Fresh'
         EXPIRING_SOON = 'Expiring Soon', 'Expiring Soon'   # within 30 days
         EXPIRED = 'Expired', 'Expired'
+        NO_EXPIRY = 'No Expiry', 'No Expiry'
 
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE,
@@ -240,6 +316,13 @@ class Batch(models.Model):
         Branch, on_delete=models.CASCADE,
         related_name='batches'
     )
+    location = models.CharField(
+        max_length=10, choices=Location.choices,
+        help_text="Which stock this batch is part of — Warehouse (backroom) "
+                  "or Floor (shelf). A restock moves quantity from a "
+                  "Warehouse batch into a new or matching Floor batch; it "
+                  "never edits the Warehouse batch's location in place."
+    )
     # Link to the procurement that brought this batch in (optional but useful
     # for traceability — which supplier delivered this lot?)
     procurement = models.ForeignKey(
@@ -247,6 +330,16 @@ class Batch(models.Model):
         null=True, blank=True,
         related_name='batches',
         help_text="The purchase order that delivered this batch"
+    )
+    # A Floor batch created by moving stock off a Warehouse batch (a
+    # restock) links back to it, so the floor lot's provenance — and which
+    # warehouse batch it drew down — stays traceable. Null for a batch
+    # received directly (procurement) or one with no known prior batch
+    # (e.g. the one-time migration of pre-batch-tracking stock).
+    source_batch = models.ForeignKey(
+        'self', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='descendant_batches',
     )
     batch_number = models.CharField(
         max_length=20, unique=True, blank=True,
@@ -259,7 +352,12 @@ class Batch(models.Model):
         help_text="Date this batch was received into the warehouse/floor"
     )
     expiry_date = models.DateField(
-        help_text="Expiry date printed on the product lot"
+        null=True, blank=True,
+        help_text="Expiry date printed on the product lot. Blank means "
+                  "not tracked (e.g. a manual stock adjustment with no "
+                  "expiry entered) — FEFO treats it as expiring last, "
+                  "never first, so an unknown date can't jump the queue "
+                  "ahead of stock that IS known to be expiring soon."
     )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -280,8 +378,10 @@ class Batch(models.Model):
         Called by the serializer's SerializerMethodField.
         Thresholds: expired = past today, expiring soon = within 30 days.
         """
+        if self.expiry_date is None:
+            return self.ExpiryStatus.NO_EXPIRY
         from django.utils import timezone
-        today = timezone.now().date()
+        today = timezone.localdate()
         delta = (self.expiry_date - today).days
 
         if delta < 0:
@@ -291,52 +391,67 @@ class Batch(models.Model):
         return self.ExpiryStatus.FRESH
 
     @property
-    def days_until_expiry(self) -> int:
+    def days_until_expiry(self):
+        if self.expiry_date is None:
+            return None
         from django.utils import timezone
-        today = timezone.now().date()
+        today = timezone.localdate()
         return (self.expiry_date - today).days
 
     @classmethod
-    def consume_fefo(cls, product, branch, quantity):
-        """Deduct `quantity` units from this product/branch's batches,
-        nearest-expiry-first — the FEFO rule described in this model's own
-        docstring, actually enforced. Spans batches if the nearest one
-        doesn't cover the full amount.
+    def consume_fefo(cls, product, branch, location, quantity):
+        """Deduct `quantity` units from this product/branch/location's
+        batches, nearest-expiry-first — the FEFO rule described in this
+        model's own docstring, actually enforced. Spans batches if the
+        nearest one doesn't cover the full amount, and returns the list of
+        (batch, quantity_taken) pairs actually consumed — the caller needs
+        that breakdown to create the matching batch(es) on the other side of
+        a warehouse->floor release, so a lot's real expiry carries over
+        instead of being merged away.
 
-        Batch tracking is supplementary, not authoritative: most stock
-        isn't batch-tracked at all (batches are only auto-created from a
-        procurement receipt), so this only ever consumes what batches
-        actually exist — the aggregate Inventory/WarehouseStock row, which
-        the caller updates separately, remains the source of truth for
-        total quantity_on_hand regardless of batch coverage.
+        No-expiry batches sort LAST (nulls_last): an unknown date must never
+        be treated as "expires soonest" just because SQL sorts NULL first by
+        default, which would consume untracked stock ahead of stock that IS
+        known to be close to expiring.
+
+        Batch tracking now backs the aggregate quantity_on_hand fully (see
+        the class docstring) — every caller is expected to already have a
+        batch for whatever it's deducting; a shortfall here (this returning
+        less than `quantity`) means the aggregate row and its batches have
+        drifted out of sync somewhere and is worth surfacing, not silently
+        swallowing.
 
         Must be called from within an existing transaction — locks each
         batch row it touches.
         """
         remaining = quantity
+        consumed = []
         batches = cls.objects.select_for_update().filter(
-            product=product, branch=branch, quantity__gt=0
-        ).order_by('expiry_date')
+            product=product, branch=branch, location=location, quantity__gt=0
+        ).order_by(F('expiry_date').asc(nulls_last=True))
         for batch in batches:
             if remaining <= 0:
                 break
             take = min(batch.quantity, remaining)
             batch.quantity -= take
             batch.save(update_fields=['quantity'])
+            consumed.append((batch, take))
             remaining -= take
-        return quantity - remaining  # units actually consumed from batches
+        return consumed
 
     def __str__(self):
         return (
             f"{self.batch_number} | "
             f"{self.product.product_name} | "
-            f"{self.branch.branch_name} | "
-            f"Exp: {self.expiry_date} | "
+            f"{self.branch.branch_name} ({self.location}) | "
+            f"Exp: {self.expiry_date or '—'} | "
             f"Qty: {self.quantity}"
         )
 
     class Meta:
-        ordering = ['expiry_date']   # FEFO: nearest expiry first
+        # FEFO: nearest expiry first, no-expiry batches last (see
+        # consume_fefo's own nulls_last for why NULL must not sort first).
+        ordering = [F('expiry_date').asc(nulls_last=True)]
         verbose_name_plural = "Batches"
 
 
