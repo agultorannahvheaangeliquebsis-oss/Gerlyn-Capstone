@@ -1,6 +1,6 @@
 {% extends "public_base.html" %}
 {% load static %}
-{% block title %}Sign In — Gerlyn Variety Store{% endblock %}
+{% block title %}Log In — Gerlyn Variety Store{% endblock %}
 {% block body_class %}shop shop-auth{% endblock %}
 
 {% block content %}
@@ -60,7 +60,7 @@ wordmark on its own never said.
     immediately beneath it.
     {% endcomment %}
     <div class="auth-hero">
-      <img class="auth-hero-mark" src="{% static 'img/logo.jpg' %}" alt="">
+      <img class="auth-hero-mark" src="{% static 'img/logo.png' %}" alt="">
       <p class="auth-hero-name">Gerlyn Variety Store</p>
       <p class="auth-hero-tag">
         Groceries, household goods and bulk supplies<br>
@@ -69,7 +69,7 @@ wordmark on its own never said.
     </div>
 
     <div class="auth-card">
-      <h1 class="auth-title">Sign In</h1>
+      <h1 class="auth-title">Log In</h1>
 
       <form method="POST">
         {% csrf_token %}
@@ -83,11 +83,22 @@ wordmark on its own never said.
         {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
         {% comment %}
-        Label first, then the input — plain reading order, and the same shape
-        register.html one link away has always used.
+        Floating labels, on the two fields this screen has. The label starts
+        inside the empty box, on the same line the typing will land on, and
+        rises to sit above the box the moment the field is focused or holds
+        anything — so the box is never an unlabelled rectangle, and a filled
+        form reads exactly as this screen did before the labels moved.
+
+        It is CSS only: placeholder=" " makes :placeholder-shown mean "this
+        box is empty", which is why the label has to be the input's next
+        sibling. Nothing here depends on JS, so the labels behave the same
+        on a failed POST re-render as they do on a fresh load.
+
+        Reading order is unchanged for a screen reader — `for`/`id` still
+        binds each label to its input, and the label is announced with the
+        field however it happens to be painted.
         {% endcomment %}
-        <div class="field auth-field">
-          <label for="username">Username</label>
+        <div class="field auth-field auth-field--float">
           <div class="auth-input-wrap">
             <span class="auth-field-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -95,12 +106,13 @@ wordmark on its own never said.
               </svg>
             </span>
             <input id="username" type="text" name="username" value="{{ username }}"
+                   placeholder=" "
                    autocomplete="username" required autofocus{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="login-error"{% endif %}>
+            <label for="username">Username</label>
           </div>
         </div>
 
-        <div class="field auth-field">
-          <label for="password">Password</label>
+        <div class="field auth-field auth-field--float">
           <div class="auth-input-wrap">
             <span class="auth-field-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -114,8 +126,9 @@ wordmark on its own never said.
             the text becomes visible and slide it under the eye.
             {% endcomment %}
             <input id="password" type="password" name="password"
-                   autocomplete="current-password" required
+                   placeholder=" " autocomplete="current-password" required
                    class="has-reveal{% if error %} is-invalid{% endif %}"{% if error %} aria-invalid="true" aria-describedby="login-error"{% endif %}>
+            <label for="password">Password</label>
             {% comment %}
             aria-pressed rather than a label that flips: the button's name
             stays "Show password" and its pressed state carries whether it is
@@ -134,7 +147,7 @@ wordmark on its own never said.
         {% if error %}<p class="field-error" id="login-error" role="alert">{{ error }}</p>{% endif %}
 
         <button type="submit" class="btn btn-primary auth-submit" id="login-submit">
-          <span data-submit-label>Sign In</span>
+          <span data-submit-label>Log In</span>
         </button>
       </form>
 
@@ -203,17 +216,17 @@ wordmark on its own never said.
     /* aria-busy, and the label really changes, so a screen reader is told
        the state rather than being left on a button that stopped responding. */
     btn.setAttribute('aria-busy', 'true');
-    if (label) label.textContent = 'Signing in…';
+    if (label) label.textContent = 'Logging in…';
   });
 
   /* Coming back via the Back button can restore this page from the bfcache
      with the DOM exactly as it was left — button disabled, label stuck on
-     "Signing in…" and no way to try again. Reset on restore. */
+     "Logging in…" and no way to try again. Reset on restore. */
   window.addEventListener('pageshow', function (e) {
     if (!e.persisted) return;
     btn.disabled = false;
     btn.removeAttribute('aria-busy');
-    if (label) label.textContent = 'Sign In';
+    if (label) label.textContent = 'Log In';
   });
 })();
 </script>

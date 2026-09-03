@@ -185,14 +185,15 @@ across the full width leave the default block padding as empty card.
           </td>
           <td data-label="Date" class="gv-meta">{{ t.transfer_date|date:"Y-m-d" }}</td>
           <td data-label="Action">
-            <span class="row-actions"><a class="btn btn-sm" href="{% url 'transfer_detail' t.pk %}">View</a></span>
+            <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'transfer_detail' t.pk %}"
+                 title="View" aria-label="View slip {{ t.slip_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
           </td>
         </tr>
         {% empty %}
         <tr>
           <td colspan="7">
             <div class="empty">
-              <span class="glyph">□</span>
+              <span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span>
               <h3>No withdrawal slips yet</h3>
               <p>A withdrawal records stock leaving the shelf — damaged, expired, spoiled or on display — and stays open until the branch confirms what left.</p>
               <a class="btn btn-primary mt-2" href="{% url 'transfer_create' %}">New Stock Adjustment</a>
@@ -234,7 +235,7 @@ across the full width leave the default block padding as empty card.
       <tr>
         <td colspan="7">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span>
             <h3>No stock movement yet</h3>
             <p>Every Purchase Order receipt, Stock Adjustment, and sale will show up here.</p>
           </div>

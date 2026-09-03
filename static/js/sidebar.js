@@ -1,5 +1,5 @@
 // Internal-system sidebar: icon-rail <-> full-panel collapse, expandable nav
-// groups (the "file tree"), and the mobile header avatar menu. Icons are
+// groups (the "file tree"), and the header account menu. Icons are
 // Lucide, rendered client-side from the <i data-lucide="..."> markup in
 // internal_base.html — this file also fires that render pass.
 (function () {
@@ -109,11 +109,12 @@
     try { localStorage.setItem(COLLAPSE_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0'); } catch (e) {}
   }
 
-  /* Header avatar menu (mobile Administration entry point) and the bottom-nav
-     "More" menu: close them when the user taps/clicks anywhere outside,
-     since <details> only closes natively on re-toggle. */
+  /* The bottom-nav "More" menu: close it when the user taps/clicks anywhere
+     outside, since <details> only closes natively on re-toggle. The header
+     avatar used to be handled here too; it is a plain link to My Profile now
+     and has nothing to close. */
   document.addEventListener('click', function (e) {
-    document.querySelectorAll('.avatar-menu[open], .more-menu[open]').forEach(function (d) {
+    document.querySelectorAll('.more-menu[open]').forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;
     });
   });

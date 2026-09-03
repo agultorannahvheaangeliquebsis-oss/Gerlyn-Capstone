@@ -432,13 +432,21 @@ def _delta_pill(current, previous, compare_label, prev_window_empty=False):
     if prev_window_empty:
         return None
     if not previous:
-        return {'text': f'None in the {compare_label}', 'pill': 'pill-neutral', 'pct': None}
+        return {'text': f'None in the {compare_label}', 'pill': 'pill-neutral',
+                'pct': None, 'dir': None}
     pct = round(((float(current) - float(previous)) / float(previous)) * 100, 1)
     rising = pct >= 0
+    # `dir` rather than a ▲/▼ baked into `text`. The triangles were font
+    # characters produced by the view, so no template could size or align them
+    # and they rode high against the pill's 13px/1.6 text. reports/_delta_arrow
+    # draws the direction instead, as the flex child .pill already has a gap
+    # for, and `text` goes back to being a plain sentence a screen reader can
+    # read without announcing a shape.
     return {
-        'text': f'{"▲" if rising else "▼"} {"+" if rising else ""}{pct}% vs {compare_label}',
+        'text': f'{"+" if rising else ""}{pct}% vs {compare_label}',
         'pill': 'pill-ok' if rising else 'pill-danger',
         'pct': pct,
+        'dir': 'up' if rising else 'down',
     }
 
 

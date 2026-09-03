@@ -33,7 +33,7 @@
     </div>
     {% empty %}
     <div class="empty">
-      <span class="glyph">✓</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
       <h3>Nothing awaiting delivery</h3>
       <p>Purchase orders marked “Ordered” show up here, ready to receive.</p>
       <a class="btn btn-primary mt-2" href="{% url 'procurement_list' %}">View purchase orders</a>

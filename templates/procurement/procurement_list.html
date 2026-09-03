@@ -68,14 +68,15 @@ not a status, so it keeps the unclassed neutral default.
           {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
         </td>
         <td data-label="Action">
-          <span class="row-actions"><a class="btn btn-sm" href="{% url 'procurement_detail' p.pk %}">View</a></span>
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}"
+               title="View" aria-label="View purchase order {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
       {% empty %}
       <tr>
         <td colspan="8">
           <div class="empty">
-            <span class="glyph">＋</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
             <h3>No purchase orders</h3>
             <p>Purchase orders record what you ordered from suppliers and update stock when received.</p>
             {% if can_create %}<a class="btn btn-primary mt-2" href="{% url 'procurement_add' %}">Create PO</a>{% endif %}

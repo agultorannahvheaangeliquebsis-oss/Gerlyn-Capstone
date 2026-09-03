@@ -61,7 +61,7 @@
            style="max-width:100%; border-radius:var(--r-card); border:1px solid var(--line);">
     {% else %}
       <div class="empty">
-        <span class="glyph">□</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
         <h3>No proof uploaded</h3>
         <p>GCash or bank payments can attach a screenshot as evidence.</p>
         <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>

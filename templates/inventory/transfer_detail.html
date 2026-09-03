@@ -68,11 +68,11 @@
     {% elif transfer.status == 'Released' %}
       <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" style="display:flex; gap:6px; flex-wrap:wrap;">{% csrf_token %}
         <input type="number" name="received_qty" placeholder="received qty" style="padding:6px; flex:1 1 120px;">
-        <button type="submit" style="padding:8px 16px; background:#128a4f; color:#fff; border:0; border-radius:4px;">✓ Confirm Receipt</button></form>
+        <button type="submit" style="display:inline-flex; align-items:center; gap:6px; padding:8px 16px; background:#128a4f; color:#fff; border:0; border-radius:4px;">{% include "partials/_empty_icon.html" with icon="check" %} Confirm Receipt</button></form>
       <form method="post" action="{% url 'transfer_flag_discrepancy' transfer.pk %}" style="display:flex; gap:6px; flex-wrap:wrap;">{% csrf_token %}
         <input type="number" name="received_qty" placeholder="qty" style="padding:6px; width:80px; flex:0 1 80px;">
         <input type="text" name="flag_reason" placeholder="reason" style="padding:6px; flex:1 1 100px;">
-        <button type="submit" style="padding:8px 16px; color:#c0392b; background:#fff; border:1px solid #e6b3ae; border-radius:4px;">⚑ Flag Discrepancy</button></form>
+        <button type="submit" style="display:inline-flex; align-items:center; gap:6px; padding:8px 16px; color:#c0392b; background:#fff; border:1px solid #e6b3ae; border-radius:4px;">{% include "partials/_empty_icon.html" with icon="flag" %} Flag Discrepancy</button></form>
     {% endif %}
   </div>
 </div>

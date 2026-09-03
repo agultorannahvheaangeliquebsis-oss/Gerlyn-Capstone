@@ -1,0 +1,28 @@
+{% comment %}
+The direction mark inside a KPI delta pill, on the Dashboard rail and the
+Reports home rail.
+
+It used to be a ▲ / ▼ character baked into the pill's own text string back in
+reports/views.py::_delta_pill, which meant the view was rendering markup-free
+typography that only a template could size or align — the triangles sat on the
+text baseline and rode high against 13px/1.6 pill text. Splitting the
+direction into `delta.dir` leaves `delta.text` a plain sentence and lets .pill
+lay the mark out as the flex child it already has a `gap: 6px` for.
+
+Filled, not stroked, and deliberately unlike the line art elsewhere: this is
+not an object, it is the sign on a number, and at 10px a two-pixel stroke
+would close up into a blob.
+
+Usage: {% include "reports/_delta_arrow.html" with dir=card.delta.dir %}
+Colour comes from the .pill-ok / .pill-danger the caller already set.
+{% endcomment %}
+{% if dir == 'up' %}
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 5 22 19H2z"/></svg>
+{% elif dir == 'down' %}
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 19 2 5h20z"/></svg>
+{% endif %}
+{% comment %}
+No {% else %}: the neutral "None in the <period>" pill has no direction and
+must draw nothing, and a typo in `dir` must be visible rather than silently
+picking a direction the number does not support.
+{% endcomment %}

@@ -32,7 +32,7 @@
   border-radius: var(--r-input);
   color: var(--ink-700);
   text-decoration: none;
-  font: 600 14.5px/1 system-ui, sans-serif;
+  font: 600 14.5px/1 var(--font-sans);
   transition: background .12s ease, color .12s ease;
 }
 .account-nav-link svg { width: 17px; height: 17px; flex: none; color: var(--ink-400); }
@@ -63,7 +63,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 700 26px/1 system-ui, sans-serif;
+  font: 700 26px/1 var(--font-sans);
   color: #fff;
   overflow: hidden;
 }
@@ -86,12 +86,12 @@
 .avatar-upload-btn svg { width: 13px; height: 13px; }
 .profile-hero-info { flex: 1; min-width: 0; }
 .profile-hero-name {
-  font: 700 22px/1.2 system-ui, sans-serif;
+  font: 700 22px/1.2 var(--font-sans);
   color: #fff;
   margin: 0 0 4px;
 }
 .profile-hero-email {
-  font: 400 14px/1 system-ui, sans-serif;
+  font: 400 14px/1 var(--font-sans);
   color: rgba(255,255,255,.8);
   margin: 0 0 10px;
 }
@@ -108,11 +108,11 @@
   border-radius: var(--r-pill);
   background: rgba(255,255,255,.2);
   color: #fff;
-  font: 600 12.5px/1.5 system-ui, sans-serif;
+  font: 600 12.5px/1.5 var(--font-sans);
   border: 1px solid rgba(255,255,255,.3);
 }
 .member-since {
-  font: 400 13px/1 system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   color: rgba(255,255,255,.75);
 }
 
@@ -142,12 +142,12 @@
 }
 .profile-stat-icon svg { width: 17px; height: 17px; }
 .profile-stat-value {
-  font: 700 22px/1.1 system-ui, sans-serif;
+  font: 700 22px/1.1 var(--font-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink-900);
 }
 .profile-stat-label {
-  font: 400 13px/1.2 system-ui, sans-serif;
+  font: 400 13px/1.2 var(--font-sans);
   color: var(--ink-600);
 }
 
@@ -170,7 +170,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 600 16px/1.2 system-ui, sans-serif;
+  font: 600 16px/1.2 var(--font-sans);
   color: var(--ink-900);
 }
 .account-card-title svg { width: 17px; height: 17px; color: var(--ink-600); }
@@ -186,7 +186,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font: 400 13px/1 system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   color: var(--ink-500);
   margin-bottom: 4px;
   text-transform: uppercase;
@@ -196,14 +196,14 @@
 }
 .info-field label svg { width: 13px; height: 13px; }
 .info-field .val {
-  font: 500 15px/1.4 system-ui, sans-serif;
+  font: 500 15px/1.4 var(--font-sans);
   color: var(--ink-900);
 }
 .verified-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font: 600 12.5px/1 system-ui, sans-serif;
+  font: 600 12.5px/1 var(--font-sans);
   color: var(--ok-fg);
   margin-left: 8px;
 }
@@ -212,7 +212,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font: 600 12.5px/1 system-ui, sans-serif;
+  font: 600 12.5px/1 var(--font-sans);
   color: var(--warn-fg);
   margin-left: 8px;
 }
@@ -257,11 +257,11 @@
 }
 .security-item-icon svg { width: 16px; height: 16px; }
 .security-item-label {
-  font: 600 14.5px/1.2 system-ui, sans-serif;
+  font: 600 14.5px/1.2 var(--font-sans);
   color: var(--ink-900);
 }
 .security-item-sub {
-  font: 400 13px/1.3 system-ui, sans-serif;
+  font: 400 13px/1.3 var(--font-sans);
   color: var(--ink-500);
   margin-top: 2px;
 }
@@ -313,21 +313,21 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 500 14px/1.4 system-ui, sans-serif;
+  font: 500 14px/1.4 var(--font-sans);
   color: var(--warn-fg);
 }
 .verify-banner-text svg { width: 16px; height: 16px; flex: none; }
 
 /* ── Pending email notice ──────────────────────────────────────── */
 .pending-notice {
-  font: 400 13px/1.4 system-ui, sans-serif;
+  font: 400 13px/1.4 var(--font-sans);
   color: var(--warn-fg);
   margin-top: 4px;
 }
 
 /* ── Error messages ────────────────────────────────────────────── */
 .field-err {
-  font: 500 13px/1.4 system-ui, sans-serif;
+  font: 500 13px/1.4 var(--font-sans);
   color: var(--danger-fg);
   margin-top: 4px;
 }
@@ -366,7 +366,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   border-bottom: 1px solid var(--line);
   flex: none;
 }
-.modal-head h2 { font: 650 18px/1.25 system-ui, sans-serif; margin: 0; }
+.modal-head h2 { font: 650 18px/1.25 var(--font-sans); margin: 0; }
 .modal-close {
   display: inline-flex; align-items: center; justify-content: center;
   flex: none;
@@ -414,7 +414,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .address-card-body { flex: 1; min-width: 0; }
 .address-card-label {
   display: flex; align-items: center; gap: 8px;
-  font: 600 14.5px/1.2 system-ui, sans-serif;
+  font: 600 14.5px/1.2 var(--font-sans);
   color: var(--ink-900);
 }
 .default-badge {
@@ -423,17 +423,17 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   border-radius: var(--r-pill);
   background: var(--green-50);
   color: var(--action);
-  font: 600 12px/1.6 system-ui, sans-serif;
+  font: 600 12px/1.6 var(--font-sans);
 }
 .address-card-text {
-  font: 400 14px/1.4 system-ui, sans-serif;
+  font: 400 14px/1.4 var(--font-sans);
   color: var(--ink-600);
   margin-top: 3px;
 }
 .address-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .address-set-default-link {
   background: none; border: none; padding: 0; cursor: pointer;
-  font: 600 13px/1 system-ui, sans-serif;
+  font: 600 13px/1 var(--font-sans);
   color: var(--action);
 }
 .address-set-default-link:hover { text-decoration: underline; }
@@ -453,7 +453,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   border: 1.5px solid var(--line);
   background: var(--surface);
   color: var(--ink-700);
-  font: 600 13.5px/1 system-ui, sans-serif;
+  font: 600 13.5px/1 var(--font-sans);
   cursor: pointer;
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
@@ -469,7 +469,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   text-align: center;
   padding: 32px 16px;
   color: var(--ink-500);
-  font: 400 14px/1.4 system-ui, sans-serif;
+  font: 400 14px/1.4 var(--font-sans);
 }
 
 /* ── Address map picker ───────────────────────────────────────────── */
@@ -546,7 +546,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   margin-left: auto; flex: none;
   min-width: 19px; padding: 0 6px;
   border-radius: var(--r-pill); background: #B45309; color: #fff;
-  font: 700 11px/19px 'Inter', system-ui, sans-serif; text-align: center;
+  font: 700 11px/19px var(--font-sans); text-align: center;
 }
 .account-nav-link.active .account-nav-count { background: #fff; color: var(--action-700); }
 
@@ -575,10 +575,10 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   gap: 16px; padding: 13px 16px;
 }
 .order-row-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.order-row-num { font: 700 15px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-900); }
-.order-row-meta { margin-top: 5px; font: 400 13px/1.5 system-ui, sans-serif; color: var(--ink-600); }
+.order-row-num { font: 700 15px/1.2 var(--font-sans); color: var(--ink-900); }
+.order-row-meta { margin-top: 5px; font: 400 13px/1.5 var(--font-sans); color: var(--ink-600); }
 .order-row-side { text-align: right; flex: none; }
-.order-row-total { font: 700 19px/1.2 'Inter', system-ui, sans-serif; color: var(--action); }
+.order-row-total { font: 700 19px/1.2 var(--font-sans); color: var(--action); }
 .order-row-side .btn { margin-top: 7px; }
 
 /* Five tabs now (All · In progress · To receive · Completed · Cancelled)
@@ -609,9 +609,9 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
    "New" pill lost its shape entirely and read as loose green text. */
 .notif-row--unread .pill-info { background: var(--action); color: #fff; }
 .notif-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.notif-title strong { font: 600 14.5px/1.3 system-ui, sans-serif; color: var(--ink-900); }
-.notif-msg { margin: 4px 0 0; font: 400 13.5px/1.5 system-ui, sans-serif; color: var(--ink-700); }
-.notif-time { display: block; margin-top: 4px; font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-400); }
+.notif-title strong { font: 600 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
+.notif-msg { margin: 4px 0 0; font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700); }
+.notif-time { display: block; margin-top: 4px; font: 400 12px/1.2 var(--font-sans); color: var(--ink-400); }
 
 /* The preferences card is an anchor target: /profile/notification-preferences/
    301s to #preferences, and every toggle save returns there. .shop-header is
@@ -684,7 +684,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   border-bottom: 1px solid var(--line-soft);
 }
 .prefs-panel-title {
-  font: 600 13px/1.2 system-ui, sans-serif; color: var(--ink-600);
+  font: 600 13px/1.2 var(--font-sans); color: var(--ink-600);
   letter-spacing: .02em; text-transform: uppercase;
 }
 /* Tighter than a card body: this is a drawer, and the switches carry their

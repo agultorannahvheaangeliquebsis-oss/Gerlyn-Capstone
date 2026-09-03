@@ -30,7 +30,7 @@
         <span class="who-name">{{ profile.supplier_name|default:request.user.username }}</span><br>
         <span class="who-role">Supplier</span>
       </span>
-      <a class="btn" href="{% url 'accounts:logout' %}">Sign out</a>
+      <a class="btn" href="{% url 'accounts:logout' %}">Logout</a>
     </span>
   </div>
 </header>
@@ -155,7 +155,7 @@
     {% empty %}
     <div class="card">
       <div class="empty">
-        <span class="glyph">□</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
         <h3>No purchase orders yet</h3>
         <p>When Gerlyn Variety Store places an order with you, it appears here.</p>
       </div>

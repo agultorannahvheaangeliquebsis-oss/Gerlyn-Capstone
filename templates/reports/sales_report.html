@@ -37,7 +37,7 @@
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">
-        <span class="glyph">□</span><h3>No sales recorded</h3>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span><h3>No sales recorded</h3>
         <p>Sales appear here once orders are completed.</p></div></td></tr>
       {% endfor %}
     </tbody>

@@ -46,14 +46,15 @@
           {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
         </td>
         <td data-label="Action">
-          <span class="row-actions"><a class="btn btn-sm" href="{% url 'billing_detail' r.pk %}">View</a></span>
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'billing_detail' r.pk %}"
+               title="View" aria-label="View invoice for order {{ r.transaction.order_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
       {% empty %}
       <tr>
         <td colspan="8">
           <div class="empty">
-            <span class="glyph">₱</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span>
             <h3>No billing records</h3>
             <p>A billing record is created automatically for every sale.</p>
           </div>

@@ -15,12 +15,12 @@
    the stock line is real Inventory — see partials/catalog_grid.html.
    ========================================================================== */
 
-/* Inter has been preloaded in public_base.html all along but nothing except
-   the old hero headline ever asked for it. The marketplace card stack leans
-   hard on tight, even numerals, which is exactly what Inter is for. */
+/* The storefront used to run on Inter while the internal shell ran on the
+   OS font. Both are on Roboto now, so this rule no longer overrides the
+   family — it stays only to keep body.shop's background with it. */
 body.shop {
   background: var(--bg);
-  font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .shop-wrap { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
@@ -31,7 +31,7 @@ body.shop {
 .shop-announce {
   background: var(--action-700);
   color: #fff;
-  font: 400 13px/1 'Inter', system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   padding: 8px 0;
 }
 /* The strip is two blocks of text on one row; on a phone they have to be
@@ -63,6 +63,9 @@ body.shop {
    and the internal panels must keep their neutral figures. */
 :root {
   --price-fg: var(--action);
+  /* Mirrors gerlyn.css. Same value; this file is never served without it,
+     but a missing --font-sans would fall back to nothing at all. */
+  --font-sans: 'Roboto', -apple-system, 'Segoe UI', Arial, sans-serif;
 }
 
 .shop-header {
@@ -125,7 +128,7 @@ body.shop {
 .shop-brand-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .shop-brand-name {
   white-space: nowrap;
-  font: 700 18px/1.1 'Inter', system-ui, sans-serif; letter-spacing: -.01em;
+  font: 700 18px/1.1 var(--font-sans); letter-spacing: -.01em;
 }
 .shop-brand-name strong { color: #fff; font-weight: 700; }
 /* 92% white, not the 72% this line looks like it wants: at 11px it is small
@@ -134,7 +137,7 @@ body.shop {
    line still recedes, because it is half the size of the name above it and
    letterspaced. */
 .shop-brand-tag {
-  font: 500 11px/1.2 'Inter', system-ui, sans-serif;
+  font: 500 11px/1.2 var(--font-sans);
   letter-spacing: .08em; text-transform: uppercase;
   color: rgba(255,255,255,.92); white-space: nowrap;
 }
@@ -153,7 +156,7 @@ body.shop {
 .shop-quick a {
   flex: none; text-decoration: none; white-space: nowrap;
   display: inline-flex; align-items: center;
-  font: 400 13px/1 'Inter', system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   color: rgba(255,255,255,.92);            /* 4.76:1 on --action */
   padding: 2px 0;
 }
@@ -177,7 +180,7 @@ body.shop {
   min-height: 44px; padding: 0 20px;
   background: transparent; border: 1.5px solid rgba(255,255,255,.6);
   border-radius: var(--r-input); color: #fff;
-  font: 600 14.5px/1 'Inter', system-ui, sans-serif; text-decoration: none;
+  font: 600 14.5px/1 var(--font-sans); text-decoration: none;
   transition: background .12s ease, border-color .12s ease;
 }
 .shop-signin:hover { background: rgba(255,255,255,.14); border-color: #fff; color: #fff; }
@@ -215,7 +218,7 @@ body.shop {
   height: 46px; display: inline-flex; align-items: center; gap: 6px;
   padding: 0 13px; white-space: nowrap;
   background: none; border: 0; cursor: pointer;
-  font: 600 14.5px/1 'Inter', system-ui, sans-serif;
+  font: 600 14.5px/1 var(--font-sans);
   color: var(--ink-700); text-decoration: none;
   transition: color .15s ease;
 }
@@ -250,7 +253,7 @@ body.shop {
 .shop-menu-item {
   display: flex; align-items: center; min-height: 40px; padding: 0 12px;
   border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
-  font: 500 14px/1.25 'Inter', system-ui, sans-serif;
+  font: 500 14px/1.25 var(--font-sans);
 }
 .shop-menu-item:hover { background: var(--green-50); color: var(--action-700); }
 .shop-menu-item strong { font-weight: 700; }
@@ -268,7 +271,7 @@ body.shop {
 .shop-status {
   display: flex; align-items: center; gap: 8px;
   flex: 0 1 auto; min-width: 0;
-  font: 400 13px/1 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 13px/1 var(--font-sans); color: var(--ink-500);
   white-space: nowrap;
 }
 .shop-status strong {
@@ -315,7 +318,7 @@ body.shop {
 .search-box input {
   border: none; background: transparent; outline: none; flex: 1; min-width: 0;
   padding: 0; color: var(--ink-900);
-  font: 400 15px/1 'Inter', system-ui, sans-serif;
+  font: 400 15px/1 var(--font-sans);
 }
 /* Square, not a wide pill: the button carries a magnifier now instead of the
    word "Search", and a 20px-padded box around a single glyph reads as an
@@ -342,11 +345,11 @@ body.shop {
 }
 .search-result:last-child { border-bottom: 0; }
 .search-result:hover, .search-result.is-active { background: var(--green-50); }
-.search-result-name { font: 600 14px/1.3 system-ui, sans-serif; }
+.search-result-name { font: 600 14px/1.3 var(--font-sans); }
 .search-result-meta { display: flex; align-items: center; gap: 8px; flex: none; }
-.search-result-category { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-700); }
-.search-result-price { font: 700 13.5px/1 system-ui, sans-serif; color: var(--action-700); }
-.search-empty { padding: 14px; font: 400 13.5px/1.4 system-ui, sans-serif; color: var(--ink-700); }
+.search-result-category { font: 400 12px/1 var(--font-sans); color: var(--ink-700); }
+.search-result-price { font: 700 13.5px/1 var(--font-sans); color: var(--action-700); }
+.search-empty { padding: 14px; font: 400 13.5px/1.4 var(--font-sans); color: var(--ink-700); }
 
 /* Bell, account, cart — one control, three uses. All three used to be
    different objects: the cart a filled white square, the account a bordered
@@ -363,7 +366,7 @@ body.shop {
   min-width: 44px; min-height: 44px; padding: 0 6px;
   border: 0; border-radius: var(--r-input);
   background: none; color: #fff; text-decoration: none;
-  font: 600 14px/1 'Inter', system-ui, sans-serif;
+  font: 600 14px/1 var(--font-sans);
   transition: background .12s ease;
 }
 .shop-icon-btn:hover { background: rgba(255,255,255,.16); color: #fff; }
@@ -396,7 +399,7 @@ body.shop {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 16px; height: 16px; padding: 0 3px;
   border-radius: var(--r-pill); background: #B45309; color: #fff;
-  font: 700 10px/1 'Inter', system-ui, sans-serif;
+  font: 700 10px/1 var(--font-sans);
   border: 2px solid var(--action);
   /* The badge is a label on the link, never a second target inside it. */
   pointer-events: none;
@@ -451,20 +454,20 @@ body.shop {
 .banner-slide:hover { color: #fff; }
 .banner-slide .eyebrow {
   display: inline-flex; align-items: center; gap: 7px;
-  font: 600 13px/1 'Inter', system-ui, sans-serif;
+  font: 600 13px/1 var(--font-sans);
   letter-spacing: .04em; text-transform: uppercase;
 }
 .banner-slide h2 {
-  font: 800 clamp(24px, 2.7vw, 36px)/1.14 'Inter', system-ui, sans-serif;
+  font: 800 clamp(24px, 2.7vw, 36px)/1.14 var(--font-sans);
   color: #fff; margin: 0; max-width: 15ch;
 }
 .banner-slide p {
-  font: 400 clamp(14px, 1.3vw, 17px)/1.45 'Inter', system-ui, sans-serif;
+  font: 400 clamp(14px, 1.3vw, 17px)/1.45 var(--font-sans);
   margin: 0; max-width: 34ch;
 }
 .banner-slide .banner-cue {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
-  font: 700 14px/1 'Inter', system-ui, sans-serif;
+  font: 700 14px/1 var(--font-sans);
   border-bottom: 2px solid rgba(255,255,255,.65); padding-bottom: 3px;
   align-self: flex-start;
 }
@@ -516,8 +519,8 @@ body.shop {
   display: grid; place-items: center; justify-content: start;
   color: var(--action); margin-bottom: 6px;
 }
-.banner-card .bc-t { font: 700 15.5px/1.25 'Inter', system-ui, sans-serif; }
-.banner-card .bc-s { font: 400 13px/1.4 'Inter', system-ui, sans-serif; color: var(--ink-600); }
+.banner-card .bc-t { font: 700 15.5px/1.25 var(--font-sans); }
+.banner-card .bc-s { font: 400 13px/1.4 var(--font-sans); color: var(--ink-600); }
 
 /* ------------------------------------------------------- service row
    The reference's ring of shortcuts. Every one is a destination that
@@ -557,7 +560,7 @@ body.shop {
   transition: transform .15s ease, color .15s ease;
 }
 .svc:hover .svc-ic { color: var(--action-700); transform: translateY(-1px); }
-.svc .svc-nm { font: 500 12.5px/1.3 'Inter', system-ui, sans-serif; }
+.svc .svc-nm { font: 500 12.5px/1.3 var(--font-sans); }
 
 /* The lift is decoration; the colour change on the same hover still reports
    the state on its own. */
@@ -583,7 +586,7 @@ body.shop {
 /* h1 as well as h2 — the catalog's title is the page's h1, and the two
    must look identical wherever a .section-head is used. */
 .section-head h1,
-.section-head h2 { font: 700 22px/1.2 'Inter', system-ui, sans-serif; }
+.section-head h2 { font: 700 22px/1.2 var(--font-sans); }
 
 /* Panel-style section — white card with a ruled header, as the reference
    frames CATEGORIES and TOP PRODUCTS. */
@@ -596,12 +599,12 @@ body.shop {
   padding: 18px 22px; border-bottom: 1px solid var(--line);
 }
 .panel-head h2 {
-  font: 700 17px/1.2 'Inter', system-ui, sans-serif;
+  font: 700 17px/1.2 var(--font-sans);
   letter-spacing: .06em; text-transform: uppercase; color: var(--action);
 }
 .panel-more {
   display: inline-flex; align-items: center; gap: 6px;
-  font: 600 14px/1 'Inter', system-ui, sans-serif;
+  font: 600 14px/1 var(--font-sans);
   color: var(--action); text-decoration: none;
   min-height: var(--touch); padding: 0 4px;
 }
@@ -634,11 +637,11 @@ body.shop {
   width: 56px; height: 56px; border-radius: 8px;
   background: var(--green-50); color: var(--action-700);
   display: flex; align-items: center; justify-content: center;
-  font: 700 22px/1 'Inter', system-ui, sans-serif;
+  font: 700 22px/1 var(--font-sans);
   transition: transform .18s ease;
 }
 .cat:hover .ring { transform: translateY(-2px); }
-.cat .nm { font: 400 13px/1.3 'Inter', system-ui, sans-serif; }
+.cat .nm { font: 400 13px/1.3 var(--font-sans); }
 
 /* Eight tints, assigned by category id. Each pairs a pale ground with its
    own darker ink: every combination below clears 4.5:1, so the initial is
@@ -679,13 +682,13 @@ body.shop {
 .top-rank {
   position: absolute; top: 0; left: 0; z-index: 1;
   background: var(--action); color: #fff;
-  font: 700 11px/1 'Inter', system-ui, sans-serif; letter-spacing: .05em;
+  font: 700 11px/1 var(--font-sans); letter-spacing: .05em;
   padding: 6px 7px 9px;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
 }
 .top-sold {
   background: rgba(23,37,30,.72); color: #fff;
-  font: 600 12px/1 'Inter', system-ui, sans-serif;
+  font: 600 12px/1 var(--font-sans);
   padding: 7px 8px; text-align: center; border-radius: 3px;
 }
 /* Centred under the thumbnail, not ranged left against the tile's edge.
@@ -695,7 +698,7 @@ body.shop {
    side, and with a short name like "Cooking Oil" it left a visible notch of
    empty tile to its right. */
 .top-nm {
-  font: 400 14.5px/1.35 'Inter', system-ui, sans-serif;
+  font: 400 14.5px/1.35 var(--font-sans);
   text-align: center;
 }
 
@@ -784,22 +787,22 @@ body.shop {
   gap: 10px; margin-bottom: 5px; min-width: 0;
 }
 .pcard .pcat {
-  font: 400 11.5px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-500);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pcard .name {
-  font: 600 15px/1.34 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 600 15px/1.34 var(--font-sans); color: var(--ink-900);
   text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2;
   -webkit-box-orient: vertical; overflow: hidden;
   margin-bottom: 7px;
 }
 .pcard .name:hover { color: var(--action); }
 .pcard .psold {
-  font: 400 11.5px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-500);
   flex: none;
 }
 .pcard .price {
-  font: 700 19px/1 'Inter', system-ui, sans-serif;
+  font: 700 19px/1 var(--font-sans);
   font-variant-numeric: tabular-nums; color: var(--price-fg);
 }
 /* The reference sets a struck-through was-price in grey immediately left of
@@ -807,7 +810,7 @@ body.shop {
    one is a false discount claim — the unit takes that slot instead, which
    is the other thing a shopper needs beside a peso figure ("₱1,800 — per
    sack" is not the same offer as "₱1,800 — per kilo"). */
-.pcard .unit { font: 400 12px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-500); }
+.pcard .unit { font: 400 12px/1.2 var(--font-sans); color: var(--ink-500); }
 /* Stacked, not inline. The reference sets its two prices side by side
    because both are short numerals; "per bottle" / "per sack" is wider than
    a struck price, and inline it pushed the total past the card and wrapped
@@ -862,7 +865,7 @@ body.shop {
      near-square card read as two different design languages. */
   border-radius: 4px; border: 1px solid var(--green-100);
   background: var(--green-50); color: var(--action-700);
-  font: 600 12.5px/1 'Inter', system-ui, sans-serif; cursor: pointer;
+  font: 600 12.5px/1 var(--font-sans); cursor: pointer;
   /* Three of the four CTA branches render as <a>, which arrives underlined
      from the UA sheet — the button read as a link sitting inside a pill. */
   text-decoration: none; white-space: nowrap;
@@ -963,11 +966,11 @@ body.shop {
 .pdp-note {
   margin: 0; padding: 12px 14px; border-radius: 4px;
   background: var(--line-soft); border: 1px solid var(--line);
-  font: 400 13.5px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
 }
 
 .stock-ok, .stock-low, .stock-out {
-  font: 700 11.5px/1.4 'Inter', system-ui, sans-serif;
+  font: 700 11.5px/1.4 var(--font-sans);
   letter-spacing: .06em; text-transform: uppercase;
 }
 .stock-ok   { color: var(--ok-fg); }
@@ -981,7 +984,7 @@ body.shop {
   border-bottom: 3px solid var(--action); margin-bottom: 18px;
 }
 .discover-head h2 {
-  font: 700 19px/1.2 'Inter', system-ui, sans-serif;
+  font: 700 19px/1.2 var(--font-sans);
   letter-spacing: .08em; text-transform: uppercase; color: var(--action);
 }
 
@@ -1038,7 +1041,7 @@ body.shop {
   display: flex; align-items: center; justify-content: center;
   min-width: 46px; min-height: 44px; padding: 0 6px;
   border-left: 1px solid var(--line); border-right: 1px solid var(--line);
-  font: 600 15px/1 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 600 15px/1 var(--font-sans); color: var(--ink-900);
 }
 .cart-line-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .cart-line-right form { margin: 0; }
@@ -1268,7 +1271,7 @@ body.shop .toast-stack { top: 182px; }
 .toast-undo {
   margin-top: 6px; padding: 2px 4px;
   background: none; border: none; cursor: pointer;
-  font: 700 13px/1 system-ui, sans-serif; color: var(--action);
+  font: 700 13px/1 var(--font-sans); color: var(--action);
   text-decoration: underline; text-underline-offset: 2px;
 }
 .toast-undo:hover { color: var(--action-700); }
@@ -1371,7 +1374,7 @@ body.shop-auth {
 .auth-topbar-brand {
   display: inline-flex; align-items: center; gap: 10px;
   text-decoration: none; color: var(--ink-900);
-  font: 400 19px/1 'Inter', system-ui, sans-serif;
+  font: 400 19px/1 var(--font-sans);
   /* Never the half that ellipses — the screen title beside it is the
      shorter string and the one that can afford to shrink. */
   flex: none;
@@ -1406,21 +1409,26 @@ body.shop-auth {
    the screen and the store's name is already in the bar directly above. */
 .auth-hero { text-align: center; color: #fff; }
 .auth-hero-mark {
-  width: 164px; height: 164px; display: block;
+  width: 220px; height: auto; display: block;
   margin: 0 auto var(--s6);
-  border-radius: 26px; object-fit: cover; background: #fff;
-  box-shadow: 0 14px 40px rgba(0,0,0,.18);
+  object-fit: contain;
+  /* The transparent PNG sits straight on the green. The white rounded
+     plate this used to wear was the JPG's own background, squared off by
+     object-fit: cover and dressed with a radius — nothing the mark needs.
+     drop-shadow rather than box-shadow so it follows the artwork's edge
+     instead of a box that is no longer there. */
+  filter: drop-shadow(0 14px 34px rgba(0,0,0,.22));
 }
 .auth-hero-name {
   margin: 0 0 var(--s4);
-  font: 800 38px/1.15 'Inter', system-ui, sans-serif;
+  font: 800 38px/1.15 var(--font-sans);
   letter-spacing: -.4px;
 }
 /* rgba white rather than a tint token: this sits on the brand green, and
    at 18px it still clears contrast comfortably at .92. */
 .auth-hero-tag {
   margin: 0;
-  font: 400 18px/1.6 'Inter', system-ui, sans-serif;
+  font: 400 18px/1.6 var(--font-sans);
   color: rgba(255,255,255,.92);
 }
 
@@ -1437,25 +1445,20 @@ body.shop-auth {
 }
 .auth-title {
   margin: 0 0 var(--s6);
-  font: 700 21px/1.3 'Inter', system-ui, sans-serif;
+  font: 700 21px/1.3 var(--font-sans);
   color: var(--ink-900);
 }
 
-/* Static labels, sitting above their field.
-
-   These used to float onto the top border and notch it, in a chip painted
-   --surface, which never matched the translucent card behind it and went
-   visibly wrong the moment Chrome repainted an autofilled input #E8F0FE.
-   A label above the box has no seam to hide and no state to be in, and it
-   is what every other form in this app already does — register.html, one
-   link away, has never floated its labels. .field's own column layout does
-   the work; the only thing this adds is the icon's positioning context. */
+/* Labels sitting above their field — the default for every .auth-field, and
+   still what register.html's eight-field form uses. .field's own column
+   layout does the work; the only thing this adds is the icon's positioning
+   context. Sign-in opts out of it with .auth-field--float, below. */
 .auth-card .field.auth-field {
   display: flex; flex-direction: column; gap: 7px;
   margin: 0 0 var(--s4);
 }
 .auth-card .field.auth-field > label {
-  font: 600 13.5px/1.2 'Inter', system-ui, sans-serif;
+  font: 600 13.5px/1.2 var(--font-sans);
   color: var(--ink-700);
 }
 /* Wraps the input alone, so the icon centres on the box and not on the
@@ -1471,6 +1474,94 @@ body.shop-auth {
   pointer-events: none; z-index: 1;
 }
 .auth-field-icon svg { width: 100%; height: 100%; display: block; }
+
+/* ------------------------------------------------- floating labels
+   Opt in per field with .auth-field--float. The label must be the input's
+   next sibling inside .auth-input-wrap, and the input needs placeholder=" "
+   so :placeholder-shown is what tracks "the box is empty" — no JS state.
+
+   The label travels between two positions this card already had: it rests
+   on the line the typing will land on, and rises to the exact spot, size,
+   weight and colour the static label above the box has always used. So a
+   filled form is the form as it was drawn before any of this — the float
+   only fills in what an empty box used to say with nothing.
+
+   Nothing paints a chip on the border, which is what got this idea dropped
+   the first time round: the label clears the box entirely, so there is no
+   seam to match against a card that was translucent then, and nothing to
+   go wrong when Chrome repaints an autofilled input.
+
+   The 23px is the label's own line box (13.5px × 1.2) plus the 7px .field
+   put between label and input. It is padding on the field rather than room
+   found inside the box, so the box itself never changes height.
+
+   The room is only held while the label is actually out of the box. An
+   empty field keeps its label on the typing line, so reserving the strip
+   above it reserves space nothing is using — which is what opened the gap
+   between the two boxes on a failed sign-in, where the username is filled
+   and the password is not. Empty now sits flush against the field above
+   it, and the space appears as the label rises into it.
+
+   :has() is what lets the field read its own input's state. Where it is
+   missing the room stays reserved on every field, which is the layout this
+   had before — looser, but never wrong. */
+.auth-card .field.auth-field--float { padding-top: 23px; }
+@supports selector(:has(*)) {
+  .auth-card .field.auth-field--float { padding-top: 0; }
+  .auth-card .field.auth-field--float:has(> .auth-input-wrap > input:focus),
+  .auth-card .field.auth-field--float:has(> .auth-input-wrap > input:not(:placeholder-shown)) {
+    padding-top: 23px;
+  }
+}
+.auth-card .field.auth-field--float > .auth-input-wrap > label {
+  position: absolute;
+  left: 44px;                        /* the input's text start, past the icon */
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: calc(100% - 58px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 400 15px/1.4 var(--font-sans);
+  color: var(--ink-500);
+  /* The label lies over the input's empty half; a click there has to reach
+     the box underneath. `for` still carries a tap once it has risen out. */
+  pointer-events: none;
+}
+/* Risen. -23px is measured from .auth-input-wrap, whose top edge is the top
+   of the box, so this lands the label in the field's padding — up and out,
+   left-aligned with the border below it, and identical to the label the
+   other auth screen still draws statically. */
+.auth-card .field.auth-field--float > .auth-input-wrap > input:focus + label,
+.auth-card .field.auth-field--float > .auth-input-wrap > input:not(:placeholder-shown) + label {
+  top: -23px;
+  left: 0;
+  transform: none;
+  max-width: 100%;
+  font: 600 13.5px/1.2 var(--font-sans);
+  color: var(--ink-700);
+}
+/* A failed sign-in paints both boxes .is-invalid. Nothing was drawing that
+   class on this card — the only sign of a rejected attempt was the message
+   under the fields — so the box and the label above it go red together. */
+.auth-card .field.auth-field--float > .auth-input-wrap > input.is-invalid {
+  border-color: var(--danger-dot);
+}
+.auth-card .field.auth-field--float > .auth-input-wrap > input.is-invalid:focus + label,
+.auth-card .field.auth-field--float > .auth-input-wrap > input.is-invalid:not(:placeholder-shown) + label {
+  color: var(--danger-fg);
+}
+/* font-weight is not on the list: it cannot tween, so naming it here would
+   only stall the jump from 400 to 600 partway through the move. */
+@media (prefers-reduced-motion: no-preference) {
+  .auth-card .field.auth-field--float > .auth-input-wrap > label {
+    transition: top .16s ease, left .16s ease, transform .16s ease,
+                font-size .16s ease, color .16s ease;
+  }
+  /* Opened on the same clock as the label that is moving into it, so the
+     box slides down with the text rather than snapping ahead of it. */
+  .auth-card .field.auth-field--float { transition: padding-top .16s ease; }
+}
 
 /* Autofill. Chrome will not honour background-color on an autofilled
    input; a 1000px inset shadow is the only way to repaint the box, and
@@ -1511,7 +1602,7 @@ body.shop-auth {
   text-align: center;
   margin: var(--s6) 0 0; padding-top: var(--s4);
   border-top: 1px solid var(--line-soft);
-  font: 400 14px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 14px/1.5 var(--font-sans); color: var(--ink-500);
 }
 .auth-alt a { font-weight: 700; color: var(--action); }
 
@@ -1543,7 +1634,7 @@ body.shop-auth {
 .auth-head .auth-title { margin-bottom: 5px; }
 .auth-sub {
   margin: 0;
-  font: 400 13.5px/1.5 'Inter', system-ui, sans-serif;
+  font: 400 13.5px/1.5 var(--font-sans);
   color: var(--ink-500);
 }
 
@@ -1570,7 +1661,7 @@ body.shop-auth {
    far below the size that lets the lighter grey pass contrast. */
 .auth-hint {
   margin: 6px 0 0;
-  font: 400 12.5px/1.45 'Inter', system-ui, sans-serif;
+  font: 400 12.5px/1.45 var(--font-sans);
   color: var(--ink-500);
 }
 
@@ -1580,7 +1671,7 @@ body.shop-auth {
 .auth-address-summary {
   border: 1px dashed var(--line); border-radius: var(--r-input);
   padding: 10px 12px;
-  font: 400 13px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 13px/1.5 var(--font-sans); color: var(--ink-500);
 }
 .auth-address-summary.is-set {
   border-style: solid; border-color: var(--line);
@@ -1606,7 +1697,7 @@ body.shop-auth {
 @media (max-width: 1024px) {
   .auth-band { padding: var(--s8) 0; }
   .auth-band-inner { grid-template-columns: minmax(0, 1fr) 372px; gap: var(--s8); }
-  .auth-hero-mark { width: 128px; height: 128px; border-radius: 22px; }
+  .auth-hero-mark { width: 170px; }
   .auth-hero-name { font-size: 30px; }
   .auth-hero-tag { font-size: 16px; }
 }
@@ -1657,7 +1748,7 @@ body.shop-auth {
    ====================================================================== */
 .crumbs {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
-  font: 400 13.5px/1.4 'Inter', system-ui, sans-serif;
+  font: 400 13.5px/1.4 var(--font-sans);
   margin-bottom: 18px;
 }
 .crumbs a { color: var(--action-700); text-decoration: none; }
@@ -1692,11 +1783,11 @@ body.shop-auth {
   object-fit: contain; display: block;
 }
 .about-hero h1 {
-  font: 700 30px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 700 30px/1.2 var(--font-sans); color: var(--ink-900);
   margin-bottom: 10px;
 }
 .about-lead {
-  font: 400 16px/1.6 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 16px/1.6 var(--font-sans); color: var(--ink-700);
   max-width: 60ch; margin: 0 auto 20px;
 }
 
@@ -1736,11 +1827,11 @@ body.shop-auth {
   margin-bottom: 10px;
 }
 .about-card h2 {
-  font: 700 16px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 700 16px/1.3 var(--font-sans); color: var(--ink-900);
   margin-bottom: 6px;
 }
 .about-card p {
-  font: 400 14px/1.6 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 14px/1.6 var(--font-sans); color: var(--ink-700);
   margin: 0;
 }
 
@@ -1768,13 +1859,13 @@ body.shop-auth {
   background: none; color: var(--action);
   display: grid; place-items: center;
 }
-.branch-nm { font: 600 15px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900); }
+.branch-nm { font: 600 15px/1.3 var(--font-sans); color: var(--ink-900); }
 .branch-loc {
-  font: 400 13.5px/1.4 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 13.5px/1.4 var(--font-sans); color: var(--ink-500);
   min-width: 0;
 }
 .about-help {
-  text-align: center; font: 400 14px/1.6 'Inter', system-ui, sans-serif;
+  text-align: center; font: 400 14px/1.6 var(--font-sans);
   color: var(--ink-700);
 }
 .about-help a { color: var(--action-700); }
@@ -1787,10 +1878,10 @@ body.shop-auth {
   display: block; width: max-content; margin: 0 auto 12px; padding: 5px 13px;
   border-radius: 999px; background: var(--green-50);
   border: 1px solid var(--green-100); color: var(--action-700);
-  font: 600 12.5px/1.3 'Inter', system-ui, sans-serif; letter-spacing: .02em;
+  font: 600 12.5px/1.3 var(--font-sans); letter-spacing: .02em;
 }
 .about-tag {
-  font: 600 15px/1.5 'Inter', system-ui, sans-serif; color: var(--action-700);
+  font: 600 15px/1.5 var(--font-sans); color: var(--action-700);
   margin: -6px 0 18px;
 }
 
@@ -1808,11 +1899,11 @@ body.shop-auth {
 .about-story h2,
 .about-story p { max-width: 700px; margin-inline: auto; margin-top: 0; }
 .about-story h2 {
-  font: 700 20px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 700 20px/1.3 var(--font-sans); color: var(--ink-900);
   margin-bottom: 14px;
 }
 .about-story p {
-  font: 400 15px/1.75 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 15px/1.75 var(--font-sans); color: var(--ink-700);
   margin-bottom: 14px;
 }
 .about-story p:last-child { margin-bottom: 0; }
@@ -1820,7 +1911,7 @@ body.shop-auth {
 .about-social { text-align: center; margin-bottom: 10px; }
 .about-social a {
   display: inline-flex; align-items: center; gap: 7px;
-  font: 600 14.5px/1.5 'Inter', system-ui, sans-serif;
+  font: 600 14.5px/1.5 var(--font-sans);
   color: var(--action-700); text-decoration: none;
 }
 .about-social a:hover { text-decoration: underline; }
@@ -1852,7 +1943,7 @@ body.shop-auth {
   padding: 18px 16px; position: sticky; top: 16px;
 }
 .rail-heading {
-  font: 700 16px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 700 16px/1.2 var(--font-sans); color: var(--ink-900);
   padding-bottom: 12px; margin-bottom: 4px;
   border-bottom: 1px solid var(--line-soft);
 }
@@ -1872,14 +1963,14 @@ body.shop-auth {
    legend behaving like a legend across browsers. */
 .rail-title {
   display: block; float: left; width: 100%; padding: 0;
-  font: 700 13px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 700 13px/1.2 var(--font-sans); color: var(--ink-900);
   margin-bottom: 8px;
 }
 .rail-list { list-style: none; margin: 0; padding: 0; }
 .rail-item {
   display: flex; align-items: center;
   padding: 6px 10px; border-radius: 3px;
-  font: 400 13.5px/1.35 'Inter', system-ui, sans-serif;
+  font: 400 13.5px/1.35 var(--font-sans);
   color: var(--ink-700); text-decoration: none;
   transition: background .12s ease, color .12s ease;
 }
@@ -1903,7 +1994,7 @@ body.shop-auth {
 }
 .rail-item.active:hover { background: var(--green-100); color: var(--action-700); }
 .rail-note {
-  font: 400 12px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 12px/1.5 var(--font-sans); color: var(--ink-500);
   margin: 10px 2px 0;
 }
 
@@ -1919,7 +2010,7 @@ body.shop-auth {
 .rail-check {
   position: relative; display: flex; align-items: center; gap: 10px;
   padding: 7px 8px; border-radius: 3px; cursor: pointer;
-  font: 400 13.5px/1.35 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 13.5px/1.35 var(--font-sans); color: var(--ink-700);
   transition: background .12s ease, color .12s ease;
   min-height: 34px;
 }
@@ -1961,7 +2052,7 @@ body.shop-auth {
 .rail-apply { width: 100%; }
 .rail-clear {
   text-align: center; text-decoration: none;
-  font: 600 13px/1 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 600 13px/1 var(--font-sans); color: var(--ink-500);
   min-height: 32px; display: inline-flex; align-items: center; justify-content: center;
 }
 .rail-clear:hover { color: var(--action-700); text-decoration: underline; }
@@ -1974,13 +2065,13 @@ body.shop-auth {
 }
 .sort-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .sort-label {
-  font: 400 13px/1 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 13px/1 var(--font-sans); color: var(--ink-500);
   margin-right: 2px;
 }
 .sort-pill {
   display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px;
   border: 1px solid var(--line); border-radius: 4px; background: #fff;
-  font: 600 13px/1 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 600 13px/1 var(--font-sans); color: var(--ink-700);
   text-decoration: none; white-space: nowrap;
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
@@ -2083,10 +2174,10 @@ body.shop-auth {
   position: absolute; top: 9px; left: 9px; z-index: 2;
   padding: 2px 7px; border-radius: 3px;
   background: #FDE68A; color: #78350F;
-  font: 700 10px/1.4 'Inter', system-ui, sans-serif; letter-spacing: .04em;
+  font: 700 10px/1.4 var(--font-sans); letter-spacing: .04em;
 }
 .pcard .pdesc {
-  font: 400 12.5px/1.45 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-700);
   margin: 0 0 7px;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
@@ -2181,7 +2272,7 @@ body.shop-auth {
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px; border-radius: 3px;
-  font: 600 12px/1.4 'Inter', system-ui, sans-serif;
+  font: 600 12px/1.4 var(--font-sans);
 }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 .chip-cat { background: var(--green-50); color: var(--action-700); }
@@ -2190,11 +2281,11 @@ body.shop-auth {
 .chip-out { background: #FDE7E7; color: #A5170E; }
 
 .pdp-title {
-  font: 700 27px/1.25 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 700 27px/1.25 var(--font-sans); color: var(--ink-900);
   margin-bottom: 6px;
 }
 .pdp-sku {
-  font: 400 13.5px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-500);
   margin-bottom: 16px;
 }
 
@@ -2208,25 +2299,25 @@ body.shop-auth {
 }
 .price-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
 .price-now {
-  font: 700 32px/1 'Inter', system-ui, sans-serif;
+  font: 700 32px/1 var(--font-sans);
   font-variant-numeric: tabular-nums; color: var(--price-fg);
 }
-.price-unit { font: 400 14px/1 'Inter', system-ui, sans-serif; color: var(--ink-500); }
+.price-unit { font: 400 14px/1 var(--font-sans); color: var(--ink-500); }
 .price-bulk {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   margin: 12px 0 0;
-  font: 400 13.5px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
 }
 .bulk-badge {
   padding: 3px 8px; border-radius: 3px; flex: none;
   background: #FDE68A; color: #78350F;
-  font: 700 10.5px/1.4 'Inter', system-ui, sans-serif; letter-spacing: .05em;
+  font: 700 10.5px/1.4 var(--font-sans); letter-spacing: .05em;
 }
 
 .buy-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
 .qty-field label {
   display: block; margin-bottom: 6px;
-  font: 600 12.5px/1 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 600 12.5px/1 var(--font-sans); color: var(--ink-700);
 }
 .qty-stepper {
   display: inline-flex; align-items: stretch;
@@ -2236,13 +2327,13 @@ body.shop-auth {
 .qty-btn {
   width: 40px; min-height: 44px; padding: 0; cursor: pointer;
   border: 0; background: #fff; color: var(--ink-900);
-  font: 400 19px/1 'Inter', system-ui, sans-serif;
+  font: 400 19px/1 var(--font-sans);
 }
 .qty-btn:hover { background: var(--green-50); color: var(--action-700); }
 .qty-stepper input {
   width: 58px; min-height: 44px; text-align: center;
   border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
-  font: 600 15px/1 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 600 15px/1 var(--font-sans); color: var(--ink-900);
   background: #fff;
 }
 /* The native spinners duplicate the two buttons either side of them and
@@ -2259,7 +2350,7 @@ body.shop-auth {
   background: var(--green-50); color: var(--action-700);
   border: 1px solid var(--action); min-height: var(--touch); padding: 0 18px;
   border-radius: 4px; cursor: pointer; text-decoration: none;
-  font: 600 14px/1 'Inter', system-ui, sans-serif;
+  font: 600 14px/1 var(--font-sans);
   /* Wide enough for "Add to Cart", which is the longer of the two labels this
      button swaps between — so the two-second "Added" does not shrink it and
      let it grow back under the pointer. */
@@ -2302,12 +2393,12 @@ body.shop-auth {
   padding: 20px;
 }
 .pdp-panel h2 {
-  font: 700 16px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 700 16px/1.3 var(--font-sans); color: var(--ink-900);
   padding-bottom: 12px; margin-bottom: 14px;
   border-bottom: 1px solid var(--line-soft);
 }
 .pdp-desc {
-  font: 400 14.5px/1.65 'Inter', system-ui, sans-serif; color: var(--ink-700);
+  font: 400 14.5px/1.65 var(--font-sans); color: var(--ink-700);
   margin: 0;
 }
 .pdp-desc--empty { color: var(--ink-500); font-style: italic; }
@@ -2317,9 +2408,9 @@ body.shop-auth {
   padding: 11px 0; border-top: 1px solid var(--line-soft);
 }
 .avail-list li:first-child { border-top: 0; }
-.avail-branch { font: 500 14.5px/1.3 'Inter', system-ui, sans-serif; color: var(--ink-900); }
+.avail-branch { font: 500 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
 .avail-note {
-  font: 400 12.5px/1.5 'Inter', system-ui, sans-serif; color: var(--ink-500);
+  font: 400 12.5px/1.5 var(--font-sans); color: var(--ink-500);
   margin: 14px 0 0;
 }
 
@@ -2356,33 +2447,33 @@ body.shop-auth {
   text-decoration: none; color: inherit; margin-bottom: 12px;
 }
 .footer-mark img { width: auto; height: 40px; border-radius: 0; object-fit: contain; }
-.footer-mark span { font: 400 16px/1.2 'Inter', system-ui, sans-serif; }
+.footer-mark span { font: 400 16px/1.2 var(--font-sans); }
 .footer-blurb {
-  font: 400 13.5px/1.65 'Inter', system-ui, sans-serif;
+  font: 400 13.5px/1.65 var(--font-sans);
   max-width: 34ch; margin: 0; opacity: .85;
 }
 .footer-title {
-  font: 700 12px/1.2 'Inter', system-ui, sans-serif;
+  font: 700 12px/1.2 var(--font-sans);
   letter-spacing: .08em; text-transform: uppercase;
   margin-bottom: 14px; opacity: .8;
 }
 .footer-col ul { list-style: none; margin: 0; padding: 0; }
 .footer-col li { margin-bottom: 9px; }
 .footer-col a {
-  font: 400 13.5px/1.4 'Inter', system-ui, sans-serif;
+  font: 400 13.5px/1.4 var(--font-sans);
   text-decoration: none; color: inherit; opacity: .85;
 }
 .footer-col a:hover { opacity: 1; text-decoration: underline; }
 .footer-branches li { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
-.footer-branch-nm { font: 600 13.5px/1.4 'Inter', system-ui, sans-serif; }
-.footer-branch-loc { font: 400 12.5px/1.5 'Inter', system-ui, sans-serif; opacity: .75; }
-.footer-note { font: 400 12.5px/1.55 'Inter', system-ui, sans-serif; opacity: .75; margin: 4px 0 0; }
+.footer-branch-nm { font: 600 13.5px/1.4 var(--font-sans); }
+.footer-branch-loc { font: 400 12.5px/1.5 var(--font-sans); opacity: .75; }
+.footer-note { font: 400 12.5px/1.55 var(--font-sans); opacity: .75; margin: 4px 0 0; }
 .footer-legal {
   /* padding-block for the same reason as .section above — this one is also
      a .shop-wrap. */
   padding-block: 16px; border-top: 1px solid rgba(255,255,255,.16);
 }
-.footer-legal p { font: 400 12.5px/1.5 'Inter', system-ui, sans-serif; opacity: .75; margin: 0; }
+.footer-legal p { font: 400 12.5px/1.5 var(--font-sans); opacity: .75; margin: 0; }
 
 @media (max-width: 900px) {
   .footer-grid { grid-auto-flow: row; grid-template-columns: 1fr 1fr; gap: 24px; }

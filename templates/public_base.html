@@ -12,16 +12,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   {% comment %}
-  A weight RANGE, not four cuts. body.shop puts Inter on the whole
-  storefront, which means every gerlyn.css component renders in it too —
-  and that file asks for 650 seven times (h1, h2, .gv-page-title and .btn
-  among them), 500 twice and 750 once. None of those were in the
-  400;600;700;800 list, so the browser was synthesising them, most visibly
-  on .btn, which appears on every page of the shop. Inter is a variable
-  font on Google Fonts, so 400..800 covers all of them in one file rather
-  than costing a request per cut.
+  Roboto replaces Inter across the whole site (storefront and internal shell
+  both), so this link and the one in internal_base.html must stay in step.
+  Four cuts, not a range: Roboto's variable file is a two-axis (wdth, wght)
+  font and pulling the full range costs more than the four weights actually
+  used. gerlyn.css asks for 650 seven times and 750 once — CSS weight
+  matching rounds both up to 700, which is the intended heading bold, so
+  nothing is synthesised.
   {% endcomment %}
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
   {% comment %}
   The APP_VERSION query string rather than a number typed here: gerlyn.css is
   linked from four templates and account.css from ten, and the hand-typed
@@ -35,7 +34,7 @@
 </head>
 {% comment %}
 body_class defaults to the plain shop shell, so every page that does not
-override it renders exactly as before. Sign In adds shop-auth to trade the
+override it renders exactly as before. Log In adds shop-auth to trade the
 storefront header for a bar of its own above a full-bleed brand band — see
 the AUTH SCREEN section in storefront.css, which is scoped entirely under
 that class. The footer below it is this file's, unchanged.
@@ -189,7 +188,7 @@ white-on-white.
     account control used to be a bordered trigger opening a dropdown of three
     links; two of those (My Orders, Settings) now live one click away — the
     name goes straight to My Orders, and Settings is the rail down the left of
-    that page — and Sign out moved into that same rail. A menu whose contents
+    that page — and Logout moved into that same rail. A menu whose contents
     are all reachable without it is a click that buys nothing.
     {% endcomment %}
     <div class="shop-header-actions">
@@ -235,7 +234,7 @@ white-on-white.
         </a>
       {% else %}
         {% comment %}
-        Sign In holds the account slot at the end of the cluster, the same
+        Log In holds the account slot at the end of the cluster, the same
         place the signed-in name occupies, so the corner does not reshuffle
         when a shopper logs in.
 
@@ -243,7 +242,7 @@ white-on-white.
         of the two controls in this corner, because the cart is the one a
         shopper mid-purchase is reaching for.
         {% endcomment %}
-        <a class="btn shop-signin" href="{% url 'accounts:login' %}">{% t "Sign In" %}</a>
+        <a class="btn shop-signin" href="{% url 'accounts:login' %}">{% t "Log In" %}</a>
       {% endif %}
     </div>
   </div>

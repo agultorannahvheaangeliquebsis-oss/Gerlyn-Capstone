@@ -113,7 +113,8 @@
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="btn btn-sm" href="{% url 'transaction_detail' t.pk %}">View</a>
+            <a class="icon-btn icon-btn-action" href="{% url 'transaction_detail' t.pk %}"
+               title="View" aria-label="View order {{ t.order_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
           </span>
         </td>
       </tr>
@@ -121,7 +122,7 @@
       <tr>
         <td colspan="10">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
             <h3>No orders here</h3>
             <p>{% if status_filter or search_query %}Nothing matches this filter — try “All”.{% else %}Orders appear as customers buy online or staff record walk-in sales.{% endif %}</p>
             {% if can_pos %}<button type="button" class="btn btn-primary mt-2" id="open-pos-modal-empty">New Walk-in Sale</button>{% endif %}
@@ -133,7 +134,7 @@
       <tr id="transaction-no-matches" hidden>
         <td colspan="10">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No orders match</h3>
             <p>No orders match "<span data-filter-empty-query></span>". Try a different search.</p>
           </div>

@@ -8,6 +8,15 @@
   <link rel="manifest" href="{% static 'manifest.json' %}">
   <meta name="theme-color" content="#1E7A4F">
   <link rel="apple-touch-icon" href="{% static 'img/icons/apple-touch-icon-180.png' %}">
+  {% comment %}
+  Roboto, matching public_base.html. This shell had no webfont at all before
+  and ran on whatever sans the OS supplied, so the same screen looked
+  different on Windows and on the manager's phone. preconnect because the
+  stylesheet is render-blocking and the font host is a second origin.
+  {% endcomment %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
   <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
   <script src="https://unpkg.com/lucide@1.31.0/dist/umd/lucide.js" defer></script>
   <script src="{% static 'js/live-filter.js' %}" defer></script>
@@ -49,13 +58,13 @@ DOM — it is off-screen until focused (see .skip-link).
       </button>
     </div>
 
-    <a class="sb-who" href="{% url 'internal_settings' %}" title="My Profile">
-      <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
-      <span class="sb-who-text">
-        <span class="sb-label sb-who-name">{{ request.user.get_full_name|default:request.user.username }}</span>
-        <span class="sb-label sb-who-role">{{ request.user.get_role_display }}</span>
-      </span>
-    </a>
+    {% comment %}
+    No "who am I" card here any more. The header avatar sitting next to the
+    branch chip already is the account control, and two avatars on one screen
+    made the rail's job (which page am I on) compete with an identity block
+    that never changes. Name, role and the account links now live in the
+    header avatar's menu — see .avatar-menu below.
+    {% endcomment %}
 
     <nav class="sb-nav" aria-label="Primary">
       {# Dashboard stays a top-level anchor — it's the home target, not a category. #}
@@ -226,28 +235,26 @@ DOM — it is off-screen until focused (see .skip-link).
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
           {% block branch_scope %}All Branches{% endblock %}
         </span>
-        {% if request.user.role == 'OWNER' %}
         {% comment %}
-          On mobile the sidebar (which holds Administration) is hidden, so the
-          header avatar doubles as the entry point to it there. Desktop keeps
-          using the sidebar; the panel below only renders open at <=860px
-          (see .avatar-menu-panel in gerlyn.css).
+          The account control, at every width. It was a <details> panel whose
+          first row was My Profile; it is now that link directly, because that
+          row is what the menu was being opened for.
+
+          The other rows have somewhere else to be. Branch Management, User
+          Management and Logout are all in the sidebar, and the bottom nav's
+          More panel carries them below 860px where the sidebar is
+          display:none — so nothing is reachable only through the avatar.
+
+          The disc shows one letter, so title and the visually-hidden span
+          state who is signed in and where the link goes; that name and role
+          were what the panel's identity row said.
         {% endcomment %}
-        <details class="avatar-menu">
-          <summary class="avatar-menu-trigger" aria-label="Administration menu" title="Administration">
-            <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
-          </summary>
-          <div class="avatar-menu-panel">
-            <a class="avatar-menu-link" href="{% url 'internal_settings' %}">My Profile</a>
-            <a class="avatar-menu-link" href="{% url 'branch_list' %}">Branch Management</a>
-            <a class="avatar-menu-link" href="{% url 'accounts:user_list' %}">User Management</a>
-          </div>
-        </details>
-        {% else %}
-        <a href="{% url 'internal_settings' %}" title="My Profile" style="text-decoration:none;">
+        <a class="avatar-link{% if active_page == 'internal_settings' %} avatar-link--active{% endif %}"
+           href="{% url 'internal_settings' %}"
+           title="{{ request.user.get_full_name|default:request.user.username }} — My Profile">
           <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+          <span class="sr-only">My Profile — signed in as {{ request.user.get_full_name|default:request.user.username }}, {{ request.user.get_role_display }}</span>
         </a>
-        {% endif %}
       </div>
     </header>
 
@@ -353,6 +360,17 @@ DOM — it is off-screen until focused (see .skip-link).
         <a class="more-menu-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
         {% endif %}
         <a class="more-menu-link {% if active_page == 'internal_settings' %}active{% endif %}" href="{% url 'internal_settings' %}">Settings</a>
+        {% comment %}
+        Below 860px the sidebar is display:none, so these three rows have no
+        other home on the screen — the header avatar used to carry them and is
+        now a plain link to My Profile. Logout in particular cannot be the one
+        thing a phone cannot reach.
+        {% endcomment %}
+        {% if request.user.role == 'OWNER' %}
+        <a class="more-menu-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">Branch Management</a>
+        <a class="more-menu-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'accounts:user_list' %}">User Management</a>
+        {% endif %}
+        <a class="more-menu-link more-menu-link--danger" href="{% url 'accounts:logout' %}">Logout</a>
       </div>
     </details>
   </nav>
