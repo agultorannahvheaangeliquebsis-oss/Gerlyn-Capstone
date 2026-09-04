@@ -46,9 +46,10 @@ every panel in the app to fix one column.
              style="font-weight:600; text-decoration:none; color:var(--ink-900);">{{ it.product.product_name }}</a>
           <div class="gv-meta">₱{{ it.product.unit_price|floatformat:2 }} each</div>
           {% if it.short %}
-            <span class="stock-out">Only {{ it.in_stock }} left — please reduce the quantity</span>
+            <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Only {{ it.in_stock }} left</span>
+            <span class="gv-meta">please reduce the quantity</span>
           {% elif it.in_stock <= 10 %}
-            <span class="stock-low">Only {{ it.in_stock }} left</span>
+            <span class="stock-status stock-status--low"><span class="dot" aria-hidden="true"></span>Only {{ it.in_stock }} left</span>
           {% endif %}
 
           <div class="qty-stepper">

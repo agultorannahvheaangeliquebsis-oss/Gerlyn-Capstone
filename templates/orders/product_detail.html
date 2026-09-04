@@ -62,11 +62,11 @@ can actually answer.
         this chip answers only "can I get this at all".
         {% endcomment %}
         {% if product.on_hand == 0 %}
-          <span class="chip chip-out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
+          <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
         {% elif product.on_hand <= 10 %}
-          <span class="chip chip-low"><span class="dot" aria-hidden="true"></span>Only {{ product.on_hand }} left</span>
+          <span class="stock-status stock-status--low"><span class="dot" aria-hidden="true"></span>Only {{ product.on_hand }} left</span>
         {% else %}
-          <span class="chip chip-ok"><span class="dot" aria-hidden="true"></span>In Stock</span>
+          <span class="stock-status stock-status--ok"><span class="dot" aria-hidden="true"></span>In stock</span>
         {% endif %}
       </div>
 
@@ -204,11 +204,11 @@ can actually answer.
         <li>
           <span class="avail-branch">{{ bs.branch.branch_name }}</span>
           {% if not bs.available %}
-            <span class="pill pill-danger">Out of stock</span>
+            <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
           {% elif bs.qty <= 10 %}
-            <span class="pill pill-warn">Only {{ bs.qty }} left</span>
+            <span class="stock-status stock-status--low"><span class="dot" aria-hidden="true"></span>Only {{ bs.qty }} left</span>
           {% else %}
-            <span class="pill pill-ok">In stock</span>
+            <span class="stock-status stock-status--ok"><span class="dot" aria-hidden="true"></span>In stock</span>
           {% endif %}
         </li>
         {% empty %}

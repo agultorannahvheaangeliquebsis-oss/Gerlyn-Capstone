@@ -46,7 +46,7 @@
         <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
         <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
       {% endif %}
-      <select name="branch" onchange="this.form.submit()">
+      <select class="branch-select" name="branch" onchange="this.form.submit()" aria-label="Filter the dashboard by branch">
         <option value="">All Branches</option>
         {% for b in branches %}
           <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>

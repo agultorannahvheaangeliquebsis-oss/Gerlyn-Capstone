@@ -969,13 +969,14 @@ body.shop {
   font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
 }
 
-.stock-ok, .stock-low, .stock-out {
+/* Sole remaining user is cart.html's "you've unlocked free delivery" line —
+   a promo confirmation, not a stock reading. The -low/-out siblings went
+   with the cart's stock messages, which are .stock-status now. */
+.stock-ok {
   font: 700 11.5px/1.4 var(--font-sans);
   letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ok-fg);
 }
-.stock-ok   { color: var(--ok-fg); }
-.stock-low  { color: var(--warn-fg); }
-.stock-out  { color: var(--danger-fg); }
 
 /* --------------------------------------------------- discover section
    The reference's centred label over a full-width rule. */
@@ -2274,11 +2275,36 @@ body.shop-auth {
   padding: 4px 10px; border-radius: 3px;
   font: 600 12px/1.4 var(--font-sans);
 }
-.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 .chip-cat { background: var(--green-50); color: var(--action-700); }
-.chip-ok  { background: #E6F4EA; color: #17603C; }
-.chip-low { background: #FEF3D7; color: #7A4B04; }
-.chip-out { background: #FDE7E7; color: #A5170E; }
+
+/* ------------------------------------------------------- stock status
+   ONE component for "can I get this", used at all three places the
+   storefront answers that question: the PDP header chip, each branch row
+   in Available At, and a cart line that cannot be fulfilled. It used to be
+   three — a .chip with hardcoded hexes, the internal .pill, and ALL-CAPS
+   .stock-low/.stock-out text — so the same fact wore a different face on
+   consecutive screens and none of the three colours were the tokens.
+
+   Built on .chip's geometry, on the status tokens, and never on a hex.
+
+   The dot takes --*-dot, NOT currentColor. Painted in the text's own colour
+   it was a second copy of a signal the text already carried, which is to
+   say it encoded nothing; the -dot tokens are the saturated end of each
+   pair, so the dot now reads at a glance from further away than the
+   words do. */
+.stock-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 3px;
+  font: 600 12px/1.4 var(--font-sans);
+  white-space: nowrap;
+}
+.stock-status .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.stock-status--ok   { background: var(--ok-bg);     color: var(--ok-fg); }
+.stock-status--low  { background: var(--warn-bg);   color: var(--warn-fg); }
+.stock-status--out  { background: var(--danger-bg); color: var(--danger-fg); }
+.stock-status--ok   .dot { background: var(--ok-dot); }
+.stock-status--low  .dot { background: var(--warn-dot); }
+.stock-status--out  .dot { background: var(--danger-dot); }
 
 .pdp-title {
   font: 700 27px/1.25 var(--font-sans); color: var(--ink-900);
