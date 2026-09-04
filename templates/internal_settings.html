@@ -125,9 +125,9 @@
           {% if email %}
             {{ email }}
             {% if is_email_verified %}
-              <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Verified</span>
+              <span class="pill pill-ok">Verified</span>
             {% else %}
-              <span class="unverified-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg> Unverified</span>
+              <span class="pill pill-neutral">Unverified</span>
             {% endif %}
           {% else %}
             {# No email on file — an "Unverified" badge against a blank value reads as a bug. #}
@@ -341,7 +341,7 @@
           <div>
             <div class="security-item-label">
               {{ s.device_label }}
-              {% if s.session_key == current_session_key %}<span class="default-badge">This device</span>{% endif %}
+              {% if s.session_key == current_session_key %}<span class="session-current-badge">This device</span>{% endif %}
             </div>
             <div class="security-item-sub">{{ s.ip_address|default:"—" }} · Last active {{ s.last_active|timesince }} ago</div>
           </div>

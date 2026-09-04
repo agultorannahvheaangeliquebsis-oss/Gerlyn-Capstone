@@ -58,7 +58,7 @@
                 <div class="address-card-body">
                   <div class="address-card-label">
                     {{ address.get_type_display }}
-                    {% if address.is_default %}<span class="default-badge">{% t "Default" %}</span>{% endif %}
+                    {% if address.is_default %}<span class="address-default-badge">{% t "Default" %}</span>{% endif %}
                   </div>
                   <div class="address-card-text">{{ address.text }}</div>
 

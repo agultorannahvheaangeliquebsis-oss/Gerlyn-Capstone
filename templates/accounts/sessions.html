@@ -55,7 +55,7 @@
               <div>
                 <div class="security-item-label">
                   {{ s.device_label }}
-                  {% if s.session_key == current_session_key %}<span class="default-badge">{% t "This device" %}</span>{% endif %}
+                  {% if s.session_key == current_session_key %}<span class="session-current-badge">{% t "This device" %}</span>{% endif %}
                 </div>
                 <div class="security-item-sub">
                   {{ s.ip_address|default:"—" }} · {% t "Last active" %} {{ s.last_active|timesince }} {% t "ago" %}

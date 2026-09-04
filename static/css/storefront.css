@@ -969,10 +969,11 @@ body.shop {
   font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
 }
 
-/* Sole remaining user is cart.html's "you've unlocked free delivery" line —
-   a promo confirmation, not a stock reading. The -low/-out siblings went
-   with the cart's stock messages, which are .stock-status now. */
-.stock-ok {
+/* The cart's "you've unlocked free delivery" line. This was .stock-ok, left
+   over from the trio whose -low/-out siblings became .stock-status — but it
+   never reported stock at all, so anyone grepping for stock classes found a
+   delivery promo and anyone changing "stock" styling would have hit it. */
+.free-delivery-note {
   font: 700 11.5px/1.4 var(--font-sans);
   letter-spacing: .06em; text-transform: uppercase;
   color: var(--ok-fg);
@@ -1875,9 +1876,16 @@ body.shop-auth {
    text-align: center. The pill is display:block + width:max-content rather
    than inline-block: .about-mark above it is inline-flex, so an inline pill
    flows up beside the logo instead of onto its own line under it. */
+/* --r-pill, not a raw 999px — the token exists precisely so the shapes that
+   mean "badge" can be found and changed together. The colours were already
+   the brand tokens and stay on them: this is marketing copy on a brand hero,
+   so brand green is what it should be. It must never move to --ok-bg/--ok-fg
+   however similar those look — an anniversary line is not a status, and
+   putting it on the status palette makes "Celebrating 10 years" rank against
+   Paid and In Stock. */
 .about-badge {
   display: block; width: max-content; margin: 0 auto 12px; padding: 5px 13px;
-  border-radius: 999px; background: var(--green-50);
+  border-radius: var(--r-pill); background: var(--green-50);
   border: 1px solid var(--green-100); color: var(--action-700);
   font: 600 12.5px/1.3 var(--font-sans); letter-spacing: .02em;
 }
@@ -2334,9 +2342,24 @@ body.shop-auth {
   margin: 12px 0 0;
   font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
 }
+/* Was #FDE68A on #78350F — an amber pair belonging to no token in the
+   system, and near enough to --warn-bg/--warn-fg that it read as a warning
+   on a price. BULK is a product flag, not a status: it says a cheaper unit
+   price exists at volume, which is good news or no news, never a problem.
+
+   So it goes onto the brand tokens rather than the status ones, the same
+   family .about-badge and .chip-cat use for the other two non-status marks
+   on the storefront. Deliberately NOT --warn-*: the moment this is amber it
+   is claiming a state it does not have.
+
+   Inverted against those two, though: this badge lives inside .price-band,
+   which is itself --green-50, so a --green-50 fill here disappears into its
+   own ground. It takes the surface as its fill and the brand as its edge —
+   the same palette, read the other way up. */
 .bulk-badge {
   padding: 3px 8px; border-radius: 3px; flex: none;
-  background: #FDE68A; color: #78350F;
+  background: var(--surface); color: var(--action-700);
+  border: 1px solid var(--green-300);
   font: 700 10.5px/1.4 var(--font-sans); letter-spacing: .05em;
 }
 

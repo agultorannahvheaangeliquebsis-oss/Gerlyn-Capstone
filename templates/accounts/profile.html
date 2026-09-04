@@ -164,10 +164,7 @@
                 {% if contact_number %}
                   {{ contact_number }}
                   {% comment "" %}
-                    <span class="verified-badge">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    Verified
-                  </span>
+                    <span class="pill pill-ok">Verified</span>
                   {% endcomment %}
                 {% else %}
                   <span style="color:var(--ink-400);">{% t "Not set" %}</span>
@@ -182,12 +179,9 @@
               <div class="val">
                 {{ email }}
                 {% if is_email_verified %}
-                  <span class="verified-badge">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    Verified
-                  </span>
+                  <span class="pill pill-ok">Verified</span>
                 {% else %}
-                  <span class="unverified-badge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17h.01"/></svg> Unverified</span>
+                  <span class="pill pill-neutral">Unverified</span>
                 {% endif %}
                 {% if pending_email %}
                   <div class="pending-notice">Pending: {{ pending_email }}</div>

@@ -200,28 +200,19 @@
   font: 500 15px/1.4 var(--font-sans);
   color: var(--ink-900);
 }
-.verified-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 600 12.5px/1 var(--font-sans);
-  color: var(--ok-fg);
-  margin-left: 8px;
-}
-.verified-badge svg { width: 14px; height: 14px; }
-.unverified-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 600 12.5px/1 var(--font-sans);
-  color: var(--warn-fg);
-  margin-left: 8px;
-}
-/* Matches .verified-badge svg above. The warning mark used to be a bare
-   ⚠ character sitting beside its sibling's SVG tick, so the verified and
-   unverified states of the same field were drawn in two different
-   languages — one a font glyph, one line art. */
-.unverified-badge svg { width: 13px; height: 13px; flex: none; }
+/* .verified-badge / .unverified-badge are gone. Whether an email is verified
+   is a binary status on a record, which is what .pill is for, and these two
+   were the last binary status in the app still drawn as bare coloured text
+   with an icon — so the same kind of fact was a filled lozenge in every
+   table and a tinted word here. They are now .pill-ok and .pill-neutral.
+
+   Unverified takes NEUTRAL, not warn: an address you have simply not
+   confirmed yet is a state, not a problem, and amber next to the field made
+   a fresh account look like it had something wrong with it.
+
+   The icons went with them. .pill carries a full text label and nothing
+   else — see the note on the component in gerlyn.css. */
+.info-field .val .pill { margin-left: 6px; vertical-align: middle; }
 
 /* ── Edit form (hidden by default) ────────────────────────────── */
 .edit-form { display: none; padding: 20px 24px; border-top: 1px solid var(--line-soft); }
@@ -418,7 +409,18 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   font: 600 14.5px/1.2 var(--font-sans);
   color: var(--ink-900);
 }
-.default-badge {
+/* Two badges, not one. .default-badge used to carry both "Default" on a
+   delivery address and "This device" on a login session — unrelated facts
+   about unrelated records, sharing a class only because they happened to
+   look the same on the day they were written. Either one moving would have
+   silently dragged the other with it.
+
+   They still look identical today, and that is fine; what matters is that
+   they can now stop looking identical without a rewrite. Shared geometry
+   sits in the grouped selector, so a change to only one of them means
+   giving it its own block, not untangling a class first. */
+.address-default-badge,
+.session-current-badge {
   display: inline-flex; align-items: center;
   padding: 2px 9px;
   border-radius: var(--r-pill);

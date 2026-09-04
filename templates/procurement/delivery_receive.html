@@ -37,6 +37,17 @@ that only worked by scanning would be unusable for those lines.
     font-size: 11px; font-weight: 700; letter-spacing: .04em;
     text-transform: uppercase; white-space: nowrap;
   }
+  /* The picked/approved fraction, beside the status word rather than glued
+     into it with a middot. "Short · 3/8" was one string doing two jobs: the
+     word is the state, the fraction is a measurement, and running them
+     together meant the number inherited the state's colour and weight and
+     could not be read as a quantity. Kept adjacent, in ink, at the table's
+     own figure treatment. */
+  .v-count {
+    font-size: 12px; color: var(--ink-600); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .v-count:empty { display: none; }
   .scan-tally { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; }
   .scan-tally b { font-size: 17px; display: block; }
   .scan-feed {
@@ -130,7 +141,7 @@ that only worked by scanning would be unusable for those lines.
                    value="{% if item.is_unexpected %}0{% else %}{{ item.quantity_ordered|unlocalize }}{% endif %}"
                    style="max-width:120px; margin-left:auto;">
           </td>
-          <td data-label="Status"><span class="v-badge"></span></td>
+          <td data-label="Status"><span class="v-badge"></span> <span class="v-count"></span></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -227,11 +238,17 @@ that only worked by scanning would be unusable for those lines.
     var got = parseInt(tr.querySelector('.qty-input').value, 10);
     if (isNaN(got)) got = 0;
     var badge = tr.querySelector('.v-badge');
+    var count = tr.querySelector('.v-count');
 
     tr.classList.remove('v-complete', 'v-partial', 'v-over');
+    count.textContent = '';
 
     if (unexpected) {
-      badge.textContent = got > 0 ? 'Not ordered · ' + got : 'Not ordered';
+      // Same split as the Partial branch below: the state is the word, the
+      // quantity is a number beside it. This one glued a bare count rather
+      // than a fraction, but it was the same string doing the same two jobs.
+      badge.textContent = 'Not ordered';
+      if (got > 0) count.textContent = got;
       badge.style.color = 'var(--warn, #B45309)';
       tr.classList.add('v-partial');
       return 'unexpected';
@@ -249,7 +266,8 @@ that only worked by scanning would be unusable for those lines.
       return 'complete';
     }
     if (got > 0) {
-      badge.textContent = 'Partial · ' + got + '/' + ordered;
+      badge.textContent = 'Partial';
+      count.textContent = got + '/' + ordered;
       badge.style.color = 'var(--warn, #B45309)';
       tr.classList.add('v-partial');
       return 'partial';
