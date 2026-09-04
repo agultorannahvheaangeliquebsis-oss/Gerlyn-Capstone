@@ -35,7 +35,7 @@ so every card that renders is a card you can buy from.
     {% endcomment %}
     <div class="pmeta">
       {% if row.product.category %}
-        <span class="pcat">{{ row.product.category.category_name }}</span>
+        <span class="tag">{{ row.product.category.category_name }}</span>
       {% endif %}
       {% if row.product.units_sold %}
         <span class="psold">{{ row.product.units_sold }} sold</span>

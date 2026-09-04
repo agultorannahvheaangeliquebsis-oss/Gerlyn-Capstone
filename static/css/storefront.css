@@ -799,8 +799,13 @@ body.shop {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 10px; margin-bottom: 5px; min-width: 0;
 }
-.pcard .pcat {
-  font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-500);
+/* The card's category is a .tag now, like every other category in the app.
+   These lines are the only thing the old .pcat did that .tag does not: clip
+   a long category to the card's width instead of shoving the sold count off
+   the row. display:inline-block rather than .tag's inline-flex because
+   text-overflow does not apply to a flex container's anonymous item. */
+.pcard .pmeta .tag {
+  display: inline-block;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pcard .name {
@@ -2153,10 +2158,11 @@ body.shop-auth {
    line of the price block. Together on the left they read as what they are —
    two notes about the product, above its name. */
 .pgrid.is-list .pcard .pmeta  { grid-area: meta; justify-content: flex-start; gap: 8px; }
-/* The dot rides on the sold count, not on the category: .pcat clips its own
-   overflow to an ellipsis, and a separator inside that box gets clipped with
-   the name it was meant to follow. :not(:last-child) is on the count instead
-   — a row with no sold figure gets no orphaned dot either way. */
+/* The dot rides on the sold count, not on the category: the category tag
+   clips its own overflow to an ellipsis, and a separator inside that box
+   gets clipped with the name it was meant to follow. :not(:last-child) is
+   on the count instead — a row with no sold figure gets no orphaned dot
+   either way. */
 .pgrid.is-list .pcard .psold:not(:first-child)::before {
   content: "·"; margin-right: 8px; color: var(--ink-400);
 }
@@ -2297,12 +2303,12 @@ body.shop-auth {
 }
 
 .pdp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border-radius: 3px;
-  font: 600 12px/1.4 var(--font-sans);
-}
-.chip-cat { background: var(--green-50); color: var(--action-700); }
+/* .chip and .chip-cat are gone. .chip lost -ok/-low/-out when the storefront's
+   stock readings were consolidated into .stock-status below, which left
+   .chip-cat — the PDP's category — as its only caller; that is a
+   classification, so it is a .tag like every other category in the app, and
+   the base class had nothing left to style. .pdp-chips (the flex row they
+   sat in) stays: it is the container, not the badge. */
 
 /* ------------------------------------------------------- stock status
    ONE component for "can I get this", used at all three places the
@@ -2311,8 +2317,9 @@ body.shop-auth {
    three — a .chip with hardcoded hexes, the internal .pill, and ALL-CAPS
    .stock-low/.stock-out text — so the same fact wore a different face on
    consecutive screens and none of the three colours were the tokens.
+   (.chip itself is gone now; this rule inherited its geometry.)
 
-   Built on .chip's geometry, on the status tokens, and never on a hex.
+   Built on the status tokens, and never on a hex.
 
    The dot takes --*-dot, NOT currentColor. Painted in the text's own colour
    it was a second copy of a signal the text already carried, which is to
@@ -2367,8 +2374,8 @@ body.shop-auth {
    price exists at volume, which is good news or no news, never a problem.
 
    So it goes onto the brand tokens rather than the status ones, the same
-   family .about-badge and .chip-cat use for the other two non-status marks
-   on the storefront. Deliberately NOT --warn-*: the moment this is amber it
+   family .about-badge uses for the other non-status mark on the
+   storefront. Deliberately NOT --warn-*: the moment this is amber it
    is claiming a state it does not have.
 
    Inverted against those two, though: this badge lives inside .price-band,

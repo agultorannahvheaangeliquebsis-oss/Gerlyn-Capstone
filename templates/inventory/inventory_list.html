@@ -176,7 +176,7 @@ across the full width leave the default block padding as empty card.
       <tr data-filter-text="{{ row.inv.product.product_name }} {{ row.inv.product.sku_code }}">
         <td data-label="Product" class="strong">{{ row.inv.product.product_name }}</td>
         <td data-label="Branch">{{ row.inv.branch.branch_name }}</td>
-        <td data-label="Category" class="gv-meta">{{ row.inv.product.category.category_name|default:"—" }}</td>
+        <td data-label="Category"><span class="tag">{{ row.inv.product.category.category_name|default:"—" }}</span></td>
         <td data-label="Batch Qty" class="num strong">{% if row.batch %}{{ row.batch.quantity }}{% else %}0{% endif %}</td>
         <td data-label="Expiry Date">{% if row.batch %}{{ row.batch.expiry_date|date:"Y-m-d"|default:"—" }}{% else %}—{% endif %}</td>
         <td data-label="Received" class="gv-meta">{% if row.batch %}{{ row.batch.received_date|date:"Y-m-d" }}{% else %}—{% endif %}</td>
