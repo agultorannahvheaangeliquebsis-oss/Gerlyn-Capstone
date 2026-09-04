@@ -143,6 +143,15 @@ h3, .gv-card-title { font: 600 18px/1.3 var(--font-sans); margin: 0; }
   font: 600 15px/1.3 var(--font-sans);
   letter-spacing: 0; text-transform: none; color: var(--ink-700);
 }
+/* "View all X ›" — the storefront's .panel-more, ported so the internal
+   pages can use the same chevron instead of a "→" typed into the label.
+   A text arrow is a character in the string: it inherits the link's weight,
+   it is read out by screen readers as part of the name, and it cannot be
+   sized or aligned independently. The SVG is aria-hidden and sits on the
+   baseline the flex row sets. */
+.link-more {
+  display: inline-flex; align-items: center; gap: 6px;
+}
 .gv-muted { color: var(--ink-600); }
 .num { font-variant-numeric: tabular-nums; }
 
@@ -1482,7 +1491,7 @@ input::placeholder { color: var(--ink-500); }
 /* §3: the CTA takes the card's status colour, not --action. Hover deepens to
    the status's own -fg (warn 5.43:1, danger 7.01:1) rather than --action-700,
    which would jump hue mid-interaction. */
-.attn-card-go { align-self: center; white-space: nowrap; font: 700 13.5px/1 var(--font-sans); color: var(--status-cta, var(--action)); }
+.attn-card-go { display: inline-flex; align-items: center; gap: 6px; align-self: center; white-space: nowrap; font: 700 13.5px/1 var(--font-sans); color: var(--status-cta, var(--action)); }
 .attn-card:hover .attn-card-go { color: var(--status-ink, var(--action-700)); }
 
 .attn-clear { padding: var(--s4) var(--s6); }

@@ -44,8 +44,13 @@
 .account-nav-link.active svg { color: #fff; }
 
 /* ── Profile hero card ─────────────────────────────────────────── */
+/* Flat --action-700, not the 135deg --action -> --action-700 wash it was.
+   The gradient carried no information — the hero means the same thing at
+   both ends of it — and it is the darker end that white type and the
+   translucent .role-pill are legible against, so the flat colour is the end
+   the wash was resolving to anyway. */
 .profile-hero {
-  background: linear-gradient(135deg, var(--action) 0%, var(--action-700) 100%);
+  background: var(--action-700);
   border-radius: var(--r-card) var(--r-card) 0 0;
   padding: 28px 28px 20px;
   display: flex;
@@ -195,7 +200,10 @@
   font-size: 12px;
   font-weight: 700;
 }
-.info-field label svg { width: 13px; height: 13px; }
+/* .info-field label svg is gone: no field label carries an icon any more.
+   The person glyph was doing duty for both Full Name and Username, which is
+   the tell — an icon that stands for two different things stands for
+   neither, and the four labels were legible without any of them. */
 .info-field .val {
   font: 500 15px/1.4 var(--font-sans);
   color: var(--ink-900);

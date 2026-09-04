@@ -27,34 +27,34 @@ heading changing every six seconds.
   <div class="banner-rail">
 
     <div class="banner-main" id="banner-rotator">
-      <a class="banner-slide banner-slide--a is-active" href="{% url 'orders:catalog' %}" data-slide>
+      <a class="banner-slide is-active" href="{% url 'orders:catalog' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
           Free delivery
         </span>
         <h2>Groceries to your door</h2>
         <p>Free delivery anywhere in Baliuag on orders over ₱500.</p>
-        <span class="banner-cue">Start shopping →</span>
+        <span class="banner-cue">Start shopping <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
-      <a class="banner-slide banner-slide--b" href="{% url 'orders:select_branch' %}" data-slide>
+      <a class="banner-slide" href="{% url 'orders:select_branch' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
           Three branches
         </span>
         <h2>Pick up near you</h2>
         <p>Tarcan, Makinabang and Tiaong. Choose a branch to see what is on its shelves right now.</p>
-        <span class="banner-cue">Choose a branch →</span>
+        <span class="banner-cue">Choose a branch <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
-      <a class="banner-slide banner-slide--c" href="{% url 'orders:catalog' %}" data-slide>
+      <a class="banner-slide" href="{% url 'orders:catalog' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
           Cash on delivery
         </span>
         <h2>Pay when it arrives</h2>
         <p>No card needed. Settle in cash at your door or at the counter.</p>
-        <span class="banner-cue">Browse products →</span>
+        <span class="banner-cue">Browse products <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
       {# Tabs, not decoration: each one moves the rotator, so each is a button. #}
@@ -234,7 +234,7 @@ heading changing every six seconds.
 
   {% if products %}
   <div class="row" style="justify-content:center; margin-top:24px;">
-    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">See all products →</a>
+    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">See all products <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
   </div>
   {% endif %}
 </section>

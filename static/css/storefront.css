@@ -447,6 +447,7 @@ body.shop {
   gap: 10px;
   padding: clamp(20px, 3.5%, 30px) clamp(24px, 5%, 56px) 42px;
   color: #fff; text-decoration: none;
+  background: var(--action-700);
   opacity: 0; visibility: hidden;
   transition: opacity .5s ease, visibility .5s ease;
 }
@@ -472,11 +473,18 @@ body.shop {
   align-self: flex-start;
 }
 .banner-slide:hover .banner-cue { border-bottom-color: #fff; }
-/* Three fixed grounds rather than one repeated — the rotation has to be
-   visible at a glance or it reads as a rendering fault. */
-.banner-slide--a { background: linear-gradient(120deg, var(--action-700) 0%, var(--action) 55%, var(--brand) 100%); }
-.banner-slide--b { background: linear-gradient(120deg, #14603C 0%, #1E7A4F 60%, #2E9E6B 100%); }
-.banner-slide--c { background: linear-gradient(120deg, #0F4F31 0%, #22694A 50%, #3AA97A 100%); }
+/* ONE ground, on .banner-slide above. There used to be three --a/--b/--c
+   gradients here, justified as making the rotation "visible at a glance" —
+   but all three were 120deg green ramps within a few percent of each other,
+   and two of them were spelled in raw hex (#14603C/#1E7A4F/#2E9E6B and
+   #0F4F31/#22694A/#3AA97A) that duplicated --action-700/--action/--brand.
+   They did not read as three grounds; they read as one ground flickering.
+
+   The rotation is already signalled twice, properly: the copy changes
+   completely between slides, and .banner-dots marks position explicitly.
+   Neither needed a third channel, least of all one that failed at it. The
+   modifier classes are gone from the markup too rather than left as
+   no-op hooks. */
 
 /* Left-aligned to the slide's own text inset, not centred across the box.
    Every slide is left-aligned copy, and a centred dot row under it read as
@@ -598,9 +606,14 @@ body.shop {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 18px 22px; border-bottom: 1px solid var(--line);
 }
+/* A section name, set as one. It was running three emphasis mechanisms at
+   once for a two-word label — bold, tracked caps, AND brand green — which is
+   what a heading does when it does not trust its own position to say it is a
+   heading. It is the first thing in a bordered panel head; that is the
+   signal. Same direction .gv-label took. */
 .panel-head h2 {
   font: 700 17px/1.2 var(--font-sans);
-  letter-spacing: .06em; text-transform: uppercase; color: var(--action);
+  letter-spacing: 0; text-transform: none; color: var(--ink-900);
 }
 .panel-more {
   display: inline-flex; align-items: center; gap: 6px;
@@ -985,9 +998,12 @@ body.shop {
   text-align: center; padding: 14px 0 12px;
   border-bottom: 3px solid var(--action); margin-bottom: 18px;
 }
+/* As .panel-head h2 above. The 3px green rule under this head is left
+   alone — that is a divider marking where the section starts, not a fourth
+   way of emphasising the same six characters. */
 .discover-head h2 {
   font: 700 19px/1.2 var(--font-sans);
-  letter-spacing: .08em; text-transform: uppercase; color: var(--action);
+  letter-spacing: 0; text-transform: none; color: var(--ink-900);
 }
 
 /* ------------------------------------------------------------ cart page */
@@ -1306,7 +1322,6 @@ body.shop .toast-stack { top: 182px; }
      home_extra_js.html under the same query, so this only covers the dots. */
   .pcard, .banner-card { transition: border-color .15s ease, box-shadow .15s ease; }
   .pcard:hover, .pcard:focus-within, .banner-card:hover { transform: none; }
-  .about-card:hover, .about-card:focus-within { transform: none; }
   .banner-slide { transition: opacity .15s ease, visibility .15s ease; }
 }
 
@@ -1761,9 +1776,13 @@ body.shop-auth {
 /* ======================================================================
    ABOUT US  (.about-*)
    ====================================================================== */
+/* Flat --green-50, not a 160deg fade from it into #fff. The wash was the
+   page's only gradient and its only bare hex; the tint is what the hero
+   needed, and fading it to white at 78% just meant the bottom third of a
+   bordered panel quietly stopped being a panel. */
 .about-hero {
   text-align: center; padding: 34px 20px 38px;
-  background: linear-gradient(160deg, var(--green-50) 0%, #fff 78%);
+  background: var(--green-50);
   border: 1px solid var(--green-100); border-radius: 6px;
   margin-bottom: 22px;
 }
@@ -1804,21 +1823,16 @@ body.shop-auth {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px; margin-bottom: 22px;
 }
+/* No hover state at all, and no transition to run one. The previous note
+   here opened by conceding that nothing in these four cards navigates — and
+   then gave them a lift, a green edge and a shadow anyway. A card that
+   rises under the pointer is promising a click that never arrives; on
+   touch it is invisible, and for a keyboard reader :focus-within was
+   advertising an interactive element that does not exist. If one of these
+   blurbs ever gains a link, the hover belongs on the link. */
 .about-card {
   background: #fff; border: 1px solid var(--line); border-radius: 6px;
   padding: 20px;
-  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
-}
-/* Nothing in these four cards navigates, so the hover is the product card's
-   state at half strength: the green edge and a green-cast shadow, without the
-   2px ring .pcard uses to mark a card the shopper is about to act on.
-   :focus-within is in the selector for the day one of these blurbs gains a
-   link — a keyboard reader tabbing into it then gets the same signal. */
-.about-card:hover,
-.about-card:focus-within {
-  border-color: var(--green-300);
-  box-shadow: 0 6px 18px rgba(30,122,79,.12);
-  transform: translateY(-2px);
 }
 /* Bare glyph, no plate. The green rounded tile this used to paint behind the
    icon read as a status pill on a page where nothing carries a status — the
@@ -2179,10 +2193,16 @@ body.shop-auth {
    Product.wholesale_price is actually set, so it marks a real second price
    rather than decorating every card. */
 .pcard { position: relative; }
+/* The catalog card's twin of .bulk-badge — same flag, same fact, and it
+   carried the same #FDE68A/#78350F pair, so it moves with it. Surface fill
+   and a brand edge rather than a tint: this one is positioned over the
+   product thumbnail, where a translucent-looking tint would sit on whatever
+   the photo happens to be behind it. */
 .bulk-flag {
   position: absolute; top: 9px; left: 9px; z-index: 2;
   padding: 2px 7px; border-radius: 3px;
-  background: #FDE68A; color: #78350F;
+  background: var(--surface); color: var(--action-700);
+  border: 1px solid var(--green-300);
   font: 700 10px/1.4 var(--font-sans); letter-spacing: .04em;
 }
 .pcard .pdesc {
