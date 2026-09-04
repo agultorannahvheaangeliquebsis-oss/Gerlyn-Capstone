@@ -802,9 +802,10 @@ body.shop {
 /* Quiet text, not a badge. This was briefly a .tag so that every category in
    the app used one component; on a product card that turned the shopper's
    least important line into its most boxed-in one, competing with the price
-   beside it. .tag is still the component for category on the internal
-   tables, where a table cell needs an edge to read as a value. The ellipsis
-   is what keeps a long category from shoving the sold count off the row. */
+   and the BULK flag beside it. .tag is still the component for category on
+   the internal tables, where a table cell needs an edge to read as a value.
+   The ellipsis is what keeps a long category from shoving the sold count off
+   the row. */
 .pcard .pcat {
   font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-500);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -934,6 +935,21 @@ body.shop {
   width: auto; min-width: 44px;
   min-height: 34px; padding: 0 12px; gap: 0;
   justify-content: center;
+  /* Outlined, matching .btn-outline in gerlyn.css — the product page's Add to
+     Cart and this one are the same control on two surfaces, and until now they
+     were drawn by two rule sets that had already drifted apart. The tokens are
+     .btn-outline's: --surface ground, --action for BOTH the frame and the
+     glyph. Scoped to --add rather than to .btn-cart, because the other three
+     branches of the card CTA (Log in to buy / Customers only / Choose a
+     branch) are not this button and keep the tinted pill.
+     #1E7A4F on white is 5.31:1, which the 12.5px list-view label needs. */
+  background: var(--surface); border-color: var(--action); color: var(--action);
+}
+/* Tints, where .btn-cart:hover above flips to a solid --action fill. A flip
+   here would be indistinguishable from the .is-added confirmation this same
+   button shows two seconds at a time — hover must not say "added". */
+.btn-cart--add:hover {
+  background: var(--green-50); border-color: var(--action-700); color: var(--action-700);
 }
 .btn-cart--add svg { width: 17px; height: 17px; }
 .btn-cart--add .ico-added { display: none; }
@@ -2160,8 +2176,8 @@ body.shop-auth {
    two notes about the product, above its name. */
 .pgrid.is-list .pcard .pmeta  { grid-area: meta; justify-content: flex-start; gap: 8px; }
 /* The dot rides on the sold count, not on the category: .pcat clips its own
-   overflow to an ellipsis, and a separator inside that box gets clipped with
-   the name it was meant to follow. :not(:last-child) is
+   overflow to an ellipsis, and a separator inside that box
+   gets clipped with the name it was meant to follow. :not(:last-child) is
    on the count instead — a row with no sold figure gets no orphaned dot
    either way. */
 .pgrid.is-list .pcard .psold:not(:first-child)::before {
@@ -2195,13 +2211,13 @@ body.shop-auth {
 
 /* ------------------------------------------------- card additions */
 /* .bulk-flag is gone. The corner flag announced that a wholesale price
-   exists without ever saying what it is, so it spent a card corner telling
+   exists without ever saying what it is, so it cost a card corner to tell
    the shopper to go and look. The product page's .bulk-badge line, which
-   states the actual per-unit figure, is untouched — that is the useful form
-   of the same fact. position:relative stays: .btn-cart--add and the thumb
-   overlay still position against the card.
+   states the actual figure, is untouched — that is the useful form of the
+   same fact. position:relative stays: .btn-cart--add and the thumb overlay
+   still position against the card.
 
-   Nothing else used the flag, so the .pgrid.is-list offset went with it. */
+   Nothing else uses the flag, so the .pgrid.is-list offset went with it. */
 .pcard { position: relative; }
 .pcard .pdesc {
   font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-700);
@@ -2411,21 +2427,19 @@ body.shop-auth {
 .qty-stepper input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 
 .buy-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-/* Outlined green, the reference secondary buy button. --action-700 on
-   --green-50 is 6.94:1. */
+/* The product page's own Add to Cart. Its LOOK is .btn .btn-outline now
+   (gerlyn.css) rather than a private copy of one — the card grid and this
+   page were drawing the same control out of two unrelated rule sets, and
+   only one of them moved when the outline treatment changed. What is left
+   here is what is particular to THIS button: the width it has to hold, and
+   the add/added swap below. */
 .btn-ghost-green {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  background: var(--green-50); color: var(--action-700);
-  border: 1px solid var(--action); min-height: var(--touch); padding: 0 18px;
-  border-radius: 4px; cursor: pointer; text-decoration: none;
-  font: 600 14px/1 var(--font-sans);
   /* Wide enough for "Add to Cart", which is the longer of the two labels this
      button swaps between — so the two-second "Added" does not shrink it and
      let it grow back under the pointer. */
   min-width: 152px;
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
-.btn-ghost-green:hover { background: var(--action); color: #fff; }
 /* Added, on the product page's own buy button: the cart glyph becomes a tick
    and the outline fills in with the solid dark green — the same confirmation
    the card button gives, because a successful add here raises no toast

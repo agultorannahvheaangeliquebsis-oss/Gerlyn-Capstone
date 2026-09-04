@@ -182,6 +182,17 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 /* One solid primary per screen. */
 .btn-primary { background: var(--action); border-color: var(--action); color: #fff; }
 .btn-primary:hover { background: var(--action-700); border-color: var(--action-700); color: #fff; }
+/* Outlined accent — border AND label both --action on a plain surface, with
+   no fill, no shadow and no gradient. For a call to action that has to read
+   as a real button without becoming the second solid pill on the screen.
+   #1E7A4F on white is 5.31:1, so the label clears 4.5:1 at .btn's 14.5px.
+   Hover TINTS rather than flips: --green-50 under the same frame, with the
+   border and text stepping to --action-700 (6.94:1 on that tint) — the state
+   is legible without the button turning into .btn-primary for a moment.
+   Radius, height, padding and gap all come from .btn; this modifier sets
+   colour only, which is what lets .btn-sm and the rest compose with it. */
+.btn-outline { background: var(--surface); border-color: var(--action); color: var(--action); }
+.btn-outline:hover { background: var(--green-50); border-color: var(--action-700); color: var(--action-700); }
 .btn-quiet { border-color: transparent; background: transparent; color: var(--ink-700); }
 .btn-quiet:hover { background: var(--line-soft); }
 /* Destructive stays OUTLINED until the final confirm step. */
