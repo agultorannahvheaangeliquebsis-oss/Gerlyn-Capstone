@@ -595,6 +595,41 @@ input::placeholder { color: var(--ink-500); }
   display: flex; flex-direction: column; padding: var(--s4) var(--s3);
   overflow: hidden;
   transition: width .26s cubic-bezier(.4, 0, .2, 1);
+
+  /* Sidebar-local overrides of the card language, NOT edits to the global
+     tokens. The rail sits on --surface (#FFF), where --green-50 is ~4% of a
+     luminance step and --shadow-card (.06 alpha) lands under the perceptual
+     floor — the highlight rendered correctly but read flat. These values are
+     held here rather than in :root because --green-50 (~27 other uses) is
+     shared with the cards, modals, pills, table rows and storefront tiles,
+     all of which are correctly calibrated for their own surfaces already;
+     --sb-hl-shadow is its own token precisely because it needed a different
+     alpha/blur than --shadow-card to read on this surface.
+
+     --sb-hl-shadow is two layers on purpose: a tight contact shadow plus a
+     wide ambient one is what reads as lift; a single soft blur reads as a
+     smudge. The outward reach of the ambient layer (~blur/2 + spread) must
+     stay within HL_INSET_X (8px, sidebar.js) or .sb-nav's overflow-x: hidden
+     shaves the right halo, so anything bigger has to buy its size with
+     negative spread rather than more blur. It is the sidebar's only shadow
+     now, and it belongs to hover alone — the selected row is flat and has no
+     shadow token of its own (see .sb-highlight--rest). The inset is
+     right-side only now (see sidebar.js), so the LEFT halo is shaved on
+     top-level rows; the accent block paints over that edge, so there is
+     nothing there to lose.
+
+     Two fills, one step apart: --sb-hl-fill is what a hovered row gets and
+     --sb-active-fill the selected one. The selected row was a solid
+     --action-700 slab with white text, which won the rail so completely that
+     hover had nothing left to say next to it. Two related greens at different
+     weights separate "you are here" from "you're pointing at this" without
+     either shouting. --action-700 text measures 5.02:1 on --sb-active-fill —
+     AA at the 14.5px these labels run, though not AAA; the darker --ink-900
+     would buy headroom at the cost of the green identity on the selected row,
+     and the green is the point. */
+  --sb-hl-fill: #CDE7DA;              /* --action-700 on it: 5.80:1 */
+  --sb-active-fill: #B5DBC5;          /* --action-700 on it: 5.02:1 */
+  --sb-hl-shadow: 0 3px 8px rgba(23,37,30,.14), 0 1px 3px rgba(23,37,30,.08);
 }
 /* The brand block is a header, so it is given an edge instead of being left to
    float above the nav on whitespace alone.
@@ -702,50 +737,150 @@ input::placeholder { color: var(--ink-500); }
   /* Sit above .sb-highlight (z-index 0) so its wash never covers the label. */
   position: relative; z-index: 1;
 }
-/* Hover: the soft green wash and the 3px accent bar are no longer painted on
-   the row — a single .sb-highlight element slides behind whichever row is
-   hovered/focused and carries them (see below and sidebar.js). The row itself
-   still shifts its text/icon to green in step, the same as before. */
+/* Hover: the square card and its shadow are no longer painted on the row — a
+   single .sb-highlight element slides behind whichever row is hovered/focused
+   and carries them (see below and sidebar.js). The row itself still shifts its
+   text/icon to green in step, the same as before. */
 .sb-item:hover, .sb-tree-toggle:hover, .sb-tree-file:hover {
   color: var(--action-700);
 }
 
 /* The sliding highlight ("magic move"). One element, not one per row: JS sets
    its translate/width/height from the target row's offset box and it eases
-   between rows instead of each row's wash popping in and out. It carries
-   exactly what the per-row :hover used to paint — a green-50 fill with a 3px
-   inset accent bar — and z-index 0 keeps it behind the row text and icons.
-   opacity is JS-toggled: 0 when nothing is hovered and no row is selected.
-   The global prefers-reduced-motion rule near the end of this file already
-   flattens the transition below to ~0, so it needs no separate handling. */
+   between rows instead of each row's wash popping in and out. It is a square
+   card — a green-50 fill, a --green-300 hairline and a soft --shadow-card drop
+   shadow so it reads as lightly lifted off the rail (both the hairline and the
+   shadow are box-shadow layers, so no layout shift). Square, not the 12px
+   corner it had: the accent block down the left edge is a straight vertical
+   piece, and a rounded card pulls away from it at both ends.
+   z-index 0 keeps it behind the row text and icons. opacity is JS-toggled: 0
+   when nothing is hovered and no row is selected. The global
+   prefers-reduced-motion rule near the end of this file already flattens the
+   transition below to ~0, so it needs no separate handling.
+
+   sidebar.js draws it HL_INSET_X (8px) narrower than the row on its RIGHT
+   side only. .sb-nav clips overflow-x, so a card flush to the rail edge loses
+   its hairline and that side of its shadow to the clip; the inset gives the
+   right room. The left is deliberately flush: the hover fill has to share its
+   left edge with the selected fill — which is painted on the row itself,
+   full-bleed — so that one accent block meets both with no gap. It also means
+   the highlight — a child of .sb-nav, not of
+   .sb-tree-inner — is the one element that COULD carry a selected tree-file's
+   shadow without .sb-tree-inner's overflow:hidden shaving it. Nothing needs
+   that now: the selected row is flat (see .sb-highlight--rest below). It still
+   matters for the hover shadow on tree files, which is drawn by this same
+   element and would otherwise be clipped on all four sides. */
 .sb-highlight {
   position: absolute; top: 0; left: 0; z-index: 0;
   width: 0; height: 0;
-  border-radius: var(--r-input);
-  background: var(--green-50);
-  box-shadow: inset 3px 0 0 var(--action);
+  border-radius: 0;
+  background: var(--sb-hl-fill);
+  box-shadow: 0 0 0 1px var(--green-300), var(--sb-hl-shadow);
   opacity: 0; pointer-events: none;
-  transition: transform .22s cubic-bezier(.4, 0, .2, 1),
-              width .22s cubic-bezier(.4, 0, .2, 1),
-              height .22s cubic-bezier(.4, 0, .2, 1),
+  transition: transform .18s cubic-bezier(.4, 0, .2, 1),
+              width .18s cubic-bezier(.4, 0, .2, 1),
+              height .18s cubic-bezier(.4, 0, .2, 1),
+              box-shadow .18s ease,
               opacity .15s linear;
 }
-/* Collapsed rail: rows are 44px circles and their hover dropped the accent bar
-   (an inset bar reads as a crescent on a circle) — the highlight matches. */
+/* Parked behind the current-page row (resting on it, or hovering it): flat.
+   This class is the ONLY thing that ever put a shadow under a selected row —
+   the row's own rule says box-shadow: none and always has, so the lift came
+   from this card sitting behind it, on a heavier two-layer shadow of its own
+   so "you are here" read as sitting higher than "you're pointing at this".
+   That token (--sb-hl-shadow-rest) is gone with it — this rule was its only
+   consumer, so nothing else lost a shadow when it went.
+
+   That was the floating-card language, and the sidebar is not that any more:
+   square corners, two flat green fills, and a solid accent block down the left
+   edge doing the work the elevation used to do. A drop shadow under a flat
+   square block reads as a sticker peeling off the rail, so it goes — the
+   hairline with it, since box-shadow is one property and the hairline was only
+   ever visible as a 1px line in the 2px gap above and below the row.
+
+   Selected-only by construction: sidebar.js applies this class exclusively
+   when the highlight's target IS the active row (restToggle), so every other
+   row keeps the plain .sb-highlight shadow above, untouched. That does mean
+   hovering the row you are already on no longer lifts either — the selected
+   row is flat in both of its states, which is the point. */
+.sb-highlight--rest { box-shadow: none; }
+/* Collapsed rail: rows are 44px circles, so the highlight drops the card
+   entirely — round it and strip the hairline + shadow to a plain wash. */
 .app.sidebar-collapsed .sb-highlight { border-radius: 50%; box-shadow: none; }
 .sb-item svg, .sb-tree-toggle > svg:first-child { width: 18px; height: 18px; flex: none; }
 
-/* Active/selected item: solid dark-forest-green pill, white text for AA
-   contrast. The explicit :hover pairing keeps it from reverting to the
-   grey hover style (equal-specificity tie would otherwise let :hover win). */
+/* Active/selected item: --sb-active-fill, one step deeper than the hover fill,
+   with --action-700 text at 5.02:1 (see the token block for why it is no longer
+   a solid dark card with white text). Square corners, matching .sb-highlight.
+   Flat: box-shadow: none here, and .sb-highlight--rest — the card parked
+   behind it, which used to supply the elevation — is now flat too. Setting
+   none on this rule alone was never enough to un-float the row; both halves
+   have to be flat, so if a shadow ever reappears under a selected row, look
+   at .sb-highlight--rest first, not here. The explicit :hover pairing keeps
+   it from reverting to the hover style (equal-specificity tie would otherwise
+   let :hover win). */
 .sb-item--active,
 .sb-item--active:hover {
-  background: var(--action-700); color: #fff; box-shadow: none;
+  background: var(--sb-active-fill); color: var(--action-700);
+  border-radius: 0; box-shadow: none;
 }
+
+/* Accent block. Both states carry one now — hover in --green-300, selection in
+   --action-700 — so the two read as one gesture at two weights instead of the
+   bar being the only thing that said "selected". The fills alone no longer
+   carry that job on their own now that both of them are light greens.
+
+   A pseudo-element rather than `inset 5px 0 0`: an inset box-shadow paints
+   inside the row's padding box, and a tree file's block has to sit OUTSIDE
+   that box, in the indentation gutter.
+
+   Two geometries, one shape. On a tree file, left:-5px spans the entire
+   gutter: left edge on .sb-tree's border-left rail, right edge on the row's
+   card, one solid piece bridging the two with no gap at either end and no
+   separate horizontal connector. The gutter was narrowed from 8px to 5px to
+   make that block read as an accent rather than a slab, so the two numbers
+   are locked together — see .sb-tree-inner's padding below. A top-level row
+   has no tree and so no gutter; its block sits inside the row at left:0, a
+   stripe on the fill's leading edge with nothing to bridge to.
+
+   Full height, not the centred 24px it was. That compromise existed only
+   because a full-height bar escaped the row's 12px corners and left a nub
+   poking into the rail at each end. The corners are square now.
+
+   Hover is excluded on .sb-item--danger, where a green block would fight the
+   Logout row's danger palette, and .sb-tree-toggle has no block in either
+   state: a group header that merely CONTAINS the selected leaf is not itself
+   selected, and it keeps the colour tint it already had for that. */
+.sb-item:not(.sb-item--danger):hover::before,
+.sb-item--active::before,
+.sb-tree-file:hover::before,
+.sb-tree-file--active::before {
+  content: ''; position: absolute;
+  top: 0; bottom: 0; width: 5px;
+  border-radius: 0;
+  background: var(--green-300);
+  pointer-events: none;
+}
+.sb-item:not(.sb-item--danger):hover::before,
+.sb-item--active::before { left: 0; }
+.sb-tree-file:hover::before,
+.sb-tree-file--active::before { left: -5px; }
+/* Selected outranks hover: hovering the row you are already on keeps the
+   darker block. The hover selectors above are the more specific ones
+   (:not() + :hover), so the --active ones have to match that weight and come
+   after it to win the tie. */
+.sb-item--active::before,
+.sb-item--active:not(.sb-item--danger):hover::before,
+.sb-tree-file--active::before,
+.sb-tree-file--active:hover::before { background: var(--action-700); }
+/* Logout hover matches the hover-card language (square corner), in the danger
+   palette. Like the --active rows it carries no shadow of its own — the inset
+   .sb-highlight sliding behind it does, so it clears the .sb-nav clip. It gets
+   no accent block; see the rule above. */
 .sb-item--danger { color: var(--danger-fg); }
 .sb-item--danger:hover {
   background: var(--danger-bg); color: var(--danger-fg);
-  box-shadow: inset 3px 0 0 var(--danger-fg);
+  border-radius: 0; box-shadow: none;
 }
 
 .nav-badge {
@@ -770,27 +905,45 @@ input::placeholder { color: var(--ink-500); }
 .sb-tree-root:has(.sb-tree-file--active) > .sb-tree { border-left-color: var(--green-300); }
 
 /* The indent is derived, not eyeballed. A parent row puts its icon at 12–30px
-   and its label at 40px (12 padding + 18 icon + 10 gap). 20 + 8 + the file's
-   own 12 lands a child label on that same 40px, so the two levels share a text
-   spine and the rail alone carries the depth — and the rail itself falls at
+   and its label at 40px (12 padding + 18 icon + 10 gap). The rail falls at
    20–21.5px, which is the parent icon's centre axis, so the branch line drops
    out of the icon that opened it.
 
-   It was 22 + 10, putting child labels at 44px: four pixels right of their
-   parent's. Not an indent, just an alignment that misses. */
+   The gutter between the rail and the child rows is 5px, down from 8. It is
+   not free space — it is the accent block's width: a hovered or selected child
+   paints a solid block across the whole of it, rail face to card edge, and at
+   8px that block read as a slab instead of an accent. The two numbers move
+   together; change one and the block stops touching one of its ends (see
+   .sb-item--active::before above).
+
+   The cost is 3px off the child indent: labels now land at 38.5px
+   (20 margin + 1.5 rail + 5 gutter + the file's own 12) against the parent's
+   40, so the text spine misses by 1.5px to the left where at 8px it missed by
+   1.5px to the right. The same miss mirrored — and the rail, not the label
+   offset, is what carries the depth here.
+
+   The padding sits on .sb-tree-inner, not on .sb-tree where it used to. The
+   geometry is identical (the border stays on .sb-tree), but .sb-tree-inner is
+   the element with overflow: hidden — the half of the 0fr->1fr collapse that
+   does the clipping — and an overflow clip is taken at the PADDING box. With
+   the gutter as .sb-tree's padding, a child's left:-5px block fell outside
+   .sb-tree-inner's box entirely and was clipped away to nothing. As
+   .sb-tree-inner's own padding, the gutter is inside the clip region and the
+   block paints. Moving it back breaks the block, silently. */
 .sb-tree {
   display: grid; grid-template-rows: 0fr;
   transition: grid-template-rows .22s ease;
-  margin: 0 0 0 20px; padding: 0 0 0 8px; list-style: none;
+  margin: 0 0 0 20px; padding: 0; list-style: none;
   border-left: 1.5px solid var(--line);
 }
 .sb-tree.open { grid-template-rows: 1fr; }
-.sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+.sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 2px 0 0 5px; }
 .sb-tree-file { min-height: 38px; font-weight: 500; color: var(--ink-600); }
 .sb-tree-file:hover { color: var(--action-700); }
 .sb-tree-file--active,
 .sb-tree-file--active:hover {
-  background: var(--action-700); color: #fff; font-weight: 600; box-shadow: none;
+  background: var(--sb-active-fill); color: var(--action-700); font-weight: 600;
+  border-radius: 0; box-shadow: none;
 }
 
 /* min-width: 0 lets the label actually shrink inside its flex row instead of
@@ -849,6 +1002,15 @@ input::placeholder { color: var(--ink-500); }
    crescent, not a rail. */
 .app.sidebar-collapsed .sb-item:hover,
 .app.sidebar-collapsed .sb-tree-toggle:hover { box-shadow: none; }
+/* Same reason the selected row's accent block goes: a straight bar at the left
+   of a 44px circle reads as a crescent hanging off it. Both states are hidden,
+   hover as well as selected, since both paint a block at this width now. (The
+   plain .sb-item selector is the one that catches hover, and it is late enough
+   in the file to win the specificity tie against the hover rule above.
+   .sb-tree-file has no collapsed case — .app.sidebar-collapsed .sb-tree is
+   display:none.) */
+.app.sidebar-collapsed .sb-item::before,
+.app.sidebar-collapsed .sb-item--active::before { display: none; }
 .app.sidebar-collapsed .sb-item svg,
 .app.sidebar-collapsed .sb-tree-toggle > svg:first-child {
   margin: 0;
@@ -863,6 +1025,9 @@ input::placeholder { color: var(--ink-500); }
   border-radius: 50%;
   background: var(--action-700);
   color: #fff;
+  /* flat like the rest of the collapsed rail — the expanded state's card
+     shadow would just be a smudge behind a 44px circle. */
+  box-shadow: none;
 }
 .app.sidebar-collapsed .sb-item.sb-item--active svg,
 .app.sidebar-collapsed .sb-tree-toggle.sb-item--active svg,

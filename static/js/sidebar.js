@@ -141,11 +141,27 @@
     var HL_SEL = '.sb-item, .sb-tree-toggle, .sb-tree-file';
     var hoverTarget = null;
 
+    /* The card is drawn 8px narrower than the row on its RIGHT side only, so
+       its hairline and drop shadow have room to sit inside .sb-nav, which clips
+       overflow-x (a full-bleed card's shadow gets shaved flush at the rail
+       edge). The left is flush on purpose: the selected row's fill is painted
+       on the row itself and runs the row's full width, so an inset hover card
+       would start 8px right of it and leave a gap between the accent block and
+       whichever card it is supposed to be touching. Sharing one left edge is
+       what lets a single block meet both states (see .sb-item--active::before
+       in gerlyn.css). It costs the card's left hairline on top-level rows,
+       which sit flush against the .sb-nav clip — but that is the edge the
+       block paints over, so there is nothing visible to lose. Skipped when
+       collapsed — there the highlight is a bare 44px circle with no shadow
+       (see .app.sidebar-collapsed .sb-highlight in gerlyn.css). */
+    var HL_INSET_X = 8;
+
     function placeHighlight(el, visible) {
       if (!el) return;
+      var inset = app.classList.contains('sidebar-collapsed') ? 0 : HL_INSET_X;
       highlight.style.transform =
         'translate(' + el.offsetLeft + 'px, ' + el.offsetTop + 'px)';
-      highlight.style.width = el.offsetWidth + 'px';
+      highlight.style.width = (el.offsetWidth - inset) + 'px';
       highlight.style.height = el.offsetHeight + 'px';
       highlight.style.opacity = visible ? '1' : '0';
     }
@@ -166,9 +182,20 @@
 
     /* Rest state: behind the hovered row if any, else the active row. With
        neither, park (invisibly) on the first row so the first hover slides in
-       from a sane spot instead of growing out of the corner. */
+       from a sane spot instead of growing out of the corner.
+
+       .sb-highlight--rest goes on whenever the card is over the current-page
+       row (resting on it, or hovering it). It used to swap in a heavier shadow
+       there; it now strips the shadow instead — the selected row is flat, and
+       this class is what makes it flat, so it is still load-bearing. Because
+       it is applied only when the target IS the active row, that flattening
+       cannot leak onto an ordinary hovered row — see gerlyn.css. */
+    function restToggle(target) {
+      highlight.classList.toggle('sb-highlight--rest', !!target && target === activeRow());
+    }
     function settle() {
       var target = hoverTarget || activeRow();
+      restToggle(target);
       placeHighlight(target || sbNav.querySelector(HL_SEL), !!target);
     }
 
@@ -176,6 +203,7 @@
       var el = e.target.closest(HL_SEL);
       if (el && el !== hoverTarget && sbNav.contains(el)) {
         hoverTarget = el;
+        restToggle(el);
         placeHighlight(el, true);
       }
     });
@@ -185,7 +213,7 @@
     });
     sbNav.addEventListener('focusin', function (e) {
       var el = e.target.closest(HL_SEL);
-      if (el) { hoverTarget = el; placeHighlight(el, true); }
+      if (el) { hoverTarget = el; restToggle(el); placeHighlight(el, true); }
     });
     sbNav.addEventListener('focusout', function (e) {
       if (!sbNav.contains(e.relatedTarget)) { hoverTarget = null; settle(); }
