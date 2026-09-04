@@ -41,32 +41,13 @@ the header lands.
       covers Preparing (the customer's wait), and the two terminal states get
       a tab each. Cancelled had nowhere to live before — a cancelled order
       appeared only under All, which is the one tab a customer scrolls past.
-
-      The tint on each count follows the same language as the pills in the
-      rows below: info for work in progress, warn for something waiting on
-      you, ok for done, danger for cancelled.
       {% endcomment %}
       <div class="filter-tabs">
-        <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">
-          {% include "partials/_status_icon.html" with icon="all" %}{% t "All" %}
-          <span class="count">{{ counts.all }}</span>
-        </a>
-        <a class="filter-tab {% if status_filter == 'active' %}active{% endif %}" href="?status=active">
-          {% include "partials/_status_icon.html" with icon="clock" %}{% t "In progress" %}
-          <span class="count count-info">{{ counts.active }}</span>
-        </a>
-        <a class="filter-tab {% if status_filter == 'to_receive' %}active{% endif %}" href="?status=to_receive">
-          {% include "partials/_status_icon.html" with icon="box" %}{% t "To receive" %}
-          <span class="count count-warn">{{ counts.to_receive }}</span>
-        </a>
-        <a class="filter-tab {% if status_filter == 'completed' %}active{% endif %}" href="?status=completed">
-          {% include "partials/_status_icon.html" with icon="check-circle" %}{% t "Completed" %}
-          <span class="count count-ok">{{ counts.completed }}</span>
-        </a>
-        <a class="filter-tab {% if status_filter == 'cancelled' %}active{% endif %}" href="?status=cancelled">
-          {% include "partials/_status_icon.html" with icon="x-circle" %}{% t "Cancelled" %}
-          <span class="count count-danger">{{ counts.cancelled }}</span>
-        </a>
+        <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">{% t "All" %}</a>
+        <a class="filter-tab {% if status_filter == 'active' %}active{% endif %}" href="?status=active">{% t "In progress" %}</a>
+        <a class="filter-tab {% if status_filter == 'to_receive' %}active{% endif %}" href="?status=to_receive">{% t "To receive" %}</a>
+        <a class="filter-tab {% if status_filter == 'completed' %}active{% endif %}" href="?status=completed">{% t "Completed" %}</a>
+        <a class="filter-tab {% if status_filter == 'cancelled' %}active{% endif %}" href="?status=cancelled">{% t "Cancelled" %}</a>
       </div>
 
       {% for o in orders %}
@@ -100,15 +81,6 @@ the header lands.
       {% empty %}
       <div class="card">
         <div class="empty">
-          {% comment %}
-          A line-drawn cart, not the 🛒 this slot used to carry. An emoji is
-          a font the browser picks, so the glyph arrived in a different style
-          on every OS — and in full colour beside a page whose every other
-          mark is a 2px grey stroke.
-          {% endcomment %}
-          <span class="glyph" aria-hidden="true">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-          </span>
           <h3>{% t "No orders yet" %}</h3>
           <p>{% if status_filter %}{% t "Nothing in this tab — try “All”." %}{% else %}{% t "When you place an order it'll show up here, and you can follow its progress." %}{% endif %}</p>
           <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">{% t "Start shopping" %}</a>
