@@ -1,7 +1,7 @@
 {% comment %}
 Product card. Hierarchy, top to bottom:
 
-    bulk flag → category → name → social proof → price + action
+    category → name → social proof → price + action
 
 Deliberately not drawn, because there is no field behind them and a card is
 the easiest place in a storefront to state something the store never said:
@@ -12,9 +12,12 @@ the easiest place in a storefront to state something the store never said:
                               slot instead, and it is a real SalesItem sum
                               (inventory/stats.py), shown only when non-zero
   · the struck-through price — Product has one retail price. A fake "was"
-                              price is a false discount claim, not styling.
-                              wholesale_price is a bulk rate, so it is
-                              labelled as one rather than struck through
+                              price is a false discount claim, not styling
+  · the BULK RATE flag       — wholesale_price is a real second price, but a
+                              corner flag on the card only says one exists
+                              without saying what it is. The product page
+                              states the actual figure, which is the useful
+                              form of it
   · a brand line             — Product has no brand/manufacturer column
 
 There is no stock badge and no out-of-stock state at all here: the
@@ -23,9 +26,6 @@ so every card that renders is a card you can buy from.
 {% endcomment %}
 {% for row in rows %}
 <article class="pcard">
-  {% if row.product.wholesale_price %}
-    <span class="bulk-flag">BULK RATE</span>
-  {% endif %}
   <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{% include "partials/product_thumb.html" with product=row.product %}</a>
   <div class="body">
     {% comment %}
@@ -35,7 +35,7 @@ so every card that renders is a card you can buy from.
     {% endcomment %}
     <div class="pmeta">
       {% if row.product.category %}
-        <span class="tag">{{ row.product.category.category_name }}</span>
+        <span class="pcat">{{ row.product.category.category_name }}</span>
       {% endif %}
       {% if row.product.units_sold %}
         <span class="psold">{{ row.product.units_sold }} sold</span>

@@ -799,13 +799,14 @@ body.shop {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 10px; margin-bottom: 5px; min-width: 0;
 }
-/* The card's category is a .tag now, like every other category in the app.
-   These lines are the only thing the old .pcat did that .tag does not: clip
-   a long category to the card's width instead of shoving the sold count off
-   the row. display:inline-block rather than .tag's inline-flex because
-   text-overflow does not apply to a flex container's anonymous item. */
-.pcard .pmeta .tag {
-  display: inline-block;
+/* Quiet text, not a badge. This was briefly a .tag so that every category in
+   the app used one component; on a product card that turned the shopper's
+   least important line into its most boxed-in one, competing with the price
+   beside it. .tag is still the component for category on the internal
+   tables, where a table cell needs an edge to read as a value. The ellipsis
+   is what keeps a long category from shoving the sold count off the row. */
+.pcard .pcat {
+  font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-500);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pcard .name {
@@ -2158,9 +2159,9 @@ body.shop-auth {
    line of the price block. Together on the left they read as what they are —
    two notes about the product, above its name. */
 .pgrid.is-list .pcard .pmeta  { grid-area: meta; justify-content: flex-start; gap: 8px; }
-/* The dot rides on the sold count, not on the category: the category tag
-   clips its own overflow to an ellipsis, and a separator inside that box
-   gets clipped with the name it was meant to follow. :not(:last-child) is
+/* The dot rides on the sold count, not on the category: .pcat clips its own
+   overflow to an ellipsis, and a separator inside that box gets clipped with
+   the name it was meant to follow. :not(:last-child) is
    on the count instead — a row with no sold figure gets no orphaned dot
    either way. */
 .pgrid.is-list .pcard .psold:not(:first-child)::before {
@@ -2191,25 +2192,17 @@ body.shop-auth {
    the whole message. */
 .pgrid.is-list .btn-cart--add.is-added .lbl-add { display: none; }
 .pgrid.is-list .btn-cart--add.is-added .lbl-added { display: inline; }
-.pgrid.is-list .bulk-flag { top: 10px; left: 10px; }
 
 /* ------------------------------------------------- card additions */
-/* The reference yellow BULK RATE corner flag. Drawn only where
-   Product.wholesale_price is actually set, so it marks a real second price
-   rather than decorating every card. */
+/* .bulk-flag is gone. The corner flag announced that a wholesale price
+   exists without ever saying what it is, so it spent a card corner telling
+   the shopper to go and look. The product page's .bulk-badge line, which
+   states the actual per-unit figure, is untouched — that is the useful form
+   of the same fact. position:relative stays: .btn-cart--add and the thumb
+   overlay still position against the card.
+
+   Nothing else used the flag, so the .pgrid.is-list offset went with it. */
 .pcard { position: relative; }
-/* The catalog card's twin of .bulk-badge — same flag, same fact, and it
-   carried the same #FDE68A/#78350F pair, so it moves with it. Surface fill
-   and a brand edge rather than a tint: this one is positioned over the
-   product thumbnail, where a translucent-looking tint would sit on whatever
-   the photo happens to be behind it. */
-.bulk-flag {
-  position: absolute; top: 9px; left: 9px; z-index: 2;
-  padding: 2px 7px; border-radius: 3px;
-  background: var(--surface); color: var(--action-700);
-  border: 1px solid var(--green-300);
-  font: 700 10px/1.4 var(--font-sans); letter-spacing: .04em;
-}
 .pcard .pdesc {
   font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-700);
   margin: 0 0 7px;

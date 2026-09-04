@@ -55,8 +55,13 @@ can actually answer.
 
     <!-- ───────────────────────── buy panel ───────────────────────── -->
     <div class="pdp-info">
+      {% comment %}
+      Category is NOT repeated here. It sits in .pdp-sku below, in the
+      SKU · category · sold line, and once both were plain text the chips row
+      was simply saying it a second time three lines higher with nothing to
+      tell the two apart. The row is the stock answer and nothing else.
+      {% endcomment %}
       <div class="pdp-chips">
-        {% if nav_categories %}<span class="tag">{{ product.category.category_name|default:"Uncategorised" }}</span>{% endif %}
         {% comment %}
         Stock across every branch. The panel underneath breaks it down, so
         this chip answers only "can I get this at all".
