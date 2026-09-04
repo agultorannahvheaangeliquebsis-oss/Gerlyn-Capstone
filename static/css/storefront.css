@@ -2599,7 +2599,7 @@ body.shop-cart .qty-stepper { margin-top: 6px; }
    one form. */
 .cart-summary form.stack { gap: 10px; margin-top: 14px; }
 .cart-summary .field { gap: 4px; }
-.cart-summary .banner { margin-top: 2px; }
+.cart-summary .banner { margin-top: 2px; padding: 8px 12px; font-size: 12.5px; line-height: 1.4; }
 /* Place Order and Continue shopping are one pair; the .stack gap held them
    as far apart as the unrelated fields above. */
 .cart-summary form.stack > .btn + .btn { margin-top: -4px; }
