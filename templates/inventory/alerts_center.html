@@ -61,19 +61,19 @@ opens instead of standing alone as a figure that double-counts its neighbour.
   once its last user moved off it, so .tab here would render unstyled.
   {% endcomment %}
   <button type="button" class="filter-tab active" id="tab-floor" onclick="showTab('floor')">
-    {% include "partials/_status_icon.html" with icon="alert" %}Low Floor Stock <span class="count count-warn">{{ low_count }}</span>
+    Low Floor Stock
   </button>
   <button type="button" class="filter-tab" id="tab-warehouse" onclick="showTab('warehouse')">
-    {% include "partials/_status_icon.html" with icon="box" %}Low Warehouse Stock <span class="count count-warn">{{ warehouse_low_count }}</span>
+    Low Warehouse Stock
   </button>
   <button type="button" class="filter-tab" id="tab-expired" onclick="showTab('expired')">
-    {% include "partials/_status_icon.html" with icon="x-circle" %}Expired <span class="count count-danger">{{ expired_count }}</span>
+    Expired
   </button>
   <button type="button" class="filter-tab" id="tab-soon" onclick="showTab('soon')">
-    {% include "partials/_status_icon.html" with icon="clock" %}Expiring Soon <span class="count count-warn">{{ expiring_soon_count }}</span>
+    Expiring Soon
   </button>
   <button type="button" class="filter-tab" id="tab-approaching" onclick="showTab('approaching')">
-    {% include "partials/_status_icon.html" with icon="clock" %}Approaching Expiry <span class="count count-info">{{ approaching_expiry_count }}</span>
+    Approaching Expiry
   </button>
 </div>
 

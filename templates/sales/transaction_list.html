@@ -2,6 +2,10 @@
 {% load static %}
 {% block title %}Order Console{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
+List, Stock Adjustments and Receive Delivery: the topbar chip has to track
+whichever branch the toolbar is actually narrowed to.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -16,28 +20,34 @@
   {% endif %}
 </div>
 
-<form method="GET" class="toolbar" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
-  <input type="search" name="q" class="input grow" placeholder="Search order ID or customer…" value="{{ search_query }}" autocomplete="off">
-  {% if branches %}
-  <select name="branch" onchange="this.form.submit()">
-    <option value="">All Branches</option>
-    {% for b in branches %}
-      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-  <select name="channel" onchange="this.form.submit()">
-    <option value="">All Channels</option>
-    <option value="Online" {% if channel_filter == "Online" %}selected{% endif %}>Online</option>
-    <option value="Physical" {% if channel_filter == "Physical" %}selected{% endif %}>In-Store</option>
-  </select>
-  <select name="type" onchange="this.form.submit()">
-    <option value="">Retail &amp; Wholesale</option>
-    <option value="Retail" {% if type_filter == "Retail" %}selected{% endif %}>Retail only</option>
-    <option value="Wholesale" {% if type_filter == "Wholesale" %}selected{% endif %}>Wholesale only</option>
-  </select>
+<form method="GET" class="toolbar toolbar-search" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search orders">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search order ID or customer…" value="{{ search_query }}" autocomplete="off" aria-label="Search by order ID or customer">
+  </div>
+  <div class="search-filters">
+    {% if branches %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <select name="channel" onchange="this.form.submit()" aria-label="Filter by channel">
+      <option value="">All Channels</option>
+      <option value="Online" {% if channel_filter == "Online" %}selected{% endif %}>Online</option>
+      <option value="Physical" {% if channel_filter == "Physical" %}selected{% endif %}>In-Store</option>
+    </select>
+    <select name="type" onchange="this.form.submit()" aria-label="Filter by order type">
+      <option value="">Retail &amp; Wholesale</option>
+      <option value="Retail" {% if type_filter == "Retail" %}selected{% endif %}>Retail only</option>
+      <option value="Wholesale" {% if type_filter == "Wholesale" %}selected{% endif %}>Wholesale only</option>
+    </select>
+  </div>
   <input type="hidden" name="status" value="{{ status_filter }}">
-  <button type="submit" class="btn">Search</button>
 </form>
 
 <div class="filter-tabs">
@@ -53,17 +63,17 @@
   printed verbatim between the tabs.
   {% endcomment %}
   <a class="filter-tab {% if not status_filter %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}">All</a>
   <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Pending">{% include "partials/_status_icon.html" with icon="clock" %}Pending <span class="count count-neutral">{{ counts.pending }}</span></a>
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Pending">Pending</a>
   <a class="filter-tab {% if status_filter == 'Approved' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Approved">{% include "partials/_status_icon.html" with icon="check" %}Approved <span class="count count-info">{{ counts.approved }}</span></a>
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Approved">Approved</a>
   <a class="filter-tab {% if status_filter == 'Preparing' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Preparing">{% include "partials/_status_icon.html" with icon="box" %}Preparing <span class="count count-warn">{{ counts.preparing }}</span></a>
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Preparing">Preparing</a>
   <a class="filter-tab {% if status_filter == 'Completed' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Completed">{% include "partials/_status_icon.html" with icon="check-circle" %}Completed <span class="count count-ok">{{ counts.completed }}</span></a>
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Completed">Completed</a>
   <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Cancelled">{% include "partials/_status_icon.html" with icon="x-circle" %}Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
+     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Cancelled">Cancelled</a>
 </div>
 
 <div class="card table-wrap">

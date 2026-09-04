@@ -1,6 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}Receive Delivery{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
+{% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
+List and Stock Adjustments: the topbar chip has to track whichever branch
+the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -9,6 +13,29 @@
   </div>
   <a class="btn" href="{% url 'receiving_history' %}">Receiving History</a>
 </div>
+
+<form method="GET" class="toolbar toolbar-search">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search pending deliveries">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search PO number or supplier…" value="{{ search_query }}" autocomplete="off" aria-label="Search by PO number or supplier">
+  </div>
+  {% if branches %}
+  <div class="search-filters">
+    {% comment %}
+    Owner only — a Manager/Staff account is already pinned to its own
+    branch's deliveries above, so this selector would do nothing for them.
+    {% endcomment %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+</form>
 
 <div class="card card-pad">
   <h3 class="mb-4">Awaiting delivery</h3>
@@ -34,9 +61,14 @@
     {% empty %}
     <div class="empty">
       <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
+      {% if search_query or branch_filter %}
+      <h3>No pending deliveries match</h3>
+      <p>Try clearing the search or branch filter.</p>
+      {% else %}
       <h3>Nothing awaiting delivery</h3>
       <p>Purchase orders marked “Ordered” show up here, ready to receive.</p>
       <a class="btn btn-primary mt-2" href="{% url 'procurement_list' %}">View purchase orders</a>
+      {% endif %}
     </div>
     {% endfor %}
   </div>

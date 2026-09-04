@@ -9,7 +9,7 @@ from accounts.models import User
 from billing.models import BillingRecord
 from branches.models import Branch
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
-from core.scoping import branch_ids_for_user, scope_queryset, user_can_access_branch
+from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
@@ -114,6 +114,7 @@ def _transaction_list_context(request):
 
     show_branch_filter = branch_ids_for_user(request.user) is None
     can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
+    branches = Branch.objects.all() if show_branch_filter else []
 
     context = {
         'transactions': transactions,
@@ -123,7 +124,12 @@ def _transaction_list_context(request):
         'channel_filter': channel_filter,
         'branch_filter': branch_filter,
         'type_filter': type_filter,
-        'branches': Branch.objects.all() if show_branch_filter else [],
+        'branches': branches,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock, Product Master List, Stock Adjustments and
+        # Receive Delivery.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        'user_branch': branch_for_user(request.user),
         'can_pos': can_pos,
     }
     if can_pos:

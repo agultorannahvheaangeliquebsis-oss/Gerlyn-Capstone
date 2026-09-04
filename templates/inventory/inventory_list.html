@@ -2,7 +2,7 @@
 {% load static %}
 {% block title %}Floor Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
-{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -119,31 +119,40 @@ across the full width leave the default block padding as empty card.
   </div>
 </div>
 
-<form method="GET" class="toolbar" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
-  <input type="search" name="q" id="inventory-search-input" class="input grow" placeholder="Search product…" value="{{ search_query }}" autocomplete="off">
-  <button type="button" class="btn" id="inventory-scan-btn" title="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
-  {% if branches %}
-  <select name="branch" onchange="this.form.submit()">
-    <option value="">All Branches</option>
-    {% for b in branches %}
-      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-  <select name="category" onchange="this.form.submit()">
-    <option value="">All Categories</option>
-    {% for c in categories %}
-      <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
-    {% endfor %}
-  </select>
-  <select name="status" onchange="this.form.submit()">
-    <option value="">All Status</option>
-    <option value="In Stock" {% if status_filter == "In Stock" %}selected{% endif %}>In Stock</option>
-    <option value="Low Stock" {% if status_filter == "Low Stock" %}selected{% endif %}>Low Stock</option>
-    <option value="Critical" {% if status_filter == "Critical" %}selected{% endif %}>Critical</option>
-    <option value="No Stock" {% if status_filter == "No Stock" %}selected{% endif %}>No Stock</option>
-  </select>
-  <button type="submit" class="btn">Search</button>
+<form method="GET" class="toolbar toolbar-search" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
+  <div class="search-field">
+    {% comment %}The submit, not decoration — same fallback role as
+    product_list.html's search-btn when live-filter.js is absent or bails
+    early.{% endcomment %}
+    <button type="submit" class="search-btn" title="Search" aria-label="Search floor stock">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" id="inventory-search-input" placeholder="Search product…" value="{{ search_query }}" autocomplete="off" aria-label="Search floor stock by product name or SKU">
+    <button type="button" class="scan-btn" id="inventory-scan-btn" title="Scan a barcode to search" aria-label="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %}</button>
+  </div>
+  <div class="search-filters">
+    {% if branches %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
+      <option value="">All Categories</option>
+      {% for c in categories %}
+        <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+      {% endfor %}
+    </select>
+    <select name="status" onchange="this.form.submit()" aria-label="Filter by status">
+      <option value="">All Status</option>
+      <option value="In Stock" {% if status_filter == "In Stock" %}selected{% endif %}>In Stock</option>
+      <option value="Low Stock" {% if status_filter == "Low Stock" %}selected{% endif %}>Low Stock</option>
+      <option value="Critical" {% if status_filter == "Critical" %}selected{% endif %}>Critical</option>
+      <option value="No Stock" {% if status_filter == "No Stock" %}selected{% endif %}>No Stock</option>
+    </select>
+  </div>
 </form>
 
 <div class="card table-wrap">

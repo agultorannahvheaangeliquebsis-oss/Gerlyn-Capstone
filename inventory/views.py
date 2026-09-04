@@ -94,6 +94,11 @@ def _product_list_context(request):
         'category_filter': category_filter,
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this, so choosing a branch in the
+        # toolbar moves the chip too instead of leaving it reading "All
+        # Branches" over a list that is no longer all branches. str() because
+        # branch_filter is still the raw (validated-digits) GET string.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'total_count': Product.objects.count(),
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         'unit_choices': Product.UnitOfMeasure.choices,
@@ -685,13 +690,20 @@ def _inventory_list_context(request):
             # still needs a row, or it would simply vanish from the table.
             rows.append({'inv': r, 'status': status, 'batch': None})
 
+    branches = cached_branches() if not user_branch else []
+
     return {
         'rows': rows,
         'counts': counts,
-        'branches': cached_branches() if not user_branch else [],
+        'branches': branches,
         'categories': cached_categories(),
         'search_query': search_query,
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this, so an Owner picking a branch
+        # in the toolbar moves the chip too instead of leaving it reading
+        # "All Branches" over a list that is no longer all branches — same
+        # pattern as the Product Master List's filter_branch.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'category_filter': category_filter,
         'status_filter': status_filter,
         'user_branch': user_branch,
@@ -1148,6 +1160,10 @@ def transfer_list(request):
         'date_to': date_to,
         'branches': cached_branches() if not user_branch else [],
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock and Product Master List's filter_branch.
+        'filter_branch': next((b for b in cached_branches() if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
         'status_choices': StockTransfer.Status.choices,
         'purpose_choices': StockTransfer.Purpose.choices,
         'total_released_this_month': total_released_this_month,

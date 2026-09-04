@@ -1,6 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}User Management{% endblock %}
 {% block page_subtitle %}Administration{% endblock %}
+{% comment %}Same pattern as Floor Stock, Product Master List, etc: the
+topbar chip has to track whichever branch the toolbar is actually narrowed
+to, not sit frozen on "All Branches".{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -13,15 +17,29 @@
   </button>
 </div>
 
-<form method="GET" class="toolbar" data-live-filter="#user-table tbody tr[data-filter-text]" data-filter-empty-target="#user-no-matches">
-  <input type="search" name="q" class="input grow" placeholder="Search username…" value="{{ search_query }}" autocomplete="off">
-  <select name="role" onchange="this.form.submit()">
-    <option value="">All Roles</option>
-    {% for value, label in role_choices %}
-      <option value="{{ value }}" {% if role_filter == value %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  <button class="btn" type="submit">Search</button>
+<form method="GET" class="toolbar toolbar-search" data-live-filter="#user-table tbody tr[data-filter-text]" data-filter-empty-target="#user-no-matches">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search users">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search username…" value="{{ search_query }}" autocomplete="off" aria-label="Search users by username">
+  </div>
+  <div class="search-filters">
+    <select name="role" onchange="this.form.submit()" aria-label="Filter by role">
+      <option value="">All Roles</option>
+      {% for value, label in role_choices %}
+        <option value="{{ value }}" {% if role_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% if branches %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by assigned branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
 </form>
 
 <div class="card table-wrap">

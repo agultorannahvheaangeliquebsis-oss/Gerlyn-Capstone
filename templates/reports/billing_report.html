@@ -1,7 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}Billing Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
-{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% comment %}Same pattern as Floor Stock, Product Master List, etc: the topbar
+chip has to track whichever branch the toolbar is actually narrowed to, not
+sit frozen on "All Branches" once an Owner picks one.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 {% comment %}

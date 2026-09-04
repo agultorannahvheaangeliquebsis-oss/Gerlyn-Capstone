@@ -1383,6 +1383,11 @@ def reports_dashboard(request):
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this, so an Owner picking a branch
+        # in the toolbar moves the chip too instead of leaving it reading
+        # "All Branches" over a report that is no longer all branches — same
+        # pattern as Floor Stock, Product Master List, etc.
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
         'range_start': range_start,
         'range_end': range_end,
         'active_range': active_range,
@@ -1995,6 +2000,9 @@ def billing_report(request):
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this — see reports_dashboard's
+        # identical comment.
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
         'range_start': range_start,
         'range_end': range_end,
         'active_range': active_range,
@@ -2063,6 +2071,9 @@ def inventory_report(request):
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this — see reports_dashboard's
+        # identical comment.
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
         'total_value': total_value,
         'total_units': total_units,
         'low_critical_count': low_critical_count,
@@ -2161,6 +2172,9 @@ def procurement_report(request):
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this — see reports_dashboard's
+        # identical comment.
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
         'range_start': range_start,
         'range_end': range_end,
         'active_range': active_range,

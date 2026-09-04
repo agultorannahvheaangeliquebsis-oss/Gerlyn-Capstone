@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout, password_validation, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -286,6 +287,19 @@ def _user_list_context(request):
     if role_filter:
         users = users.filter(role=role_filter)
 
+    # Branch lives on a different profile depending on role — a Manager's,
+    # a Staff's, or a Supplier's — so narrowing "assigned to this branch"
+    # has to check all three rather than a single FK on User itself.
+    branch_filter = request.GET.get('branch', '')
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        users = users.filter(
+            Q(manager_profile__branch_id=branch_filter) |
+            Q(staff_profile__branch_id=branch_filter) |
+            Q(supplier_profile__branch_id=branch_filter)
+        )
+
     rows = []
     for u in users:
         profile = _profile_for(u)
@@ -299,16 +313,21 @@ def _user_list_context(request):
             ),
         })
 
+    branches = Branch.objects.all()
     return {
         'rows': rows,
         'search_query': search_query,
         'role_filter': role_filter,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Product Master List, Stock Adjustments, etc.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         # The toolbar filters on every role a row can have; the Add/Edit modal
         # may only ASSIGN an internal one. Two different lists on purpose —
         # user_form has always validated against INTERNAL_ROLE_CHOICES.
         'role_choices': User.Role.choices,
         'form_role_choices': INTERNAL_ROLE_CHOICES,
-        'branches': Branch.objects.all(),
+        'branches': branches,
         'active_count': users.filter(is_active=True).count(),
         # The module-access checkbox panel — only meaningful for Staff/
         # Manager, shown/hidden by JS based on the role select. add_modules

@@ -1,6 +1,10 @@
 {% extends 'internal_base.html' %}
 {% block title %}Stock Adjustments{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
+{% comment %}Same pattern as Floor Stock, Warehouse Stock and Product Master
+List: the topbar chip has to track whichever branch the toolbar is actually
+narrowed to, not sit frozen on "All Branches".{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -81,23 +85,30 @@ across the full width leave the default block padding as empty card.
   </div>
 </div>
 
-{% if branches %}
-<form method="GET" class="toolbar">
-  {% comment %}
-  Owner only — a Manager/Staff account is already pinned to its own branch's
-  slips above, so this selector would do nothing for them. Narrows both tabs:
-  the Withdrawal Slips list (by source branch) and the Movement Log (by
-  either side of the movement) — see transfer_list's movement_branch_ids.
-  {% endcomment %}
-  <select name="branch" onchange="this.form.submit()">
-    <option value="">All Branches</option>
-    {% for b in branches %}
-      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-    {% endfor %}
-  </select>
-  <button type="submit" class="btn">Filter</button>
+<form method="GET" class="toolbar toolbar-search">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search stock adjustments">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search slip number or product…" value="{{ search_query }}" autocomplete="off" aria-label="Search by slip number or product">
+  </div>
+  {% if branches %}
+  <div class="search-filters">
+    {% comment %}
+    Owner only — a Manager/Staff account is already pinned to its own branch's
+    slips above, so this selector would do nothing for them. Narrows both tabs:
+    the Withdrawal Slips list (by source branch) and the Movement Log (by
+    either side of the movement) — see transfer_list's movement_branch_ids.
+    {% endcomment %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
 </form>
-{% endif %}
 
 <div class="filter-tabs">
   {% comment %}
@@ -108,10 +119,10 @@ across the full width leave the default block padding as empty card.
   competing with its own parts.
   {% endcomment %}
   <button type="button" class="filter-tab active" id="tab-slips" onclick="showTab('slips')">
-    {% include "partials/_status_icon.html" with icon="draft" %}Withdrawal Slips
+    Withdrawal Slips
   </button>
   <button type="button" class="filter-tab" id="tab-log" onclick="showTab('log')">
-    {% include "partials/_status_icon.html" with icon="all" %}Movement Log <span class="count count-neutral">{{ movement_log|length }}</span>
+    Movement Log
   </button>
 </div>
 

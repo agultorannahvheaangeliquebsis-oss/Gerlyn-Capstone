@@ -29,11 +29,11 @@ status — Draft neutral, Ordered info, Received ok, Cancelled danger. "All" is
 not a status, so it keeps the unclassed neutral default.
 {% endcomment %}
 <div class="filter-tabs">
-  <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
-  <a class="filter-tab{% if status_filter == 'Draft' %} active{% endif %}" href="?status=Draft">{% include "partials/_status_icon.html" with icon="draft" %}Draft <span class="count count-neutral">{{ counts.draft }}</span></a>
-  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?status=Ordered">{% include "partials/_status_icon.html" with icon="truck" %}Ordered <span class="count count-info">{{ counts.ordered }}</span></a>
-  <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?status=Received">{% include "partials/_status_icon.html" with icon="check-circle" %}Received <span class="count count-ok">{{ counts.received }}</span></a>
-  <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?status=Cancelled">{% include "partials/_status_icon.html" with icon="x-circle" %}Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
+  <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?">All</a>
+  <a class="filter-tab{% if status_filter == 'Draft' %} active{% endif %}" href="?status=Draft">Draft</a>
+  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?status=Ordered">Ordered</a>
+  <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?status=Received">Received</a>
+  <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?status=Cancelled">Cancelled</a>
 </div>
 
 <div class="card table-wrap">

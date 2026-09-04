@@ -1,4 +1,4 @@
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -7,7 +7,8 @@ from django.utils import timezone
 from .models import BillingRecord
 from sales.models import SalesTransaction
 from accounts.models import User
-from core.scoping import user_can_access_branch
+from branches.models import Branch
+from core.scoping import branch_for_user, user_can_access_branch
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER, role_required
 
 
@@ -32,6 +33,22 @@ def billing_list(request):
     elif request.user.role == User.Role.SUPPLIER:
         records = records.none()
 
+    search_query = request.GET.get('q', '')
+    if search_query:
+        records = records.filter(
+            Q(transaction__order_number__icontains=search_query) |
+            Q(reference_number__icontains=search_query)
+        )
+
+    # Owner-only branch filter — Manager/Staff are already pinned to their
+    # own branch's records above, so a selector would do nothing for them.
+    user_branch = branch_for_user(request.user)
+    branch_filter = request.GET.get('branch', '') if request.user.role == User.Role.OWNER else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        records = records.filter(transaction__branch_id=branch_filter)
+
     records = records.order_by('-date_recorded')
 
     status_filter = request.GET.get('status', '')
@@ -48,11 +65,21 @@ def billing_list(request):
         status=BillingRecord.PaymentStatus.PENDING
     ).aggregate(total=Sum('amount_due'))['total'] or 0
 
+    branches = Branch.objects.all() if request.user.role == User.Role.OWNER else []
+
     return render(request, 'billing/billing_list.html', {
         'records': records,
         'counts': counts,
         'status_filter': status_filter,
         'outstanding': outstanding,
+        'search_query': search_query,
+        'branches': branches,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock, Product Master List, Stock Adjustments, Receive
+        # Delivery and the Order Console.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
     })
 
 

@@ -2,6 +2,60 @@
 {% block title %}Categories{% endblock %}
 {% block page_subtitle %}Catalog{% endblock %}
 
+{% block extra_css %}
+<style>
+  /* Four columns of a two-field table, left to the browser's own widths, get
+     spread edge to edge across the card: the name sat at the far left and the
+     dash for "no description" floated somewhere in the middle. The colgroup
+     below shares the width out in proportion to what each column actually
+     holds — Description the most, since it is the only one with sentences —
+     rather than letting one column swallow all the slack and shove the rest
+     into a clump at the right edge. */
+  .cat-table .col-name    { width: 26%; }
+  .cat-table .col-desc    { width: 32%; }
+  .cat-table .col-count   { width: 24%; }
+  .cat-table .col-actions { width: 18%; }
+
+  /* Centred, not right-aligned. A right-aligned count is pinned to its
+     column's right edge, which is Actions' doorstep — the number ends up
+     reading as a third icon in that group no matter how wide the column is.
+     Centring seats it in the middle of its own column, a clear span away from
+     both Description and the icons. Safe here in a way it would not be in a
+     money column: these are one- or two-digit counts, so there are no decimal
+     points to line up down the page. */
+  .cat-table th.num, .cat-table td.num { text-align: center; }
+
+  /* The count is a plain figure sitting directly under its header. A framed
+     chip was tried here and read as a disabled input in the row — a box round
+     a single digit is heavier than the two action icons beside it, and its
+     padding knocked the figure out of line with PRODUCTS. Same size as the
+     row's other text; the link colour and the underline on hover are what
+     mark it as a way into the filtered list. */
+  .count-link {
+    color: var(--action); text-decoration: none;
+    font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .count-link:hover { color: var(--action-700); text-decoration: underline; }
+
+  /* Zero is a fact, not a link — muted, so a scan down the column lands on
+     the categories that actually hold stock. */
+  .count-zero { color: var(--ink-500); font-variant-numeric: tabular-nums; }
+
+  /* Stacked-card mode: fixed colgroup widths would squeeze the label/value
+     rows the table turns into below this width. */
+  @media (max-width: 860px) {
+    .cat-table .col-name,
+    .cat-table .col-desc,
+    .cat-table .col-count,
+    .cat-table .col-actions { width: auto; }
+    /* The count no longer shares a line with Actions here — it is a value
+       opposite its own label, so it sits against the right edge like the
+       rest of them. */
+    .cat-table td.num { text-align: right; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -23,7 +77,13 @@
 </div>
 
 <div class="card table-wrap">
-  <table class="gv-table">
+  <table class="gv-table cat-table">
+    <colgroup>
+      <col class="col-name">
+      <col class="col-desc">
+      <col class="col-count">
+      {% if can_edit %}<col class="col-actions">{% endif %}
+    </colgroup>
     <thead>
       <tr>
         <th>Category Name</th>
@@ -39,9 +99,10 @@
         <td data-label="Description" class="gv-meta">{{ c.description|default:"—"|truncatechars:60 }}</td>
         <td data-label="Products" class="num">
           {% if c.product_count %}
-            <a href="{% url 'product_list' %}?category={{ c.id }}">{{ c.product_count }}</a>
+            <a class="count-link" href="{% url 'product_list' %}?category={{ c.id }}"
+               title="View the {{ c.product_count }} product{{ c.product_count|pluralize }} in {{ c.category_name }}">{{ c.product_count }}</a>
           {% else %}
-            <span class="gv-meta">0</span>
+            <span class="count-zero" title="No products in this category yet">0</span>
           {% endif %}
         </td>
         {% if can_edit %}
@@ -59,7 +120,8 @@
       </tr>
       {% empty %}
       <tr>
-        <td colspan="4">
+        {# 3 columns for a viewer who cannot edit — Actions is not rendered. #}
+        <td colspan="{% if can_edit %}4{% else %}3{% endif %}">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="tag" %}</span>
             <h3>No categories yet</h3>

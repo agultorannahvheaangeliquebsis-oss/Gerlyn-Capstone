@@ -2,6 +2,12 @@
 {% load l10n static %}
 {% block title %}Product Master List{% endblock %}
 {% block page_subtitle %}Catalog{% endblock %}
+{% comment %}The toolbar branch select and the topbar chip say the same thing,
+so they have to say it together: once a branch is picked the list is no
+longer every branch, and a chip still reading "All Branches" over it is
+just wrong. Owner-only in practice — filter_branch is None for everyone
+else, which falls through to the base template's wording.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -139,31 +145,61 @@
   </div>
 </div>
 
-<form method="GET" class="toolbar" data-live-filter="#product-table tbody tr[data-filter-text]" data-filter-empty-target="#product-no-matches">
-  <input type="search" name="q" id="product-search-input" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off">
-  <button type="button" class="btn" id="product-scan-btn" title="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
-  {% if show_branch_filter %}
-  {% comment %}
-  Owner only — the catalog itself has no owning branch (a product's
-  Availability column already shows every branch that carries it), so this
-  narrows the list to products carried at one branch rather than scoping a
-  branch-owned field. Manager/Staff see the same unrestricted catalog
-  everyone else does, so they get no selector.
-  {% endcomment %}
-  <select name="branch" onchange="this.form.submit()">
-    <option value="">All Branches</option>
-    {% for b in branches %}
-      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-  <select name="category" onchange="this.form.submit()">
-    <option value="">All Categories</option>
-    {% for c in categories %}
-      <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
-    {% endfor %}
-  </select>
-  <button type="submit" class="btn">Search</button>
+{% comment %}
+Two groups, not five loose controls. The query is on the left — magnifier,
+field, and Scan as a trailing icon INSIDE the field's border, because
+scanning is another way of getting a code into that box rather than a
+button that competes with it. The magnifier is the submit — it already sat
+at the head of the field pointing at exactly that action, so a separate
+Search button beside it was a second control for one job. The filters are on
+the right, pushed there by .search-filters; they auto-submit, so they need no
+button of their own.
+
+.grow is gone deliberately: it stretched this field across the whole content
+column, which is what left every other control clumped against the far edge.
+The cap now lives in .toolbar-search .search-field.
+
+#product-search-input and #product-scan-btn are the hooks the scanner script
+at the bottom of this file binds to, and live-filter.js finds the field by
+input[type=search] within the form — all three survive the restructure.
+{% endcomment %}
+<form method="GET" class="toolbar toolbar-search" data-live-filter="#product-table tbody tr[data-filter-text]" data-filter-empty-target="#product-no-matches">
+  <div class="search-field">
+    {% comment %}The submit, not decoration. live-filter.js preventDefaults this
+    form and filters as you type, so this only ever runs the real GET when that
+    script is missing or bailed early — the same fallback the Search button
+    used to be. Icon-only, so aria-label and title carry its name.{% endcomment %}
+    <button type="submit" class="search-btn" title="Search" aria-label="Search products">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" id="product-search-input" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off" aria-label="Search products by name or SKU">
+    {% comment %}Icon-only inside the field, so the name it used to spell out
+    is carried by aria-label and title instead.{% endcomment %}
+    <button type="button" class="scan-btn" id="product-scan-btn" title="Scan a barcode to search" aria-label="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %}</button>
+  </div>
+  <div class="search-filters">
+    {% if show_branch_filter %}
+    {% comment %}
+    Owner only — the catalog itself has no owning branch (a product's
+    Availability column already shows every branch that carries it), so this
+    narrows the list to products carried at one branch rather than scoping a
+    branch-owned field. Manager/Staff see the same unrestricted catalog
+    everyone else does, so they get no selector.
+    {% endcomment %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
+      <option value="">All Categories</option>
+      {% for c in categories %}
+        <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
 </form>
 
 <div class="card table-wrap">

@@ -1333,6 +1333,133 @@ input::placeholder { color: var(--ink-500); }
 
 .toolbar { display: flex; gap: var(--s2); margin-bottom: var(--s4); flex-wrap: wrap; }
 .toolbar .input, .toolbar select { width: auto; min-width: 200px; }
+/* ------------------------------------------------ search + filter bar
+   .toolbar-search is a MODIFIER on .toolbar, opted into per page — the
+   eleven other templates on a plain .toolbar are untouched.
+
+   What it restructures on Product Master List: the bar was five loose
+   controls sitting straight on the page background, and the search box
+   carried .grow, so it ran the entire width of the content column and
+   pushed Scan, both selects and Search into one undifferentiated clump
+   jammed against the right edge. Nothing in that row said which controls
+   narrowed the list and which one searched it, and the runway-width field
+   spent the page's whole horizontal budget on an input nobody types more
+   than a few characters into.
+
+   Two groups on one frame instead. LEFT is the query: a magnifier, the
+   field at a readable cap, then Scan as a trailing icon inside the SAME
+   border — scanning is another way of putting a code into that box, not a
+   separate control, so it stops being a second button competing with it.
+   The magnifier at the head of the field IS the submit, so there is no
+   standalone Search button trailing it either. RIGHT is the filters, pushed
+   over by margin-left:auto; the gap the cap opens up is what separates the
+   two groups, so no divider rule is needed.
+
+   That submit still matters even though live-filter.js preventDefaults this
+   form — it is the real fallback when that script is absent or bails early
+   (it returns before binding when the table renders no rows). */
+.toolbar-search {
+  align-items: center;
+  padding: var(--s2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* --- left: the query ---------------------------------------------------- */
+/* The frame lives on the wrapper, so the icon, the input and Scan read as
+   one control. The input inside it is borderless and takes its height from
+   this box, which is where var(--touch) is honoured. */
+.toolbar-search .search-field {
+  display: flex; align-items: center;
+  flex: 1 1 280px; max-width: 440px; min-width: 0;
+  min-height: var(--touch);
+  border: 1.5px solid var(--input-line);
+  border-radius: var(--r-input);
+  background: var(--surface);
+}
+.toolbar-search .search-field:hover { border-color: var(--brand); }
+/* The magnifier is a real submit now, so it needs a hit target rather than
+   just an inline glyph. 40px wide with an 18px icon centred leaves the icon
+   exactly where it sat when the wrapper carried padding-left:12px and a 10px
+   gap, and the input still starts at 40px — the button replaces that space
+   instead of adding to it. --ink-400 keeps it reading as an affordance. */
+.toolbar-search .search-btn {
+  flex: none; align-self: stretch;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; padding: 0; cursor: pointer;
+  border: 0; background: none; color: var(--ink-400);
+  border-radius: var(--r-input) 0 0 var(--r-input);
+  transition: background .12s ease, color .12s ease;
+}
+.toolbar-search .search-btn:hover { background: var(--line-soft); color: var(--ink-900); }
+/* Inward, so the ring hugs the button instead of drawing a second rectangle
+   outside the field's own border — the same reason .modal-close zeroes it. */
+.toolbar-search .search-btn:focus-visible { outline-offset: -3px; }
+.toolbar-search .search-icon { flex: none; }
+.toolbar-search .search-field input[type=search] {
+  flex: 1 1 auto; width: auto; min-width: 0;
+  min-height: 0; padding: 0 10px 0 0;
+  border: 0; background: none; border-radius: 0;
+}
+/* Ring on the frame, not on the bare input. The input has no border of its
+   own, so the global 3px/offset-2 focus ring would draw a second rectangle
+   floating inside the box. :has is the only way to move it outward, so the
+   @supports fallback puts the ring back on the input rather than leaving a
+   keyboard user with no visible focus at all. */
+.toolbar-search .search-field input[type=search]:focus-visible { outline: none; }
+.toolbar-search .search-field:has(input:focus-visible) {
+  border-color: var(--brand);
+  outline: 3px solid var(--brand); outline-offset: 2px;
+}
+@supports not selector(:has(*)) {
+  .toolbar-search .search-field input[type=search]:focus-visible { outline: 3px solid var(--brand); }
+}
+/* Icon-only, so the name has to reach a screen reader some other way:
+   aria-label AND title, the same contract .icon-btn documents. Sized off
+   the field's own height so the divider runs the full edge. */
+.toolbar-search .scan-btn {
+  flex: none; align-self: stretch;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; padding: 0; cursor: pointer;
+  border: 0; border-left: 1.5px solid var(--line-soft);
+  border-radius: 0 var(--r-input) var(--r-input) 0;
+  background: none; color: var(--ink-500);
+  transition: background .12s ease, color .12s ease;
+}
+.toolbar-search .scan-btn:hover { background: var(--line-soft); color: var(--ink-900); }
+
+/* --- right: the filters ------------------------------------------------- */
+.toolbar-search .search-filters {
+  display: flex; align-items: center; gap: var(--s2);
+  margin-left: auto; flex-wrap: wrap;
+}
+/* These auto-submit on change, so they are controls you operate, not fields
+   you fill: 600 weight and a pointer, matching .branch-select on the
+   Dashboard head. Own chevron for the same reason it has one — the native
+   wedge is a chunky Windows-blue block that matches nothing else here — and
+   deliberately the identical SVG data-URI, 16px, --ink-400 stroke. */
+.toolbar-search select {
+  width: auto; min-width: 168px; cursor: pointer; font-weight: 600;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A968F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+}
+.toolbar-search select:hover { border-color: var(--brand); }
+
+/* Below 860px the two groups stack and each fills the row — margin-left:auto
+   has nothing to push against once they are on separate lines. */
+@media (max-width: 860px) {
+  .toolbar-search .search-field { flex-basis: 100%; max-width: none; }
+  .toolbar-search .search-filters { width: 100%; margin-left: 0; }
+  .toolbar-search .search-filters > * { flex: 1 1 140px; min-width: 0; }
+}
+
 
 /* Mobile bottom nav (hidden on desktop) */
 .bottom-nav { display: none; }

@@ -341,11 +341,41 @@ def delivery_list(request):
         Procurement.objects.select_related('branch', 'supplier')
         .filter(status=Procurement.Status.ORDERED),
         request.user,
-    ).order_by('delivery_date')
+    )
+
+    user_branch = branch_for_user(request.user)
+
+    search_query = request.GET.get('q', '')
+    if search_query:
+        pending = pending.filter(
+            Q(po_number__icontains=search_query) |
+            Q(supplier__supplier_profile__supplier_name__icontains=search_query)
+        )
+
+    # Owner-only branch filter — Manager/Staff are already pinned to their own
+    # branch's deliveries by scope_queryset() above, so a selector would do
+    # nothing for them.
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        pending = pending.filter(branch_id=branch_filter)
+
+    pending = pending.order_by('delivery_date')
+
+    from branches.models import Branch
+    branches = Branch.objects.all() if not user_branch else []
 
     return render(request, 'procurement/delivery_list.html', {
         'pending': pending,
         'today': timezone.now().date(),
+        'search_query': search_query,
+        'branches': branches,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock, Product Master List and Stock Adjustments.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
     })
 
 

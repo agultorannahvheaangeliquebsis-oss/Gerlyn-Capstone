@@ -2,7 +2,12 @@
 {% load static %}
 {% block title %}Warehouse Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
-{% block branch_scope %}{% if warehouse %}{{ warehouse.branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% comment %}Same pattern as Floor Stock and Product Master List: the topbar
+chip has to track whichever branch the toolbar is actually narrowed to. An
+Owner's branch_filter wins first since it is the more specific, deliberate
+choice; a Manager/Staff's own warehouse.branch is the fallback for when
+there's no toolbar selector to pick from at all.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif warehouse %}{{ warehouse.branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -105,27 +110,35 @@ inventory.alerts.stock_status().
   </div>
 </div>
 
-<form method="GET" class="toolbar">
-  <input type="search" name="q" class="input grow" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off">
-  {% if branches %}
-  {% comment %}
-  Owner only — a Manager/Staff account is already pinned to its own single
-  warehouse above, so this selector would do nothing for them.
-  {% endcomment %}
-  <select name="branch" onchange="this.form.submit()">
-    <option value="">All Branches</option>
-    {% for b in branches %}
-      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-  <select name="category" onchange="this.form.submit()">
-    <option value="">All Categories</option>
-    {% for c in categories %}
-      <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
-    {% endfor %}
-  </select>
-  <button type="submit" class="btn">Search</button>
+<form method="GET" class="toolbar toolbar-search">
+  <div class="search-field">
+    {% comment %}The submit — same role as Floor Stock's search-btn. This
+    page has no barcode scanner, so the field carries no trailing icon.{% endcomment %}
+    <button type="submit" class="search-btn" title="Search" aria-label="Search warehouse stock">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off" aria-label="Search warehouse stock by product name or SKU">
+  </div>
+  <div class="search-filters">
+    {% if branches %}
+    {% comment %}
+    Owner only — a Manager/Staff account is already pinned to its own single
+    warehouse above, so this selector would do nothing for them.
+    {% endcomment %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
+      <option value="">All Categories</option>
+      {% for c in categories %}
+        <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
 </form>
 
 <div class="card table-wrap">
