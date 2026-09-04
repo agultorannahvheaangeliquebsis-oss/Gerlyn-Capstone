@@ -137,14 +137,21 @@ inventory.alerts.stock_status().
         {% if not warehouse %}<th>Branch</th>{% endif %}
         <th>Category</th>
         <th>Unit</th>
-        <th class="num">Qty on Hand</th>
+        <th class="num">Batch Qty</th>
+        <th>Expiry Date</th>
+        <th>Received</th>
         <th class="num">Reorder Level</th>
-        <th>Nearest Expiry</th>
         <th>Status</th>
-        <th class="end">Actions</th>
+        {% if can_edit_reorder %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
+      {% comment %}
+      One row per BATCH, not per product/warehouse — see
+      inventory.views.warehouse_stock_list and the Batch model's docstring.
+      Reorder Level and Status repeat per product/warehouse across its
+      batch rows, same as Floor Stock.
+      {% endcomment %}
       {% for row in rows %}
       <tr>
         <td data-label="Product" class="strong">{{ row.stock.product.product_name }}</td>
@@ -152,22 +159,25 @@ inventory.alerts.stock_status().
         {% if not warehouse %}<td data-label="Branch">{{ row.stock.warehouse.branch.branch_name }}</td>{% endif %}
         <td data-label="Category" class="gv-meta">{{ row.stock.product.category.category_name|default:"—" }}</td>
         <td data-label="Unit" class="gv-meta">{{ row.stock.product.unit_of_measure }}</td>
-        <td data-label="Qty on Hand" class="num strong">{{ row.stock.quantity_on_hand }}</td>
+        <td data-label="Batch Qty" class="num strong">{% if row.batch %}{{ row.batch.quantity }}{% else %}0{% endif %}</td>
+        <td data-label="Expiry Date">{% if row.batch %}{{ row.batch.expiry_date|date:"Y-m-d"|default:"—" }}{% else %}—{% endif %}</td>
+        <td data-label="Received" class="gv-meta">{% if row.batch %}{{ row.batch.received_date|date:"Y-m-d" }}{% else %}—{% endif %}</td>
         <td data-label="Reorder Level" class="num gv-meta">{{ row.stock.reorder_level }}</td>
-        <td data-label="Nearest Expiry">{{ row.stock.expiry_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Status">
           {% if row.status == "No Stock" %}<span class="pill pill-danger">No Stock</span>
           {% elif row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
+        {% if can_edit_reorder %}
         <td data-label="Actions">
           <span class="row-actions">
             <button type="button" class="icon-btn icon-btn-action"
-                    title="Edit" aria-label="Edit warehouse stock for {{ row.stock.product.product_name }}"
-                    onclick="openEditWarehouseStock({{ row.stock.pk }}, '{{ row.stock.product.product_name|escapejs }}', '{{ row.stock.warehouse.branch.branch_name|escapejs }}', {{ row.stock.reorder_level }}, '{{ row.stock.expiry_date|date:"Y-m-d"|default:"" }}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+                    title="Edit reorder level" aria-label="Edit reorder level for {{ row.stock.product.product_name }}"
+                    onclick="openEditWarehouseStock({{ row.stock.pk }}, '{{ row.stock.product.product_name|escapejs }}', '{{ row.stock.warehouse.branch.branch_name|escapejs }}', {{ row.stock.reorder_level }})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
           </span>
         </td>
+        {% endif %}
       </tr>
       {% empty %}
       <tr>
@@ -184,10 +194,11 @@ inventory.alerts.stock_status().
   </table>
 </div>
 
+{% if can_edit_reorder %}
 <div class="modal-overlay" id="edit-warehouse-modal">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-warehouse-title" style="max-width:420px;">
     <div class="modal-head">
-      <h2 id="edit-warehouse-title">Edit Warehouse Stock</h2>
+      <h2 id="edit-warehouse-title">Edit Warehouse Reorder Level</h2>
       <button type="button" class="modal-close" id="close-edit-warehouse-modal" aria-label="Close">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -207,18 +218,9 @@ inventory.alerts.stock_status().
         <div class="field-static" id="edit-warehouse-branch"></div>
       </div>
       <div class="field">
-        <label for="edit-warehouse-reorder">Warehouse Reorder Level{% if can_edit_reorder %} <span style="color:var(--danger-dot);">*</span>{% endif %}</label>
-        <input type="number" id="edit-warehouse-reorder" name="reorder_level" min="0"
-               {% if can_edit_reorder %}required{% else %}disabled{% endif %}>
-        {% if can_edit_reorder %}
-          <p class="gv-meta" style="margin:4px 0 0;">Separate from the floor stock reorder level — changing this does not affect the floor threshold.</p>
-        {% else %}
-          <p class="gv-meta" style="margin:4px 0 0;">Only a Branch Manager or the Owner can change this — ask them if it needs adjusting.</p>
-        {% endif %}
-      </div>
-      <div class="field">
-        <label for="edit-warehouse-expiry">Nearest Expiry (optional)</label>
-        <input type="date" id="edit-warehouse-expiry" name="expiry_date">
+        <label for="edit-warehouse-reorder">Warehouse Reorder Level <span style="color:var(--danger-dot);">*</span></label>
+        <input type="number" id="edit-warehouse-reorder" name="reorder_level" min="0" required>
+        <p class="gv-meta" style="margin:4px 0 0;">Separate from the floor stock reorder level — changing this does not affect the floor threshold.</p>
       </div>
     </form>
 
@@ -237,7 +239,6 @@ inventory.alerts.stock_status().
   var productEl = document.getElementById('edit-warehouse-product');
   var branchEl = document.getElementById('edit-warehouse-branch');
   var reorderEl = document.getElementById('edit-warehouse-reorder');
-  var expiryEl = document.getElementById('edit-warehouse-expiry');
   if (!modal) return;
 
   var editUrlTemplate = '{% url "warehouse_stock_edit" 0 %}';
@@ -245,12 +246,11 @@ inventory.alerts.stock_status().
   function open() { modal.classList.add('is-open'); }
   function close() { modal.classList.remove('is-open'); }
 
-  window.openEditWarehouseStock = function (pk, productName, branchName, reorderLevel, expiryDate) {
+  window.openEditWarehouseStock = function (pk, productName, branchName, reorderLevel) {
     form.action = editUrlTemplate.replace('/0/', '/' + pk + '/');
     productEl.textContent = productName;
     branchEl.textContent = branchName;
     reorderEl.value = reorderLevel;
-    expiryEl.value = expiryDate || '';
     open();
   };
 
@@ -262,4 +262,5 @@ inventory.alerts.stock_status().
   });
 })();
 </script>
+{% endif %}
 {% endblock %}

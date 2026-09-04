@@ -16,7 +16,7 @@ import datetime as dt
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from accounts.models import (
@@ -372,7 +372,8 @@ class Command(BaseCommand):
                 )
                 if created:
                     Batch.objects.get_or_create(
-                        product=product, branch=branch, expiry_date=exp,
+                        product=product, branch=branch, location=Batch.Location.FLOOR,
+                        expiry_date=exp,
                         defaults={
                             "quantity": qty,
                             "received_date": timezone.now().date() - dt.timedelta(days=30),
@@ -390,11 +391,23 @@ class Command(BaseCommand):
             ("SKU-011", T, 14, 25),
         ]
         for sku, branch_name, days, qty in near:
-            Batch.objects.get_or_create(
-                product=products[sku], branch=branches[branch_name],
+            product = products[sku]
+            branch = branches[branch_name]
+            _batch, batch_created = Batch.objects.get_or_create(
+                product=product, branch=branch,
+                location=Batch.Location.FLOOR,
                 expiry_date=today + dt.timedelta(days=days),
                 defaults={"quantity": qty, "received_date": today},
             )
+            # This is an ADDITIONAL lot on top of whatever the main loop
+            # above already created for this product/branch, so the
+            # aggregate row has to grow with it — otherwise batches would
+            # sum to more than quantity_on_hand, and the storefront/Floor
+            # Stock would show more stock than the row claims to have.
+            if batch_created:
+                Inventory.objects.filter(product=product, branch=branch).update(
+                    quantity_on_hand=models.F("quantity_on_hand") + qty
+                )
 
     # --------------------------------------------------------------------- PO
     def _purchase_orders(self, branches, suppliers, owner, products):

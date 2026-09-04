@@ -2072,7 +2072,6 @@ body.shop-auth {
 .rail-check-text { min-width: 0; }
 
 .rail-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; }
-.rail-apply { width: 100%; }
 .rail-clear {
   text-align: center; text-decoration: none;
   font: 600 13px/1 var(--font-sans); color: var(--ink-500);

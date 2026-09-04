@@ -35,13 +35,16 @@ def on_hand_by_product(product_ids=None, branch_id=None):
     Used where the page is not branch-scoped (the home page), so the stock
     line can still be truthful: "in stock somewhere in the store" is a real
     claim, and picking a branch narrows it on the catalog.
+
+    sellable()'s available_qty nets out anything past its expiry_date — the
+    storefront must never count or offer expired stock as available.
     """
-    rows = Inventory.objects.values('product_id')
+    rows = Inventory.objects.sellable().values('product_id')
     if branch_id:
         rows = rows.filter(branch_id=branch_id)
     if product_ids is not None:
         rows = rows.filter(product_id__in=product_ids)
-    rows = rows.annotate(n=Sum('quantity_on_hand'))
+    rows = rows.annotate(n=Sum('available_qty'))
     return {r['product_id']: r['n'] or 0 for r in rows if r['product_id']}
 
 

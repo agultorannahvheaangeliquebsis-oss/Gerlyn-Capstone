@@ -519,6 +519,12 @@ class FeatureUpdateTests(TestCase):
             product=product, branch=branch
         )
         inventory.quantity_on_hand = 500
+        # seed_demo populates some already-expired rows to exercise the
+        # Alerts Center's Expired tab — get_or_create above can land on one
+        # of those, and an expired row is no longer sellable (see
+        # Inventory.objects.sellable()). This helper is testing pricing, not
+        # expiry, so it always clears the field explicitly.
+        inventory.expiry_date = None
         inventory.save()
         return product, branch
 

@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from .models import (
     Product, ProductCategory, Warehouse, WarehouseStock, Inventory,
     Batch, StockTransfer, StockTransferItem, StockMovement,
@@ -566,6 +567,40 @@ class StockTransferReleaseAPIView(APIView):
                             notes=f'Stock withdrawal {transfer.slip_number}',
                             created_by=request.user,
                         )
+
+                        # Batches: consume the source warehouse's
+                        # nearest-expiry lots and create matching floor
+                        # batches — mirrors inventory.views.transfer_complete,
+                        # so a lot's real expiry survives a release through
+                        # this API path too.
+                        consumed = Batch.consume_fefo(
+                            item.product, transfer.source_branch,
+                            Batch.Location.WAREHOUSE, item.quantity_approved,
+                        )
+                        for source_batch, taken in consumed:
+                            Batch.objects.create(
+                                product=item.product,
+                                branch=transfer.destination_branch,
+                                location=Batch.Location.FLOOR,
+                                source_batch=source_batch,
+                                procurement=source_batch.procurement,
+                                quantity=taken,
+                                received_date=timezone.localdate(),
+                                expiry_date=source_batch.expiry_date,
+                                notes=f'Restocked via {transfer.slip_number}',
+                            )
+                        untracked = item.quantity_approved - sum(t for _, t in consumed)
+                        if untracked > 0:
+                            Batch.objects.create(
+                                product=item.product,
+                                branch=transfer.destination_branch,
+                                location=Batch.Location.FLOOR,
+                                quantity=untracked,
+                                received_date=timezone.localdate(),
+                                expiry_date=None,
+                                notes=f'Restocked via {transfer.slip_number} '
+                                      f'(no matching warehouse batch found)',
+                            )
 
                 transfer.status = StockTransfer.Status.RELEASED
                 transfer.save()

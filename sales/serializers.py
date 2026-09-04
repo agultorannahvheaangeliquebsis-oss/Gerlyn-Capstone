@@ -149,10 +149,12 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price
                     else product.unit_price
                 )
-                inv = Inventory.objects.select_for_update().filter(
+                # available_qty nets out anything past its expiry_date — a
+                # POS or online sale must never draw down expired stock.
+                inv = Inventory.objects.select_for_update().sellable().filter(
                     product=product, branch_id=branch_id
                 ).first()
-                if not inv or inv.quantity_on_hand < qty:
+                if not inv or inv.available_qty < qty:
                     raise serializers.ValidationError(
                         {'items': f'Not enough stock for {product.product_name}.'}
                     )
@@ -194,8 +196,8 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 )
                 inv.quantity_on_hand -= qty
                 inv.save()
-                # FEFO: drain whatever batches exist for this product/branch,
-                # nearest-expiry first — mirrors sales/views.py:_deduct_stock.
-                Batch.consume_fefo(product, inv.branch, qty)
+                # FEFO: drain the nearest-expiry floor batches for this
+                # product/branch — mirrors sales/views.py:_deduct_stock.
+                Batch.consume_fefo(product, inv.branch, Batch.Location.FLOOR, qty)
 
         return txn

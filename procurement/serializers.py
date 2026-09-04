@@ -328,16 +328,19 @@ class ProcurementStatusSerializer(serializers.Serializer):
                     )
 
                     # Auto-create a Batch record for FEFO tracking. Uses
-                    # delivery_date as received_date. expiry_date isn't known
-                    # at PO time — staff update it after physical inspection.
+                    # delivery_date as received_date. expiry_date is left
+                    # blank — this API path has no field to collect it from
+                    # (the web receiving screen, procurement.views.
+                    # delivery_receive, takes a real per-item expiry date).
                     Batch.objects.create(
                         product=item.product,
                         branch=instance.branch,
+                        location=Batch.Location.WAREHOUSE,
                         procurement=instance,
                         quantity=qty_received,
                         received_date=received_date,
-                        expiry_date=received_date,  # placeholder — staff updates after inspection
-                        notes=f"Auto-created from {instance.po_number}. Update expiry date after inspection.",
+                        expiry_date=None,
+                        notes=f"Auto-created from {instance.po_number}.",
                     )
 
         return instance

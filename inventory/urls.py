@@ -26,6 +26,7 @@ urlpatterns = [
 
     # Alerts Center
     path('alerts/', views.alerts_center, name='alerts_center'),
+    path('alerts/write-off/<int:pk>/', views.expiry_write_off, name='expiry_write_off'),
 
     # Withdrawal slips (stock transfers)
     path('withdrawals/', views.transfer_list, name='transfer_list'),

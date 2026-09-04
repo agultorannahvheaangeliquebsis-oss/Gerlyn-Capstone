@@ -175,6 +175,14 @@ white-on-white.
     shape, and every link lands on a filtered catalog that actually has stock
     behind it.
     {% endcomment %}
+    {% comment %}
+    Overridden empty on the catalog page: its own Filters rail already has a
+    Category checklist, so this row of quick links would just be the same
+    list stated a second way, right above it. Everywhere else on the
+    storefront (Home, About) keeps it — it's their only way into a filtered
+    catalog.
+    {% endcomment %}
+    {% block shop_quick_categories %}
     {% if nav_categories %}
     <nav class="shop-quick" aria-label="{% t 'Shop by category' %}">
       {% for c in nav_categories %}
@@ -182,6 +190,7 @@ white-on-white.
       {% endfor %}
     </nav>
     {% endif %}
+    {% endblock %}
 
     {% comment %}
     Three bare icons on the green band, no white pills behind them. The
@@ -291,6 +300,15 @@ white-on-white.
         <a href="{% url 'about' %}" class="{% if request.path == '/about/' %}active{% endif %}">{% t "About Us" %}</a>
       </nav>
 
+      {% comment %}
+      Overridden empty on the catalog page: its own Filters rail already has
+      a Branch checklist (ticking one becomes your shopping branch — see
+      orders.customer_views.product_catalog), so this status line would just
+      be the same fact stated a second way. Everywhere else on the storefront
+      (product detail, cart, checkout) has no other branch control, so it
+      keeps this as the one way to see and change it there.
+      {% endcomment %}
+      {% block shop_status %}
       <span class="shop-status">
         <span class="status-dot" aria-hidden="true"></span>
         {% if nav_selected_branch %}
@@ -300,6 +318,7 @@ white-on-white.
           <a href="{% url 'orders:select_branch' %}">{% t "Choose a branch to see stock and prices" %}</a>
         {% endif %}
       </span>
+      {% endblock %}
     </div>
   </div>
 </header>

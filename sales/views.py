@@ -280,10 +280,13 @@ def _deduct_stock(txn, user):
     never partially applies.
     """
     for item in txn.items.select_related('product').all():
-        inv = Inventory.objects.select_for_update().filter(
+        # available_qty nets out anything past its expiry_date — stock that
+        # expired after the order was placed but before it was fulfilled must
+        # not be handed to the customer just because the order predates it.
+        inv = Inventory.objects.select_for_update().sellable().filter(
             product=item.product, branch=txn.branch
         ).first()
-        available = inv.quantity_on_hand if inv else 0
+        available = inv.available_qty if inv else 0
         if available < item.quantity_sold:
             raise _OrderActionError(
                 f'Not enough stock for {item.product.product_name} — '
@@ -292,11 +295,12 @@ def _deduct_stock(txn, user):
         before = inv.quantity_on_hand
         inv.quantity_on_hand -= item.quantity_sold
         inv.save()
-        # FEFO: drain whatever batches exist for this product/branch,
-        # nearest-expiry first. The aggregate Inventory row above remains
-        # the source of truth for quantity_on_hand regardless of whether
-        # batches happen to cover it.
-        Batch.consume_fefo(item.product, txn.branch, item.quantity_sold)
+        # FEFO: drain the nearest-expiry floor batches for this product/
+        # branch. Batches now fully back quantity_on_hand (see Batch's own
+        # docstring), so this should always find enough to consume — the
+        # available_qty check above already confirmed non-expired batches
+        # cover this sale.
+        Batch.consume_fefo(item.product, txn.branch, Batch.Location.FLOOR, item.quantity_sold)
         StockMovement.objects.create(
             inventory=inv,
             location_type=StockMovement.LocationType.FLOOR,

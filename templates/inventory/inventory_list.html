@@ -153,37 +153,49 @@ across the full width leave the default block padding as empty card.
         <th>Product</th>
         <th>Branch</th>
         <th>Category</th>
-        <th class="num">Qty on Hand</th>
+        <th class="num">Batch Qty</th>
+        <th>Expiry Date</th>
+        <th>Received</th>
         <th class="num">Reorder Level</th>
-        <th>Nearest Expiry</th>
-        <th>Last Updated</th>
         <th>Status</th>
-        <th class="end">Actions</th>
+        {% if can_adjust %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
+      {% comment %}
+      One row per BATCH, not per product/branch — a restock with a
+      different expiry never merges into an existing row (see
+      inventory.models.Batch). Reorder Level and Status are still row-level
+      facts about the whole product/branch, so they repeat identically
+      across every batch row for the same product/branch — there is only
+      ever one of each per product/branch, same as before this change.
+      A row with no batch (row.batch is None) is a 0-quantity "No Stock"
+      product/branch with nothing to show a lot for.
+      {% endcomment %}
       {% for row in rows %}
       <tr data-filter-text="{{ row.inv.product.product_name }} {{ row.inv.product.sku_code }}">
         <td data-label="Product" class="strong">{{ row.inv.product.product_name }}</td>
         <td data-label="Branch">{{ row.inv.branch.branch_name }}</td>
         <td data-label="Category" class="gv-meta">{{ row.inv.product.category.category_name|default:"—" }}</td>
-        <td data-label="Qty on Hand" class="num strong">{{ row.inv.quantity_on_hand }}</td>
+        <td data-label="Batch Qty" class="num strong">{% if row.batch %}{{ row.batch.quantity }}{% else %}0{% endif %}</td>
+        <td data-label="Expiry Date">{% if row.batch %}{{ row.batch.expiry_date|date:"Y-m-d"|default:"—" }}{% else %}—{% endif %}</td>
+        <td data-label="Received" class="gv-meta">{% if row.batch %}{{ row.batch.received_date|date:"Y-m-d" }}{% else %}—{% endif %}</td>
         <td data-label="Reorder Level" class="num gv-meta">{{ row.inv.reorder_level }}</td>
-        <td data-label="Nearest Expiry">{{ row.inv.expiry_date|date:"Y-m-d"|default:"—" }}</td>
-        <td data-label="Last Updated" class="gv-meta">{{ row.inv.last_stock_update|date:"Y-m-d" }}</td>
         <td data-label="Status">
           {% if row.status == "No Stock" %}<span class="pill pill-danger">No Stock</span>
           {% elif row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
+        {% if can_adjust %}
         <td data-label="Actions">
           <span class="row-actions">
             <button type="button" class="icon-btn icon-btn-action"
-                    title="Edit" aria-label="Edit stock for {{ row.inv.product.product_name }}"
-                    onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }}, '{{ row.inv.expiry_date|date:"Y-m-d"|default:"" }}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+                    title="Edit reorder level" aria-label="Edit reorder level for {{ row.inv.product.product_name }}"
+                    onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
           </span>
         </td>
+        {% endif %}
       </tr>
       {% empty %}
       <tr>
@@ -293,10 +305,11 @@ across the full width leave the default block padding as empty card.
 </div>
 {% endif %}
 
+{% if can_adjust %}
 <div class="modal-overlay" id="edit-inventory-modal">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-inventory-title" style="max-width:420px;">
     <div class="modal-head">
-      <h2 id="edit-inventory-title">Edit Inventory</h2>
+      <h2 id="edit-inventory-title">Edit Reorder Level</h2>
       <button type="button" class="modal-close" id="close-edit-inventory-modal" aria-label="Close">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -316,18 +329,9 @@ across the full width leave the default block padding as empty card.
         <div class="field-static" id="edit-inventory-branch"></div>
       </div>
       <div class="field">
-        <label for="edit-inventory-reorder">Reorder Level{% if can_edit_reorder %} <span style="color:var(--danger-dot);">*</span>{% endif %}</label>
-        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0"
-               {% if can_edit_reorder %}required{% else %}disabled{% endif %}>
-        {% if can_edit_reorder %}
-          <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Critical.</p>
-        {% else %}
-          <p class="gv-meta" style="margin:4px 0 0;">Only a Branch Manager or the Owner can change this — ask them if it needs adjusting.</p>
-        {% endif %}
-      </div>
-      <div class="field">
-        <label for="edit-inventory-expiry">Nearest Expiry (optional)</label>
-        <input type="date" id="edit-inventory-expiry" name="expiry_date">
+        <label for="edit-inventory-reorder">Reorder Level <span style="color:var(--danger-dot);">*</span></label>
+        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0" required>
+        <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Critical.</p>
       </div>
     </form>
 
@@ -337,6 +341,7 @@ across the full width leave the default block padding as empty card.
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -403,7 +408,6 @@ across the full width leave the default block padding as empty card.
   var productEl = document.getElementById('edit-inventory-product');
   var branchEl = document.getElementById('edit-inventory-branch');
   var reorderEl = document.getElementById('edit-inventory-reorder');
-  var expiryEl = document.getElementById('edit-inventory-expiry');
   if (!modal) return;
 
   function open() { modal.classList.add('is-open'); }
@@ -411,12 +415,11 @@ across the full width leave the default block padding as empty card.
 
   var editUrlTemplate = '{% url "inventory_edit" 0 %}';  // pk=0 placeholder, swapped per-row below
 
-  window.openEditInventory = function (pk, productName, branchName, reorderLevel, expiryDate) {
+  window.openEditInventory = function (pk, productName, branchName, reorderLevel) {
     form.action = editUrlTemplate.replace('/0/', '/' + pk + '/');
     productEl.textContent = productName;
     branchEl.textContent = branchName;
     reorderEl.value = reorderLevel;
-    expiryEl.value = expiryDate || '';
     open();
   };
 
