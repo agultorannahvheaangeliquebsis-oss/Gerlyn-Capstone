@@ -118,4 +118,96 @@
       if (!d.contains(e.target)) d.open = false;
     });
   });
+
+  /* Sliding nav highlight ("magic move"): one absolutely-positioned element
+     inside .sb-nav that slides and resizes to sit behind whichever row is
+     hovered or keyboard-focused, and rests behind the active/current-page row
+     when nothing is. It replaces the per-row hover wash, which popped in and
+     out on each row on its own. The motion is a CSS transform/size transition
+     (.sb-highlight in gerlyn.css); the global prefers-reduced-motion rule there
+     already flattens every transition to ~0, so nothing extra is needed here.
+
+     Because the highlight is an absolute child of the scrolling .sb-nav, it
+     scrolls with the rows for free and offsetTop stays right — the only times
+     it must re-measure are when a layout-changing transition finishes (sidebar
+     collapse/expand, a group opening) or the window resizes. */
+  var sidebarEl = document.getElementById('sidebar');
+  if (sbNav) {
+    var highlight = document.createElement('div');
+    highlight.className = 'sb-highlight';
+    highlight.setAttribute('aria-hidden', 'true');
+    sbNav.insertBefore(highlight, sbNav.firstChild);
+
+    var HL_SEL = '.sb-item, .sb-tree-toggle, .sb-tree-file';
+    var hoverTarget = null;
+
+    function placeHighlight(el, visible) {
+      if (!el) return;
+      highlight.style.transform =
+        'translate(' + el.offsetLeft + 'px, ' + el.offsetTop + 'px)';
+      highlight.style.width = el.offsetWidth + 'px';
+      highlight.style.height = el.offsetHeight + 'px';
+      highlight.style.opacity = visible ? '1' : '0';
+    }
+
+    function activeRow() {
+      var active = sbNav.querySelector('.sb-item--active, .sb-tree-file--active');
+      if (!active) return null;
+      /* Collapsed: a group's files are display:none, so a selected file has no
+         box to rest behind — use its group's icon, which is the row that
+         carries the active tint at this width. */
+      if (app.classList.contains('sidebar-collapsed') &&
+          active.classList.contains('sb-tree-file')) {
+        var root = active.closest('.sb-tree-root');
+        return root ? root.querySelector('.sb-tree-toggle') : null;
+      }
+      return active;
+    }
+
+    /* Rest state: behind the hovered row if any, else the active row. With
+       neither, park (invisibly) on the first row so the first hover slides in
+       from a sane spot instead of growing out of the corner. */
+    function settle() {
+      var target = hoverTarget || activeRow();
+      placeHighlight(target || sbNav.querySelector(HL_SEL), !!target);
+    }
+
+    sbNav.addEventListener('mouseover', function (e) {
+      var el = e.target.closest(HL_SEL);
+      if (el && el !== hoverTarget && sbNav.contains(el)) {
+        hoverTarget = el;
+        placeHighlight(el, true);
+      }
+    });
+    sbNav.addEventListener('mouseleave', function () {
+      hoverTarget = null;
+      settle();
+    });
+    sbNav.addEventListener('focusin', function (e) {
+      var el = e.target.closest(HL_SEL);
+      if (el) { hoverTarget = el; placeHighlight(el, true); }
+    });
+    sbNav.addEventListener('focusout', function (e) {
+      if (!sbNav.contains(e.relatedTarget)) { hoverTarget = null; settle(); }
+    });
+
+    if (sidebarEl) {
+      sidebarEl.addEventListener('transitionend', function (e) {
+        if (e.target === sidebarEl && e.propertyName === 'width') settle();
+      });
+    }
+    sbNav.addEventListener('transitionend', function (e) {
+      if (e.target.classList.contains('sb-tree') &&
+          e.propertyName === 'grid-template-rows') settle();
+    });
+
+    var hlResizeTimer;
+    window.addEventListener('resize', function () {
+      clearTimeout(hlResizeTimer);
+      hlResizeTimer = setTimeout(settle, 100);
+    });
+
+    requestAnimationFrame(settle);
+    window.addEventListener('load', settle);
+  }
 })();

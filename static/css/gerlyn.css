@@ -680,6 +680,11 @@ input::placeholder { color: var(--ink-500); }
 .sb-nav {
   display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0;
   overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
+  /* position: relative makes this the offsetParent every row's offsetTop/Left
+     is measured against (sidebar.js), and the containing block the absolutely
+     positioned .sb-highlight scrolls with. isolation: isolate keeps that
+     element's z-index a local matter between it and the rows. */
+  position: relative; isolation: isolate;
 }
 .sb-nav + .sb-nav { margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line); }
 
@@ -694,14 +699,40 @@ input::placeholder { color: var(--ink-500); }
   border: 0; border-radius: var(--r-input);
   background: transparent; color: var(--ink-700); text-decoration: none;
   font: 600 14.5px/1.3 var(--font-sans); cursor: pointer; text-align: left;
+  /* Sit above .sb-highlight (z-index 0) so its wash never covers the label. */
+  position: relative; z-index: 1;
 }
-/* Hover: soft green wash, green text/icon, and a 3px accent bar down the left
-   edge. The bar is an inset shadow, not a border, so the row does not shift or
-   lose padding on hover. Same green that already marks an open tree branch. */
+/* Hover: the soft green wash and the 3px accent bar are no longer painted on
+   the row — a single .sb-highlight element slides behind whichever row is
+   hovered/focused and carries them (see below and sidebar.js). The row itself
+   still shifts its text/icon to green in step, the same as before. */
 .sb-item:hover, .sb-tree-toggle:hover, .sb-tree-file:hover {
-  background: var(--green-50); color: var(--action-700);
-  box-shadow: inset 3px 0 0 var(--action);
+  color: var(--action-700);
 }
+
+/* The sliding highlight ("magic move"). One element, not one per row: JS sets
+   its translate/width/height from the target row's offset box and it eases
+   between rows instead of each row's wash popping in and out. It carries
+   exactly what the per-row :hover used to paint — a green-50 fill with a 3px
+   inset accent bar — and z-index 0 keeps it behind the row text and icons.
+   opacity is JS-toggled: 0 when nothing is hovered and no row is selected.
+   The global prefers-reduced-motion rule near the end of this file already
+   flattens the transition below to ~0, so it needs no separate handling. */
+.sb-highlight {
+  position: absolute; top: 0; left: 0; z-index: 0;
+  width: 0; height: 0;
+  border-radius: var(--r-input);
+  background: var(--green-50);
+  box-shadow: inset 3px 0 0 var(--action);
+  opacity: 0; pointer-events: none;
+  transition: transform .22s cubic-bezier(.4, 0, .2, 1),
+              width .22s cubic-bezier(.4, 0, .2, 1),
+              height .22s cubic-bezier(.4, 0, .2, 1),
+              opacity .15s linear;
+}
+/* Collapsed rail: rows are 44px circles and their hover dropped the accent bar
+   (an inset bar reads as a crescent on a circle) — the highlight matches. */
+.app.sidebar-collapsed .sb-highlight { border-radius: 50%; box-shadow: none; }
 .sb-item svg, .sb-tree-toggle > svg:first-child { width: 18px; height: 18px; flex: none; }
 
 /* Active/selected item: solid dark-forest-green pill, white text for AA
