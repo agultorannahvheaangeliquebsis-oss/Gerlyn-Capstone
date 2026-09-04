@@ -1423,22 +1423,19 @@ input::placeholder { color: var(--ink-500); }
 
      .attn-row    one actionable check among several — icon, label, count
                   badge, chevron, whole row is the link
-     .attn-card   the single-actionable case — the same check promoted to a
-                  status-tinted card with a sentence of context
+     .attn-card   the single-actionable case — the same check as a quiet list
+                  row with a sentence of context
      .attn-chip   an all-clear check, collapsed so it costs one grid cell
                   instead of a full row
 
-   The tint on .attn-card is status, never action (§3): it says "this is a
-   warning", not "click here". Its call to action takes the card's OWN status
-   colour (--status-cta below), not --action green — §3 was reversed on this
-   point. --action green is now reserved for CTAs on neutral surfaces, so the
-   "View all alerts →" link in this panel's header stays green while the
-   "Review →" inside the tinted card does not.
-
-   The card carries its status as local custom properties rather than
-   repeating each token in a --danger override, so a third status only needs
-   the five --status-* lines. Escalation is a data decision made in
-   _needs_attention_rows (pill-danger), not re-derived here. */
+   .attn-card is a quiet list row, not a tinted panel (§3): plain surface, a
+   3px amber left accent for status, a bottom hairline, and the whole row is
+   the link — so no "Review" text, just a muted chevron as affordance. The
+   count that used to sit beside the title is gone; the detail line already
+   opens with the number ("2 purchase orders raised but not yet received").
+   Escalation (critical stock, expired batches) is a data decision made in
+   _needs_attention_rows and only swaps the left accent to red via
+   --status-dot. */
 /* Padding tracks .feed-row exactly. The two lists sit side by side in one grid
    row at the same type size, so any difference between them reads as a
    mistake rather than as a distinction — these rows are single-line, so
@@ -1461,49 +1458,36 @@ input::placeholder { color: var(--ink-500); }
 .attn-chevron { color: var(--ink-400); font-size: 18px; line-height: 1; }
 
 .attn-card {
-  --status-bg:   var(--warn-bg);
-  --status-line: #EAC97E;
-  --status-ink:  var(--warn-fg);
-  --status-dot:  var(--warn-dot);
-  --status-cta:  var(--warn-cta);
+  --status-dot: var(--warn-dot);
 
   display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: var(--s3);
-  margin: var(--s4) var(--s6); padding: 13px var(--s4);
-  background: var(--status-bg); border: 1px solid var(--status-line);
-  border-left: 4px solid var(--status-dot); border-radius: 6px;
+  /* Same left inset as .attn-row's content — the 3px accent eats the first
+     3px of the gutter, it does not add to it. */
+  padding: 12px var(--s6); padding-left: calc(var(--s6) - 3px);
+  background: none;
+  border: 0;
+  border-left: 3px solid var(--status-dot);
+  border-bottom: 1px solid var(--line-soft);
   color: var(--ink-900); text-decoration: none;
 }
-/* An escalated check — critical stock, already-expired batches. Without this
-   the card stayed amber while the .pill inside it went red, so the surface
-   and its own count badge disagreed about severity. */
-.attn-card--danger {
-  --status-bg:   var(--danger-bg);
-  --status-line: #E6B3AE;
-  --status-ink:  var(--danger-fg);
-  --status-dot:  var(--danger-dot);
-  --status-cta:  var(--danger-cta);
-}
-.attn-card:hover { box-shadow: var(--shadow-card); color: var(--ink-900); }
-.attn-card .attn-ico {
-  width: 32px; height: 32px; border-radius: var(--r-input);
-  background: var(--surface); border: 1px solid var(--status-line); color: var(--status-ink);
-  align-items: center; justify-content: center;
-}
-/* The count badge is a .pill, whose -bg is the SAME token as the card it sits
-   on (pill-warn on --warn-bg, pill-danger on --danger-bg), so it painted tint
-   on identical tint and the count read as loose text. Lift it onto --surface;
-   the pill keeps its own -fg, so the status colour still comes through. */
-.attn-card .pill { background: var(--surface); }
-.attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 var(--font-sans); color: var(--status-ink); }
+.attn-card:last-child { border-bottom: none; }
+/* An escalated check — critical stock, already-expired batches — swaps the
+   left accent to red so it agrees with the danger pill the multi-row form of
+   the same check carries. */
+.attn-card--danger { --status-dot: var(--danger-dot); }
+.attn-card:hover { background: var(--green-50); color: var(--ink-900); }
+/* Neutral ink, no box — the icon marks the row, it does not carry the status;
+   the left accent does that. 1px nudge to sit it on the title's baseline. */
+.attn-card .attn-ico { margin-top: 1px; }
+.attn-card-title { display: block; font: 700 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
 /* 1.4 and 2px, matching the title/sub pairing in .feed-row beside it: the
-   detail is this title's second line, not a paragraph under it. The sentence
-   itself was cut back in _needs_attention_rows to fit that. */
-.attn-card-body { font: 400 13px/1.4 var(--font-sans); color: var(--ink-700); margin-top: 2px; }
-/* §3: the CTA takes the card's status colour, not --action. Hover deepens to
-   the status's own -fg (warn 5.43:1, danger 7.01:1) rather than --action-700,
-   which would jump hue mid-interaction. */
-.attn-card-go { display: inline-flex; align-items: center; gap: 6px; align-self: center; white-space: nowrap; font: 700 13.5px/1 var(--font-sans); color: var(--status-cta, var(--action)); }
-.attn-card:hover .attn-card-go { color: var(--status-ink, var(--action-700)); }
+   detail is this title's second line, not a paragraph under it. It opens with
+   the count, which is why the title carries no separate badge. */
+.attn-card-body { font: 400 13px/1.4 var(--font-sans); color: var(--ink-600); margin-top: 2px; }
+/* The whole card is the link; the chevron is affordance only, so it takes the
+   same muted non-text ink as the .attn-row chevron and does not shift on
+   hover. */
+.attn-card-go { display: inline-flex; align-items: center; align-self: center; color: var(--ink-400); }
 
 .attn-clear { padding: var(--s4) var(--s6); }
 .attn-clear-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }

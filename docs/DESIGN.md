@@ -277,6 +277,7 @@ This already exists conceptually as the Dashboard's low-stock preview and the Al
 Adapt as:
 - Dashboard keeps a compact `.card` version, max 5 rows: Low Stock, Expiring Soon, Pending POs, Unfulfilled/Pending Orders, Overdue Billing — each with a `.pill` count badge and trailing chevron
 - Zero-count checks collapse into a compact "All clear" chip instead of a full row — only checks with a nonzero count get a full row with icon, label, count badge, chevron, and outbound link
+- When exactly one check is live, it renders as `.attn-card` — the same row without the count badge (the detail sentence leads with the number) plus one line of context under the label. It is a plain row with a status-coloured left accent, **not** a tinted panel; see §3
 - Every actionable row links out: Low Stock/Expiring → Alerts Center tabs, Pending POs → Purchase Orders, Pending Orders → Sales & Orders, Overdue Billing → Billing's Outstanding Balances view
 - Retains "View all alerts →" link already specced in Cleanup tasks — this list is that preview, formalized
 - Alerts Center's own Low Stock Alerts tab is the full, non-compact version of this same row pattern (icon, label, count) but with the existing Qty/Reorder/Suggested/Risk columns intact — no change to that table
@@ -340,22 +341,34 @@ Why it went: sitting beside Needs Attention it read as a sixth unlisted check, a
 
 If per-branch pace is wanted again, it belongs somewhere with room to state its own axis — not adjacent to an actionable checklist. `_branch_status_rows()` and the `BRANCH_*` thresholds were deleted with the panel; recover them from history rather than rewriting from scratch.
 
-**3. Status color rule — enforce consistently**
+**3. Status color — tint a surface only where the surface's whole job is the status**
 
-> **A CTA inside a status-tinted surface takes that status's own color. `--action` green is reserved for CTAs on neutral/unthemed surfaces.**
-> The tint decides the CTA: a warn-tinted card's "Review →" is `--warn-cta`, a danger-tinted card's is `--danger-cta`. Off a tint, every CTA stays `--action` green.
-> Status color still never *substitutes* for action color: a "Create PO" button on a plain white page is `--action` green, never amber.
+> **A `-bg` fill belongs on a surface whose only job is to carry a status — a
+> confirmation icon, a `.pill`, a `.banner`. A checklist row is not that: it
+> carries a label and a link and reads as one of several. Mark its status
+> with a 3px left accent in the `-dot` color, never a `-bg` fill.**
 
-**This reverses the previous rule, it does not extend it.** §3 used to read "amber/warning means warning status only — never use it for action buttons… status color and action color are separate systems," and required a CTA to stay green *regardless* of the surface under it. That is no longer the rule and should not be reintroduced from doc history. What changed: on a tinted card the green CTA read as a second, competing status ("green = fine") on a surface whose whole job was to say "not fine." The surface owns the semantics; the CTA inherits them.
+`.attn-card` used to be the counter-example — a full `--warn-bg` panel with a
+1px border, a boxed icon, and a `--warn-cta`-tinted "Review →". Beside
+`.attn-row`, the plain form of the same check when more than one is live, the
+single-item case shouted. It now renders the way `.attn-row` does: a plain
+row on the panel surface, a `--line-soft` bottom hairline, the whole row as
+the link, status shown only by a left accent (`--status-dot`; red on
+`.attn-card--danger`). No `-bg` fill, no boxed icon, no count badge — the
+detail sentence opens with the number — and the chevron is affordance only:
+`--ink-400`, the non-text chevron token, with no hover shift. The
+`--status-bg` / `--status-line` / `--status-ink` / `--status-cta` custom
+properties that drove the old panel are deleted.
 
-The narrower claim inside the old rule survives — status color is not a *palette for buttons*. What died is the "regardless of surrounding color" clause.
-
-**Applying it:**
-- Scope is strictly CTAs *inside* a `*-bg`/`*-fg` tinted card or pill. Nav, table row actions, header links like "View all alerts →", and every `.btn-primary` are on neutral surfaces and stay green — this is a per-status modifier, not a change to `--action`
-- The card carries its status as local `--status-*` custom properties (`.attn-card` / `.attn-card--danger`); a CTA reads `var(--status-cta)`. A new status needs the five `--status-*` lines, not a new CTA rule
-- Hover deepens to the status's own `-fg`, never `--action-700` — jumping hue mid-interaction reads as a different control
-
-**The `-dot` tokens are not all usable as CTA type.** They were authored as dot/border colors. Measured against their own `-bg` at the CTA's 13.5px/700 — below the 18.66px-bold large-text threshold, so the bar is **4.5:1, not 3:1**:
+**CTAs on a genuinely tinted surface.** There is none in the app now. If one
+is added — a standalone alert card, say — its CTA takes that surface's own
+status color, never `--action` green, which would read as a second, competing
+status ("green = fine") on a surface whose job is "not fine". `--action`
+green stays the CTA color on neutral/unthemed surfaces; status color still
+never *substitutes* for it (a "Create PO" button on a white page is green,
+never amber). Such a CTA needs an `-cta` token verified numerically first —
+the `-dot` tokens were authored as dot/border colors and most fail 4.5:1 on
+their own `-bg` (the CTA's 13.5px/700 is below the large-text threshold):
 
 | status | `-dot` on own `-bg` | verdict |
 |---|---|---|
@@ -364,7 +377,10 @@ The narrower claim inside the old rule survives — status color is not a *palet
 | `--ok-dot` | 2.94:1 | would fail — needs its own `-cta` before use |
 | `--info-dot` | 3.05:1 | would fail — needs its own `-cta` before use |
 
-So: **add an `-cta` token per status and verify it numerically before tinting a CTA on that surface.** Do not reach for the `-dot` token and assume it carries. Softening `--warn-bg` toward the dot's hue is what pushed warn from 4.44:1 to 2.83:1 — a bg change can silently break a CTA that passed before, so re-measure both tokens whenever either moves.
+`--warn-cta` is still live — the `.confirm-warn` icon uses it — and
+`--danger-cta` stays defined alongside it. Softening a `-bg` toward its dot
+hue can silently break a CTA that passed before (this is what pushed warn
+from 4.44:1 to 2.83:1), so re-measure both tokens whenever either moves.
 
 **4. Typography — consider Inter**
 Current: `system-ui`. Works fine and avoids font-loading latency. If the team wants a more distinctive look, switch to Inter (open-source, humanist, wide weight range). Not a priority — only change if actively wanted.

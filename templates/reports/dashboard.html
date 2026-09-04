@@ -490,10 +490,14 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
     <a href="{{ row.url }}" class="attn-card{% if row.tone == 'danger' %} attn-card--danger{% endif %}">
       <span class="attn-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=row.icon %}</span>
       <span>
-        <span class="attn-card-title">{{ row.label }} <span class="count count-{{ row.tone }}">{{ row.count }}</span></span>
+        <span class="attn-card-title">{{ row.label }}</span>
+        {# The detail line opens with the number, so the title needs no #}
+        {# count badge beside it. #}
         <span class="attn-card-body">{{ row.detail }}</span>
       </span>
-      <span class="attn-card-go">Review <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
+      {# The whole card is the link — the chevron is a visual affordance #}
+      {# only, so no "Review" text and aria-hidden. #}
+      <span class="attn-card-go" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg></span>
     </a>
     {% endfor %}
   {% else %}
@@ -632,7 +636,6 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
   {% endcomment %}
   <div class="card-pad">
     <div class="empty">
-      <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
       <h3>No open orders</h3>
       <p>Every order has been completed or cancelled. New ones appear here while they wait on action.</p>
     </div>
