@@ -842,14 +842,26 @@ def stock_adjustment_add(request):
 # WAREHOUSE STOCK VIEW
 # ─────────────────────────────────────────────
 
-@login_required(login_url='accounts:login')
-def warehouse_stock_list(request):
-    if request.user.role not in [
-        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
-    ]:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
+def _branch_scoped_modal_target(request):
+    """Which branch a branch-scoped create modal (Warehouse Stock's "Request
+    Stock to Floor", Stock Adjustments' "New Stock Adjustment") is scoped to.
+    Staff/Manager are pinned to their own branch as always; an Owner has
+    none, so this reads branch_id off a resubmitted POST first (redisplaying
+    the modal after a validation error) and falls back to the ?branch= GET
+    param (the modal's own branch-picker step, or the toolbar's branch
+    filter) — kept separate from the main table's branch_filter so a POST
+    error redisplay doesn't need a query string to recover the branch.
+    """
+    user_branch = get_user_branch(request.user)
+    if user_branch:
+        return user_branch
+    branch_id = request.POST.get('branch_id') or request.GET.get('branch')
+    if branch_id and str(branch_id).isdigit():
+        return Branch.objects.filter(pk=branch_id).first()
+    return None
 
+
+def _warehouse_stock_list_context(request):
     # Get the warehouse for this user's branch
     user_branch = get_user_branch(request.user)
 
@@ -930,7 +942,23 @@ def warehouse_stock_list(request):
         else:
             rows.append({'stock': s, 'status': status, 'batch': None})
 
-    return render(request, 'inventory/warehouse_stock_list.html', {
+    # "Request Stock to Floor" now opens as a modal on this page instead of
+    # its own URL — see warehouse_stock_request. Staff/Manager already have a
+    # target branch (user_branch); an Owner needs one picked first, via the
+    # modal's own branch-picker step or the toolbar's branch filter, both of
+    # which land here as ?branch=.
+    request_target_branch = _branch_scoped_modal_target(request)
+    request_warehouse_stock = None
+    if request_target_branch:
+        request_warehouse = warehouse if warehouse else Warehouse.objects.filter(
+            branch=request_target_branch
+        ).first()
+        if request_warehouse:
+            request_warehouse_stock = WarehouseStock.objects.filter(
+                warehouse=request_warehouse, quantity_on_hand__gt=0
+            ).select_related('product')
+
+    return {
         'active_page': 'warehouse_stock',
         'rows': rows,
         'counts': counts,
@@ -946,10 +974,29 @@ def warehouse_stock_list(request):
         'total_products': len(matching),
         'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         # Always available to any internal role — when there's no single
-        # pinned branch (Owner), warehouse_stock_request shows a branch
-        # picker first rather than the button being hidden outright.
+        # pinned branch (Owner), the modal shows a branch picker step first
+        # rather than the button being hidden outright.
         'can_request_to_floor': True,
-    })
+        'request_target_branch': request_target_branch,
+        'request_warehouse_stock': request_warehouse_stock,
+        'show_request_modal': request.GET.get('open_request') == '1',
+    }
+
+
+@login_required(login_url='accounts:login')
+def warehouse_stock_list(request):
+    if request.user.role not in [
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+    ]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    context = _warehouse_stock_list_context(request)
+    if not isinstance(context, dict):
+        # A Staff/Manager whose branch has no warehouse yet — the context
+        # builder bails out with a redirect instead of a context dict.
+        return context
+    return render(request, 'inventory/warehouse_stock_list.html', context)
 
 
 @login_required(login_url='accounts:login')
@@ -1077,8 +1124,7 @@ def _movement_log(branch_ids=None):
 # WITHDRAWAL SLIP (STOCK TRANSFER) VIEWS
 # ─────────────────────────────────────────────
 
-@role_required(OWNER, BRANCH_MANAGER, STAFF)
-def transfer_list(request):
+def _transfer_list_context(request):
     transfers = StockTransfer.objects.select_related(
         'source_branch', 'destination_branch',
         'requested_by', 'warehouse'
@@ -1150,7 +1196,20 @@ def transfer_list(request):
     # the pre-existing role-based scoping (None = every branch for the Owner).
     movement_branch_ids = [int(branch_filter)] if branch_filter else branch_ids_for_user(request.user)
 
-    return render(request, 'inventory/transfer_list.html', {
+    # "New Stock Adjustment" now opens as a modal on this page instead of
+    # its own URL — see transfer_create. Staff/Manager already have a target
+    # branch (user_branch); an Owner needs one picked first, via the modal's
+    # own branch-picker step or the toolbar's branch filter, both of which
+    # land here as ?branch=. Same pattern as Warehouse Stock's "Request
+    # Stock to Floor" modal — see _branch_scoped_modal_target.
+    create_target_branch = _branch_scoped_modal_target(request)
+    create_floor_stock = None
+    if create_target_branch:
+        create_floor_stock = Inventory.objects.filter(
+            branch=create_target_branch, quantity_on_hand__gt=0
+        ).select_related('product')
+
+    return {
         'transfers': transfers,
         'movement_log': _movement_log(movement_branch_ids),
         'search_query': search_query,
@@ -1173,7 +1232,21 @@ def transfer_list(request):
         # already localtime()-derived, so it cannot disagree with the
         # month_start/month_end bounds the count itself was filtered on.
         'month_label': today.strftime('%B'),
-    })
+        'create_target_branch': create_target_branch,
+        'create_floor_stock': create_floor_stock,
+        # Write-offs only — Branch Restock has its own dedicated flow (the
+        # Request Stock to Floor modal on Warehouse Stock).
+        'write_off_purposes': [
+            c for c in StockTransfer.Purpose.choices
+            if c[0] != StockTransfer.Purpose.BRANCH_RESTOCK
+        ],
+        'show_create_modal': request.GET.get('open_create') == '1',
+    }
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transfer_list(request):
+    return render(request, 'inventory/transfer_list.html', _transfer_list_context(request))
 
 
 class _InsufficientStockError(Exception):
@@ -1235,37 +1308,32 @@ def _try_auto_approve(transfer, is_restock):
 
 @login_required(login_url='accounts:login')
 def warehouse_stock_request(request):
-    """Dedicated "Request Stock to Floor" entry point, reached from the
-    Warehouse Stock page — always a Branch Restock, no Purpose picker.
-    Separate on purpose from New Stock Adjustment (transfer_create below),
-    which now only handles floor-level write-offs, so the two actions can
-    never be confused for each other.
+    """POST handler for the "Request Stock to Floor" modal on the Warehouse
+    Stock page — always a Branch Restock, no Purpose picker. Separate on
+    purpose from New Stock Adjustment (transfer_create below), which now
+    only handles floor-level write-offs, so the two actions can never be
+    confused for each other.
 
-    Staff/Manager are pinned to their own branch as before. The Owner has no
-    single branch to default to, so they pick one via ?branch=<id> (or the
-    branch_id field on resubmit) — same pattern as the Floor Stock page's
-    Stock Adjustment modal, which shows a branch picker under the same
-    condition rather than hiding the action outright."""
+    The modal itself (branch picker + item form) is rendered inline by
+    warehouse_stock_list/_warehouse_stock_list_context — this view only ever
+    handles the submit, redisplaying that same page with the modal reopened
+    on a validation error so the picked branch and entered quantities aren't
+    lost. See _branch_scoped_modal_target for how the target branch (pinned
+    for Staff/Manager, picked by an Owner) is resolved.
+    """
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
         messages.error(request, 'You do not have permission to request stock.')
         return redirect('warehouse_stock_list')
 
-    user_branch = get_user_branch(request.user)
-    if user_branch:
-        target_branch = user_branch
-    else:
-        branch_id = request.GET.get('branch') or request.POST.get('branch_id')
-        target_branch = Branch.objects.filter(pk=branch_id).first() if branch_id else None
+    if request.method != 'POST':
+        return redirect('warehouse_stock_list')
 
+    target_branch = _branch_scoped_modal_target(request)
     if not target_branch:
-        # Owner hasn't picked a branch yet — show the picker instead of the
-        # item form (there's nothing to list warehouse stock FROM yet).
-        return render(request, 'inventory/warehouse_stock_request.html', {
-            'warehouse': None,
-            'branches': cached_branches(),
-        })
+        messages.error(request, 'Choose a branch first.')
+        return redirect('warehouse_stock_list')
 
     try:
         warehouse = Warehouse.objects.get(branch=target_branch)
@@ -1273,166 +1341,156 @@ def warehouse_stock_request(request):
         messages.error(request, f'No warehouse found for {target_branch.branch_name}.')
         return redirect('warehouse_stock_list')
 
-    warehouse_stock = WarehouseStock.objects.filter(
-        warehouse=warehouse, quantity_on_hand__gt=0
-    ).select_related('product')
+    transfer_date = request.POST.get('transfer_date') or date.today()
+    notes = request.POST.get('notes', '')
+    product_ids = request.POST.getlist('product_id')
+    quantities = request.POST.getlist('quantity_requested')
 
-    if request.method == 'POST':
-        transfer_date = request.POST.get('transfer_date') or date.today()
-        notes = request.POST.get('notes', '')
-        product_ids = request.POST.getlist('product_id')
-        quantities = request.POST.getlist('quantity_requested')
+    valid_items = [
+        (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
+        if pid and _safe_positive_int(qty) is not None
+    ]
 
-        valid_items = [
-            (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
-            if pid and _safe_positive_int(qty) is not None
-        ]
+    if not valid_items:
+        messages.error(request, 'Please add at least one product.')
+        context = _warehouse_stock_list_context(request)
+        if not isinstance(context, dict):
+            return context
+        context['show_request_modal'] = True
+        return render(request, 'inventory/warehouse_stock_list.html', context)
 
-        if not valid_items:
-            messages.error(request, 'Please add at least one product.')
-            return render(request, 'inventory/warehouse_stock_request.html', {
-                'warehouse_stock': warehouse_stock,
-                'warehouse': warehouse,
-            })
-
-        with transaction.atomic():
-            transfer = StockTransfer.objects.create(
-                warehouse=warehouse,
-                source_branch=warehouse.branch,
-                destination_branch=target_branch,
-                purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
-                requested_by=request.user,
-                status=StockTransfer.Status.PENDING,
-                transfer_date=transfer_date,
-                notes=notes,
+    with transaction.atomic():
+        transfer = StockTransfer.objects.create(
+            warehouse=warehouse,
+            source_branch=warehouse.branch,
+            destination_branch=target_branch,
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+            requested_by=request.user,
+            status=StockTransfer.Status.PENDING,
+            transfer_date=transfer_date,
+            notes=notes,
+        )
+        for product_id, qty in valid_items:
+            StockTransferItem.objects.create(
+                transfer=transfer,
+                product_id=product_id,
+                quantity_requested=qty,
+                quantity_approved=0,
             )
-            for product_id, qty in valid_items:
-                StockTransferItem.objects.create(
-                    transfer=transfer,
-                    product_id=product_id,
-                    quantity_requested=qty,
-                    quantity_approved=0,
-                )
 
-            _try_auto_approve(transfer, is_restock=True)
+        _try_auto_approve(transfer, is_restock=True)
 
-        if transfer.status == StockTransfer.Status.APPROVED:
-            messages.success(
-                request,
-                f'Stock request {transfer.slip_number} approved automatically — '
-                f'ready to release.'
-            )
-        else:
-            messages.success(
-                request,
-                f'Stock request {transfer.slip_number} created — awaiting approval.'
-            )
-        return redirect('transfer_list')
-
-    return render(request, 'inventory/warehouse_stock_request.html', {
-        'warehouse_stock': warehouse_stock,
-        'warehouse': warehouse,
-    })
+    if transfer.status == StockTransfer.Status.APPROVED:
+        messages.success(
+            request,
+            f'Stock request {transfer.slip_number} approved automatically — '
+            f'ready to release.'
+        )
+    else:
+        messages.success(
+            request,
+            f'Stock request {transfer.slip_number} created — awaiting approval.'
+        )
+    return redirect('transfer_list')
 
 
 @login_required(login_url='accounts:login')
 def transfer_create(request):
-    """New Stock Adjustment — floor-level write-offs only (damaged/spoiled,
-    sample/display, other). Restocking the floor FROM the warehouse is now
-    its own dedicated flow (see warehouse_stock_request, reached from the
-    Warehouse Stock page's "Request Stock to Floor" button) — keeping the
-    two entry points separate is the whole point: a write-off never touches
-    the warehouse, and a restock request never touches the floor directly."""
+    """POST handler for the "New Stock Adjustment" modal on the Stock
+    Adjustments page — floor-level write-offs only (damaged/spoiled,
+    sample/display, other). Restocking the floor FROM the warehouse is its
+    own dedicated flow (see warehouse_stock_request) — keeping the two entry
+    points separate is the whole point: a write-off never touches the
+    warehouse, and a restock request never touches the floor directly.
+
+    The modal itself (branch picker + item form) is rendered inline by
+    transfer_list/_transfer_list_context — this view only ever handles the
+    submit, redisplaying that same page with the modal reopened on a
+    validation error. See _branch_scoped_modal_target for how the target
+    branch (pinned for Staff/Manager, picked by an Owner) is resolved.
+    """
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
         messages.error(request, 'You do not have permission to create stock withdrawals.')
         return redirect('transfer_list')
 
-    user_branch = get_user_branch(request.user)
+    if request.method != 'POST':
+        return redirect('transfer_list')
+
+    target_branch = _branch_scoped_modal_target(request)
+    if not target_branch:
+        messages.error(request, 'Choose a branch first.')
+        return redirect('transfer_list')
 
     # StockTransfer.warehouse is a required FK even for a floor write-off —
     # it's what identifies which branch this slip belongs to. The write-off
     # path below never reads or writes WarehouseStock through it.
     try:
-        warehouse = Warehouse.objects.get(
-            branch=user_branch or Branch.objects.first()
-        )
+        warehouse = Warehouse.objects.get(branch=target_branch)
     except Warehouse.DoesNotExist:
-        messages.error(request, 'No warehouse found for your branch.')
+        messages.error(request, f'No warehouse found for {target_branch.branch_name}.')
         return redirect('transfer_list')
-
-    floor_stock = Inventory.objects.filter(
-        branch=warehouse.branch, quantity_on_hand__gt=0
-    ).select_related('product')
 
     write_off_purposes = [
         c for c in StockTransfer.Purpose.choices
         if c[0] != StockTransfer.Purpose.BRANCH_RESTOCK
     ]
 
-    if request.method == 'POST':
-        purpose = request.POST.get('purpose')
-        if purpose not in dict(write_off_purposes):
-            purpose = StockTransfer.Purpose.OTHER  # guards against a tampered POST
-        notes = request.POST.get('notes', '')
-        transfer_date = request.POST.get('transfer_date') or date.today()
-        product_ids = request.POST.getlist('product_id')
-        quantities = request.POST.getlist('quantity_requested')
+    purpose = request.POST.get('purpose')
+    if purpose not in dict(write_off_purposes):
+        purpose = StockTransfer.Purpose.OTHER  # guards against a tampered POST
+    notes = request.POST.get('notes', '')
+    transfer_date = request.POST.get('transfer_date') or date.today()
+    product_ids = request.POST.getlist('product_id')
+    quantities = request.POST.getlist('quantity_requested')
 
-        # Validate at least one item
-        valid_items = [
-            (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
-            if pid and _safe_positive_int(qty) is not None
-        ]
+    valid_items = [
+        (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
+        if pid and _safe_positive_int(qty) is not None
+    ]
 
-        if not valid_items:
-            messages.error(request, 'Please add at least one product.')
-            return render(request, 'inventory/transfer_form.html', {
-                'floor_stock': floor_stock,
-                'purpose_choices': write_off_purposes,
-            })
+    if not valid_items:
+        messages.error(request, 'Please add at least one product.')
+        context = _transfer_list_context(request)
+        context['show_create_modal'] = True
+        return render(request, 'inventory/transfer_list.html', context)
 
-        with transaction.atomic():
-            transfer = StockTransfer.objects.create(
-                warehouse=warehouse,
-                source_branch=warehouse.branch,
-                destination_branch=None,  # write-offs go nowhere
-                purpose=purpose,
-                requested_by=request.user,
-                status=StockTransfer.Status.PENDING,
-                transfer_date=transfer_date,
-                notes=notes,
+    with transaction.atomic():
+        transfer = StockTransfer.objects.create(
+            warehouse=warehouse,
+            source_branch=warehouse.branch,
+            destination_branch=None,  # write-offs go nowhere
+            purpose=purpose,
+            requested_by=request.user,
+            status=StockTransfer.Status.PENDING,
+            transfer_date=transfer_date,
+            notes=notes,
+        )
+
+        for product_id, qty in valid_items:
+            StockTransferItem.objects.create(
+                transfer=transfer,
+                product_id=product_id,
+                quantity_requested=qty,
+                quantity_approved=0,
             )
 
-            for product_id, qty in valid_items:
-                StockTransferItem.objects.create(
-                    transfer=transfer,
-                    product_id=product_id,
-                    quantity_requested=qty,
-                    quantity_approved=0,
-                )
+        _try_auto_approve(transfer, is_restock=False)
 
-            _try_auto_approve(transfer, is_restock=False)
-
-        if transfer.status == StockTransfer.Status.APPROVED:
-            messages.success(
-                request,
-                f'Stock Adjustment {transfer.slip_number} approved automatically — '
-                f'ready to release.'
-            )
-        else:
-            messages.success(
-                request,
-                f'Stock Adjustment {transfer.slip_number} created successfully. '
-                f'Awaiting approval.'
-            )
-        return redirect('transfer_list')
-
-    return render(request, 'inventory/transfer_form.html', {
-        'floor_stock': floor_stock,
-        'purpose_choices': write_off_purposes,
-    })
+    if transfer.status == StockTransfer.Status.APPROVED:
+        messages.success(
+            request,
+            f'Stock Adjustment {transfer.slip_number} approved automatically — '
+            f'ready to release.'
+        )
+    else:
+        messages.success(
+            request,
+            f'Stock Adjustment {transfer.slip_number} created successfully. '
+            f'Awaiting approval.'
+        )
+    return redirect('transfer_list')
 
 
 @login_required(login_url='accounts:login')

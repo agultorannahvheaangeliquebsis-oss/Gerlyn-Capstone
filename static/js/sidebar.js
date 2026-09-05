@@ -237,5 +237,14 @@
 
     requestAnimationFrame(settle);
     window.addEventListener('load', settle);
+    /* Back/forward restores from bfcache skip 'load' entirely and replay the
+       page exactly as it was frozen — including the highlight's inline
+       transform/opacity from whatever row the mouse was over when the user
+       navigated away. Without this, that stale hover position sits behind a
+       row forever, with the cursor nowhere near the sidebar, until the user
+       happens to hover the nav again. */
+    window.addEventListener('pageshow', function (e) {
+      if (e.persisted) { hoverTarget = null; settle(); }
+    });
   }
 })();

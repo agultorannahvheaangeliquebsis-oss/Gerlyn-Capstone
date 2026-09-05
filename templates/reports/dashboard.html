@@ -608,7 +608,7 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
         {% for t in open_orders %}
         <tr>
           <td data-label="Order ID" class="sku strong">
-            <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
+            <a href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order">{{ t.order_number }}</a></td>
           <td data-label="Customer">
             {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}
             {% else %}Walk-in{% endif %}</td>

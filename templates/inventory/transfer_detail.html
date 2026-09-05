@@ -1,12 +1,30 @@
-{% extends 'internal_base.html' %}
+{% extends base_template %}
 {% block title %}{{ transfer.slip_number }}{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% block content %}
 <div style="padding:8px 4px; max-width:800px;">
-  <a class="back-link" href="{% url 'transfer_list' %}">Stock Withdrawals</a>
-  <h2 style="margin:8px 0;">{{ transfer.slip_number }}
-    <span style="font-size:14px; padding:2px 10px; border-radius:7px; background:#eef; color:#334;">{{ transfer.status }}</span>
-  </h2>
+  {% comment %}
+  The same .page-head / h1 / status-pill shape the other four detail pages
+  use, in place of the hand-styled h2 and inline grey chip this one carried.
+  Two reasons, and neither is tidiness alone: the pill tints now agree with
+  the ones the list shows for the very same slip (a Released row was amber
+  there and neutral here), and the "see" overlay lifts a page's h1 into its
+  own head — a heading that was an h2 would have left the modal titled
+  "Details". See detail-modal.js.
+  {% endcomment %}
+  <div class="page-head">
+    <div>
+      <a class="back-link" href="{% url 'transfer_list' %}">Stock Withdrawals</a>
+      <h1 class="mt-2">{{ transfer.slip_number }}
+        {% if transfer.status == 'Acknowledged' %}<span class="pill pill-ok">Acknowledged</span>
+        {% elif transfer.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
+        {% elif transfer.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
+        {% elif transfer.status == 'Released' %}<span class="pill pill-warn">Released</span>
+        {% elif transfer.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
+        {% else %}<span class="pill pill-info">{{ transfer.status }}</span>{% endif %}
+      </h1>
+    </div>
+  </div>
 
   <div class="stack" style="gap:8px; margin:12px 0;">
     <div class="row wrap" style="gap:8px 32px;">

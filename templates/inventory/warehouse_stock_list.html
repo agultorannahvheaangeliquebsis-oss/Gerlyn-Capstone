@@ -62,10 +62,10 @@ there's no toolbar selector to pick from at all.{% endcomment %}
     <p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% elif filter_branch %} for {{ filter_branch.branch_name }}{% else %} across all branches{% endif %} — what a Stock Adjustment moves onto the floor</p>
   </div>
   {% if can_request_to_floor %}
-  <a class="btn btn-primary" href="{% url 'warehouse_stock_request' %}">
+  <button type="button" class="btn btn-primary" id="open-request-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Request Stock to Floor
-  </a>
+  </button>
   {% endif %}
 </div>
 
@@ -273,6 +273,138 @@ inventory.alerts.stock_status().
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
   });
+})();
+</script>
+{% endif %}
+
+{% if can_request_to_floor %}
+{% comment %}
+Same modal shell as Edit Warehouse Reorder Level above, and the Stock
+Adjustment modal on Floor Stock. Two bodies share one overlay: with a target
+branch resolved (Staff/Manager are always pinned to one; an Owner needs
+?branch= set first, via the picker below or the toolbar's own branch
+filter) it's the item form: without one, it's just the branch picker, which
+now auto-submits on change and reloads this page with that branch and
+open_request=1 so the item form reopens already populated. The item form's
+"Change" link drops ?branch= but keeps open_request=1, landing back on this
+same picker step — see _request_modal_target_branch and
+_warehouse_stock_list_context in inventory/views.py.
+{% endcomment %}
+<div class="modal-overlay{% if show_request_modal %} is-open{% endif %}" id="request-modal" data-autoopen="{% if show_request_modal %}1{% else %}0{% endif %}">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="request-modal-title" style="max-width:640px;">
+    <div class="modal-head">
+      <h2 id="request-modal-title">Request Stock to Floor</h2>
+      <button type="button" class="modal-close" id="close-request-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    {% if request_target_branch %}
+    <form method="POST" action="{% url 'warehouse_stock_request' %}" class="modal-body" id="request-form">
+      {% csrf_token %}
+      <input type="hidden" name="branch_id" value="{{ request_target_branch.id }}">
+      <p class="gv-meta" style="margin:0;">
+        Moves stock from {{ request_target_branch.branch_name }} Warehouse onto {{ request_target_branch.branch_name }}'s floor once approved and released.
+        For damaged, expired, spoiled, or other write-offs, use New Stock Adjustment instead.
+      </p>
+      <div class="grid-2">
+        <div class="field">
+          <label>Branch</label>
+          <div class="field-static" style="display:flex; align-items:center; justify-content:space-between; gap:var(--s2);">
+            <span>{{ request_target_branch.branch_name }}</span>
+            {% if branches %}<a href="?open_request=1{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if category_filter %}&amp;category={{ category_filter|urlencode }}{% endif %}" style="font-size:13px;">Change</a>{% endif %}
+          </div>
+        </div>
+        <div class="field">
+          <label for="request-transfer-date">Date</label>
+          <input id="request-transfer-date" type="date" name="transfer_date">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Items (from {{ request_target_branch.branch_name }} warehouse)</label>
+        <div class="table-wrap" style="max-height:280px; overflow-y:auto;">
+          <table class="gv-table">
+            <thead><tr><th>Product</th><th class="num">Available</th><th>Request qty</th></tr></thead>
+            <tbody>
+            {% for ws in request_warehouse_stock %}
+              <tr>
+                <td data-label="Product">
+                  {{ ws.product.product_name }}
+                  <input type="hidden" name="product_id" value="{{ ws.product.id }}">
+                </td>
+                <td class="num" data-label="Available">{{ ws.quantity_on_hand }}</td>
+                <td data-label="Request qty">
+                  <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3"><p class="gv-meta" style="padding:8px 0;">No warehouse stock available.</p></td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="request-notes">Notes</label>
+        <textarea id="request-notes" name="notes" rows="2"></textarea>
+      </div>
+    </form>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-request-modal">Cancel</button>
+      <button type="submit" form="request-form" class="btn btn-primary">Request Stock</button>
+    </div>
+    {% else %}
+    <form method="GET" class="modal-body" id="request-branch-form">
+      <p class="gv-meta" style="margin:0;">Choose which branch's warehouse to request stock from.</p>
+      <div class="field">
+        <label for="request-branch-select">Branch <span style="color:var(--danger-dot);">*</span></label>
+        <select id="request-branch-select" name="branch" required>
+          <option value="">— Choose a branch —</option>
+          {% for b in branches %}
+            <option value="{{ b.id }}">{{ b.branch_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <input type="hidden" name="open_request" value="1">
+      {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
+      {% if category_filter %}<input type="hidden" name="category" value="{{ category_filter }}">{% endif %}
+    </form>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-request-modal">Cancel</button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+<script>
+(function () {
+  var modal = document.getElementById('request-modal');
+  var openBtn = document.getElementById('open-request-modal');
+  var closeBtn = document.getElementById('close-request-modal');
+  var cancelBtn = document.getElementById('cancel-request-modal');
+  if (!modal) return;
+
+  function open() { modal.classList.add('is-open'); }
+  function close() { modal.classList.remove('is-open'); }
+
+  if (openBtn) openBtn.addEventListener('click', open);
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+  });
+  if (modal.dataset.autoopen === '1') open();
+
+  var branchSelect = document.getElementById('request-branch-select');
+  var branchForm = document.getElementById('request-branch-form');
+  if (branchSelect && branchForm) {
+    branchSelect.addEventListener('change', function () { branchForm.submit(); });
+  }
 })();
 </script>
 {% endif %}

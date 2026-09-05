@@ -3,7 +3,6 @@ from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 
 from accounts.models import User
 from billing.models import BillingRecord
@@ -35,8 +34,8 @@ def price_for(product, order_type):
 
 def _pos_user_branch(request):
     """Staff and managers are pinned to their own branch; the Owner picks one.
-    Extracted verbatim from transaction_add so the Walk-in Sale modal resolves
-    the branch exactly the way the POST handler will."""
+    Shared by transaction_add's GET (rendering the Walk-in Sale form) and its
+    POST handler, so both resolve the branch the same way."""
     if request.user.role == STAFF:
         return getattr(getattr(request.user, 'staff_profile', None), 'branch', None)
     if request.user.role == BRANCH_MANAGER:
@@ -45,9 +44,10 @@ def _pos_user_branch(request):
 
 
 def _pos_context(request):
-    """Everything the Walk-in Sale modal needs. Prefixed pos_* because this
-    lands in the Order Console's context, which already has its own `branches`
-    for the filter toolbar — a different list answering a different question."""
+    """Everything the Walk-in Sale page needs. Prefixed pos_* to distinguish
+    it from unrelated fields elsewhere (e.g. the Order Console's own
+    `branches` for its filter toolbar — a different list answering a
+    different question)."""
     user_branch = _pos_user_branch(request)
     return {
         'pos_products': Product.objects.select_related('category').all(),
@@ -132,8 +132,6 @@ def _transaction_list_context(request):
         'user_branch': branch_for_user(request.user),
         'can_pos': can_pos,
     }
-    if can_pos:
-        context.update(_pos_context(request))
     return context
 
 
@@ -366,9 +364,7 @@ def transaction_add(request):
     user_branch = _pos_user_branch(request)
 
     if request.method != 'POST':
-        # Walk-in Sale is a modal on the Order Console now. A direct hit
-        # (bookmark, back button) lands there with the modal open.
-        return redirect(f"{reverse('transaction_list')}?add=1")
+        return render(request, 'sales/transaction_form.html', _pos_context(request))
 
     branch_id = user_branch.id if user_branch else request.POST.get('branch')
     mode_of_payment = request.POST.get('mode_of_payment') or 'Cash'
@@ -479,13 +475,12 @@ def transaction_add(request):
             messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
             return redirect('transaction_detail', pk=txn.pk)
 
-    # Rejected. Re-render the console with the modal open, the header
-    # selections re-chosen, and the item rows rebuilt from what was posted —
-    # every pid/qty pair, including the ones that failed the digit check, so
-    # a mistyped quantity comes back visible instead of vanishing.
-    context = _transaction_list_context(request)
+    # Rejected. Re-render the form with the header selections re-chosen and
+    # the item rows rebuilt from what was posted — every pid/qty pair,
+    # including the ones that failed the digit check, so a mistyped quantity
+    # comes back visible instead of vanishing.
+    context = _pos_context(request)
     context.update({
-        'show_pos_modal': True,
         'pos_errors': errors,
         'pos_form_data': request.POST,
         'pos_restore_rows': [
@@ -493,4 +488,4 @@ def transaction_add(request):
             for pid, qty in zip(product_ids, quantities) if pid
         ],
     })
-    return render(request, 'sales/transaction_list.html', context)
+    return render(request, 'sales/transaction_form.html', context)

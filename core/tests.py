@@ -438,3 +438,111 @@ class AcceptanceTests(TestCase):
     def test_staff_cannot_export_reports(self):
         response = self.login('ana').get('/reports/export/sales.csv')
         self.assertNotIn('text/csv', response['Content-Type'])
+
+
+class DetailModalTests(TestCase):
+    """The "see" action on every list opens the record over the list.
+
+    What the overlay shows is the detail page's own content block, asked for
+    with ?modal=1 (core.context_processors.detail_modal swaps the base
+    template). Two things have to keep holding for that to work, and neither
+    is visible from the view code alone:
+
+      - the fragment must be a fragment. A detail template that goes back to
+        `{% extends "internal_base.html" %}` by name still renders and still
+        looks right on its own page, so nothing fails — the overlay just
+        quietly fills with a second copy of the whole app shell, sidebar and
+        all.
+      - ?modal=1 must not become a way around the branch checks. It is a
+        rendering flag, nothing else, so a refused record is still refused.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_demo', verbosity=0)
+        # seed_demo stops short of withdrawal slips, and Stock Withdrawals is
+        # the list this started from — so one is made here rather than left
+        # as the one module the check does not cover.
+        source = Branch.objects.get(branch_name='Tarcan')
+        cls.transfer = StockTransfer.objects.create(
+            warehouse=Warehouse.objects.get(branch=source),
+            source_branch=source,
+            destination_branch=Branch.objects.get(branch_name='Makinabang'),
+            purpose='Branch Restock', status='Released',
+        )
+        StockTransferItem.objects.create(
+            transfer=cls.transfer,
+            product=Product.objects.get(sku_code='SKU-004'),
+            quantity_requested=5, quantity_approved=5,
+        )
+
+    def login(self, username):
+        client = Client()
+        client.force_login(User.objects.get(username=username))
+        return client
+
+    def detail_urls(self):
+        from billing.models import BillingRecord
+        return [
+            f'/inventory/withdrawals/{self.transfer.pk}/',
+            f'/procurement/{Procurement.objects.first().pk}/',
+            f'/sales/{SalesTransaction.objects.first().pk}/',
+            f'/billing/{BillingRecord.objects.first().pk}/',
+        ]
+
+    def test_modal_flag_returns_a_fragment(self):
+        owner = self.login('gerlyn')
+        for url in self.detail_urls():
+            html = owner.get(url, {'modal': '1'}).content.decode()
+            self.assertNotIn('<!DOCTYPE', html, f'{url} returned a whole page')
+            self.assertNotIn('id="sidebar"', html, f'{url} returned the app shell')
+            # detail-modal.js lifts this into the modal's own head; without it
+            # the overlay would be titled "Details" and the record would be
+            # unnamed on screen.
+            self.assertIn('<h1', html, f'{url} has no heading to lift')
+
+    def test_same_url_without_the_flag_is_still_a_page(self):
+        owner = self.login('gerlyn')
+        for url in self.detail_urls():
+            html = owner.get(url).content.decode()
+            self.assertIn('<!DOCTYPE', html, f'{url} stopped rendering as a page')
+            self.assertIn('id="sidebar"', html, f'{url} lost the app shell')
+
+    def test_modal_flag_does_not_bypass_branch_scoping(self):
+        # carlo manages Tarcan; ben is Makinabang staff.
+        foreign_po = Procurement.objects.exclude(branch__branch_name='Tarcan').first()
+        self.assertEqual(
+            self.login('carlo').get(f'/procurement/{foreign_po.pk}/', {'modal': '1'}).status_code,
+            302,
+        )
+        tarcan_order = SalesTransaction.objects.filter(
+            branch__branch_name='Tarcan'
+        ).first()
+        self.assertEqual(
+            self.login('ben').get(f'/sales/{tarcan_order.pk}/', {'modal': '1'}).status_code,
+            302,
+        )
+
+    def test_every_view_action_opens_a_modal(self):
+        """One list left behind is one module that still navigates away.
+
+        The eye button is the same markup in every module, so this finds them
+        by it rather than by a list of files that a new module would not be
+        on.
+        """
+        offenders = []
+        for root in settings.TEMPLATES[0]['DIRS']:
+            for path in Path(root).rglob('*.html'):
+                text = path.read_text(encoding='utf-8')
+                for anchor in re.finditer(r'<a\s[^>]*?>', text, re.S):
+                    tag = anchor.group(0)
+                    if 'title="View"' in tag and 'data-detail-modal' not in tag:
+                        offenders.append(str(path.relative_to(root)))
+
+        self.assertEqual(
+            offenders, [],
+            'These "see" actions still navigate to a page of their own. Add '
+            'data-detail-modal="<record noun>" to the link, and make sure the '
+            'detail template it points at extends base_template:\n  '
+            + '\n  '.join(offenders),
+        )

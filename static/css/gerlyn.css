@@ -1268,6 +1268,69 @@ input::placeholder { color: var(--ink-500); }
   border-top: 1px solid var(--line);
 }
 
+/* -------------------------------------------------------- detail modal
+   The read-only twin of the modal above. Every list ends its rows with the
+   same eye button, and it now opens the record on top of the list rather
+   than navigating to it, so closing puts the reader back on the row, the
+   tab and the scroll position they started from.
+
+   What lands in .modal-body is the detail PAGE's own content block, fetched
+   from its URL (see detail-modal.js and partials/_modal_base.html) — so
+   these rules dress a fragment written for a full page. Two things it
+   carries are the page's, not the dialog's: the back link, which has no job
+   in a box that closes, and the <h1>, which is lifted into .modal-head.
+   Both are removed in JS rather than styled away, since either one left in
+   the flow would still be read aloud.
+
+   Wider than .modal-card's default because a record is columns and a table,
+   not a column of fields — 860px is two .grid-2 cards side by side with
+   their 320px minimum intact, and it still clears the overlay's padding on
+   a 1024px screen. */
+.detail-modal .modal-card { max-width: 860px; }
+/* Focus is moved here when the overlay opens so Escape and Tab have
+   somewhere inside the dialog to act from. It is a container, not a
+   control, so it must not draw a ring — the record inside it is what
+   the reader is being shown. */
+.detail-modal .modal-card:focus { outline: none; }
+/* The h1 that was lifted up here brings its status pill with it, and a pill
+   on a 20px baseline sits low unless the two are laid out as a row. */
+.detail-modal .modal-head h2 {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  min-width: 0;
+}
+/* .modal-body is already a flex column with a gap, so the fragment's own
+   .mb-4 spacers would double every gutter. The gap is the one that stays —
+   it applies between siblings only, and so cannot leave a trailing space at
+   the bottom of the scroll area the way a margin does. */
+.detail-modal .modal-body > * { margin-top: 0; margin-bottom: 0; }
+/* Once detail-modal.js strips the title out to the modal's own head, a
+   page-head only survives here when it also carried something actionable
+   (Purchase Orders' Print PO). That leaves .page-head with a single child,
+   and space-between has nothing left to space — flex-end keeps it pinned to
+   the same top-right corner it holds on the full page instead of drifting
+   to the left edge. */
+.detail-modal .modal-body .page-head { margin-bottom: 0; justify-content: flex-end; }
+/* Cards inside a raised surface: the shadow was lifting them off the page,
+   and repeating it inside a box that is itself already lifted reads as
+   clutter. The border still does the separating. */
+.detail-modal .modal-body .card { box-shadow: none; }
+
+.detail-modal-loading {
+  display: flex; align-items: center; justify-content: center; gap: var(--s3);
+  padding: var(--s12) 0;
+  color: var(--ink-600);
+}
+.detail-modal-spinner {
+  width: 18px; height: 18px; flex: none;
+  border: 2px solid var(--line);
+  border-top-color: var(--ink-600);
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .detail-modal-spinner { animation: detail-modal-spin .7s linear infinite; }
+}
+@keyframes detail-modal-spin { to { transform: rotate(360deg); } }
+
 /* ------------------------------------------------------- confirm dialog
    The one-question modal: a stop placed in front of an action that cannot be
    taken back. Deliberately NOT the same shape as .modal-card above — that one
@@ -1551,6 +1614,14 @@ input::placeholder { color: var(--ink-500); }
 .grow { flex: 1; }
 .wrap { flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s4); }
+/* A .grid-2 card next to a taller sibling stretches to match it, and without
+   this the extra height pools below the content instead of around it — the
+   Delivery / Proof of Payment cards read as unfinished rather than just
+   lighter on content. Same fix as .donut-card above, generalized: the
+   heading stays pinned to the top, .card-fill-body takes the slack and
+   centers in it. */
+.card-fill { display: flex; flex-direction: column; }
+.card-fill > .card-fill-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .hidden { display: none !important; }
 .mt-0{margin-top:0}.mt-2{margin-top:var(--s2)}.mt-4{margin-top:var(--s4)}.mt-6{margin-top:var(--s6)}
 .mb-0{margin-bottom:0}.mb-2{margin-bottom:var(--s2)}.mb-4{margin-bottom:var(--s4)}.mb-6{margin-bottom:var(--s6)}

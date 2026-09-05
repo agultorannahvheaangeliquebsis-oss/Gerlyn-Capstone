@@ -8,10 +8,10 @@
     <h1>Purchase Orders</h1>
   </div>
   {% if can_create %}
-  <a href="{% url 'procurement_add' %}" class="btn btn-primary">
+  <button type="button" class="btn btn-primary" id="open-po-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Create PO
-  </a>
+  </button>
   {% endif %}
 </div>
 
@@ -68,7 +68,7 @@ not a status, so it keeps the unclassed neutral default.
           {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
         </td>
         <td data-label="Action">
-          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}"
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order"
                title="View" aria-label="View purchase order {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
@@ -79,7 +79,7 @@ not a status, so it keeps the unclassed neutral default.
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
             <h3>No purchase orders</h3>
             <p>Purchase orders record what you ordered from suppliers and update stock when received.</p>
-            {% if can_create %}<a class="btn btn-primary mt-2" href="{% url 'procurement_add' %}">Create PO</a>{% endif %}
+            {% if can_create %}<button type="button" class="btn btn-primary mt-2" id="open-po-modal-empty">Create PO</button>{% endif %}
           </div>
         </td>
       </tr>
@@ -87,4 +87,83 @@ not a status, so it keeps the unclassed neutral default.
     </tbody>
   </table>
 </div>
+
+{% if can_create %}
+{% include "procurement/_po_modal.html" %}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if can_create %}
+<script>
+(function () {
+  initModal({
+    modalId: 'po-modal',
+    openerIds: ['open-po-modal', 'open-po-modal-empty'],
+    closerIds: ['close-po-modal', 'cancel-po-modal'],
+    autoopenParam: 'add',
+  });
+})();
+</script>
+{% endif %}
+{% if can_create and suppliers and products %}
+<script>
+// Global, not scoped: the template's rows are cloned with inline
+// onchange/oninput/onclick handlers, which resolve against window. po-
+// prefixed so nothing else on the list can collide with them.
+var poRows = document.getElementById('po-item-rows');
+var poTpl = document.getElementById('po-row-template');
+
+function poAddRow() {
+  poRows.appendChild(poTpl.content.cloneNode(true));
+  // Prefill cost from the product's wholesale price.
+  var last = poRows.lastElementChild;
+  var sel = last.querySelector('.js-product');
+  last.querySelector('.js-cost').value = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.cost) || '';
+  poSyncRemoveButtons();
+  poRecalc();
+}
+function poRemoveRow(btn) {
+  if (poRows.children.length > 1) { btn.closest('.item-row').remove(); poSyncRemoveButtons(); poRecalc(); }
+}
+// An order needs at least one line, so the last Remove has nothing to do.
+// It used to stay enabled and silently no-op, which reads as a broken
+// button rather than a rule.
+function poSyncRemoveButtons() {
+  var onlyOne = poRows.children.length <= 1;
+  poRows.querySelectorAll('.js-remove').forEach(function (b) {
+    b.disabled = onlyOne;
+    b.title = onlyOne ? 'An order needs at least one item' : '';
+  });
+}
+function poPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function poRecalc() {
+  var total = 0;
+  poRows.querySelectorAll('.item-row').forEach(function (r) {
+    var qty = parseInt(r.querySelector('.js-qty').value || 0, 10);
+    var cost = parseFloat(r.querySelector('.js-cost').value || 0);
+    if (qty > 0 && cost > 0) total += qty * cost;
+  });
+  document.getElementById('po-grand-total').textContent = poPeso(total);
+}
+
+(function () {
+  // A rejected submit sends the item rows back; otherwise open with one blank row.
+  var restoreEl = document.getElementById('po-restore-rows');
+  var restore = restoreEl ? JSON.parse(restoreEl.textContent) : [];
+  if (restore.length) {
+    restore.forEach(function (item) {
+      poAddRow();
+      var row = poRows.lastElementChild;
+      row.querySelector('.js-product').value = item.product_id;
+      row.querySelector('.js-qty').value = item.quantity;
+      row.querySelector('.js-cost').value = item.cost_price;
+    });
+  } else {
+    poAddRow();
+  }
+  poRecalc();
+})();
+</script>
+{% endif %}
 {% endblock %}

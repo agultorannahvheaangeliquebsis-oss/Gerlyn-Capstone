@@ -297,7 +297,7 @@ happened. The donut beside it takes the same out for the same reason.
       {% for t in transactions %}
       <tr>
         <td data-label="Order ID" class="sku strong">
-          <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
+          <a href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order">{{ t.order_number }}</a></td>
         <td data-label="Branch">{{ t.branch.branch_name }}</td>
         <td data-label="Recorded by">{% if t.staff %}{{ t.staff.username }}{% else %}—{% endif %}</td>
         <td data-label="Customer">

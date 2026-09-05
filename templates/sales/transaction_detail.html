@@ -1,4 +1,4 @@
-{% extends "internal_base.html" %}
+{% extends base_template %}
 {% block title %}{{ transaction.order_number }}{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block branch_scope %}{{ transaction.branch.branch_name }}{% endblock %}
@@ -115,7 +115,7 @@
         <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ billing.confirmed_by.username|default:"—" }}</td></tr>
       </tbody>
     </table>
-    <div class="row mt-4">
+    <div class="row mt-4" style="justify-content: flex-end;">
       <a class="btn" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
       {% if billing.status != "Paid" %}
         <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
@@ -123,7 +123,9 @@
     </div>
     {% else %}
       <p class="gv-meta">No billing record.</p>
-      <a class="btn btn-primary mt-2" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+      <div class="row mt-2" style="justify-content: flex-end;">
+        <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+      </div>
     {% endif %}
   </div>
 </div>

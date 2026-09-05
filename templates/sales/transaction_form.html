@@ -1,0 +1,428 @@
+{% extends "internal_base.html" %}
+{% load static %}
+{% block title %}Walk-in Sale{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% block branch_scope %}{% if pos_user_branch %}{{ pos_user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
+    <h1 class="mt-2">Walk-in Sale</h1>
+  </div>
+</div>
+
+{% if pos_errors %}
+<div class="banner banner-error">
+  {% for err in pos_errors %}<div>{{ err }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<form method="POST" action="{% url 'transaction_add' %}" id="pos-form">
+  {% csrf_token %}
+
+  <div class="card card-pad mb-4">
+    <div class="grid-2">
+      {% if pos_user_branch %}
+        <div class="field">
+          <label>Branch</label>
+          <div class="field-static">{{ pos_user_branch.branch_name }}
+            <span class="gv-meta">your assigned branch</span></div>
+        </div>
+      {% else %}
+        <div class="field">
+          <label for="pos-branch">Branch</label>
+          <select id="pos-branch" name="branch" required>
+            <option value="">— Choose a branch —</option>
+            {% for b in pos_branches %}
+              <option value="{{ b.id }}" {% if pos_form_data.branch == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
+      <div class="field">
+        <label for="pos-mode-of-payment">Mode of Payment</label>
+        <select id="pos-mode-of-payment" name="mode_of_payment">
+          {% for value, label in pos_payment_choices %}
+            <option value="{{ value }}" {% if pos_form_data.mode_of_payment == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="pos-order-type">Order Type</label>
+        <select id="pos-order-type" name="order_type" onchange="posRecalc()">
+          {% for value, label in pos_order_type_choices %}
+            <option value="{{ value }}" {% if pos_form_data.order_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <span class="gv-meta" id="pos-type-hint">Retail prices apply.</span>
+      </div>
+    </div>
+
+    {% comment %}
+    PWD / Senior Citizen discount. Claimed once for the whole sale, because
+    the card belongs to one person — which LINES it reaches is decided per
+    product by the eligibility flag matching the claim (is_pwd_eligible or
+    is_senior_eligible), and the cart tags the ones it misses so the cashier
+    is never surprised by the total.
+
+    The ID and name are required whenever a claim is made: the discount is
+    conditioned on presenting an ID, and a claim with none recorded is the
+    first thing an audit asks about. The view enforces this too.
+    {% endcomment %}
+    <div class="field mt-4" style="border:1px solid var(--line); border-radius:var(--r-card); padding:12px;">
+      <label class="row" style="gap:8px; align-items:center; margin:0;">
+        <input type="checkbox" id="pos-discount-toggle" value="1"
+               {% if pos_form_data.discount_type and pos_form_data.discount_type != 'None' %}checked{% endif %}>
+        <strong>Apply PWD / Senior Citizen discount</strong>
+        <span class="gv-meta">{{ pos_discount_rate_pct }}% off the VAT-exclusive price</span>
+      </label>
+
+      <div id="pos-discount-fields" class="grid-2" style="margin-top:12px;" hidden>
+        <div class="field">
+          <label for="pos-discount-type">Discount Type</label>
+          <select id="pos-discount-type" name="discount_type" onchange="posRecalc()">
+            <option value="None">— None —</option>
+            {% for value, label in pos_discount_choices %}
+              <option value="{{ value }}" {% if pos_form_data.discount_type == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="pos-discount-id">ID Number</label>
+          <input type="text" id="pos-discount-id" name="discount_id_number"
+                 placeholder="PWD / OSCA ID" value="{{ pos_form_data.discount_id_number|default:'' }}">
+        </div>
+        <div class="field">
+          <label for="pos-discount-name">Name on ID</label>
+          <input type="text" id="pos-discount-name" name="discount_holder_name"
+                 placeholder="Full name" value="{{ pos_form_data.discount_holder_name|default:'' }}">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card card-pad mb-4">
+    <div class="row-between mb-4">
+      <h3>Items</h3>
+      <button type="button" class="btn btn-sm" onclick="posAddRow()">+ Add Item</button>
+    </div>
+
+    <div class="field mb-4" style="max-width:480px;">
+      <label for="pos-scan-input">Scan or type barcode / SKU</label>
+      <div class="row" style="gap:8px;">
+        <input type="text" id="pos-scan-input" class="input grow"
+               placeholder="Scan a barcode, or type a SKU and press Enter" autocomplete="off">
+        <button type="button" class="btn" id="pos-scan-camera-btn" title="Scan with camera">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
+      </div>
+      <span class="gv-meta" id="pos-scan-status"></span>
+    </div>
+
+    <div id="pos-item-rows" class="stack"></div>
+
+    <template id="pos-row-template">
+      <div class="item-row row wrap" style="gap:12px; align-items:flex-end;">
+        <div class="field grow" style="min-width:220px;">
+          <label>Product</label>
+          <select name="product_id" class="js-product" onchange="posRecalc()">
+            <option value="">— Select a product —</option>
+            {% for p in pos_products %}
+              <option value="{{ p.id }}"
+                      data-sku="{{ p.sku_code|lower }}"
+                      data-retail="{{ p.unit_price }}"
+                      data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
+                      data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}"
+                      {# The cart preview needs every flag to mirror sales.pricing exactly. #}
+                      data-vat-exempt="{% if p.is_vat_exempt %}1{% else %}0{% endif %}"
+                      data-pwd-eligible="{% if p.is_pwd_eligible %}1{% else %}0{% endif %}"
+                      data-senior-eligible="{% if p.is_senior_eligible %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" style="width:120px;">
+          <label>Unit Price</label>
+          <input type="text" class="js-price" value="₱0.00" readonly tabindex="-1"
+                 style="background:var(--line-soft); border-color:var(--line);">
+        </div>
+        <div class="field" style="width:110px;">
+          <label>Quantity</label>
+          <input type="number" name="quantity" class="js-qty" min="1" value="1" oninput="posRecalc()">
+        </div>
+        <div class="field" style="width:120px;">
+          <label>Subtotal</label>
+          <input type="text" class="js-sub" value="₱0.00" readonly tabindex="-1"
+                 style="background:var(--line-soft); border-color:var(--line);">
+        </div>
+        {# The quiet button, not the danger one: DESIGN.md reserves danger styling for destructive actions awaiting confirmation. Dropping a line from a sale that hasn't been recorded yet is the most routine edit on the page. #}
+        <button type="button" class="btn btn-quiet js-remove" onclick="posRemoveRow(this)">Remove</button>
+      </div>
+    </template>
+
+    {% comment %}
+    The receipt-style breakdown. Only the rows that apply are shown — a sale
+    with no exempt goods and no discount collapses back to a single Total,
+    which is what it was before this existed.
+    {% endcomment %}
+    <div class="mt-6" style="border-top:1px solid var(--line); padding-top:16px;">
+      <div class="row-between" id="pos-gross-row" hidden>
+        <span class="gv-meta">Subtotal</span>
+        <span class="gv-meta" id="pos-gross">₱0.00</span>
+      </div>
+      <div class="row-between" id="pos-exempt-row" hidden>
+        <span class="gv-meta">VAT-exempt sales</span>
+        <span class="gv-meta" id="pos-exempt">₱0.00</span>
+      </div>
+      <div class="row-between" id="pos-vat-row" hidden>
+        <span class="gv-meta">VAT ({{ pos_vat_rate_pct }}%, included)</span>
+        <span class="gv-meta" id="pos-vat">₱0.00</span>
+      </div>
+      <div class="row-between" id="pos-discount-row" hidden>
+        <span class="gv-meta" id="pos-discount-label">Less: PWD/Senior discount</span>
+        <span class="gv-meta" id="pos-discount" style="color:var(--ok-fg);">−₱0.00</span>
+      </div>
+      <div class="row-between" style="margin-top:6px;">
+        <span class="gv-label">Amount due</span>
+        <span class="gv-metric" id="pos-grand-total" style="color:var(--action);">₱0.00</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <button type="submit" class="btn btn-primary">Record Sale</button>
+    <a href="{% url 'transaction_list' %}" class="btn">Cancel</a>
+  </div>
+</form>
+
+{% comment %}
+Only emitted after a rejected submit. json_script rather than a data attribute
+so the payload is escaped as JSON by Django and never has to survive a trip
+through HTML attribute quoting. The JS treats a missing element as "no rows to
+restore" and opens with one blank row, which is the normal case.
+{% endcomment %}
+{% if pos_restore_rows %}{{ pos_restore_rows|json_script:"pos-restore-rows" }}{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/barcode-scanner.js' %}"></script>
+<script>
+// USB/Bluetooth scanners type into whatever holds focus, so the scan field
+// gets it as soon as the page is ready — otherwise the first scan of every
+// sale would go nowhere.
+document.getElementById('pos-scan-input').focus();
+
+var posRows = document.getElementById('pos-item-rows');
+var posTpl = document.getElementById('pos-row-template');
+
+function posAddRow() {
+  posRows.appendChild(posTpl.content.cloneNode(true));
+  posRecalc();
+}
+function posRemoveRow(btn) {
+  if (posRows.children.length > 1) { btn.closest('.item-row').remove(); posRecalc(); }
+}
+function posPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+
+// VAT and discount rates, mirroring sales/pricing.py. This preview and the
+// server MUST agree — a cashier who quotes one number and charges another has
+// an argument at the counter — so the order of operations here is deliberately
+// the same one that module documents: strip VAT first, THEN take the 20% off.
+var POS_VAT_RATE = 0.12;
+var POS_DISCOUNT_RATE = 0.20;
+
+// Mirrors sales.pricing.discount_applies_to: PWD and Senior are separate
+// statutes, so each claim type reads its own per-product flag.
+function posDiscountApplies(opt, discountType) {
+  if (discountType === 'PWD') return opt.dataset.pwdEligible === '1';
+  if (discountType === 'Senior') return opt.dataset.seniorEligible === '1';
+  return false;
+}
+
+function posPriceLine(opt, price, qty, discountType) {
+  var vatExempt = opt.dataset.vatExempt === '1';
+  var applies = posDiscountApplies(opt, discountType);
+
+  if (applies) {
+    var base = vatExempt ? price : price / (1 + POS_VAT_RATE);
+    var unitDiscount = base * POS_DISCOUNT_RATE;
+    var net = base - unitDiscount;
+    return { unit: net, sub: net * qty, discount: unitDiscount * qty, vat: 0, exempt: true };
+  }
+  if (vatExempt) {
+    return { unit: price, sub: price * qty, discount: 0, vat: 0, exempt: true };
+  }
+  var lineTotal = price * qty;
+  return {
+    unit: price, sub: lineTotal, discount: 0,
+    vat: lineTotal - lineTotal / (1 + POS_VAT_RATE), exempt: false,
+  };
+}
+
+function posRecalc() {
+  // Wholesale orders bill at the wholesale price — show that to the cashier
+  // BEFORE the sale is recorded, not after.
+  var wholesale = document.getElementById('pos-order-type').value === 'Wholesale';
+  var discountSelect = document.getElementById('pos-discount-type');
+  var discountType = discountSelect ? discountSelect.value : 'None';
+  var discountClaimed = discountType !== 'None';
+
+  var total = 0, gross = 0, vatTotal = 0, discountTotal = 0, exemptTotal = 0;
+  var missing = 0, skipped = 0;
+
+  posRows.querySelectorAll('.item-row').forEach(function (row) {
+    var opt = row.querySelector('.js-product').selectedOptions[0];
+    if (!opt) return;
+    var price = parseFloat(
+      (wholesale ? opt.dataset.wholesale : opt.dataset.retail) || 0
+    );
+    if (wholesale && opt.dataset.hasWholesale === '0') missing++;
+
+    var qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
+    if (qty < 0) qty = 0;
+    var line = posPriceLine(opt, price, qty, discountType);
+
+    // Say WHY a line didn't drop when a discount is on — otherwise the total
+    // just looks wrong to the cashier.
+    var ineligible = discountClaimed && !posDiscountApplies(opt, discountType);
+    if (ineligible) skipped++;
+    var tag = row.querySelector('.js-skip-tag');
+    if (ineligible) {
+      if (!tag) {
+        tag = document.createElement('span');
+        tag.className = 'js-skip-tag gv-meta';
+        tag.style.color = 'var(--warn-fg)';
+        row.querySelector('.js-product').parentNode.appendChild(tag);
+      }
+      tag.textContent = 'Not eligible for ' + discountType + ' discount';
+    } else if (tag) {
+      tag.remove();
+    }
+
+    row.querySelector('.js-price').value = posPeso(line.unit);
+    row.querySelector('.js-sub').value = posPeso(line.sub);
+    total += line.sub;
+    gross += line.sub + line.discount;
+    vatTotal += line.vat;
+    discountTotal += line.discount;
+    if (line.exempt) exemptTotal += line.sub;
+  });
+
+  function showRow(rowId, valueId, amount, text) {
+    var row = document.getElementById(rowId);
+    if (!row) return;
+    row.hidden = amount <= 0.004;
+    document.getElementById(valueId).textContent = text || posPeso(amount);
+  }
+  showRow('pos-gross-row', 'pos-gross', discountTotal, posPeso(gross));
+  showRow('pos-exempt-row', 'pos-exempt', exemptTotal);
+  showRow('pos-vat-row', 'pos-vat', vatTotal);
+  showRow('pos-discount-row', 'pos-discount', discountTotal, '−' + posPeso(discountTotal));
+  if (discountClaimed) {
+    document.getElementById('pos-discount-label').textContent =
+      'Less: ' + discountType + ' discount'
+      + (skipped ? ' (' + skipped + ' item(s) not eligible)' : '');
+  }
+
+  document.getElementById('pos-grand-total').textContent = posPeso(total);
+
+  var hint = document.getElementById('pos-type-hint');
+  if (!wholesale) {
+    hint.textContent = 'Retail prices apply.';
+    hint.style.color = '';
+  } else if (missing) {
+    hint.textContent = 'Wholesale prices apply — ' + missing + ' item(s) have no wholesale price, so they stay at retail.';
+    hint.style.color = 'var(--warn-fg)';
+  } else {
+    hint.textContent = 'Wholesale prices apply.';
+    hint.style.color = 'var(--ok-fg)';
+  }
+}
+
+// Discount toggle: reveals the ID fields and switches the type select between
+// "None" and a real claim. Unticking resets to None rather than just hiding
+// the fields, so a hidden select can never post a claim the cashier can't see.
+(function () {
+  var toggle = document.getElementById('pos-discount-toggle');
+  var fields = document.getElementById('pos-discount-fields');
+  var typeSel = document.getElementById('pos-discount-type');
+  if (!toggle || !fields || !typeSel) return;
+
+  function sync() {
+    fields.hidden = !toggle.checked;
+    if (toggle.checked) {
+      // Default to the first real claim so ticking the box actually does
+      // something; leaving it on "None" would look broken.
+      if (typeSel.value === 'None') typeSel.selectedIndex = 1;
+      document.getElementById('pos-discount-id').required = true;
+      document.getElementById('pos-discount-name').required = true;
+    } else {
+      typeSel.value = 'None';
+      document.getElementById('pos-discount-id').required = false;
+      document.getElementById('pos-discount-name').required = false;
+    }
+    posRecalc();
+  }
+  toggle.addEventListener('change', sync);
+  sync();
+})();
+
+(function () {
+  // A rejected submit sends the basket back; otherwise open with one row.
+  var restoreEl = document.getElementById('pos-restore-rows');
+  var restore = restoreEl ? JSON.parse(restoreEl.textContent) : [];
+  if (restore.length) {
+    restore.forEach(function (item) {
+      posAddRow();
+      var row = posRows.lastElementChild;
+      row.querySelector('.js-product').value = item.product_id;
+      row.querySelector('.js-qty').value = item.quantity;
+    });
+  } else {
+    posAddRow();
+  }
+  posRecalc();
+})();
+
+// Barcode / SKU scanning — finds the matching product option (by data-sku,
+// case-insensitive) among the row-template's options, then either bumps an
+// existing row's quantity or adds a new row for it. Works identically whether
+// the code arrives from a USB/Bluetooth hardware scanner (which just types +
+// Enter) or the in-app camera.
+(function () {
+  function findProductOptionBySku(code) {
+    var needle = code.trim().toLowerCase();
+    if (!needle) return null;
+    return posTpl.content.querySelector('option[data-sku="' + CSS.escape(needle) + '"]');
+  }
+
+  function handleScan(code) {
+    var status = document.getElementById('pos-scan-status');
+    var match = findProductOptionBySku(code);
+    if (!match) {
+      status.textContent = 'No product matches "' + code + '".';
+      status.style.color = 'var(--danger-fg)';
+      return;
+    }
+
+    var existingRow = Array.from(posRows.querySelectorAll('.item-row')).find(
+      function (row) { return row.querySelector('.js-product').value === match.value; }
+    );
+    if (existingRow) {
+      var qtyInput = existingRow.querySelector('.js-qty');
+      qtyInput.value = parseInt(qtyInput.value || 0, 10) + 1;
+    } else {
+      posAddRow();
+      posRows.lastElementChild.querySelector('.js-product').value = match.value;
+    }
+    posRecalc();
+    status.textContent = 'Added: ' + match.textContent;
+    status.style.color = 'var(--ok-fg)';
+  }
+
+  GerlynBarcodeScanner.attach(document.getElementById('pos-scan-input'), {
+    onScan: handleScan,
+    cameraBtn: document.getElementById('pos-scan-camera-btn'),
+  });
+})();
+</script>
+{% endblock %}

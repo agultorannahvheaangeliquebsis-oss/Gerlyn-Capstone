@@ -1,10 +1,58 @@
 {% extends "internal_base.html" %}
+{% load static %}
 {% block title %}Receive Delivery{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
 List and Stock Adjustments: the topbar chip has to track whichever branch
 the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomment %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% block extra_css %}
+{% if receive_procurement %}
+<style>
+  {% comment %}
+  Only the receiving screen's own layout — everything else (.modal-*, .btn,
+  .pill, .gv-table) is a gerlyn.css component. See _receive_modal.html.
+  {% endcomment %}
+  .scan-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .scan-row .input { flex: 1 1 240px; min-width: 0; }
+
+  /* Verification state per row. The tint is the signal staff read while
+     counting, so it has to survive the zebra striping on the table body. */
+  #receive-modal .gv-table tbody tr.v-complete td { background: color-mix(in srgb, var(--ok, #1E7A4F) 8%, transparent); }
+  #receive-modal .gv-table tbody tr.v-partial  td { background: color-mix(in srgb, var(--warn, #B45309) 9%, transparent); }
+  #receive-modal .gv-table tbody tr.v-over     td { background: color-mix(in srgb, var(--danger, #B42318) 9%, transparent); }
+  #receive-modal .gv-table tbody tr.just-scanned td { animation: scanflash .6s ease-out; }
+  @keyframes scanflash {
+    from { background: color-mix(in srgb, var(--brand) 34%, transparent); }
+    to   { background: transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #receive-modal .gv-table tbody tr.just-scanned td { animation: none; }
+  }
+
+  .v-badge {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  /* The picked/approved fraction, beside the status word rather than glued
+     into it with a middot — see the JS below for why. */
+  .v-count {
+    font-size: 12px; color: var(--ink-600); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .v-count:empty { display: none; }
+  .scan-tally { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; }
+  .scan-tally b { font-size: 17px; display: block; }
+  .scan-feed {
+    max-height: 132px; overflow-y: auto; font-size: 12.5px;
+    margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px;
+  }
+  .scan-feed div { padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .scan-feed .bad { color: var(--danger, #B42318); }
+</style>
+{% endif %}
+{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -73,4 +121,195 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
     {% endfor %}
   </div>
 </div>
+
+{% if receive_procurement %}
+{% include "procurement/_receive_modal.html" %}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if receive_procurement %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/barcode-scanner.js' %}"></script>
+<script>
+(function () {
+  var input   = document.getElementById('scan-input');
+  var camera  = document.getElementById('scan-camera-btn');
+  var status  = document.getElementById('scan-status');
+  var feed    = document.getElementById('scan-feed');
+  var rows    = Array.prototype.slice.call(
+                  document.querySelectorAll('#receive-table tbody tr'));
+  var csrf    = document.querySelector('#receive-form [name=csrfmiddlewaretoken]').value;
+  var scanUrl = '{% url "delivery_scan" receive_procurement.pk %}';
+
+  initModal({
+    modalId: 'receive-modal',
+    closerIds: ['close-receive-modal', 'cancel-receive-modal'],
+  });
+  initModal({
+    modalId: 'unexpected-modal',
+    closerIds: ['close-unexpected-modal', 'cancel-unexpected-modal'],
+  });
+
+  function setStatus(text, kind) {
+    status.textContent = text;
+    status.style.color = kind === 'bad' ? 'var(--danger, #B42318)'
+                       : kind === 'good' ? 'var(--ok, #1E7A4F)' : '';
+  }
+
+  function logScan(text, bad) {
+    feed.hidden = false;
+    var line = document.createElement('div');
+    if (bad) line.className = 'bad';
+    var t = new Date();
+    line.textContent = t.toTimeString().slice(0, 8) + '  ' + text;
+    feed.insertBefore(line, feed.firstChild);
+  }
+
+  // --- per-row verification state -------------------------------------
+  // Recomputed from the input values rather than tracked incrementally, so
+  // typing a correction and scanning stay in agreement — there is only ever
+  // one source of truth for a row's count, and it is the field itself.
+  function paintRow(tr) {
+    var ordered = parseInt(tr.dataset.ordered, 10) || 0;
+    var unexpected = tr.dataset.unexpected === '1';
+    var got = parseInt(tr.querySelector('.qty-input').value, 10);
+    if (isNaN(got)) got = 0;
+    var badge = tr.querySelector('.v-badge');
+    var count = tr.querySelector('.v-count');
+
+    tr.classList.remove('v-complete', 'v-partial', 'v-over');
+    count.textContent = '';
+
+    if (unexpected) {
+      // Same split as the Partial branch below: the state is the word, the
+      // quantity is a number beside it. This one glued a bare count rather
+      // than a fraction, but it was the same string doing the same two jobs.
+      badge.textContent = 'Not ordered';
+      if (got > 0) count.textContent = got;
+      badge.style.color = 'var(--warn, #B45309)';
+      tr.classList.add('v-partial');
+      return 'unexpected';
+    }
+    if (got > ordered) {
+      badge.textContent = 'Over by ' + (got - ordered);
+      badge.style.color = 'var(--danger, #B42318)';
+      tr.classList.add('v-over');
+      return 'over';
+    }
+    if (got === ordered && ordered > 0) {
+      badge.textContent = 'Complete';
+      badge.style.color = 'var(--ok, #1E7A4F)';
+      tr.classList.add('v-complete');
+      return 'complete';
+    }
+    if (got > 0) {
+      badge.textContent = 'Partial';
+      count.textContent = got + '/' + ordered;
+      badge.style.color = 'var(--warn, #B45309)';
+      tr.classList.add('v-partial');
+      return 'partial';
+    }
+    badge.textContent = 'Not started';
+    badge.style.color = '';
+    return 'pending';
+  }
+
+  function repaint() {
+    var n = { complete: 0, partial: 0, pending: 0, over: 0, unexpected: 0 };
+    rows.forEach(function (tr) { n[paintRow(tr)]++; });
+    document.getElementById('tally-complete').textContent = n.complete;
+    document.getElementById('tally-partial').textContent = n.partial + n.unexpected;
+    document.getElementById('tally-pending').textContent = n.pending;
+
+    // Over-delivery is rejected server-side by design (see delivery_receive).
+    // Saying so here means staff find out while they can still fix it,
+    // rather than after losing the whole form to a failed submit.
+    if (n.over > 0) {
+      setStatus(
+        n.over + ' row' + (n.over === 1 ? '' : 's') + ' exceed what was ordered — '
+        + 'the receipt will be rejected. Correct the count, or add the extra goods '
+        + 'as an unexpected item.', 'bad');
+    }
+  }
+
+  rows.forEach(function (tr) {
+    tr.querySelector('.qty-input').addEventListener('input', repaint);
+  });
+  repaint();
+
+  // --- scanning --------------------------------------------------------
+  function bump(itemId) {
+    var tr = rows.filter(function (r) { return r.dataset.itemId === String(itemId); })[0];
+    if (!tr) return null;
+    var field = tr.querySelector('.qty-input');
+    var current = parseInt(field.value, 10);
+    field.value = (isNaN(current) ? 0 : current) + 1;
+
+    tr.classList.remove('just-scanned');
+    void tr.offsetWidth;           // restart the flash on a repeat scan
+    tr.classList.add('just-scanned');
+    tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    repaint();
+    return field.value;
+  }
+
+  function offerUnexpected(name, code) {
+    document.getElementById('unexpected-note').textContent = name
+      ? name + ' (' + code + ') is not on this purchase order.'
+      : 'Barcode ' + code + ' does not match any product in the catalog.';
+    var select = document.getElementById('unexpected-product');
+    // Preselect when we know what it is; an unknown code has nothing to
+    // preselect, so staff identify the goods themselves.
+    select.value = '';
+    if (name) {
+      Array.prototype.forEach.call(select.options, function (o) {
+        if (o.textContent.indexOf(name) === 0) select.value = o.value;
+      });
+    }
+    document.getElementById('unexpected-modal').classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function handleScan(code) {
+    setStatus('Looking up ' + code + '…');
+    var body = new FormData();
+    body.append('code', code);
+    body.append('csrfmiddlewaretoken', csrf);
+
+    fetch(scanUrl, { method: 'POST', body: body, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { setStatus(d.detail || 'Scan failed.', 'bad'); return; }
+
+        if (d.status === 'matched') {
+          var now = bump(d.item_id);
+          setStatus(d.product_name + ' — ' + now + ' of ' + d.quantity_ordered + ' counted.', 'good');
+          logScan(d.product_name + '  ' + now + '/' + d.quantity_ordered);
+        } else if (d.status === 'not_on_order') {
+          setStatus(d.product_name + ' is not on this order.', 'bad');
+          logScan(d.product_name + '  — not on this PO', true);
+          offerUnexpected(d.product_name, d.sku_code);
+        } else {
+          setStatus('No product matches ' + d.code + '.', 'bad');
+          logScan(d.code + '  — unknown code', true);
+          offerUnexpected(null, d.code);
+        }
+      })
+      .catch(function () { setStatus('Could not reach the server. Count this one by hand.', 'bad'); });
+  }
+
+  GerlynBarcodeScanner.attach(input, {
+    cameraBtn: camera,
+    onScan: handleScan,
+  });
+
+  // inputmode="none" keeps the on-screen keyboard down for hardware
+  // scanners, which is the common case at the loading bay. Tapping the field
+  // means a human wants to type, so give the keyboard back.
+  input.addEventListener('focus', function () { input.removeAttribute('inputmode'); });
+  input.focus();
+})();
+</script>
+{% endif %}
 {% endblock %}

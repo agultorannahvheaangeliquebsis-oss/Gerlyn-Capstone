@@ -42,8 +42,10 @@ from accounts.models import User
 # These still work for any admin/template-based pages.
 # =============================================================================
 
-@role_required(OWNER, BRANCH_MANAGER, STAFF, SUPPLIER)
-def procurement_list(request):
+def _procurement_list_context(request):
+    """Everything procurement_list.html needs, in one place so procurement_add's
+    error re-render (the Create PO modal reopened with what was typed) cannot
+    drift from the initial GET."""
     procurements = Procurement.objects.select_related('branch', 'supplier', 'owner').all()
 
     if request.user.role == User.Role.SUPPLIER:
@@ -66,19 +68,36 @@ def procurement_list(request):
     if status_filter:
         procurements = procurements.filter(status=status_filter)
 
-    return render(request, 'procurement/procurement_list.html', {
+    # Staff can now view this list (see core.module_permissions), but
+    # creating a PO stays Owner/Manager-only — procurement_add's own role
+    # check has always enforced that; this just stops offering a button
+    # Staff would only get rejected from now that they can reach the page.
+    can_create = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+
+    context = {
         'procurements': procurements,
         'counts': counts,
         'status_filter': status_filter,
         'today': timezone.now().date(),
-        # Staff can now view this list (see core.module_permissions), but
-        # creating a PO stays Owner/Manager-only — procurement_add's own role
-        # check has always enforced that; this just stops offering a button
-        # Staff would only get rejected from now that they can reach the page.
-        'can_create': request.user.role in [
-            User.Role.OWNER, User.Role.BRANCH_MANAGER
-        ],
-    })
+        'can_create': can_create,
+        # Create Purchase Order is a modal on this page now (see
+        # procurement_add) — ?add=1 is how a direct hit at /procurement/add/
+        # (bookmark, back button) lands here with it already open.
+        'show_po_modal': can_create and request.GET.get('add') == '1',
+        'po_errors': None,
+        'po_form_data': None,
+        'po_restore_rows': None,
+    }
+    if can_create:
+        # suppliers/products/branches/user_branch, plus the (more correct,
+        # localdate-based) 'today' the modal's Order Date field defaults to.
+        context.update(_procurement_form_context(request.user))
+    return context
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF, SUPPLIER)
+def procurement_list(request):
+    return render(request, 'procurement/procurement_list.html', _procurement_list_context(request))
 
 
 def _person_name(user):
@@ -175,8 +194,9 @@ def procurement_print(request, pk):
 
 
 def _procurement_form_context(user):
-    """Everything procurement_form.html needs, in one place so the error
-    re-render below cannot drift from the initial GET."""
+    """The suppliers/products/branches the Create PO modal needs, shared by
+    _procurement_list_context's initial GET and procurement_add's error
+    re-render so the two cannot drift apart."""
     from branches.models import Branch
 
     user_branch = branch_for_user(user)  # None for Owner; the manager's branch otherwise
@@ -208,80 +228,94 @@ def _procurement_form_context(user):
 
 @login_required(login_url='accounts:login')
 def procurement_add(request):
+    """POST handler for the "Create Purchase Order" modal on the Purchase
+    Orders list — the modal itself (branch/supplier/date fields and the item
+    rows) is rendered inline by procurement_list/_procurement_list_context.
+    This view only ever handles the submit, redisplaying that same page with
+    the modal reopened on a validation error so the picked branch/supplier
+    and entered rows aren't lost. A direct GET (bookmark, back button) lands
+    on the list with the modal already open — see _procurement_list_context.
+    """
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to create procurement orders.')
         return redirect('procurement_list')
 
-    if request.method == 'POST':
-        if request.user.role == User.Role.BRANCH_MANAGER:
-            try:
-                branch_id = request.user.manager_profile.branch.id
-            except Exception:
-                messages.error(request, 'No branch assigned to your account.')
-                return redirect('procurement_list')
-        else:
-            branch_id = request.POST.get('branch')
+    if request.method != 'POST':
+        return redirect(f"{reverse('procurement_list')}?add=1")
 
-        supplier_id  = request.POST.get('supplier')
-        order_date   = request.POST.get('order_date')
-        delivery_date = request.POST.get('delivery_date') or None
-        product_ids  = request.POST.getlist('product_id')
-        quantities   = request.POST.getlist('quantity_ordered')
-        cost_prices  = request.POST.getlist('cost_price')
+    if request.user.role == User.Role.BRANCH_MANAGER:
+        try:
+            branch_id = request.user.manager_profile.branch.id
+        except Exception:
+            messages.error(request, 'No branch assigned to your account.')
+            return redirect('procurement_list')
+    else:
+        branch_id = request.POST.get('branch')
 
-        # Collect the usable lines BEFORE writing anything. This loop used to
-        # run inside the transaction with the Procurement already created, so a
-        # submission where every row was missing a cost price saved an order
-        # with no items and a ₱0.00 total, then reported "created successfully".
-        # That is not hypothetical — PO-2026-001 in this database is one, left
-        # behind when the cost field silently blanked itself (see the
-        # |unlocalize note in procurement_form.html).
-        items = []
-        for product_id, qty, cost in zip(product_ids, quantities, cost_prices):
-            if not product_id or not qty or not cost:
-                continue
-            items.append((product_id, int(qty), float(cost)))
+    supplier_id  = request.POST.get('supplier')
+    order_date   = request.POST.get('order_date')
+    delivery_date = request.POST.get('delivery_date') or None
+    product_ids  = request.POST.getlist('product_id')
+    quantities   = request.POST.getlist('quantity_ordered')
+    cost_prices  = request.POST.getlist('cost_price')
 
-        if not items:
-            messages.error(
-                request,
+    # Collect the usable lines BEFORE writing anything. This loop used to
+    # run inside the transaction with the Procurement already created, so a
+    # submission where every row was missing a cost price saved an order
+    # with no items and a ₱0.00 total, then reported "created successfully".
+    # That is not hypothetical — PO-2026-001 in this database is one, left
+    # behind when the cost field silently blanked itself (see the
+    # |unlocalize note in _po_modal.html).
+    items = []
+    for product_id, qty, cost in zip(product_ids, quantities, cost_prices):
+        if not product_id or not qty or not cost:
+            continue
+        items.append((product_id, int(qty), float(cost)))
+
+    if not items:
+        context = _procurement_list_context(request)
+        context.update({
+            'show_po_modal': True,
+            'po_errors': [
                 'The order was not created — every item needs a product, a '
                 'quantity and a cost price.'
+            ],
+            'po_form_data': request.POST,
+            'po_restore_rows': [
+                {'product_id': pid, 'quantity': qty, 'cost_price': cost}
+                for pid, qty, cost in zip(product_ids, quantities, cost_prices) if pid
+            ],
+        })
+        return render(request, 'procurement/procurement_list.html', context)
+
+    with transaction.atomic():
+        owner_user = request.user if request.user.role == User.Role.OWNER else None
+
+        proc = Procurement.objects.create(
+            branch_id=branch_id,
+            supplier_id=supplier_id,
+            owner=owner_user,
+            order_date=order_date,
+            delivery_date=delivery_date,
+            total_cost=0,
+            status=Procurement.Status.ORDERED,
+        )
+
+        total = 0
+        for product_id, qty, cost in items:
+            ProcurementItem.objects.create(
+                procurement=proc,
+                product_id=product_id,
+                quantity_ordered=qty,
+                cost_price=cost,
             )
-            return render(request, 'procurement/procurement_form.html',
-                          _procurement_form_context(request.user))
+            total += qty * cost
 
-        with transaction.atomic():
-            owner_user = request.user if request.user.role == User.Role.OWNER else None
+        proc.total_cost = total
+        proc.save()
 
-            proc = Procurement.objects.create(
-                branch_id=branch_id,
-                supplier_id=supplier_id,
-                owner=owner_user,
-                order_date=order_date,
-                delivery_date=delivery_date,
-                total_cost=0,
-                status=Procurement.Status.ORDERED,
-            )
-
-            total = 0
-            for product_id, qty, cost in items:
-                ProcurementItem.objects.create(
-                    procurement=proc,
-                    product_id=product_id,
-                    quantity_ordered=qty,
-                    cost_price=cost,
-                )
-                total += qty * cost
-
-            proc.total_cost = total
-            proc.save()
-
-        messages.success(request, 'Procurement order created successfully.')
-        return redirect('procurement_list')
-
-    return render(request, 'procurement/procurement_form.html',
-                  _procurement_form_context(request.user))
+    messages.success(request, 'Procurement order created successfully.')
+    return redirect('procurement_list')
 
 
 @login_required(login_url='accounts:login')
@@ -366,6 +400,30 @@ def delivery_list(request):
     from branches.models import Branch
     branches = Branch.objects.all() if not user_branch else []
 
+    # Receive Delivery is a modal on this list now (see delivery_receive's
+    # GET branch, which is what actually lands here with ?receive=<pk> —
+    # that view has already done the branch-access and status checks, so
+    # this just re-resolves the same PO to render. A tampered/stale
+    # ?receive= (wrong branch, already received) is treated the same as not
+    # being there at all: no modal, no error — the list itself is still a
+    # valid page to be looking at.
+    receive_procurement = None
+    receive_items = None
+    addable_products = None
+    receive_pk = request.GET.get('receive')
+    if receive_pk and receive_pk.isdigit():
+        candidate = Procurement.objects.select_related('branch', 'supplier').filter(
+            pk=receive_pk, status=Procurement.Status.ORDERED
+        ).first()
+        if candidate and user_can_access_branch(request.user, candidate.branch_id):
+            receive_procurement = candidate
+            receive_items = candidate.items.select_related('product').all()
+            # The "add unexpected item" picker. Excludes what's already on
+            # the order, so the only thing it can offer is a genuinely new line.
+            addable_products = Product.objects.exclude(
+                pk__in=receive_items.values_list('product_id', flat=True)
+            ).order_by('product_name')
+
     return render(request, 'procurement/delivery_list.html', {
         'pending': pending,
         'today': timezone.now().date(),
@@ -376,12 +434,23 @@ def delivery_list(request):
         # Warehouse Stock, Product Master List and Stock Adjustments.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
+        'receive_procurement': receive_procurement,
+        'receive_items': receive_items,
+        'addable_products': addable_products,
+        'show_receive_modal': receive_procurement is not None,
     })
 
 
 @login_required(login_url='accounts:login')
 def delivery_receive(request, pk):
-    """Record the quantities actually delivered against a PO."""
+    """Record the quantities actually delivered against a PO.
+
+    The form itself is rendered inline by delivery_list/_receive_modal.html
+    (as a modal, opened via ?receive=<pk> — see that view). This view does
+    the branch/status guards and, on GET, redirects there with that param
+    set; the POST branch (an explicit form action, not the current URL) is
+    unchanged.
+    """
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
@@ -400,8 +469,6 @@ def delivery_receive(request, pk):
     if proc.status == Procurement.Status.CANCELLED:
         messages.error(request, f'{proc.po_number} was cancelled.')
         return redirect('procurement_detail', pk=pk)
-
-    items = proc.items.select_related('product').all()
 
     if request.method == 'POST':
         # A received delivery stocks the WAREHOUSE, not the branch floor —
@@ -537,16 +604,11 @@ def delivery_receive(request, pk):
             )
         return redirect('procurement_detail', pk=pk)
 
-    return render(request, 'procurement/delivery_receive.html', {
-        'procurement': proc,
-        'items': items,
-        # The "add unexpected item" picker. Excludes what's already on the
-        # order, so the only thing it can offer is a genuinely new line.
-        'addable_products': Product.objects.exclude(
-            pk__in=items.values_list('product_id', flat=True)
-        ).order_by('product_name'),
-        'scan_count': proc.scan_logs.count(),
-    })
+    # Receive Delivery is a modal on the Receive Delivery list now — a
+    # direct hit (bookmark, the "Receive" link on a dashboard, the back
+    # button) lands there with this PO's modal already open. See
+    # delivery_list/_receive_modal.html.
+    return redirect(f"{reverse('delivery_list')}?receive={pk}")
 
 
 @login_required(login_url='accounts:login')

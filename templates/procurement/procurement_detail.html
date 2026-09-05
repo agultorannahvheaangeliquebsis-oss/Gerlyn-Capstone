@@ -1,4 +1,4 @@
-{% extends "internal_base.html" %}
+{% extends base_template %}
 {% block title %}{{ procurement.po_number }}{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
@@ -81,15 +81,17 @@
     </table>
   </div>
 
-  <div class="card card-pad">
+  <div class="card card-pad card-fill">
     <h3 class="mb-4">Delivery</h3>
-    <p class="gv-meta">
-      Stock is only added after a receipt is validated — this keeps the digital
-      records matching the physical goods.
-    </p>
-    <div class="stat mt-4">
-      <div class="value">{{ items|length }}</div>
-      <div class="label">Line item{{ items|length|pluralize }} on this order</div>
+    <div class="card-fill-body">
+      <p class="gv-meta">
+        Stock is only added after a receipt is validated — this keeps the digital
+        records matching the physical goods.
+      </p>
+      <div class="stat mt-4">
+        <div class="value">{{ items|length }}</div>
+        <div class="label">Line item{{ items|length|pluralize }} on this order</div>
+      </div>
     </div>
   </div>
 </div>

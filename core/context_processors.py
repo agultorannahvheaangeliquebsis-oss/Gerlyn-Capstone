@@ -9,6 +9,25 @@ def app_version(request):
     return {"APP_VERSION": APP_VERSION}
 
 
+def detail_modal(request):
+    """Which shell a detail page wears.
+
+    Every list's "see" action opens the record over the list instead of
+    navigating to it (detail-modal.js), and what it drops into the overlay is
+    the detail page's own content block — the same view, the same template,
+    the same branch checks — asked for with ?modal=1.
+
+    Resolving it here rather than in each view means a detail page opts in by
+    extending `base_template` instead of internal_base.html by name, and
+    nothing else about the view changes. Without the flag it renders as the
+    full page it always was, which is what a bookmark, a direct link, a
+    middle-click and a browser with JavaScript off all still get.
+    """
+    if request.GET.get("modal") == "1":
+        return {"base_template": "partials/_modal_base.html"}
+    return {"base_template": "internal_base.html"}
+
+
 def module_access(request):
     """Exposes `module_access.<code>` for the sidebar (and anywhere else
     that needs to hide a link to a section a Staff/Manager account can't

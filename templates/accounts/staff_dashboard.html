@@ -79,8 +79,16 @@
           <td data-label="Task" class="strong">Confirm receipt</td>
           <td data-label="Details">{{ t.slip_number }} from {{ t.source_branch.branch_name }}</td>
           <td data-label="Due / Risk"><span class="pill pill-info">Released</span></td>
+          {% comment %}
+          Opens the slip over the dashboard rather than navigating to it —
+          the same overlay every list's "see" action uses (detail-modal.js).
+          A staff member works down this table one row at a time, and losing
+          the remaining tasks to look at one of them was the cost of every
+          confirmation. Posting the receipt still lands on the slip's own
+          page, because that is where the success message belongs.
+          {% endcomment %}
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'transfer_detail' t.pk %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirm</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'transfer_detail' t.pk %}" data-detail-modal="Stock Withdrawal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirm</a>
           </td>
         </tr>
         {% endfor %}
