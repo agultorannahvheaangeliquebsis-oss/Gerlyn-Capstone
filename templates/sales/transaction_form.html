@@ -4,6 +4,77 @@
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block branch_scope %}{% if pos_user_branch %}{{ pos_user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
+{% block extra_css %}
+{% comment %}
+Scoped to this page (Walk-in Sale) rather than gerlyn.css — the item-row
+grid, quantity stepper and stock-status line are shaped around this one
+form, not a shared component other pages should pick up automatically.
+{% endcomment %}
+<style>
+.pos-items-head, .pos-item-row {
+  display: grid;
+  /* All four data columns are fr-based (not just Product) so they grow
+     together as the card widens — a fixed px width on the others left them
+     stranded at their minimum while Product silently absorbed every extra
+     pixel, stretching a canyon of empty space between the two groups on a
+     wide viewport. */
+  grid-template-columns: minmax(220px, 4fr) minmax(90px, 0.7fr) minmax(140px, 1fr) minmax(90px, 0.7fr) 32px;
+  gap: 16px;
+  align-items: center;
+}
+.pos-items-head {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.pos-items-head span { font: 600 13px/1.2 var(--font-sans); color: var(--ink-600); }
+.pos-item-row { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.pos-item-row:last-child { border-bottom: 0; }
+
+.pos-stock-line { display: block; font: 500 12px/1.3 var(--font-sans); margin-top: 4px; }
+
+.pos-qty-cell { display: flex; justify-content: flex-start; }
+.pos-qty-stepper {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line); border-radius: var(--r-input);
+  overflow: hidden; background: var(--surface);
+}
+.pos-qty-btn {
+  width: 28px; border: 0; background: var(--line-soft); color: var(--ink-900);
+  font: 600 16px/1 var(--font-sans); cursor: pointer;
+}
+.pos-qty-btn:hover { background: var(--line); }
+.pos-qty-stepper input {
+  width: 44px; border: 0; text-align: center; padding: 0;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  font: 600 14px/1 var(--font-sans); color: var(--ink-900); background: var(--surface);
+}
+.pos-qty-stepper input::-webkit-outer-spin-button,
+.pos-qty-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pos-qty-stepper input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+.pos-subtotal-cell { font: 600 14px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
+
+.pos-remove-x {
+  width: 28px; height: 28px; padding: 0; border: 1px solid #E6B3AE; border-radius: var(--r-input);
+  background: var(--danger-bg); color: var(--danger-fg); font: 600 15px/1 var(--font-sans);
+  cursor: pointer; justify-self: end;
+}
+.pos-remove-x:hover { background: var(--danger-fg); color: #fff; }
+
+.pos-add-row {
+  display: block; width: 100%; margin-top: 10px; padding: 10px;
+  border: 1px dashed var(--line); border-radius: var(--r-card);
+  background: transparent; color: var(--ink-600);
+  font: 600 13px/1 var(--font-sans); text-align: center; cursor: pointer;
+}
+.pos-add-row:hover { border-color: var(--action); color: var(--action); }
+
+.pos-tender-row { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 16px; }
+.pos-tender-row .field { max-width: 220px; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -32,7 +103,7 @@
       {% else %}
         <div class="field">
           <label for="pos-branch">Branch</label>
-          <select id="pos-branch" name="branch" required>
+          <select id="pos-branch" name="branch" required onchange="posRecalc()">
             <option value="">— Choose a branch —</option>
             {% for b in pos_branches %}
               <option value="{{ b.id }}" {% if pos_form_data.branch == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
@@ -42,7 +113,7 @@
       {% endif %}
       <div class="field">
         <label for="pos-mode-of-payment">Mode of Payment</label>
-        <select id="pos-mode-of-payment" name="mode_of_payment">
+        <select id="pos-mode-of-payment" name="mode_of_payment" onchange="posRecalc()">
           {% for value, label in pos_payment_choices %}
             <option value="{{ value }}" {% if pos_form_data.mode_of_payment == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
@@ -70,12 +141,12 @@
     conditioned on presenting an ID, and a claim with none recorded is the
     first thing an audit asks about. The view enforces this too.
     {% endcomment %}
-    <div class="field mt-4" style="border:1px solid var(--line); border-radius:var(--r-card); padding:12px;">
+    <div class="field mt-4">
       <label class="row" style="gap:8px; align-items:center; margin:0;">
         <input type="checkbox" id="pos-discount-toggle" value="1"
                {% if pos_form_data.discount_type and pos_form_data.discount_type != 'None' %}checked{% endif %}>
         <strong>Apply PWD / Senior Citizen discount</strong>
-        <span class="gv-meta">{{ pos_discount_rate_pct }}% off the VAT-exclusive price</span>
+        <span class="gv-meta">— {{ pos_discount_rate_pct }}% off the VAT-exclusive price</span>
       </label>
 
       <div id="pos-discount-fields" class="grid-2" style="margin-top:12px;" hidden>
@@ -104,7 +175,7 @@
 
   <div class="card card-pad mb-4">
     <div class="row-between mb-4">
-      <h3>Items</h3>
+      <h3>Items <span class="pill pill-neutral" id="pos-item-count">0 items</span></h3>
       <button type="button" class="btn btn-sm" onclick="posAddRow()">+ Add Item</button>
     </div>
 
@@ -118,12 +189,18 @@
       <span class="gv-meta" id="pos-scan-status"></span>
     </div>
 
-    <div id="pos-item-rows" class="stack"></div>
+    <div class="pos-items-head">
+      <span>Product</span>
+      <span>Unit Price</span>
+      <span>Quantity</span>
+      <span>Subtotal</span>
+      <span></span>
+    </div>
+    <div id="pos-item-rows"></div>
 
     <template id="pos-row-template">
-      <div class="item-row row wrap" style="gap:12px; align-items:flex-end;">
-        <div class="field grow" style="min-width:220px;">
-          <label>Product</label>
+      <div class="item-row pos-item-row">
+        <div class="field" style="margin:0;">
           <select name="product_id" class="js-product" onchange="posRecalc()">
             <option value="">— Select a product —</option>
             {% for p in pos_products %}
@@ -138,25 +215,25 @@
                       data-senior-eligible="{% if p.is_senior_eligible %}1{% else %}0{% endif %}">{{ p.product_name }}</option>
             {% endfor %}
           </select>
+          {# Filled in by posUpdateStockLine for every resolved product+branch pair — green for In Stock, amber for Low Stock, red for Critical/No Stock. #}
+          <span class="js-stock-line pos-stock-line" hidden></span>
         </div>
-        <div class="field" style="width:120px;">
-          <label>Unit Price</label>
-          <input type="text" class="js-price" value="₱0.00" readonly tabindex="-1"
-                 style="background:var(--line-soft); border-color:var(--line);">
+        <input type="text" class="js-price" value="₱0.00" readonly tabindex="-1"
+               style="background:var(--line-soft); border-color:var(--line);">
+        <div class="pos-qty-cell">
+          <div class="pos-qty-stepper" data-qty-stepper>
+            <button type="button" class="pos-qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
+            <input type="number" name="quantity" class="js-qty" min="1" value="1"
+                   inputmode="numeric" oninput="posRecalc()" onchange="posRecalc()">
+            <button type="button" class="pos-qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
+          </div>
         </div>
-        <div class="field" style="width:110px;">
-          <label>Quantity</label>
-          <input type="number" name="quantity" class="js-qty" min="1" value="1" oninput="posRecalc()">
-        </div>
-        <div class="field" style="width:120px;">
-          <label>Subtotal</label>
-          <input type="text" class="js-sub" value="₱0.00" readonly tabindex="-1"
-                 style="background:var(--line-soft); border-color:var(--line);">
-        </div>
-        {# The quiet button, not the danger one: DESIGN.md reserves danger styling for destructive actions awaiting confirmation. Dropping a line from a sale that hasn't been recorded yet is the most routine edit on the page. #}
-        <button type="button" class="btn btn-quiet js-remove" onclick="posRemoveRow(this)">Remove</button>
+        <span class="js-sub pos-subtotal-cell">₱0.00</span>
+        <button type="button" class="pos-remove-x js-remove" onclick="posRemoveRow(this)" aria-label="Remove item">&times;</button>
       </div>
     </template>
+
+    <button type="button" class="pos-add-row" onclick="posAddRow()">+ Add another product</button>
 
     {% comment %}
     The receipt-style breakdown. Only the rows that apply are shown — a sale
@@ -184,6 +261,23 @@
         <span class="gv-label">Amount due</span>
         <span class="gv-metric" id="pos-grand-total" style="color:var(--action);">₱0.00</span>
       </div>
+
+      {% comment %}
+      Cash-only: GCash/Card never had physical cash handed over, so there is
+      nothing to tender or change. Toggled by posSyncTenderVisibility()
+      whenever Mode of Payment changes.
+      {% endcomment %}
+      <div class="pos-tender-row" id="pos-tender-row" hidden>
+        <div class="field">
+          <label for="pos-amount-tendered">Amount Tendered</label>
+          <input type="text" inputmode="decimal" id="pos-amount-tendered" name="amount_tendered"
+                 placeholder="₱0.00" value="{{ pos_form_data.amount_tendered|default:'' }}" oninput="posRecalc()">
+        </div>
+        <div class="field">
+          <label>Change</label>
+          <div class="field-static" id="pos-change">₱0.00</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -200,11 +294,18 @@ through HTML attribute quoting. The JS treats a missing element as "no rows to
 restore" and opens with one blank row, which is the normal case.
 {% endcomment %}
 {% if pos_restore_rows %}{{ pos_restore_rows|json_script:"pos-restore-rows" }}{% endif %}
+{% comment %}
+product_id -> branch_id -> {qty, status}, both ids as strings — see
+sales.views._pos_stock_map. Same json_script pattern as pos-restore-rows
+above, for the same reason: no HTML-attribute quoting to fight with.
+{% endcomment %}
+{{ pos_stock_map|json_script:"pos-stock-map" }}
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
+<script src="{% static 'js/qty-stepper.js' %}"></script>
 <script>
 // USB/Bluetooth scanners type into whatever holds focus, so the scan field
 // gets it as soon as the page is ready — otherwise the first scan of every
@@ -223,12 +324,58 @@ function posRemoveRow(btn) {
 }
 function posPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 
+function posUpdateItemCount() {
+  var n = posRows.children.length;
+  document.getElementById('pos-item-count').textContent = n + (n === 1 ? ' item' : ' items');
+}
+
 // VAT and discount rates, mirroring sales/pricing.py. This preview and the
 // server MUST agree — a cashier who quotes one number and charges another has
 // an argument at the counter — so the order of operations here is deliberately
 // the same one that module documents: strip VAT first, THEN take the 20% off.
 var POS_VAT_RATE = 0.12;
 var POS_DISCOUNT_RATE = 0.20;
+
+// Stock indicator. Staff/Branch Manager have no #pos-branch select (their
+// branch is pinned server-side), so POS_FIXED_BRANCH_ID carries that id for
+// them; the Owner reads the live selection instead.
+var POS_FIXED_BRANCH_ID = {% if pos_user_branch %}{{ pos_user_branch.id }}{% else %}null{% endif %};
+var POS_STOCK_MAP = (function () {
+  var el = document.getElementById('pos-stock-map');
+  return el ? JSON.parse(el.textContent) : {};
+})();
+
+function posCurrentBranchId() {
+  if (POS_FIXED_BRANCH_ID) return String(POS_FIXED_BRANCH_ID);
+  var sel = document.getElementById('pos-branch');
+  return sel ? sel.value : '';
+}
+
+// Same tiering as inventory.alerts.stock_status() and the same colors as the
+// Floor Stock list's Status column (ok for In Stock, warn for Low Stock,
+// danger for Critical/No Stock) — one definition of "low stock", one look
+// for it, everywhere it shows up. Shown for every row (not just the
+// low-stock ones) so the cashier always sees what's on the shelf.
+function posUpdateStockLine(row) {
+  var line = row.querySelector('.js-stock-line');
+  if (!line) return;
+  var productId = row.querySelector('.js-product').value;
+  var branchId = posCurrentBranchId();
+  var info = (productId && branchId && POS_STOCK_MAP[productId]) ? POS_STOCK_MAP[productId][branchId] : null;
+
+  if (!info) {
+    line.hidden = true;
+    return;
+  }
+  var color = info.status === 'In Stock' ? 'var(--ok-fg)'
+    : info.status === 'Low Stock' ? 'var(--warn-fg)' : 'var(--danger-fg)';
+  var text = info.status === 'In Stock' ? info.qty + ' in stock'
+    : info.status === 'No Stock' ? 'No stock'
+    : info.qty + ' left — ' + info.status;
+  line.style.color = color;
+  line.textContent = '• ' + text;
+  line.hidden = false;
+}
 
 // Mirrors sales.pricing.discount_applies_to: PWD and Senior are separate
 // statutes, so each claim type reads its own per-product flag.
@@ -258,6 +405,34 @@ function posPriceLine(opt, price, qty, discountType) {
   };
 }
 
+// Cash-only tender/change: hidden entirely for GCash/Card, since no physical
+// cash changes hands for those. sales.views.transaction_add mirrors this —
+// amount_tendered is only required when Mode of Payment is Cash.
+function posSyncTenderVisibility() {
+  var isCash = document.getElementById('pos-mode-of-payment').value === 'Cash';
+  document.getElementById('pos-tender-row').hidden = !isCash;
+}
+
+function posUpdateTender(total) {
+  var input = document.getElementById('pos-amount-tendered');
+  var change = document.getElementById('pos-change');
+  var tendered = parseFloat(input.value || '');
+
+  if (isNaN(tendered)) {
+    change.textContent = '₱0.00';
+    change.style.color = '';
+    return;
+  }
+  var diff = tendered - total;
+  if (diff < -0.004) {
+    change.textContent = 'Short by ' + posPeso(Math.abs(diff));
+    change.style.color = 'var(--danger-fg)';
+  } else {
+    change.textContent = posPeso(Math.max(diff, 0));
+    change.style.color = 'var(--ok-fg)';
+  }
+}
+
 function posRecalc() {
   // Wholesale orders bill at the wholesale price — show that to the cashier
   // BEFORE the sale is recorded, not after.
@@ -270,8 +445,9 @@ function posRecalc() {
   var missing = 0, skipped = 0;
 
   posRows.querySelectorAll('.item-row').forEach(function (row) {
+    posUpdateStockLine(row);
     var opt = row.querySelector('.js-product').selectedOptions[0];
-    if (!opt) return;
+    if (!opt || !opt.value) return;
     var price = parseFloat(
       (wholesale ? opt.dataset.wholesale : opt.dataset.retail) || 0
     );
@@ -291,6 +467,7 @@ function posRecalc() {
         tag = document.createElement('span');
         tag.className = 'js-skip-tag gv-meta';
         tag.style.color = 'var(--warn-fg)';
+        tag.style.display = 'block';
         row.querySelector('.js-product').parentNode.appendChild(tag);
       }
       tag.textContent = 'Not eligible for ' + discountType + ' discount';
@@ -299,7 +476,7 @@ function posRecalc() {
     }
 
     row.querySelector('.js-price').value = posPeso(line.unit);
-    row.querySelector('.js-sub').value = posPeso(line.sub);
+    row.querySelector('.js-sub').textContent = posPeso(line.sub);
     total += line.sub;
     gross += line.sub + line.discount;
     vatTotal += line.vat;
@@ -324,6 +501,9 @@ function posRecalc() {
   }
 
   document.getElementById('pos-grand-total').textContent = posPeso(total);
+  posUpdateItemCount();
+  posSyncTenderVisibility();
+  posUpdateTender(total);
 
   var hint = document.getElementById('pos-type-hint');
   if (!wholesale) {

@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
@@ -9,6 +11,7 @@ from billing.models import BillingRecord
 from branches.models import Branch
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
+from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
@@ -43,6 +46,31 @@ def _pos_user_branch(request):
     return None
 
 
+def _pos_stock_map(user_branch):
+    """product_id -> branch_id -> {qty, status}, for every branch the
+    cashier could possibly ring this sale under: just their own pinned
+    branch for Staff/Branch Manager, or every branch for the Owner (who
+    picks one via #pos-branch). Keyed by both ids as strings since that's
+    how they round-trip through json_script/JS.
+
+    Sourced from Inventory (floor stock) — Walk-in Sale sells off the
+    shelf, never the warehouse — and status is inventory.alerts.stock_status(),
+    the same tiering the Floor Stock list and Alerts Center already use, so
+    the indicator can't drift out of sync with what those screens call
+    "low stock".
+    """
+    qs = Inventory.objects.all()
+    if user_branch:
+        qs = qs.filter(branch_id=user_branch.id)
+    stock_map = {}
+    for inv in qs.values('product_id', 'branch_id', 'quantity_on_hand', 'reorder_level'):
+        stock_map.setdefault(str(inv['product_id']), {})[str(inv['branch_id'])] = {
+            'qty': inv['quantity_on_hand'],
+            'status': stock_status(inv['quantity_on_hand'], inv['reorder_level']),
+        }
+    return stock_map
+
+
 def _pos_context(request):
     """Everything the Walk-in Sale page needs. Prefixed pos_* to distinguish
     it from unrelated fields elsewhere (e.g. the Order Console's own
@@ -53,6 +81,7 @@ def _pos_context(request):
         'pos_products': Product.objects.select_related('category').all(),
         'pos_branches': Branch.objects.all() if not user_branch else [],
         'pos_user_branch': user_branch,
+        'pos_stock_map': _pos_stock_map(user_branch),
         'pos_payment_choices': [
             c for c in SalesTransaction.ModeOfPayment.choices
             if c[0] in ['Cash', 'GCash', 'Card']
@@ -374,6 +403,17 @@ def transaction_add(request):
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity')
 
+    # --- cash tendered -------------------------------------------------------
+    # Only meaningful for a Cash sale — GCash/Card never had cash handed over,
+    # so the field is parsed but required (below) only when Cash is chosen.
+    amount_tendered_raw = (request.POST.get('amount_tendered') or '').strip()
+    amount_tendered = None
+    if mode_of_payment == SalesTransaction.ModeOfPayment.CASH and amount_tendered_raw:
+        try:
+            amount_tendered = Decimal(amount_tendered_raw)
+        except InvalidOperation:
+            amount_tendered = None
+
     line_items = [
         (pid, int(q)) for pid, q in zip(product_ids, quantities)
         if pid and q and q.isdigit() and int(q) > 0
@@ -404,6 +444,11 @@ def transaction_add(request):
         )
     if discount_claimed and not discount_holder_name:
         errors.append(f'Enter the name on the {discount_type} ID.')
+    if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
+        if not amount_tendered_raw:
+            errors.append('Enter the amount tendered for this cash sale.')
+        elif amount_tendered is None:
+            errors.append('Amount tendered must be a number.')
 
     if not errors:
         # Prices resolved and the total computed up front — same order as the
@@ -423,57 +468,72 @@ def transaction_add(request):
         priced = price_cart(cart_lines, discount_type=discount_type)
         total = priced['total_amount']
 
-        try:
-            with transaction.atomic():
-                txn = SalesTransaction.objects.create(
-                    branch_id=branch_id,
-                    staff=request.user if request.user.role == STAFF else None,
-                    transaction_type=SalesTransaction.TransactionType.PHYSICAL,
-                    mode_of_payment=mode_of_payment,
-                    order_type=order_type,
-                    order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
-                    total_amount=total,
-                    discount_type=discount_type,
-                    discount_id_number=discount_id_number,
-                    discount_holder_name=discount_holder_name,
-                    total_discount_amount=priced['total_discount_amount'],
-                    total_vat_amount=priced['total_vat_amount'],
+        # Now that the total is known: a Cash sale can't tender less than
+        # what's due. Checked here rather than up front — total isn't known
+        # until the cart is priced.
+        change_amount = None
+        if mode_of_payment == SalesTransaction.ModeOfPayment.CASH and amount_tendered is not None:
+            if amount_tendered < total:
+                errors.append(
+                    f'Amount tendered (₱{amount_tendered}) is less than the amount due (₱{total}).'
                 )
+            else:
+                change_amount = amount_tendered - total
 
-                for line in priced['lines']:
-                    SalesItem.objects.create(
-                        transaction=txn, product=line['product'],
-                        quantity_sold=line['quantity'],
-                        # The already-discounted unit price — SalesItem.save
-                        # multiplies it out, so the discount must be in the
-                        # price, not applied again on top of the subtotal.
-                        unit_price=line['unit_price'],
-                        is_vat_exempt_line=line['is_vat_exempt_line'],
-                        vat_amount=line['vat_amount'],
-                        discount_amount=line['discount_amount'],
+        if not errors:
+            try:
+                with transaction.atomic():
+                    txn = SalesTransaction.objects.create(
+                        branch_id=branch_id,
+                        staff=request.user if request.user.role == STAFF else None,
+                        transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+                        mode_of_payment=mode_of_payment,
+                        order_type=order_type,
+                        order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
+                        total_amount=total,
+                        discount_type=discount_type,
+                        discount_id_number=discount_id_number,
+                        discount_holder_name=discount_holder_name,
+                        total_discount_amount=priced['total_discount_amount'],
+                        total_vat_amount=priced['total_vat_amount'],
+                        amount_tendered=amount_tendered,
+                        change_amount=change_amount,
                     )
 
-                # Walk-in sales leave the shelf immediately. Raises
-                # _OrderActionError (rolling back this whole atomic block,
-                # including the transaction/items just created above) if any
-                # line item is oversold.
-                _deduct_stock(txn, request.user)
+                    for line in priced['lines']:
+                        SalesItem.objects.create(
+                            transaction=txn, product=line['product'],
+                            quantity_sold=line['quantity'],
+                            # The already-discounted unit price — SalesItem.save
+                            # multiplies it out, so the discount must be in the
+                            # price, not applied again on top of the subtotal.
+                            unit_price=line['unit_price'],
+                            is_vat_exempt_line=line['is_vat_exempt_line'],
+                            vat_amount=line['vat_amount'],
+                            discount_amount=line['discount_amount'],
+                        )
 
-                # billing.signals already created the record; mark it paid.
-                billing = getattr(txn, 'billing_record', None)
-                if billing:
-                    billing.amount_due = total
-                    billing.payment_method = (
-                        mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
-                    )
-                    billing.status = 'Paid'
-                    billing.confirmed_by = request.user
-                    billing.save()
-        except _OrderActionError as e:
-            errors.append(str(e))
-        else:
-            messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
-            return redirect('transaction_detail', pk=txn.pk)
+                    # Walk-in sales leave the shelf immediately. Raises
+                    # _OrderActionError (rolling back this whole atomic block,
+                    # including the transaction/items just created above) if any
+                    # line item is oversold.
+                    _deduct_stock(txn, request.user)
+
+                    # billing.signals already created the record; mark it paid.
+                    billing = getattr(txn, 'billing_record', None)
+                    if billing:
+                        billing.amount_due = total
+                        billing.payment_method = (
+                            mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
+                        )
+                        billing.status = 'Paid'
+                        billing.confirmed_by = request.user
+                        billing.save()
+            except _OrderActionError as e:
+                errors.append(str(e))
+            else:
+                messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
+                return redirect('transaction_detail', pk=txn.pk)
 
     # Rejected. Re-render the form with the header selections re-chosen and
     # the item rows rebuilt from what was posted — every pid/qty pair,

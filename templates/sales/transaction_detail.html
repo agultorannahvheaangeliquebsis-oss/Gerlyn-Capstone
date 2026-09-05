@@ -92,6 +92,12 @@
         {% endif %}
         <tr><td class="gv-meta">Total</td>
             <td class="num" style="text-align:right;"><span class="gv-metric" style="color:var(--action);">₱{{ transaction.total_amount|floatformat:2 }}</span></td></tr>
+        {% if transaction.amount_tendered is not None %}
+        <tr><td class="gv-meta">Amount tendered</td>
+            <td class="num" style="text-align:right;">₱{{ transaction.amount_tendered|floatformat:2 }}</td></tr>
+        <tr><td class="gv-meta">Change</td>
+            <td class="num" style="text-align:right;">₱{{ transaction.change_amount|floatformat:2 }}</td></tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
