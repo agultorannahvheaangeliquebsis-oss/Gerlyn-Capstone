@@ -640,8 +640,25 @@ def register_view(request):
             picker_fields['text'] = address
             Address.objects.create(user=user, is_default=True, **picker_fields)
 
+        # Verification is optional here (login isn't gated on it — only
+        # turning on Two-Factor Authentication is), so a send failure must
+        # not block account creation. The user can always retry from the
+        # "Resend" banner on their Profile/Settings page.
+        try:
+            send_verification_email(user, request)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"Verification email failed to send for new user {user.pk}: {e}", exc_info=True
+            )
+
         login(request, user)
-        messages.success(request, 'Account created successfully. Welcome!')
+        messages.success(
+            request,
+            "Account created successfully. Welcome! We've also sent a "
+            "verification link to your email — you can verify it any time "
+            "from Settings."
+        )
         return redirect('accounts:customer_dashboard')
 
     return render(request, 'accounts/register.html')
