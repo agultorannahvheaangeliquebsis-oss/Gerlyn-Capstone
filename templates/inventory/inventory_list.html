@@ -4,6 +4,41 @@
 {% block page_subtitle %}Inventory{% endblock %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
+{% comment %}
+Top-bar branch switcher — turns the static scope chip into a menu of every
+branch, for the Owner only. Manager/Staff are branch-pinned server-side, so
+`branches` is empty for them and they keep the plain label. Each item just
+sets ?branch=; the q/category/status filters ride along so switching branch
+keeps the rest of the toolbar, and the toolbar's hidden `branch` field hands
+the choice back when a category/status changes. Native <details>, closed on
+outside-click / Escape by the small script in extra_js — same pattern as the
+bottom nav's More menu.
+{% endcomment %}
+{% block branch_chip %}
+{% if branches %}
+<details class="branch-switch" id="branch-switch">
+  <summary class="branch-chip branch-chip--menu">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+    <span>{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}</span>
+    <svg class="branch-switch-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+  </summary>
+  <div class="branch-switch-panel" role="menu">
+    <a role="menuitem" class="branch-switch-item{% if not branch_filter %} is-current{% endif %}"
+       href="?{% if search_query %}q={{ search_query|urlencode }}&amp;{% endif %}{% if category_filter %}category={{ category_filter|urlencode }}&amp;{% endif %}{% if status_filter %}status={{ status_filter|urlencode }}{% endif %}">All Branches</a>
+    {% for b in branches %}
+    <a role="menuitem" class="branch-switch-item{% if branch_filter == b.id|stringformat:'s' %} is-current{% endif %}"
+       href="?branch={{ b.id }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if category_filter %}&amp;category={{ category_filter|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter|urlencode }}{% endif %}">{{ b.branch_name }}</a>
+    {% endfor %}
+  </div>
+</details>
+{% else %}
+<span class="branch-chip">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+  {% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}
+</span>
+{% endif %}
+{% endblock %}
+
 {% block extra_css %}
 <style>
   .modal-overlay {
@@ -48,6 +83,37 @@
     padding: var(--s4) var(--s6);
     border-top: 1px solid var(--line);
   }
+
+  /* Top-bar branch switcher — this page only. .branch-chip stays the shared
+     static label on every other page; --menu turns it into a real control
+     (pointer, hover wash, caret) so it doesn't read as inert. Panel and rows
+     follow .more-menu-panel in the bottom nav. */
+  .branch-switch { position: relative; }
+  .branch-chip--menu {
+    list-style: none; cursor: pointer;
+    padding: 0 10px; border-radius: var(--r-pill);
+    transition: background .12s ease;
+  }
+  .branch-chip--menu::-webkit-details-marker { display: none; }
+  .branch-chip--menu:hover,
+  .branch-switch[open] .branch-chip--menu { background: var(--line-soft); color: var(--ink-900); }
+  .branch-switch-caret { color: var(--ink-500); transition: transform .12s ease; }
+  .branch-switch[open] .branch-switch-caret { transform: rotate(180deg); }
+  .branch-switch-panel {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+    min-width: 220px; max-height: 60vh; overflow-y: auto; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+    display: flex; flex-direction: column;
+  }
+  .branch-switch-item {
+    display: flex; align-items: center; min-height: 40px;
+    padding: 0 12px; border-radius: var(--r-input);
+    font: 500 13.5px/1.3 var(--font-sans);
+    color: var(--ink-700); text-decoration: none;
+  }
+  .branch-switch-item:hover { background: var(--line-soft); color: var(--ink-900); }
+  .branch-switch-item.is-current { color: var(--action-700); font-weight: 700; }
 </style>
 {% endblock %}
 
@@ -61,7 +127,7 @@
     heading.
     {% endcomment %}
     <h1>Floor Stock</h1>
-    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
+    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if filter_branch %} — {{ filter_branch.branch_name }}{% elif user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
   </div>
   {% if can_adjust %}
   <button type="button" class="btn btn-primary" id="open-adjust-modal">
@@ -70,27 +136,6 @@
   </button>
   {% endif %}
 </div>
-
-{% if branches %}
-{% comment %}
-Owner-only branch nav — the same branch list that used to be a <select> in
-the toolbar, promoted to a tab strip so switching branch is one click and the
-active scope stays visible above the table. Manager/Staff never see it: they
-are pinned to their own branch server-side, so `branches` is empty for them
-(see _inventory_list_context). A tab only sets ?branch=; the q/category/status
-filters ride along so narrowing by branch does not drop the rest of the
-toolbar state. Reuses .filter-tabs — "filtering a list in place" is exactly
-what gerlyn.css reserves that component for.
-{% endcomment %}
-<nav class="filter-tabs" aria-label="Branch">
-  <a class="filter-tab{% if not branch_filter %} active{% endif %}"
-     href="?{% if search_query %}q={{ search_query|urlencode }}&amp;{% endif %}{% if category_filter %}category={{ category_filter|urlencode }}&amp;{% endif %}{% if status_filter %}status={{ status_filter|urlencode }}{% endif %}">All Branches</a>
-  {% for b in branches %}
-  <a class="filter-tab{% if branch_filter == b.id|stringformat:'s' %} active{% endif %}"
-     href="?branch={{ b.id }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if category_filter %}&amp;category={{ category_filter|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter|urlencode }}{% endif %}">{{ b.branch_name }}</a>
-  {% endfor %}
-</nav>
-{% endif %}
 
 {% comment %}
 The one KPI card (DESIGN.md §2) — the same component as the Dashboard rail and
@@ -141,9 +186,10 @@ across the full width leave the default block padding as empty card.
 </div>
 
 <form method="GET" class="toolbar toolbar-search" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
-  {% comment %}The branch tab strip sets ?branch=; this form has no branch
-  control of its own, so it carries the active branch through as a hidden
-  field or a category/status change would reset the list to all branches.{% endcomment %}
+  {% comment %}The top-bar branch switcher sets ?branch=; this form has no
+  branch control of its own, so it carries the active branch through as a
+  hidden field, or a category/status change would reset the list to all
+  branches.{% endcomment %}
   {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
   <div class="search-field">
     {% comment %}The submit, not decoration — same fallback role as
@@ -156,9 +202,9 @@ across the full width leave the default block padding as empty card.
     <button type="button" class="scan-btn" id="inventory-scan-btn" title="Scan a barcode to search" aria-label="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %}</button>
   </div>
   <div class="search-filters">
-    {% comment %}Branch is picked from the .filter-tabs strip above the KPI row,
-    not here — one control per filter. The tab links carry q/category/status
-    forward, so this GET form keeps those two selects only.{% endcomment %}
+    {% comment %}Branch is picked from the top-bar branch switcher, not here —
+    one control per filter. Its links carry q/category/status forward, so this
+    GET form keeps just the category and status selects.{% endcomment %}
     <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
       <option value="">All Categories</option>
       {% for c in categories %}
@@ -374,6 +420,25 @@ across the full width leave the default block padding as empty card.
 {% endblock %}
 
 {% block extra_js %}
+<script>
+// Top-bar branch switcher: close the native <details> on an outside click or
+// Escape — <details> only toggles on its own summary otherwise. Mirrors the
+// bottom nav's .more-menu handler in sidebar.js.
+(function () {
+  var sw = document.getElementById('branch-switch');
+  if (!sw) return;
+  document.addEventListener('click', function (e) {
+    if (sw.open && !sw.contains(e.target)) sw.open = false;
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sw.open) {
+      sw.open = false;
+      var s = sw.querySelector('summary');
+      if (s) s.focus();
+    }
+  });
+})();
+</script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script>

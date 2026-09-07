@@ -231,10 +231,18 @@ DOM — it is off-screen until focused (see .skip-link).
       {% endcomment %}
       <div class="topbar-section">{% block page_subtitle %}{% endblock %}</div>
       <div class="row">
+        {% comment %}
+        Default is the static scope label — .branch-chip in gerlyn.css is
+        deliberately not a control. A page that needs a real branch switcher on
+        the bar overrides the whole branch_chip block (Floor Stock does);
+        every other page just keeps filling branch_scope as before.
+        {% endcomment %}
+        {% block branch_chip %}
         <span class="branch-chip">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
           {% block branch_scope %}All Branches{% endblock %}
         </span>
+        {% endblock %}
         {% comment %}
           The account control, at every width. It was a <details> panel whose
           first row was My Profile; it is now that link directly, because that
