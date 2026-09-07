@@ -83,6 +83,17 @@ class Procurement(models.Model):
         default=ReceiptFlag.NONE,
         help_text="Flags whether received quantities had discrepancies"
     )
+    # When the Owner authorized this order out of Draft. `owner` records WHO
+    # authorized it and `created_by` who raised it — both already existed —
+    # so this is the only field the authorization gate adds. Null on a Draft
+    # order (nobody has approved it yet) and on legacy rows created before
+    # the gate, which is why it stays nullable rather than defaulting to the
+    # order_date: an approval that never happened must not look like one that
+    # did (finding C-1).
+    authorized_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the Owner approved this order out of Draft"
+    )
 
     def save(self, *args, **kwargs):
         # Auto-generate po_number on first save, same pattern as slip_number

@@ -10,6 +10,8 @@ urlpatterns = [
     path('<int:pk>/print/', views.procurement_print, name='procurement_print'),
     path('<int:pk>/update-status/', views.procurement_update_status,
          name='procurement_update_status'),
+    path('<int:pk>/approve/', views.procurement_approve,
+         name='procurement_approve'),
 
     # Deliveries (receive a PO into stock)
     path('deliveries/', views.delivery_list, name='delivery_list'),
