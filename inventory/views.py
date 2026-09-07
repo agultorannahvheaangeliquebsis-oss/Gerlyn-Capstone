@@ -14,6 +14,7 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 from datetime import date
 from decimal import Decimal, InvalidOperation as DecimalException
+from urllib.parse import urlencode
 
 from .models import (
     ProductCategory, Product, ProductImage, ProductPriceTier, Inventory,
@@ -1397,10 +1398,13 @@ def _inventory_list_context(request):
             models.Q(product__product_name__icontains=search_query) |
             models.Q(product__sku_code__icontains=search_query)
         )
-    if branch_filter:
-        records = records.filter(branch_id=branch_filter)
     if category_filter:
         records = records.filter(product__category_id=category_filter)
+    # The branch filter is deliberately NOT applied to the queryset — the scope
+    # bar has to show a row count per branch, and a branch it filtered out has
+    # nothing left to count. Applied per-row in the loop below instead, over the
+    # already branch-SCOPED queryset, so this stays a UI filter on top of the
+    # security boundary rather than a replacement for it. One pass, one query.
 
     records = list(records)
 
@@ -1411,13 +1415,28 @@ def _inventory_list_context(request):
         'In Stock': 'in_stock', 'No Stock': 'no_stock',
     }
     matching = []
+    branch_totals, branch_alerts = {}, {}
+    last_change = None
     for r in records:
         # Computed live from quantity_on_hand/reorder_level, not from the
         # stored Inventory.restock flag — that flag is only ever recomputed
         # inside Inventory.save(), so anything that bypasses save() (bulk
         # update, a data import) leaves it stale with nothing to catch it.
         status = stock_status(r.quantity_on_hand, r.reorder_level)
+
+        # Scope-bar tallies: counted before the branch filter, so every segment
+        # shows what it would return. The search and category filters do apply
+        # to them — they narrow the same question the bar is answering.
+        branch_totals[r.branch_id] = branch_totals.get(r.branch_id, 0) + 1
+        if status in ('Critical', 'No Stock'):
+            branch_alerts[r.branch_id] = branch_alerts.get(r.branch_id, 0) + 1
+
+        if branch_filter and str(r.branch_id) != branch_filter:
+            continue
+
         counts[key_for[status]] += 1
+        if r.last_stock_update and (last_change is None or r.last_stock_update > last_change):
+            last_change = r.last_stock_update
         if status_filter and status != status_filter:
             continue
         matching.append((r, status))
@@ -1451,6 +1470,48 @@ def _inventory_list_context(request):
 
     branches = cached_branches() if not user_branch else []
 
+    # branch_ids_for_user, not user_branch: the latter is None both for an Owner
+    # and for a Manager/Staff whose profile branch was nulled, and only the
+    # first of those may be handed a picker listing every branch.
+    can_pick_branch = branch_ids_for_user(request.user) is None
+    all_branches = cached_branches()
+
+    def scope_href(branch_id):
+        """One segment's URL — carries the other three filters across, so
+        switching branch doesn't silently clear the search you just typed."""
+        params = [
+            (key, value) for key, value in (
+                ('q', search_query),
+                ('category', category_filter),
+                ('status', status_filter),
+                ('branch', str(branch_id) if branch_id else ''),
+            ) if value
+        ]
+        return '?' + urlencode(params) if params else '?'
+
+    scope_branches = []
+    if can_pick_branch:
+        scope_branches.append({
+            'id': '', 'name': 'All Branches', 'href': scope_href(''),
+            'total': sum(branch_totals.values()),
+            'alerts': sum(branch_alerts.values()),
+            'active': not branch_filter,
+        })
+        for b in all_branches:
+            scope_branches.append({
+                'id': b.id, 'name': b.branch_name, 'href': scope_href(b.id),
+                'total': branch_totals.get(b.id, 0),
+                'alerts': branch_alerts.get(b.id, 0),
+                'active': branch_filter == str(b.id),
+            })
+
+    active_branch = None
+    if branch_filter:
+        active_branch = next(
+            (b for b in all_branches if str(b.id) == branch_filter), None
+        )
+    can_adjust = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+
     return {
         'rows': rows,
         'counts': counts,
@@ -1466,7 +1527,17 @@ def _inventory_list_context(request):
         'category_filter': category_filter,
         'status_filter': status_filter,
         'user_branch': user_branch,
-        'can_adjust': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        # Scope bar
+        'scope_branches': scope_branches,
+        'can_pick_branch': can_pick_branch,
+        'active_branch': active_branch,
+        'shelf_total': len(matching),
+        'last_change': last_change,
+        # The Branch column only earns its width when more than one branch can
+        # appear in the table.
+        'show_branch_column': can_pick_branch and not branch_filter,
+        'table_colspan': 7 + int(can_pick_branch and not branch_filter) + int(can_adjust),
+        'can_adjust': can_adjust,
         'adjust_products': Product.objects.order_by('product_name'),
     }
 

@@ -2,42 +2,7 @@
 {% load static %}
 {% block title %}Floor Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
-{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
-
-{% comment %}
-Top-bar branch switcher — turns the static scope chip into a menu of every
-branch, for the Owner only. Manager/Staff are branch-pinned server-side, so
-`branches` is empty for them and they keep the plain label. Each item just
-sets ?branch=; the q/category/status filters ride along so switching branch
-keeps the rest of the toolbar, and the toolbar's hidden `branch` field hands
-the choice back when a category/status changes. Native <details>, closed on
-outside-click / Escape by the small script in extra_js — same pattern as the
-bottom nav's More menu.
-{% endcomment %}
-{% block branch_chip %}
-{% if branches %}
-<details class="branch-switch" id="branch-switch">
-  <summary class="branch-chip branch-chip--menu">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-    <span>{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}</span>
-    <svg class="branch-switch-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-  </summary>
-  <div class="branch-switch-panel" role="menu">
-    <a role="menuitem" class="branch-switch-item{% if not branch_filter %} is-current{% endif %}"
-       href="?{% if search_query %}q={{ search_query|urlencode }}&amp;{% endif %}{% if category_filter %}category={{ category_filter|urlencode }}&amp;{% endif %}{% if status_filter %}status={{ status_filter|urlencode }}{% endif %}">All Branches</a>
-    {% for b in branches %}
-    <a role="menuitem" class="branch-switch-item{% if branch_filter == b.id|stringformat:'s' %} is-current{% endif %}"
-       href="?branch={{ b.id }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if category_filter %}&amp;category={{ category_filter|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter|urlencode }}{% endif %}">{{ b.branch_name }}</a>
-    {% endfor %}
-  </div>
-</details>
-{% else %}
-<span class="branch-chip">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-  {% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}
-</span>
-{% endif %}
-{% endblock %}
+{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% elif active_branch %}{{ active_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -127,7 +92,7 @@ bottom nav's More menu.
     heading.
     {% endcomment %}
     <h1>Floor Stock</h1>
-    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if filter_branch %} — {{ filter_branch.branch_name }}{% elif user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
+    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% elif active_branch %} — {{ active_branch.branch_name }}{% else %} across all branches{% endif %}</p>
   </div>
   {% if can_adjust %}
   <button type="button" class="btn btn-primary" id="open-adjust-modal">
@@ -136,6 +101,62 @@ bottom nav's More menu.
   </button>
   {% endif %}
 </div>
+
+{% comment %}
+The branch scope bar — .scopebar, not a fifth .filter-tabs bar (see the
+component's own note in gerlyn.css). It sits ABOVE the KPI row on purpose:
+picking a branch re-counts those four figures too, and a "Critical 3" that
+ignored the branch you just chose would be worse than no figure at all.
+
+Three forms, one shape, so the page doesn't rearrange itself between roles:
+an Owner gets the segmented track; an account pinned to one branch gets the
+branch as a plain tag; an account with no branch at all is told so, because
+its table is going to be empty and the reason should not be a mystery.
+
+Segments are <a>s, not buttons: this is navigation. Each href carries the
+search, category and status filters across (built in the view, not here —
+{% templatetag openblock %} url {% templatetag closeblock %} can't merge
+query strings), so switching branch never silently clears the search someone
+just typed.
+{% endcomment %}
+{% if can_pick_branch %}
+<nav class="scopebar" aria-label="Filter floor stock by branch">
+  <span class="scopebar-label">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+  </span>
+  <div class="seg">
+    {% for b in scope_branches %}
+      <a class="seg-item{% if b.active %} active{% endif %}" href="{{ b.href }}"
+         {% if b.active %}aria-current="page"{% endif %}>{{ b.name }}
+        <span class="count{% if b.alerts %} alert{% endif %}"
+              title="{{ b.total }} product{{ b.total|pluralize }} on the shelf{% if b.alerts %}, {{ b.alerts }} needing attention{% endif %}">{{ b.total }}</span>
+      </a>
+    {% endfor %}
+  </div>
+  <span class="scopebar-spacer"></span>
+  <span class="scopebar-meta">
+    <b>{{ shelf_total }}</b> item{{ shelf_total|pluralize }} on the shelf
+    {% if last_change %}<span class="dot"></span> last change {{ last_change|timesince }} ago{% endif %}
+  </span>
+</nav>
+{% else %}
+<div class="scopebar">
+  <span class="scopebar-label">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+  </span>
+  {% if user_branch %}
+    <span class="locked-branch">{{ user_branch.branch_name }}</span>
+    <span class="gv-meta">your assigned branch</span>
+  {% else %}
+    <span class="gv-meta">No branch is assigned to your account — ask the Owner to assign one before you can see any floor stock.</span>
+  {% endif %}
+  <span class="scopebar-spacer"></span>
+  <span class="scopebar-meta">
+    <b>{{ shelf_total }}</b> item{{ shelf_total|pluralize }} on the shelf
+    {% if last_change %}<span class="dot"></span> last change {{ last_change|timesince }} ago{% endif %}
+  </span>
+</div>
+{% endif %}
 
 {% comment %}
 The one KPI card (DESIGN.md §2) — the same component as the Dashboard rail and
@@ -226,7 +247,8 @@ across the full width leave the default block padding as empty card.
     <thead>
       <tr>
         <th>Product</th>
-        <th>Branch</th>
+        {# Only when more than one branch can appear in the table below. #}
+        {% if show_branch_column %}<th>Branch</th>{% endif %}
         <th>Category</th>
         <th class="num">Batch Qty</th>
         <th>Expiry Date</th>
@@ -250,7 +272,7 @@ across the full width leave the default block padding as empty card.
       {% for row in rows %}
       <tr data-filter-text="{{ row.inv.product.product_name }} {{ row.inv.product.sku_code }}">
         <td data-label="Product" class="strong">{{ row.inv.product.product_name }}</td>
-        <td data-label="Branch">{{ row.inv.branch.branch_name }}</td>
+        {% if show_branch_column %}<td data-label="Branch">{{ row.inv.branch.branch_name }}</td>{% endif %}
         <td data-label="Category"><span class="tag">{{ row.inv.product.category.category_name|default:"—" }}</span></td>
         <td data-label="Batch Qty" class="num strong">{% if row.batch %}{{ row.batch.quantity }}{% else %}0{% endif %}</td>
         <td data-label="Expiry Date">{% if row.batch %}{{ row.batch.expiry_date|date:"Y-m-d"|default:"—" }}{% else %}—{% endif %}</td>
@@ -274,7 +296,7 @@ across the full width leave the default block padding as empty card.
       </tr>
       {% empty %}
       <tr>
-        <td colspan="9">
+        <td colspan="{{ table_colspan }}">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No stock records match</h3>
@@ -285,7 +307,7 @@ across the full width leave the default block padding as empty card.
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="inventory-no-matches" hidden>
-        <td colspan="9">
+        <td colspan="{{ table_colspan }}">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No stock records match</h3>
