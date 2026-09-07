@@ -52,6 +52,7 @@ class WalkInSaleFormTests(TestCase):
             'order_type': 'Retail',
             'product_id': [str(self.product.pk)],
             'quantity': ['3'],
+            'amount_tendered': '300',
         })
         txn = SalesTransaction.objects.get()
         self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
@@ -70,6 +71,7 @@ class WalkInSaleFormTests(TestCase):
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
             'order_type': 'Wholesale',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            'amount_tendered': '160',
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.order_type, 'Wholesale')
@@ -140,6 +142,7 @@ class WalkInSaleFormTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': other.pk, 'mode_of_payment': 'Cash', 'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
+            'amount_tendered': '100',
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.branch_id, self.branch.pk)

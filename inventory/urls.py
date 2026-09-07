@@ -8,6 +8,11 @@ urlpatterns = [
     path('products/add/', views.product_add, name='product_add'),
     path('products/edit/<int:pk>/', views.product_edit, name='product_edit'),
     path('products/delete/<int:pk>/', views.product_delete, name='product_delete'),
+    path('products/export/', views.product_export_xlsx, name='product_export_xlsx'),
+    path('products/import/', views.product_import_upload, name='product_import_upload'),
+    path('products/import/map/', views.product_import_map, name='product_import_map'),
+    path('products/import/preview/', views.product_import_preview, name='product_import_preview'),
+    path('products/import/cancel/', views.product_import_cancel, name='product_import_cancel'),
     path('barcode-lookup/', views.barcode_lookup, name='barcode_lookup'),
 
     # Categories

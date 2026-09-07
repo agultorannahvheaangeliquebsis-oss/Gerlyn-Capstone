@@ -1,19 +1,24 @@
+import os
+import uuid
+
+from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models, transaction, IntegrityError
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 from datetime import date
-from decimal import InvalidOperation as DecimalException
+from decimal import Decimal, InvalidOperation as DecimalException
 
 from .models import (
     ProductCategory, Product, ProductImage, Inventory,
     Warehouse, WarehouseStock, Batch,
-    StockTransfer, StockTransferItem, StockMovement
+    StockTransfer, StockTransferItem, StockMovement,
+    ProductImportMappingTemplate,
 )
 from .alerts import alert_summary, stock_status
 from accounts.models import User
@@ -387,6 +392,479 @@ def product_delete(request, pk):
     return render(request, 'inventory/product_confirm_delete.html', {
         'product': product,
     })
+
+
+# ─────────────────────────────────────────────
+# PRODUCT IMPORT / EXPORT (Excel)
+#
+# Export downloads the catalog as .xlsx with one column per field below;
+# Import reads a .xlsx back in through a 3-step wizard (upload -> map
+# columns -> preview & confirm), matching by Barcode to decide whether a
+# row updates an existing product or creates a new one. A saved
+# ProductImportMappingTemplate lets a repeat import skip re-mapping.
+#
+# The uploaded file lives on local disk for the lifetime of the wizard
+# (session holds only its path + the chosen mapping, never the parsed
+# rows) — _parse_import_rows() re-reads and re-validates it fresh at both
+# the preview and the commit step, so the two can never disagree about
+# what a row means.
+# ─────────────────────────────────────────────
+
+# (field_key, column header — used for both the export file and the
+# mapping form's label, required)
+_MAPPABLE_FIELDS = [
+    ('product_name', 'Product Name', True),
+    ('barcode', 'Barcode', False),
+    ('category', 'Category', False),
+    ('unit_of_measure', 'Unit of Measure', False),
+    ('unit_price', 'Retail Price', True),
+    ('wholesale_price', 'Wholesale Price', False),
+    ('description', 'Description', False),
+    ('is_vat_exempt', 'VAT Exempt', False),
+    ('is_pwd_eligible', 'PWD Eligible', False),
+    ('is_senior_eligible', 'Senior Eligible', False),
+]
+
+_IMPORT_TMP_DIR = os.path.join(settings.BASE_DIR, 'tmp_uploads', 'product_imports')
+
+# Common spellings for "yes" across a hand-built spreadsheet — anything else
+# (including blank) reads as False. Matches what product_export_xlsx writes
+# ("Yes"/"No"), so an exported file round-trips through Import unchanged.
+_TRUTHY_CELL_VALUES = {'yes', 'y', 'true', '1', 'x'}
+
+
+def _clear_import_session(request):
+    """Drop the in-progress import's session state and delete its temp file,
+    if any. Safe to call when there is nothing to clear."""
+    state = request.session.pop('product_import', None)
+    request.session.modified = True
+    if state and state.get('path') and os.path.exists(state['path']):
+        try:
+            os.remove(state['path'])
+        except OSError:
+            pass  # already gone or locked — not worth failing the request over
+
+
+def _parse_bool_cell(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if value is None:
+        return False
+    return str(value).strip().lower() in _TRUTHY_CELL_VALUES
+
+
+def _match_unit_of_measure(value):
+    """Case-insensitive match against Product.UnitOfMeasure (by either the
+    stored value or its display label) — None if blank or unrecognized;
+    the caller decides whether that's an error or a default."""
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    for choice_value, choice_label in Product.UnitOfMeasure.choices:
+        if text == choice_value.lower() or text == choice_label.lower():
+            return choice_value
+    return None
+
+
+def _guess_mapping(headers):
+    """Best-effort default mapping by matching an uploaded header's text to
+    a field, ignoring case/spacing/punctuation — so a sensibly-titled sheet
+    needs little or no manual remapping. Never trusted blindly: the mapping
+    form always renders (and stays fully editable) regardless of the guess."""
+    def norm(s):
+        return ''.join(ch for ch in s.lower() if ch.isalnum())
+
+    header_by_norm = {norm(h): h for h in headers}
+    aliases = {
+        'product_name': ['productname', 'name', 'product', 'item', 'itemname'],
+        'barcode': ['barcode', 'upc', 'ean', 'code'],
+        'category': ['category', 'categoryname', 'cat'],
+        'unit_of_measure': ['unitofmeasure', 'unit', 'uom', 'units'],
+        'unit_price': ['retailprice', 'unitprice', 'price', 'srp'],
+        'wholesale_price': ['wholesaleprice', 'wholesale'],
+        'description': ['description', 'desc', 'notes'],
+        'is_vat_exempt': ['vatexempt', 'vat'],
+        'is_pwd_eligible': ['pwdeligible', 'pwd'],
+        'is_senior_eligible': ['senioreligible', 'senior', 'seniorcitizen'],
+    }
+    guess = {}
+    for field_key, names in aliases.items():
+        for name in names:
+            if name in header_by_norm:
+                guess[field_key] = header_by_norm[name]
+                break
+    return guess
+
+
+def _parse_import_rows(path, mapping):
+    """Read the sheet at `path`, apply `mapping` ({field_key: column header
+    text}), and return one dict per non-blank data row:
+
+        row_number, product_name, barcode, category_name, unit_of_measure,
+        unit_price, wholesale_price, description, is_vat_exempt,
+        is_pwd_eligible, is_senior_eligible, action, errors, existing_id
+
+    `action` is 'error' (skip on commit), 'update' (barcode matched an
+    existing product — existing_id is set), or 'create'. Nothing is written
+    to the database here — this is the one place both the preview and the
+    commit step compute row meaning, so they can never disagree.
+
+    Matched by column HEADER TEXT, not position: a supplier re-exporting
+    the same kind of sheet next month may reorder columns, and a saved
+    mapping template should still apply correctly.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+    header_row = next(rows_iter, None)
+    if header_row is None:
+        return []
+    headers = [str(h).strip() if h is not None else '' for h in header_row]
+    col_index = {h: i for i, h in enumerate(headers) if h}
+
+    def cell(raw_row, field_key):
+        header = mapping.get(field_key)
+        if not header or header not in col_index:
+            return None
+        idx = col_index[header]
+        return raw_row[idx] if idx < len(raw_row) else None
+
+    seen_barcodes = {}  # barcode -> the first row_number that claimed it
+    results = []
+    for row_number, raw_row in enumerate(rows_iter, start=2):
+        if raw_row is None or all(c is None or str(c).strip() == '' for c in raw_row):
+            continue  # a fully blank row is not a product to skip loudly over
+
+        errors = []
+
+        product_name = str(cell(raw_row, 'product_name') or '').strip()
+        if not product_name:
+            errors.append('Product Name is required.')
+
+        unit_price_raw = cell(raw_row, 'unit_price')
+        unit_price = None
+        if unit_price_raw in (None, ''):
+            errors.append('Retail Price is required.')
+        else:
+            try:
+                unit_price = Decimal(str(unit_price_raw))
+                if unit_price < 0:
+                    errors.append('Retail Price cannot be negative.')
+            except DecimalException:
+                errors.append(f'Retail Price "{unit_price_raw}" is not a number.')
+
+        wholesale_raw = cell(raw_row, 'wholesale_price')
+        wholesale_price = None
+        if wholesale_raw not in (None, ''):
+            try:
+                wholesale_price = Decimal(str(wholesale_raw))
+                if wholesale_price < 0:
+                    errors.append('Wholesale Price cannot be negative.')
+            except DecimalException:
+                errors.append(f'Wholesale Price "{wholesale_raw}" is not a number.')
+
+        barcode_raw = cell(raw_row, 'barcode')
+        barcode = str(barcode_raw).strip() if barcode_raw not in (None, '') else ''
+        if barcode:
+            if barcode in seen_barcodes:
+                errors.append(f'Duplicate barcode in this file (also row {seen_barcodes[barcode]}).')
+            else:
+                seen_barcodes[barcode] = row_number
+
+        uom_raw = cell(raw_row, 'unit_of_measure')
+        if uom_raw in (None, ''):
+            unit_of_measure = Product.UnitOfMeasure.PIECE
+        else:
+            unit_of_measure = _match_unit_of_measure(uom_raw)
+            if unit_of_measure is None:
+                errors.append(f'Unrecognized Unit of Measure "{uom_raw}".')
+                unit_of_measure = Product.UnitOfMeasure.PIECE
+
+        existing = Product.objects.filter(barcode__iexact=barcode).first() if barcode else None
+        action = 'error' if errors else ('update' if existing else 'create')
+
+        results.append({
+            'row_number': row_number,
+            'product_name': product_name,
+            'barcode': barcode,
+            'category_name': str(cell(raw_row, 'category') or '').strip(),
+            'unit_of_measure': unit_of_measure,
+            'unit_price': unit_price,
+            'wholesale_price': wholesale_price,
+            'description': str(cell(raw_row, 'description') or '').strip(),
+            'is_vat_exempt': _parse_bool_cell(cell(raw_row, 'is_vat_exempt')),
+            'is_pwd_eligible': _parse_bool_cell(cell(raw_row, 'is_pwd_eligible')),
+            'is_senior_eligible': _parse_bool_cell(cell(raw_row, 'is_senior_eligible')),
+            'action': action,
+            'errors': errors,
+            'existing_id': existing.pk if existing else None,
+        })
+    return results
+
+
+@login_required(login_url='accounts:login')
+def product_export_xlsx(request):
+    """Download the whole catalog as .xlsx — one column per _MAPPABLE_FIELDS
+    entry, plus a leading reference-only SKU column, so the same file can be
+    edited and fed straight back through Import with little to no remapping."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to export the catalog.')
+        return redirect('product_list')
+
+    import openpyxl
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Products'
+
+    headers = ['SKU Code'] + [label for _key, label, _required in _MAPPABLE_FIELDS]
+    ws.append(headers)
+    for c in ws[1]:
+        c.font = openpyxl.styles.Font(bold=True)
+
+    for p in Product.objects.select_related('category').order_by('product_name'):
+        ws.append([
+            p.sku_code,
+            p.product_name,
+            p.barcode or '',
+            p.category.category_name if p.category else '',
+            p.unit_of_measure,
+            float(p.unit_price),
+            float(p.wholesale_price) if p.wholesale_price is not None else '',
+            p.description,
+            'Yes' if p.is_vat_exempt else 'No',
+            'Yes' if p.is_pwd_eligible else 'No',
+            'Yes' if p.is_senior_eligible else 'No',
+        ])
+
+    for i in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(i)].width = 20
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    filename = f'gerlyn-products-{timezone.localdate().isoformat()}.xlsx'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    wb.save(response)
+    return response
+
+
+@login_required(login_url='accounts:login')
+def product_import_upload(request):
+    """Step 1: upload the .xlsx file and read its header row. The file is
+    saved to a private temp directory (never under MEDIA_ROOT — it's a
+    working file for this wizard, not a record the app keeps); only its
+    path and headers go into the session."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to import products.')
+        return redirect('product_list')
+
+    if request.method == 'POST':
+        upload = request.FILES.get('file')
+        if not upload or not upload.name.lower().endswith('.xlsx'):
+            messages.error(request, 'Choose a .xlsx file to import.')
+            return render(request, 'inventory/product_import_upload.html')
+
+        _clear_import_session(request)  # drop any abandoned previous upload
+
+        os.makedirs(_IMPORT_TMP_DIR, exist_ok=True)
+        tmp_path = os.path.join(_IMPORT_TMP_DIR, f'{uuid.uuid4().hex}.xlsx')
+        with open(tmp_path, 'wb') as f:
+            for chunk in upload.chunks():
+                f.write(chunk)
+
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
+            header_row = next(wb.active.iter_rows(values_only=True), None)
+        except Exception:
+            os.remove(tmp_path)
+            messages.error(request, 'Could not read that file — make sure it is a valid .xlsx spreadsheet.')
+            return render(request, 'inventory/product_import_upload.html')
+
+        headers = [str(h).strip() for h in (header_row or []) if h is not None and str(h).strip()]
+        if not headers:
+            os.remove(tmp_path)
+            messages.error(request, 'The first row of the sheet must contain column headers.')
+            return render(request, 'inventory/product_import_upload.html')
+
+        request.session['product_import'] = {'path': tmp_path, 'headers': headers, 'mapping': None}
+        return redirect('product_import_map')
+
+    return render(request, 'inventory/product_import_upload.html')
+
+
+@login_required(login_url='accounts:login')
+def product_import_map(request):
+    """Step 2: map each uploaded column to a system field, optionally
+    starting from a saved template (?template=<id>, a plain GET so loading
+    one is just a link/select — never a state change) and optionally saving
+    the mapping just built under a new name before moving on."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to import products.')
+        return redirect('product_list')
+
+    state = request.session.get('product_import')
+    if not state:
+        messages.error(request, 'Upload a file to start an import.')
+        return redirect('product_import_upload')
+
+    headers = state['headers']
+    templates = ProductImportMappingTemplate.objects.filter(
+        models.Q(created_by=request.user) | models.Q(is_shared=True)
+    ).select_related('created_by')
+
+    if request.method == 'POST':
+        mapping = {}
+        for field_key, _label, _required in _MAPPABLE_FIELDS:
+            chosen = request.POST.get(f'map_{field_key}', '')
+            if chosen and chosen in headers:
+                mapping[field_key] = chosen
+
+        errors = [
+            f'Map a column to "{label}" — it is required.'
+            for field_key, label, required in _MAPPABLE_FIELDS
+            if required and field_key not in mapping
+        ]
+
+        if errors:
+            for e in errors:
+                messages.error(request, e)
+            current_mapping = mapping  # keep what they picked instead of losing it
+        else:
+            save_name = request.POST.get('save_template_name', '').strip()
+            if save_name:
+                ProductImportMappingTemplate.objects.update_or_create(
+                    created_by=request.user, name=save_name,
+                    defaults={
+                        'mapping': mapping,
+                        'is_shared': request.POST.get('template_visibility') == 'shared',
+                    },
+                )
+                messages.success(request, f'Saved mapping template "{save_name}".')
+
+            state['mapping'] = mapping
+            request.session['product_import'] = state
+            request.session.modified = True
+            return redirect('product_import_preview')
+    else:
+        template_id = request.GET.get('template')
+        if template_id:
+            tmpl = templates.filter(pk=template_id).first()
+            current_mapping = tmpl.mapping if tmpl else {}
+        else:
+            current_mapping = state.get('mapping') or _guess_mapping(headers)
+
+    fields = [
+        {'key': key, 'label': label, 'required': required, 'selected': current_mapping.get(key, '')}
+        for key, label, required in _MAPPABLE_FIELDS
+    ]
+    return render(request, 'inventory/product_import_map.html', {
+        'headers': headers,
+        'fields': fields,
+        'templates': templates,
+    })
+
+
+@login_required(login_url='accounts:login')
+def product_import_preview(request):
+    """Step 3: GET shows what the mapped file resolves to (counts + a
+    sample of interpreted rows) without writing anything; POST commits it —
+    both read the same _parse_import_rows() output, so what was previewed
+    is exactly what gets applied."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to import products.')
+        return redirect('product_list')
+
+    state = request.session.get('product_import')
+    if not state or not state.get('mapping'):
+        messages.error(request, 'Map the columns first.')
+        return redirect('product_import_upload')
+
+    path = state['path']
+    if not os.path.exists(path):
+        _clear_import_session(request)
+        messages.error(request, 'Your uploaded file is no longer available — please upload it again.')
+        return redirect('product_import_upload')
+
+    rows = _parse_import_rows(path, state['mapping'])
+
+    if request.method == 'POST':
+        created = updated = skipped = 0
+        any_new_category = False
+        with transaction.atomic():
+            for row in rows:
+                if row['action'] == 'error':
+                    skipped += 1
+                    continue
+
+                category = None
+                if row['category_name']:
+                    category = ProductCategory.objects.filter(
+                        category_name__iexact=row['category_name']
+                    ).first()
+                    if category is None:
+                        category = ProductCategory.objects.create(category_name=row['category_name'])
+                        any_new_category = True
+
+                if row['action'] == 'update':
+                    product = Product.objects.get(pk=row['existing_id'])
+                    updated += 1
+                else:
+                    product = Product(sku_code=Product.next_sku_code())
+                    created += 1
+
+                product.product_name = row['product_name']
+                if row['barcode']:
+                    product.barcode = row['barcode']
+                product.category = category
+                product.unit_of_measure = row['unit_of_measure']
+                product.unit_price = row['unit_price']
+                product.wholesale_price = row['wholesale_price']
+                product.description = row['description']
+                product.is_vat_exempt = row['is_vat_exempt']
+                product.is_pwd_eligible = row['is_pwd_eligible']
+                product.is_senior_eligible = row['is_senior_eligible']
+                product.save()
+
+        if any_new_category:
+            bust_categories_cache()
+
+        _clear_import_session(request)
+        messages.success(
+            request,
+            f'Import complete — {created} product{"s" if created != 1 else ""} added, '
+            f'{updated} updated, {skipped} skipped due to errors.'
+        )
+        return redirect('product_list')
+
+    counts = {
+        'total': len(rows),
+        'create': sum(1 for r in rows if r['action'] == 'create'),
+        'update': sum(1 for r in rows if r['action'] == 'update'),
+        'error': sum(1 for r in rows if r['action'] == 'error'),
+    }
+    return render(request, 'inventory/product_import_preview.html', {
+        'rows': rows[:200],
+        'counts': counts,
+        'truncated': len(rows) > 200,
+    })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def product_import_cancel(request):
+    """A real (POST) action, not a plain link — this deletes the temp file
+    and its session state, so it must not be something a stray GET (a
+    prefetch, a bookmark) can trigger by accident."""
+    _clear_import_session(request)
+    messages.info(request, 'Import cancelled.')
+    return redirect('product_list')
 
 
 # ─────────────────────────────────────────────

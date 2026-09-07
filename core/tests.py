@@ -75,6 +75,7 @@ class AcceptanceTests(TestCase):
             'mode_of_payment': 'Cash',
             'product_id': [str(product.pk)],
             'quantity': ['4'],
+            'amount_tendered': '10000',
         })
 
         tx = SalesTransaction.objects.order_by('-id').first()
@@ -375,6 +376,7 @@ class AcceptanceTests(TestCase):
         self.login('ana').post('/sales/add/', {
             'mode_of_payment': 'Cash', 'order_type': 'Retail',
             'product_id': [str(product.pk)], 'quantity': ['10'],
+            'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
         self.assertEqual(tx.order_type, 'Retail')
@@ -385,6 +387,7 @@ class AcceptanceTests(TestCase):
         self.login('ana').post('/sales/add/', {
             'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
             'product_id': [str(product.pk)], 'quantity': ['10'],
+            'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
         self.assertEqual(tx.order_type, 'Wholesale')
@@ -400,6 +403,7 @@ class AcceptanceTests(TestCase):
         self.login('ana').post('/sales/add/', {
             'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
             'product_id': [str(product.pk)], 'quantity': ['2'],
+            'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
         self.assertEqual(tx.total_amount, product.unit_price * 2)
@@ -409,6 +413,7 @@ class AcceptanceTests(TestCase):
         self.login('ana').post('/sales/add/', {
             'mode_of_payment': 'Cash', 'order_type': 'Free',
             'product_id': [str(product.pk)], 'quantity': ['1'],
+            'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
         self.assertEqual(tx.order_type, 'Retail')

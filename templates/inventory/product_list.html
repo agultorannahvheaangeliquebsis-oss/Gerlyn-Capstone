@@ -137,6 +137,21 @@ else, which falls through to the base template's wording.{% endcomment %}
     <a class="btn" href="{% url 'category_list' %}">Manage Categories</a>
     {% endif %}
     {% if can_edit %}
+    {% comment %}
+    Export and Import share the whole catalog, not this page's filtered
+    view — a bulk load/backup is a store-wide action, and scoping it to
+    whatever search/category/branch filter happens to be active would make
+    "export" silently mean something different depending on what was typed
+    into the search box a moment earlier.
+    {% endcomment %}
+    <a class="btn" href="{% url 'product_export_xlsx' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
+      Export
+    </a>
+    <a class="btn" href="{% url 'product_import_upload' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M6 13l6-6 6 6M5 3h14"/></svg>
+      Import
+    </a>
     <button type="button" class="btn btn-primary" id="open-add-modal">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
       Add Product
@@ -208,6 +223,7 @@ input[type=search] within the form — all three survive the restructure.
       <tr>
         <th>Image</th>
         <th>SKU</th>
+        <th>Barcode</th>
         <th>Product Name</th>
         <th>Category</th>
         <th>Unit</th>
@@ -219,7 +235,7 @@ input[type=search] within the form — all three survive the restructure.
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr data-filter-text="{{ row.product.product_name }} {{ row.product.sku_code }}">
+      <tr data-filter-text="{{ row.product.product_name }} {{ row.product.sku_code }} {{ row.product.barcode }}">
         <td data-label="Image">
           {% with imgs=row.product.images.all %}
             {% if imgs %}
@@ -231,6 +247,7 @@ input[type=search] within the form — all three survive the restructure.
           {% endwith %}
         </td>
         <td data-label="SKU" class="sku">{{ row.product.sku_code }}</td>
+        <td data-label="Barcode" class="sku">{{ row.product.barcode|default:"—" }}</td>
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
         <td data-label="Category"><span class="tag">{{ row.product.category.category_name|default:"—" }}</span></td>
         <td data-label="Unit">{{ row.product.unit_of_measure }}</td>
@@ -250,7 +267,7 @@ input[type=search] within the form — all three survive the restructure.
       </tr>
       {% empty %}
       <tr>
-        <td colspan="9">
+        <td colspan="10">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No products found</h3>
@@ -262,7 +279,7 @@ input[type=search] within the form — all three survive the restructure.
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="product-no-matches" hidden>
-        <td colspan="9">
+        <td colspan="10">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No products found</h3>

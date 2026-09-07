@@ -1,8 +1,12 @@
+import io
+
+import openpyxl
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import User
-from inventory.models import ProductCategory
+from inventory.models import Product, ProductCategory, ProductImportMappingTemplate
 
 
 class CategoryModalFlowTests(TestCase):
@@ -118,4 +122,198 @@ class CategoryModalFlowTests(TestCase):
             reverse('category_add'), {'category_name': 'Canned Goods'}
         )
         self.assertRedirects(response, reverse('category_list'))
+
+
+def _xlsx_upload(filename, header, data_rows):
+    """Build an in-memory .xlsx matching what a real browser upload of the
+    given header/rows would produce, for POSTing through product_import_upload."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(header)
+    for row in data_rows:
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return SimpleUploadedFile(
+        filename, buf.read(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+class ProductImportExportTests(TestCase):
+    """The Excel import/export wizard for the Product Master List: export
+    downloads the catalog, import is upload -> map columns -> preview ->
+    confirm, matching existing products by barcode."""
+
+    HEADER = [
+        'Item Name', 'Barcode', 'Cat', 'UOM', 'SRP',
+        'Wholesale', 'Notes', 'VAT', 'PWD', 'Senior',
+    ]
+    MAPPING = {
+        'map_product_name': 'Item Name',
+        'map_barcode': 'Barcode',
+        'map_category': 'Cat',
+        'map_unit_of_measure': 'UOM',
+        'map_unit_price': 'SRP',
+        'map_wholesale_price': 'Wholesale',
+        'map_description': 'Notes',
+        'map_is_vat_exempt': 'VAT',
+        'map_is_pwd_eligible': 'PWD',
+        'map_is_senior_eligible': 'Senior',
+    }
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(self.owner)
+
+    def _upload(self, data_rows, filename='import.xlsx'):
+        return self.client.post(
+            reverse('product_import_upload'),
+            {'file': _xlsx_upload(filename, self.HEADER, data_rows)},
+        )
+
+    # ── Export ──────────────────────────────────────────────
+
+    def test_export_returns_an_xlsx_with_a_row_per_product(self):
+        category = ProductCategory.objects.create(category_name='Snacks')
+        Product.objects.create(
+            sku_code='SKU-EXPORT-1', product_name='Chippy', barcode='EXPORT001',
+            category=category, unit_of_measure=Product.UnitOfMeasure.PIECE,
+            unit_price=15, wholesale_price=12,
+        )
+        response = self.client.get(reverse('product_export_xlsx'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        wb = openpyxl.load_workbook(io.BytesIO(response.content))
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        self.assertEqual(rows[0][0], 'SKU Code')
+        data_row = next(r for r in rows[1:] if r[1] == 'Chippy')
+        self.assertEqual(data_row[2], 'EXPORT001')
+        self.assertEqual(data_row[3], 'Snacks')
+
+    def test_export_denied_for_staff(self):
+        staff = User.objects.create_user(
+            username='staff', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(staff)
+        response = self.client.get(reverse('product_export_xlsx'))
+        self.assertRedirects(
+            response, reverse('product_list'), fetch_redirect_response=False
+        )
+
+    # ── Upload ──────────────────────────────────────────────
+
+    def test_upload_rejects_a_non_xlsx_file(self):
+        bad = SimpleUploadedFile('notes.txt', b'hello', content_type='text/plain')
+        response = self.client.post(reverse('product_import_upload'), {'file': bad})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Choose a .xlsx file')
+
+    def test_upload_then_map_guesses_columns_from_headers(self):
+        response = self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
+        self.assertRedirects(response, reverse('product_import_map'))
+        map_response = self.client.get(reverse('product_import_map'))
+        fields_by_key = {f['key']: f for f in map_response.context['fields']}
+        self.assertEqual(fields_by_key['product_name']['selected'], 'Item Name')
+        self.assertEqual(fields_by_key['unit_price']['selected'], 'SRP')
+
+    # ── Full wizard: preview + commit ──────────────────────
+
+    def test_full_wizard_creates_updates_and_skips_bad_rows(self):
+        existing = Product.objects.create(
+            sku_code='SKU-EXISTING-1', product_name='Old Name', barcode='EXISTBAR',
+            unit_of_measure=Product.UnitOfMeasure.PIECE, unit_price=50,
+        )
+        rows = [
+            ['New Product A', 'NEWBAR001', 'New Cat X', 'Piece', '50', '', 'desc', 'No', 'Yes', ''],
+            ['Updated Name', 'EXISTBAR', '', '', '75', '', '', '', '', ''],
+            ['', '', '', '', '', '', '', '', '', ''],  # blank row — silently skipped
+            ['Missing Price', 'BADPRICE1', '', '', '', '', '', '', '', ''],
+            ['Dup First', 'DUPBAR', '', '', '10', '', '', '', '', ''],
+            ['Dup Second', 'DUPBAR', '', '', '20', '', '', '', '', ''],
+            ['Bad Unit', 'BADUOM1', '', 'bogus-unit', '30', '', '', '', '', ''],
+        ]
+        self._upload(rows)
+        self.client.post(reverse('product_import_map'), self.MAPPING)
+
+        preview = self.client.get(reverse('product_import_preview'))
+        self.assertEqual(preview.context['counts'], {
+            'total': 6, 'create': 2, 'update': 1, 'error': 3,
+        })
+        created_action = next(r for r in preview.context['rows'] if r['barcode'] == 'NEWBAR001')
+        self.assertEqual(created_action['action'], 'create')
+
+        commit = self.client.post(reverse('product_import_preview'))
+        self.assertRedirects(commit, reverse('product_list'))
+
+        created = Product.objects.get(barcode='NEWBAR001')
+        self.assertEqual(created.category.category_name, 'New Cat X')
+        self.assertTrue(ProductCategory.objects.filter(category_name='New Cat X').exists())
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.product_name, 'Updated Name')
+        self.assertEqual(existing.unit_price, 75)
+
+        self.assertEqual(Product.objects.filter(barcode='DUPBAR').count(), 1)
+        self.assertEqual(Product.objects.get(barcode='DUPBAR').unit_price, 10)
+
+        self.assertFalse(Product.objects.filter(barcode='BADPRICE1').exists())
+        self.assertFalse(Product.objects.filter(barcode='BADUOM1').exists())
+
+    # ── Saved mapping templates ─────────────────────────────
+
+    def test_saved_private_template_is_hidden_from_other_users(self):
+        self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
+        payload = dict(self.MAPPING, save_template_name='My Private Mapping',
+                       template_visibility='private')
+        self.client.post(reverse('product_import_map'), payload)
+        self.assertTrue(
+            ProductImportMappingTemplate.objects.filter(
+                name='My Private Mapping', created_by=self.owner, is_shared=False,
+            ).exists()
+        )
+
+        other = User.objects.create_user(
+            username='manager2', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(other)
+        self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
+        map_response = self.client.get(reverse('product_import_map'))
+        names = [t.name for t in map_response.context['templates']]
+        self.assertNotIn('My Private Mapping', names)
+
+    def test_saved_shared_template_is_visible_to_other_users(self):
+        self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
+        payload = dict(self.MAPPING, save_template_name='Team Mapping',
+                       template_visibility='shared')
+        self.client.post(reverse('product_import_map'), payload)
+
+        other = User.objects.create_user(
+            username='manager3', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(other)
+        self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
+        map_response = self.client.get(reverse('product_import_map'))
+        names = [t.name for t in map_response.context['templates']]
+        self.assertIn('Team Mapping', names)
+
+    # ── Cancel ──────────────────────────────────────────────
+
+    def test_cancel_clears_the_in_progress_import(self):
+        self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
+        self.assertIn('product_import', self.client.session)
+        response = self.client.post(reverse('product_import_cancel'))
+        self.assertRedirects(response, reverse('product_list'))
+        self.assertNotIn('product_import', self.client.session)
+
+    def test_preview_without_an_uploaded_file_redirects_to_upload(self):
+        response = self.client.get(reverse('product_import_preview'))
+        self.assertRedirects(response, reverse('product_import_upload'))
         self.assertFalse(ProductCategory.objects.exists())

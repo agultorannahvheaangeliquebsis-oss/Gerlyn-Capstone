@@ -675,3 +675,35 @@ class StockMovement(models.Model):
         ordering = ['-created_at']
         verbose_name = "Stock Movement"
         verbose_name_plural = "Stock Movements"
+
+
+class ProductImportMappingTemplate(models.Model):
+    """A saved "which spreadsheet column feeds which Product field" mapping,
+    so a repeat Excel import doesn't need re-mapping from scratch every time.
+
+    `mapping` keys are the mappable-field keys inventory.views recognizes
+    (see _MAPPABLE_FIELDS) and values are the exact column header text from
+    the sheet the mapping was built against — a later import re-maps by
+    matching header text, not position, since a supplier's export can
+    reorder columns between deliveries.
+    """
+    name = models.CharField(max_length=100)
+    mapping = models.JSONField(help_text="{field_key: uploaded column header}")
+    created_by = models.ForeignKey(
+        'accounts.User', on_delete=models.CASCADE,
+        related_name='product_import_mapping_templates',
+    )
+    is_shared = models.BooleanField(
+        default=False,
+        help_text="Visible to every Owner/Branch Manager, not just its creator.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        # Scoped per-creator, not globally: two different people are each
+        # free to call their own template "Supplier A" without colliding.
+        unique_together = ('created_by', 'name')
+        ordering = ['name']
