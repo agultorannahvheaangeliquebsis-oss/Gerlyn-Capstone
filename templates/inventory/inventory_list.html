@@ -71,6 +71,27 @@
   {% endif %}
 </div>
 
+{% if branches %}
+{% comment %}
+Owner-only branch nav — the same branch list that used to be a <select> in
+the toolbar, promoted to a tab strip so switching branch is one click and the
+active scope stays visible above the table. Manager/Staff never see it: they
+are pinned to their own branch server-side, so `branches` is empty for them
+(see _inventory_list_context). A tab only sets ?branch=; the q/category/status
+filters ride along so narrowing by branch does not drop the rest of the
+toolbar state. Reuses .filter-tabs — "filtering a list in place" is exactly
+what gerlyn.css reserves that component for.
+{% endcomment %}
+<nav class="filter-tabs" aria-label="Branch">
+  <a class="filter-tab{% if not branch_filter %} active{% endif %}"
+     href="?{% if search_query %}q={{ search_query|urlencode }}&amp;{% endif %}{% if category_filter %}category={{ category_filter|urlencode }}&amp;{% endif %}{% if status_filter %}status={{ status_filter|urlencode }}{% endif %}">All Branches</a>
+  {% for b in branches %}
+  <a class="filter-tab{% if branch_filter == b.id|stringformat:'s' %} active{% endif %}"
+     href="?branch={{ b.id }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if category_filter %}&amp;category={{ category_filter|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter|urlencode }}{% endif %}">{{ b.branch_name }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+
 {% comment %}
 The one KPI card (DESIGN.md §2) — the same component as the Dashboard rail and
 the four Reports tabs, not a third lookalike. `.stat` is the quiet tile for
@@ -120,6 +141,10 @@ across the full width leave the default block padding as empty card.
 </div>
 
 <form method="GET" class="toolbar toolbar-search" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
+  {% comment %}The branch tab strip sets ?branch=; this form has no branch
+  control of its own, so it carries the active branch through as a hidden
+  field or a category/status change would reset the list to all branches.{% endcomment %}
+  {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
   <div class="search-field">
     {% comment %}The submit, not decoration — same fallback role as
     product_list.html's search-btn when live-filter.js is absent or bails
@@ -131,14 +156,9 @@ across the full width leave the default block padding as empty card.
     <button type="button" class="scan-btn" id="inventory-scan-btn" title="Scan a barcode to search" aria-label="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %}</button>
   </div>
   <div class="search-filters">
-    {% if branches %}
-    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
-      <option value="">All Branches</option>
-      {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-      {% endfor %}
-    </select>
-    {% endif %}
+    {% comment %}Branch is picked from the .filter-tabs strip above the KPI row,
+    not here — one control per filter. The tab links carry q/category/status
+    forward, so this GET form keeps those two selects only.{% endcomment %}
     <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
       <option value="">All Categories</option>
       {% for c in categories %}
