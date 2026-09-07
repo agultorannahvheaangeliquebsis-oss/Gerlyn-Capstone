@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Q, Sum
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -209,16 +210,48 @@ def billing_confirm(request, pk):
 
     if request.method == 'POST':
         new_status = request.POST.get('status')
-        # This form only ever offers Mark as Paid / Reject — anything else
-        # (a tampered POST) is rejected outright rather than persisted as an
-        # arbitrary string that would quietly break status-based filters.
-        if new_status not in (BillingRecord.PaymentStatus.PAID, BillingRecord.PaymentStatus.REJECTED):
+        # The Pending card offers Mark as Paid / Reject; a Rejected record's
+        # card offers Re-open (back to Pending). Anything else is a tampered
+        # POST and is rejected outright rather than persisted as an arbitrary
+        # string that would quietly break status-based filters.
+        offered = {
+            BillingRecord.PaymentStatus.PAID,
+            BillingRecord.PaymentStatus.REJECTED,
+            BillingRecord.PaymentStatus.PENDING,
+        }
+        if new_status not in offered:
             messages.error(request, 'Invalid payment status.')
             return redirect('billing_detail', pk=pk)
-        record.status = new_status
-        record.confirmed_by = request.user
-        record.date_confirmed = timezone.now()
-        record.save()
-        messages.success(request, f'Payment marked as {new_status}.')
+
+        with transaction.atomic():
+            # Re-fetch and lock so two confirmations racing the same record
+            # (double-click, retry) can't both pass the transition check
+            # against the same stale, pre-lock status.
+            locked = BillingRecord.objects.select_for_update().select_related(
+                'transaction'
+            ).get(pk=pk)
+
+            if not locked.can_transition_to(new_status):
+                messages.error(
+                    request,
+                    f'{locked.transaction.order_number}: a {locked.status} '
+                    f'payment cannot be changed to {new_status}.'
+                )
+                return redirect('billing_detail', pk=pk)
+
+            locked.status = new_status
+            if new_status == BillingRecord.PaymentStatus.PENDING:
+                # Re-opening a rejected payment — clear the prior decision so
+                # the record reads as genuinely awaiting a fresh check, not
+                # as still "confirmed by / on" the rejection.
+                locked.confirmed_by = None
+                locked.date_confirmed = None
+            else:
+                locked.confirmed_by = request.user
+                locked.date_confirmed = timezone.now()
+            locked.save()
+
+        verb = 're-opened' if new_status == BillingRecord.PaymentStatus.PENDING else f'marked as {new_status}'
+        messages.success(request, f'{record.transaction.order_number} payment {verb}.')
 
     return redirect('billing_detail', pk=pk)

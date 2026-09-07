@@ -31,6 +31,22 @@
     </form>
   </div>
 </div>
+{% elif record.status == "Rejected" %}
+<div class="card card-pad mb-4">
+  <div class="row-between wrap">
+    <div class="grow">
+      <h3>This payment was rejected</h3>
+      <p class="gv-meta mb-0">
+        Re-open it if the customer is paying again, or if the rejection was a mistake —
+        it goes back to Pending for a fresh check.
+      </p>
+    </div>
+    <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
+      {% csrf_token %}
+      <button type="submit" name="status" value="Pending" class="btn">Re-open payment</button>
+    </form>
+  </div>
+</div>
 {% endif %}
 
 <div class="grid-2">
