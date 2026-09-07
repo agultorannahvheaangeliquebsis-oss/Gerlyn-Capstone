@@ -22,6 +22,31 @@ class BillingRecord(models.Model):
         COD = 'Cash on Delivery', 'Cash on Delivery'
         PAY_AT_STORE = 'Pay at Store', 'Pay at Store'
 
+    # The only payment-status changes billing_confirm / BillingConfirmSerializer
+    # will apply. Without this map both entry points accepted any target that
+    # was merely one of the four valid strings, so a record could be flipped
+    # Paid -> Rejected -> Paid indefinitely, each pass silently overwriting
+    # confirmed_by / date_confirmed with no history.
+    #
+    #   Pending  -> Paid | Rejected
+    #   Rejected -> Pending          (re-open for another payment attempt)
+    #   Paid     -> (terminal here)
+    #   Cancelled-> (terminal here)
+    #
+    # CANCELLED is reached only by the order itself being cancelled or voided
+    # (sales.views.transaction_set_status writes it straight onto the model),
+    # never through the confirm form, so it has no outbound entry.
+    ALLOWED_STATUS_TRANSITIONS = {
+        PaymentStatus.PENDING: {PaymentStatus.PAID, PaymentStatus.REJECTED},
+        PaymentStatus.REJECTED: {PaymentStatus.PENDING},
+        PaymentStatus.PAID: set(),
+        PaymentStatus.CANCELLED: set(),
+    }
+
+    def can_transition_to(self, new_status):
+        """True when billing_confirm may move this record to `new_status`."""
+        return new_status in self.ALLOWED_STATUS_TRANSITIONS.get(self.status, set())
+
     transaction = models.OneToOneField(
         SalesTransaction, on_delete=models.CASCADE,
         related_name='billing_record'
