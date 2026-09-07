@@ -579,3 +579,108 @@ class BranchScopingRegressionTests(TestCase):
         self.assertGreater(
             self.login('carlo').get('/reports/export/sales.csv').content.count(b'\n'), 1
         )
+
+
+class FloorStockScopeBarTests(TestCase):
+    """The branch scope bar on Floor Stock.
+
+    The bar is a UI convenience sitting on top of scope_queryset(), and the
+    danger with any such control is that it becomes the only thing standing
+    between an account and another branch's data. These tests keep the two
+    separable: the picker is only rendered for an account that may actually
+    use it, and hand-typing ?branch= past it returns nothing.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_demo', verbosity=0)
+
+    def login(self, username):
+        client = Client()
+        client.force_login(User.objects.get(username=username))
+        return client
+
+    def test_owner_gets_a_segment_for_every_branch_plus_all(self):
+        html = self.login('gerlyn').get('/inventory/stock/').content.decode()
+        self.assertIn('class="seg"', html)
+        self.assertIn('All Branches', html)
+        for branch in Branch.objects.all():
+            self.assertIn(branch.branch_name, html)
+
+    def test_manager_gets_no_picker_only_their_branch(self):
+        """A Manager must not be shown a control listing branches they are
+        not allowed to open — the request would come back empty and read as
+        a bug rather than as a permission boundary."""
+        carlo = User.objects.get(username='carlo')
+        html = self.login('carlo').get('/inventory/stock/').content.decode()
+
+        self.assertNotIn('class="seg"', html)
+        self.assertIn('locked-branch', html)
+        self.assertIn(carlo.manager_profile.branch.branch_name, html)
+        for branch in Branch.objects.exclude(pk=carlo.manager_profile.branch_id):
+            self.assertNotIn(branch.branch_name, html)
+
+    def test_manager_typing_another_branch_id_gets_no_rows(self):
+        """The bar is not the security boundary. scope_queryset() is."""
+        carlo = User.objects.get(username='carlo')
+        foreign = Branch.objects.exclude(pk=carlo.manager_profile.branch_id).first()
+        self.assertIsNotNone(foreign, 'seed data must contain a second branch')
+        self.assertGreater(
+            Inventory.objects.filter(branch=foreign).count(), 0,
+            'the foreign branch needs stock, or this test passes vacuously',
+        )
+
+        response = self.login('carlo').get(f'/inventory/stock/?branch={foreign.pk}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['rows']), 0)
+
+    def test_owner_filtering_to_a_branch_returns_only_that_branch(self):
+        branch = Branch.objects.get(branch_name='Tarcan')
+        response = self.login('gerlyn').get(f'/inventory/stock/?branch={branch.pk}')
+        rows = response.context['rows']
+
+        self.assertGreater(len(rows), 0)
+        self.assertTrue(all(r['inv'].branch_id == branch.pk for r in rows))
+        # The Branch column is redundant once every row is one branch.
+        self.assertFalse(response.context['show_branch_column'])
+
+    def test_segment_counts_are_per_branch_not_the_whole_table(self):
+        segments = self.login('gerlyn').get('/inventory/stock/').context['scope_branches']
+        by_name = {s['name']: s for s in segments}
+
+        self.assertEqual(
+            by_name['All Branches']['total'], Inventory.objects.count(),
+        )
+        for branch in Branch.objects.all():
+            self.assertEqual(
+                by_name[branch.branch_name]['total'],
+                Inventory.objects.filter(branch=branch).count(),
+                f'{branch.branch_name} segment must count only its own rows',
+            )
+
+    def test_segment_links_carry_the_other_filters_across(self):
+        """Switching branch must not silently clear the search someone typed."""
+        segments = (
+            self.login('gerlyn')
+            .get('/inventory/stock/?q=tuna&status=In+Stock')
+            .context['scope_branches']
+        )
+        tarcan = next(s for s in segments if s['name'] == 'Tarcan')
+
+        self.assertIn('q=tuna', tarcan['href'])
+        self.assertIn('status=In+Stock', tarcan['href'])
+        self.assertIn(f'branch={Branch.objects.get(branch_name="Tarcan").pk}', tarcan['href'])
+
+    def test_unassigned_manager_sees_neither_picker_nor_rows(self):
+        """NULL profile branch: no picker (that would be the fail-open bug in
+        UI form), no rows, and an explanation instead of a blank page."""
+        carlo = User.objects.get(username='carlo')
+        carlo.manager_profile.branch = None
+        carlo.manager_profile.save(update_fields=['branch'])
+
+        response = self.login('carlo').get('/inventory/stock/')
+        html = response.content.decode()
+
+        self.assertNotIn('class="seg"', html)
+        self.assertEqual(len(response.context['rows']), 0)
+        self.assertIn('No branch is assigned to your account', html)

@@ -1099,7 +1099,7 @@ input::placeholder { color: var(--ink-500); }
    file. Keeps the system dependency-free and working offline. */
 @media print {
   .sidebar, .bottom-nav, .topbar, .tabs, .toolbar, .no-print,
-  .report-tabs, .toolbar-card,
+  .report-tabs, .toolbar-card, .scopebar,
   .btn, .row-actions, .banner { display: none !important; }
   .main { margin-left: 0; }
   .content { padding: 0; }
@@ -1209,6 +1209,92 @@ input::placeholder { color: var(--ink-500); }
 .filter-tab svg { width: 16px; height: 16px; flex: none; }
 .filter-tab:hover { color: var(--ink-900); }
 .filter-tab.active { color: var(--action-700); border-bottom-color: var(--action); }
+
+/* ── Scope bar ──────────────────────────────────────────────────────────
+   Which branch's data am I looking at — NOT a fifth .filter-tabs bar, on
+   purpose. The underline language above answers "filter this list by
+   status": one list, several views of it. A branch changes what the list is
+   OF, and it changes the KPI row above it too, so it reads as a control that
+   frames the page rather than a tab inside it. The two sit three inches
+   apart on Floor Stock; making them look alike would say they do the same
+   thing.
+
+   No new tokens: --line-soft track, --surface for the raised segment,
+   --r-input segments inside a 5px track so the two radii stay concentric,
+   and the .pill status tints for the badge. Built for Floor Stock, but
+   Warehouse Stock and the Reports pages ask the same question. */
+.scopebar {
+  display: flex; align-items: center; gap: 11px;
+  padding: 7px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  margin-bottom: var(--s4);
+}
+/* Icon only. The branch names in the track already say what is being
+   picked, and at four segments a "BRANCH" caption cost width they needed.
+   Decorative, so it is aria-hidden and the <nav> carries the label. */
+.scopebar-label { display: inline-flex; align-items: center; flex: none; color: var(--ink-400); }
+.scopebar-label svg { width: 17px; height: 17px; display: block; }
+
+/* min-width:0 so the track scrolls when the branches outgrow it, instead of
+   pushing the meta off the right edge of the bar. */
+.seg {
+  display: flex; align-items: center; gap: 2px;
+  min-width: 0; padding: 3px;
+  border-radius: 5px; background: var(--line-soft);
+  overflow-x: auto; scrollbar-width: none;
+}
+.seg::-webkit-scrollbar { display: none; }
+.seg-item {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--r-input);
+  background: none; color: var(--ink-600); text-decoration: none;
+  font: 600 13.5px/1 system-ui, sans-serif; white-space: nowrap; cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.seg-item:hover { color: var(--ink-900); background: rgba(255,255,255,.6); }
+/* Raised, not filled: a green fill here would be the fourth meaning of green
+   on this page, and the status badge inside the segment needs the contrast. */
+.seg-item.active {
+  background: var(--surface); border-color: #DCE6E0;
+  color: var(--action-700); box-shadow: 0 1px 2px rgba(23,37,30,.10);
+}
+.seg-item.active:hover { background: var(--surface); }
+.seg-item .count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; padding: 0 5px; border-radius: var(--r-pill);
+  font: 700 11.5px/1.75 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  background: rgba(23,37,30,.06); color: var(--ink-600);
+}
+.seg-item.active .count { background: var(--green-50); color: var(--action-700); }
+.seg-item .count.alert { background: var(--danger-bg); color: var(--danger-fg); }
+
+/* An account pinned to one branch gets the same bar with the track replaced
+   by a plain tag — the page must not rearrange itself between roles. */
+.scopebar .locked-branch {
+  display: inline-flex; align-items: center;
+  height: 32px; padding: 0 12px; border-radius: var(--r-input);
+  background: var(--green-50); border: 1px solid #D2E8DC;
+  color: var(--action-700); font: 650 13.5px/1 system-ui, sans-serif;
+}
+.scopebar-spacer { flex: 1 1 auto; }
+.scopebar-meta {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  font: 500 12.5px/1 system-ui, sans-serif; color: var(--ink-500); white-space: nowrap;
+}
+.scopebar-meta .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--ink-400); }
+.scopebar-meta b { color: var(--ink-900); font-weight: 650; font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) {
+  /* The bar keeps its one row — the pin holds its place and the track takes
+     the rest of the width and swipes. The meta goes: the KPI cards directly
+     under it already carry the count. */
+  .scopebar { padding: 7px 10px; gap: 9px; }
+  .scopebar .seg { flex: 1 1 auto; }
+  .scopebar-meta, .scopebar-spacer { display: none; }
+}
 
 /* Report toolbar: a white card housing filters (left) and export actions
    (right), sitting right below the report tabs. */
