@@ -20,6 +20,7 @@ from core.scoping import scope_queryset
 from inventory.models import (
     Inventory, Product, StockMovement, StockTransfer, StockTransferItem, Warehouse,
 )
+from billing.models import BillingRecord
 from procurement.models import Procurement
 from sales.models import SalesTransaction
 
@@ -431,3 +432,150 @@ class AcceptanceTests(TestCase):
     def test_staff_cannot_export_reports(self):
         response = self.login('ana').get('/reports/export/sales.csv')
         self.assertNotIn('text/csv', response['Content-Type'])
+
+
+class BranchScopingRegressionTests(TestCase):
+    """Two holes found in the pre-defense architecture review, kept closed.
+
+    Both were fail-OPEN: the code took a branch check that could not decide,
+    and let the request through instead of stopping it.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_demo', verbosity=0)
+
+    def login(self, username):
+        client = Client()
+        client.force_login(User.objects.get(username=username))
+        return client
+
+    # ------------------------------------------------------------------
+    # 1. BillingConfirmAPIView checked the ROLE but never the BRANCH.
+    #    Its template twin (billing.views.billing_confirm) always had the
+    #    branch check; the API endpoint did not, so Staff at one branch
+    #    could mark another branch's payment Paid by guessing the record id.
+    # ------------------------------------------------------------------
+    def test_staff_cannot_confirm_another_branchs_billing_via_api(self):
+        ana = User.objects.get(username='ana')
+        foreign = (
+            BillingRecord.objects
+            .select_related('transaction')
+            .exclude(transaction__branch=ana.staff_profile.branch)
+            .filter(status=BillingRecord.PaymentStatus.PENDING)
+            .first()
+        )
+        self.assertIsNotNone(foreign, 'seed data must contain another branch to test against')
+
+        response = self.login('ana').patch(
+            f'/api/billing/{foreign.pk}/confirm/',
+            data='{"status": "Paid"}',
+            content_type='application/json',
+        )
+
+        foreign.refresh_from_db()
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            foreign.status, BillingRecord.PaymentStatus.PENDING,
+            "another branch's payment must not be confirmable through the API",
+        )
+
+    def test_staff_can_still_confirm_their_own_branchs_billing_via_api(self):
+        """The fix must not lock out the legitimate case."""
+        ana = User.objects.get(username='ana')
+        own = (
+            BillingRecord.objects
+            .select_related('transaction')
+            .filter(
+                transaction__branch=ana.staff_profile.branch,
+                status=BillingRecord.PaymentStatus.PENDING,
+            )
+            .first()
+        )
+        self.assertIsNotNone(own, 'seed data needs a pending record at the staff member branch')
+
+        response = self.login('ana').patch(
+            f'/api/billing/{own.pk}/confirm/',
+            data='{"status": "Paid"}',
+            content_type='application/json',
+        )
+
+        own.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(own.status, BillingRecord.PaymentStatus.PAID)
+
+    # ------------------------------------------------------------------
+    # 2. A Manager/Staff whose profile branch is NULL used to be treated
+    #    like the Owner, because branch_for_user() returns None for both and
+    #    the call sites read that as "do not filter". NULL is reachable in
+    #    normal operation: both profile.branch FKs are on_delete=SET_NULL,
+    #    so deleting a branch promotes its manager to see every branch.
+    # ------------------------------------------------------------------
+    def _unassign(self, username):
+        user = User.objects.get(username=username)
+        profile = user.get_role_profile()
+        profile.branch = None
+        profile.save(update_fields=['branch'])
+        return user
+
+    def test_unassigned_manager_sees_nothing_not_everything(self):
+        self._unassign('carlo')
+        self.assertEqual(
+            scope_queryset(SalesTransaction.objects.all(), User.objects.get(username='carlo')).count(),
+            0,
+            'an unassigned manager must fail closed, not inherit Owner scope',
+        )
+
+    def test_unassigned_manager_csv_export_is_empty(self):
+        """The worst of the fail-open sites: a bulk download of every
+        branch's sales in one request."""
+        self._unassign('carlo')
+        body = self.login('carlo').get('/reports/export/sales.csv').content
+        # Header row only — no data rows.
+        self.assertEqual(body.count(b'\n'), 1, body[:400])
+
+    def test_unassigned_manager_inventory_api_is_empty(self):
+        self._unassign('carlo')
+        response = self.login('carlo').get('/api/inventory/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
+    def test_unassigned_staff_cannot_record_a_sale_at_any_branch(self):
+        """The write-side twin: with no branch assigned, the POS used to fall
+        back to whatever branch the POST named."""
+        self._unassign('ana')
+        other = Branch.objects.exclude(branch_name='Tarcan').first()
+        product = Product.objects.get(sku_code='SKU-005')
+        before = SalesTransaction.objects.count()
+
+        self.login('ana').post('/sales/add/', {
+            'branch': str(other.pk),
+            'mode_of_payment': 'Cash',
+            'product_id': [str(product.pk)],
+            'quantity': ['1'],
+        })
+
+        self.assertEqual(
+            SalesTransaction.objects.count(), before,
+            'an account with no branch must not be able to name one in the POST',
+        )
+
+    def test_assigned_staff_can_still_record_a_sale(self):
+        product = Product.objects.get(sku_code='SKU-005')
+        before = SalesTransaction.objects.count()
+        self.login('ana').post('/sales/add/', {
+            'mode_of_payment': 'Cash',
+            'product_id': [str(product.pk)],
+            'quantity': ['1'],
+        })
+        self.assertEqual(SalesTransaction.objects.count(), before + 1)
+
+    def test_assigned_manager_still_sees_their_own_branch(self):
+        """Guards against over-correcting into a fail-closed-for-everyone bug."""
+        carlo = User.objects.get(username='carlo')
+        self.assertGreater(
+            scope_queryset(SalesTransaction.objects.all(), carlo).count(), 0
+        )
+        self.assertGreater(
+            self.login('carlo').get('/reports/export/sales.csv').content.count(b'\n'), 1
+        )

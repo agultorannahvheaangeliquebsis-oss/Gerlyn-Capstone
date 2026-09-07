@@ -9,7 +9,9 @@ from accounts.models import User
 from billing.models import BillingRecord
 from branches.models import Branch
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
-from core.scoping import branch_ids_for_user, scope_queryset, user_can_access_branch
+from core.scoping import (
+    branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
+)
 from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
@@ -35,13 +37,17 @@ def price_for(product, order_type):
 
 def _pos_user_branch(request):
     """Staff and managers are pinned to their own branch; the Owner picks one.
-    Extracted verbatim from transaction_add so the Walk-in Sale modal resolves
-    the branch exactly the way the POST handler will."""
-    if request.user.role == STAFF:
-        return getattr(getattr(request.user, 'staff_profile', None), 'branch', None)
-    if request.user.role == BRANCH_MANAGER:
-        return getattr(getattr(request.user, 'manager_profile', None), 'branch', None)
-    return None
+    Resolves the branch exactly the way the POST handler will.
+
+    Delegates to core.scoping rather than reimplementing the profile lookup —
+    this module used to carry its own copy, which is how the codebase ended up
+    with four subtly different versions of the same three lines.
+
+    Returns None for the Owner AND for a Manager/Staff with no branch
+    assigned, so callers must not read None as "Owner, anything goes" — see
+    the guard in transaction_add.
+    """
+    return branch_for_user(request.user)
 
 
 def _pos_context(request):
@@ -360,7 +366,22 @@ def transaction_add(request):
         # (bookmark, back button) lands there with the modal open.
         return redirect(f"{reverse('transaction_list')}?add=1")
 
-    branch_id = user_branch.id if user_branch else request.POST.get('branch')
+    # Only the Owner may name the branch in the POST. A Manager/Staff account
+    # is pinned to its own, and if it has none (profile.branch is SET_NULL, so
+    # deleting a branch leaves exactly that), the sale is refused rather than
+    # allowed to name any branch it likes — same rule procurement_add applies.
+    if user_branch:
+        branch_id = user_branch.id
+    elif request.user.role == OWNER:
+        branch_id = request.POST.get('branch')
+    else:
+        messages.error(
+            request,
+            'No branch is assigned to your account, so this sale cannot be '
+            'recorded. Ask the Owner to assign you to a branch.'
+        )
+        return redirect('transaction_list')
+
     mode_of_payment = request.POST.get('mode_of_payment') or 'Cash'
     order_type = request.POST.get('order_type') or SalesTransaction.OrderType.RETAIL
     if order_type not in SalesTransaction.OrderType.values:

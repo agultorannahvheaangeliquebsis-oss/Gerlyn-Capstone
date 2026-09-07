@@ -30,7 +30,12 @@ from .views import _InsufficientStockError
 
 # Branch scoping lives in core.scoping so the API and the template views can
 # never drift apart — this is security-critical logic, it gets ONE definition.
-from core.scoping import branch_for_user as get_user_branch, user_can_access_branch  # noqa: E402
+from core.scoping import (  # noqa: E402
+    branch_for_user as get_user_branch,
+    branch_ids_for_user,
+    scope_queryset,
+    user_can_access_branch,
+)
 from core.permissions import INTERNAL_ROLES  # OWNER, BRANCH_MANAGER, STAFF
 
 
@@ -222,10 +227,15 @@ class WarehouseStockViewSet(viewsets.ModelViewSet):
         qs = WarehouseStock.objects.select_related(
             'product', 'product__category', 'warehouse', 'warehouse__branch'
         ).all()
-        user_branch = get_user_branch(self.request.user)
-        if user_branch:
-            qs = qs.filter(warehouse__branch=user_branch)
-        return qs
+        # scope_queryset, not `if user_branch:`. branch_for_user() returns
+        # None for BOTH an Owner (sees every branch) and a Manager/Staff whose
+        # profile has no branch — and a NULL branch is reachable, since
+        # StaffProfile.branch/BranchManagerProfile.branch are on_delete=
+        # SET_NULL. The old form treated the second case like the first and
+        # silently handed that account every branch's stock. scope_queryset
+        # goes through branch_ids_for_user, which returns None only for the
+        # Owner and [] for an unassigned account, so it fails CLOSED.
+        return scope_queryset(qs, self.request.user, 'warehouse__branch')
 
     def create(self, request, *args, **kwargs):
         denied = check_owner_or_manager(request)
@@ -259,10 +269,8 @@ class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
         if self.request.user.role not in INTERNAL_ROLES:
             return Inventory.objects.none()
         qs = Inventory.objects.select_related('product', 'branch').all()
-        user_branch = get_user_branch(self.request.user)
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
-        return qs
+        # Fails closed for an unassigned Manager/Staff — see WarehouseStockViewSet.
+        return scope_queryset(qs, self.request.user, 'branch')
 
 
 class BatchViewSet(viewsets.ReadOnlyModelViewSet):
@@ -279,9 +287,8 @@ class BatchViewSet(viewsets.ReadOnlyModelViewSet):
         if self.request.user.role not in INTERNAL_ROLES:
             return Batch.objects.none()
         qs = Batch.objects.select_related('product', 'branch').all()
-        user_branch = get_user_branch(self.request.user)
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
+        # Fails closed for an unassigned Manager/Staff — see WarehouseStockViewSet.
+        qs = scope_queryset(qs, self.request.user, 'branch')
 
         status_filter = self.request.query_params.get('status')
         if status_filter:
@@ -309,11 +316,16 @@ class StockMovementListAPIView(APIView):
             'created_by',
         ).all()
 
-        user_branch = get_user_branch(request.user)
-        if user_branch:
+        # A movement hangs off either a floor Inventory row or a WarehouseStock
+        # row, so the branch is reached by two different paths and this can't go
+        # through scope_queryset (one branch_field). Same guarantee though:
+        # branch_ids_for_user returns None only for the Owner, and [] — which
+        # matches no rows — for a Manager/Staff with no branch assigned.
+        branch_ids = branch_ids_for_user(request.user)
+        if branch_ids is not None:
             qs = qs.filter(
-                Q(inventory__branch=user_branch) |
-                Q(warehouse_stock__warehouse__branch=user_branch)
+                Q(inventory__branch_id__in=branch_ids) |
+                Q(warehouse_stock__warehouse__branch_id__in=branch_ids)
             )
 
         product_id = request.query_params.get('product')
@@ -351,9 +363,8 @@ class StockTransferListCreateAPIView(APIView):
             'approved_by', 'acknowledged_by', 'warehouse',
         ).prefetch_related('items__product').all()
 
-        user_branch = get_user_branch(request.user)
-        if user_branch:
-            qs = qs.filter(source_branch=user_branch)
+        # Fails closed for an unassigned Manager/Staff — see WarehouseStockViewSet.
+        qs = scope_queryset(qs, request.user, 'source_branch')
 
         status_filter = request.query_params.get('status')
         if status_filter:

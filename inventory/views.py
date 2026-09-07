@@ -19,7 +19,9 @@ from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
-from core.scoping import branch_ids_for_user, user_can_access_branch
+from core.scoping import (
+    branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
+)
 from core.timebounds import local_month_bounds
 
 
@@ -27,15 +29,17 @@ from core.timebounds import local_month_bounds
 # HELPER: get branch for current user
 # ─────────────────────────────────────────────
 
-def get_user_branch(user):
-    try:
-        if user.role == User.Role.BRANCH_MANAGER:
-            return user.manager_profile.branch
-        elif user.role == User.Role.STAFF:
-            return user.staff_profile.branch
-    except Exception:
-        return None
-    return None
+# One definition, in core.scoping. This module used to carry its own copy
+# wrapped in a bare `except Exception: return None`, which turned any error
+# (a missing profile, a DB hiccup) into "no branch" — and every caller reads
+# "no branch" as "Owner, show everything". Aliased rather than renamed at the
+# ~6 call sites below so the two implementations cannot drift apart again.
+#
+# NOTE: this returns None for an Owner AND for a Manager/Staff whose profile
+# branch is NULL. Never use it to decide whether to filter a queryset — use
+# scope_queryset()/branch_ids_for_user(), which distinguish the two. It is
+# fine for "which branch do I default this form to", where None means "ask".
+get_user_branch = branch_for_user
 
 
 # ─────────────────────────────────────────────
@@ -547,9 +551,13 @@ def _inventory_list_context(request):
     ).all()
 
     # Managers/staff see only their own branch (server-side, not just the UI).
+    # scope_queryset, not `if user_branch:`: user_branch is None for an Owner
+    # and for a Manager/Staff with a NULL profile branch alike, so the second
+    # case fell through unfiltered and saw every branch's stock.
+    # user_branch itself is still needed below, but only to decide whether to
+    # offer the Owner's branch picker — never to scope the data.
     user_branch = get_user_branch(request.user)
-    if user_branch:
-        records = records.filter(branch=user_branch)
+    records = scope_queryset(records, request.user, 'branch')
 
     search_query = request.GET.get('q', '')
     branch_filter = request.GET.get('branch', '')
@@ -763,6 +771,13 @@ def warehouse_stock_list(request):
         warehouse = None
         if branch_filter:
             stock_records = stock_records.filter(warehouse__branch_id=branch_filter)
+        # This branch is only meant for the Owner, but it is reached by
+        # anyone get_user_branch() returns None for — which includes a
+        # Manager/Staff whose profile branch is NULL. No-op for the Owner;
+        # filters to nothing for an unassigned account.
+        stock_records = scope_queryset(
+            stock_records, request.user, 'warehouse__branch'
+        )
 
     search_query = request.GET.get('q', '')
     category_filter = request.GET.get('category', '')
@@ -946,10 +961,11 @@ def transfer_list(request):
         'requested_by', 'warehouse'
     ).all()
 
-    # Branch managers and staff only see their branch's transfers
+    # Branch managers and staff only see their branch's transfers.
+    # scope_queryset fails closed for an unassigned account; the old
+    # `if user_branch:` form showed it every branch's withdrawal slips.
     user_branch = get_user_branch(request.user)
-    if user_branch:
-        transfers = transfers.filter(source_branch=user_branch)
+    transfers = scope_queryset(transfers, request.user, 'source_branch')
 
     # Filters from GET parameters
     search_query = request.GET.get('q', '')

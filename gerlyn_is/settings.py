@@ -123,6 +123,41 @@ CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
 SESSION_COOKIE_AGE = 30 * 60
 SESSION_SAVE_EVERY_REQUEST = True
 
+# --- Cache -----------------------------------------------------------------
+# Django's default when CACHES is unset is LocMemCache, which is PER-PROCESS.
+# That is not merely slow here, it is a security hole: accounts.rate_limit
+# stores the login-lockout counter in this cache, so under Gunicorn with N
+# workers an attacker gets N x LOGIN_MAX_ATTEMPTS guesses (whichever worker
+# happens to serve each request has its own counter), and every redeploy or
+# worker restart resets the counters to zero. core.refdata's branch/category
+# invalidation has the same shape of bug: clearing the key in one worker
+# leaves the other workers serving a stale nav.
+#
+# DatabaseCache is the default here because it is shared across every worker,
+# survives restarts, and needs no extra service or pip package — it lives in
+# the MySQL database the app already has. Create its table once per
+# environment with:  manage.py createcachetable
+# (the test runner creates it automatically for the test database).
+#
+# Set REDIS_URL to move the cache off the database on a deployment that has
+# Redis available; django.core.cache.backends.redis is built into Django and
+# only needs the `redis` package installed.
+REDIS_URL = os.environ.get('REDIS_URL', '')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': 'django_cache_table',
+        }
+    }
+
 # --- Production hardening --------------------------------------------------
 # Only applied when DEBUG is off, so local development over plain HTTP still
 # works. Set DJANGO_SECURE_SSL=False if the host does not terminate TLS.

@@ -18,7 +18,7 @@ from inventory.alerts import EXPIRING_SOON_DAYS, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
-from core.scoping import branch_ids_for_user
+from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.timebounds import (
     local_day_bounds, local_month_bounds, local_range_bounds,
@@ -26,16 +26,16 @@ from core.timebounds import (
 )
 
 
-def get_user_branch(user):
-    """Returns the branch a Branch Manager or Staff belongs to, or None."""
-    try:
-        if user.role == User.Role.BRANCH_MANAGER:
-            return user.manager_profile.branch
-        elif user.role == User.Role.STAFF:
-            return user.staff_profile.branch
-    except Exception:
-        return None
-    return None
+# One definition, in core.scoping. This module used to carry its own copy
+# behind a bare `except Exception: return None`, so any error became "no
+# branch" — which every caller reads as "Owner, show everything".
+#
+# NOTE: returns None for an Owner AND for a Manager/Staff whose profile
+# branch is NULL (on_delete=SET_NULL makes that reachable — delete a branch
+# and its manager lands here). Never branch on it to decide whether to
+# filter; use scope_queryset()/branch_ids_for_user(), which tell the two
+# apart. It is fine for labels and form defaults, where None means "ask".
+get_user_branch = branch_for_user
 
 
 def _scoped_querysets(user, override_branch_id=None):
@@ -60,6 +60,17 @@ def _scoped_querysets(user, override_branch_id=None):
         procurement_qs = procurement_qs.filter(branch=effective_branch)
         inventory_qs = inventory_qs.filter(branch=effective_branch)
         warehouse_qs = warehouse_qs.filter(warehouse__branch=effective_branch)
+
+    # Backstop. effective_branch is None both for an Owner (correct: every
+    # branch) and for a Manager/Staff with a NULL profile branch, and the
+    # block above cannot tell them apart — so that account previously fell
+    # through with all four querysets unfiltered. scope_queryset goes via
+    # branch_ids_for_user, which returns None only for the Owner (no-op
+    # here) and [] for an unassigned account (matches nothing).
+    sales_qs = scope_queryset(sales_qs, user, 'branch')
+    procurement_qs = scope_queryset(procurement_qs, user, 'branch')
+    inventory_qs = scope_queryset(inventory_qs, user, 'branch')
+    warehouse_qs = scope_queryset(warehouse_qs, user, 'warehouse__branch')
 
     return sales_qs, procurement_qs, inventory_qs, warehouse_qs, effective_branch
 
@@ -1155,13 +1166,16 @@ def operational_dashboard(request):
     # independent of whatever range the KPI rail is showing.
     #
     # BillingRecord has no branch of its own, so it scopes through the sale it
-    # belongs to. Scoped off the same `user_branch` _scoped_querysets used for
-    # the other two rather than via scope_queryset(): the two helpers disagree
-    # for a staff account with no branch assigned (_scoped_querysets leaves the
-    # queryset unfiltered, branch_ids_for_user returns [] and filters it to
-    # nothing), and the three sources in one feed must at least agree with each
-    # other about what the viewer can see.
-    billing_qs = BillingRecord.objects.all()
+    # belongs to. This used to scope off `user_branch` rather than via
+    # scope_queryset(), on the reasoning that the two helpers disagreed for an
+    # account with no branch assigned and the three sources in one feed had to
+    # agree with each other. They no longer disagree: _scoped_querysets now
+    # applies the same scope_queryset backstop, so all three sources fail
+    # closed together and this feed is consistent the safe way round rather
+    # than the leaky one.
+    billing_qs = scope_queryset(
+        BillingRecord.objects.all(), request.user, 'transaction__branch'
+    )
     if user_branch:
         billing_qs = billing_qs.filter(transaction__branch=user_branch)
     recent_activity = _recent_activity(sales_qs, procurement_qs, billing_qs, now)
@@ -1851,8 +1865,10 @@ def export_csv(request, kind):
 
     if kind == 'sales':
         qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer')
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
+        # scope_queryset fails closed. `if user_branch:` did not, and this is
+        # a bulk export: an unassigned Manager got every branch's rows in one
+        # download.
+        qs = scope_queryset(qs, request.user, 'branch')
         writer.writerow([
             'Order Number', 'Date', 'Branch', 'Customer', 'Recorded By',
             'Channel', 'Payment Method', 'Order Status', 'Total (PHP)',
@@ -1869,8 +1885,7 @@ def export_csv(request, kind):
 
     elif kind == 'inventory':
         qs = Inventory.objects.select_related('product', 'branch')
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
+        qs = scope_queryset(qs, request.user, 'branch')
         writer.writerow([
             'SKU', 'Product', 'Branch', 'Quantity On Hand', 'Reorder Level',
             'Needs Restock', 'Nearest Expiry', 'Last Updated',
@@ -1888,8 +1903,7 @@ def export_csv(request, kind):
 
     elif kind == 'procurement':
         qs = Procurement.objects.select_related('branch', 'supplier', 'supplier__supplier_profile')
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
+        qs = scope_queryset(qs, request.user, 'branch')
         writer.writerow([
             'PO Number', 'Branch', 'Supplier', 'Order Date', 'Delivery Date',
             'Status', 'Receipt Flag', 'Total Cost (PHP)',
@@ -1908,8 +1922,7 @@ def export_csv(request, kind):
 
     elif kind == 'billing':
         qs = BillingRecord.objects.select_related('transaction', 'transaction__branch')
-        if user_branch:
-            qs = qs.filter(transaction__branch=user_branch)
+        qs = scope_queryset(qs, request.user, 'transaction__branch')
         writer.writerow([
             'Order Number', 'Branch', 'Date Recorded', 'Amount Due (PHP)',
             'Payment Method', 'Reference Number', 'Status', 'Confirmed By',
@@ -2006,9 +2019,9 @@ def sales_report(request):
         return render(request, 'reports/no_access.html')
 
     sales_qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer').all()
-    user_branch = get_user_branch(request.user)
-    if user_branch:
-        sales_qs = sales_qs.filter(branch=user_branch)
+    # scope_queryset, not `if user_branch:` — the latter showed every branch
+    # to a Manager/Staff whose profile branch is NULL.
+    sales_qs = scope_queryset(sales_qs, request.user, 'branch')
 
     sales_qs = sales_qs.order_by('-transaction_date')
     return render(request, 'reports/sales_report.html', {'transactions': sales_qs})

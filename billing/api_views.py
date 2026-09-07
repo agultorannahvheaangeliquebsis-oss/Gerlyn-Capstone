@@ -110,7 +110,20 @@ class BillingConfirmAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        record = get_object_or_404(BillingRecord, pk=pk)
+        record = get_object_or_404(
+            BillingRecord.objects.select_related('transaction'), pk=pk
+        )
+
+        # Same branch scoping the template view (billing.views.billing_confirm)
+        # already applies, and that every other endpoint in this module applies.
+        # The role check above only proves this user confirms payments SOMEWHERE
+        # — without this, a Staff account at one branch could mark another
+        # branch's payment Paid just by knowing the record id. 404 rather than
+        # 403, matching the detail/pay endpoints: a record outside your branch
+        # should not be distinguishable from one that does not exist.
+        if not user_can_access_billing_record(request.user, record):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
         serializer = BillingConfirmSerializer(
             record, data=request.data, context={'request': request}
         )

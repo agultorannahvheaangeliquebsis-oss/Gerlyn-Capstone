@@ -560,3 +560,22 @@ class StockMovement(models.Model):
         ordering = ['-created_at']
         verbose_name = "Stock Movement"
         verbose_name_plural = "Stock Movements"
+        indexes = [
+            # This is the audit trail: it is the fastest-growing table in the
+            # schema (one row per sale line, per receipt line, per transfer
+            # line, per adjustment) and Meta.ordering above sorts every single
+            # read of it by created_at — with no index that was a filesort
+            # over the whole table on every stock-history page.
+            models.Index(fields=['-created_at'], name='stockmove_created_idx'),
+            # The per-product history panels filter by one of the two stock
+            # FKs and then read newest-first. Django indexes each FK on its
+            # own, but neither of those covers the ordering that follows.
+            models.Index(
+                fields=['inventory', '-created_at'],
+                name='stockmove_inv_created_idx',
+            ),
+            models.Index(
+                fields=['warehouse_stock', '-created_at'],
+                name='stockmove_ws_created_idx',
+            ),
+        ]
