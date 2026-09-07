@@ -9,12 +9,16 @@ validated correctly; this proves the template door is now locked too.
 import datetime as dt
 import json
 
+from django.contrib.messages import get_messages
 from django.test import Client, TestCase
 from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, StaffProfile, User
 from branches.models import Branch
-from procurement.models import Procurement
+from inventory.models import (
+    Batch, Product, StockMovement, Warehouse, WarehouseStock,
+)
+from procurement.models import Procurement, ProcurementItem
 
 
 class ProcurementTransitionMapTests(TestCase):
@@ -257,11 +261,16 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
     # -- Branch Manager: own branch works, same as C-3's transitions --------
 
     def test_branch_manager_updates_own_branch_po(self):
+        # Was Draft -> Ordered when this test was written for C-6. C-1 made
+        # that move the Owner's approval step, so it is no longer a Manager's
+        # to make (see ProcurementApproveTests's back-door test). The point
+        # here is the branch gate, not which transition — Draft -> Cancelled
+        # is still a Manager's own to make and exercises the same gate.
         self.client.force_login(self.manager)
         po = self._po(self.home_branch, Procurement.Status.DRAFT)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.CANCELLED)
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.CANCELLED)
         self.assertRedirects(resp, reverse('procurement_detail', args=[po.pk]))
 
     # -- Branch Manager: a foreign branch is refused BEFORE the C-3 guard --
@@ -322,4 +331,351 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
         self.assertEqual(po.status, Procurement.Status.DRAFT, 'unchanged')
         self.assertRedirects(
             resp, reverse('procurement_list'), fetch_redirect_response=False
+        )
+
+
+# =============================================================================
+# C-1 — a purchase order must be authorized before it commits spend.
+#
+# procurement_add created EVERY PO at Ordered regardless of who submitted the
+# form, so a Branch Manager committed spend against a supplier with no Owner
+# ever in the loop — and `owner`, the authorizer FK, was left null, so there
+# was no trace of the approval that never happened. Role decides it outright:
+# a Manager-raised PO lands in Draft and waits for procurement_approve; an
+# Owner-raised one is authorized in the same act, exactly as before.
+# =============================================================================
+
+
+class ProcurementAuthorizationBase(TestCase):
+    """Shared cast: an Owner, a Manager pinned to the home branch, a second
+    branch to test scope against, and a supplier to order from."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='c1-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.home_branch = Branch.objects.create(
+            branch_name='C1 Home', location='Baliuag', owner=cls.owner
+        )
+        cls.other_branch = Branch.objects.create(
+            branch_name='C1 Other', location='Makinabang', owner=cls.owner
+        )
+        cls.manager = User.objects.create_user(
+            username='c1-manager', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=cls.manager,
+            defaults={'branch': cls.home_branch, 'manager_name': 'Mara',
+                      'contact_number': '0900'},
+        )
+        cls.supplier = User.objects.create_user(
+            username='c1-supplier', password='pw', role=User.Role.SUPPLIER
+        )
+        cls.product = Product.objects.create(
+            sku_code='C1-SKU-1', product_name='Sack of Rice', unit_price=100,
+        )
+
+    def setUp(self):
+        self.client = Client()
+
+    def _po(self, branch=None, status=Procurement.Status.DRAFT, **extra):
+        return Procurement.objects.create(
+            branch=branch or self.home_branch, supplier=self.supplier,
+            order_date=dt.date(2026, 1, 1), status=status, total_cost=0,
+            **extra
+        )
+
+
+class ProcurementAddAuthorizationTests(ProcurementAuthorizationBase):
+    """Which status a newly raised PO lands in, and who is recorded on it."""
+
+    def _add(self, branch):
+        return self.client.post(reverse('procurement_add'), {
+            'branch': branch.pk,
+            'supplier': self.supplier.pk,
+            'order_date': '2026-01-01',
+            'product_id': [str(self.product.pk)],
+            'quantity_ordered': ['10'],
+            'cost_price': ['50'],
+        })
+
+    def test_manager_raised_po_lands_in_draft_unauthorized(self):
+        self.client.force_login(self.manager)
+        self._add(self.home_branch)
+
+        po = Procurement.objects.get()
+        self.assertEqual(po.status, Procurement.Status.DRAFT)
+        # The two halves of "nobody has approved this": no authorizer, and no
+        # approval timestamp. Before C-1 this row was Ordered with owner=None,
+        # which read as an authorized order whose authorizer was just missing.
+        self.assertIsNone(po.owner)
+        self.assertIsNone(po.authorized_at)
+        # ...but the raiser is recorded, so the draft is still attributable.
+        self.assertEqual(po.created_by, self.manager)
+
+    def test_owner_raised_po_is_ordered_and_authorized(self):
+        """Regression: the Owner's path is unchanged behaviour, now explicit."""
+        self.client.force_login(self.owner)
+        self._add(self.home_branch)
+
+        po = Procurement.objects.get()
+        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.owner, self.owner)
+        self.assertIsNotNone(po.authorized_at)
+        self.assertEqual(po.created_by, self.owner)
+
+
+class ProcurementApproveTests(ProcurementAuthorizationBase):
+    """The Owner's authorization step, Draft -> Ordered."""
+
+    def _approve(self, po):
+        return self.client.post(reverse('procurement_approve', args=[po.pk]))
+
+    def test_owner_approves_a_draft(self):
+        po = self._po(status=Procurement.Status.DRAFT)
+        self.client.force_login(self.owner)
+
+        self._approve(po)
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.owner, self.owner)
+        self.assertIsNotNone(po.authorized_at)
+
+    def test_manager_cannot_approve(self):
+        """The whole point of the gate: the raiser cannot authorize."""
+        po = self._po(status=Procurement.Status.DRAFT)
+        self.client.force_login(self.manager)
+
+        self._approve(po)
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.DRAFT)
+        self.assertIsNone(po.owner)
+        self.assertIsNone(po.authorized_at)
+
+    def test_already_ordered_po_cannot_be_approved_again(self):
+        """Draft is the only status whose ALLOWED_TRANSITIONS include Ordered,
+        so the C-3 map does this check — re-approving must not re-stamp
+        owner/authorized_at onto an order that is already live."""
+        original_owner = User.objects.create_user(
+            username='c1-owner-2', password='pw', role=User.Role.OWNER
+        )
+        po = self._po(status=Procurement.Status.ORDERED, owner=original_owner)
+        self.client.force_login(self.owner)
+
+        self._approve(po)
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.owner, original_owner)
+        self.assertIsNone(po.authorized_at)
+
+    def test_received_po_cannot_be_approved(self):
+        po = self._po(status=Procurement.Status.RECEIVED)
+        self.client.force_login(self.owner)
+
+        self._approve(po)
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.RECEIVED)
+        self.assertIsNone(po.authorized_at)
+
+    def test_get_does_not_approve(self):
+        """Approval is a state change, so it must not ride on a bare GET."""
+        po = self._po(status=Procurement.Status.DRAFT)
+        self.client.force_login(self.owner)
+
+        self.client.get(reverse('procurement_approve', args=[po.pk]))
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.DRAFT)
+
+    def test_manager_cannot_approve_via_update_status_back_door(self):
+        """Draft -> Ordered is legal on the C-3 map and procurement_update_status
+        accepts Branch Managers, so without an explicit check the gate would be
+        one locked door beside an open one: a Manager could approve their own
+        spend by picking 'Ordered' from the status form."""
+        po = self._po(status=Procurement.Status.DRAFT)
+        self.client.force_login(self.manager)
+
+        self.client.post(
+            reverse('procurement_update_status', args=[po.pk]),
+            {'status': Procurement.Status.ORDERED},
+        )
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.DRAFT)
+        self.assertIsNone(po.owner)
+        self.assertIsNone(po.authorized_at)
+
+    def test_manager_can_still_cancel_a_draft(self):
+        """The back-door guard is narrow: it blocks the approval move only, not
+        a Manager withdrawing a draft they raised."""
+        po = self._po(status=Procurement.Status.DRAFT)
+        self.client.force_login(self.manager)
+
+        self.client.post(
+            reverse('procurement_update_status', args=[po.pk]),
+            {'status': Procurement.Status.CANCELLED},
+        )
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.CANCELLED)
+
+    def test_owner_may_approve_a_draft_on_any_branch(self):
+        """C-6's branch gate runs on this endpoint for consistency, but an
+        Owner is unrestricted by branch_ids_for_user (returns None), so it
+        must not narrow the Owner's reach. It is defence in depth here: with
+        approval already Owner-only, no role that the gate would reject can
+        get past the role check to reach it."""
+        po = self._po(branch=self.other_branch, status=Procurement.Status.DRAFT)
+        self.client.force_login(self.owner)
+
+        self.client.post(reverse('procurement_approve', args=[po.pk]))
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.ORDERED)
+
+    def test_manager_cannot_approve_a_foreign_branch_draft(self):
+        """A Manager reaching for another branch's draft is refused, and the
+        draft is untouched — the out-of-scope case C-6 cared about, though
+        here it is the role check that turns them away first."""
+        po = self._po(branch=self.other_branch, status=Procurement.Status.DRAFT)
+        self.client.force_login(self.manager)
+
+        self.client.post(reverse('procurement_approve', args=[po.pk]))
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.DRAFT)
+        self.assertIsNone(po.owner)
+        self.assertIsNone(po.authorized_at)
+
+
+class DeliveryReceiveRequiresApprovalTests(ProcurementAuthorizationBase):
+    """delivery_receive rejected only an already-Received or Cancelled PO, so a
+    Draft one could be received: unapproved goods credited to warehouse stock.
+    Flagged during C-6 as worth revisiting once C-1 made Draft a commonly
+    reached state — this is that revisit."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # Creating a Branch already fires branches/signals.py, which makes its
+        # Warehouse — the FK is OneToOne, so create a second and the insert
+        # fails. Take the one that exists.
+        cls.warehouse, _ = Warehouse.objects.get_or_create(
+            branch=cls.home_branch, defaults={'name': 'C1 Warehouse'}
+        )
+
+    def _po_with_item(self, status):
+        po = self._po(status=status)
+        item = ProcurementItem.objects.create(
+            procurement=po, product=self.product,
+            quantity_ordered=10, cost_price=50,
+        )
+        return po, item
+
+    def _receive(self, po, item, qty=10):
+        return self.client.post(
+            reverse('delivery_receive', args=[po.pk]),
+            {'item_id': [str(item.pk)], 'quantity_received': [str(qty)]},
+            follow=True,
+        )
+
+    def test_draft_po_cannot_be_received_and_lands_no_stock(self):
+        po, item = self._po_with_item(Procurement.Status.DRAFT)
+        self.client.force_login(self.owner)
+
+        self._receive(po, item)
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.DRAFT)
+        # The finding is not that an error fired — it is that nothing landed.
+        # Assert the absence of every row a real receipt would have written.
+        self.assertFalse(
+            WarehouseStock.objects.filter(product=self.product).exists(),
+            'an unapproved PO must not credit warehouse stock',
+        )
+        self.assertFalse(
+            Batch.objects.filter(product=self.product).exists(),
+            'an unapproved PO must not create a batch',
+        )
+        self.assertFalse(
+            StockMovement.objects.filter(
+                reference_id=po.pk, movement_type='Procurement Received'
+            ).exists(),
+            'an unapproved PO must not be audited as received',
+        )
+
+    def test_draft_rejection_says_it_needs_approval(self):
+        po, item = self._po_with_item(Procurement.Status.DRAFT)
+        self.client.force_login(self.owner)
+
+        resp = self._receive(po, item)
+
+        text = ' '.join(str(m) for m in get_messages(resp.wsgi_request))
+        self.assertIn('Draft', text)
+        self.assertIn('approved', text)
+
+    def test_ordered_po_still_receives(self):
+        """Regression against the existing delivery behaviour: the new guard
+        adds Draft to the rejected set and disturbs nothing else."""
+        po, item = self._po_with_item(Procurement.Status.ORDERED)
+        self.client.force_login(self.owner)
+
+        self._receive(po, item)
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.RECEIVED)
+        self.assertTrue(
+            WarehouseStock.objects.filter(
+                warehouse=self.warehouse, product=self.product
+            ).exists(),
+            'an approved receipt must still credit warehouse stock',
+        )
+
+
+class SupplierPortalHidesDraftsTests(ProcurementAuthorizationBase):
+    """A draft is an internal proposal, not a commitment to the supplier.
+
+    supplier_portal listed every PO addressed to a supplier with no status
+    filter, which was safe only because nothing reachable was ever Draft.
+    C-1 makes Draft the starting state of every Manager-raised order, so
+    without this the supplier would see unapproved orders as real ones.
+    """
+
+    def test_draft_is_not_listed_in_the_supplier_portal(self):
+        draft = self._po(status=Procurement.Status.DRAFT)
+        self.client.force_login(self.supplier)
+
+        resp = self.client.get(reverse('supplier_portal'))
+
+        self.assertNotContains(resp, draft.po_number)
+
+    def test_approved_order_is_listed_in_the_supplier_portal(self):
+        ordered = self._po(status=Procurement.Status.ORDERED)
+        self.client.force_login(self.supplier)
+
+        resp = self.client.get(reverse('supplier_portal'))
+
+        self.assertContains(resp, ordered.po_number)
+
+    def test_approving_a_draft_reveals_it_to_the_supplier(self):
+        """The end-to-end shape of the gate: raised by a Manager, invisible to
+        the supplier, then visible the moment the Owner approves it."""
+        po = self._po(status=Procurement.Status.DRAFT)
+
+        self.client.force_login(self.supplier)
+        self.assertNotContains(
+            self.client.get(reverse('supplier_portal')), po.po_number
+        )
+
+        self.client.force_login(self.owner)
+        self.client.post(reverse('procurement_approve', args=[po.pk]))
+
+        self.client.force_login(self.supplier)
+        self.assertContains(
+            self.client.get(reverse('supplier_portal')), po.po_number
         )
