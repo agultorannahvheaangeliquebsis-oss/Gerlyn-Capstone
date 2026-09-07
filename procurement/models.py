@@ -17,6 +17,31 @@ class Procurement(models.Model):
         PARTIAL = 'Partial', 'Partial'
         DISCREPANCY = 'Discrepancy', 'Discrepancy'
 
+    # The only status changes procurement_update_status (template) and
+    # ProcurementStatusUpdateAPIView (DRF) will apply. One definition, two
+    # doors: the template view previously wrote request.POST['status'] straight
+    # onto the row with no check, so a Received PO could be forced back to
+    # Ordered — or to an arbitrary string (finding C-3). Content is exactly
+    # what the DRF endpoint's local map already allowed:
+    #
+    #   Draft    -> Ordered | Cancelled
+    #   Ordered  -> Received | Cancelled
+    #   Received -> (terminal)
+    #   Cancelled-> (terminal)
+    #
+    # Whether an Ordered -> Received move is legal is checked here, but the
+    # receipt itself still runs through delivery_receive's own atomic block.
+    ALLOWED_TRANSITIONS = {
+        Status.DRAFT: {Status.ORDERED, Status.CANCELLED},
+        Status.ORDERED: {Status.RECEIVED, Status.CANCELLED},
+        Status.RECEIVED: set(),
+        Status.CANCELLED: set(),
+    }
+
+    def can_transition_to(self, new_status):
+        """True when a status view may move this order to `new_status`."""
+        return new_status in self.ALLOWED_TRANSITIONS.get(self.status, set())
+
     # --- existing fields (untouched) ----------------------------------------
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL,

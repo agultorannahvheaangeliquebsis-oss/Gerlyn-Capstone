@@ -326,20 +326,52 @@ def procurement_update_status(request, pk):
         messages.error(request, 'You do not have permission to update this order.')
         return redirect('procurement_list')
 
+    # Whether this user may act on THIS record at all — checked before the
+    # Received special case, C-3's transition guard and the atomic block,
+    # because it's independent of what they're trying to change it to. Every
+    # other per-order procurement view already gates here (delivery_receive,
+    # the DRF ProcurementStatusUpdateAPIView); this door was the exception,
+    # so a Branch Manager could POST a status onto another branch's PO
+    # (finding C-6). _can_read_procurement is the same supplier-aware wrapper
+    # over core.scoping.user_can_access_branch that procurement_detail uses —
+    # Owner unrestricted, Manager/Staff their branch only, supplier their own
+    # order only.
+    if not _can_read_procurement(request.user, proc):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('procurement_list')
+
     if request.method == 'POST':
         new_status = request.POST.get('status')
 
         # Receiving moves stock, so it goes through the Deliveries screen where
         # actual quantities are recorded. This guard also stops a repeat POST
-        # from adding the same delivery to stock twice.
+        # from adding the same delivery to stock twice. delivery_receive has
+        # its own atomic block that re-locks and rejects an already-Received or
+        # Cancelled PO, so the transition is still validated — just not here.
         if new_status == Procurement.Status.RECEIVED:
             if proc.status == Procurement.Status.RECEIVED:
                 messages.error(request, f'{proc.po_number} has already been received.')
                 return redirect('procurement_detail', pk=pk)
             return redirect('delivery_receive', pk=pk)
 
-        proc.status = new_status
-        proc.save()
+        # Every other target: validate against the LOCKED record's current
+        # status. This view used to write request.POST['status'] straight onto
+        # the row with no check — a Received PO could be forced back to Ordered,
+        # or set to an arbitrary string. Same Procurement.ALLOWED_TRANSITIONS
+        # the DRF endpoint enforces (finding C-3). select_for_update mirrors
+        # billing_confirm / transaction_set_status.
+        with transaction.atomic():
+            locked = Procurement.objects.select_for_update().get(pk=pk)
+            if not locked.can_transition_to(new_status):
+                messages.error(
+                    request,
+                    f'{locked.po_number}: cannot change a {locked.status} order to '
+                    f'{new_status or "an empty status"}.'
+                )
+                return redirect('procurement_detail', pk=pk)
+            locked.status = new_status
+            locked.save()
+
         messages.success(request, f'{proc.po_number} is now {new_status}.')
 
     return redirect('procurement_detail', pk=pk)
@@ -1281,13 +1313,9 @@ class ProcurementStatusUpdateAPIView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
-    # Valid role -> allowed transitions map
-    ALLOWED_TRANSITIONS = {
-        Procurement.Status.DRAFT: [Procurement.Status.ORDERED, Procurement.Status.CANCELLED],
-        Procurement.Status.ORDERED: [Procurement.Status.RECEIVED, Procurement.Status.CANCELLED],
-        Procurement.Status.RECEIVED: [],
-        Procurement.Status.CANCELLED: [],
-    }
+    # Allowed transitions live on the model now (Procurement.ALLOWED_TRANSITIONS)
+    # so this endpoint and the template view procurement_update_status enforce
+    # one definition instead of two (finding C-3).
 
     def patch(self, request, pk):
         proc = get_object_or_404(Procurement, pk=pk)
@@ -1319,8 +1347,7 @@ class ProcurementStatusUpdateAPIView(APIView):
             locked_proc = get_object_or_404(
                 Procurement.objects.select_for_update(), pk=pk
             )
-            allowed = self.ALLOWED_TRANSITIONS.get(locked_proc.status, [])
-            if new_status not in allowed:
+            if not locked_proc.can_transition_to(new_status):
                 return Response(
                     {'detail': f"Cannot transition from '{locked_proc.status}' to '{new_status}'."},
                     status=status.HTTP_400_BAD_REQUEST
