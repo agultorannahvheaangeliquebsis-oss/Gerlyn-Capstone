@@ -61,6 +61,17 @@ class SalesTransaction(models.Model):
         COMPLETED = 'Completed', 'Completed'
         CANCELLED = 'Cancelled', 'Cancelled'
 
+    class FulfillmentType(models.TextChoices):  # <-- new: how it's handed over
+        # An EXPLICIT choice made at checkout, never inferred from whether
+        # delivery_address came back blank. A genuine pickup order and a
+        # delivery order that lost its address used to be indistinguishable
+        # to everything downstream, the Order Console included (F-11).
+        #
+        # Values are Capitalised to match every other TextChoices on this
+        # model (Online/Physical, Retail/Wholesale, Pending/Approved...).
+        DELIVERY = 'Delivery', 'Delivery'
+        PICKUP = 'Pickup', 'Pickup'
+
     # --- existing fields (untouched) ----------------------------------------
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL,
@@ -113,7 +124,16 @@ class SalesTransaction(models.Model):
     )
     delivery_address = models.TextField(
         blank=True,
-        help_text="Required for Online orders; blank for Physical"
+        help_text="Required for a Delivery order; blank for Pickup and for "
+                  "walk-in (Physical) sales"
+    )
+    fulfillment_type = models.CharField(
+        max_length=10, choices=FulfillmentType.choices,
+        default=FulfillmentType.PICKUP,
+        help_text="How the customer takes the order. 'Delivery' always "
+                  "carries a delivery_address; 'Pickup' never does. A walk-in "
+                  "(Physical) sale is handed over at the counter, so it is "
+                  "Pickup."
     )
 
     # --- statutory discount (PWD / Senior Citizen) --------------------------

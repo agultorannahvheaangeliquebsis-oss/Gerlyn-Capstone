@@ -685,6 +685,42 @@ def checkout(request):
     if mode_of_payment not in SalesTransaction.ModeOfPayment.values:
         mode_of_payment = SalesTransaction.ModeOfPayment.COD
 
+    # --- delivery vs pickup -------------------------------------------------
+    # F-11 — delivery_address used to be written straight from the POST with
+    # no validation at all, and the form invited a blank one ("leave blank to
+    # pick up"). A delivery order whose address field was lost — a client bug,
+    # a mis-tap, a stripped form — was therefore indistinguishable from a
+    # genuine pickup: same blank column, no way for the Order Console to tell
+    # that anyone was ever meant to deliver it.
+    #
+    # So the choice is now explicit and required, and the address is validated
+    # against it. Unlike mode_of_payment and order_type above, an unrecognised
+    # value must NOT fall back to a default: silently picking one would either
+    # promise a delivery nobody asked for or strand a customer waiting at home
+    # for an order marked pickup. There is no safe guess, so this refuses.
+    fulfillment_type = request.POST.get('fulfillment_type') or ''
+    if fulfillment_type not in SalesTransaction.FulfillmentType.values:
+        messages.error(
+            request, 'Choose whether this order is for delivery or for pickup.'
+        )
+        return redirect('orders:cart')
+
+    delivery_address = request.POST.get('delivery_address', '').strip()
+    if (fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
+            and not delivery_address):
+        messages.error(
+            request,
+            'Enter a delivery address, or choose Pickup instead — we cannot '
+            'deliver an order without one.'
+        )
+        return redirect('orders:cart')
+    if fulfillment_type == SalesTransaction.FulfillmentType.PICKUP:
+        # Drop anything typed into the address box before switching to
+        # Pickup. A stray address on a pickup order reads as a delivery
+        # everywhere downstream — the console, the receipt, the customer's
+        # own tracking page all key off this field being non-blank.
+        delivery_address = ''
+
     # --- PWD / Senior Citizen claim ----------------------------------------
     # The same three fields the counter collects, validated the same way:
     # a claim needs both the ID number and the name on it, and the two
@@ -759,7 +795,8 @@ def checkout(request):
             transaction_type=SalesTransaction.TransactionType.ONLINE,
             order_status=SalesTransaction.OrderStatus.PENDING,
             mode_of_payment=mode_of_payment,
-            delivery_address=request.POST.get('delivery_address', '').strip(),
+            fulfillment_type=fulfillment_type,
+            delivery_address=delivery_address,
             order_type=order_type,
             discount_type=discount_type,
             discount_id_number=discount_id_number,

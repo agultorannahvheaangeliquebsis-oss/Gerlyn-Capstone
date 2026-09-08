@@ -76,6 +76,9 @@ class OnlinePricingTestCase(TestCase):
     def check_out(self, **extra):
         payload = {
             'mode_of_payment': 'Cash on Delivery',
+            # fulfillment_type is required since F-11 — checkout refuses a
+            # POST that does not say delivery or pickup.
+            'fulfillment_type': 'Delivery',
             'delivery_address': '12 Real St, Baliuag',
         }
         payload.update(extra)

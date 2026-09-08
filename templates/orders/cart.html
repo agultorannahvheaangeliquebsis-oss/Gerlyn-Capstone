@@ -114,9 +114,22 @@ every panel in the app to fix one column.
             {% for value, label in payment_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
           </select>
         </div>
+        {% comment %}
+        Delivery vs pickup is an explicit choice, not "did they leave the
+        address blank" (F-11). The server re-checks both the choice and the
+        address — the `required` attribute and the toggle below are UX, so
+        the shopper sees the problem before submitting, not the guard.
+        {% endcomment %}
         <div class="field">
-          <label for="delivery_address">Delivery address <span class="gv-meta">— leave blank to pick up</span></label>
-          <textarea id="delivery_address" name="delivery_address" rows="2"
+          <label for="fulfillment_type">How would you like this order?</label>
+          <select id="fulfillment_type" name="fulfillment_type" required>
+            <option value="Delivery">Deliver to my address</option>
+            <option value="Pickup">I'll pick it up at the branch</option>
+          </select>
+        </div>
+        <div class="field" id="delivery_address_field">
+          <label for="delivery_address">Delivery address</label>
+          <textarea id="delivery_address" name="delivery_address" rows="2" required
                     placeholder="House no., street, barangay, Baliuag"></textarea>
         </div>
         <div class="field">
@@ -154,4 +167,38 @@ every panel in the app to fix one column.
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% comment %}
+Show the address box only for a Delivery order, and drop its `required`
+when it is hidden — a hidden input that is still required blocks submit
+with a validation bubble the shopper cannot see or reach.
+
+The server is the real guard (orders.customer_views.checkout re-checks the
+choice and the address, and blanks a stray address on a Pickup order). This
+is purely so the form reads correctly before it is submitted.
+{% endcomment %}
+<script>
+  (function () {
+    var select = document.getElementById('fulfillment_type');
+    var field = document.getElementById('delivery_address_field');
+    if (!select || !field) return;
+    var input = field.querySelector('textarea');
+
+    function sync() {
+      var delivering = select.value === 'Delivery';
+      // style.display, not el.hidden: gerlyn.css sets `.field { display:
+      // flex }`, and an author rule outranks the UA stylesheet's
+      // `[hidden] { display: none }`, so the box would stay visible. The
+      // shared .field component is used across the whole app and must not
+      // be edited to suit this one page.
+      field.style.display = delivering ? '' : 'none';
+      if (input) input.required = delivering;
+    }
+
+    select.addEventListener('change', sync);
+    sync();
+  })();
+</script>
 {% endblock %}
