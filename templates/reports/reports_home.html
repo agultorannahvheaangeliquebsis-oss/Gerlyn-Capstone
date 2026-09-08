@@ -118,6 +118,16 @@ for one card's sake.
   {% if kpi_compare_note %}
   <p class="kpi-compare-note">{{ kpi_compare_note }}</p>
   {% endif %}
+  {% comment %}
+  Committed but unfulfilled — orders placed but not yet completed or
+  cancelled (Pending / Approved / Preparing). Kept OUT of Total Sales (that
+  is realised revenue only, matching the Billing tab) and shown here as a
+  quiet line so the pipeline is still visible rather than lost. Same .kpi-
+  compare-note treatment: it qualifies the rail, it does not compete with it.
+  {% endcomment %}
+  {% if pipeline_total %}
+  <p class="kpi-compare-note">Plus ₱{{ pipeline_total|floatformat:2 }} committed in {{ pipeline_count }} unfulfilled order{{ pipeline_count|pluralize }} (pending, approved or preparing) — not counted as sales until completed.</p>
+  {% endif %}
 </div>
 
 {% comment %}
