@@ -126,10 +126,39 @@ def _safe_next(request):
     return None
 
 
+def order_type_for(user):
+    """The price tier this shopper buys at online.
+
+    Read from the account and never from a request parameter: a shopper who
+    could name their own tier would be choosing their own prices. Wholesale is
+    a standing property of the account that only the Owner or a Branch Manager
+    sets (CustomerProfile.is_wholesale_eligible); everyone else — including a
+    guest with no profile at all — is Retail.
+
+    One function rather than the check written out at each call site, because
+    the cart preview and the sale that gets written have to agree. When the
+    preview priced itself off unit_price directly, a wholesale customer read
+    retail figures on the cart page and then got wholesale totals at checkout.
+    """
+    profile = getattr(user, 'customer_profile', None)
+    if profile and profile.is_wholesale_eligible:
+        return SalesTransaction.OrderType.WHOLESALE
+    return SalesTransaction.OrderType.RETAIL
+
+
 def _cart_items(request):
-    """Resolve the session cart into rows + total. Skips stale entries."""
+    """Resolve the session cart into rows + total. Skips stale entries.
+
+    Priced at the shopper's own tier — the same one checkout() will use — so
+    the figures here are what they will actually be billed. The PWD/Senior
+    discount is deliberately NOT previewed: that claim is made at checkout by
+    typing an ID number and the name on it, and showing a discount before it
+    has been claimed (let alone identified) would be promising a price the
+    order may not get.
+    """
     branch_id = request.session.get('branch_id')
     cart = request.session.get('cart', {})
+    order_type = order_type_for(request.user)
     items, total = [], Decimal('0')
 
     for product_id, qty in cart.items():
@@ -138,11 +167,16 @@ def _cart_items(request):
         ).first()
         if not inv:
             continue
-        subtotal = inv.product.unit_price * qty
+        unit_price = price_for(inv.product, order_type)
+        subtotal = unit_price * qty
         total += subtotal
         items.append({
             'product': inv.product,
             'quantity': qty,
+            # The tier price, not product.unit_price — the template shows this
+            # as the "each" figure, so it must not read the retail price back
+            # off the product and undo the tier.
+            'unit_price': unit_price,
             'subtotal': subtotal,
             'in_stock': inv.available_qty,
             'short': qty > inv.available_qty,
@@ -616,17 +650,11 @@ def checkout(request):
         return redirect('orders:cart')
 
     # --- price tier ---------------------------------------------------------
-    # Decided here, from the account, and never read from the POST. There is no
-    # order_type input on this form and there must not be one: a shopper who
-    # could name their own tier would be choosing their own prices. Wholesale
-    # is a standing property of the account that the Owner or a Branch Manager
-    # sets (CustomerProfile.is_wholesale_eligible); everyone else is Retail.
-    profile = getattr(request.user, 'customer_profile', None)
-    order_type = (
-        SalesTransaction.OrderType.WHOLESALE
-        if profile and profile.is_wholesale_eligible
-        else SalesTransaction.OrderType.RETAIL
-    )
+    # Same derivation the cart preview used, from the same function, so the
+    # figures the shopper just read cannot disagree with what they are billed.
+    # Never read from the POST — there is no order_type input on this form and
+    # there must not be one.
+    order_type = order_type_for(request.user)
 
     # --- PWD / Senior Citizen claim ----------------------------------------
     # The same three fields the counter collects, validated the same way:
