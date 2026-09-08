@@ -53,10 +53,41 @@ class BillingConfirmSerializer(serializers.Serializer):
     """Handles PATCH /api/billing/<pk>/confirm/ — mirrors billing_confirm."""
     status = serializers.ChoiceField(choices=BillingRecord.PaymentStatus.choices)
 
+    def validate_status(self, value):
+        record = self.instance
+
+        # A-1 — maker/checker separation, the same guard billing_confirm
+        # applies and checked first for the same reason: whether this user
+        # may act on the record is prior to what they're moving it to. Only
+        # Paid/Rejected record a confirmer; the Rejected -> Pending re-open
+        # does not, so it is not gated.
+        if (
+            record is not None
+            and value != BillingRecord.PaymentStatus.PENDING
+            and record.is_self_confirmation(self.context['request'].user)
+        ):
+            raise serializers.ValidationError(
+                "You can't confirm a payment you recorded yourself — ask "
+                "another staff member, a manager, or the owner."
+            )
+
+        # Same state machine billing_confirm enforces — see
+        # BillingRecord.ALLOWED_STATUS_TRANSITIONS.
+        if record is not None and not record.can_transition_to(value):
+            raise serializers.ValidationError(
+                f'A {record.status} payment cannot be changed to {value}.'
+            )
+        return value
+
     def update(self, instance, validated_data):
         from django.utils import timezone
-        instance.status = validated_data['status']
-        instance.confirmed_by = self.context['request'].user
-        instance.date_confirmed = timezone.now()
+        new_status = validated_data['status']
+        instance.status = new_status
+        if new_status == BillingRecord.PaymentStatus.PENDING:
+            instance.confirmed_by = None
+            instance.date_confirmed = None
+        else:
+            instance.confirmed_by = self.context['request'].user
+            instance.date_confirmed = timezone.now()
         instance.save()
         return instance

@@ -17,6 +17,31 @@ class Procurement(models.Model):
         PARTIAL = 'Partial', 'Partial'
         DISCREPANCY = 'Discrepancy', 'Discrepancy'
 
+    # The only status changes procurement_update_status (template) and
+    # ProcurementStatusUpdateAPIView (DRF) will apply. One definition, two
+    # doors: the template view previously wrote request.POST['status'] straight
+    # onto the row with no check, so a Received PO could be forced back to
+    # Ordered — or to an arbitrary string (finding C-3). Content is exactly
+    # what the DRF endpoint's local map already allowed:
+    #
+    #   Draft    -> Ordered | Cancelled
+    #   Ordered  -> Received | Cancelled
+    #   Received -> (terminal)
+    #   Cancelled-> (terminal)
+    #
+    # Whether an Ordered -> Received move is legal is checked here, but the
+    # receipt itself still runs through delivery_receive's own atomic block.
+    ALLOWED_TRANSITIONS = {
+        Status.DRAFT: {Status.ORDERED, Status.CANCELLED},
+        Status.ORDERED: {Status.RECEIVED, Status.CANCELLED},
+        Status.RECEIVED: set(),
+        Status.CANCELLED: set(),
+    }
+
+    def can_transition_to(self, new_status):
+        """True when a status view may move this order to `new_status`."""
+        return new_status in self.ALLOWED_TRANSITIONS.get(self.status, set())
+
     # --- existing fields (untouched) ----------------------------------------
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL,
@@ -57,6 +82,17 @@ class Procurement(models.Model):
         max_length=15, choices=ReceiptFlag.choices,
         default=ReceiptFlag.NONE,
         help_text="Flags whether received quantities had discrepancies"
+    )
+    # When the Owner authorized this order out of Draft. `owner` records WHO
+    # authorized it and `created_by` who raised it — both already existed —
+    # so this is the only field the authorization gate adds. Null on a Draft
+    # order (nobody has approved it yet) and on legacy rows created before
+    # the gate, which is why it stays nullable rather than defaulting to the
+    # order_date: an approval that never happened must not look like one that
+    # did (finding C-1).
+    authorized_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the Owner approved this order out of Draft"
     )
 
     def save(self, *args, **kwargs):

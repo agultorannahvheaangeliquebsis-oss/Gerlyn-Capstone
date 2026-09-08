@@ -66,6 +66,44 @@ class WalkInSaleFormTests(TestCase):
         self.assertEqual(txn.billing_record.status, 'Paid')
         self.assertEqual(txn.billing_record.amount_due, 300)
 
+    def test_cash_walk_in_is_still_auto_paid_and_confirmed_by_the_ringing_user(self):
+        """A-1 regression — cash is settled at the counter, so a cash walk-in
+        still lands Paid with the ringing user recorded as confirmer. The
+        maker/checker rule only touches the methods that clear later."""
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            'amount_tendered': '200',
+        })
+        billing = SalesTransaction.objects.get().billing_record
+        self.assertEqual(billing.status, 'Paid')
+        self.assertEqual(billing.confirmed_by, self.owner)
+        self.assertEqual(billing.payment_method, 'Cash')
+
+    def test_non_cash_walk_in_is_left_pending_for_a_separate_check(self):
+        """A-1 — a GCash walk-in rung by Staff must clear through
+        billing_confirm as its own step: the record stays Pending with no
+        confirmer, so it can't be recorded and cleared by the same hand."""
+        staff = User.objects.create_user(
+            username='rey', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=staff, defaults={'staff_name': 'Rey', 'branch': self.branch}
+        )
+        self.client.force_login(staff)
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'GCash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['2'],
+        })
+        txn = SalesTransaction.objects.get()
+        self.assertEqual(txn.staff, staff)
+        billing = txn.billing_record
+        self.assertEqual(billing.status, 'Pending')
+        self.assertIsNone(billing.confirmed_by)
+        self.assertEqual(billing.payment_method, 'GCash')
+
     def test_wholesale_still_bills_at_the_wholesale_price(self):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',

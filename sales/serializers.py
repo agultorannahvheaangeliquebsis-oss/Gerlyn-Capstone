@@ -129,7 +129,23 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 {'branchId': 'You do not have access to that branch.'}
             )
 
+        # A client asking for WHOLESALE is a request, not a decision. The tier
+        # is resolved from the account: only a customer the Owner or a Branch
+        # Manager has marked wholesale-eligible actually gets wholesale
+        # prices, and anyone else is priced at RETAIL no matter what the
+        # payload said. Until this check existed, any authenticated CUSTOMER
+        # could post orderType=Wholesale and be billed at wholesale_price.
+        #
+        # This is the same refusal the PWD/Senior claim already gets a few
+        # lines down: an unverified assertion over the wire does not move
+        # money.
         order_type = validated_data['orderType']
+        if order_type == SalesTransaction.OrderType.WHOLESALE:
+            profile = getattr(user, 'customer_profile', None)
+            if user.role == user.Role.CUSTOMER and not (
+                profile and profile.is_wholesale_eligible
+            ):
+                order_type = SalesTransaction.OrderType.RETAIL
 
         with transaction.atomic():
             # Lock stock and validate availability before writing anything, so

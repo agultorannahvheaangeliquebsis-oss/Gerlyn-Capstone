@@ -44,7 +44,7 @@ every panel in the app to fix one column.
         <div>
           <a href="{% url 'orders:product_detail' it.product.id %}"
              style="font-weight:600; text-decoration:none; color:var(--ink-900);">{{ it.product.product_name }}</a>
-          <div class="gv-meta">₱{{ it.product.unit_price|floatformat:2 }} each</div>
+          <div class="gv-meta">₱{{ it.unit_price|floatformat:2 }} each</div>
           {% if it.short %}
             <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Only {{ it.in_stock }} left</span>
             <span class="gv-meta">please reduce the quantity</span>
