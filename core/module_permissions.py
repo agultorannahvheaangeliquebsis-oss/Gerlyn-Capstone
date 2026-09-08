@@ -22,6 +22,15 @@ Each module maps to the Django url names it gates. ModulePermissionMiddleware
 (accounts/middleware.py) resolves the current request's url name against
 this registry once per request, so adding a new gated page later is just
 adding its url name to a list here — no new decorator to remember to attach.
+
+The middleware's process_view hook runs for EVERY resolved view, DRF API
+views included, so the DRF endpoints that mirror a gated section are listed
+here too (the `api-*` names below). Without them, a Staff account whose
+Owner revoked a module was turned away from the template page but could
+still reach the matching `/api/...` endpoint directly — the same class of
+gap F-02 closed for branch scope on the billing confirm endpoint. Keeping
+both the page and its API under one registry means "does this account have
+this module" has a single source of truth (F-07).
 """
 
 PRODUCTS = 'products'
@@ -43,16 +52,28 @@ MODULE_REGISTRY = {
     ),
     FLOOR_STOCK: (
         'Floor Stock',
-        ['inventory_list', 'inventory_edit', 'stock_adjustment_add'],
+        ['inventory_list', 'inventory_edit', 'stock_adjustment_add',
+         # API (inventory/api_urls.py) — read-only, mirrors inventory_list.
+         'api-inventory-list', 'api-inventory-detail'],
     ),
     WAREHOUSE_STOCK: (
         'Warehouse Stock',
-        ['warehouse_stock_list', 'warehouse_stock_edit', 'warehouse_stock_request'],
+        ['warehouse_stock_list', 'warehouse_stock_edit', 'warehouse_stock_request',
+         # API (inventory/api_urls.py) — mirrors warehouse_stock_list; the
+         # warehouse registry itself is part of the same section.
+         'api-warehouse-stock-list', 'api-warehouse-stock-detail',
+         'api-warehouse-list', 'api-warehouse-detail'],
     ),
     WITHDRAWALS: (
         'Stock Withdrawals',
         ['transfer_list', 'transfer_detail', 'transfer_confirm_receipt',
-         'transfer_flag_discrepancy'],
+         'transfer_flag_discrepancy',
+         # API (inventory/api_urls.py) — list/detail mirror transfer_list/
+         # transfer_detail; acknowledge mirrors transfer_confirm_receipt
+         # (already gated above). approve/release stay role-gated only, the
+         # same as transfer_approve/transfer_complete (see the note below).
+         'api-stock-transfer-list', 'api-stock-transfer-detail',
+         'api-stock-transfer-acknowledge'],
     ),
     ALERTS: (
         'Alerts Center',
@@ -61,15 +82,26 @@ MODULE_REGISTRY = {
     SALES_POS: (
         'Sales / Order Console',
         ['transaction_list', 'transaction_add', 'transaction_detail',
-         'transaction_set_status'],
+         'transaction_set_status',
+         # API (sales/api_urls.py) — list also serves POST (mirrors
+         # transaction_add); detail mirrors transaction_detail.
+         'api-sales-list', 'api-sales-detail'],
     ),
     BILLING: (
         'Billing',
-        ['billing_list', 'billing_detail', 'billing_create', 'billing_confirm'],
+        ['billing_list', 'billing_detail', 'billing_create', 'billing_confirm',
+         # API (billing/api_urls.py) — pay mirrors billing_create; confirm
+         # mirrors billing_confirm (the endpoint F-02 branch-scoped).
+         'api-billing-list', 'api-billing-detail', 'api-billing-pay',
+         'api-billing-confirm'],
     ),
     PROCUREMENT: (
         'Procurement / Purchase Orders',
-        ['procurement_list', 'procurement_detail', 'supplier_list'],
+        ['procurement_list', 'procurement_detail', 'supplier_list',
+         # API (procurement/api_urls.py) — suppliers mirrors supplier_list.
+         # update_status stays role-gated only (see the note below).
+         'api-procurement-list', 'api-procurement-detail',
+         'api-procurement-suppliers'],
     ),
     DELIVERIES: (
         'Deliveries',
@@ -78,7 +110,10 @@ MODULE_REGISTRY = {
     REPORTS: (
         'Reports Dashboard',
         ['reports_dashboard', 'sales_report', 'inventory_report',
-         'procurement_report', 'billing_report'],
+         'procurement_report', 'billing_report',
+         # API (reports/api_urls.py) — one endpoint per report page.
+         'api-reports-dashboard', 'api-reports-sales', 'api-reports-inventory',
+         'api-reports-procurement'],
     ),
 }
 
@@ -89,6 +124,24 @@ MODULE_REGISTRY = {
 # "viewing a section" — granting a module here only ever opens the view, not
 # these adjacent write/approve actions, which stay Owner/Manager-only exactly
 # as they were before this feature existed.
+#
+# API names deliberately left out, same reasoning applied to the DRF surface:
+#   - api-product-* / api-category-*: get_permissions() returns AllowAny for
+#     list/retrieve (the storefront catalog and its category filter are
+#     public, guests included) — a module gate would block the very reads
+#     that are meant to be open. Their writes stay Owner/Manager role-gated,
+#     matching product_add / category_form.
+#   - api-procurement-status, api-stock-transfer-approve, api-stock-transfer-
+#     release: approval/management writes, already locked to Owner/Manager in
+#     the view — the API mirror of procurement_update_status / transfer_*.
+#   - api-batch-* and api-stock-movements: read-only expiry/audit views that
+#     span more than one section (batches surface under Alerts and both stock
+#     sections; stock-movements logs floor + warehouse together), so there is
+#     no single template entry here to mirror. Left for a follow-up if a home
+#     section is chosen.
+#   - api-branch-* and the api/auth/* names (login/logout/me/register,
+#     api-users-*): Branch Management and User Management are Owner-only at
+#     the role level and sit outside the module system entirely, full stop.
 
 ALL_MODULE_CODES = list(MODULE_REGISTRY.keys())
 

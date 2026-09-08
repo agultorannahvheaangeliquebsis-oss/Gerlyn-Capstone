@@ -412,3 +412,256 @@ class BillingConfirmMakerCheckerTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
         self.assertEqual(record.confirmed_by, self.other_staff)
+
+
+class BillingConfirmAPIBranchScopeTests(TestCase):
+    """F-02 — BillingConfirmAPIView.patch checked role but never branch
+    scope: a Staff/Manager account could PATCH /api/billing/<pk>/confirm/
+    for a record belonging to another branch just by knowing its pk, while
+    the web view (billing_confirm) already refused the same request via
+    user_can_access_branch. The fix routes the API through the same
+    scoping helper this file's other API views already use
+    (user_can_access_billing_record) and returns 404, matching how
+    BillingRecordDetailAPIView and BillingPaymentAPIView already respond to
+    an out-of-scope pk.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='cs-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch1 = Branch.objects.create(
+            branch_name='CS Branch 1', location='Baliuag', owner=cls.owner
+        )
+        cls.branch2 = Branch.objects.create(
+            branch_name='CS Branch 2', location='Baliuag', owner=cls.owner
+        )
+        cls.staff1 = User.objects.create_user(
+            username='cs-staff1', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff1, defaults={'staff_name': 'Sid', 'branch': cls.branch1}
+        )
+        # cs-staff1 is a Staff the Owner has granted the Billing module to.
+        # Since F-07, ModulePermissionMiddleware also gates the API confirm
+        # endpoint, so without this a new Staff (DEFAULT_STAFF_MODULES, no
+        # Billing) is redirected before branch scope is ever reached — and
+        # this suite is about branch scope, not the module toggle.
+        User.objects.filter(pk=cls.staff1.pk).update(
+            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+        )
+        cls.staff1.refresh_from_db()
+        cls.manager1 = User.objects.create_user(
+            username='cs-manager1', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=cls.manager1, defaults={'manager_name': 'Mona', 'branch': cls.branch1}
+        )
+
+    def _record_for(self, branch):
+        """A Pending BillingRecord on `branch`. staff=None (an Owner/Manager
+        -rung or online sale) so the maker/checker self-confirmation guard
+        never fires here — this test is about branch scope, not that."""
+        txn = SalesTransaction.objects.create(
+            branch=branch, staff=None, total_amount=500,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        return record
+
+    def _confirm_api(self, user, pk, new_status='Paid'):
+        client = Client()
+        client.force_login(user)
+        return client.patch(
+            f'/api/billing/{pk}/confirm/', {'status': new_status},
+            content_type='application/json',
+        )
+
+    def test_staff_cannot_confirm_a_record_from_another_branch(self):
+        record = self._record_for(self.branch2)
+
+        response = self._confirm_api(self.staff1, record.pk)
+
+        self.assertEqual(response.status_code, 404)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+
+    def test_staff_can_still_confirm_a_record_from_their_own_branch(self):
+        """The fix must not over-block a legitimate same-branch confirm."""
+        record = self._record_for(self.branch1)
+
+        response = self._confirm_api(self.staff1, record.pk)
+
+        self.assertEqual(response.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.staff1)
+
+    def test_manager_cannot_confirm_a_record_from_another_branch(self):
+        record = self._record_for(self.branch2)
+
+        response = self._confirm_api(self.manager1, record.pk)
+
+        self.assertEqual(response.status_code, 404)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_manager_can_still_confirm_a_record_from_their_own_branch(self):
+        record = self._record_for(self.branch1)
+
+        response = self._confirm_api(self.manager1, record.pk)
+
+        self.assertEqual(response.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+
+    def test_owner_can_confirm_a_record_on_any_branch(self):
+        """Owner is unrestricted in user_can_access_billing_record — the fix
+        must not accidentally scope the Owner to a branch too."""
+        for branch in (self.branch1, self.branch2):
+            with self.subTest(branch=branch.branch_name):
+                record = self._record_for(branch)
+
+                response = self._confirm_api(self.owner, record.pk)
+
+                self.assertEqual(response.status_code, 200)
+                record.refresh_from_db()
+                self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+
+    def test_reproduces_the_reported_bug_is_now_fixed(self):
+        """The exact repro from the bug report: a Staff account pinned to
+        Branch 1 PATCHing a Branch 2 record used to succeed (200,
+        confirmed_by set) where the equivalent web endpoint on the same
+        record correctly refused it (302, still Pending). Both paths must
+        now agree."""
+        record = self._record_for(self.branch2)
+
+        api_response = self._confirm_api(self.staff1, record.pk)
+        self.assertEqual(api_response.status_code, 404)
+
+        web_client = Client()
+        web_client.force_login(self.staff1)
+        web_response = web_client.post(
+            f'/billing/{record.pk}/confirm/', {'status': 'Paid'}
+        )
+        self.assertEqual(web_response.status_code, 302)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+
+
+class BillingAPIModulePermissionTests(TestCase):
+    """F-07 — MODULE_REGISTRY only listed billing_* (the template url names),
+    so ModulePermissionMiddleware turned a Staff account whose Owner revoked
+    the Billing module away from /billing/ but let the same account reach
+    /api/billing/<pk>/confirm/ (and the rest of the billing API) directly.
+    The API url names are now in the Billing module's registry entry, so the
+    one middleware gate covers both surfaces the same way — a redirect, with
+    the record left untouched.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='f7b-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='F7B Branch', location='Baliuag', owner=cls.owner
+        )
+        # Two Staff on the same branch: one WITH the Billing module, one
+        # WITHOUT. Both pass branch scope (F-02) — the only difference is the
+        # module toggle this test is about.
+        cls.staff_with = User.objects.create_user(
+            username='f7b-staff-with', password='pw', role=User.Role.STAFF
+        )
+        cls.staff_without = User.objects.create_user(
+            username='f7b-staff-without', password='pw', role=User.Role.STAFF
+        )
+        for user, name in ((cls.staff_with, 'Wanda'), (cls.staff_without, 'Otto')):
+            StaffProfile.objects.update_or_create(
+                user=user, defaults={'staff_name': name, 'branch': cls.branch}
+            )
+        User.objects.filter(pk=cls.staff_with.pk).update(
+            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+        )
+        User.objects.filter(pk=cls.staff_without.pk).update(
+            allowed_modules=list(DEFAULT_STAFF_MODULES)  # no BILLING
+        )
+
+    def _pending_record(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=None, total_amount=500,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        return record
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def test_staff_without_billing_module_is_refused_the_api_confirm(self):
+        record = self._pending_record()
+
+        response = self._client(self.staff_without).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+
+        # Same refusal the template view already gave this account: a
+        # redirect away, nothing written.
+        self.assertEqual(response.status_code, 302)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+
+    def test_api_and_web_now_agree_for_a_module_revoked_staff(self):
+        record = self._pending_record()
+
+        api_resp = self._client(self.staff_without).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+        web_resp = self._client(self.staff_without).post(
+            f'/billing/{record.pk}/confirm/', {'status': 'Paid'}
+        )
+
+        self.assertEqual(api_resp.status_code, 302)
+        self.assertEqual(web_resp.status_code, 302)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_staff_without_billing_module_is_refused_the_api_list(self):
+        response = self._client(self.staff_without).get('/api/billing/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_staff_with_billing_module_still_reaches_the_api(self):
+        """The gate must not over-block: a Staff the Owner granted Billing to
+        confirms through the API exactly as before."""
+        record = self._pending_record()
+
+        response = self._client(self.staff_with).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.staff_with)
+
+    def test_owner_is_never_module_gated_on_the_api(self):
+        record = self._pending_record()
+
+        response = self._client(self.owner).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)

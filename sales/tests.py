@@ -6,11 +6,12 @@ items, stock movement and paid billing record, and that a rejected submit
 re-renders the form with the basket intact instead of redirecting and
 throwing it away.
 """
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from accounts.models import StaffProfile, User
 from branches.models import Branch
+from core.module_permissions import DEFAULT_STAFF_MODULES, SALES_POS
 from inventory.models import Inventory, Product
 from sales.models import SalesTransaction
 
@@ -200,3 +201,76 @@ class WalkInSaleFormTests(TestCase):
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
         })
         self.assertFalse(SalesTransaction.objects.exists())
+
+
+class SalesAPIModulePermissionTests(TestCase):
+    """F-07 — MODULE_REGISTRY listed only transaction_* (the template url
+    names), so ModulePermissionMiddleware turned a Staff account whose Owner
+    revoked the Sales / Order Console module away from /sales/ but let the
+    same account reach /api/sales/ directly. The api-sales-* names are now
+    in the SALES_POS entry, so one gate covers both — a redirect away, the
+    same refusal the template view already gave.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='f7s-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='F7S Branch', location='Baliuag', owner=cls.owner
+        )
+        cls.product = Product.objects.create(
+            sku_code='F7S-1', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+        )
+        Inventory.objects.create(
+            product=cls.product, branch=cls.branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+        cls.staff_with = User.objects.create_user(
+            username='f7s-staff-with', password='pw', role=User.Role.STAFF
+        )
+        cls.staff_without = User.objects.create_user(
+            username='f7s-staff-without', password='pw', role=User.Role.STAFF
+        )
+        for user, name in ((cls.staff_with, 'Wren'), (cls.staff_without, 'Otis')):
+            StaffProfile.objects.update_or_create(
+                user=user, defaults={'staff_name': name, 'branch': cls.branch}
+            )
+        # SALES_POS is a default Staff module, so revoking it means listing
+        # every default EXCEPT it.
+        User.objects.filter(pk=cls.staff_without.pk).update(
+            allowed_modules=[c for c in DEFAULT_STAFF_MODULES if c != SALES_POS]
+        )
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def test_staff_without_sales_module_is_refused_the_api_list(self):
+        response = self._client(self.staff_without).get('/api/sales/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_staff_without_sales_module_is_refused_the_api_detail(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=None, total_amount=100,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        response = self._client(self.staff_without).get(f'/api/sales/{txn.pk}/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_api_and_web_agree_for_a_module_revoked_staff(self):
+        api_resp = self._client(self.staff_without).get('/api/sales/')
+        web_resp = self._client(self.staff_without).get(reverse('transaction_list'))
+        self.assertEqual(api_resp.status_code, 302)
+        self.assertEqual(web_resp.status_code, 302)
+
+    def test_staff_with_sales_module_still_reaches_the_api_list(self):
+        response = self._client(self.staff_with).get('/api/sales/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_owner_is_never_module_gated_on_the_sales_api(self):
+        response = self._client(self.owner).get('/api/sales/')
+        self.assertEqual(response.status_code, 200)
