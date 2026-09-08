@@ -50,14 +50,32 @@ def _person_name(user):
 # ORDER CONSOLE
 # ─────────────────────────────────────────────
 
+# Returned by _pos_user_branch for a Staff/Branch Manager account whose branch
+# profile is missing (half-provisioned). It is deliberately NOT None: None means
+# "unrestricted" — the Owner, who chooses a branch on the form — and letting an
+# unassigned Staff/Manager collapse to that same None handed them the Owner's
+# every-branch selector and skipped the posted-branch access check.
+POS_BRANCH_UNASSIGNED = object()
+
+
 def _pos_user_branch(request):
-    """Staff and managers are pinned to their own branch; the Owner picks one.
+    """The branch a Walk-in Sale is pinned to for this user.
+
     Shared by transaction_add's GET (rendering the Walk-in Sale form) and its
-    POST handler, so both resolve the branch the same way."""
+    POST handler, so both resolve the branch the same way.
+
+    Returns:
+        Branch                 -- a provisioned Staff / Branch Manager
+        POS_BRANCH_UNASSIGNED  -- a Staff / Branch Manager with no branch
+                                  profile; they cannot record a sale
+        None                   -- the Owner, unrestricted, picks a branch
+    """
     if request.user.role == STAFF:
-        return getattr(getattr(request.user, 'staff_profile', None), 'branch', None)
+        branch = getattr(getattr(request.user, 'staff_profile', None), 'branch', None)
+        return branch or POS_BRANCH_UNASSIGNED
     if request.user.role == BRANCH_MANAGER:
-        return getattr(getattr(request.user, 'manager_profile', None), 'branch', None)
+        branch = getattr(getattr(request.user, 'manager_profile', None), 'branch', None)
+        return branch or POS_BRANCH_UNASSIGNED
     return None
 
 
@@ -457,9 +475,24 @@ def transaction_add(request):
 
     user_branch = _pos_user_branch(request)
 
+    # A half-provisioned Staff / Branch Manager account (role set, branch
+    # profile missing) has no branch to ring a sale under. Refuse here, for
+    # both GET and POST. Falling through instead handed them the Owner's
+    # every-branch selector on GET, and on POST took the branch straight from
+    # the form with no user_can_access_branch check.
+    if user_branch is POS_BRANCH_UNASSIGNED:
+        messages.error(
+            request,
+            'Your account is not assigned to a branch, so it cannot record '
+            'sales. Ask the Owner or an administrator to set your branch.'
+        )
+        return redirect('transaction_list')
+
     if request.method != 'POST':
         return render(request, 'sales/transaction_form.html', _pos_context(request))
 
+    # user_branch is now either a Branch (Staff / Manager, pinned) or None
+    # (the Owner, who chooses one on the form).
     branch_id = user_branch.id if user_branch else request.POST.get('branch')
     # Validated against the model's choices, same fall-back-to-default shape as
     # order_type and discount_type below — an unrecognised value (a typo, a
@@ -507,6 +540,17 @@ def transaction_add(request):
     errors = []
     if not branch_id:
         errors.append('Please choose a branch for this sale.')
+    else:
+        # Check the resolved branch against the user's scope for EVERY role,
+        # not just when it came from the Owner's dropdown. For Staff/Manager
+        # branch_id is their own pinned branch (so this passes), but a posted
+        # branch id must never reach SalesTransaction.create unchecked.
+        try:
+            branch_in_scope = user_can_access_branch(request.user, int(branch_id))
+        except (TypeError, ValueError):
+            branch_in_scope = False
+        if not branch_in_scope:
+            errors.append('That branch is not one your account can record sales for.')
     if not line_items:
         errors.append('Add at least one item with a quantity.')
 
