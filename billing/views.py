@@ -159,33 +159,6 @@ def billing_create(request, transaction_id):
         messages.info(request, 'A billing record already exists for this transaction.')
         return redirect('billing_detail', pk=existing.pk)
 
-    if request.method == 'POST':
-        payment_method = request.POST.get('payment_method')
-        reference_number = request.POST.get('reference_number', '')
-        proof_of_payment = request.FILES.get('proof_of_payment')
-
-        if existing:
-            # Update the auto-created record with the actual payment details
-            existing.payment_method = payment_method
-            existing.reference_number = reference_number
-            if proof_of_payment:
-                existing.proof_of_payment = proof_of_payment
-            existing.save()
-            record = existing
-        else:
-            # Fallback: create fresh if somehow the signal didn't fire
-            record = BillingRecord.objects.create(
-                transaction=txn,
-                amount_due=txn.total_amount,
-                payment_method=payment_method,
-                reference_number=reference_number,
-                proof_of_payment=proof_of_payment,
-                status=BillingRecord.PaymentStatus.PENDING,
-            )
-
-        messages.success(request, 'Billing record saved.')
-        return redirect('billing_detail', pk=record.pk)
-
     # This page has two front doors — the order's own detail page, and the
     # billing record's "Edit payment details" / "Upload proof". It used to
     # carry one hardcoded back-link to the order, so anyone who arrived from
@@ -212,12 +185,49 @@ def billing_create(request, transaction_id):
             (txn.order_number, reverse('transaction_detail', args=[txn.pk])),
         ]
 
-    return render(request, 'billing/billing_form.html', {
+    form_context = {
         'transaction': txn,
         'record': existing,  # Pass to template so it can pre-fill payment_method if desired
         'payment_choices': BillingRecord.PaymentMethod.choices,
         'breadcrumb': trail,
-    })
+    }
+
+    if request.method == 'POST':
+        payment_method = request.POST.get('payment_method')
+        reference_number = request.POST.get('reference_number', '')
+        proof_of_payment = request.FILES.get('proof_of_payment')
+
+        # payment_method feeds a NOT NULL column. A POST that omits the field
+        # (the <select> stripped out, a scripted request) used to reach the
+        # model save and surface as an IntegrityError 500. Re-render the form
+        # with the error instead — nothing is persisted.
+        if not payment_method:
+            messages.error(request, 'Choose a payment method to record this payment.')
+            return render(request, 'billing/billing_form.html', form_context)
+
+        if existing:
+            # Update the auto-created record with the actual payment details
+            existing.payment_method = payment_method
+            existing.reference_number = reference_number
+            if proof_of_payment:
+                existing.proof_of_payment = proof_of_payment
+            existing.save()
+            record = existing
+        else:
+            # Fallback: create fresh if somehow the signal didn't fire
+            record = BillingRecord.objects.create(
+                transaction=txn,
+                amount_due=txn.total_amount,
+                payment_method=payment_method,
+                reference_number=reference_number,
+                proof_of_payment=proof_of_payment,
+                status=BillingRecord.PaymentStatus.PENDING,
+            )
+
+        messages.success(request, 'Billing record saved.')
+        return redirect('billing_detail', pk=record.pk)
+
+    return render(request, 'billing/billing_form.html', form_context)
 
 
 @login_required(login_url='accounts:login')

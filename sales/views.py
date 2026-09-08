@@ -444,6 +444,24 @@ def transaction_add(request):
         errors.append('Please choose a branch for this sale.')
     if not line_items:
         errors.append('Add at least one item with a quantity.')
+
+    # Resolve each line's product now, up here with the other input checks.
+    # A product deleted between the cashier loading the form and submitting
+    # it (or a tampered id) used to raise an uncaught Product.DoesNotExist
+    # when the cart was priced below — a 500. Collected as a form error and
+    # re-rendered instead, the same way a missing branch or a bad quantity
+    # is, so the rung-up rows survive.
+    products_by_id = {}
+    for pid, _qty in line_items:
+        try:
+            products_by_id[str(pid)] = Product.objects.get(pk=pid)
+        except (Product.DoesNotExist, ValueError, TypeError):
+            pass
+    if line_items and any(str(pid) not in products_by_id for pid, _qty in line_items):
+        errors.append(
+            'One or more items are no longer available — they may have been '
+            'removed since the page loaded. Please review the cart and try again.'
+        )
     if discount_claimed and not discount_id_number:
         errors.append(
             f'Enter the {discount_type} ID number — a discount cannot be '
@@ -469,7 +487,7 @@ def transaction_add(request):
         # line from being computed off the retail price by accident.
         cart_lines = []
         for product_id, qty in line_items:
-            product = Product.objects.get(pk=product_id)
+            product = products_by_id[str(product_id)]
             cart_lines.append((product, qty, price_for(product, order_type)))
 
         priced = price_cart(cart_lines, discount_type=discount_type)
