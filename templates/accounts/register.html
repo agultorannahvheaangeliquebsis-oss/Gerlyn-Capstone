@@ -1,6 +1,7 @@
 {% extends "public_base.html" %}
 {% load static %}
 {% block title %}Create Account — Gerlyn Variety Store{% endblock %}
+{% block body_class %}shop shop-auth{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
@@ -8,79 +9,241 @@
 {% endblock %}
 
 {% block content %}
-<div class="shop-wrap section" style="max-width:480px;">
-  <div style="text-align:center; margin-bottom:24px;">
-    <span class="brand-mark" style="width:56px; height:56px; border-radius:16px; margin:0 auto 12px;"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
-    <h2>Create your account</h2>
-    <p class="gv-meta mb-0">Shop online and track your orders.</p>
-  </div>
+{% comment %}
+The sign-in screen's shape, on the sign-up side of it: the same white bar,
+the same brand band, the same identity panel, and the card on the right
+widened to the room a form of this many fields needs. The two account
+screens are one link apart, and until now they were two different pages —
+this one was a 480px column dropped into the storefront layout, under the
+full shop header and its "Log in" button.
 
-  <div class="card card-pad">
-    <form method="POST" class="stack">
-      {% csrf_token %}
-      <div class="grid-2" style="grid-template-columns:1fr 1fr;">
-        <div class="field">
-          <label for="first_name">First Name</label>
-          <input id="first_name" type="text" name="first_name" placeholder="Juan" required>
-        </div>
-        <div class="field">
-          <label for="last_name">Last Name</label>
-          <input id="last_name" type="text" name="last_name" placeholder="Dela Cruz" required>
-        </div>
-      </div>
-      <div class="field">
-        <label for="username">Username</label>
-        <input id="username" type="text" name="username" placeholder="juandelacruz" required>
-      </div>
-      <div class="field">
-        <label for="email">Email Address</label>
-        <input id="email" type="email" name="email" placeholder="juan@example.com" required>
-      </div>
-      <div class="field">
-        <label for="contact_number">Contact Number</label>
-        <input id="contact_number" type="text" name="contact_number" placeholder="09XX XXX XXXX">
-      </div>
-      <div class="field">
-        <label>Delivery Address</label>
-        <div id="address-summary" class="gv-meta" style="border:1px dashed var(--line); border-radius:var(--r-input); padding:10px 12px; min-height:20px;">
-          No address set yet.
-        </div>
-        <button type="button" class="btn btn-sm" style="margin-top:6px;"
-          onclick="AddressPicker.open({title: 'Set Delivery Address', onConfirm: applyRegisterAddress})">
-          Pin your address on the map
-        </button>
-        <input type="hidden" name="type" id="reg-address-type" value="HOME">
-        <input type="hidden" name="region" id="reg-region">
-        <input type="hidden" name="province" id="reg-province">
-        <input type="hidden" name="city" id="reg-city">
-        <input type="hidden" name="barangay" id="reg-barangay">
-        <input type="hidden" name="street_detail" id="reg-street-detail">
-        <input type="hidden" name="address" id="reg-address-text">
-        <input type="hidden" name="latitude" id="reg-latitude">
-        <input type="hidden" name="longitude" id="reg-longitude">
-      </div>
-      <div class="field">
-        <label for="password1">Password</label>
-        <input id="password1" type="password" name="password1" placeholder="Enter your password"
-          pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
-          title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
-          required>
-        <div class="gv-meta" style="margin-top:4px;">
-          Must include an uppercase letter, a number, and a special character.
-        </div>
-      </div>
-      <div class="field">
-        <label for="password2">Confirm Password</label>
-        <input id="password2" type="password" name="password2" placeholder="Re-enter your password" required>
-      </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;">Create Account</button>
-    </form>
-    <p class="gv-meta mt-4" style="text-align:center; margin-bottom:0;">
-      Already have an account? <a href="{% url 'accounts:login' %}">Sign in</a>
-    </p>
+The reference screen this follows carries "Company (for trade buyers)" as
+its one optional field. Here that slot is the delivery address, which is
+genuinely optional the same way: register_view only creates an Address row
+`if address`, so an account without one is a supported state — the shopper
+sets it at checkout instead.
+{% endcomment %}
+<div class="auth-topbar">
+  <div class="shop-wrap auth-topbar-inner">
+    {% comment %}
+    The mark alone, as on sign-in. "Create your account" is the card's h1 a
+    few lines below, so the bar repeating it said nothing twice.
+    {% endcomment %}
+    <a class="auth-topbar-brand" href="{% url 'orders:catalog' %}">
+      <img src="{% static 'img/logo.jpg' %}" alt="">
+      <span><strong>Gerlyn</strong> Variety Store</span>
+    </a>
   </div>
 </div>
 
+<div class="auth-band">
+  <div class="shop-wrap auth-band-inner auth-band-inner--wide">
+
+    <div class="auth-hero">
+      <img class="auth-hero-mark" src="{% static 'img/logo.png' %}" alt="">
+      <p class="auth-hero-name">Gerlyn Variety Store</p>
+      <p class="auth-hero-tag">
+        Groceries, household goods and bulk supplies<br>
+        for Baliuag, Bulacan.
+      </p>
+    </div>
+
+    <div class="auth-card auth-card--wide">
+      <div class="auth-head">
+        <h1 class="auth-title">Create your account</h1>
+        <p class="auth-sub">Shop online, track your orders and save your delivery address.</p>
+      </div>
+
+      {% comment %}
+      Every value is re-rendered from `form`, which register_view now sends
+      back on a rejected POST. Before this, a mismatched password confirmation
+      returned an empty page and the shopper retyped all eight fields to fix
+      one of them. The two password boxes are deliberately NOT carried back —
+      a password re-rendered into HTML is a password sitting in the browser's
+      view-source and in any proxy cache along the way.
+      {% endcomment %}
+      <form method="POST">
+        {% csrf_token %}
+
+        <div class="auth-row-2">
+          <div class="field auth-field">
+            <label for="first_name">First name</label>
+            <div class="auth-input-wrap">
+              <span class="auth-field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+              </span>
+              <input id="first_name" type="text" name="first_name" value="{{ form.first_name }}"
+                     placeholder="Juan" autocomplete="given-name" required>
+            </div>
+          </div>
+
+          <div class="field auth-field">
+            <label for="last_name">Last name</label>
+            <div class="auth-input-wrap">
+              <span class="auth-field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+              </span>
+              <input id="last_name" type="text" name="last_name" value="{{ form.last_name }}"
+                     placeholder="Dela Cruz" autocomplete="family-name" required>
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-row-2">
+          <div class="field auth-field">
+            <label for="username">Username</label>
+            <div class="auth-input-wrap">
+              <span class="auth-field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+                </svg>
+              </span>
+              <input id="username" type="text" name="username" value="{{ form.username }}"
+                     placeholder="juandelacruz" autocomplete="username" required>
+            </div>
+            {% comment %}
+            Said here rather than discovered at the sign-in screen: login_view
+            authenticates on username, so this is the field they will be asked
+            for, not the email directly above it.
+            {% endcomment %}
+            <p class="auth-hint">This is what you will log in with.</p>
+          </div>
+          <div class="field auth-field">
+            <label for="email">Email address</label>
+            <div class="auth-input-wrap">
+              <span class="auth-field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>
+                </svg>
+              </span>
+              <input id="email" type="email" name="email" value="{{ form.email }}"
+                     placeholder="juan@example.com" autocomplete="email" required>
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-row-2">
+          <div class="field auth-field">
+            <label for="password1">Password</label>
+            <div class="auth-input-wrap">
+              <span class="auth-field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </span>
+              <input id="password1" type="password" name="password1" class="has-reveal"
+                     autocomplete="new-password" required
+                     pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
+                     title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)">
+              <button type="button" class="auth-reveal" data-reveal="password1"
+                      aria-label="Show password" aria-pressed="false" aria-controls="password1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+            <p class="auth-hint">At least 8 characters, with an uppercase letter, a number and a symbol.</p>
+          </div>
+          <div class="field auth-field">
+            <label for="password2">Confirm password</label>
+            <div class="auth-input-wrap">
+              <span class="auth-field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </span>
+              <input id="password2" type="password" name="password2" class="has-reveal"
+                     autocomplete="new-password" required>
+              <button type="button" class="auth-reveal" data-reveal="password2"
+                      aria-label="Show password" aria-pressed="false" aria-controls="password2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+            {% comment %}
+            Client-side only, and the view still compares the two on POST —
+            this is the message arriving before the round trip, not instead of
+            the check. See the setCustomValidity block in extra_js.
+            {% endcomment %}
+          </div>
+        </div>
+
+        {% comment %}
+        The two optional details share the last row. The address is a control
+        rather than an input — a region/province/city/barangay cascade plus a
+        map pin — so it is the taller of the pair; align-items:start on the
+        row is what keeps the phone field beside it from stretching to match.
+        {% endcomment %}
+        <div class="auth-row-2">
+          <div class="field auth-field">
+            <label for="contact_number">Contact number <span class="auth-optional">(optional)</span></label>
+            <div class="auth-input-wrap">
+              <span class="auth-field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.35 1.9.66 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.31 1.85.53 2.81.66A2 2 0 0 1 22 16.92z"/>
+                </svg>
+              </span>
+              {% comment %}
+              type="tel", not text: it is what puts the numeric keypad on a
+              phone, which is the device most of these are typed on. Not
+              type="number" — that strips a leading zero, and every mobile
+              number in the country starts with one.
+              {% endcomment %}
+              <input id="contact_number" type="tel" name="contact_number" value="{{ form.contact_number }}"
+                     placeholder="0917 000 0000" autocomplete="tel">
+            </div>
+          </div>
+          {% comment %}
+          The optional slot. Not an <input> but a control that opens the shared
+          picker, because an address here is a region/province/city/barangay
+          cascade plus a map pin, and the summary line is what the picker fills
+          in. The hidden inputs beneath it are what actually POSTs.
+          {% endcomment %}
+          <div class="field auth-field auth-address">
+            <label id="address-label">Delivery address <span class="auth-optional">(optional)</span></label>
+            <div id="address-summary" class="auth-address-summary{% if form.address %} is-set{% endif %}"
+                 role="status" aria-labelledby="address-label">
+              {% if form.address %}{{ form.address }}{% else %}No address set yet — you can add one at checkout.{% endif %}
+            </div>
+            <button type="button" class="btn btn-sm auth-address-btn"
+              onclick="AddressPicker.open({title: 'Set Delivery Address', onConfirm: applyRegisterAddress})">
+              Pin your address on the map
+            </button>
+
+            <input type="hidden" name="type" id="reg-address-type" value="{{ form.type|default:'HOME' }}">
+            <input type="hidden" name="region" id="reg-region" value="{{ form.region }}">
+            <input type="hidden" name="province" id="reg-province" value="{{ form.province }}">
+            <input type="hidden" name="city" id="reg-city" value="{{ form.city }}">
+            <input type="hidden" name="barangay" id="reg-barangay" value="{{ form.barangay }}">
+            <input type="hidden" name="street_detail" id="reg-street-detail" value="{{ form.street_detail }}">
+            <input type="hidden" name="address" id="reg-address-text" value="{{ form.address }}">
+            <input type="hidden" name="latitude" id="reg-latitude" value="{{ form.latitude }}">
+            <input type="hidden" name="longitude" id="reg-longitude" value="{{ form.longitude }}">
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary auth-submit" id="register-submit">
+          <span data-submit-label>Create Account</span>
+        </button>
+      </form>
+
+      <p class="auth-alt">
+        Already have an account? <a href="{% url 'accounts:login' %}">Log in</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+Outside .auth-band, and outside the form above it. The picker carries a
+<form> of its own, and a form nested inside another form is markup a browser
+resolves by throwing the inner one away.
+{% endcomment %}
 {% include "accounts/_address_picker_modal.html" %}
 {% endblock %}
 
@@ -98,7 +261,91 @@ function applyRegisterAddress(data) {
   document.getElementById('reg-address-text').value = data.text;
   document.getElementById('reg-latitude').value = data.latitude;
   document.getElementById('reg-longitude').value = data.longitude;
-  document.getElementById('address-summary').textContent = data.text;
+
+  var summary = document.getElementById('address-summary');
+  summary.textContent = data.text;
+  /* Solid border and full-strength ink once there is something to read —
+     the dashed, muted box is the empty state, not the filled one. */
+  summary.classList.add('is-set');
 }
+
+/* Reveal toggles. Two password fields here rather than sign-in's one, so
+   this binds by data-reveal instead of by id. */
+(function () {
+  var EYE = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  var EYE_OFF = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>'
+              + '<path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>'
+              + '<path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+
+  document.querySelectorAll('[data-reveal]').forEach(function (btn) {
+    var input = document.getElementById(btn.getAttribute('data-reveal'));
+    var icon = btn.querySelector('svg');
+    if (!input || !icon) return;
+
+    btn.addEventListener('click', function () {
+      var show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      /* aria-pressed rather than a label that flips: the button keeps its
+         name and carries the state, which is what a screen reader announces
+         without the label changing out from under the user mid-press. */
+      btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      icon.innerHTML = show ? EYE_OFF : EYE;
+      /* Caret back to the end of what was already typed — without this the
+         focus is lost to the button and the next keystroke does nothing. */
+      var v = input.value;
+      input.focus();
+      input.setSelectionRange(v.length, v.length);
+    });
+  });
+})();
+
+/* Confirmation mismatch, said before the round trip.
+
+   register_view still compares the two itself — this is the browser saying
+   it first, at the field, instead of the shopper losing a submit to find
+   out. setCustomValidity('') on every keystroke is what clears it again;
+   a message left set makes the form permanently unsubmittable. */
+(function () {
+  var p1 = document.getElementById('password1');
+  var p2 = document.getElementById('password2');
+  if (!p1 || !p2) return;
+
+  function check() {
+    p2.setCustomValidity(p2.value && p1.value !== p2.value ? 'The two passwords do not match.' : '');
+  }
+  p1.addEventListener('input', check);
+  p2.addEventListener('input', check);
+})();
+
+/* Submit feedback. Creating an account is a full page POST that writes a
+   user, a profile and possibly an address, so there is a real gap before
+   anything changes on screen — long enough that people press again.
+
+   Progressive enhancement: with no JS the button is an ordinary submit. */
+(function () {
+  var form = document.querySelector('.auth-card form');
+  var btn = document.getElementById('register-submit');
+  if (!form || !btn) return;
+  var label = btn.querySelector('[data-submit-label]');
+
+  form.addEventListener('submit', function () {
+    /* Let the browser's own required-field check fail first — otherwise an
+       empty field disables the button on a submit that never leaves. */
+    if (!form.checkValidity()) return;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    if (label) label.textContent = 'Creating account…';
+  });
+
+  /* Back-button restores from the bfcache with the DOM as it was left —
+     button disabled, label stuck, no way to try again. Reset on restore. */
+  window.addEventListener('pageshow', function (e) {
+    if (!e.persisted) return;
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    if (label) label.textContent = 'Create Account';
+  });
+})();
 </script>
 {% endblock %}

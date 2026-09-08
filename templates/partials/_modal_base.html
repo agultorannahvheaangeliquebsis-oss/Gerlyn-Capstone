@@ -1,0 +1,14 @@
+{% comment %}
+The shell a detail page wears when it is being read inside a modal instead of
+on a page of its own.
+
+Nothing but the content block: no sidebar, no header, no <html> — the page
+that asked for this already has all of that on screen, and detail-modal.js
+drops what comes back straight into #detail-modal-body.
+
+A detail template opts in by extending `base_template` rather than
+internal_base.html by name. core.context_processors.detail_modal resolves
+that variable per request: this file when the URL carries ?modal=1, and
+internal_base.html every other time, so the same template still answers a
+direct visit, a bookmark, or a browser with JavaScript off as a full page.
+{% endcomment %}{% block content %}{% endblock %}

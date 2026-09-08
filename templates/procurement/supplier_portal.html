@@ -7,11 +7,168 @@
   <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
   <style>
     /* Suppliers get a focused shell — no internal sidebar, because none of
-       those screens are theirs to open. */
-    .portal-wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
-    .portal-header { background: #fff; border-bottom: 1px solid var(--line); padding: 14px 0; }
+       those screens are theirs to open. Brand colours below are scoped to
+       .portal-header/.portal-wrap on purpose: .brand-mark, .avatar, .btn,
+       .filter-tab and .stat are shared with the login/register/storefront/
+       sidebar chrome, so overriding them globally would restyle those too. */
+    /* No max-width on purpose: the Admin Dashboard's .content (its own main
+       content area) has none either and fills the full window width at any
+       size/zoom — this now matches that instead of the centered-card pattern
+       the Customer Shop's .shop-wrap uses. */
+    .portal-wrap { width: 100%; padding: 0 24px; box-sizing: border-box; }
+    .portal-header { width: 100%; background: #1E7A4F; color: #fff; border-bottom: none; padding: 14px 0; }
     .portal-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     @media (max-width: 640px) { .portal-wrap { padding: 0 16px; } }
+
+    /* Brand mark: same logo image as the storefront header and admin sidebar,
+       just sized a touch larger (38px/9px radius) for this header. */
+    .portal-header .brand-mark { width: 38px; height: 38px; border-radius: 9px; }
+
+    /* Brand text next to the mark: name in full white, subtitle stepped
+       down to 80% opacity so it recedes under it. */
+    .portal-header .brand-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
+    .portal-header .brand-sub { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
+
+    /* Account info text next to the avatar: same scale as .brand-name/
+       .brand-sub on the left so both sides of the header read as one
+       typographic system, just right-aligned instead of left. */
+    .portal-header .who-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
+    .portal-header .who-role { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
+
+    /* Header avatar — first letter of the supplier's name. Deliberately its
+       own class rather than reusing .avatar: .avatar is --action/white
+       everywhere else, this one flips to a light tint on the dark header. */
+    .portal-avatar {
+      width: 34px; height: 34px; border-radius: 50%; flex: none;
+      background: #E4F3EA; color: #123D28;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px;
+    }
+
+    /* Logout: lightweight outline on the dark header instead of a solid box. */
+    .portal-header .btn {
+      background: transparent; border: 1px solid rgba(255,255,255,.35);
+      color: #fff; border-radius: 7px;
+    }
+    .portal-header .btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+
+    /* Stat cards: first one highlighted, the rest plain white/gray. */
+    .portal-wrap .stat-strip .stat { background: #fff; border: 1px solid #E3E8E4; border-radius: 10px; }
+    .portal-wrap .stat-strip .stat.stat-highlight {
+      position: relative; overflow: hidden; background: #F2F9F4; border-color: #227A4F;
+    }
+    .portal-wrap .stat-strip .stat.stat-highlight::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: #227A4F; border-radius: 10px 10px 0 0;
+    }
+    .portal-wrap .stat-strip .stat.stat-danger {
+      position: relative; overflow: hidden; background: #FDECEC; border-color: #D64545;
+    }
+    .portal-wrap .stat-strip .stat.stat-danger::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: #D64545; border-radius: 10px 10px 0 0;
+    }
+    .portal-wrap .stat-strip .stat.stat-danger .value { color: #B23B3B; }
+
+    /* Status pills: same shared .pill-* tokens as the buyer-side Purchase
+       Orders page, just pill-shaped (20px) here and "To fulfil" recoloured
+       from the shared blue/teal info tint to the brand green — scoped to
+       .portal-wrap so the buyer-side page keeps its own tint. */
+    .portal-wrap .pill { border-radius: 20px; padding: 3px 10px; }
+    .portal-wrap .pill-info { background: #E4F3EA; color: #123D28; }
+
+    /* Delivery-date-not-confirmed badge: warning tint, same pill shape as the
+       status badges. Once confirmed, the bottom confirmation section is the
+       only place that shows the date — this badge just disappears rather
+       than duplicating it. Left margin keeps it off the "ordered {date}"
+       text before it. */
+    .portal-wrap .pill-pending { background: #FDF3E7; color: #8A5A15; margin-left: 8px; }
+
+    /* "Change date" / "Cancel": plain-button reset so they read as small
+       text links, not real buttons — secondary to the confirmed-date line
+       and the primary Confirm date action beside them. */
+    .portal-wrap .change-date-link {
+      background: none; border: 0; padding: 0; cursor: pointer;
+      color: #5B655F; font-size: 13px; font-weight: 600; text-decoration: underline;
+      font-family: inherit;
+    }
+    .portal-wrap .change-date-link:hover { color: #123D28; }
+
+    /* Confirm-delivery-date action box: an "action needed" panel, visually
+       separated from the read-only items table above it. Input and button
+       get matching 40px heights (min-height overridden — the shared
+       input[type=date] rule sets 44px) so they sit flush as one control. */
+    .portal-wrap .confirm-date-input {
+      height: 40px; min-height: 0; padding: 0 12px;
+      border: 1px solid #E3E8E4; border-radius: 7px;
+      background: #fff; max-width: 220px;
+    }
+    .portal-wrap .confirm-date-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 40px; padding: 0 18px; border: 0; border-radius: 7px;
+      background: #1E7A4F; color: #fff; font-weight: 600; font-size: 14px;
+      box-shadow: 0 1px 2px rgba(18,61,40,.15); cursor: pointer;
+    }
+    .portal-wrap .confirm-date-btn:hover { background: #227A4F; }
+    .portal-wrap .confirm-date-btn svg { width: 14px; height: 14px; flex: none; }
+
+    /* Tabs: filled active state instead of the app-wide underline. */
+    .portal-wrap .filter-tabs { border-bottom: none; gap: 4px; }
+    .portal-wrap .filter-tab {
+      padding: 8px 14px; margin-bottom: 0; border: 0; border-radius: 8px 8px 0 0;
+      color: #5B655F;
+    }
+    .portal-wrap .filter-tab:hover { color: #1A1F1C; }
+    .portal-wrap .filter-tab.active { background: #E4F3EA; color: #123D28; }
+    /* Per-tab count: inherits the tab's own size/weight, just faded so it
+       doesn't compete with the label. */
+    .portal-wrap .filter-tab .tab-count { opacity: .6; }
+
+    /* Consistent card corners for this page. */
+    .portal-wrap .card { border-radius: 10px; }
+
+    /* ---------------------------------------------------------- responsive
+       Two explicit breakpoints so the page actually restructures instead of
+       just scaling down inside the centered .portal-wrap. */
+    @media (max-width: 720px) {
+      /* Header: tighter padding, and the header's own copy of .portal-wrap
+         drops its horizontal padding so it isn't doubled up with the
+         header's — everything else keeps the wider 24px/16px gutter from
+         the rules above. */
+      .portal-header { padding: 12px 16px; }
+      .portal-header .portal-wrap { padding: 0; }
+      /* Keep just the essential brand name/account name — the subtitle and
+         role label are the least essential line on each side. */
+      .portal-header .brand-sub,
+      .portal-header .who-role { display: none; }
+
+      /* 4 stat cards -> 2, instead of leaving auto-fit to pick a width. */
+      .portal-wrap .stat-strip { grid-template-columns: repeat(2, 1fr); }
+
+      /* PO number + status pills wrap instead of forcing the row to stay
+         on one line and overflowing. */
+      .portal-wrap .po-card-head { flex-wrap: wrap; }
+
+      /* Already true at every width via the shared .table-wrap rule, plus
+         the app-wide <=860px breakpoint already turns .gv-table into
+         stacked cards below this — restated here so the intent is explicit
+         on this page rather than inherited silently. */
+      .portal-wrap .table-wrap { overflow-x: auto; }
+    }
+
+    @media (max-width: 460px) {
+      /* 2 stat cards -> 1, full width. */
+      .portal-wrap .stat-strip { grid-template-columns: 1fr; }
+
+      .portal-wrap .page-head h1 { font-size: 19px; }
+
+      /* Confirm-delivery-date row: input and button stack full-width
+         instead of sitting side by side — both stay >=40px tall so they're
+         still comfortably tappable stacked. */
+      .portal-wrap .confirm-date-row { flex-direction: column; align-items: stretch; }
+      .portal-wrap .confirm-date-input,
+      .portal-wrap .confirm-date-btn { width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -19,7 +176,7 @@
 <header class="portal-header">
   <div class="portal-wrap portal-nav">
     <span class="row" style="gap:10px;">
-      <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
+      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="Gerlyn Variety Store"></span>
       <span>
         <span class="brand-name">Gerlyn Variety Store</span><br>
         <span class="brand-sub">Supplier Portal</span>
@@ -30,7 +187,8 @@
         <span class="who-name">{{ profile.supplier_name|default:request.user.username }}</span><br>
         <span class="who-role">Supplier</span>
       </span>
-      <a class="btn" href="{% url 'accounts:logout' %}">Sign out</a>
+      <span class="portal-avatar">{{ profile.supplier_name|default:request.user.username|first|upper }}</span>
+      <a class="btn" href="{% url 'accounts:logout' %}">Logout</a>
     </span>
   </div>
 </header>
@@ -51,7 +209,7 @@
   </div>
 
   <div class="stat-strip mb-6">
-    <div class="stat">
+    <div class="stat stat-highlight">
       <div class="value">{{ open_count }}</div>
       <div class="label">Open orders to fulfil</div>
     </div>
@@ -59,8 +217,8 @@
       <div class="value">₱{{ open_value|floatformat:2 }}</div>
       <div class="label">Value of open orders</div>
     </div>
-    <div class="stat" {% if overdue %}style="background:var(--danger-bg); border-color:var(--danger-bg);"{% endif %}>
-      <div class="value" {% if overdue %}style="color:var(--danger-fg);"{% endif %}>{{ overdue }}</div>
+    <div class="stat{% if overdue %} stat-danger{% endif %}">
+      <div class="value">{{ overdue }}</div>
       <div class="label">Past their delivery date</div>
     </div>
     <div class="stat">
@@ -74,46 +232,40 @@
   supplier's "To fulfil" and the buyer's "Ordered" are one record.
   {% endcomment %}
   <div class="filter-tabs">
-    <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
-    <a class="filter-tab {% if status_filter == 'Ordered' %}active{% endif %}" href="?status=Ordered">{% include "partials/_status_icon.html" with icon="truck" %}To fulfil <span class="count count-info">{{ counts.ordered }}</span></a>
-    <a class="filter-tab {% if status_filter == 'Received' %}active{% endif %}" href="?status=Received">{% include "partials/_status_icon.html" with icon="check-circle" %}Delivered <span class="count count-ok">{{ counts.received }}</span></a>
-    <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?status=Cancelled">{% include "partials/_status_icon.html" with icon="x-circle" %}Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
+    <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">All <span class="tab-count">({{ counts.all }})</span></a>
+    <a class="filter-tab {% if status_filter == 'Ordered' %}active{% endif %}" href="?status=Ordered">To fulfil <span class="tab-count">({{ counts.ordered }})</span></a>
+    <a class="filter-tab {% if status_filter == 'Received' %}active{% endif %}" href="?status=Received">Delivered <span class="tab-count">({{ counts.received }})</span></a>
+    <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?status=Cancelled">Cancelled <span class="tab-count">({{ counts.cancelled }})</span></a>
   </div>
 
   <div class="stack">
     {% for o in orders %}
     <div class="card card-pad">
-      <div class="row-between wrap" style="align-items:flex-start;">
-        <div>
-          <div class="row" style="gap:10px;">
-            <span class="sku" style="font-weight:700; font-size:16px;">{{ o.po_number }}</span>
-            {% if o.status == 'Received' %}<span class="pill pill-ok">Delivered &amp; received</span>
-            {% elif o.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
-            {% else %}<span class="pill pill-info">To fulfil</span>{% endif %}
-            {% if o.receipt_flag == 'Discrepancy' %}<span class="pill pill-warn">Quantity discrepancy</span>{% endif %}
-          </div>
-          <div class="gv-meta mt-2">
-            Deliver to <strong>{{ o.branch.branch_name }}</strong>
-            · ordered {{ o.order_date|date:"Y-m-d" }}
-            {% if o.delivery_date %}
-              · due
-              {% if o.delivery_date < today and o.status == 'Ordered' %}
-                <strong style="color:var(--danger-fg);">{{ o.delivery_date|date:"Y-m-d" }} (overdue)</strong>
-              {% else %}{{ o.delivery_date|date:"Y-m-d" }}{% endif %}
-            {% else %}· <em>no delivery date agreed yet</em>{% endif %}
-          </div>
-        </div>
-        <div style="text-align:right;">
-          <div class="gv-label">Order value</div>
-          <div class="gv-metric" style="color:var(--action); font-size:24px;">₱{{ o.total_cost|floatformat:2 }}</div>
-        </div>
+      <div class="row po-card-head" style="gap:10px;">
+        <span class="sku" style="font-weight:700; font-size:16px;">{{ o.po_number }}</span>
+        {% if o.status == 'Received' %}<span class="pill pill-ok">Delivered &amp; received</span>
+        {% elif o.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
+        {% else %}<span class="pill pill-info">To fulfil</span>{% endif %}
+        {% if o.receipt_flag == 'Discrepancy' %}<span class="pill pill-warn">Quantity discrepancy</span>{% endif %}
+      </div>
+      <div class="gv-meta mt-2">
+        Deliver to <strong>{{ o.branch.branch_name }}</strong>
+        · ordered {{ o.order_date|date:"Y-m-d" }}
+        {% if o.delivery_date %}
+          {% if o.delivery_date < today and o.status == 'Ordered' %}
+            · due <strong style="color:var(--danger-fg);">{{ o.delivery_date|date:"Y-m-d" }} (overdue)</strong>
+          {% endif %}
+        {% else %}
+          <span class="pill pill-pending">Delivery date not confirmed</span>
+        {% endif %}
       </div>
 
       <div class="table-wrap mt-4">
         <table class="gv-table">
           <thead>
-            <tr><th>Product</th><th class="num">Qty Ordered</th><th class="num">Unit Cost</th>
-                {% if o.status == 'Received' %}<th class="num">Qty Received</th>{% endif %}</tr>
+            <tr><th>Product</th><th class="num">Qty ordered</th><th class="num">Unit cost</th>
+                <th class="num">Line total</th>
+                {% if o.status == 'Received' %}<th class="num">Qty received</th>{% endif %}</tr>
           </thead>
           <tbody>
             {% for item in o.items.all %}
@@ -121,6 +273,7 @@
               <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
               <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
               <td data-label="Unit Cost" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
+              <td data-label="Line Total" class="num">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
               {% if o.status == 'Received' %}
               <td data-label="Qty Received" class="num
                   {% if item.quantity_received != item.quantity_ordered %}strong{% endif %}"
@@ -131,20 +284,61 @@
             </tr>
             {% endfor %}
           </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="num" style="color:#5B655F;">Order total</td>
+              <td class="num strong" style="color:#1E7A4F;">₱{{ o.total_cost|floatformat:2 }}</td>
+              {% if o.status == 'Received' %}<td></td>{% endif %}
+            </tr>
+          </tfoot>
         </table>
       </div>
 
       {% if o.status == 'Ordered' %}
-      <form method="POST" action="{% url 'supplier_set_delivery_date' o.pk %}"
-            class="row wrap mt-4" style="gap:12px; align-items:flex-end;">
-        {% csrf_token %}
-        <div class="field" style="max-width:220px;">
-          <label for="dd-{{ o.pk }}">Confirm your delivery date</label>
-          <input id="dd-{{ o.pk }}" type="date" name="delivery_date"
-                 value="{{ o.delivery_date|date:'Y-m-d' }}">
-        </div>
-        <button type="submit" class="btn btn-primary">Confirm date</button>
-      </form>
+      <div class="confirm-date-box mt-4" style="background:#F6F8F6; border:1px solid #E3E8E4; border-radius:9px; padding:16px 18px;">
+        {% if o.delivery_date %}
+          <div class="row wrap" data-view="confirmed" style="gap:8px; align-items:center; justify-content:space-between;">
+            <span style="display:inline-flex; align-items:center; gap:6px; color:#1E7A4F; font-weight:600;">
+              {% include "partials/_status_icon.html" with icon="check" %}
+              Delivery confirmed for {{ o.delivery_date|date:"M j, Y" }}
+            </span>
+            <button type="button" class="change-date-link" data-action="edit-date">Change date</button>
+          </div>
+          <form method="POST" action="{% url 'supplier_set_delivery_date' o.pk %}" data-view="edit" hidden>
+            {% csrf_token %}
+            <label for="dd-{{ o.pk }}" style="display:block; margin-bottom:10px; font:600 14px/1.2 var(--font-sans); color:var(--ink-700);">
+              Confirm your delivery date
+            </label>
+            <div class="row wrap confirm-date-row" style="gap:10px; align-items:center;">
+              <input id="dd-{{ o.pk }}" type="date" name="delivery_date"
+                     value="{{ o.delivery_date|date:'Y-m-d' }}" class="confirm-date-input">
+              <button type="submit" class="confirm-date-btn">
+                {% include "partials/_status_icon.html" with icon="check" %}
+                Confirm date
+              </button>
+              <button type="button" class="change-date-link" data-action="cancel-date">Cancel</button>
+            </div>
+          </form>
+        {% else %}
+          <form method="POST" action="{% url 'supplier_set_delivery_date' o.pk %}">
+            {% csrf_token %}
+            <label for="dd-{{ o.pk }}" style="display:block; margin-bottom:10px; font:600 14px/1.2 var(--font-sans); color:var(--ink-700);">
+              Confirm your delivery date
+            </label>
+            <div class="row wrap confirm-date-row" style="gap:10px; align-items:center;">
+              <input id="dd-{{ o.pk }}" type="date" name="delivery_date"
+                     value="{{ o.delivery_date|date:'Y-m-d' }}" class="confirm-date-input">
+              <button type="submit" class="confirm-date-btn">
+                {% include "partials/_status_icon.html" with icon="check" %}
+                Confirm date
+              </button>
+            </div>
+            <div style="font-size:12px; color:#5B655F; margin-top:10px;">
+              Once confirmed, this date will be shown to the store.
+            </div>
+          </form>
+        {% endif %}
+      </div>
       {% elif o.status == 'Received' and o.receipt_flag == 'Discrepancy' %}
       <div class="banner banner-warning mt-4">
         The store recorded different quantities from what was ordered. Please check
@@ -155,7 +349,7 @@
     {% empty %}
     <div class="card">
       <div class="empty">
-        <span class="glyph">□</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
         <h3>No purchase orders yet</h3>
         <p>When Gerlyn Variety Store places an order with you, it appears here.</p>
       </div>
@@ -168,5 +362,34 @@
   </p>
 </main>
 
+<script>
+(function () {
+  // Confirmed-date view vs. edit-date form: mutually exclusive, toggled by
+  // "Change date" / "Cancel" — never both visible at once. [hidden] is
+  // guaranteed to win the cascade globally (see gerlyn.css), so plain
+  // .hidden assignment is enough, no extra class needed.
+  document.querySelectorAll('.confirm-date-box').forEach(function (box) {
+    var confirmedView = box.querySelector('[data-view="confirmed"]');
+    var editView = box.querySelector('[data-view="edit"]');
+    if (!confirmedView || !editView) return;
+
+    var editBtn = confirmedView.querySelector('[data-action="edit-date"]');
+    var cancelBtn = editView.querySelector('[data-action="cancel-date"]');
+
+    if (editBtn) {
+      editBtn.addEventListener('click', function () {
+        confirmedView.hidden = true;
+        editView.hidden = false;
+      });
+    }
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () {
+        editView.hidden = true;
+        confirmedView.hidden = false;
+      });
+    }
+  });
+})();
+</script>
 </body>
 </html>

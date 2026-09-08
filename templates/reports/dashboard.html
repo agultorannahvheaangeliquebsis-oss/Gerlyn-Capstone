@@ -27,13 +27,41 @@
     <h1>{{ greeting }}</h1>
     <p class="page-greet">{{ today|date:"l, j F" }} — here's how the store is doing.</p>
   </div>
-  {% comment %}
-  The §2e range control. .page-head is already a space-between flex row, so it
-  needs no toolbar of its own. Scopes the KPI rail, the trend panel and the
-  donut — NOT Branch Status (§2h) or Recent Activity (§2f), both of which
-  answer "right now" by design.
-  {% endcomment %}
-  {% include "_daterange.html" %}
+  <div class="row" style="gap:var(--s3); align-items:center;">
+    {% comment %}
+    Owner-only branch selector. Everything on this page reacts to it EXCEPT
+    the three always-compare-every-branch charts (Sales by Branch, Inventory
+    Value by Branch, Sales Trend by Branch) — those stay scoped to
+    branch_ids_for_user regardless, by design (a comparison chart narrowed to
+    one branch has nothing left to compare).
+
+    The date range's hidden inputs are carried here too, same reasoning as
+    the branch input inside _daterange.html's own form: picking a branch must
+    not silently reset the range already chosen.
+    {% endcomment %}
+    {% if show_branch_selector %}
+    <form method="GET">
+      <input type="hidden" name="range" value="{{ active_range }}">
+      {% if active_range == 'custom' %}
+        <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+      {% endif %}
+      <select class="branch-select" name="branch" onchange="this.form.submit()" aria-label="Filter the dashboard by branch">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+    {% comment %}
+    The §2e range control. .page-head is already a space-between flex row, so it
+    needs no toolbar of its own. Scopes the KPI rail, the trend panel and the
+    donut — NOT Branch Status (§2h) or Recent Activity (§2f), both of which
+    answer "right now" by design.
+    {% endcomment %}
+    {% include "_daterange.html" %}
+  </div>
 </div>
 
 {% comment %}
@@ -62,7 +90,7 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       is stated once below the rail instead.
       {% endcomment %}
       {% if card.delta %}
-      <span class="stat-status"><span class="pill {{ card.delta.pill }}">{{ card.delta.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ card.delta.pill }}">{% include "reports/_delta_arrow.html" with dir=card.delta.dir %}{{ card.delta.text }}</span></span>
       {% endif %}
     </button>
     {% endfor %}
@@ -130,7 +158,7 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
     drawing a fabricated zero line.
     {% endcomment %}
     <div class="empty" id="kpi-graph-empty" {% if default_kpi_graph.points %}hidden{% endif %}>
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
       <h3>Nothing to chart</h3>
       <p>No activity for this metric in {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}.</p>
     </div>
@@ -167,9 +195,9 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
         line: the ring and legend already answer "across how many".
         {% endcomment %}
         <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="-2"
-              style="font: 700 17px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ branch_chart.total_display }}</text>
+              style="font: 700 17px/1 var(--font-sans); font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ branch_chart.total_display }}</text>
         <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="14"
-              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+              style="font: 400 11px/1 var(--font-sans); fill: var(--ink-600);">
           {{ branch_chart.branch_count }} branch{{ branch_chart.branch_count|pluralize:"es" }}</text>
       </svg>
       <ul class="pie-legend with-status">
@@ -185,7 +213,7 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
       <h3>No sales to chart</h3>
       <p>Nothing recorded between {{ range_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.</p>
     </div>
@@ -194,6 +222,173 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
 </div>
 
 </div>{# closes the trend + donut .grid-2 #}
+
+{% comment %}
+Inventory + Top Products summary, pulled in from the Reports tabs (Inventory
+Report, Sales Report) so the Owner doesn't have to leave the Dashboard to see
+them. Reactive to the branch selector above, exactly like the KPI rail —
+"All Branches" totals every branch's floor + warehouse stock, one branch
+narrows to just that branch's, same arithmetic the Inventory Report itself
+runs (reports/views.py::_dashboard_product_counts /
+_dashboard_inventory_metrics).
+
+Total Products is two cards, not one combined count: a product sitting in
+both floor and warehouse stock is not "two products", but unioning the two
+into a single figure was tried and rejected — floor and warehouse are
+different questions (what's sellable right now vs what's in reserve), so
+collapsing them lost information rather than simplifying it.
+{% endcomment %}
+<div class="kpi-row compact mb-6">
+  <div class="kpi-card">
+    <span class="label">Total Products (Floor Stock)</span>
+    <span class="value">{{ total_products_floor }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Total Products (Warehouse Stock)</span>
+    <span class="value">{{ total_products_warehouse }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Inventory Value</span>
+    <span class="value">₱{{ inventory_value|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Total Units</span>
+    <span class="value">{{ inventory_units }}</span>
+  </div>
+  <div class="kpi-card{% if inventory_low_critical %} danger{% endif %}">
+    <span class="label">Low / Critical Items</span>
+    <span class="value">{{ inventory_low_critical }}</span>
+  </div>
+</div>
+
+{% comment %}
+Sales Trend by Branch — one line per branch the viewer can see, ALWAYS every
+branch regardless of the selector above (reports/views.py::
+_sales_trend_by_branch_chart): a trend line narrowed to a single branch would
+have nothing left to compare it against, so this chart deliberately ignores
+the same selector the KPI rail above it obeys.
+
+Same geometry as the KPI graph panel (0 0 760 220, no y-axis) so it reads as
+the same chart family; the legend underneath carries the per-branch total
+since the lines alone don't label themselves.
+{% endcomment %}
+<div class="card mb-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Sales Trend by Branch</h3>
+    <p class="gv-meta mb-0">{{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }} · not affected by the branch selector above</p>
+  </div>
+  <div class="card-pad">
+    {% if sales_trend_by_branch.lines %}
+    <svg viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none">
+      {% for line in sales_trend_by_branch.lines %}
+      <polyline points="{{ line.polyline }}" fill="none" stroke="{{ line.colour }}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      {% endfor %}
+    </svg>
+    <p class="gv-meta kpi-graph-peak mb-0">{{ sales_trend_by_branch.peak }}</p>
+    <ul class="pie-legend">
+      {% for line in sales_trend_by_branch.lines %}
+      <li>
+        <span class="pie-dot" style="background:{{ line.colour }};"></span>{{ line.name }}
+        <span class="pie-count">{{ line.total_display }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
+      <h3>Nothing to chart</h3>
+      <p>No activity for {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% comment %}
+Inventory Value by Branch + Top Products share a row, mirroring the Inventory
+Report / Sales Report tabs these are pulled from. Both are "always every
+branch the viewer can see" for Inventory Value by Branch (a comparison chart,
+same reasoning as Sales Trend by Branch above) — Top Products DOES react to
+the branch selector, same as the KPI rail, since ranking products is a
+per-branch question in a way a branch-comparison chart is not.
+{% endcomment %}
+<div class="grid-2 mb-6">
+
+<div class="card">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Inventory Value by Branch (₱ at Cost)</h3>
+    <p class="gv-meta mb-0">Not affected by the branch selector above</p>
+  </div>
+  <div class="card-pad">
+    {% if inventory_value_by_branch.bars %}
+    <div class="hbar-chart">
+      {% for row in inventory_value_by_branch.bars %}
+      <div class="hbar-row">
+        <span class="hbar-label">{{ row.name }}</span>
+        <div class="hbar-track"><span class="hbar-fill" style="width:{{ row.pct }}%;"></span></div>
+        <span class="hbar-value">₱{{ row.value|floatformat:0 }}</span>
+      </div>
+      {% endfor %}
+      <div class="hbar-axis">
+        <span></span>
+        <div class="hbar-axis-ticks">
+          {% for t in inventory_value_by_branch.ticks %}<span>₱{{ t }}</span>{% endfor %}
+        </div>
+        <span></span>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
+      <h3>No stock recorded</h3>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Top Products</h3>
+    <p class="gv-meta mb-0">{{ top_products.subtitle|default:"By revenue in the selected range" }}</p>
+  </div>
+  <div class="card-pad">
+    {% if top_products.total %}
+    <div class="pie-wrap">
+      <svg viewBox="0 0 {{ top_products.box }} {{ top_products.box }}" width="160" height="160" role="img"
+           aria-label="Top products by revenue, {{ top_products.total_display }} total: {% for seg in top_products.segments %}{{ seg.name }} {{ seg.pct }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
+        <g transform="rotate(-90 {{ top_products.centre }} {{ top_products.centre }})">
+          {% for seg in top_products.segments %}
+          <circle cx="{{ top_products.centre }}" cy="{{ top_products.centre }}" r="{{ top_products.radius }}"
+                  fill="none" stroke="{{ seg.colour }}" stroke-width="{{ top_products.stroke }}"
+                  stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"/>
+          {% endfor %}
+        </g>
+        <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="-2"
+              style="font: 700 17px/1 var(--font-sans); font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ top_products.total_display }}</text>
+        <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="14"
+              style="font: 400 11px/1 var(--font-sans); fill: var(--ink-600);">
+          {{ top_products.product_count }} product{{ top_products.product_count|pluralize }}</text>
+      </svg>
+      <ul class="pie-legend">
+        {% for seg in top_products.segments %}
+        <li>
+          <span class="pie-dot" style="background:{{ seg.colour }};"></span>{{ seg.name }}
+          <span class="pie-count">₱{{ seg.value|floatformat:2 }}
+            <span class="gv-meta">· {{ seg.pct }}%</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
+      <h3>No products sold</h3>
+      <p>Nothing recorded between {{ range_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+</div>{# closes the inventory-value + top-products .grid-2 #}
 
 {% comment %}
 Recent Activity and Needs Attention share one .grid-2 row: "what just
@@ -253,7 +448,7 @@ status. Rows are built from reports/views.py::_recent_activity.
   {% empty %}
   <div class="card-pad">
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="activity" %}</span>
       <h3>Nothing posted yet</h3>
       <p>Sales, purchase orders and payments appear here as they are recorded.</p>
     </div>
@@ -287,18 +482,22 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
       <h3>Needs Attention</h3>
       <p class="gv-meta mb-0">{{ needs_attention.subtitle }}</p>
     </div>
-    <a href="{% url 'alerts_center' %}">View all alerts &rarr;</a>
+    <a class="link-more" href="{% url 'alerts_center' %}">View all alerts <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
   </div>
 
   {% if needs_attention.actionable|length == 1 %}
     {% for row in needs_attention.actionable %}
-    <a href="{{ row.url }}" class="attn-card{% if row.pill == 'pill-danger' %} attn-card--danger{% endif %}">
+    <a href="{{ row.url }}" class="attn-card{% if row.tone == 'danger' %} attn-card--danger{% endif %}">
       <span class="attn-ico" aria-hidden="true">{% include "reports/_row_icon.html" with icon=row.icon %}</span>
       <span>
-        <span class="attn-card-title">{{ row.label }} <span class="pill {{ row.pill }}">{{ row.count }}</span></span>
+        <span class="attn-card-title">{{ row.label }}</span>
+        {# The detail line opens with the number, so the title needs no #}
+        {# count badge beside it. #}
         <span class="attn-card-body">{{ row.detail }}</span>
       </span>
-      <span class="attn-card-go">Review &rarr;</span>
+      {# The whole card is the link — the chevron is a visual affordance #}
+      {# only, so no "Review" text and aria-hidden. #}
+      <span class="attn-card-go" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg></span>
     </a>
     {% endfor %}
   {% else %}
@@ -309,7 +508,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
         {{ row.label }}
       </span>
       <span class="attn-end">
-        <span class="pill {{ row.pill }}">{{ row.count }}</span>
+        <span class="count count-{{ row.tone }}">{{ row.count }}</span>
         <span class="attn-chevron" aria-hidden="true">&rsaquo;</span>
       </span>
     </a>
@@ -325,7 +524,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
     <div class="attn-clear-grid">
       {% for row in needs_attention.all_clear %}
       <a href="{{ row.url }}" class="attn-chip">
-        <span class="attn-check" aria-hidden="true">&check;</span>{{ row.label }}
+        <span class="attn-check" aria-hidden="true">{% include "partials/_empty_icon.html" with icon="check" %}</span>{{ row.label }}
       </a>
       {% endfor %}
     </div>
@@ -373,7 +572,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
     </table>
   </div>
   <div class="card-pad" style="border-top:1px solid var(--line);">
-    <a href="{% url 'alerts_center' %}">View all alerts &rarr;</a>
+    <a class="link-more" href="{% url 'alerts_center' %}">View all alerts <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
   </div>
 </div>
 {% endif %}
@@ -396,7 +595,7 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
       <h3>Open Orders</h3>
       <p class="gv-meta mb-0">Not yet completed or cancelled — longest waiting first</p>
     </div>
-    <a href="{% url 'transaction_list' %}">View all &rarr;</a>
+    <a class="link-more" href="{% url 'transaction_list' %}">View all <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
   </div>
   {% if open_orders %}
   <div class="table-wrap">
@@ -409,14 +608,14 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
         {% for t in open_orders %}
         <tr>
           <td data-label="Order ID" class="sku strong">
-            <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
+            <a href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order">{{ t.order_number }}</a></td>
           <td data-label="Customer">
             {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}
             {% else %}Walk-in{% endif %}</td>
           <td data-label="Branch">{{ t.branch.branch_name }}</td>
           <td data-label="Channel">
-            {% if t.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
-            {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td>
+            {% if t.transaction_type == "Online" %}<span class="tag">Online</span>
+            {% else %}<span class="tag">In-Store</span>{% endif %}</td>
           <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
           <td data-label="Status">
             {% if t.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>
@@ -437,7 +636,6 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
   {% endcomment %}
   <div class="card-pad">
     <div class="empty">
-      <span class="glyph">□</span>
       <h3>No open orders</h3>
       <p>Every order has been completed or cancelled. New ones appear here while they wait on action.</p>
     </div>

@@ -1,6 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}User Management{% endblock %}
 {% block page_subtitle %}Administration{% endblock %}
+{% comment %}Same pattern as Floor Stock, Product Master List, etc: the
+topbar chip has to track whichever branch the toolbar is actually narrowed
+to, not sit frozen on "All Branches".{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -13,15 +17,29 @@
   </button>
 </div>
 
-<form method="GET" class="toolbar" data-live-filter="#user-table tbody tr[data-filter-text]" data-filter-empty-target="#user-no-matches">
-  <input type="search" name="q" class="input grow" placeholder="Search username…" value="{{ search_query }}" autocomplete="off">
-  <select name="role" onchange="this.form.submit()">
-    <option value="">All Roles</option>
-    {% for value, label in role_choices %}
-      <option value="{{ value }}" {% if role_filter == value %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  <button class="btn" type="submit">Search</button>
+<form method="GET" class="toolbar toolbar-search" data-live-filter="#user-table tbody tr[data-filter-text]" data-filter-empty-target="#user-no-matches">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search users">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search username…" value="{{ search_query }}" autocomplete="off" aria-label="Search users by username">
+  </div>
+  <div class="search-filters">
+    <select name="role" onchange="this.form.submit()" aria-label="Filter by role">
+      <option value="">All Roles</option>
+      {% for value, label in role_choices %}
+        <option value="{{ value }}" {% if role_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% if branches %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by assigned branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
 </form>
 
 <div class="card table-wrap">
@@ -40,10 +58,10 @@
           <span class="gv-meta">{{ r.user.email|default:"—" }}</span>
         </td>
         <td data-label="Role">
-          {% if r.user.role == 'OWNER' %}<span class="pill pill-ok">Owner</span>
-          {% elif r.user.role == 'BRANCH_MANAGER' %}<span class="pill pill-info">Manager</span>
-          {% elif r.user.role == 'SUPPLIER' %}<span class="pill pill-warn">Supplier</span>
-          {% else %}<span class="pill pill-neutral">Staff</span>{% endif %}
+          {% if r.user.role == 'OWNER' %}<span class="tag">Owner</span>
+          {% elif r.user.role == 'BRANCH_MANAGER' %}<span class="tag">Manager</span>
+          {% elif r.user.role == 'SUPPLIER' %}<span class="tag">Supplier</span>
+          {% else %}<span class="tag">Staff</span>{% endif %}
         </td>
         <td data-label="Branch">{{ r.branch }}</td>
         <td data-label="Status">
@@ -53,7 +71,8 @@
         <td data-label="Last Login" class="gv-meta">{{ r.user.last_login|date:"Y-m-d H:i"|default:"Never" }}</td>
         <td data-label="Actions">
           <span class="row-actions">
-            <a class="btn btn-sm" href="{% url 'accounts:user_list' %}?edit={{ r.user.pk }}">Edit</a>
+            <a class="icon-btn icon-btn-action" href="{% url 'accounts:user_list' %}?edit={{ r.user.pk }}"
+               title="Edit" aria-label="Edit {{ r.user.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></a>
             {% if r.user.pk != request.user.pk %}
             {% comment %}
             The confirm is on the deactivate direction only. Reactivating
@@ -68,9 +87,13 @@
                   data-confirm-ok="Deactivate"
                   {% endif %}>
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm {% if r.user.is_active %}btn-danger{% endif %}">
-                {% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}
-              </button>
+              {% if r.user.is_active %}
+              <button type="submit" class="icon-btn icon-btn-danger"
+                      title="Deactivate" aria-label="Deactivate {{ r.user.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M17 8l5 5M22 8l-5 5"/></svg></button>
+              {% else %}
+              <button type="submit" class="icon-btn icon-btn-action"
+                      title="Reactivate" aria-label="Reactivate {{ r.user.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg></button>
+              {% endif %}
             </form>
             {% endif %}
           </span>
@@ -78,14 +101,14 @@
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">
-        <span class="glyph">＋</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
         <h3>No users match</h3>
         <p>Try clearing the search or role filter.</p>
       </div></td></tr>
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="user-no-matches" hidden><td colspan="7"><div class="empty">
-        <span class="glyph">＋</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
         <h3>No users match</h3>
         <p>No users match "<span data-filter-empty-query></span>". Try a different search.</p>
       </div></td></tr>
@@ -94,11 +117,11 @@
 </div>
 
 {% url 'accounts:user_add' as add_action %}
-{% include "accounts/_user_modal.html" with which="add" title="Add New User" action=add_action branch_id=add_branch_id errors=add_errors form_data=add_form_data is_open=show_add_modal submit_label="Save User" %}
+{% include "accounts/_user_modal.html" with which="add" title="Add New User" action=add_action branch_id=add_branch_id modules=add_modules errors=add_errors form_data=add_form_data is_open=show_add_modal submit_label="Save User" %}
 
 {% if edit_target %}
 {% url 'accounts:user_edit' edit_target.pk as edit_action %}
-{% include "accounts/_user_modal.html" with which="edit" title="Edit User" action=edit_action target=edit_target branch_id=edit_branch_id errors=edit_errors form_data=edit_form_data is_open=show_edit_modal submit_label="Save Changes" %}
+{% include "accounts/_user_modal.html" with which="edit" title="Edit User" action=edit_action target=edit_target branch_id=edit_branch_id modules=edit_modules errors=edit_errors form_data=edit_form_data is_open=show_edit_modal submit_label="Save Changes" %}
 {% endif %}
 {% endblock %}
 
@@ -128,12 +151,22 @@
   ['add', 'edit'].forEach(function (which) {
     var role = document.getElementById(which + '-user-role');
     var branch = document.getElementById(which + '-user-branch');
+    var modulesField = document.getElementById(which + '-user-modules-field');
+    var moduleChecks = modulesField ? modulesField.querySelectorAll('input[type="checkbox"]') : [];
     if (!role || !branch) return;
 
     function syncBranchField() {
       var scoped = role.value === 'BRANCH_MANAGER' || role.value === 'STAFF';
       branch.disabled = !scoped;
       if (!scoped) branch.value = '';
+
+      // Module Access means the same thing as Assigned Branch here: only
+      // Staff/Manager are ever subject to it (Owner/Supplier bypass the
+      // check entirely), so hiding it — and disabling the checkboxes so
+      // they don't post a value the server would just ignore anyway — keeps
+      // the form honest about what a given role selection actually affects.
+      if (modulesField) modulesField.style.display = scoped ? '' : 'none';
+      moduleChecks.forEach(function (cb) { cb.disabled = !scoped; });
     }
 
     role.addEventListener('change', syncBranchField);

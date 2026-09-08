@@ -1,15 +1,17 @@
+from decimal import Decimal, InvalidOperation
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 
 from accounts.models import User
 from billing.models import BillingRecord
 from branches.models import Branch
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
-from core.scoping import branch_ids_for_user, scope_queryset, user_can_access_branch
+from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
+from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
@@ -35,8 +37,8 @@ def price_for(product, order_type):
 
 def _pos_user_branch(request):
     """Staff and managers are pinned to their own branch; the Owner picks one.
-    Extracted verbatim from transaction_add so the Walk-in Sale modal resolves
-    the branch exactly the way the POST handler will."""
+    Shared by transaction_add's GET (rendering the Walk-in Sale form) and its
+    POST handler, so both resolve the branch the same way."""
     if request.user.role == STAFF:
         return getattr(getattr(request.user, 'staff_profile', None), 'branch', None)
     if request.user.role == BRANCH_MANAGER:
@@ -44,15 +46,42 @@ def _pos_user_branch(request):
     return None
 
 
+def _pos_stock_map(user_branch):
+    """product_id -> branch_id -> {qty, status}, for every branch the
+    cashier could possibly ring this sale under: just their own pinned
+    branch for Staff/Branch Manager, or every branch for the Owner (who
+    picks one via #pos-branch). Keyed by both ids as strings since that's
+    how they round-trip through json_script/JS.
+
+    Sourced from Inventory (floor stock) — Walk-in Sale sells off the
+    shelf, never the warehouse — and status is inventory.alerts.stock_status(),
+    the same tiering the Floor Stock list and Alerts Center already use, so
+    the indicator can't drift out of sync with what those screens call
+    "low stock".
+    """
+    qs = Inventory.objects.all()
+    if user_branch:
+        qs = qs.filter(branch_id=user_branch.id)
+    stock_map = {}
+    for inv in qs.values('product_id', 'branch_id', 'quantity_on_hand', 'reorder_level'):
+        stock_map.setdefault(str(inv['product_id']), {})[str(inv['branch_id'])] = {
+            'qty': inv['quantity_on_hand'],
+            'status': stock_status(inv['quantity_on_hand'], inv['reorder_level']),
+        }
+    return stock_map
+
+
 def _pos_context(request):
-    """Everything the Walk-in Sale modal needs. Prefixed pos_* because this
-    lands in the Order Console's context, which already has its own `branches`
-    for the filter toolbar — a different list answering a different question."""
+    """Everything the Walk-in Sale page needs. Prefixed pos_* to distinguish
+    it from unrelated fields elsewhere (e.g. the Order Console's own
+    `branches` for its filter toolbar — a different list answering a
+    different question)."""
     user_branch = _pos_user_branch(request)
     return {
         'pos_products': Product.objects.select_related('category').all(),
         'pos_branches': Branch.objects.all() if not user_branch else [],
         'pos_user_branch': user_branch,
+        'pos_stock_map': _pos_stock_map(user_branch),
         'pos_payment_choices': [
             c for c in SalesTransaction.ModeOfPayment.choices
             if c[0] in ['Cash', 'GCash', 'Card']
@@ -114,6 +143,7 @@ def _transaction_list_context(request):
 
     show_branch_filter = branch_ids_for_user(request.user) is None
     can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
+    branches = Branch.objects.all() if show_branch_filter else []
 
     context = {
         'transactions': transactions,
@@ -123,11 +153,14 @@ def _transaction_list_context(request):
         'channel_filter': channel_filter,
         'branch_filter': branch_filter,
         'type_filter': type_filter,
-        'branches': Branch.objects.all() if show_branch_filter else [],
+        'branches': branches,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock, Product Master List, Stock Adjustments and
+        # Receive Delivery.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        'user_branch': branch_for_user(request.user),
         'can_pos': can_pos,
     }
-    if can_pos:
-        context.update(_pos_context(request))
     return context
 
 
@@ -280,10 +313,13 @@ def _deduct_stock(txn, user):
     never partially applies.
     """
     for item in txn.items.select_related('product').all():
-        inv = Inventory.objects.select_for_update().filter(
+        # available_qty nets out anything past its expiry_date — stock that
+        # expired after the order was placed but before it was fulfilled must
+        # not be handed to the customer just because the order predates it.
+        inv = Inventory.objects.select_for_update().sellable().filter(
             product=item.product, branch=txn.branch
         ).first()
-        available = inv.quantity_on_hand if inv else 0
+        available = inv.available_qty if inv else 0
         if available < item.quantity_sold:
             raise _OrderActionError(
                 f'Not enough stock for {item.product.product_name} — '
@@ -292,11 +328,12 @@ def _deduct_stock(txn, user):
         before = inv.quantity_on_hand
         inv.quantity_on_hand -= item.quantity_sold
         inv.save()
-        # FEFO: drain whatever batches exist for this product/branch,
-        # nearest-expiry first. The aggregate Inventory row above remains
-        # the source of truth for quantity_on_hand regardless of whether
-        # batches happen to cover it.
-        Batch.consume_fefo(item.product, txn.branch, item.quantity_sold)
+        # FEFO: drain the nearest-expiry floor batches for this product/
+        # branch. Batches now fully back quantity_on_hand (see Batch's own
+        # docstring), so this should always find enough to consume — the
+        # available_qty check above already confirmed non-expired batches
+        # cover this sale.
+        Batch.consume_fefo(item.product, txn.branch, Batch.Location.FLOOR, item.quantity_sold)
         StockMovement.objects.create(
             inventory=inv,
             location_type=StockMovement.LocationType.FLOOR,
@@ -356,9 +393,7 @@ def transaction_add(request):
     user_branch = _pos_user_branch(request)
 
     if request.method != 'POST':
-        # Walk-in Sale is a modal on the Order Console now. A direct hit
-        # (bookmark, back button) lands there with the modal open.
-        return redirect(f"{reverse('transaction_list')}?add=1")
+        return render(request, 'sales/transaction_form.html', _pos_context(request))
 
     branch_id = user_branch.id if user_branch else request.POST.get('branch')
     mode_of_payment = request.POST.get('mode_of_payment') or 'Cash'
@@ -367,6 +402,17 @@ def transaction_add(request):
         order_type = SalesTransaction.OrderType.RETAIL
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity')
+
+    # --- cash tendered -------------------------------------------------------
+    # Only meaningful for a Cash sale — GCash/Card never had cash handed over,
+    # so the field is parsed but required (below) only when Cash is chosen.
+    amount_tendered_raw = (request.POST.get('amount_tendered') or '').strip()
+    amount_tendered = None
+    if mode_of_payment == SalesTransaction.ModeOfPayment.CASH and amount_tendered_raw:
+        try:
+            amount_tendered = Decimal(amount_tendered_raw)
+        except InvalidOperation:
+            amount_tendered = None
 
     line_items = [
         (pid, int(q)) for pid, q in zip(product_ids, quantities)
@@ -398,6 +444,11 @@ def transaction_add(request):
         )
     if discount_claimed and not discount_holder_name:
         errors.append(f'Enter the name on the {discount_type} ID.')
+    if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
+        if not amount_tendered_raw:
+            errors.append('Enter the amount tendered for this cash sale.')
+        elif amount_tendered is None:
+            errors.append('Amount tendered must be a number.')
 
     if not errors:
         # Prices resolved and the total computed up front — same order as the
@@ -417,65 +468,87 @@ def transaction_add(request):
         priced = price_cart(cart_lines, discount_type=discount_type)
         total = priced['total_amount']
 
-        try:
-            with transaction.atomic():
-                txn = SalesTransaction.objects.create(
-                    branch_id=branch_id,
-                    staff=request.user if request.user.role == STAFF else None,
-                    transaction_type=SalesTransaction.TransactionType.PHYSICAL,
-                    mode_of_payment=mode_of_payment,
-                    order_type=order_type,
-                    order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
-                    total_amount=total,
-                    discount_type=discount_type,
-                    discount_id_number=discount_id_number,
-                    discount_holder_name=discount_holder_name,
-                    total_discount_amount=priced['total_discount_amount'],
-                    total_vat_amount=priced['total_vat_amount'],
+        # Now that the total is known: a Cash sale can't tender less than
+        # what's due. Checked here rather than up front — total isn't known
+        # until the cart is priced.
+        change_amount = None
+        if mode_of_payment == SalesTransaction.ModeOfPayment.CASH and amount_tendered is not None:
+            if amount_tendered < total:
+                errors.append(
+                    f'Amount tendered (₱{amount_tendered}) is less than the amount due (₱{total}).'
                 )
+            else:
+                change_amount = amount_tendered - total
 
-                for line in priced['lines']:
-                    SalesItem.objects.create(
-                        transaction=txn, product=line['product'],
-                        quantity_sold=line['quantity'],
-                        # The already-discounted unit price — SalesItem.save
-                        # multiplies it out, so the discount must be in the
-                        # price, not applied again on top of the subtotal.
-                        unit_price=line['unit_price'],
-                        is_vat_exempt_line=line['is_vat_exempt_line'],
-                        vat_amount=line['vat_amount'],
-                        discount_amount=line['discount_amount'],
+        if not errors:
+            try:
+                with transaction.atomic():
+                    txn = SalesTransaction.objects.create(
+                        branch_id=branch_id,
+                        staff=request.user if request.user.role == STAFF else None,
+                        transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+                        mode_of_payment=mode_of_payment,
+                        order_type=order_type,
+                        order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
+                        total_amount=total,
+                        discount_type=discount_type,
+                        discount_id_number=discount_id_number,
+                        discount_holder_name=discount_holder_name,
+                        total_discount_amount=priced['total_discount_amount'],
+                        total_vat_amount=priced['total_vat_amount'],
+                        amount_tendered=amount_tendered,
+                        change_amount=change_amount,
                     )
 
-                # Walk-in sales leave the shelf immediately. Raises
-                # _OrderActionError (rolling back this whole atomic block,
-                # including the transaction/items just created above) if any
-                # line item is oversold.
-                _deduct_stock(txn, request.user)
+                    for line in priced['lines']:
+                        SalesItem.objects.create(
+                            transaction=txn, product=line['product'],
+                            quantity_sold=line['quantity'],
+                            # The already-discounted unit price — SalesItem.save
+                            # multiplies it out, so the discount must be in the
+                            # price, not applied again on top of the subtotal.
+                            unit_price=line['unit_price'],
+                            is_vat_exempt_line=line['is_vat_exempt_line'],
+                            vat_amount=line['vat_amount'],
+                            discount_amount=line['discount_amount'],
+                        )
 
-                # billing.signals already created the record; mark it paid.
-                billing = getattr(txn, 'billing_record', None)
-                if billing:
-                    billing.amount_due = total
-                    billing.payment_method = (
-                        mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
-                    )
-                    billing.status = 'Paid'
-                    billing.confirmed_by = request.user
-                    billing.save()
-        except _OrderActionError as e:
-            errors.append(str(e))
-        else:
-            messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
-            return redirect('transaction_detail', pk=txn.pk)
+                    # Walk-in sales leave the shelf immediately. Raises
+                    # _OrderActionError (rolling back this whole atomic block,
+                    # including the transaction/items just created above) if any
+                    # line item is oversold.
+                    _deduct_stock(txn, request.user)
 
-    # Rejected. Re-render the console with the modal open, the header
-    # selections re-chosen, and the item rows rebuilt from what was posted —
-    # every pid/qty pair, including the ones that failed the digit check, so
-    # a mistyped quantity comes back visible instead of vanishing.
-    context = _transaction_list_context(request)
+                    # billing.signals already created the record (Pending, no
+                    # confirmer). A cash walk-in is settled the moment it's
+                    # rung — the money crossed the counter — so it's marked
+                    # Paid here with the ringing user as confirmer, exactly as
+                    # before. Every other method (GCash, Card) has to clear as
+                    # a separate step through billing_confirm, checked by
+                    # someone who didn't record the sale (A-1 maker/checker
+                    # separation), so the record is left Pending for that.
+                    billing = getattr(txn, 'billing_record', None)
+                    if billing:
+                        billing.amount_due = total
+                        billing.payment_method = (
+                            mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
+                        )
+                        if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
+                            billing.status = 'Paid'
+                            billing.confirmed_by = request.user
+                        billing.save()
+            except _OrderActionError as e:
+                errors.append(str(e))
+            else:
+                messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
+                return redirect('transaction_detail', pk=txn.pk)
+
+    # Rejected. Re-render the form with the header selections re-chosen and
+    # the item rows rebuilt from what was posted — every pid/qty pair,
+    # including the ones that failed the digit check, so a mistyped quantity
+    # comes back visible instead of vanishing.
+    context = _pos_context(request)
     context.update({
-        'show_pos_modal': True,
         'pos_errors': errors,
         'pos_form_data': request.POST,
         'pos_restore_rows': [
@@ -483,4 +556,4 @@ def transaction_add(request):
             for pid, qty in zip(product_ids, quantities) if pid
         ],
     })
-    return render(request, 'sales/transaction_list.html', context)
+    return render(request, 'sales/transaction_form.html', context)

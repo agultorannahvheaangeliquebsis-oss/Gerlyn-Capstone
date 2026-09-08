@@ -12,16 +12,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   {% comment %}
-  A weight RANGE, not four cuts. body.shop puts Inter on the whole
-  storefront, which means every gerlyn.css component renders in it too —
-  and that file asks for 650 seven times (h1, h2, .gv-page-title and .btn
-  among them), 500 twice and 750 once. None of those were in the
-  400;600;700;800 list, so the browser was synthesising them, most visibly
-  on .btn, which appears on every page of the shop. Inter is a variable
-  font on Google Fonts, so 400..800 covers all of them in one file rather
-  than costing a request per cut.
+  Roboto replaces Inter across the whole site (storefront and internal shell
+  both), so this link and the one in internal_base.html must stay in step.
+  Four cuts, not a range: Roboto's variable file is a two-axis (wdth, wght)
+  font and pulling the full range costs more than the four weights actually
+  used. gerlyn.css asks for 650 seven times and 750 once — CSS weight
+  matching rounds both up to 700, which is the intended heading bold, so
+  nothing is synthesised.
   {% endcomment %}
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
   {% comment %}
   The APP_VERSION query string rather than a number typed here: gerlyn.css is
   linked from four templates and account.css from ten, and the hand-typed
@@ -35,160 +34,293 @@
 </head>
 {% comment %}
 body_class defaults to the plain shop shell, so every page that does not
-override it renders exactly as before. Sign In adds shop-auth to trade the
-storefront header and footer for a full-bleed backdrop — see the AUTH SCREEN
-section in storefront.css, which is scoped entirely under that class.
+override it renders exactly as before. Log In adds shop-auth to trade the
+storefront header for a bar of its own above a full-bleed brand band — see
+the AUTH SCREEN section in storefront.css, which is scoped entirely under
+that class. The footer below it is this file's, unchanged.
 {% endcomment %}
 <body class="{% block body_class %}shop{% endblock %}">
 
 <!-- announcement -->
+{% comment %}
+Utility strip, the reference's top band: store facts on the left, the two
+things a shopper leaves the shop to do on the right, with the help link
+weighted so it reads as the one to reach for.
+
+The reference fills the left half with opening hours and a Viber number.
+Neither is data in this system — Branch carries a name and a location and
+nothing else — and a phone number typed into a template sends a real
+shopper to a real stranger, so the left half carries the delivery terms and
+the branch list instead. Same shape, only facts the store has actually
+stated.
+{% endcomment %}
 <div class="shop-announce">
   <div class="shop-wrap row-between">
-    <span>{% t "Free delivery within Baliuag on orders over ₱500" %}</span>
-    {% comment %}
-    The auth links this strip used to hold are still commented out below and
-    stay that way — the header's account menu already carries them, and the
-    reference puts store utilities up here, not a second sign-in. Branches
-    and the app install are the two utilities this store actually has.
-    {% endcomment %}
-    <span class="shop-announce-links">
+    <span class="shop-announce-info">
+      <span>{% t "Free delivery within Baliuag on orders over ₱500" %}</span>
+      <span class="shop-announce-sep" aria-hidden="true"></span>
       <a href="{% url 'orders:select_branch' %}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
         {% t "Our Branches" %}
       </a>
-      <span class="shop-announce-sep" aria-hidden="true"></span>
-      <a href="{% url 'download' %}">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        {% t "Get the App" %}
-      </a>
-{% comment "" %}
-      {% if request.user.is_authenticated %}
-        <a href="{% url 'orders:my_orders' %}">Track Order</a>
-      {% else %}
-        {# no account = no orders to track, so send them to log in #}
-        <a href="{% url 'accounts:login' %}?next={% url 'orders:my_orders' %}">Track Order</a>
-        <a href="{% url 'accounts:login' %}">Log in</a>
-        <a href="{% url 'accounts:register' %}"><strong>Register</strong></a>
-      {% endif %}
+    </span>
+    {% comment %}
+    No "Get the App" here any more. Gerlyn is a website — there is no build
+    in any store, and the strip was offering an install of something that
+    does not exist as a product. The download page and its route are still
+    there; nothing in the storefront points at them.
+    {% endcomment %}
+    <span class="shop-announce-links">
+      {% comment %}
+      The Help Center is @login_required, so an anonymous shopper clicking a
+      link labelled "Need help?" would land on a sign-in form — a login wall
+      is the opposite of help. This points at the branch list on the public
+      About page instead: no phone or email exists as data in this system, so
+      the addresses are the contact route the store actually has.
       {% endcomment %}
+      <a href="{% url 'about' %}#branches"><strong>{% t "Need help?" %}</strong></a>
     </span>
   </div>
 </div>
 
 <!-- header -->
+{% comment %}
+Three bands, the reference's shape:
+
+  1 .shop-announce  — utility strip (above)
+  2 .shop-nav       — brand · search + category chips · account · cart
+  3 .shop-navbar    — white page nav, with a status line at its right edge
+
+The page links used to sit in band 2, squeezed between the brand and the
+search field, which left the search — the primary control of a shop — with
+whatever width was left over. Moving them to their own white row gives the
+search the full middle of the coloured band and gives the links a surface
+where an active underline can be drawn in the brand green rather than in
+white-on-white.
+{% endcomment %}
 <header class="shop-header">
   <div class="shop-wrap shop-nav">
     <a class="shop-brand" href="/">
-      <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="Gerlyn Variety Store"></span>
+      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="Gerlyn Variety Store"></span>
       {% comment %}
-      "Variety Store" used to carry an inline color:var(--action). The header
-      band is now that exact green, so the second half of the store's own name
-      was painting itself invisible — and an inline style cannot be overridden
-      from the stylesheet, so it has to come off here.
-      {% endcomment %}
-      <span class="shop-brand-name"><strong>Gerlyn</strong> <strong>Variety Store</strong></span>
-    </a>
+      Two lines, the way the reference stacks a wordmark over its trading
+      name. The second line is the store's own description from the footer
+      blurb, shortened — not a new claim.
 
-    <nav class="shop-links">
-      <a href="/" class="{% if request.path == '/' %}active{% endif %}">{% t "Home" %}</a>
-      <a href="{% url 'orders:catalog' %}" class="{% if request.path == '/shop/' %}active{% endif %}">{% t "Products" %}</a>
-      {% comment "" %}
-      {% if request.user.is_authenticated and request.user.role == 'CUSTOMER' %}
-        <a href="{% url 'orders:my_orders' %}" class="{% if '/shop/orders' in request.path %}active{% endif %}">My Orders</a>
-      {% endif %}
+      "Variety Store" used to carry an inline color:var(--action). The header
+      band is that exact green, so the second half of the store's own name was
+      painting itself invisible — and an inline style cannot be overridden
+      from the stylesheet, so it stays off.
       {% endcomment %}
-    </nav>
+      <span class="shop-brand-text">
+        <span class="shop-brand-name"><strong>Gerlyn</strong> <strong>Variety Store</strong></span>
+        <span class="shop-brand-tag">{% t "Groceries · Household · Bulk supplies" %}</span>
+      </span>
+    </a>
 
     {% comment %}
     The search field no longer hides itself on /shop/. It is the centrepiece
-    of the coloured band now, and blanking it left a hole across half the
-    header on the one page where people search most. The catalog keeps its
-    own live-filtering toolbar underneath — that one filters the grid in
-    place, this one starts a fresh search — so the two are not duplicates.
+    of the coloured band, and blanking it left a hole across half the header
+    on the one page where people search most. The catalog keeps its own
+    live-filtering toolbar underneath — that one filters the grid in place,
+    this one starts a fresh search — so the two are not duplicates.
+
+    The category chips are inside this column rather than spanning the whole
+    header, so they line up under the field they refine, as in the reference.
     {% endcomment %}
-    <form class="shop-search" method="GET" action="{% url 'orders:catalog' %}" role="search" autocomplete="off">
-      <div class="search-box">
-        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input
-          type="search" name="q" id="live-search-input"
-          placeholder="{% t 'Search products, brands…' %}"
-          value="{{ search_query|default:'' }}"
-          data-suggest-url="{% url 'orders:search_suggestions' %}"
-          role="combobox" aria-expanded="false" aria-controls="live-search-results" aria-autocomplete="list"
-          aria-label="{% t 'Search products' %}"
-        >
-        <div class="search-dropdown" id="live-search-results" role="listbox" hidden></div>
-        <button class="btn btn-primary search-submit" type="submit">{% t "Search" %}</button>
-      </div>
+    {% comment %}
+    data-catalog-live is what catalog-live.js binds to. It used to sit on a
+    second search field inside the catalog's filter rail — two search boxes
+    on one page, one of which only worked there. That one is gone, so the
+    binding moves here: on /shop/ this field now filters the grid as you
+    type, and everywhere else catalog-live.js finds no #pgrid to update and
+    exits, leaving this a plain GET form.
+    {% endcomment %}
+    <form class="shop-search" method="GET" action="{% url 'orders:catalog' %}" role="search"
+          autocomplete="off" data-catalog-live>
+        {% comment %}
+        The magnifier used to sit at the left of the field as decoration, with
+        a green "Search" wordmark button on the right. It is now the button
+        itself: one magnifier, on the control that actually submits. The button
+        keeps an aria-label because an icon-only control has no accessible name
+        otherwise — a screen reader would announce it as just "button".
+        {% endcomment %}
+        <div class="search-box">
+          <input
+            type="search" name="q" id="live-search-input"
+            placeholder="{% t 'Search products, brands…' %}"
+            value="{{ search_query|default:'' }}"
+            data-suggest-url="{% url 'orders:search_suggestions' %}"
+            role="combobox" aria-expanded="false" aria-controls="live-search-results" aria-autocomplete="list"
+            aria-label="{% t 'Search products' %}"
+          >
+          <div class="search-dropdown" id="live-search-results" role="listbox" hidden></div>
+          <button class="btn btn-primary search-submit" type="submit" aria-label="{% t 'Search' %}" title="{% t 'Search' %}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
+        </div>
     </form>
 
-    <div class="row shop-header-actions" style="gap:10px; margin-left:auto;">
-      {% comment %}
-      aria-label rather than the visible text alone: the label span is
-      display:none under 760px, and the SVG beside it is decorative, which
-      would leave the link with no accessible name at all on a phone.
-      {% endcomment %}
-      <a class="cart-btn btn btn-primary" href="{% url 'orders:cart' %}"
-         aria-label="{% t 'Cart' %}{% if cart_count %} ({{ cart_count }}){% endif %}">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
-        <span class="cart-label">{% t "Cart" %}</span>
-        {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
-      </a>
+    {% comment %}
+    Quick keywords under the search field — a second grid row of its own, in
+    the search column. Wrapping these and the field in one flex column looked
+    equivalent and was not: the column was then taller than the brand and the
+    buttons beside it, and centring it floated the search field a dozen pixels
+    above everything else on the band.
+
+    The reference fills this row with trending search terms; this store has no
+    search-log to rank, so it carries the real category list instead — same
+    shape, and every link lands on a filtered catalog that actually has stock
+    behind it.
+    {% endcomment %}
+    {% comment %}
+    Overridden empty on the catalog page: its own Filters rail already has a
+    Category checklist, so this row of quick links would just be the same
+    list stated a second way, right above it. Everywhere else on the
+    storefront (Home, About) keeps it — it's their only way into a filtered
+    catalog.
+    {% endcomment %}
+    {% block shop_quick_categories %}
+    {% if nav_categories %}
+    <nav class="shop-quick" aria-label="{% t 'Shop by category' %}">
+      {% for c in nav_categories %}
+        <a href="{% url 'orders:catalog' %}?category={{ c.id }}">{{ c.category_name }}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+    {% endblock %}
+
+    {% comment %}
+    Three bare icons on the green band, no white pills behind them. The
+    account control used to be a bordered trigger opening a dropdown of three
+    links; two of those (My Orders, Settings) now live one click away — the
+    name goes straight to My Orders, and Settings is the rail down the left of
+    that page — and Logout moved into that same rail. A menu whose contents
+    are all reachable without it is a click that buys nothing.
+    {% endcomment %}
+    <div class="shop-header-actions">
       {% if request.user.is_authenticated %}
-        <div class="user-menu" id="user-menu">
-          <button class="user-menu-trigger" onclick="toggleUserMenu(event)" aria-expanded="false" aria-haspopup="true">
-            <span class="user-avatar">
-              {{ request.user.get_full_name|first|upper|default:request.user.username|first|upper }}
-            </span>
-            <span class="user-menu-name">{{ request.user.first_name|default:request.user.username }}</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="user-menu-caret"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="user-menu-panel" id="user-menu-panel">
-            <div class="user-menu-header">
-              <span class="user-menu-fullname">{{ request.user.get_full_name|default:request.user.username }}</span>
-              <span class="user-menu-email">{{ request.user.email }}</span>
-            </div>
-            <div class="user-menu-divider"></div>
-              <a href="{% url 'orders:my_orders' %}" class="user-menu-item">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-              {% t "My Orders" %}
-            </a>
-              <a href="{% url 'accounts:profile' %}" class="user-menu-item">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              {% t "Settings" %}
-            </a>
-            <a href="{% url 'download' %}" class="user-menu-item">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              {% t "Download App" %}
-            </a>
-            <div class="user-menu-divider"></div>
-            <a href="{% url 'accounts:logout' %}" class="user-menu-item user-menu-item--danger">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              {% t "Sign out" %}
-            </a>
-          </div>
-        </div>
+        {% comment %}
+        The count is IN the accessible name rather than only in the badge:
+        the badge is a decorative span to a screen reader unless the number
+        is spoken, and "Notifications" alone tells a non-sighted shopper
+        nothing about whether there is anything to read.
+        {% endcomment %}
+        <a class="shop-icon-btn" href="{% url 'accounts:notifications' %}"
+           aria-label="{% t 'Notifications' %}{% if notification_count %} ({{ notification_count }} {% t 'unread' %}){% endif %}"
+           title="{% t 'Notifications' %}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          {% if notification_count %}<span class="shop-icon-badge">{{ notification_count }}</span>{% endif %}
+        </a>
+      {% endif %}
+
+      {% comment %}
+      The cart sits in the middle of the cluster — bell, cart, account — and
+      so it is written between them rather than after both. It is outside the
+      is_authenticated branch on purpose: a guest builds a cart before signing
+      in, so the icon has to survive the branch that the bell and the account
+      name do not.
+
+      aria-label rather than the visible text alone: the label span is gone
+      from the button entirely now — the cart is an icon with a count on it —
+      and the SVG beside it is decorative, which would otherwise leave the
+      link with no accessible name at all.
+      {% endcomment %}
+      <a class="shop-icon-btn cart-btn" href="{% url 'orders:cart' %}"
+         aria-label="{% t 'Cart' %}{% if cart_count %} ({{ cart_count }}){% endif %}"
+         title="{% t 'Cart' %}">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+        {% if cart_count %}<span class="shop-icon-badge">{{ cart_count }}</span>{% endif %}
+      </a>
+
+      {% if request.user.is_authenticated %}
+        <a class="shop-icon-btn shop-account-btn" href="{% url 'orders:my_orders' %}"
+           title="{% t 'My Orders' %}">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          <span class="shop-account-name">{{ request.user.first_name|default:request.user.username }}</span>
+        </a>
       {% else %}
-        <a class="btn" href="{% url 'accounts:login' %}">{% t "Log in" %}</a>
+        {% comment %}
+        Log In holds the account slot at the end of the cluster, the same
+        place the signed-in name occupies, so the corner does not reshuffle
+        when a shopper logs in.
+
+        Outlined, not filled: the reference keeps its sign-in as the quieter
+        of the two controls in this corner, because the cart is the one a
+        shopper mid-purchase is reaching for.
+        {% endcomment %}
+        <a class="btn shop-signin" href="{% url 'accounts:login' %}">{% t "Log In" %}</a>
       {% endif %}
     </div>
   </div>
 
   {% comment %}
-  Quick keywords under the search field. The reference fills this row with
-  trending search terms; this store has no search-log to rank, so it carries
-  the real category list instead — same shape, and every link lands on a
-  filtered catalog that actually has stock behind it.
+  The white page-nav row. "Shop" is a menu rather than a plain link because
+  the reference's is — and because the categories behind it are the same
+  eight the chips above already list, so the menu costs no extra query.
+
+  The status line at the right edge holds a standing delivery promise in the
+  reference ("orders processed within 24 hours"). No such commitment is
+  recorded anywhere in this system, and one typed here would be the store
+  promising something it never agreed to, so the slot carries the fact the
+  session actually knows: which branch this shopper is buying from. Stock and
+  prices are per-branch, so that is also the more useful of the two.
   {% endcomment %}
-  {% if nav_categories %}
-  <nav class="shop-quick" aria-label="{% t 'Shop by category' %}">
-    {% for c in nav_categories %}
-      <a href="{% url 'orders:catalog' %}?category={{ c.id }}">{{ c.category_name }}</a>
-    {% endfor %}
-  </nav>
-  {% endif %}
+  <div class="shop-navbar">
+    <div class="shop-wrap shop-navbar-inner">
+      <nav class="shop-links" aria-label="{% t 'Main' %}">
+        <a href="/" class="{% if request.path == '/' %}active{% endif %}">{% t "Home" %}</a>
+
+        {% comment %}
+        A dropdown only when there are categories to drop down. With none,
+        the panel held a single "All products" item — a menu whose entire
+        content was the thing clicking the menu should have done — so Shop
+        becomes the plain link it is behaving as.
+        {% endcomment %}
+        {% if nav_categories %}
+        <div class="shop-menu" id="shop-menu">
+          <button type="button" class="shop-menu-trigger {% if request.path == '/shop/' %}active{% endif %}"
+                  aria-expanded="false" aria-haspopup="true" aria-controls="shop-menu-panel">
+            {% t "Shop" %}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shop-menu-caret" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="shop-menu-panel" id="shop-menu-panel">
+            <a href="{% url 'orders:catalog' %}" class="shop-menu-item"><strong>{% t "All products" %}</strong></a>
+            {% for c in nav_categories %}
+              <a href="{% url 'orders:catalog' %}?category={{ c.id }}" class="shop-menu-item">{{ c.category_name }}</a>
+            {% endfor %}
+          </div>
+        </div>
+        {% else %}
+        <a href="{% url 'orders:catalog' %}" class="{% if request.path == '/shop/' %}active{% endif %}">{% t "Shop" %}</a>
+        {% endif %}
+
+        <a href="{% url 'about' %}" class="{% if request.path == '/about/' %}active{% endif %}">{% t "About Us" %}</a>
+      </nav>
+
+      {% comment %}
+      Overridden empty on the catalog page: its own Filters rail already has
+      a Branch checklist (ticking one becomes your shopping branch — see
+      orders.customer_views.product_catalog), so this status line would just
+      be the same fact stated a second way. Everywhere else on the storefront
+      (product detail, cart, checkout) has no other branch control, so it
+      keeps this as the one way to see and change it there.
+      {% endcomment %}
+      {% block shop_status %}
+      <span class="shop-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        {% if nav_selected_branch %}
+          {% t "Shopping at" %} <strong>{{ nav_selected_branch.branch_name }}</strong>
+          <a href="{% url 'orders:select_branch' %}">{% t "Change" %}</a>
+        {% else %}
+          <a href="{% url 'orders:select_branch' %}">{% t "Choose a branch to see stock and prices" %}</a>
+        {% endif %}
+      </span>
+      {% endblock %}
+    </div>
+  </div>
 </header>
 
 <!-- toasts: Django messages plus any raised live by toast.js (e.g. Add to Cart) -->
@@ -212,85 +344,124 @@ section in storefront.css, which is scoped entirely under that class.
   {% block content %}{% endblock %}
 </main>
 
+{% comment %}
+Four-column footer. Every entry is either a route that exists or a row out of
+the database — the branch column reads Branch objects (nav_branches) rather
+than the three hardcoded names it used to print, which would have gone stale
+the day a fourth branch opened.
+
+The reference this is modelled on carries a phone number, a Viber number and
+an email in its last column. None of those exist as data in this system, and
+inventing a contact number is worse than omitting one: it sends a real
+shopper to a real stranger. The branch addresses are the contact route the
+store actually has, so that is what the column carries.
+{% endcomment %}
+{% comment %}
+Wrapped in a block so a page can drop it entirely. Sign-in does — see
+accounts/login.html: a four-column sitemap under a single sign-in card is
+more page than the screen has, and every link on it is a way to leave the
+one task the page exists for.
+{% endcomment %}
+{% block footer %}
 <footer class="shop-footer">
-  <div class="shop-wrap">
-    <p class="mb-2">{% t "© 2026 Gerlyn Variety Store · Baliuag, Bulacan · All rights reserved." %}</p>
-    <p class="gv-meta mb-0">Tarcan · Makinabang · Tiaong Baliwag Mini Mart</p>
+  <div class="shop-wrap footer-grid">
+
+    <div class="footer-brand">
+      <a class="footer-mark" href="/">
+        <img src="{% static 'img/logo.png' %}" alt="">
+        <span><strong>Gerlyn</strong> Variety Store</span>
+      </a>
+      <p class="footer-blurb">
+        {% t "Groceries, household goods and bulk supplies for Baliuag, Bulacan — order online, collect at a branch or have it delivered." %}
+      </p>
+    </div>
+
+    <nav class="footer-col" aria-labelledby="foot-links">
+      <h2 class="footer-title" id="foot-links">{% t "Quick Links" %}</h2>
+      <ul>
+        <li><a href="/">{% t "Home" %}</a></li>
+        <li><a href="{% url 'orders:catalog' %}">{% t "Shop all products" %}</a></li>
+        <li><a href="{% url 'orders:cart' %}">{% t "Cart" %}</a></li>
+        <li><a href="{% url 'about' %}">{% t "About Us" %}</a></li>
+        {% comment %}
+        Only for signed-in shoppers. help_center_view is @login_required, so
+        for everyone else this column was offering a link whose entire
+        behaviour was to bounce them to a sign-in form. The branch addresses
+        in the Visit Us column are the route the rest of them have.
+        {% endcomment %}
+        {% if request.user.is_authenticated %}
+        <li><a href="{% url 'accounts:help_center' %}">{% t "Help Center" %}</a></li>
+        {% endif %}
+      </ul>
+    </nav>
+
+    {% if nav_categories %}
+    <nav class="footer-col" aria-labelledby="foot-cats">
+      <h2 class="footer-title" id="foot-cats">{% t "Categories" %}</h2>
+      <ul>
+        {% for c in nav_categories %}
+        <li><a href="{% url 'orders:catalog' %}?category={{ c.id }}">{{ c.category_name }}</a></li>
+        {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+
+    <div class="footer-col" aria-labelledby="foot-visit">
+      <h2 class="footer-title" id="foot-visit">{% t "Visit Us" %}</h2>
+      <ul class="footer-branches">
+        {% for b in nav_branches %}
+        <li>
+          <span class="footer-branch-nm">{{ b.branch_name }}</span>
+          {% if b.location %}<span class="footer-branch-loc">{{ b.location }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="footer-note">{% t "Free delivery within Baliuag on orders over ₱500." %}</p>
+    </div>
+  </div>
+
+  <div class="shop-wrap footer-legal">
+    <p>{% t "© 2026 Gerlyn Variety Store · Baliuag, Bulacan · All rights reserved." %}</p>
   </div>
 </footer>
-
-<style>
-/* The trigger sits on the green header band now, so its border, text and
-   avatar all invert. The dropdown panel below it stays on white and keeps
-   the original ink colours. */
-.user-menu { position: relative; }
-.user-menu-trigger {
-  display: flex; align-items: center; gap: 8px;
-  background: none; border: 1.5px solid rgba(255,255,255,.55);
-  border-radius: var(--r-pill); padding: 4px 10px 4px 4px;
-  cursor: pointer; font: 600 14px/1 'Inter', system-ui, sans-serif;
-  color: #fff; min-height: 44px;
-  transition: background .12s ease, border-color .12s ease;
-}
-.user-menu-trigger:hover { background: rgba(255,255,255,.14); border-color: #fff; }
-.user-avatar {
-  width: 30px; height: 30px; border-radius: 50%;
-  background: #fff; color: var(--action-700);
-  display: flex; align-items: center; justify-content: center;
-  font: 700 13px/1 'Inter', system-ui, sans-serif; flex: none;
-}
-.user-menu-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-menu-caret { color: rgba(255,255,255,.85); transition: transform .18s ease; flex: none; }
-.user-menu-trigger[aria-expanded="true"] .user-menu-caret { transform: rotate(180deg); }
-.user-menu-panel {
-  display: none; position: absolute; top: calc(100% + 8px); right: 0;
-  min-width: 220px; background: var(--surface);
-  border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: 0 8px 24px rgba(23,37,30,.12); z-index: 100;
-  padding: 6px; animation: menuIn .15s ease;
-}
-.user-menu-panel.is-open { display: flex; flex-direction: column; }
-@keyframes menuIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.user-menu-header { display: flex; flex-direction: column; padding: 8px 12px 10px; gap: 3px; }
-.user-menu-fullname { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-900); }
-.user-menu-email { font: 400 12.5px/1.2 system-ui, sans-serif; color: var(--ink-400); }
-.user-menu-divider { height: 1px; background: var(--line-soft); margin: 4px 0; }
-.user-menu-item {
-  display: flex; align-items: center; gap: 10px;
-  min-height: 40px; padding: 0 12px;
-  border-radius: var(--r-input); color: var(--ink-700);
-  text-decoration: none; font: 600 14px/1 system-ui, sans-serif;
-  transition: background .1s ease;
-}
-.user-menu-item:hover { background: var(--line-soft); color: var(--ink-900); }
-.user-menu-item--danger { color: var(--danger-fg); }
-.user-menu-item--danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
-</style>
+{% endblock %}
 
 <script>
-function toggleUserMenu(e) {
-  e.stopPropagation();
-  const trigger = document.getElementById('user-menu').querySelector('.user-menu-trigger');
-  const panel   = document.getElementById('user-menu-panel');
-  const isOpen  = panel.classList.toggle('is-open');
-  trigger.setAttribute('aria-expanded', isOpen);
-}
-document.addEventListener('click', function(e) {
-  const menu = document.getElementById('user-menu');
-  if (menu && !menu.contains(e.target)) {
-    document.getElementById('user-menu-panel').classList.remove('is-open');
-    menu.querySelector('.user-menu-trigger').setAttribute('aria-expanded', 'false');
+/* Shop menu in the white nav row. Click to open (not hover): a hover menu is
+   unreachable on a touch screen, and this row is the storefront's only path
+   to a category on a phone. Escape closes and returns focus to the trigger,
+   which is what keeps it operable from the keyboard alone. */
+(function () {
+  var menu = document.getElementById('shop-menu');
+  if (!menu) return;
+  var trigger = menu.querySelector('.shop-menu-trigger');
+  var panel   = document.getElementById('shop-menu-panel');
+
+  function setOpen(open) {
+    panel.classList.toggle('is-open', open);
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
-});
+  trigger.addEventListener('click', function (e) {
+    e.stopPropagation();
+    setOpen(!panel.classList.contains('is-open'));
+  });
+  document.addEventListener('click', function (e) {
+    if (!menu.contains(e.target)) setOpen(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && panel.classList.contains('is-open')) {
+      setOpen(false);
+      trigger.focus();
+    }
+  });
+})();
 </script>
 
 <script src="{% static 'js/live-search.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>
+<script src="{% static 'js/qty-stepper.js' %}?v={{ APP_VERSION }}" defer></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
 </body>

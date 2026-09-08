@@ -24,20 +24,20 @@
       {% for t in transactions %}
       <tr>
         <td data-label="Order ID" class="sku strong">
-          <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
+          <a href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order">{{ t.order_number }}</a></td>
         <td data-label="Branch">{{ t.branch.branch_name }}</td>
         <td data-label="Recorded by">{% if t.staff %}{{ t.staff.username }}{% else %}—{% endif %}</td>
         <td data-label="Customer">
           {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}{% else %}Walk-in{% endif %}</td>
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
         <td data-label="Channel">
-          {% if t.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
-          {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td>
+          {% if t.transaction_type == "Online" %}<span class="tag">Online</span>
+          {% else %}<span class="tag">In-Store</span>{% endif %}</td>
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">
-        <span class="glyph">□</span><h3>No sales recorded</h3>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span><h3>No sales recorded</h3>
         <p>Sales appear here once orders are completed.</p></div></td></tr>
       {% endfor %}
     </tbody>

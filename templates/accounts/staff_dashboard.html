@@ -13,7 +13,7 @@
 {% if not branch %}
 <div class="card card-pad">
   <div class="empty">
-    <span class="glyph">!</span>
+    <span class="glyph">{% include "partials/_empty_icon.html" with icon="alert" %}</span>
     <h3>No branch assigned</h3>
     <p>Ask your manager or the Owner to assign your account to a branch.</p>
   </div>
@@ -28,7 +28,7 @@
         <div style="font-weight:600; font-size:16px;">Check Inventory</div>
         <p class="gv-meta mb-0" style="margin-top:4px;">View current stock at {{ branch.branch_name }}</p>
       </div>
-      <span class="pill pill-info">{{ total_products }} item{{ total_products|pluralize }}</span>
+      <span class="count count-info" aria-label="{{ total_products }} item{{ total_products|pluralize }}">{{ total_products }}</span>
     </div>
   </a>
   <a class="card card-pad" href="{% url 'delivery_list' %}" style="display:block; text-decoration:none; color:inherit;">
@@ -38,9 +38,9 @@
         <p class="gv-meta mb-0" style="margin-top:4px;">Record deliveries against a purchase order</p>
       </div>
       {% if pending_deliveries_count %}
-        <span class="pill pill-warn">{{ pending_deliveries_count }} waiting</span>
+        <span class="count count-warn" aria-label="{{ pending_deliveries_count }} waiting">{{ pending_deliveries_count }}</span>
       {% else %}
-        <span class="pill pill-ok">0 waiting</span>
+        <span class="count count-ok" aria-label="none waiting">0</span>
       {% endif %}
     </div>
   </a>
@@ -70,7 +70,7 @@
             {% else %}<span class="gv-meta">No date set</span>{% endif %}
           </td>
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'delivery_receive' p.pk %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Receive</a>
           </td>
         </tr>
         {% endfor %}
@@ -79,8 +79,16 @@
           <td data-label="Task" class="strong">Confirm receipt</td>
           <td data-label="Details">{{ t.slip_number }} from {{ t.source_branch.branch_name }}</td>
           <td data-label="Due / Risk"><span class="pill pill-info">Released</span></td>
+          {% comment %}
+          Opens the slip over the dashboard rather than navigating to it —
+          the same overlay every list's "see" action uses (detail-modal.js).
+          A staff member works down this table one row at a time, and losing
+          the remaining tasks to look at one of them was the cost of every
+          confirmation. Posting the receipt still lands on the slip's own
+          page, because that is where the success message belongs.
+          {% endcomment %}
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'transfer_detail' t.pk %}">Confirm</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'transfer_detail' t.pk %}" data-detail-modal="Stock Withdrawal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirm</a>
           </td>
         </tr>
         {% endfor %}
@@ -95,7 +103,12 @@
             {% else %}<span class="pill pill-neutral">Moderate</span>{% endif %}
           </td>
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'warehouse_stock_request' %}">Request Stock</a>
+            {% comment %}
+            Low stock is restocked FROM the warehouse — transfer_create is
+            the write-off-only flow (see its docstring), so this has to open
+            the Warehouse Stock page's own Request Stock modal instead.
+            {% endcomment %}
+            <a class="btn btn-sm btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Request Stock</a>
           </td>
         </tr>
         {% endfor %}
@@ -104,7 +117,7 @@
   </div>
   {% else %}
   <div class="empty">
-    <span class="glyph">&check;</span>
+    <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
     <h3>All caught up</h3>
     <p>No deliveries, receipts, or low-stock items need your attention right now.</p>
   </div>
@@ -118,7 +131,7 @@
       <h3>{{ branch.branch_name }} — Current Stock</h3>
       <p class="gv-meta mb-0">Lowest stock first &middot; {{ total_products }} product{{ total_products|pluralize }} tracked</p>
     </div>
-    <a class="btn btn-primary" href="{% url 'inventory_list' %}">Check Full Inventory &rarr;</a>
+    <a class="btn btn-primary" href="{% url 'inventory_list' %}">Check Full Inventory <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
   </div>
   <div class="table-wrap">
     <table class="gv-table">
@@ -139,7 +152,7 @@
         </tr>
         {% empty %}
         <tr><td colspan="5"><div class="empty">
-          <span class="glyph">□</span><h3>No stock records yet</h3>
+          <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span><h3>No stock records yet</h3>
           <p>Stock will appear here once inventory is set up for this branch.</p>
         </div></td></tr>
         {% endfor %}

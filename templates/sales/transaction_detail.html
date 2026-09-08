@@ -1,4 +1,4 @@
-{% extends "internal_base.html" %}
+{% extends base_template %}
 {% block title %}{{ transaction.order_number }}{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block branch_scope %}{{ transaction.branch.branch_name }}{% endblock %}
@@ -62,8 +62,8 @@
       <tbody>
         <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ transaction.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Channel</td><td style="text-align:right;">
-          {% if transaction.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
-          {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td></tr>
+          {% if transaction.transaction_type == "Online" %}<span class="tag">Online</span>
+          {% else %}<span class="tag">In-Store</span>{% endif %}</td></tr>
         <tr><td class="gv-meta">Customer</td><td style="text-align:right;">
           {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
           {% else %}Walk-in{% endif %}</td></tr>
@@ -79,7 +79,7 @@
         {% endcomment %}
         {% if transaction.discount_type != 'None' %}
         <tr><td class="gv-meta">Discount</td><td style="text-align:right;">
-          <span class="pill pill-ok">{{ transaction.get_discount_type_display }}</span></td></tr>
+          <span class="tag">{{ transaction.get_discount_type_display }}</span></td></tr>
         <tr><td class="gv-meta">ID presented</td><td style="text-align:right;">
           {{ transaction.discount_id_number|default:"—" }}
           {% if transaction.discount_holder_name %}<div class="gv-meta">{{ transaction.discount_holder_name }}</div>{% endif %}</td></tr>
@@ -92,6 +92,12 @@
         {% endif %}
         <tr><td class="gv-meta">Total</td>
             <td class="num" style="text-align:right;"><span class="gv-metric" style="color:var(--action);">₱{{ transaction.total_amount|floatformat:2 }}</span></td></tr>
+        {% if transaction.amount_tendered is not None %}
+        <tr><td class="gv-meta">Amount tendered</td>
+            <td class="num" style="text-align:right;">₱{{ transaction.amount_tendered|floatformat:2 }}</td></tr>
+        <tr><td class="gv-meta">Change</td>
+            <td class="num" style="text-align:right;">₱{{ transaction.change_amount|floatformat:2 }}</td></tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
@@ -115,7 +121,7 @@
         <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ billing.confirmed_by.username|default:"—" }}</td></tr>
       </tbody>
     </table>
-    <div class="row mt-4">
+    <div class="row mt-4" style="justify-content: flex-end;">
       <a class="btn" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
       {% if billing.status != "Paid" %}
         <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
@@ -123,7 +129,9 @@
     </div>
     {% else %}
       <p class="gv-meta">No billing record.</p>
-      <a class="btn btn-primary mt-2" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+      <div class="row mt-2" style="justify-content: flex-end;">
+        <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+      </div>
     {% endif %}
   </div>
 </div>

@@ -16,6 +16,24 @@ def service_worker_view(request):
     return render(request, 'sw.js', content_type='application/javascript; charset=utf-8')
 
 
+def about_view(request):
+    """The storefront's public About Us page, sitting in the shop nav beside
+    Products.
+
+    Distinct from accounts.views.about_view, which is the same store facts
+    rendered inside the logged-in Settings shell (account sidebar, Settings
+    breadcrumb) and reached from there. This one is the page a shopper who
+    has never signed in lands on, so it carries the storefront chrome and the
+    branch list rather than a settings sidebar.
+
+    Branches come from the database rather than a hardcoded list — the footer
+    used to name three and would have gone stale the moment a fourth opened.
+    """
+    from branches.models import Branch
+
+    return render(request, 'about.html', {'branches': Branch.objects.all()})
+
+
 def download_view(request):
     """One shared page (same URL, same data, same partials — see
     templates/partials/download_*.html) rendered with whichever chrome

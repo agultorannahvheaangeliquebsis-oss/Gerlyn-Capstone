@@ -1,45 +1,227 @@
-{% extends 'base.html' %}
+{% extends "public_base.html" %}
+{% load static %}
+{% load i18n_extra %}
 
-{% block title %}Notifications - Gerlyn Variety Store{% endblock %}
+{% block title %}Notifications — Gerlyn Variety Store{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
+{% endblock %}
+
+{% comment %}
+This page used to extend "base.html", which does not exist anywhere in the
+project — so every visit raised TemplateDoesNotExist. Nothing linked to it,
+which is why that went unnoticed; the bell in the storefront header links to
+it now, so it renders in the same account shell as My Orders and Settings,
+against gerlyn.css rather than the Bootstrap classes it was written for
+(this project has never loaded Bootstrap either).
+{% endcomment %}
 {% block content %}
-<div class="container py-4" style="max-width: 800px;">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="h4 mb-0 font-weight-bold">Notifications</h2>
-        <span class="badge badge-primary pill px-3 py-2">
-            {{ notifications.count }} Total
-        </span>
-    </div>
+<div class="account-wrap">
 
-    {% if notifications %}
-        <div class="list-group shadow-sm rounded-lg overflow-hidden">
-            {% for notification in notifications %}
-                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center p-3 {% if not notification.is_read %}bg-light border-left border-primary{% endif %}" style="{% if not notification.is_read %}border-left-width: 4px !important;{% endif %}">
-                    <div>
-                        <div class="d-flex align-items-center mb-1">
-                            <h6 class="mb-0 font-weight-bold text-dark">{{ notification.title }}</h6>
-                            {% if not notification.is_read %}
-                                <span class="badge badge-pill badge-info ml-2" style="font-size: 0.7rem;">New</span>
-                            {% endif %}
-                        </div>
-                        <p class="mb-1 text-muted small">{{ notification.message }}</p>
-                        <small class="text-secondary">{{ notification.created_at|date:"M d, Y h:i A" }}</small>
-                    </div>
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">{% t "Home" %}</a>
+    <span class="sep">›</span>
+    <span class="current">{% t "Notifications" %}</span>
+  </nav>
 
-                    {% if not notification.is_read %}
-                        <a href="{% url 'accounts:mark_notification_read' notification.pk %}" class="btn btn-sm btn-outline-primary rounded-pill ml-3">
-                            Mark as Read
-                        </a>
-                    {% endif %}
+  {% comment %}
+  Just the title. The pencil that opens the preferences used to sit out here
+  on the right, which put it in the page's own header — a strip that belongs
+  to the whole screen — while everything it governs lives in the Inbox card
+  below. Floating there with nothing beside it, it read as a control for the
+  page, or for the sidebar, or for nothing at all. It is in the Inbox card's
+  header now, on the row with the bell.
+  {% endcomment %}
+  <div class="page-head">
+    <h1 class="gv-page-title">{% t "Notifications" %}</h1>
+  </div>
+
+  <div class="account-grid">
+
+    {% include "accounts/_account_sidebar.html" %}
+
+    <!-- ── Right content ── -->
+    <div class="stack">
+
+      <div class="account-card">
+        <div class="account-card-head">
+          <span class="account-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            {% t "Inbox" %}
+            {% if unread_count %}<span class="count count-info" aria-label="{{ unread_count }} {% t "unread" %}">{{ unread_count }}</span>{% endif %}
+          </span>
+          {% comment %}
+          Both controls for this card in one cluster on the right: the one
+          that empties the list, and the one that governs what arrives in it.
+          {% endcomment %}
+          <div class="account-card-actions">
+            {% if unread_count %}
+            <form method="post" action="{% url 'accounts:mark_all_notifications_read' %}" style="margin:0;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--action);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="m4 12.5 5 5L20 6.5"/></svg>
+                {% t "Mark all as read" %}
+              </button>
+            </form>
+            {% endif %}
+            <button type="button" class="icon-action" id="prefs-toggle"
+                    aria-controls="preferences" aria-expanded="true"
+                    title="{% t 'Notification preferences' %}"
+                    aria-label="{% t 'Notification preferences' %}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {% comment %}
+        The preferences that govern the inbox, inside the card that shows it.
+        This was a settings screen of its own — one rail row below
+        "Notifications" and named a single word apart from it — so the answer
+        to "why am I getting these?" was never on the page showing them.
+
+        A drawer under the header, not a card of its own above it. As a
+        separate card it opened ABOVE the button that opened it, so the whole
+        Inbox card — header, pencil and all — dropped by the height of the
+        panel on the click, and the control moved out from under the pointer
+        that had just pressed it. Opening downward, nothing above it moves.
+
+        Still not below the list: an inbox has no maximum length, so anything
+        under it is buried the moment someone has a screenful of
+        notifications. Folded away up here it costs the list nothing.
+
+        Each switch is its own form posting one field, which is what lets a
+        flip save on change without a Save button; the round trip is what
+        confirms it, and the toast names the switch that moved.
+        {% endcomment %}
+        <div class="prefs-panel" id="preferences">
+          <div class="prefs-panel-head">
+            <span class="prefs-panel-title">{% t "Notification Preferences" %}</span>
+            {# Green, like "Mark all as read" above it — a quiet button with #}
+            {# neither fill nor colour reads as a label, not a control. #}
+            <button type="button" class="btn btn-sm btn-quiet" data-prefs-close
+                    style="color:var(--action);">{% t "Done" %}</button>
+          </div>
+
+          <div class="account-card-body">
+            {% for pref in pref_rows %}
+            <div class="security-item">
+              <div class="security-item-info">
+                <div>
+                  <div class="security-item-label">{% t pref.label %}</div>
+                  <div class="security-item-sub">{% t pref.sub %}</div>
                 </div>
-            {% endfor %}
-        </div>
-    {% else %}
-        <div class="card text-center p-5 shadow-sm rounded-lg border-0">
-            <div class="card-body">
-                <p class="text-muted mb-0">No notifications yet.</p>
+              </div>
+              <form method="post" action="{% url 'accounts:notification_preferences_update' %}" class="pref-toggle-form" style="margin:0;">
+                {% csrf_token %}
+                <input type="hidden" name="field" value="{{ pref.field }}">
+                {% comment %}
+                aria-label, not a bare checkbox: .toggle hides the input and
+                draws .toggle-track in its place, so the switch has no visible
+                text of its own and the label two columns to its left is not
+                associated with it. Without this a screen reader announces
+                four switches called nothing.
+                {% endcomment %}
+                <label class="toggle">
+                  <input type="checkbox" name="value" value="on"
+                         aria-label="{% t pref.label %}"
+                         {% if pref.on %}checked{% endif %}
+                         onchange="this.form.requestSubmit()">
+                  <span class="toggle-track"></span>
+                </label>
+              </form>
             </div>
+            {% endfor %}
+          </div>
         </div>
-    {% endif %}
+
+        {% if notifications %}
+          {% for n in notifications %}
+          <div class="notif-row{% if not n.is_read %} notif-row--unread{% endif %}">
+            <div>
+              <div class="notif-title">
+                <strong>{{ n.title }}</strong>
+                {% if not n.is_read %}<span class="pill pill-info">{% t "New" %}</span>{% endif %}
+              </div>
+              <p class="notif-msg">{{ n.message }}</p>
+              <span class="notif-time">{{ n.created_at|date:"M d, Y · g:i A" }}</span>
+            </div>
+            {% if not n.is_read %}
+            {% comment %}
+            A form, not a link. Marking read writes to the database, and a
+            GET href hands that write to anything that follows links.
+            {% endcomment %}
+            <form method="post" action="{% url 'accounts:mark_notification_read' n.pk %}" style="margin:0; flex:none;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm">{% t "Mark as read" %}</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">
+            <h3>{% t "No notifications yet" %}</h3>
+            <p>{% t "Updates about your orders will appear here." %}</p>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>{# end right column #}
+  </div>{# end account-grid #}
 </div>
+{% comment %}
+Progressive enhancement, in this order on purpose: the panel is rendered
+OPEN and the trigger reports aria-expanded="true", so with JavaScript off
+the switches are simply on the page and reachable — the same state the old
+standalone preferences URL gave. This script runs on load and folds it away,
+which is the only thing JS is responsible for here.
+
+It stays open when the URL says to. /profile/notification-preferences/ 301s
+to #preferences, and every toggle save redirects back to that same anchor —
+collapsing the panel in either case would answer the request by hiding the
+thing that was asked for.
+{% endcomment %}
+<script>
+(function () {
+  var panel   = document.getElementById('preferences');
+  var trigger = document.getElementById('prefs-toggle');
+  if (!panel || !trigger) return;
+
+  function setOpen(open) {
+    panel.hidden = !open;
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  setOpen(window.location.hash === '#preferences');
+
+  trigger.addEventListener('click', function () {
+    var open = panel.hidden;
+    setOpen(open);
+    // Focus moves INTO the panel when it opens. The drawer now follows the
+    // trigger in the DOM, so a Tab would reach it anyway — but it would pass
+    // through nothing on the way, and landing on the first switch is what a
+    // keyboard user asked for by pressing this. preventScroll because the
+    // panel opens directly under the button that is already in view.
+    if (open) {
+      var first = panel.querySelector('input, button');
+      if (first) first.focus({ preventScroll: true });
+    }
+  });
+
+  // "Done" closes it and hands focus back to the control that opened it,
+  // rather than dropping it at the top of the document.
+  var done = panel.querySelector('[data-prefs-close]');
+  if (done) done.addEventListener('click', function () {
+    setOpen(false);
+    trigger.focus();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !panel.hidden) {
+      setOpen(false);
+      trigger.focus();
+    }
+  });
+})();
+</script>
 {% endblock %}

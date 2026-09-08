@@ -187,16 +187,17 @@ class BatchSerializer(serializers.ModelSerializer):
     branchId = serializers.PrimaryKeyRelatedField(source='branch', read_only=True)
     branchName = serializers.CharField(source='branch.branch_name', read_only=True)
     batchNumber = serializers.CharField(source='batch_number', read_only=True)
+    location = serializers.CharField(read_only=True)
     receivedDate = serializers.DateField(source='received_date', read_only=True)
-    expiryDate = serializers.DateField(source='expiry_date', read_only=True)
+    expiryDate = serializers.DateField(source='expiry_date', read_only=True, allow_null=True)
     expiryStatus = serializers.CharField(source='expiry_status', read_only=True)
-    daysUntilExpiry = serializers.IntegerField(source='days_until_expiry', read_only=True)
+    daysUntilExpiry = serializers.IntegerField(source='days_until_expiry', read_only=True, allow_null=True)
 
     class Meta:
         model = Batch
         fields = [
             'id', 'productId', 'productName', 'branchId', 'branchName',
-            'batchNumber', 'quantity', 'receivedDate', 'expiryDate',
+            'location', 'batchNumber', 'quantity', 'receivedDate', 'expiryDate',
             'expiryStatus', 'daysUntilExpiry', 'notes',
         ]
 

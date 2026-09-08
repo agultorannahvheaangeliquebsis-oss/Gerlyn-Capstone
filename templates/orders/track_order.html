@@ -11,7 +11,7 @@
     width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 8px;
     display: flex; align-items: center; justify-content: center;
     background: var(--line); color: var(--ink-400);
-    font: 700 13px/1 system-ui, sans-serif; position: relative; z-index: 1;
+    font: 700 13px/1 var(--font-sans); position: relative; z-index: 1;
   }
   .track-step.done .dot { background: var(--brand); color: #fff; }
   .track-step.current .dot { background: var(--action); color: #fff;
@@ -28,7 +28,7 @@
   .track-step:first-child::before, .track-step:last-child::after { display: none; }
   .track-step.done::after, .track-step.done::before { background: var(--brand); }
   .track-step.current::before { background: var(--brand); }
-  .track-label { font: 600 13px/1.3 system-ui, sans-serif; color: var(--ink-600); }
+  .track-label { font: 600 13px/1.3 var(--font-sans); color: var(--ink-600); }
   .track-step.current .track-label { color: var(--action-700); }
 </style>
 {% endblock %}
@@ -98,7 +98,7 @@
       <tbody>
         {% for item in items %}
         <tr>
-          <td data-label="Item"><span style="margin-right:8px;">{{ item.product|product_emoji }}</span>{{ item.product.product_name }}</td>
+          <td data-label="Item"><span style="margin-right:8px;">{{ item.product|product_icon }}</span>{{ item.product.product_name }}</td>
           <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
           <td data-label="Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
           <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>

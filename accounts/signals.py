@@ -1,6 +1,9 @@
 from django.contrib.auth.signals import user_logged_out
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+from core.module_permissions import DEFAULT_STAFF_MODULES
+
 from .models import (
     User, OwnerProfile, BranchManagerProfile,
     StaffProfile, CustomerProfile, SupplierProfile, UserSession
@@ -22,6 +25,13 @@ def create_user_profile(sender, instance, created, **kwargs):
 
     elif role == User.Role.STAFF and not hasattr(instance, 'staff_profile'):
         StaffProfile.objects.create(user=instance, staff_name=instance.username)
+        # New Staff default to what Staff could already do before per-user
+        # module permissions existed — NOT the field's full-list default
+        # (that one's meant for Branch Manager, whose access was already
+        # everything) — so creating an account never silently starts it
+        # with more access than the Staff role ever had. .update() bypasses
+        # save() so this doesn't re-trigger this same post_save signal.
+        User.objects.filter(pk=instance.pk).update(allowed_modules=DEFAULT_STAFF_MODULES)
 
     elif role == User.Role.SUPPLIER and not hasattr(instance, 'supplier_profile'):
         SupplierProfile.objects.create(user=instance, supplier_name=instance.username)
@@ -34,7 +44,7 @@ def create_user_profile(sender, instance, created, **kwargs):
 def cleanup_session_tracking(sender, request, user, **kwargs):
     """Drops the UserSession row for whichever session is being logged out.
     Fires before logout() flushes the session, so session_key here is still
-    the real one being destroyed — covers manual "Sign out" and the
+    the real one being destroyed — covers manual "Logout" and the
     idle-timeout logout alike, since both go through this same signal."""
     session_key = request.session.session_key
     if session_key:

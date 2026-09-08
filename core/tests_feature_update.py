@@ -503,6 +503,11 @@ class FeatureUpdateTests(TestCase):
             'quantity': [str(quantity)],
             'mode_of_payment': 'Cash',
             'order_type': 'Retail',
+            # Cash sales require it (sales.views.transaction_add) — a flat,
+            # generously large amount so it always covers whatever this
+            # call's real total comes out to, since these tests care about
+            # pricing/discount arithmetic, not the cash-tendered flow itself.
+            'amount_tendered': '100000',
         }
         payload.update(extra)
         return client.post('/sales/add/', payload, follow=True)
@@ -519,6 +524,12 @@ class FeatureUpdateTests(TestCase):
             product=product, branch=branch
         )
         inventory.quantity_on_hand = 500
+        # seed_demo populates some already-expired rows to exercise the
+        # Alerts Center's Expired tab — get_or_create above can land on one
+        # of those, and an expired row is no longer sellable (see
+        # Inventory.objects.sellable()). This helper is testing pricing, not
+        # expiry, so it always clears the field explicitly.
+        inventory.expiry_date = None
         inventory.save()
         return product, branch
 

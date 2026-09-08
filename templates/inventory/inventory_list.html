@@ -2,7 +2,42 @@
 {% load static %}
 {% block title %}Floor Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
-{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% comment %}
+Top-bar branch switcher — turns the static scope chip into a menu of every
+branch, for the Owner only. Manager/Staff are branch-pinned server-side, so
+`branches` is empty for them and they keep the plain label. Each item just
+sets ?branch=; the q/category/status filters ride along so switching branch
+keeps the rest of the toolbar, and the toolbar's hidden `branch` field hands
+the choice back when a category/status changes. Native <details>, closed on
+outside-click / Escape by the small script in extra_js — same pattern as the
+bottom nav's More menu.
+{% endcomment %}
+{% block branch_chip %}
+{% if branches %}
+<details class="branch-switch" id="branch-switch">
+  <summary class="branch-chip branch-chip--menu">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+    <span>{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}</span>
+    <svg class="branch-switch-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+  </summary>
+  <div class="branch-switch-panel" role="menu">
+    <a role="menuitem" class="branch-switch-item{% if not branch_filter %} is-current{% endif %}"
+       href="?{% if search_query %}q={{ search_query|urlencode }}&amp;{% endif %}{% if category_filter %}category={{ category_filter|urlencode }}&amp;{% endif %}{% if status_filter %}status={{ status_filter|urlencode }}{% endif %}">All Branches</a>
+    {% for b in branches %}
+    <a role="menuitem" class="branch-switch-item{% if branch_filter == b.id|stringformat:'s' %} is-current{% endif %}"
+       href="?branch={{ b.id }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if category_filter %}&amp;category={{ category_filter|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter|urlencode }}{% endif %}">{{ b.branch_name }}</a>
+    {% endfor %}
+  </div>
+</details>
+{% else %}
+<span class="branch-chip">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+  {% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}
+</span>
+{% endif %}
+{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -28,7 +63,7 @@
     padding: var(--s4) var(--s6);
     border-bottom: 1px solid var(--line);
   }
-  .modal-head h2 { font: 650 20px/1.25 system-ui, sans-serif; margin: 0; }
+  .modal-head h2 { font: 650 20px/1.25 var(--font-sans); margin: 0; }
   .modal-close {
     display: inline-flex; align-items: center; justify-content: center;
     flex: none;
@@ -48,6 +83,37 @@
     padding: var(--s4) var(--s6);
     border-top: 1px solid var(--line);
   }
+
+  /* Top-bar branch switcher — this page only. .branch-chip stays the shared
+     static label on every other page; --menu turns it into a real control
+     (pointer, hover wash, caret) so it doesn't read as inert. Panel and rows
+     follow .more-menu-panel in the bottom nav. */
+  .branch-switch { position: relative; }
+  .branch-chip--menu {
+    list-style: none; cursor: pointer;
+    padding: 0 10px; border-radius: var(--r-pill);
+    transition: background .12s ease;
+  }
+  .branch-chip--menu::-webkit-details-marker { display: none; }
+  .branch-chip--menu:hover,
+  .branch-switch[open] .branch-chip--menu { background: var(--line-soft); color: var(--ink-900); }
+  .branch-switch-caret { color: var(--ink-500); transition: transform .12s ease; }
+  .branch-switch[open] .branch-switch-caret { transform: rotate(180deg); }
+  .branch-switch-panel {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+    min-width: 220px; max-height: 60vh; overflow-y: auto; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+    display: flex; flex-direction: column;
+  }
+  .branch-switch-item {
+    display: flex; align-items: center; min-height: 40px;
+    padding: 0 12px; border-radius: var(--r-input);
+    font: 500 13.5px/1.3 var(--font-sans);
+    color: var(--ink-700); text-decoration: none;
+  }
+  .branch-switch-item:hover { background: var(--line-soft); color: var(--ink-900); }
+  .branch-switch-item.is-current { color: var(--action-700); font-weight: 700; }
 </style>
 {% endblock %}
 
@@ -61,7 +127,7 @@
     heading.
     {% endcomment %}
     <h1>Floor Stock</h1>
-    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
+    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if filter_branch %} — {{ filter_branch.branch_name }}{% elif user_branch %} — {{ user_branch.branch_name }}{% else %} across all branches{% endif %}</p>
   </div>
   {% if can_adjust %}
   <button type="button" class="btn btn-primary" id="open-adjust-modal">
@@ -96,27 +162,30 @@ client-side filtering to keep correct alongside the status/category filters.
 {% comment %}
 The one KPI card (DESIGN.md §2) — the same component as the Dashboard rail and
 the four Reports tabs, not a third lookalike. `.stat` is the quiet tile for
-secondary figures; these three are the headline of the page, so they take the
-card. Reading order is .label → .value, so the figure is named before it is
-read, rather than after it as it was here.
+secondary figures; these are the headline of the page, so they take the card.
+Reading order is .label → .value, so the figure is named before it is read,
+rather than after it as it was here.
 
 Tint is status, never category. gerlyn.css reserves .warn for "waiting on
 someone" and .danger for "act now", so both are gated on the count being
 non-zero: a branch with nothing wrong used to render an amber "Low Stock 0" and
 a red "Critical 0", a traffic light that lit up the same way no matter what the
 stock was doing. Colour now only appears when someone has to act on it, and it
-matches the .pill-warn/.pill-danger already in the Status column below.
+matches the .pill-warn/.pill-danger already in the Status column below. No
+Stock reuses .danger rather than inventing a fifth tint — it's still squarely
+"act now", just a worse case of it than Critical.
 
 In Stock takes no tint at all — there is no .ok card variant, because green is
 the Dashboard's selected-card colour and giving it a fourth meaning here is the
 thing that rule exists to prevent.
 
 No sub-text under the figures, by request. The thresholds these buckets are
-computed from ("at or below half the reorder level") are consequently not
-stated anywhere on this page — the Status column shows each row's verdict, not
-the rule behind it. The rule still lives in _inventory_list_context().
+computed from (reorder_level is the Critical/Low Stock line; Low Stock runs up
+to 110% of it) are consequently not stated anywhere on this page — the Status
+column shows each row's verdict, not the rule behind it. The rule lives in
+inventory.alerts.stock_status(), shared with Warehouse Stock's identical row.
 
-.compact because this row heads a table, not a graph panel, and three cards
+.compact because this row heads a table, not a graph panel, and four cards
 across the full width leave the default block padding as empty card.
 {% endcomment %}
 <div class="kpi-row compact">
@@ -132,32 +201,46 @@ across the full width leave the default block padding as empty card.
     <span class="label">Critical</span>
     <span class="value">{{ counts.critical }}</span>
   </div>
+  <div class="kpi-card{% if counts.no_stock %} danger{% endif %}">
+    <span class="label">No Stock</span>
+    <span class="value">{{ counts.no_stock }}</span>
+  </div>
 </div>
 
-<form method="GET" class="toolbar" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
-  <input type="search" name="q" id="inventory-search-input" class="input grow" placeholder="Search product…" value="{{ search_query }}" autocomplete="off">
-  <button type="button" class="btn" id="inventory-scan-btn" title="Scan a barcode to search">📷 Scan</button>
-  {% if branches %}
-  <select name="branch" onchange="this.form.submit()">
-    <option value="">All Branches</option>
-    {% for b in branches %}
-      <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-    {% endfor %}
-  </select>
-  {% endif %}
-  <select name="category" onchange="this.form.submit()">
-    <option value="">All Categories</option>
-    {% for c in categories %}
-      <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
-    {% endfor %}
-  </select>
-  <select name="status" onchange="this.form.submit()">
-    <option value="">All Status</option>
-    <option value="In Stock" {% if status_filter == "In Stock" %}selected{% endif %}>In Stock</option>
-    <option value="Low Stock" {% if status_filter == "Low Stock" %}selected{% endif %}>Low Stock</option>
-    <option value="Critical" {% if status_filter == "Critical" %}selected{% endif %}>Critical</option>
-  </select>
-  <button type="submit" class="btn">Search</button>
+<form method="GET" class="toolbar toolbar-search" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
+  {% comment %}The top-bar branch switcher sets ?branch=; this form has no
+  branch control of its own, so it carries the active branch through as a
+  hidden field, or a category/status change would reset the list to all
+  branches.{% endcomment %}
+  {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
+  <div class="search-field">
+    {% comment %}The submit, not decoration — same fallback role as
+    product_list.html's search-btn when live-filter.js is absent or bails
+    early.{% endcomment %}
+    <button type="submit" class="search-btn" title="Search" aria-label="Search floor stock">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" id="inventory-search-input" placeholder="Search product…" value="{{ search_query }}" autocomplete="off" aria-label="Search floor stock by product name or SKU">
+    <button type="button" class="scan-btn" id="inventory-scan-btn" title="Scan a barcode to search" aria-label="Scan a barcode to search">{% include "partials/_empty_icon.html" with icon="camera" %}</button>
+  </div>
+  <div class="search-filters">
+    {% comment %}Branch is picked from the top-bar branch switcher, not here —
+    one control per filter. Its links carry q/category/status forward, so this
+    GET form keeps just the category and status selects.{% endcomment %}
+    <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
+      <option value="">All Categories</option>
+      {% for c in categories %}
+        <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+      {% endfor %}
+    </select>
+    <select name="status" onchange="this.form.submit()" aria-label="Filter by status">
+      <option value="">All Status</option>
+      <option value="In Stock" {% if status_filter == "In Stock" %}selected{% endif %}>In Stock</option>
+      <option value="Low Stock" {% if status_filter == "Low Stock" %}selected{% endif %}>Low Stock</option>
+      <option value="Critical" {% if status_filter == "Critical" %}selected{% endif %}>Critical</option>
+      <option value="No Stock" {% if status_filter == "No Stock" %}selected{% endif %}>No Stock</option>
+    </select>
+  </div>
 </form>
 
 <div class="card table-wrap">
@@ -167,41 +250,55 @@ across the full width leave the default block padding as empty card.
         <th>Product</th>
         <th>Branch</th>
         <th>Category</th>
-        <th class="num">Qty on Hand</th>
+        <th class="num">Batch Qty</th>
+        <th>Expiry Date</th>
+        <th>Received</th>
         <th class="num">Reorder Level</th>
-        <th>Nearest Expiry</th>
-        <th>Last Updated</th>
         <th>Status</th>
-        <th class="end">Actions</th>
+        {% if can_adjust %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
+      {% comment %}
+      One row per BATCH, not per product/branch — a restock with a
+      different expiry never merges into an existing row (see
+      inventory.models.Batch). Reorder Level and Status are still row-level
+      facts about the whole product/branch, so they repeat identically
+      across every batch row for the same product/branch — there is only
+      ever one of each per product/branch, same as before this change.
+      A row with no batch (row.batch is None) is a 0-quantity "No Stock"
+      product/branch with nothing to show a lot for.
+      {% endcomment %}
       {% for row in rows %}
       <tr data-filter-text="{{ row.inv.product.product_name }} {{ row.inv.product.sku_code }}">
         <td data-label="Product" class="strong">{{ row.inv.product.product_name }}</td>
         <td data-label="Branch">{{ row.inv.branch.branch_name }}</td>
-        <td data-label="Category" class="gv-meta">{{ row.inv.product.category.category_name|default:"—" }}</td>
-        <td data-label="Qty on Hand" class="num strong">{{ row.inv.quantity_on_hand }}</td>
+        <td data-label="Category"><span class="tag">{{ row.inv.product.category.category_name|default:"—" }}</span></td>
+        <td data-label="Batch Qty" class="num strong">{% if row.batch %}{{ row.batch.quantity }}{% else %}0{% endif %}</td>
+        <td data-label="Expiry Date">{% if row.batch %}{{ row.batch.expiry_date|date:"Y-m-d"|default:"—" }}{% else %}—{% endif %}</td>
+        <td data-label="Received" class="gv-meta">{% if row.batch %}{{ row.batch.received_date|date:"Y-m-d" }}{% else %}—{% endif %}</td>
         <td data-label="Reorder Level" class="num gv-meta">{{ row.inv.reorder_level }}</td>
-        <td data-label="Nearest Expiry">{{ row.inv.expiry_date|date:"Y-m-d"|default:"—" }}</td>
-        <td data-label="Last Updated" class="gv-meta">{{ row.inv.last_stock_update|date:"Y-m-d" }}</td>
         <td data-label="Status">
-          {% if row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
+          {% if row.status == "No Stock" %}<span class="pill pill-danger">No Stock</span>
+          {% elif row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
+        {% if can_adjust %}
         <td data-label="Actions">
-          <button type="button" class="btn btn-sm btn-quiet" style="color:var(--action);"
-                  onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }}, '{{ row.inv.expiry_date|date:"Y-m-d"|default:"" }}')">
-            Edit
-          </button>
+          <span class="row-actions">
+            <button type="button" class="icon-btn icon-btn-action"
+                    title="Edit reorder level" aria-label="Edit reorder level for {{ row.inv.product.product_name }}"
+                    onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+          </span>
         </td>
+        {% endif %}
       </tr>
       {% empty %}
       <tr>
         <td colspan="9">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No stock records match</h3>
             <p>Try clearing the filters, or add stock by receiving a delivery.</p>
           </div>
@@ -212,7 +309,7 @@ across the full width leave the default block padding as empty card.
       <tr id="inventory-no-matches" hidden>
         <td colspan="9">
           <div class="empty">
-            <span class="glyph">□</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No stock records match</h3>
             <p>No products match "<span data-filter-empty-query></span>". Try a different search.</p>
           </div>
@@ -250,7 +347,7 @@ across the full width leave the default block padding as empty card.
         <div class="row" style="gap:8px;">
           <input type="text" id="adjust-barcode" class="input grow"
                  placeholder="Scan a barcode, or type one and press Enter" autocomplete="off">
-          <button type="button" class="btn" id="adjust-barcode-scan-btn" title="Scan with camera">📷 Scan</button>
+          <button type="button" class="btn" id="adjust-barcode-scan-btn" title="Scan with camera">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
         </div>
         <span class="barcode-status" id="adjust-barcode-status"></span>
       </div>
@@ -269,7 +366,7 @@ across the full width leave the default block padding as empty card.
         <input type="hidden" name="branch_id" value="{{ user_branch.id }}">
         <div class="field">
           <label>Branch</label>
-          <div class="row"><span class="pill pill-info">{{ user_branch.branch_name }}</span>
+          <div class="field-static">{{ user_branch.branch_name }}
             <span class="gv-meta">your assigned branch</span></div>
         </div>
       {% else %}
@@ -307,10 +404,11 @@ across the full width leave the default block padding as empty card.
 </div>
 {% endif %}
 
+{% if can_adjust %}
 <div class="modal-overlay" id="edit-inventory-modal">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-inventory-title" style="max-width:420px;">
     <div class="modal-head">
-      <h2 id="edit-inventory-title">Edit Inventory</h2>
+      <h2 id="edit-inventory-title">Edit Reorder Level</h2>
       <button type="button" class="modal-close" id="close-edit-inventory-modal" aria-label="Close">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -323,25 +421,16 @@ across the full width leave the default block padding as empty card.
       {% csrf_token %}
       <div class="field">
         <label>Product</label>
-        <div class="row"><span class="pill pill-info" id="edit-inventory-product"></span></div>
+        <div class="field-static" id="edit-inventory-product"></div>
       </div>
       <div class="field">
         <label>Branch</label>
-        <div class="row"><span class="pill pill-neutral" id="edit-inventory-branch"></span></div>
+        <div class="field-static" id="edit-inventory-branch"></div>
       </div>
       <div class="field">
-        <label for="edit-inventory-reorder">Reorder Level{% if can_edit_reorder %} <span style="color:var(--danger-dot);">*</span>{% endif %}</label>
-        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0"
-               {% if can_edit_reorder %}required{% else %}disabled{% endif %}>
-        {% if can_edit_reorder %}
-          <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Low Stock.</p>
-        {% else %}
-          <p class="gv-meta" style="margin:4px 0 0;">Only a Branch Manager or the Owner can change this — ask them if it needs adjusting.</p>
-        {% endif %}
-      </div>
-      <div class="field">
-        <label for="edit-inventory-expiry">Nearest Expiry (optional)</label>
-        <input type="date" id="edit-inventory-expiry" name="expiry_date">
+        <label for="edit-inventory-reorder">Reorder Level <span style="color:var(--danger-dot);">*</span></label>
+        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0" required>
+        <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Critical.</p>
       </div>
     </form>
 
@@ -351,9 +440,29 @@ across the full width leave the default block padding as empty card.
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
+<script>
+// Top-bar branch switcher: close the native <details> on an outside click or
+// Escape — <details> only toggles on its own summary otherwise. Mirrors the
+// bottom nav's .more-menu handler in sidebar.js.
+(function () {
+  var sw = document.getElementById('branch-switch');
+  if (!sw) return;
+  document.addEventListener('click', function (e) {
+    if (sw.open && !sw.contains(e.target)) sw.open = false;
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sw.open) {
+      sw.open = false;
+      var s = sw.querySelector('summary');
+      if (s) s.focus();
+    }
+  });
+})();
+</script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script>
@@ -417,7 +526,6 @@ across the full width leave the default block padding as empty card.
   var productEl = document.getElementById('edit-inventory-product');
   var branchEl = document.getElementById('edit-inventory-branch');
   var reorderEl = document.getElementById('edit-inventory-reorder');
-  var expiryEl = document.getElementById('edit-inventory-expiry');
   if (!modal) return;
 
   function open() { modal.classList.add('is-open'); }
@@ -425,12 +533,11 @@ across the full width leave the default block padding as empty card.
 
   var editUrlTemplate = '{% url "inventory_edit" 0 %}';  // pk=0 placeholder, swapped per-row below
 
-  window.openEditInventory = function (pk, productName, branchName, reorderLevel, expiryDate) {
+  window.openEditInventory = function (pk, productName, branchName, reorderLevel) {
     form.action = editUrlTemplate.replace('/0/', '/' + pk + '/');
     productEl.textContent = productName;
     branchEl.textContent = branchName;
     reorderEl.value = reorderLevel;
-    expiryEl.value = expiryDate || '';
     open();
   };
 

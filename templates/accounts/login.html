@@ -1,110 +1,166 @@
 {% extends "public_base.html" %}
 {% load static %}
-{% block title %}Sign In — Gerlyn Variety Store{% endblock %}
+{% block title %}Log In — Gerlyn Variety Store{% endblock %}
 {% block body_class %}shop shop-auth{% endblock %}
 
 {% block content %}
 {% comment %}
-Modelled on a reference sign-in screen, with three of its elements left out
-because this app cannot honour them:
+Restructured to the marketplace sign-in shape: a slim white bar carrying the
+mark and the name of the screen, one full-bleed brand band split into a
+identity panel and the form card, then the ordinary storefront footer.
 
-  - Google / Facebook / Apple buttons. There is no social auth in the
-    project — no allauth, no OAuth client, no provider settings. Buttons for
-    them would be three dead controls on the one screen a user cannot get
-    past, and the failure would look like the account being broken.
-  - "Forgot password?". There is no public reset flow. change_password and
+Three controls the reference screen carries are still left out, for the same
+reason they were left out of the single-card version — the app cannot honour
+them, and a dead control on the one screen a user cannot get past reads as
+the account being broken, not as a feature not built:
+
+  - Facebook / Google buttons. There is no social auth in the project: no
+    allauth, no OAuth client, no provider settings.
+  - "Stay signed in". login_view calls login() and nothing else; session
+    length is SESSION_COOKIE_AGE for everyone, so a checkbox here would
+    change nothing about how long the session lasts.
+  - "Forgot password?". There is no public reset flow — change_password and
     request_password_change_email both require an authenticated session, so
     the link has nowhere to point for the person who actually needs it.
-  - An "Email" field. authenticate() is called with username, so a field
-    labelled Email would reject the address a customer typed into it.
 
-The composition the reference is actually made of — gradient backdrop, one
-floating card, medallion over a centred title, icon-led fields, full-width
-CTA — is all here.
+The composition is what carried over: brand band, identity on one side, a
+white card on the other, and the page's title stated in the bar above.
 {% endcomment %}
-<a class="auth-brand" href="{% url 'orders:catalog' %}">
-  <img src="{% static 'img/logo.jpg' %}" alt="">
-  <span>Gerlyn</span>
-</a>
 
-<div class="auth-card">
-  <span class="auth-badge" aria-hidden="true">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-      <polyline points="10 17 15 12 10 7"/>
-      <line x1="15" y1="12" x2="3" y2="12"/>
-    </svg>
-  </span>
+{% comment %}
+The bar, not a floating corner mark. It is the way back out of this page now
+that the storefront nav is hidden, and it states which of the two account
+screens you are on — the reference's arrangement, and the thing the corner
+wordmark on its own never said.
+{% endcomment %}
+<div class="auth-topbar">
+  <div class="shop-wrap auth-topbar-inner">
+    {% comment %}
+    The mark alone. The bar used to carry the screen's name beside it and a
+    link out on the right; the card below already says which screen this is,
+    in a heading a screen reader can navigate to, and the mark itself is the
+    way back to the shop.
+    {% endcomment %}
+    <a class="auth-topbar-brand" href="{% url 'orders:catalog' %}">
+      <img src="{% static 'img/logo.jpg' %}" alt="">
+      <span><strong>Gerlyn</strong> Variety Store</span>
+    </a>
+  </div>
+</div>
 
-  <h1 class="auth-title">Sign in</h1>
-  <p class="auth-sub">Welcome back to Gerlyn Variety Store.</p>
-
-  <form method="POST">
-    {% csrf_token %}
+<div class="auth-band">
+  <div class="shop-wrap auth-band-inner">
 
     {% comment %}
-    Label first, then the input — plain reading order. This field used to
-    carry .field-float, which required the reverse (input then label, and
-    placeholder=" ") so a CSS sibling selector could track emptiness. The
-    label floated onto the top border in a white chip and looked stuck on,
-    especially against a browser-autofilled field. register.html one link
-    away has always used static labels; login now matches it.
+    The identity half. Decorative on a phone — it is hidden below 860px,
+    where the card is the entire point of the screen and the store's name is
+    already in the bar directly above it.
+
+    alt is empty on the mark because the store name is set in text
+    immediately beneath it.
     {% endcomment %}
-    <div class="field auth-field">
-      <label for="username">Username</label>
-      <div class="auth-input-wrap">
-        <span class="auth-field-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-          </svg>
-        </span>
-        <input id="username" type="text" name="username" value="{{ username }}"
-               autocomplete="username" required autofocus{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="login-error"{% endif %}>
-      </div>
+    <div class="auth-hero">
+      <img class="auth-hero-mark" src="{% static 'img/logo.png' %}" alt="">
+      <p class="auth-hero-name">Gerlyn Variety Store</p>
+      <p class="auth-hero-tag">
+        Groceries, household goods and bulk supplies<br>
+        for Baliuag, Bulacan.
+      </p>
     </div>
 
-    <div class="field auth-field">
-      <label for="password">Password</label>
-      <div class="auth-input-wrap">
-        <span class="auth-field-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-        </span>
+    <div class="auth-card">
+      <h1 class="auth-title">Log In</h1>
+
+      <form method="POST">
+        {% csrf_token %}
         {% comment %}
-        has-reveal, not input[type=password], carries the room for the toggle:
-        the toggle rewrites type to "text", so an attribute selector would drop
-        the right-hand padding at the exact moment the text becomes visible and
-        slide it under the eye.
+        Carries the destination through the POST so it survives a failed
+        attempt — a typo in the password should not quietly cost the shopper
+        their place. accounts.views.safe_next validates it against this host
+        before any redirect, so a hand-edited value cannot bounce anyone
+        off-site.
         {% endcomment %}
-        <input id="password" type="password" name="password"
-               autocomplete="current-password" required
-               class="has-reveal{% if error %} is-invalid{% endif %}"{% if error %} aria-invalid="true" aria-describedby="login-error"{% endif %}>
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
         {% comment %}
-        aria-pressed rather than a label that flips: the button's name stays
-        "Show password" and its pressed state carries whether it is on, which
-        is the pattern a screen reader announces without the label changing
-        out from under the user mid-press.
+        Floating labels, on the two fields this screen has. The label starts
+        inside the empty box, on the same line the typing will land on, and
+        rises to sit above the box the moment the field is focused or holds
+        anything — so the box is never an unlabelled rectangle, and a filled
+        form reads exactly as this screen did before the labels moved.
+
+        It is CSS only: placeholder=" " makes :placeholder-shown mean "this
+        box is empty", which is why the label has to be the input's next
+        sibling. Nothing here depends on JS, so the labels behave the same
+        on a failed POST re-render as they do on a fresh load.
+
+        Reading order is unchanged for a screen reader — `for`/`id` still
+        binds each label to its input, and the label is announced with the
+        field however it happens to be painted.
         {% endcomment %}
-        <button type="button" class="auth-reveal" id="password-reveal"
-                aria-label="Show password" aria-pressed="false" aria-controls="password">
-          <svg id="password-reveal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-          </svg>
+        <div class="field auth-field auth-field--float">
+          <div class="auth-input-wrap">
+            <span class="auth-field-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+            </span>
+            <input id="username" type="text" name="username" value="{{ username }}"
+                   placeholder=" "
+                   autocomplete="username" required autofocus{% if error %} class="is-invalid" aria-invalid="true" aria-describedby="login-error"{% endif %}>
+            <label for="username">Username</label>
+          </div>
+        </div>
+
+        <div class="field auth-field auth-field--float">
+          <div class="auth-input-wrap">
+            <span class="auth-field-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </span>
+            {% comment %}
+            has-reveal, not input[type=password], carries the room for the
+            toggle: the toggle rewrites type to "text", so an attribute
+            selector would drop the right-hand padding at the exact moment
+            the text becomes visible and slide it under the eye.
+            {% endcomment %}
+            <input id="password" type="password" name="password"
+                   placeholder=" " autocomplete="current-password" required
+                   class="has-reveal{% if error %} is-invalid{% endif %}"{% if error %} aria-invalid="true" aria-describedby="login-error"{% endif %}>
+            <label for="password">Password</label>
+            {% comment %}
+            aria-pressed rather than a label that flips: the button's name
+            stays "Show password" and its pressed state carries whether it is
+            on, which is the pattern a screen reader announces without the
+            label changing out from under the user mid-press.
+            {% endcomment %}
+            <button type="button" class="auth-reveal" id="password-reveal"
+                    aria-label="Show password" aria-pressed="false" aria-controls="password">
+              <svg id="password-reveal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {% if error %}<p class="field-error" id="login-error" role="alert">{{ error }}</p>{% endif %}
+
+        <button type="submit" class="btn btn-primary auth-submit" id="login-submit">
+          <span data-submit-label>Log In</span>
         </button>
-      </div>
+      </form>
+
+      {% comment %}
+      The reference's "Have an account? Log In" line, in the direction this
+      screen needs it. Sits under a rule so it reads as the way off this
+      screen rather than as one more field on the form.
+      {% endcomment %}
+      <p class="auth-alt">
+        New here? <a href="{% url 'accounts:register' %}">Create an account</a>
+      </p>
     </div>
-
-    {% if error %}<p class="field-error" id="login-error" role="alert">{{ error }}</p>{% endif %}
-
-    <button type="submit" class="btn btn-primary auth-submit" id="login-submit">
-      <span data-submit-label>Sign In</span>
-    </button>
-  </form>
-
-  <p class="auth-alt">
-    New here? <a href="{% url 'accounts:register' %}">Create an account</a>
-  </p>
+  </div>
 </div>
 {% endblock %}
 
@@ -160,17 +216,17 @@ CTA — is all here.
     /* aria-busy, and the label really changes, so a screen reader is told
        the state rather than being left on a button that stopped responding. */
     btn.setAttribute('aria-busy', 'true');
-    if (label) label.textContent = 'Signing in…';
+    if (label) label.textContent = 'Logging in…';
   });
 
   /* Coming back via the Back button can restore this page from the bfcache
      with the DOM exactly as it was left — button disabled, label stuck on
-     "Signing in…" and no way to try again. Reset on restore. */
+     "Logging in…" and no way to try again. Reset on restore. */
   window.addEventListener('pageshow', function (e) {
     if (!e.persisted) return;
     btn.disabled = false;
     btn.removeAttribute('aria-busy');
-    if (label) label.textContent = 'Sign In';
+    if (label) label.textContent = 'Log In';
   });
 })();
 </script>

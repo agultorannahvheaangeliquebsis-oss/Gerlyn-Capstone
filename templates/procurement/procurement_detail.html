@@ -1,4 +1,4 @@
-{% extends "internal_base.html" %}
+{% extends base_template %}
 {% block title %}{{ procurement.po_number }}{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
@@ -24,14 +24,49 @@
   </a>
 </div>
 
+{% if procurement.status == "Draft" %}
+<div class="card card-pad mb-4">
+  <div class="row-between wrap">
+    <div class="grow">
+      <h3>Waiting for approval</h3>
+      <p class="gv-meta mb-0">
+        {% if user.role == "OWNER" %}
+        Approving this commits the order to
+        {{ procurement.supplier.get_full_name|default:procurement.supplier.username }}
+        and lets it be received into stock.
+        {% else %}
+        {{ procurement.po_number }} was raised as a draft. Only the Owner can
+        approve it — until then it cannot be ordered or received.
+        {% endif %}
+      </p>
+    </div>
+    {% if user.role == "OWNER" %}
+    <form method="POST" action="{% url 'procurement_approve' procurement.pk %}" class="row"
+          data-confirm="{{ procurement.po_number }} will be approved and moved to Ordered, committing the order to the supplier."
+          data-confirm-title="Approve this purchase order?"
+          data-confirm-ok="Approve PO"
+          data-confirm-dismiss="Not yet">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">Approve</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if procurement.status != "Received" and procurement.status != "Cancelled" %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div>
       <h3>Update status</h3>
       <p class="gv-meta mb-0">
+        {% if procurement.status == "Draft" %}
+        A draft can only be cancelled from here — approval is what moves it to
+        <strong>Ordered</strong>.
+        {% else %}
         Marking this <strong>Received</strong> adds the delivered quantities to
         {{ procurement.branch.branch_name }}'s stock.
+        {% endif %}
       </p>
     </div>
     {% comment %}
@@ -49,8 +84,14 @@
           data-confirm-when="status=Cancelled">
       {% csrf_token %}
       <select name="status" style="min-width:170px;">
-        <option value="Ordered">Ordered</option>
-        <option value="Received">Received</option>
+        {% comment %}
+        Ordered is offered only on a PO that is already past Draft. On a draft
+        it is the approval step, which lives in the Approve card above and is
+        the Owner's alone — procurement_update_status refuses it here too, so
+        this is the matching UI, not the guard itself.
+        {% endcomment %}
+        {% if procurement.status != "Draft" %}<option value="Ordered">Ordered</option>{% endif %}
+        {% if procurement.status != "Draft" %}<option value="Received">Received</option>{% endif %}
         <option value="Cancelled">Cancelled</option>
       </select>
       <button type="submit" class="btn btn-primary">Update</button>
@@ -81,15 +122,17 @@
     </table>
   </div>
 
-  <div class="card card-pad">
+  <div class="card card-pad card-fill">
     <h3 class="mb-4">Delivery</h3>
-    <p class="gv-meta">
-      Stock is only added after a receipt is validated — this keeps the digital
-      records matching the physical goods.
-    </p>
-    <div class="stat mt-4">
-      <div class="value">{{ items|length }}</div>
-      <div class="label">Line item{{ items|length|pluralize }} on this order</div>
+    <div class="card-fill-body">
+      <p class="gv-meta">
+        Stock is only added after a receipt is validated — this keeps the digital
+        records matching the physical goods.
+      </p>
+      <div class="stat mt-4">
+        <div class="value">{{ items|length }}</div>
+        <div class="label">Line item{{ items|length|pluralize }} on this order</div>
+      </div>
     </div>
   </div>
 </div>

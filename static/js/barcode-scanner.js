@@ -59,6 +59,23 @@ window.GerlynBarcodeScanner = (function () {
   // No debounce, no per-keystroke validation: a plain `keydown` listener
   // for Enter is the only handler, so rapid scanner input (a whole code
   // arriving in a handful of milliseconds) is never delayed or dropped.
+
+  // The tick that fronts a match on the Barcode field's status line. It used
+  // to be a check CHARACTER glued to the front of the message string, which
+  // made the mark a font glyph in a UI drawn in line art everywhere else --
+  // and it travelled inside `text`, where a screen reader read it out as part
+  // of the sentence.
+  //
+  // Only the two success kinds carry a mark. 'pending', 'info' and 'error'
+  // never had one and do not get one here; their colour and wording already
+  // say what happened. An array rather than a lookup object, so a `kind` that
+  // happens to name something on Object.prototype cannot test truthy.
+  const MARKED_STATUS_KINDS = ['success', 'success-scan'];
+  const CHECK_MARK =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+    ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg>';
+
   function attachBarcodeField(input, { lookupUrl, cameraBtn, statusEl, onFound, onNotFound, notFoundMessage } = {}) {
     if (!input || !lookupUrl) return;
     notFoundMessage = notFoundMessage || 'No existing product matches this code.';
@@ -68,8 +85,18 @@ window.GerlynBarcodeScanner = (function () {
 
     function setStatus(text, kind) {
       if (!statusEl) return;
-      statusEl.textContent = text;
       statusEl.className = 'barcode-status' + (kind ? ' barcode-status-' + kind : '');
+      statusEl.textContent = '';
+      if (MARKED_STATUS_KINDS.indexOf(kind) !== -1) {
+        // innerHTML on a module-level constant only. `text` carries a product
+        // name from the server and stays on a text node below, where it cannot
+        // be parsed as markup.
+        const mark = document.createElement('span');
+        mark.className = 'barcode-status-icon';
+        mark.innerHTML = CHECK_MARK;
+        statusEl.appendChild(mark);
+      }
+      statusEl.appendChild(document.createTextNode(text));
     }
 
     function lookup(code, { isScan } = {}) {
@@ -87,7 +114,7 @@ window.GerlynBarcodeScanner = (function () {
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (data.found) {
-            setStatus('✓ Match found: ' + data.product_name, isScan ? 'success-scan' : 'success');
+            setStatus('Match found: ' + data.product_name, isScan ? 'success-scan' : 'success');
             if (typeof onFound === 'function') onFound(data);
           } else {
             setStatus(notFoundMessage, 'info');

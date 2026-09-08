@@ -1,16 +1,35 @@
 {% load i18n_extra %}
+{% comment %}
+Orders and Settings are one rail now, not two destinations. The storefront
+header used to open a dropdown offering "My Orders" and "Settings" as
+separate places; My Orders is where the account link lands, and everything
+that used to be behind "Settings" is this list beside it. The rail renders
+identically on the orders page and on every settings page, so moving between
+them never changes the furniture.
+{% endcomment %}
 <!-- ── Left sidebar ── -->
 <aside class="account-sidebar">
+  <a href="{% url 'orders:my_orders' %}" class="account-nav-link{% if active_page == 'orders' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+    {% t "My Orders" %}
+  </a>
+  {% comment %}
+  One row, not two. "Notifications" and "Notification Preferences" used to sit
+  one under the other, a word apart, going to two pages — the messages and the
+  switches that govern them are now one page, and this is it.
+  {% endcomment %}
+  <a href="{% url 'accounts:notifications' %}" class="account-nav-link{% if active_page == 'notifications' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    {% t "Notifications" %}
+    {% if notification_count %}<span class="account-nav-count">{{ notification_count }}</span>{% endif %}
+  </a>
+
+  <div class="account-nav-sep"></div>
+
   <a href="{% url 'accounts:profile' %}" class="account-nav-link{% if active_page == 'profile' %} active{% endif %}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
     {% t "My Profile" %}
   </a>
-  {% comment "" %}
-  <a href="{% url 'orders:my_orders' %}" class="account-nav-link{% if active_page == 'orders' %} active{% endif %}">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-    Orders
-  </a>
-  {% endcomment %}
   <a href="{% url 'accounts:addresses' %}" class="account-nav-link{% if active_page == 'addresses' %} active{% endif %}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
     {% t "Addresses" %}
@@ -26,10 +45,6 @@
     Payment Methods
   </span>
   {% endcomment %}
-  <a href="{% url 'accounts:notification_preferences' %}" class="account-nav-link{% if active_page == 'notification_preferences' %} active{% endif %}">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-    {% t "Notifications" %}
-  </a>
   <a href="{% url 'accounts:privacy' %}" class="account-nav-link{% if active_page == 'privacy' %} active{% endif %}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V6z"/></svg>
     {% t "Privacy & Data" %}
@@ -39,7 +54,7 @@
     {% t "Language" %}
   </a>
 
-  <div style="height:1px; background:var(--line-soft); margin:8px 6px;"></div>
+  <div class="account-nav-sep"></div>
 
   <a href="{% url 'accounts:help_center' %}" class="account-nav-link{% if active_page == 'help_center' %} active{% endif %}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -48,5 +63,18 @@
   <a href="{% url 'accounts:about' %}" class="account-nav-link{% if active_page == 'about' %} active{% endif %}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
     {% t "About" %}
+  </a>
+
+  <div class="account-nav-sep"></div>
+
+  {% comment %}
+  Logout was the last row of the header dropdown. Removing that menu without
+  rehoming this would have left a signed-in shopper with no way out of their
+  own account, so it takes the foot of the rail — the one surface present on
+  every account page.
+  {% endcomment %}
+  <a href="{% url 'accounts:logout' %}" class="account-nav-link account-nav-link--danger">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    {% t "Logout" %}
   </a>
 </aside>

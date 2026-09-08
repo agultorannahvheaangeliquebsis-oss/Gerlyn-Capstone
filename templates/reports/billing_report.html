@@ -1,7 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}Billing Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
-{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% comment %}Same pattern as Floor Stock, Product Master List, etc: the topbar
+chip has to track whichever branch the toolbar is actually narrowed to, not
+sit frozen on "All Branches" once an Owner picks one.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -141,7 +144,7 @@ Only Pending Collection is ever tinted; the money cards are plain.
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">
-        <span class="glyph">₱</span><h3>No billing records</h3></div></td></tr>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span><h3>No billing records</h3></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

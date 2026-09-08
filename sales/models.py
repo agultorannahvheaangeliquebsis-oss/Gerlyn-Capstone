@@ -124,6 +124,20 @@ class SalesTransaction(models.Model):
                   "added on top of it."
     )
 
+    # --- cash tendered (Walk-in Sale, Cash payments only) -------------------
+    # Null rather than 0 for anything that isn't a counter cash sale — an
+    # Online order or a GCash/Card payment never had cash handed over, and
+    # "not applicable" needs to read differently from "tendered nothing".
+    amount_tendered = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Cash handed over at the counter. Only recorded for "
+                  "Cash walk-in sales."
+    )
+    change_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="amount_tendered minus total_amount, frozen at sale time."
+    )
+
     def save(self, *args, **kwargs):
         is_new = self.pk is None
         super().save(*args, **kwargs)

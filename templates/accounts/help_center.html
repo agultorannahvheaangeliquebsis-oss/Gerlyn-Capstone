@@ -10,7 +10,7 @@
 .faq-item { border-bottom: 1px solid var(--line-soft); padding: 14px 0; }
 .faq-item:last-child { border-bottom: 0; }
 .faq-item summary {
-  font: 600 15px/1.3 system-ui, sans-serif;
+  font: 600 15px/1.3 var(--font-sans);
   color: var(--ink-900);
   cursor: pointer;
   list-style: none;
@@ -18,7 +18,7 @@
 .faq-item summary::-webkit-details-marker { display: none; }
 .faq-item summary::before { content: '+ '; color: var(--action); font-weight: 700; }
 .faq-item[open] summary::before { content: '– '; }
-.faq-item p { margin: 8px 0 0; font: 400 14px/1.5 system-ui, sans-serif; color: var(--ink-600); }
+.faq-item p { margin: 8px 0 0; font: 400 14px/1.5 var(--font-sans); color: var(--ink-600); }
 </style>
 {% endblock %}
 
@@ -34,8 +34,7 @@
     <span class="current">{% t "Help Center" %}</span>
   </nav>
 
-  <h1 class="gv-page-title" style="margin-bottom:4px;">{% t "Settings" %}</h1>
-  <p class="gv-meta" style="margin-bottom:24px;">{% t "Manage your profile, addresses, and preferences" %}</p>
+  <h1 class="gv-page-title">{% t "Settings" %}</h1>
 
   <div class="account-grid">
 

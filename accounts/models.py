@@ -4,6 +4,8 @@ from django.db import models
 from django.utils import timezone
 import uuid
 
+from core.module_permissions import default_allowed_modules
+
 
 def avatar_upload_path(instance, filename):
     ext = filename.rsplit('.', 1)[-1].lower()
@@ -36,6 +38,19 @@ class User(AbstractUser):
     two_factor_enabled = models.BooleanField(default=False)
     language = models.CharField(
         max_length=8, choices=Language.choices, default=Language.ENGLISH
+    )
+
+    # Per-user restriction on top of role (core.module_permissions). Only
+    # meaningful for STAFF/BRANCH_MANAGER — ignored entirely for OWNER,
+    # SUPPLIER, CUSTOMER. Defaults to every module so a Branch Manager's
+    # existing full access is preserved; a Staff account's real default is
+    # set explicitly wherever one is created (this field default is just the
+    # safe fallback for anything that bypasses that, e.g. a fixture/shell).
+    allowed_modules = models.JSONField(
+        default=default_allowed_modules,
+        blank=True,
+        help_text="Which internal sections this account can see, on top of "
+                  "its role. Owner is exempt and always sees everything."
     )
 
     def __str__(self):
@@ -189,6 +204,25 @@ class CustomerProfile(models.Model):
     last_name      = models.CharField(max_length=50)
     contact_number = models.CharField(max_length=20)
     address        = models.TextField(blank=True)
+
+    # Whether this customer buys at wholesale prices online.
+    #
+    # There is no such thing as "applying" for wholesale here — the Owner or a
+    # Branch Manager decides, off-system, that an account is a trade buyer and
+    # sets this. Both online write paths (the storefront checkout and
+    # POST /api/sales/) read it and nothing else to pick the price tier; a
+    # client can no longer ask for wholesale and be believed, which is exactly
+    # how the PWD/Senior claim is already treated over the wire.
+    #
+    # The walk-in POS is deliberately NOT gated on this. A cashier choosing
+    # Wholesale at the counter is staff judgment about a customer standing in
+    # front of them, and that has never gone through an account at all.
+    is_wholesale_eligible = models.BooleanField(
+        default=False,
+        verbose_name='Wholesale pricing',
+        help_text="Charge this customer wholesale prices on online orders. "
+                  "Set by the Owner or a Branch Manager only.",
+    )
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"

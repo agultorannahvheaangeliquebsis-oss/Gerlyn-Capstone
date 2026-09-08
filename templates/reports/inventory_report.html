@@ -1,7 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}Inventory Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
-{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% comment %}Same pattern as Floor Stock, Product Master List, etc: the topbar
+chip has to track whichever branch the toolbar is actually narrowed to, not
+sit frozen on "All Branches" once an Owner picks one.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -91,7 +94,7 @@ three tabs carry the control in .page-head.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
       <h3>No stock recorded</h3>
     </div>
     {% endif %}
@@ -114,8 +117,8 @@ three tabs carry the control in .page-head.
         <td data-label="Total Units" class="num">{{ row.units }} units</td>
         <td data-label="Inventory Value" class="num strong">₱{{ row.value|floatformat:2 }}</td>
         <td data-label="Low/Critical Items">
-          {% if row.low_critical %}<span class="pill pill-danger">{{ row.low_critical }} item{{ row.low_critical|pluralize }}</span>
-          {% else %}<span class="pill pill-ok">0 items</span>{% endif %}
+          {% if row.low_critical %}<span class="count count-danger" aria-label="{{ row.low_critical }} item{{ row.low_critical|pluralize }}">{{ row.low_critical }}</span>
+          {% else %}<span class="count count-ok" aria-label="no items">0</span>{% endif %}
         </td>
       </tr>
       {% empty %}
@@ -147,7 +150,7 @@ three tabs carry the control in .page-head.
       </tr>
       {% empty %}
       <tr><td colspan="6"><div class="empty">
-        <span class="glyph">□</span><h3>No stock records</h3></div></td></tr>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span><h3>No stock records</h3></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

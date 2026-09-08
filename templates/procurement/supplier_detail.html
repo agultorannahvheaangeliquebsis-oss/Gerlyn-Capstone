@@ -17,8 +17,8 @@ in the user's words, because "transfer" reads like it might rewrite history.
   <div>
     <a class="back-link" href="{% url 'supplier_list' %}">Suppliers</a>
     <h1 class="mt-2">{{ profile.supplier_name|default:supplier.username }}
-      {% if profile.branch %}<span class="pill pill-neutral">{{ profile.branch.branch_name }}</span>
-      {% else %}<span class="pill pill-neutral">All branches</span>{% endif %}
+      {% if profile.branch %}<span class="tag">{{ profile.branch.branch_name }}</span>
+      {% else %}<span class="tag">All branches</span>{% endif %}
     </h1>
   </div>
   {% if can_edit %}
@@ -32,7 +32,7 @@ in the user's words, because "transfer" reads like it might rewrite history.
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
         <tr><td class="gv-meta">Category</td><td style="text-align:right;">
-          {% if profile.supplier_category %}<span class="pill pill-info">{{ profile.supplier_category }}</span>{% else %}—{% endif %}</td></tr>
+          {% if profile.supplier_category %}<span class="tag">{{ profile.supplier_category }}</span>{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Contact person</td><td style="text-align:right;">{{ profile.contact_person|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Contact number</td><td class="num" style="text-align:right;">{{ profile.contact_number|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Email</td><td style="text-align:right;">{{ supplier.email|default:"—" }}</td></tr>
@@ -129,15 +129,17 @@ would submit nothing.
             destination select is inside the row form — the bulk bar's select
             belongs to the other form and would not be submitted here.
             {% endcomment %}
-            <button type="button" class="btn btn-sm" data-open-row-transfer="{{ link.pk }}">Transfer</button>
-            <button type="submit" form="remove-{{ link.pk }}" class="btn btn-sm btn-danger">Remove</button>
+            <button type="button" class="icon-btn icon-btn-action" data-open-row-transfer="{{ link.pk }}"
+                    title="Transfer" aria-label="Transfer {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></button>
+            <button type="submit" form="remove-{{ link.pk }}" class="icon-btn icon-btn-danger"
+                    title="Remove" aria-label="Remove {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
           </span>
         </td>
         {% endif %}
       </tr>
       {% empty %}
       <tr><td colspan="8"><div class="empty">
-        <span class="glyph">＋</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
         <h3>No products mapped yet</h3>
         <p>Add the products you buy from this supplier so purchase orders can be raised against them.</p>
       </div></td></tr>

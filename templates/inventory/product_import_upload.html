@@ -1,0 +1,37 @@
+{% extends "internal_base.html" %}
+{% block title %}Import Products{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'product_list' %}">Product Master List</a>
+    <h1 class="mt-2">Import Products</h1>
+    <p class="gv-meta mb-0">Step 1 of 3 — upload a spreadsheet</p>
+  </div>
+</div>
+
+<div class="card card-pad" style="max-width:640px;">
+  <p class="gv-meta" style="margin-top:0;">
+    Upload a .xlsx file with a header row in the first row. The next step lets
+    you match each column to a product field, and nothing is added or changed
+    until you review and confirm on the last step.
+  </p>
+  <p class="gv-meta">
+    Starting from scratch? <a href="{% url 'product_export_xlsx' %}">Export the current
+    catalog</a> first — its columns already match what Import expects.
+  </p>
+
+  <form method="POST" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="field">
+      <label for="import-file">Excel file (.xlsx)</label>
+      <input type="file" id="import-file" name="file" accept=".xlsx" required>
+    </div>
+    <div class="row" style="gap:var(--s3); margin-top:var(--s4);">
+      <button type="submit" class="btn btn-primary">Continue</button>
+      <a class="btn" href="{% url 'product_list' %}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

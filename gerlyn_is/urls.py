@@ -3,7 +3,10 @@ from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
 
-from core.views import db_latency_check, download_view, internal_settings_view, service_worker_view
+from core.views import (
+    about_view, db_latency_check, download_view, internal_settings_view,
+    service_worker_view,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -13,6 +16,7 @@ urlpatterns = [
     # TEMPORARY — Railway slow-page-load investigation. Owner-only. Remove
     # once resolved (see core/views.py:db_latency_check docstring).
     path('__diag/db/', db_latency_check, name='db_latency_check'),
+    path('about/', about_view, name='about'),
     path('download/', download_view, name='download'),
     path('internal/settings/', internal_settings_view, name='internal_settings'),
     path('', include('accounts.urls', namespace='accounts')),

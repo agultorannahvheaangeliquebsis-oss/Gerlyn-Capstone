@@ -1,7 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}Reports{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
-{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% comment %}Same pattern as Floor Stock, Product Master List, etc: the topbar
+chip has to track whichever branch the toolbar is actually narrowed to, not
+sit frozen on "All Branches" once an Owner picks one.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -85,21 +88,21 @@ for one card's sake.
       <span class="label">Total Orders</span>
       <span class="value">{{ total_orders }}</span>
       {% if delta_orders %}
-      <span class="stat-status"><span class="pill {{ delta_orders.pill }}">{{ delta_orders.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ delta_orders.pill }}">{% include "reports/_delta_arrow.html" with dir=delta_orders.dir %}{{ delta_orders.text }}</span></span>
       {% endif %}
     </div>
     <div class="kpi-card{% if delta_sales.tint %} {{ delta_sales.tint }}{% endif %}">
       <span class="label">Total Sales</span>
       <span class="value">₱{{ total_sales|floatformat:2 }}</span>
       {% if delta_sales %}
-      <span class="stat-status"><span class="pill {{ delta_sales.pill }}">{{ delta_sales.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ delta_sales.pill }}">{% include "reports/_delta_arrow.html" with dir=delta_sales.dir %}{{ delta_sales.text }}</span></span>
       {% endif %}
     </div>
     <div class="kpi-card{% if delta_aov.tint %} {{ delta_aov.tint }}{% endif %}">
       <span class="label">Avg Order Value</span>
       <span class="value">₱{{ avg_order_value|floatformat:2 }}</span>
       {% if delta_aov %}
-      <span class="stat-status"><span class="pill {{ delta_aov.pill }}">{{ delta_aov.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ delta_aov.pill }}">{% include "reports/_delta_arrow.html" with dir=delta_aov.dir %}{{ delta_aov.text }}</span></span>
       {% endif %}
       {% comment %}
       Same foot the Dashboard's Avg. Transaction Value card prints, from the
@@ -161,9 +164,9 @@ instead — same question, an answer that varies.
         secondary line.
         {% endcomment %}
         <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="-2"
-              style="font: 700 17px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ branch_chart.total_display }}</text>
+              style="font: 700 17px/1 var(--font-sans); font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ branch_chart.total_display }}</text>
         <text x="{{ branch_chart.centre }}" y="{{ branch_chart.centre }}" text-anchor="middle" dy="14"
-              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+              style="font: 400 11px/1 var(--font-sans); fill: var(--ink-600);">
           {{ branch_chart.branch_count }} branch{{ branch_chart.branch_count|pluralize:"es" }}</text>
       </svg>
       <ul class="pie-legend">
@@ -178,7 +181,7 @@ instead — same question, an answer that varies.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
       <h3>No sales to chart</h3>
       <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p>
     </div>
@@ -222,9 +225,9 @@ charts.
         donut's centre answers "how much", the ring answers "across how many".
         {% endcomment %}
         <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="-2"
-              style="font: 700 17px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ top_products.total_display }}</text>
+              style="font: 700 17px/1 var(--font-sans); font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ top_products.total_display }}</text>
         <text x="{{ top_products.centre }}" y="{{ top_products.centre }}" text-anchor="middle" dy="14"
-              style="font: 400 11px/1 system-ui, sans-serif; fill: var(--ink-600);">
+              style="font: 400 11px/1 var(--font-sans); fill: var(--ink-600);">
           {{ top_products.product_count }} product{{ top_products.product_count|pluralize }}</text>
       </svg>
       <ul class="pie-legend">
@@ -239,7 +242,7 @@ charts.
     </div>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
       <h3>No products sold</h3>
       <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}Products rank here once a sale records line items.{% endif %}</p>
     </div>
@@ -273,7 +276,7 @@ happened. The donut beside it takes the same out for the same reason.
     </svg>
     {% else %}
     <div class="empty">
-      <span class="glyph">□</span>
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
       <h3>Nothing to chart</h3>
       <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}No sales were recorded between {{ chart_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.{% endif %}</p>
     </div>
@@ -294,20 +297,20 @@ happened. The donut beside it takes the same out for the same reason.
       {% for t in transactions %}
       <tr>
         <td data-label="Order ID" class="sku strong">
-          <a href="{% url 'transaction_detail' t.pk %}">{{ t.order_number }}</a></td>
+          <a href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order">{{ t.order_number }}</a></td>
         <td data-label="Branch">{{ t.branch.branch_name }}</td>
         <td data-label="Recorded by">{% if t.staff %}{{ t.staff.username }}{% else %}—{% endif %}</td>
         <td data-label="Customer">
           {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}{% else %}Walk-in{% endif %}</td>
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
         <td data-label="Channel">
-          {% if t.transaction_type == "Online" %}<span class="pill pill-info">Online</span>
-          {% else %}<span class="pill pill-neutral">In-Store</span>{% endif %}</td>
+          {% if t.transaction_type == "Online" %}<span class="tag">Online</span>
+          {% else %}<span class="tag">In-Store</span>{% endif %}</td>
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">
-        <span class="glyph">□</span><h3>No sales recorded</h3>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span><h3>No sales recorded</h3>
         <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p></div></td></tr>
       {% endfor %}
     </tbody>

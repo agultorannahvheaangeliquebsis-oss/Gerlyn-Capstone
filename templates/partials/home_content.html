@@ -27,34 +27,34 @@ heading changing every six seconds.
   <div class="banner-rail">
 
     <div class="banner-main" id="banner-rotator">
-      <a class="banner-slide banner-slide--a is-active" href="{% url 'orders:catalog' %}" data-slide>
+      <a class="banner-slide is-active" href="{% url 'orders:catalog' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
           Free delivery
         </span>
         <h2>Groceries to your door</h2>
         <p>Free delivery anywhere in Baliuag on orders over ₱500.</p>
-        <span class="banner-cue">Start shopping →</span>
+        <span class="banner-cue">Start shopping <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
-      <a class="banner-slide banner-slide--b" href="{% url 'orders:select_branch' %}" data-slide>
+      <a class="banner-slide" href="{% url 'orders:select_branch' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
           Three branches
         </span>
         <h2>Pick up near you</h2>
         <p>Tarcan, Makinabang and Tiaong. Choose a branch to see what is on its shelves right now.</p>
-        <span class="banner-cue">Choose a branch →</span>
+        <span class="banner-cue">Choose a branch <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
-      <a class="banner-slide banner-slide--c" href="{% url 'orders:catalog' %}" data-slide>
+      <a class="banner-slide" href="{% url 'orders:catalog' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
           Cash on delivery
         </span>
         <h2>Pay when it arrives</h2>
         <p>No card needed. Settle in cash at your door or at the counter.</p>
-        <span class="banner-cue">Browse products →</span>
+        <span class="banner-cue">Browse products <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
       {# Tabs, not decoration: each one moves the rotator, so each is a button. #}
@@ -73,12 +73,20 @@ heading changing every six seconds.
         <span class="bc-t">Wholesale prices</span>
         <span class="bc-s">Bulk orders welcome — buy by the sack, box or case.</span>
       </a>
-      <a class="banner-card" href="{% url 'download' %}">
+      {% comment %}
+      This was "Install the app". .banner-side is a 1fr 1fr grid, so deleting
+      the card outright would have left the lower half of the rail empty next
+      to a full-height rotator — it is replaced, not removed. The copy is the
+      delivery threshold the announcement strip and the footer already state,
+      pointing at the branch list, which is where a shopper picks between
+      having it delivered and collecting it.
+      {% endcomment %}
+      <a class="banner-card" href="{% url 'orders:select_branch' %}">
         <span class="bc-ic">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><line x1="10.5" y1="18.5" x2="13.5" y2="18.5"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
         </span>
-        <span class="bc-t">Install the app</span>
-        <span class="bc-s">Order from your phone, even on a slow connection.</span>
+        <span class="bc-t">Delivery or pickup</span>
+        <span class="bc-s">Free delivery within Baliuag over ₱500, or collect at a branch.</span>
       </a>
     </div>
 
@@ -111,10 +119,6 @@ heading changing every six seconds.
       <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 11h8M8 15h5"/></svg></span>
       <span class="svc-nm">Track Order</span>
     </a>
-    <a class="svc" href="{% url 'download' %}">
-      <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-      <span class="svc-nm">Get the App</span>
-    </a>
     <a class="svc" href="{% url 'accounts:profile' %}">
       <span class="svc-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>
       <span class="svc-nm">My Account</span>
@@ -123,7 +127,7 @@ heading changing every six seconds.
 </div>
 
 <!-- =========================== CATEGORIES =========================== -->
-{% if categories %}
+{% if nav_categories %}
 <section class="shop-wrap section">
   <div class="panel">
     <div class="panel-head">
@@ -134,15 +138,18 @@ heading changing every six seconds.
       </a>
     </div>
     {% comment %}
-    The glyph stays an emoji rather than becoming an SVG like the shortcut
-    tiles above: categories are rows the owner creates in the admin, so
-    there is no fixed set to draw icons for. category_emoji falls back to
-    📦 for any name it does not recognise, which an icon set cannot do.
+    The tile carries the category's initial on a tinted square, not an SVG
+    icon and no longer an emoji: categories are rows the owner types in, so
+    there is no fixed set to draw icons for, and the emoji map only knew
+    eight names — everything else fell back to the same 📦, which made a row
+    of categories look like a row of identical boxes. An initial always
+    exists and always differs. category_tint keys the colour off the id so
+    it survives a rename; see the .cat .ring rules in storefront.css.
     {% endcomment %}
     <div class="cat-grid">
-      {% for c in categories %}
+      {% for c in nav_categories %}
       <a class="cat" href="{% url 'orders:catalog' %}?category={{ c.id }}">
-        <span class="ring" aria-hidden="true">{{ c.category_name|category_emoji }}</span>
+        <span class="ring {{ c|category_tint }}" aria-hidden="true">{{ c.category_name|first|upper }}</span>
         <span class="nm">{{ c.category_name }}</span>
       </a>
       {% endfor %}
@@ -190,37 +197,34 @@ heading changing every six seconds.
     <article class="pcard">
       <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{% include "partials/product_thumb.html" with product=p %}</a>
       <div class="body">
-        {% if p.category %}<span class="pcat">{{ p.category.category_name }}</span>{% endif %}
-        <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
-
         {% comment %}
-        Stock across all branches, since the home page is not branch-scoped.
-        Same thresholds as the catalog card so the two never disagree about
-        what "low" means; the catalog narrows it once a branch is picked.
-        {% endcomment %}
-        {% if p.on_hand == 0 %}
-          <span class="stock-out">Out of stock</span>
-        {% elif p.on_hand <= 10 %}
-          <span class="stock-low">Only {{ p.on_hand }} left</span>
-        {% else %}
-          <span class="stock-ok">In stock</span>
-        {% endif %}
+        Category left, sold count right, on one line — same row the catalog
+        card uses, so the two grids read identically.
 
-        {% if p.units_sold %}<span class="psold">{{ p.units_sold }} sold</span>{% endif %}
+        No stock line any more: accounts.views.home_view filters this grid to
+        in-stock products, so every card here is buyable and a badge saying
+        so on all of them carries no information.
+        {% endcomment %}
+        <div class="pmeta">
+          {% if p.category %}<span class="pcat">{{ p.category.category_name }}</span>{% endif %}
+          {% if p.units_sold %}<span class="psold">{{ p.units_sold }} sold</span>{% endif %}
+        </div>
+
+        <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
 
         <div class="pfoot">
           <span class="price-cluster">
             <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
             <span class="unit">per {{ p.unit_of_measure|lower }}</span>
           </span>
-          <a class="btn-cart cta" href="{% url 'orders:product_detail' p.id %}">View</a>
+          {% include "partials/_add_to_cart.html" with product=p %}
         </div>
       </div>
     </article>
     {% empty %}
     <div style="grid-column: 1 / -1;">
       <div class="card"><div class="empty">
-        <span class="glyph">📦</span>
+        <span class="glyph" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg></span>
         <h3>No products yet</h3>
         <p>Check back soon — we're stocking the shelves.</p>
       </div></div>
@@ -230,7 +234,7 @@ heading changing every six seconds.
 
   {% if products %}
   <div class="row" style="justify-content:center; margin-top:24px;">
-    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">See all products →</a>
+    <a class="btn btn-primary" href="{% url 'orders:catalog' %}">See all products <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
   </div>
   {% endif %}
 </section>

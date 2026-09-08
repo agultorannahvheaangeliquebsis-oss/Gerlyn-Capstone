@@ -1,19 +1,57 @@
+from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout, password_validation, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
     CustomerProfile, SupplierProfile, Notification,
 )
 from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
+from core.module_permissions import ALL_MODULE_CODES, MODULE_REGISTRY
+
+
+def safe_next(request):
+    """The requested post-login destination, but only if it is ours.
+
+    `next` reaches us from a query string on the way in and from a hidden
+    field on the way back out, either of which an attacker can set, and
+    redirect() will happily send the browser to another origin. Anything
+    off-site (or absent) returns None and the caller falls back to the
+    role dashboard.
+    """
+    nxt = request.POST.get('next') or request.GET.get('next')
+    if nxt and url_has_allowed_host_and_scheme(
+        nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return nxt
+    return None
+
+
+def _post_login_redirect(request, user):
+    """Where a signed-in user goes: their requested `next`, else their own
+    dashboard.
+
+    The role is validated FIRST. Preferring `next` before that check would
+    let an account with an unplaceable role stay logged in and browse, which
+    is the exact state _reject_invalid_role exists to prevent — the bad role
+    has to be caught however the user arrived.
+    """
+    target = _role_target(user)
+    if target is None:
+        return _reject_invalid_role(request)
+    return redirect(safe_next(request) or target)
 
 
 def login_view(request):
+    # `next` is honoured here as well as after a successful POST: someone who
+    # is already signed in and follows a "Log in to buy" link should land on
+    # the product, not be bounced to a dashboard for having a live session.
     if request.user.is_authenticated:
-        return redirect_by_role(request, request.user)
+        return _post_login_redirect(request, request.user)
 
     error = None
     username = ''
@@ -30,12 +68,29 @@ def login_view(request):
             if user is not None:
                 clear_failed_logins(username)
                 login(request, user)
-                return redirect_by_role(request, user)
+                # Back to whatever they were doing. A shopper who hit "Log in
+                # to buy" on a product card was one click from ordering it;
+                # dropping them on the customer dashboard instead made them
+                # find that product a second time. Same for a staff session
+                # that timed out mid-page — @login_required already appends
+                # ?next=, and until now this view threw it away.
+                #
+                # An internal role sent to the storefront home is not a
+                # special case: home_view redirects INTERNAL_ROLES to their
+                # own dashboard, so that lands correctly on its own.
+                return _post_login_redirect(request, user)
             else:
                 register_failed_login(username)
                 error = 'Invalid username or password.'
 
-    return render(request, 'accounts/login.html', {'error': error, 'username': username})
+    return render(request, 'accounts/login.html', {
+        'error': error,
+        'username': username,
+        # Round-trips the destination through the POST so it survives a failed
+        # attempt — otherwise a typo in the password quietly costs the shopper
+        # their place.
+        'next': safe_next(request) or '',
+    })
 
 
 def logout_view(request):
@@ -43,7 +98,15 @@ def logout_view(request):
     return redirect('/')
 
 
-def redirect_by_role(request, user):
+def _role_target(user):
+    """The URL name of a user's own landing page, or None if the role is bad.
+
+    Split out of redirect_by_role so login_view can prefer a validated `next`
+    over the dashboard without duplicating the role table. Deliberately pure
+    — it neither logs anyone out nor redirects — so that the invalid-role
+    handling stays in one visible place at each call site instead of being a
+    side effect of asking where someone belongs.
+    """
     role_redirects = {
         User.Role.OWNER: 'accounts:owner_dashboard',
         User.Role.BRANCH_MANAGER: 'accounts:manager_dashboard',
@@ -51,15 +114,26 @@ def redirect_by_role(request, user):
         User.Role.SUPPLIER: 'accounts:supplier_dashboard',
         User.Role.CUSTOMER: 'accounts:customer_dashboard',
     }
-    target = role_redirects.get(user.role)
+    return role_redirects.get(user.role)
+
+
+def _reject_invalid_role(request):
+    """Log out a user whose role we cannot place, and send them to sign-in.
+
+    An unrecognized role (bad data, or a value that no longer exists) must
+    never fall through to 'accounts:login' while still authenticated — with
+    login_view's own "already authenticated" redirect at the top, that is an
+    infinite redirect loop instead of a login page.
+    """
+    logout(request)
+    messages.error(request, 'Your account has an invalid role. Contact the Owner to have it fixed.')
+    return redirect('accounts:login')
+
+
+def redirect_by_role(request, user):
+    target = _role_target(user)
     if target is None:
-        # An unrecognized role (bad data, or a role value that no longer
-        # exists) must never fall through to 'accounts:login' here — with
-        # login_view's own "already authenticated" redirect at the top,
-        # that becomes an infinite redirect loop instead of a login page.
-        logout(request)
-        messages.error(request, 'Your account has an invalid role. Contact the Owner to have it fixed.')
-        return redirect('accounts:login')
+        return _reject_invalid_role(request)
     return redirect(target)
 
 
@@ -213,6 +287,19 @@ def _user_list_context(request):
     if role_filter:
         users = users.filter(role=role_filter)
 
+    # Branch lives on a different profile depending on role — a Manager's,
+    # a Staff's, or a Supplier's — so narrowing "assigned to this branch"
+    # has to check all three rather than a single FK on User itself.
+    branch_filter = request.GET.get('branch', '')
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        users = users.filter(
+            Q(manager_profile__branch_id=branch_filter) |
+            Q(staff_profile__branch_id=branch_filter) |
+            Q(supplier_profile__branch_id=branch_filter)
+        )
+
     rows = []
     for u in users:
         profile = _profile_for(u)
@@ -226,17 +313,31 @@ def _user_list_context(request):
             ),
         })
 
+    branches = Branch.objects.all()
     return {
         'rows': rows,
         'search_query': search_query,
         'role_filter': role_filter,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Product Master List, Stock Adjustments, etc.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         # The toolbar filters on every role a row can have; the Add/Edit modal
         # may only ASSIGN an internal one. Two different lists on purpose —
         # user_form has always validated against INTERNAL_ROLE_CHOICES.
         'role_choices': User.Role.choices,
         'form_role_choices': INTERNAL_ROLE_CHOICES,
-        'branches': Branch.objects.all(),
+        'branches': branches,
         'active_count': users.filter(is_active=True).count(),
+        # The module-access checkbox panel — only meaningful for Staff/
+        # Manager, shown/hidden by JS based on the role select. add_modules
+        # defaults to everything checked for a freshly-opened Add modal
+        # (the Owner is deliberately setting this account up from scratch,
+        # unlike the non-privilege-escalating backfill default used for
+        # pre-existing accounts) — overwritten by user_form on a rejected
+        # submit so a retry keeps whatever was actually checked.
+        'module_choices': [(code, label) for code, (label, _urls) in MODULE_REGISTRY.items()],
+        'add_modules': ALL_MODULE_CODES,
     }
 
 
@@ -257,6 +358,7 @@ def user_list(request):
                 'show_edit_modal': True,
                 'edit_target': target,
                 'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
+                'edit_modules': target.allowed_modules or [],
             })
 
     return render(request, 'accounts/user_list.html', context)
@@ -280,6 +382,12 @@ def user_form(request, pk=None):
     first_name = request.POST.get('first_name', '').strip()
     last_name = request.POST.get('last_name', '').strip()
     password = request.POST.get('password', '').strip()
+    # Filtered against the real registry so a tampered POST can't smuggle an
+    # unknown code into the field — it'd be harmless (nothing gates on an
+    # unrecognized code) but there's no reason to store it either.
+    submitted_modules = [
+        c for c in request.POST.getlist('allowed_modules') if c in ALL_MODULE_CODES
+    ]
 
     # The same three checks, in the same order, collected rather than
     # redirected — a redirect discarded the whole form, and this one has
@@ -356,6 +464,14 @@ def user_form(request, pk=None):
             profile.supplier_name = full_name
             profile.save()
 
+        # Module access only ever means anything for Staff/Manager (Owner is
+        # exempt, Supplier/Customer have their own separate portals) — left
+        # untouched for any other role rather than overwritten with an
+        # empty list that would just be ignored anyway.
+        if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
+            target.allowed_modules = submitted_modules
+            target.save(update_fields=['allowed_modules'])
+
         messages.success(request, f'User "{username}" saved.')
         return redirect('accounts:user_list')
 
@@ -365,6 +481,7 @@ def user_form(request, pk=None):
             'show_edit_modal': True,
             'edit_target': target,
             'edit_branch_id': branch_id,
+            'edit_modules': submitted_modules,
             'edit_errors': errors,
             'edit_form_data': request.POST,
         })
@@ -372,6 +489,7 @@ def user_form(request, pk=None):
         context.update({
             'show_add_modal': True,
             'add_branch_id': branch_id,
+            'add_modules': submitted_modules,
             'add_errors': errors,
             'add_form_data': request.POST,
         })
@@ -412,13 +530,20 @@ def home_view(request):
     if request.user.is_authenticated and request.user.role in INTERNAL_ROLES:
         return redirect_by_role(request, request.user)
 
-    from inventory.stats import attach_storefront_counts, best_sellers
+    from inventory.stats import (
+        attach_storefront_counts, best_sellers, in_stock_product_ids,
+    )
 
     # 12, not 8: the discover grid runs four across on a desktop, and eight
     # left the second row half-empty.
+    #
+    # Filtered to in-stock in the QUERY rather than after the slice, or the
+    # grid would quietly shrink below 12 whenever the first twelve products
+    # happened to include an empty one.
     products = attach_storefront_counts(
         list(
             Product.objects.select_related('category')
+            .filter(id__in=in_stock_product_ids())
             .prefetch_related('images')[:12]
         )
     )
@@ -428,10 +553,35 @@ def home_view(request):
         'products': products,
         'branches': branches,
         'categories': categories,
+        # The discover grid's Add-to-cart button needs to know whether a
+        # branch has been chosen, same as the catalog does — without it every
+        # card would render the "Choose a branch" branch forever.
+        'selected_branch_id': request.session.get('branch_id'),
         # Empty on a store with no sales yet — the rail hides itself rather
         # than showing a "top products" list nobody has bought.
         'best_sellers': best_sellers(limit=8),
     })
+
+def _register_form_values(request):
+    """What the visitor typed, so a rejected POST can re-render it filled in.
+
+    register_view rejects on four separate conditions and every one of them
+    used to `render(...)` with no context at all — the form came back blank
+    and the shopper retyped eight fields to fix one of them. The address
+    keys are here too: they are hidden inputs the map picker fills, and
+    losing them silently threw away the pin as well.
+
+    The two password fields are deliberately absent. A password re-rendered
+    into HTML is a password in the browser's view-source and in whatever
+    proxy cached the response.
+    """
+    keep = (
+        'username', 'email', 'first_name', 'last_name', 'contact_number',
+        'address', 'type', 'region', 'province', 'city', 'barangay',
+        'street_detail', 'latitude', 'longitude',
+    )
+    return {k: request.POST.get(k, '') for k in keep}
+
 
 def register_view(request):
     if request.user.is_authenticated:
@@ -449,22 +599,22 @@ def register_view(request):
 
         if password1 != password2:
             messages.error(request, 'Passwords do not match.')
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         try:
             password_validation.validate_password(password1)
         except ValidationError as e:
             for error in e.messages:
                 messages.error(request, error)
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         if User.objects.filter(username=username).exists():
             messages.error(request, 'Username already taken.')
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         if User.objects.filter(email=email).exists():
             messages.error(request, 'Email already registered.')
-            return render(request, 'accounts/register.html')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         user = User.objects.create_user(
             username=username,
@@ -490,8 +640,25 @@ def register_view(request):
             picker_fields['text'] = address
             Address.objects.create(user=user, is_default=True, **picker_fields)
 
+        # Verification is optional here (login isn't gated on it — only
+        # turning on Two-Factor Authentication is), so a send failure must
+        # not block account creation. The user can always retry from the
+        # "Resend" banner on their Profile/Settings page.
+        try:
+            send_verification_email(user, request)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"Verification email failed to send for new user {user.pk}: {e}", exc_info=True
+            )
+
         login(request, user)
-        messages.success(request, 'Account created successfully. Welcome!')
+        messages.success(
+            request,
+            "Account created successfully. Welcome! We've also sent a "
+            "verification link to your email — you can verify it any time "
+            "from Settings."
+        )
         return redirect('accounts:customer_dashboard')
 
     return render(request, 'accounts/register.html')
@@ -938,23 +1105,70 @@ def confirm_password_change(request, token):
 @login_required(login_url='accounts:login')
 def notifications_view(request):
     """
-    Displays all notifications for the logged-in user ordered by latest.
+    The notifications page: what the store has sent, and what it is allowed
+    to send.
+
+    These were two pages until now — an inbox at /notifications/ and a
+    preferences screen at /profile/notification-preferences/ — sitting as two
+    rows in the account rail under names that differ by one word. Reading a
+    notification and deciding whether to receive that kind of notification are
+    the same errand, and splitting them meant the answer to "why am I getting
+    these?" was never on the page showing them.
     """
     notifications = request.user.notifications.all().order_by('-created_at')
+    prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
     return render(request, 'accounts/notifications.html', {
         'notifications': notifications,
+        'unread_count': sum(1 for n in notifications if not n.is_read),
+        'pref_rows': [
+            {'field': f, 'label': label, 'sub': sub, 'on': getattr(prefs, f)}
+            for f, label, sub in NOTIFICATION_PREFERENCE_ROWS
+        ],
         'active_page': 'notifications',
     })
 
 
+@require_POST
 @login_required(login_url='accounts:login')
 def mark_notification_read(request, pk):
     """
-    Marks a specific notification as read and redirects back.
+    Marks a specific notification as read.
+
+    POST, not the GET link this used to be: marking something read changes
+    stored state, and a plain <a href> hands that change to anything that
+    follows links on the page — a prefetcher, a crawler, an accessibility
+    tool walking the DOM — which is how an inbox empties itself without
+    anyone having clicked.
     """
     notification = get_object_or_404(Notification, pk=pk, user=request.user)
-    notification.is_read = True
-    notification.save()
+    if notification.is_read:
+        messages.info(request, "That notification was already marked as read.")
+    else:
+        notification.is_read = True
+        notification.save(update_fields=['is_read'])
+        messages.success(request, "Marked as read.")
+    return redirect('accounts:notifications')
+
+
+@require_POST
+@login_required(login_url='accounts:login')
+def mark_all_notifications_read(request):
+    """
+    Clears the unread badge in one action.
+
+    Without this the only way to empty a header badge showing, say, 14 is to
+    press "Mark as read" fourteen times — and the badge is on every page of
+    the storefront, so an inbox nobody clears is a number that follows the
+    shopper around the shop forever.
+    """
+    updated = request.user.notifications.filter(is_read=False).update(is_read=True)
+    if updated:
+        messages.success(
+            request,
+            f"Marked {updated} notification{'' if updated == 1 else 's'} as read.",
+        )
+    else:
+        messages.info(request, "You have no unread notifications.")
     return redirect('accounts:notifications')
 
 
@@ -1068,13 +1282,49 @@ def address_set_default(request, pk):
 # NOTIFICATION PREFERENCES
 # ============================================================
 
+# The four switches, in the order they are drawn: field name, label,
+# description. One table rather than four hand-copied blocks of markup — the
+# template repeated the same nine lines per switch, so adding a fifth meant
+# copying it a fifth time and remembering to change three strings inside.
+#
+# The English strings live here, not only in the template, for two reasons:
+# the confirmation message after a save has to name the switch that moved
+# ("Delivery reminders turned off", never "delivery_reminders"), and the same
+# list has to reject an unknown ?field=. They stay verbatim so {% t %} still
+# finds them in accounts/translations.py, which carries a Filipino line for
+# every one.
+NOTIFICATION_PREFERENCE_ROWS = [
+    ('order_updates', 'Order updates',
+     'Status changes and delivery confirmations'),
+    ('promotions', 'Promotions & deals',
+     'Discounts and flash sales'),
+    ('delivery_reminders', 'Delivery reminders',
+     'Reminders before your order arrives'),
+    ('newsletter', 'Newsletter',
+     'Monthly store news and updates'),
+]
+NOTIFICATION_PREFERENCE_LABELS = {f: label for f, label, _ in NOTIFICATION_PREFERENCE_ROWS}
+
+
+def _preferences_anchor():
+    """Where the preferences card sits on the merged page, so a save returns
+    the reader to the switch they just flipped instead of the top of their
+    inbox. A function rather than a module constant: reverse() at import time
+    runs before the URLconf is loaded."""
+    return reverse('accounts:notifications') + '#preferences'
+
+
 @login_required(login_url='accounts:login')
 def notification_preferences_view(request):
-    prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
-    return render(request, 'accounts/notification_preferences.html', {
-        'prefs': prefs,
-        'active_page': 'notification_preferences',
-    })
+    """
+    Permanently redirects to the merged notifications page.
+
+    The route stays rather than being deleted: it has been the preferences
+    URL for the life of the settings section, so it is in browser histories
+    and autocompletes, and a 404 there teaches nothing. A 301 sends those
+    straight to the card that replaced it.
+    """
+    return redirect(_preferences_anchor(), permanent=True)
 
 
 @login_required(login_url='accounts:login')
@@ -1083,12 +1333,21 @@ def notification_preferences_update(request):
     prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
 
     field = request.POST.get('field')
-    valid_fields = {'order_updates', 'promotions', 'delivery_reminders', 'newsletter'}
-    if field in valid_fields:
-        setattr(prefs, field, request.POST.get('value') == 'on')
-        prefs.save(update_fields=[field])
+    if field not in NOTIFICATION_PREFERENCE_LABELS:
+        # Previously this fell through to a bare redirect: an unknown field
+        # saved nothing and said nothing, so a typo'd switch looked exactly
+        # like a working one that had simply been left alone.
+        messages.error(request, "That notification setting doesn't exist.")
+        return redirect(_preferences_anchor())
 
-    return redirect('accounts:notification_preferences')
+    on = request.POST.get('value') == 'on'
+    setattr(prefs, field, on)
+    prefs.save(update_fields=[field])
+    messages.success(
+        request,
+        f"{NOTIFICATION_PREFERENCE_LABELS[field]} turned {'on' if on else 'off'}.",
+    )
+    return redirect(_preferences_anchor())
 
 
 # ============================================================
@@ -1157,7 +1416,7 @@ def session_revoke(request, pk):
 
     target = get_object_or_404(UserSession, pk=pk, user=request.user)
     if target.session_key == request.session.session_key:
-        messages.error(request, "That's your current session — use Sign out for that instead.")
+        messages.error(request, "That's your current session — use Logout for that instead.")
         return _sessions_redirect(request.user)
 
     DjangoSession.objects.filter(session_key=target.session_key).delete()

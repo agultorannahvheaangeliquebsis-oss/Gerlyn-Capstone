@@ -20,8 +20,7 @@
     <span class="current">{% t "My Profile" %}</span>
   </nav>
 
-  <h1 class="gv-page-title" style="margin-bottom:4px;">{% t "Settings" %}</h1>
-  <p class="gv-meta" style="margin-bottom:24px;">{% t "Manage your profile, addresses, and preferences" %}</p>
+  <h1 class="gv-page-title">{% t "Settings" %}</h1>
 
   <div class="account-grid">
 
@@ -136,7 +135,6 @@
       <div class="account-card">
         <div class="account-card-head">
           <span class="account-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
             {% t "Personal Information" %}
           </span>
           <button type="button" class="btn btn-sm btn-quiet" id="edit-toggle-btn" onclick="toggleEditForm()">
@@ -150,14 +148,12 @@
           <div class="info-grid">
             <div class="info-field">
               <label>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
                 {% t "Full Name" %}
               </label>
               <div class="val">{{ full_name }}</div>
             </div>
             <div class="info-field">
               <label>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5 19.79 19.79 0 0 1 1.6 4.91 2 2 0 0 1 3.58 2.72h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 10a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.28 17z"/></svg>
                 {% t "Mobile Number" %}
               </label>
 
@@ -165,10 +161,7 @@
                 {% if contact_number %}
                   {{ contact_number }}
                   {% comment "" %}
-                    <span class="verified-badge">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    Verified
-                  </span>
+                    <span class="pill pill-ok">Verified</span>
                   {% endcomment %}
                 {% else %}
                   <span style="color:var(--ink-400);">{% t "Not set" %}</span>
@@ -177,18 +170,14 @@
             </div>
             <div class="info-field">
               <label>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><polyline points="22,6 12,13 2,6"/></svg>
                 {% t "Email Address" %}
               </label>
               <div class="val">
                 {{ email }}
                 {% if is_email_verified %}
-                  <span class="verified-badge">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    Verified
-                  </span>
+                  <span class="pill pill-ok">Verified</span>
                 {% else %}
-                  <span class="unverified-badge">⚠ Unverified</span>
+                  <span class="pill pill-neutral">Unverified</span>
                 {% endif %}
                 {% if pending_email %}
                   <div class="pending-notice">Pending: {{ pending_email }}</div>
@@ -197,7 +186,6 @@
             </div>
             <div class="info-field">
               <label>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
                 {% t "Username" %}
               </label>
               <div class="val">@{{ username }}</div>
@@ -208,7 +196,6 @@
           <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line-soft);">
             <div class="info-field">
               <label>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
                 {% t "Delivery Address" %}
               </label>
               {% if default_address %}

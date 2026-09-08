@@ -1,4 +1,4 @@
-{% extends "internal_base.html" %}
+{% extends base_template %}
 {% block title %}Billing #{{ record.id }}{% endblock %}
 {% block page_subtitle %}Billing{% endblock %}
 
@@ -17,7 +17,7 @@
 {% if record.status == "Pending" %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
-    <div>
+    <div class="grow">
       <h3>Verify this payment</h3>
       <p class="gv-meta mb-0">
         The system records payment only — funds move outside it. Confirm once you have
@@ -26,8 +26,24 @@
     </div>
     <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
       {% csrf_token %}
-      <button type="submit" name="status" value="Paid" class="btn btn-primary">Mark as Paid</button>
       <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject</button>
+      <button type="submit" name="status" value="Paid" class="btn btn-primary">Mark as Paid</button>
+    </form>
+  </div>
+</div>
+{% elif record.status == "Rejected" %}
+<div class="card card-pad mb-4">
+  <div class="row-between wrap">
+    <div class="grow">
+      <h3>This payment was rejected</h3>
+      <p class="gv-meta mb-0">
+        Re-open it if the customer is paying again, or if the rejection was a mistake —
+        it goes back to Pending for a fresh check.
+      </p>
+    </div>
+    <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
+      {% csrf_token %}
+      <button type="submit" name="status" value="Pending" class="btn">Re-open payment</button>
     </form>
   </div>
 </div>
@@ -54,19 +70,21 @@
     {% endif %}
   </div>
 
-  <div class="card card-pad">
+  <div class="card card-pad card-fill">
     <h3 class="mb-4">Proof of Payment</h3>
-    {% if record.proof_of_payment %}
-      <img src="{{ record.proof_of_payment.url }}" alt="Proof of payment"
-           style="max-width:100%; border-radius:var(--r-card); border:1px solid var(--line);">
-    {% else %}
-      <div class="empty">
-        <span class="glyph">□</span>
-        <h3>No proof uploaded</h3>
-        <p>GCash or bank payments can attach a screenshot as evidence.</p>
-        <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
-      </div>
-    {% endif %}
+    <div class="card-fill-body">
+      {% if record.proof_of_payment %}
+        <img src="{{ record.proof_of_payment.url }}" alt="Proof of payment"
+             style="max-width:100%; border-radius:var(--r-card); border:1px solid var(--line);">
+      {% else %}
+        <div class="empty">
+          <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
+          <h3>No proof uploaded</h3>
+          <p>GCash or bank payments can attach a screenshot as evidence.</p>
+          <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
+        </div>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% endblock %}

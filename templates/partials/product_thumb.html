@@ -1,6 +1,6 @@
 {% load shop_extras %}
 {% comment %}
-  Renders a product's primary image, falling back to the emoji placeholder
+  Renders a product's primary image, falling back to the category glyph
   when the product has no uploaded photos. Expects `product` in context.
   Use inside an element styled as `.thumb` (see storefront.css).
 {% endcomment %}
@@ -17,6 +17,6 @@ aspect-ratio in storefront.css, so a deferred image shifts no layout.
     <img src="{{ imgs.0.image.url }}" alt="{{ imgs.0.alt_text|default:product.product_name }}"
          loading="lazy" decoding="async">
   {% else %}
-    {{ product|product_emoji }}
+    {{ product|product_icon }}
   {% endif %}
 {% endwith %}

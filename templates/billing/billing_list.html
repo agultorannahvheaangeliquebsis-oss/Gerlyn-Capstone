@@ -1,6 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}Billing Records{% endblock %}
 {% block page_subtitle %}Billing{% endblock %}
+{% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
+List, Stock Adjustments, Receive Delivery and the Order Console: the topbar
+chip has to track whichever branch the toolbar is actually narrowed to.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -9,12 +13,36 @@
   </div>
 </div>
 
+<form method="GET" class="toolbar toolbar-search">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search billing records">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search order number or reference…" value="{{ search_query }}" autocomplete="off" aria-label="Search by order number or reference">
+  </div>
+  {% if branches %}
+  <div class="search-filters">
+    {% comment %}
+    Owner only — a Manager/Staff account is already pinned to its own
+    branch's records above, so this selector would do nothing for them.
+    {% endcomment %}
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <input type="hidden" name="status" value="{{ status_filter }}">
+</form>
+
 <div class="filter-tabs">
   {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger. #}
-  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">{% include "partials/_status_icon.html" with icon="all" %}All <span class="count">{{ counts.all }}</span></a>
-  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?status=Pending">{% include "partials/_status_icon.html" with icon="clock" %}Pending <span class="count count-warn">{{ counts.pending }}</span></a>
-  <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?status=Paid">{% include "partials/_status_icon.html" with icon="peso" %}Paid <span class="count count-ok">{{ counts.paid }}</span></a>
-  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?status=Rejected">{% include "partials/_status_icon.html" with icon="x-circle" %}Rejected <span class="count count-danger">{{ counts.rejected }}</span></a>
+  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}">All</a>
+  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Pending">Pending</a>
+  <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Paid">Paid</a>
+  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Rejected">Rejected</a>
 </div>
 
 <div class="card table-wrap">
@@ -46,16 +74,22 @@
           {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
         </td>
         <td data-label="Action">
-          <span class="row-actions"><a class="btn btn-sm" href="{% url 'billing_detail' r.pk %}">View</a></span>
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'billing_detail' r.pk %}" data-detail-modal="Billing Record"
+               title="View" aria-label="View invoice for order {{ r.transaction.order_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
       {% empty %}
       <tr>
         <td colspan="8">
           <div class="empty">
-            <span class="glyph">₱</span>
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span>
+            {% if search_query or branch_filter %}
+            <h3>No billing records match</h3>
+            <p>Try clearing the search or branch filter.</p>
+            {% else %}
             <h3>No billing records</h3>
             <p>A billing record is created automatically for every sale.</p>
+            {% endif %}
           </div>
         </td>
       </tr>

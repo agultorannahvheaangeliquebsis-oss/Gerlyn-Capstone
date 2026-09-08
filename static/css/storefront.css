@@ -15,12 +15,12 @@
    the stock line is real Inventory — see partials/catalog_grid.html.
    ========================================================================== */
 
-/* Inter has been preloaded in public_base.html all along but nothing except
-   the old hero headline ever asked for it. The marketplace card stack leans
-   hard on tight, even numerals, which is exactly what Inter is for. */
+/* The storefront used to run on Inter while the internal shell ran on the
+   OS font. Both are on Roboto now, so this rule no longer overrides the
+   family — it stays only to keep body.shop's background with it. */
 body.shop {
   background: var(--bg);
-  font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .shop-wrap { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
@@ -31,7 +31,7 @@ body.shop {
 .shop-announce {
   background: var(--action-700);
   color: #fff;
-  font: 400 13px/1 'Inter', system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   padding: 8px 0;
 }
 /* The strip is two blocks of text on one row; on a phone they have to be
@@ -39,67 +39,250 @@ body.shop {
 .shop-announce .row-between { flex-wrap: wrap; gap: 4px 16px; }
 .shop-announce a { color: #fff; text-decoration: none; }
 .shop-announce a:hover { text-decoration: underline; }
-.shop-announce-links { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.shop-announce-info,
+.shop-announce-links { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.shop-announce-info a,
 .shop-announce-links a { display: inline-flex; align-items: center; gap: 6px; }
+.shop-announce-links strong { font-weight: 700; }
 .shop-announce-sep { width: 1px; height: 12px; background: rgba(255,255,255,.35); }
 
 /* --------------------------------------------------------------- header
    The search bar is the primary control of a shop, so it gets the coloured
    band and the widest column. White on --action is 5.31:1. */
+/* The price ink. It was #C2410C, orange, on the reference's argument that a
+   warm figure is findable on chrome that is otherwise green and grey. In this
+   store it read as a warning instead — the same family the error toast and
+   the low-stock line use — so a price looked like something had gone wrong.
+   The brand green says "price" without borrowing the alarm palette.
+
+   --action, not --action-700: it is 5.31:1 on white, AA at any size, so it
+   holds for the 12px unit line as well as the 19px figure, and it stays
+   distinct from the near-black --ink-900 the product name runs in. Prices sit
+   on white cards, never on the green bands, so it never meets its own colour.
+   Defined here rather than in gerlyn.css: this is the storefront's price ink,
+   and the internal panels must keep their neutral figures. */
+:root {
+  --price-fg: var(--action);
+  /* Mirrors gerlyn.css. Same value; this file is never served without it,
+     but a missing --font-sans would fall back to nothing at all. */
+  --font-sans: 'Roboto', -apple-system, 'Segoe UI', Arial, sans-serif;
+}
+
 .shop-header {
   background: var(--action);
   position: sticky; top: 0; z-index: 10;
 }
+
+/* BAND 2 — brand · search column · account + cart.
+
+   Grid, not flex. The middle column is the search field, and it is the one
+   that has to absorb every spare pixel while the brand and the buttons stay
+   at their content width; flex made all three negotiable and the search lost
+   every negotiation. minmax(0, 1fr) rather than a bare 1fr so the track may
+   shrink BELOW its min-content instead of shoving the row past the viewport
+   — the same trap the phone breakpoint documents further down. */
+/* Two named rows, not one row containing a two-item column. Wrapping the
+   search field and the category chips in a flex column made that column
+   taller than the brand and the buttons either side of it — and with
+   align-items:center the browser did exactly what it was told: it centred a
+   tall column against short neighbours, floating the field about 12px above
+   everything else on the band. The chips now occupy a row of their own, in
+   the search column, so the field is centred against the brand and the
+   buttons and the chips sit under it as they do in the reference. */
 .shop-nav {
-  display: flex; align-items: center; gap: 24px;
-  padding: 14px 24px 12px; max-width: 1280px; margin: 0 auto;
+  display: grid; align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "brand search actions"
+    ".     quick  .";
+  gap: 9px 26px; padding: 12px 24px 13px; max-width: 1280px; margin: 0 auto;
 }
+.shop-brand { grid-area: brand; }
+.shop-search { grid-area: search; }
+.shop-quick { grid-area: quick; }
+.shop-header-actions { grid-area: actions; }
 .shop-brand {
-  display: flex; align-items: center; gap: 10px; flex: none;
-  font-size: 17px; text-decoration: none; color: #fff;
+  display: flex; align-items: center; gap: 11px;
+  text-decoration: none; color: #fff;
 }
 .shop-brand:hover { color: #fff; }
+/* No plate behind the mark. .brand-mark carries a --brand fill, a 6px corner
+   and overflow:hidden for the internal sidebar, and the storefront copy sat
+   on top of that with a white square of its own — so the logo arrived on the
+   green band inside a white tile it never needed.
+
+   The source it points at is logo.png, not logo.jpg: the JPEG has the studio
+   white baked into its pixels, so no amount of CSS could have removed it.
+   logo.png is that file with the backdrop keyed out, and it is 901x595 —
+   object-fit:cover on a 42px SQUARE would have cropped the wordmark's ends
+   off, hence contain and an auto width. */
+.shop-brand .brand-mark {
+  width: auto; height: auto; border-radius: 0;
+  background: none; overflow: visible;
+}
 .shop-brand .brand-mark img {
-  width: 38px; height: 38px; border-radius: 10px; display: block;
-  background: #fff;
+  width: auto; height: 42px; max-height: 42px; border-radius: 0;
+  display: block; object-fit: contain; background: none;
 }
-.shop-brand-name { white-space: nowrap; }
-.shop-brand-name strong { color: #fff; }
-
-.shop-links { display: flex; gap: 4px; flex: none; }
-.shop-links a {
-  height: var(--touch); display: inline-flex; align-items: center; padding: 0 14px;
-  font: 600 14.5px/1 'Inter', system-ui, sans-serif; color: #fff;
-  border-radius: var(--r-input); text-decoration: none;
+/* Wordmark over trading line, the reference's stacked lockup. */
+.shop-brand-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.shop-brand-name {
+  white-space: nowrap;
+  font: 700 18px/1.1 var(--font-sans); letter-spacing: -.01em;
 }
-.shop-links a:hover { background: rgba(255,255,255,.14); color: #fff; }
-.shop-links a.active { background: rgba(255,255,255,.2); color: #fff; font-weight: 700; }
+.shop-brand-name strong { color: #fff; font-weight: 700; }
+/* 92% white, not the 72% this line looks like it wants: at 11px it is small
+   text, and .72 measures 3.57:1 on --action — under the 4.5:1 SC 1.4.3 asks
+   of body copy. .92 is 4.76:1 (the same value .shop-quick is set at) and the
+   line still recedes, because it is half the size of the name above it and
+   letterspaced. */
+.shop-brand-tag {
+  font: 500 11px/1.2 var(--font-sans);
+  letter-spacing: .08em; text-transform: uppercase;
+  color: rgba(255,255,255,.92); white-space: nowrap;
+}
 
-.shop-search { display: flex; flex: 1; min-width: 0; }
+.shop-search { display: flex; min-width: 0; }
 
 /* Quick keyword row under the search field — real categories, not invented
    trending terms. Scrolls sideways instead of wrapping the green band to a
    third row on narrow screens. */
 .shop-quick {
   display: flex; align-items: center; gap: 16px;
-  max-width: 1280px; margin: 0 auto; padding: 0 24px 10px;
+  padding: 0 2px; min-width: 0;
   overflow-x: auto; scrollbar-width: none;
 }
 .shop-quick::-webkit-scrollbar { display: none; }
 .shop-quick a {
   flex: none; text-decoration: none; white-space: nowrap;
   display: inline-flex; align-items: center;
-  font: 400 13px/1 'Inter', system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   color: rgba(255,255,255,.92);            /* 4.76:1 on --action */
-  padding: 4px 0;
+  padding: 2px 0;
 }
 .shop-quick a:hover { color: #fff; text-decoration: underline; }
-/* 13px text with 4px of padding is a 21px tap target. On a touch screen
+/* 13px text with 2px of padding is a 17px tap target. On a touch screen
    these are the row of category links directly under the search field, so
    they answer to the 44px floor — but only there: a mouse does not need it
    and the compact band is the point of the design. */
 @media (pointer: coarse) {
   .shop-quick a { min-height: var(--touch); }
+}
+
+.shop-header-actions { display: flex; align-items: center; gap: 10px; }
+
+/* Outlined, not filled. Two solid pills in this corner made the account link
+   compete with the cart, and the cart is the one a shopper mid-purchase is
+   reaching for. Declared after gerlyn.css loads, so it wins over .btn at
+   equal specificity without an !important. */
+.shop-signin {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 0 20px;
+  background: transparent; border: 1.5px solid rgba(255,255,255,.6);
+  border-radius: var(--r-input); color: #fff;
+  font: 600 14.5px/1 var(--font-sans); text-decoration: none;
+  transition: background .12s ease, border-color .12s ease;
+}
+.shop-signin:hover { background: rgba(255,255,255,.14); border-color: #fff; color: #fff; }
+
+/* BAND 3 — the white page nav.
+
+   The page links used to sit in the green band between the brand and the
+   search, which left the search whatever width was over. On their own white
+   row they get a surface where the current-page underline can be drawn in
+   the brand green rather than in white-on-white, and the search gets the
+   whole middle of the band above.
+
+   The row scrolls sideways rather than hiding on a phone: it is the only
+   path to About/Contact on a small screen, and the previous display:none
+   took it off exactly the devices that had no other route. */
+.shop-navbar { background: #fff; border-bottom: 1px solid var(--line); }
+.shop-navbar-inner {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  max-width: 1280px; margin: 0 auto; padding: 0 24px;
+}
+.shop-links {
+  display: flex; align-items: center; gap: 2px; min-width: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+.shop-links::-webkit-scrollbar { display: none; }
+/* The trigger is a <button> and the rest are <a>: both are styled here so
+   "Shop" cannot drift a pixel out of line with its neighbours. The 3px rule
+   under the current page is not decoration — SC 1.4.1 does not accept a
+   colour change as the only way to tell the current page from the rest. It
+   is always present and only changes opacity, so the row does not reflow
+   when a link becomes current. */
+.shop-links a,
+.shop-menu-trigger {
+  position: relative; flex: none;
+  height: 46px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 13px; white-space: nowrap;
+  background: none; border: 0; cursor: pointer;
+  font: 600 14.5px/1 var(--font-sans);
+  color: var(--ink-700); text-decoration: none;
+  transition: color .15s ease;
+}
+.shop-links a::after,
+.shop-menu-trigger::after {
+  content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px;
+  background: var(--action); border-radius: 3px 3px 0 0; opacity: 0;
+  transition: opacity .15s ease;
+}
+.shop-links a:hover,
+.shop-menu-trigger:hover { color: var(--action-700); }
+.shop-links a:hover::after,
+.shop-menu-trigger:hover::after { opacity: .35; }
+.shop-links a.active,
+.shop-menu-trigger.active { color: var(--action-700); }
+.shop-links a.active::after,
+.shop-menu-trigger.active::after { opacity: 1; }
+
+/* Click to open, not hover: a hover menu is unreachable on a touch screen,
+   and this is the storefront's only route to a category from the nav row. */
+.shop-menu { position: relative; flex: none; }
+.shop-menu-caret { transition: transform .18s ease; }
+.shop-menu-trigger[aria-expanded="true"] .shop-menu-caret { transform: rotate(180deg); }
+.shop-menu-panel {
+  display: none; position: absolute; top: 100%; left: 4px;
+  min-width: 224px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: 0 8px 24px rgba(23,37,30,.12); z-index: 30;
+  padding: 6px; animation: menuIn .15s ease;
+}
+.shop-menu-panel.is-open { display: flex; flex-direction: column; }
+.shop-menu-item {
+  display: flex; align-items: center; min-height: 40px; padding: 0 12px;
+  border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
+  font: 500 14px/1.25 var(--font-sans);
+}
+.shop-menu-item:hover { background: var(--green-50); color: var(--action-700); }
+.shop-menu-item strong { font-weight: 700; }
+
+/* The status line at the right edge of the nav row. The reference prints a
+   standing delivery promise here; this one prints which branch the session
+   is buying from, because that is a fact the system holds and the promise is
+   not — see core.context_processors.nav_selected_branch. The dot is
+   decorative: the sentence beside it carries the whole message. */
+/* flex: 0 1 auto with min-width: 0, not flex: none. Branch names come from
+   the database and nothing caps their length; pinned at its content width
+   this line would have shoved the nav links off the row the day someone
+   registered "Baliuag Poblacion Main Branch Extension". It yields instead,
+   and the name itself truncates. */
+.shop-status {
+  display: flex; align-items: center; gap: 8px;
+  flex: 0 1 auto; min-width: 0;
+  font: 400 13px/1 var(--font-sans); color: var(--ink-500);
+  white-space: nowrap;
+}
+.shop-status strong {
+  color: var(--ink-900); font-weight: 600;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+.shop-status a { color: var(--action-700); font-weight: 600; text-decoration: none; }
+.shop-status a:hover { text-decoration: underline; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--ok-fg); box-shadow: 0 0 0 3px rgba(30,122,79,.14);
 }
 
 /* FOCUS RINGS ON THE GREEN BANDS.
@@ -118,11 +301,9 @@ body.shop {
    already clears. */
 .shop-announce a:focus-visible,
 .shop-brand:focus-visible,
-.shop-links a:focus-visible,
 .shop-quick a:focus-visible,
-.cart-btn:focus-visible,
-.shop-header-actions > .btn:focus-visible,
-.user-menu-trigger:focus-visible {
+.shop-icon-btn:focus-visible,
+.shop-header-actions > .btn:focus-visible {
   outline-color: #fff;
 }
 
@@ -132,18 +313,25 @@ body.shop {
   position: relative; flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 8px;
   background: #fff; border-radius: var(--r-input);
-  padding: 0 5px 0 14px; min-height: 44px;
+  padding: 0 5px 0 16px; min-height: 46px;
 }
-.search-box .search-icon { flex: none; color: var(--ink-400); }
 .search-box input {
   border: none; background: transparent; outline: none; flex: 1; min-width: 0;
   padding: 0; color: var(--ink-900);
-  font: 400 15px/1 'Inter', system-ui, sans-serif;
+  font: 400 15px/1 var(--font-sans);
 }
+/* Square, not a wide pill: the button carries a magnifier now instead of the
+   word "Search", and a 20px-padded box around a single glyph reads as an
+   unlabelled slab. Width is pinned equal to the height so it stays a square
+   at every zoom level, and the 34px is the inner control's height — the 44px
+   touch floor is met by .search-box itself, which is the whole tap target on
+   a phone. */
 .search-box .search-submit {
-  flex: none; min-height: 34px; padding: 0 20px; font-size: 14px;
-  border-radius: 6px;
+  flex: none; width: 36px; min-width: 36px; min-height: 36px; padding: 0;
+  border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
 }
+.search-box .search-submit svg { flex: none; }
 .search-dropdown {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0;
   background: #fff; border: 1px solid var(--line); border-radius: var(--r-card);
@@ -157,25 +345,65 @@ body.shop {
 }
 .search-result:last-child { border-bottom: 0; }
 .search-result:hover, .search-result.is-active { background: var(--green-50); }
-.search-result-name { font: 600 14px/1.3 system-ui, sans-serif; }
+.search-result-name { font: 600 14px/1.3 var(--font-sans); }
 .search-result-meta { display: flex; align-items: center; gap: 8px; flex: none; }
-.search-result-category { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-700); }
-.search-result-price { font: 700 13.5px/1 system-ui, sans-serif; color: var(--action-700); }
-.search-empty { padding: 14px; font: 400 13.5px/1.4 system-ui, sans-serif; color: var(--ink-700); }
+.search-result-category { font: 400 12px/1 var(--font-sans); color: var(--ink-700); }
+.search-result-price { font: 700 13.5px/1 var(--font-sans); color: var(--action-700); }
+.search-empty { padding: 14px; font: 400 13.5px/1.4 var(--font-sans); color: var(--ink-700); }
 
-.cart-btn { position: relative; }
-.cart-badge {
-  position: absolute; top: -7px; right: -7px;
-  min-width: 20px; height: 20px; padding: 0 5px;
+/* Bell, account, cart — one control, three uses. All three used to be
+   different objects: the cart a filled white square, the account a bordered
+   pill with a caret, and there was no bell at all. On a coloured band a white
+   plate is a second surface the eye has to resolve before it can find the
+   glyph, so nothing sits behind these now; the tint on hover is the only
+   plate any of them gets.
+
+   44px is the floor, not the icon size — the glyph inside is 21px and the
+   rest is the tap target WCAG 2.2 SC 2.5.8 asks for. */
+.shop-icon-btn {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 44px; min-height: 44px; padding: 0 6px;
+  border: 0; border-radius: var(--r-input);
+  background: none; color: #fff; text-decoration: none;
+  font: 600 14px/1 var(--font-sans);
+  transition: background .12s ease;
+}
+.shop-icon-btn:hover { background: rgba(255,255,255,.16); color: #fff; }
+.shop-icon-btn svg { flex: none; }
+/* The name beside the account glyph. It is what a shopper clicks to reach
+   their orders, so it keeps its label where the other two do not — and it
+   truncates rather than pushing the cart off the band on a long username. */
+.shop-account-btn { padding-right: 12px; }
+.shop-account-name {
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Amber on white-cased green: the badge sits ON the header band, so its ring
+   is the band's own colour rather than white — a white ring around an amber
+   dot on green reads as a third object.
+
+   Centred by flex, not by line-height. It was `height: 18px` with
+   `line-height: 18px`, and `* { box-sizing: border-box }` means the 2px ring
+   comes OUT of that 18 — so an 18px line box was being centred inside a 14px
+   content box and the digit sat two pixels low in its own circle. At 11px
+   type that is a visible tilt, and it is the whole reason the badge read as
+   broken. align-items/justify-content owe nothing to the font metrics.
+
+   16px, down from 18: the glyph it rides on is 21px, and a badge five sixths
+   the size of the icon stops being a mark on the cart and becomes an object
+   beside it. Nudged in from the corner far enough to clear the cart's rim
+   while still overlapping the glyph box, which is what makes it read as
+   attached to the cart rather than floating in the button's padding. */
+.shop-icon-badge {
+  position: absolute; top: 2px; right: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 3px;
   border-radius: var(--r-pill); background: #B45309; color: #fff;
-  font: 700 11.5px/20px 'Inter', system-ui, sans-serif; text-align: center;
-  border: 2px solid #fff;
+  font: 700 10px/1 var(--font-sans);
+  border: 2px solid var(--action);
+  /* The badge is a label on the link, never a second target inside it. */
+  pointer-events: none;
 }
-/* On the green band the cart reverses: white pill, green content. */
-.shop-header .cart-btn {
-  background: #fff; color: var(--action-700); border-color: #fff;
-}
-.shop-header .cart-btn:hover { background: var(--green-50); color: var(--action-700); }
 
 .shop-main { min-height: 60vh; }
 
@@ -188,19 +416,38 @@ body.shop {
   display: grid; grid-template-columns: 2.2fr 1fr; gap: 12px;
   padding: 16px 0;
 }
-/* aspect-ratio with NO min-height. The two together fight: once min-height
-   wins, the ratio resolves the width from that height, and the box grew
-   9px wider than its own grid track (measured 503px inside a 494px rail).
-   The narrow breakpoint below drops the ratio instead and pins a height. */
+/* min-height, not aspect-ratio.
+
+   A ratio resolves a height of its own, and a grid item that has one will
+   not stretch to its row — so the rail's height was set by whichever column
+   was taller and only the side column ever grew into it. Two cards whose
+   copy runs to a second line made that column ~15px taller than the banner,
+   and the two ended on different lines.
+
+   A minimum height has no such opinion: it keeps the banner in roughly the
+   3:1 shape the design wants, and the default stretch takes it the rest of
+   the way to the row, so the two columns finish level whatever the cards
+   say. The floor is what the ratio used to give at the 1280 container —
+   below ~285px a two-line headline plus eyebrow, blurb, cue and the dot
+   strip stop fitting the padding, which is why the old ratio was widened
+   from 1320/390 to 1320/440 in the first place. The slides are absolutely
+   positioned and contribute no height, so nothing else sets it. */
 .banner-main {
   position: relative; border-radius: var(--r-card); overflow: hidden;
-  aspect-ratio: 1320 / 390;
+  min-height: clamp(285px, 21.5vw, 320px);
 }
+/* The bottom padding is the dot strip's height, not a guess: the slide had
+   no vertical padding at all, so its centred block ran to the very bottom of
+   the box and the "Browse products" underline sat a few pixels off the dots.
+   Reserving that band means the copy centres inside the space it actually
+   has, and the gap above the eyebrow matches the gap below the cue. */
 .banner-slide {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; justify-content: center;
-  gap: 10px; padding: 0 clamp(24px, 5%, 56px);
+  gap: 10px;
+  padding: clamp(20px, 3.5%, 30px) clamp(24px, 5%, 56px) 42px;
   color: #fff; text-decoration: none;
+  background: var(--action-700);
   opacity: 0; visibility: hidden;
   transition: opacity .5s ease, visibility .5s ease;
 }
@@ -208,38 +455,56 @@ body.shop {
 .banner-slide:hover { color: #fff; }
 .banner-slide .eyebrow {
   display: inline-flex; align-items: center; gap: 7px;
-  font: 600 13px/1 'Inter', system-ui, sans-serif;
+  font: 600 13px/1 var(--font-sans);
   letter-spacing: .04em; text-transform: uppercase;
 }
 .banner-slide h2 {
-  font: 800 clamp(24px, 3vw, 40px)/1.12 'Inter', system-ui, sans-serif;
+  font: 800 clamp(24px, 2.7vw, 36px)/1.14 var(--font-sans);
   color: #fff; margin: 0; max-width: 15ch;
 }
 .banner-slide p {
-  font: 400 clamp(14px, 1.3vw, 17px)/1.45 'Inter', system-ui, sans-serif;
+  font: 400 clamp(14px, 1.3vw, 17px)/1.45 var(--font-sans);
   margin: 0; max-width: 34ch;
 }
 .banner-slide .banner-cue {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
-  font: 700 14px/1 'Inter', system-ui, sans-serif;
+  font: 700 14px/1 var(--font-sans);
   border-bottom: 2px solid rgba(255,255,255,.65); padding-bottom: 3px;
   align-self: flex-start;
 }
 .banner-slide:hover .banner-cue { border-bottom-color: #fff; }
-/* Three fixed grounds rather than one repeated — the rotation has to be
-   visible at a glance or it reads as a rendering fault. */
-.banner-slide--a { background: linear-gradient(120deg, var(--action-700) 0%, var(--action) 55%, var(--brand) 100%); }
-.banner-slide--b { background: linear-gradient(120deg, #14603C 0%, #1E7A4F 60%, #2E9E6B 100%); }
-.banner-slide--c { background: linear-gradient(120deg, #0F4F31 0%, #22694A 50%, #3AA97A 100%); }
+/* ONE ground, on .banner-slide above. There used to be three --a/--b/--c
+   gradients here, justified as making the rotation "visible at a glance" —
+   but all three were 120deg green ramps within a few percent of each other,
+   and two of them were spelled in raw hex (#14603C/#1E7A4F/#2E9E6B and
+   #0F4F31/#22694A/#3AA97A) that duplicated --action-700/--action/--brand.
+   They did not read as three grounds; they read as one ground flickering.
 
+   The rotation is already signalled twice, properly: the copy changes
+   completely between slides, and .banner-dots marks position explicitly.
+   Neither needed a third channel, least of all one that failed at it. The
+   modifier classes are gone from the markup too rather than left as
+   no-op hooks. */
+
+/* Left-aligned to the slide's own text inset, not centred across the box.
+   Every slide is left-aligned copy, and a centred dot row under it read as
+   a third alignment on a panel that only has one. The 44px hit areas are
+   pulled together with a negative margin so the DOTS line up on the text
+   edge rather than the first button's padding doing it. */
 .banner-dots {
-  position: absolute; left: 0; right: 0; bottom: 2px; z-index: 2;
-  display: flex; justify-content: center; gap: 2px;
+  position: absolute; left: clamp(24px, 5%, 56px); right: auto; bottom: 4px;
+  z-index: 2;
+  display: flex; justify-content: flex-start; gap: 2px;
+  margin-left: -9.5px;
 }
 /* 44px of hit area around a 9px dot. The dot itself is drawn by ::after and
    is unchanged — this only grows the target, which was 30px. */
+/* 28px, not the 44px --touch. WCAG 2.2 SC 2.5.8 asks for 24x24 and these
+   clear it; the full 44px forced a 48px dead band across the bottom of the
+   hero, which is what pushed the copy into the dots in the first place. The
+   dot itself is unchanged. */
 .banner-dot {
-  width: var(--touch); height: var(--touch);
+  width: 28px; height: 28px;
   padding: 0; border: none; background: none;
   cursor: pointer; display: grid; place-items: center;
 }
@@ -251,18 +516,19 @@ body.shop {
 
 .banner-side { display: grid; grid-template-rows: 1fr 1fr; gap: 12px; }
 .banner-card {
-  border-radius: var(--r-card); padding: 20px 22px; text-decoration: none;
-  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  border-radius: var(--r-card); padding: 18px 22px; text-decoration: none;
+  display: flex; flex-direction: column; justify-content: center; gap: 5px;
   border: 1px solid var(--green-100); background: var(--green-50);
   color: var(--ink-900); transition: box-shadow .18s ease, transform .18s ease;
 }
 .banner-card:hover { box-shadow: 0 6px 18px rgba(23,37,30,.10); transform: translateY(-2px); color: var(--ink-900); }
+/* The icon sits straight on the card tint — no white chip behind it. */
 .banner-card .bc-ic {
-  width: 34px; height: 34px; border-radius: 9px; background: #fff; flex: none;
-  display: grid; place-items: center; color: var(--action); margin-bottom: 2px;
+  display: grid; place-items: center; justify-content: start;
+  color: var(--action); margin-bottom: 6px;
 }
-.banner-card .bc-t { font: 700 15.5px/1.25 'Inter', system-ui, sans-serif; }
-.banner-card .bc-s { font: 400 13px/1.4 'Inter', system-ui, sans-serif; color: var(--ink-600); }
+.banner-card .bc-t { font: 700 15.5px/1.25 var(--font-sans); }
+.banner-card .bc-s { font: 400 13px/1.4 var(--font-sans); color: var(--ink-600); }
 
 /* ------------------------------------------------------- service row
    The reference's ring of shortcuts. Every one is a destination that
@@ -270,30 +536,65 @@ body.shop {
 .svc-row {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 8px; background: #fff; border-radius: var(--r-card);
-  padding: 22px 12px; border: 1px solid var(--line);
+  padding: 16px 12px; border: 1px solid var(--line);
 }
+/* Hover lives in the ink and a 1px lift — nothing fills.
+
+   This used to paint the whole tile --green-50 and flip its icon chip to
+   solid --action, which made one shortcut in a row of six look selected
+   rather than pointed at, and put a second green rectangle inside a panel
+   that is already a green-tinted row. Now the label deepens to
+   --action-700, the glyph deepens with it, and the chip rises a pixel.
+
+   No non-colour cue is needed for hover the way it is for the header's
+   current-page link: hover is transient and pointer-driven, and it is not
+   telling the reader where they are. Keyboard users get the global
+   :focus-visible ring, which is untouched. */
 .svc {
   display: flex; flex-direction: column; align-items: center; gap: 9px;
   padding: 8px 4px; text-decoration: none; color: var(--ink-700);
   border-radius: var(--r-input); text-align: center;
-  transition: background .15s ease;
+  transition: color .15s ease;
 }
-.svc:hover { background: var(--green-50); color: var(--action-700); }
+.svc:hover { color: var(--action-700); }
+/* No chip fill. The glyph carries the shortcut on its own; the row of
+   five --green-50 squares read as five filled buttons sitting inside an
+   already-bordered white panel. The 46px box stays so the icon keeps its
+   own line above the label and the columns keep their rhythm. */
 .svc .svc-ic {
-  width: 46px; height: 46px; border-radius: 13px; flex: none;
-  background: var(--green-50); color: var(--action);
+  width: 46px; height: 46px; flex: none;
+  background: none; color: var(--action);
   display: grid; place-items: center;
+  transition: transform .15s ease, color .15s ease;
 }
-.svc:hover .svc-ic { background: var(--action); color: #fff; }
-.svc .svc-nm { font: 500 12.5px/1.3 'Inter', system-ui, sans-serif; }
+.svc:hover .svc-ic { color: var(--action-700); transform: translateY(-1px); }
+.svc .svc-nm { font: 500 12.5px/1.3 var(--font-sans); }
+
+/* The lift is decoration; the colour change on the same hover still reports
+   the state on its own. */
+@media (prefers-reduced-motion: reduce) {
+  .svc:hover .svc-ic { transform: none; }
+}
 
 /* ------------------------------------------------------------ sections */
-.section { padding: 26px 0; }
+/* padding-block, NOT the `padding: 26px 0` this was. Fourteen templates
+   write `class="shop-wrap section"`, and the shorthand's implied `0` for the
+   inline sides overrode .shop-wrap's `0 24px` — so every one of those pages
+   ran its content flush into both screen edges at any width under 1280px,
+   where the wrap's centring margin was no longer covering for it. Invisible
+   on a desktop, ugly on an iPad and worse on a phone. */
+.section { padding-block: 26px; }
+/* Every .section paid 26px top AND bottom, so each seam between two home
+   page panels was 52px of nothing — three of those down one screen is most
+   of a phone's viewport spent on gaps. The first section keeps its full
+   clearance under the header; each one after it starts against the panel
+   above, halving the seam without touching the rhythm inside a panel. */
+.section + .section { padding-top: 0; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
 /* h1 as well as h2 — the catalog's title is the page's h1, and the two
    must look identical wherever a .section-head is used. */
 .section-head h1,
-.section-head h2 { font: 700 22px/1.2 'Inter', system-ui, sans-serif; }
+.section-head h2 { font: 700 22px/1.2 var(--font-sans); }
 
 /* Panel-style section — white card with a ruled header, as the reference
    frames CATEGORIES and TOP PRODUCTS. */
@@ -305,13 +606,18 @@ body.shop {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 18px 22px; border-bottom: 1px solid var(--line);
 }
+/* A section name, set as one. It was running three emphasis mechanisms at
+   once for a two-word label — bold, tracked caps, AND brand green — which is
+   what a heading does when it does not trust its own position to say it is a
+   heading. It is the first thing in a bordered panel head; that is the
+   signal. Same direction .gv-label took. */
 .panel-head h2 {
-  font: 700 17px/1.2 'Inter', system-ui, sans-serif;
-  letter-spacing: .06em; text-transform: uppercase; color: var(--action);
+  font: 700 17px/1.2 var(--font-sans);
+  letter-spacing: 0; text-transform: none; color: var(--ink-900);
 }
 .panel-more {
   display: inline-flex; align-items: center; gap: 6px;
-  font: 600 14px/1 'Inter', system-ui, sans-serif;
+  font: 600 14px/1 var(--font-sans);
   color: var(--action); text-decoration: none;
   min-height: var(--touch); padding: 0 4px;
 }
@@ -332,12 +638,35 @@ body.shop {
   min-height: 132px; transition: box-shadow .18s ease;
 }
 .cat:hover { box-shadow: 0 4px 14px rgba(23,37,30,.10); color: var(--action-700); position: relative; z-index: 1; }
-.cat .ring {
-  width: 58px; height: 58px; border-radius: 50%; background: var(--green-50);
-  display: flex; align-items: center; justify-content: center; font-size: 24px;
-}
-.cat .nm { font: 400 13px/1.3 'Inter', system-ui, sans-serif; }
+/* A tinted rounded square carrying the category's initial, not a green
+   circle with an emoji. Categories are rows the owner types in, so there is
+   no fixed icon set to draw from — an initial always exists, and the tint is
+   derived from the category id (see shop_extras.category_tint), so the same
+   category keeps the same colour on every page and across reloads.
 
+   The letter is aria-hidden and the name below it is the accessible label:
+   read aloud, "R, Rice & Grains" is noise. */
+.cat .ring {
+  width: 56px; height: 56px; border-radius: 8px;
+  background: var(--green-50); color: var(--action-700);
+  display: flex; align-items: center; justify-content: center;
+  font: 700 22px/1 var(--font-sans);
+  transition: transform .18s ease;
+}
+.cat:hover .ring { transform: translateY(-2px); }
+.cat .nm { font: 400 13px/1.3 var(--font-sans); }
+
+/* Eight tints, assigned by category id. Each pairs a pale ground with its
+   own darker ink: every combination below clears 4.5:1, so the initial is
+   legible rather than a decorative smudge. */
+.cat .ring.t0 { background: #FDEEE3; color: #B4530C; }
+.cat .ring.t1 { background: #FDE7E7; color: #B42318; }
+.cat .ring.t2 { background: #E6F4EA; color: #1E7A4F; }
+.cat .ring.t3 { background: #FEF3D7; color: #925C05; }
+.cat .ring.t4 { background: #E4EDFC; color: #1A56C4; }
+.cat .ring.t5 { background: #E1F1F5; color: #0E6B80; }
+.cat .ring.t6 { background: #FAE7F3; color: #A5257E; }
+.cat .ring.t7 { background: #FDF4D9; color: #8A6209; }
 /* ----------------------------------------------------- best-seller rail
    Horizontal scroller. Ranked by units actually sold (SalesItem), and the
    figure printed on each tile is that same number — the reference's
@@ -366,16 +695,25 @@ body.shop {
 .top-rank {
   position: absolute; top: 0; left: 0; z-index: 1;
   background: var(--action); color: #fff;
-  font: 700 11px/1 'Inter', system-ui, sans-serif; letter-spacing: .05em;
+  font: 700 11px/1 var(--font-sans); letter-spacing: .05em;
   padding: 6px 7px 9px;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
 }
 .top-sold {
   background: rgba(23,37,30,.72); color: #fff;
-  font: 600 12px/1 'Inter', system-ui, sans-serif;
+  font: 600 12px/1 var(--font-sans);
   padding: 7px 8px; text-align: center; border-radius: 3px;
 }
-.top-nm { font: 400 14.5px/1.35 'Inter', system-ui, sans-serif; }
+/* Centred under the thumbnail, not ranged left against the tile's edge.
+   Every other line in this tile is already centred on the image — the TOP
+   flag sits over it and the sold count is a centred bar directly above —
+   so a left-aligned name was the one element in the column hanging off the
+   side, and with a short name like "Cooking Oil" it left a visible notch of
+   empty tile to its right. */
+.top-nm {
+  font: 400 14.5px/1.35 var(--font-sans);
+  text-align: center;
+}
 
 /* ------------------------------------------------------- product cards
    Hierarchy from the card reference: category → name → stock → sold →
@@ -387,63 +725,112 @@ body.shop {
    squeezed every type size down with it. At the 1280px container this gives
    four across at ~300px — the reference's proportions at a grocery catalog's
    item count. */
-.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 14px; }
 .pcard {
+  /* Each card sizes its own contents against ITS OWN width, not the
+     viewport's. The same .pcard renders in four places at four different
+     widths — the 1280px catalog grid, the narrower grid beside the filter
+     rail, the home page's best-seller rail, and the list view — and a
+     viewport media query cannot tell those apart: a 900px tablet showing a
+     3-across grid and a 900px tablet showing the rail need opposite answers.
+     The container query below asks the only question that matters ("how much
+     room does this card actually have?"). Where :has()-era support is
+     missing the card simply keeps the roomy sizing, and .pfoot's flex-wrap
+     stacks the price and button anyway — the degradation is one wrapped row,
+     not a broken card. */
+  container-type: inline-size;
   /* No hard border: the reference separates the card from the page with a
      soft shadow alone. The hairline is kept only as a near-invisible edge so
      the card still has a boundary on a white background. */
-  border: 1px solid rgba(23,37,30,.06); border-radius: 18px; background: #fff;
+  border: 1px solid rgba(23,37,30,.06); border-radius: 5px; background: #fff;
   overflow: hidden; display: flex; flex-direction: column;
   box-shadow: 0 1px 2px rgba(23,37,30,.05), 0 4px 14px rgba(23,37,30,.05);
   transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
 }
-.pcard:hover {
-  box-shadow: 0 10px 28px rgba(23,37,30,.13);
-  border-color: var(--green-300); transform: translateY(-2px);
+/* The hovered card is the one the shopper is about to act on, so the state
+   is carried in the brand green rather than a neutral lift alone: a full
+   --action edge, a green ring just inside it so the outline survives on a
+   white page, and a green-cast shadow instead of the grey one. The card
+   itself stays white — a tinted body would sit behind product photos that
+   are themselves shot on white, and the thumb would read as a pasted-on
+   rectangle.
+
+   :focus-within matches it so keyboard shoppers get the same signal when
+   they tab into a card's image, name or Add-to-cart button. The browser's
+   own focus ring still draws on the focused control; this only marks which
+   card that control belongs to. */
+.pcard:hover,
+.pcard:focus-within {
+  border-color: var(--action);
+  box-shadow: 0 0 0 2px var(--green-300), 0 10px 28px rgba(30,122,79,.20);
+  transform: translateY(-2px);
 }
+/* The media panel is tinted, the way the reference sets every product on a
+   pale ground instead of on the card's own white. The exception is a card
+   that has a real uploaded photo: packaging is usually shot on white, and a
+   white-cornered JPEG on a green panel reads as a mis-sized image rather
+   than a product. `:has()` picks that case out; where it is unsupported the
+   photo simply keeps the tint behind it, which is the old placeholder look
+   and not a broken one. */
 .pcard .thumb {
-  aspect-ratio: 4 / 3; background: #fff;
+  aspect-ratio: 4 / 3; background: var(--green-50);
   display: flex; align-items: center; justify-content: center;
-  font-size: 64px; text-decoration: none; position: relative;
-  overflow: hidden; padding: 20px 20px 8px;
+  font-size: 46px; text-decoration: none; position: relative;
+  overflow: hidden; padding: 14px 14px 6px;
 }
 /* `contain`, not `cover`: packaging is how a shopper recognises a grocery
    item, and cover crops the label off a tall bottle or a wide sack. The
    emoji fallback stays centred in the same box. */
+.pcard .thumb:has(img) { background: #fff; }
 .pcard .thumb img {
-  position: absolute; inset: 20px 20px 8px;
-  width: calc(100% - 40px); height: calc(100% - 28px);
+  position: absolute; inset: 14px 14px 6px;
+  width: calc(100% - 28px); height: calc(100% - 20px);
   object-fit: contain; display: block;
 }
 /* The reference's rhythm: a tight category→name pair, then air before each
    of the rows below it. A single flat gap made all five rows read as one
    undifferentiated list. */
-.pcard .body { padding: 12px 20px 20px; display: flex; flex-direction: column; gap: 0; flex: 1; }
+.pcard .body { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 0; flex: 1; }
+/* Category and sold count share one line, pushed to opposite edges, instead
+   of stacking down the left and leaving the right half of every card empty.
+   `gap` rather than justify-content alone so a card with only one of the two
+   still sits flush left. */
+.pcard .pmeta {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 5px; min-width: 0;
+}
+/* Quiet text, not a badge. This was briefly a .tag so that every category in
+   the app used one component; on a product card that turned the shopper's
+   least important line into its most boxed-in one, competing with the price
+   and the BULK flag beside it. .tag is still the component for category on
+   the internal tables, where a table cell needs an edge to read as a value.
+   The ellipsis is what keeps a long category from shoving the sold count off
+   the row. */
 .pcard .pcat {
-  font: 400 12.5px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-500);
-  margin-bottom: 6px;
+  font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-500);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pcard .name {
-  font: 600 17.5px/1.32 'Inter', system-ui, sans-serif; color: var(--ink-900);
+  font: 600 15px/1.34 var(--font-sans); color: var(--ink-900);
   text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2;
   -webkit-box-orient: vertical; overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 7px;
 }
 .pcard .name:hover { color: var(--action); }
 .pcard .psold {
-  font: 400 13px/1.2 'Inter', system-ui, sans-serif; color: var(--ink-500);
-  margin-top: 8px;
+  font: 400 11.5px/1.2 var(--font-sans); color: var(--ink-500);
+  flex: none;
 }
 .pcard .price {
-  font: 700 24px/1 'Inter', system-ui, sans-serif;
-  font-variant-numeric: tabular-nums; color: var(--ink-900);
+  font: 700 19px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums; color: var(--price-fg);
 }
 /* The reference sets a struck-through was-price in grey immediately left of
    the live one. There is no compare-at price in this system and inventing
    one is a false discount claim — the unit takes that slot instead, which
    is the other thing a shopper needs beside a peso figure ("₱1,800 — per
    sack" is not the same offer as "₱1,800 — per kilo"). */
-.pcard .unit { font: 400 13px/1 'Inter', system-ui, sans-serif; color: var(--ink-500); }
+.pcard .unit { font: 400 12px/1.2 var(--font-sans); color: var(--ink-500); }
 /* Stacked, not inline. The reference sets its two prices side by side
    because both are short numerals; "per bottle" / "per sack" is wider than
    a struck price, and inline it pushed the total past the card and wrapped
@@ -459,21 +846,46 @@ body.shop {
 .pcard .cta { margin-top: auto; }
 .pcard .pfoot {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-top: auto; padding-top: 18px; flex-wrap: wrap;
+  gap: 8px; margin-top: auto; padding-top: 12px; flex-wrap: wrap;
 }
-.pcard .pfoot .cta { margin-top: 0; }
+/* The CTA is exactly as wide as its own label, pushed to the right edge by
+   an auto margin rather than by growing into the gap.
+
+   It used to take all the leftover width, which made a two-word button a
+   140px slab on a 200px card — most of the footer row spent on a control
+   whose text needs a third of it. The auto margin does the aligning instead
+   of flex-grow, and that is also what fixes the case grow was there for:
+   prices are data (₱35.00 and ₱12,500.00 both occur), and when a long one
+   pushes the button onto a second line, margin-left:auto still holds it to
+   the right — so a wrapped button reads as right-aligned under the price
+   rather than orphaned at the left. Same alignment either way. */
+.pcard .pfoot .cta { margin-top: 0; flex: 0 0 auto; margin-left: auto; min-width: 0; }
+/* Matches the <button> inside the add-to-cart <form>. Where .cta IS the link
+   (Log in to buy / Choose a branch) it grows on its own and this misses,
+   which is why both selectors exist rather than one. */
+.pcard .pfoot .cta .btn-cart { width: 100%; }
 .pcard .btn { width: 100%; }
 .pcard .pfoot .btn { width: auto; }
 
 /* The reference's tinted pill. --action-700 on --green-50 is 6.94:1; the
    44px floor is kept even though the reference pill looks smaller, because
    this is the one thing on the card a thumb has to hit. */
+/* 34px, with the 44px touch floor restored on touch screens further down.
+
+   44px everywhere made this the tallest thing on a card whose whole left
+   half is a two-line price — a pale slab reading "Log in to buy" that
+   outweighed the ₱ figure it sits beside. 44px is WCAG 2.2 SC 2.5.5, which
+   is AAA; the AA requirement (SC 2.5.8) is 24px, so 34px clears the level
+   the rest of this project is held to with room over, and the pointer query
+   below puts the full 44 back exactly where a thumb has to hit it. */
 .btn-cart {
-  display: inline-flex; align-items: center; gap: 8px;
-  min-height: var(--touch); padding: 0 18px;
-  border-radius: var(--r-pill); border: 1px solid var(--green-100);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 34px; padding: 0 12px;
+  /* Squared off to sit inside the card's 10px corner: a full pill next to a
+     near-square card read as two different design languages. */
+  border-radius: 4px; border: 1px solid var(--green-100);
   background: var(--green-50); color: var(--action-700);
-  font: 600 14px/1 'Inter', system-ui, sans-serif; cursor: pointer;
+  font: 600 12.5px/1 var(--font-sans); cursor: pointer;
   /* Three of the four CTA branches render as <a>, which arrives underlined
      from the UA sheet — the button read as a link sitting inside a pill. */
   text-decoration: none; white-space: nowrap;
@@ -481,18 +893,126 @@ body.shop {
 }
 .btn-cart:hover { text-decoration: none; }
 .btn-cart:hover { background: var(--action); color: #fff; border-color: var(--action); }
-.btn-cart:disabled { opacity: .55; cursor: not-allowed; background: var(--line-soft); color: var(--ink-500); border-color: var(--line); }
+.btn-cart:disabled,
+/* A <span>, not a disabled <button>: there is no action behind it to
+   disable. It states why the card has no buy control for this account, so it
+   is styled like the refused button rather than like a live one. */
+.btn-cart.is-inert {
+  opacity: .55; cursor: not-allowed; background: var(--line-soft);
+  color: var(--ink-500); border-color: var(--line);
+}
+.btn-cart.is-inert { opacity: 1; cursor: default; font-weight: 500; }
 .btn-cart svg { flex: none; }
+
+/* ---- the icon-only Add to cart -------------------------------------------
+   Small and wordless. The label read "Add to cart" at 12.5px, which on a 200px
+   card is a line of text the eye has to READ to find a control it would have
+   recognised by shape — and it is the only control on the card, so nothing
+   is ambiguous once the words are gone.
+
+   It spanned the whole right half of the footer for a while, on the argument
+   that a label's real value is the tap target it buys, so keep the target and
+   drop the words. That bought target at the cost of the thing the footer is
+   for: a wordless green slab half the card wide, sitting beside the price it
+   is supposed to be secondary to. Sized to its glyph, it reads as a control
+   and the price reads as the content — 44x34 is still a comfortable mouse
+   target, and the pointer:coarse block below restores the full 44 square
+   where a thumb has to hit it.
+
+   34px tall, the same as every other .btn-cart on a card. It sat at 44 for a
+   while, which made it the tallest object in a footer whose other half is a
+   two-line price cluster about 40px high. 34 clears WCAG 2.2 SC 2.5.8 (24px)
+   with room.
+
+   Both glyphs are in the markup and CSS picks one, so the tick costs no
+   innerHTML rewrite and no reflow when toast.js swaps the state and swaps it
+   back two seconds later. */
+.pcard .pfoot .cta--icon { flex: 0 0 auto; min-width: 0; }
+/* min-height is deliberately NOT on a .pcard-prefixed selector: at (0,3,0) it
+   would outrank the pointer:coarse rule below, which is (0,1,0), and the
+   touch floor would silently never apply. */
+.btn-cart--add {
+  width: auto; min-width: 44px;
+  min-height: 34px; padding: 0 12px; gap: 0;
+  justify-content: center;
+  /* Outlined, matching .btn-outline in gerlyn.css — the product page's Add to
+     Cart and this one are the same control on two surfaces, and until now they
+     were drawn by two rule sets that had already drifted apart. The tokens are
+     .btn-outline's: --surface ground, --action for BOTH the frame and the
+     glyph. Scoped to --add rather than to .btn-cart, because the other three
+     branches of the card CTA (Log in to buy / Customers only / Choose a
+     branch) are not this button and keep the tinted pill.
+     #1E7A4F on white is 5.31:1, which the 12.5px list-view label needs. */
+  background: var(--surface); border-color: var(--action); color: var(--action);
+}
+/* Tints, where .btn-cart:hover above flips to a solid --action fill. A flip
+   here would be indistinguishable from the .is-added confirmation this same
+   button shows two seconds at a time — hover must not say "added". */
+.btn-cart--add:hover {
+  background: var(--green-50); border-color: var(--action-700); color: var(--action-700);
+}
+.btn-cart--add svg { width: 17px; height: 17px; }
+.btn-cart--add .ico-added { display: none; }
+/* Wordless in the grid. The labels are in the markup for the LIST view, which
+   has the width for them (see .pgrid.is-list further down) — one button that
+   both views share rather than two that can drift apart. */
+.btn-cart--add .btn-cart-label { display: none; }
+
+/* Added: a tick, and a solid, brighter green than the button's own outline —
+   the confirmation should read as a lit-up state, not as the button going
+   dark. --action it is, and not one of the vivid greens a #22C55E pill is
+   drawn in: white on those measures 2-3:1, and the word "Added" beside the
+   tick is 12.5px text that has to clear 4.5:1. --action carries white at
+   5.31:1. The glyph changes SHAPE as well as colour, which is what a
+   colour-blind reader is left with either way. */
+.btn-cart--add.is-added,
+.btn-cart--add.is-added:hover {
+  background: var(--action); border-color: var(--action); color: #fff;
+}
+.btn-cart--add.is-added .ico-add { display: none; }
+.btn-cart--add.is-added .ico-added { display: block; }
+/* One pulse on the frame the tick appears, so an add registers as an event
+   and not just a button that was always green. Suppressed under
+   prefers-reduced-motion, where the colour and glyph swap alone still say it.
+   .is-added-now is set by toast.js and removed when the animation ends. */
+@keyframes cartAdded {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.09); }
+  100% { transform: scale(1); }
+}
+.btn-cart--add.is-added-now { animation: cartAdded .28s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .btn-cart--add.is-added-now { animation: none; }
+}
+/* The one control on a card a thumb has to hit, so on a touch screen it
+   keeps the full 44px. A mouse does not need it, and the compact button is
+   the point. */
+@media (pointer: coarse) {
+  .btn-cart { min-height: var(--touch); padding: 0 14px; font-size: 13px; }
+  /* Same floor, said explicitly. The icon button has no text to fall back on
+     if a future edit to the line above ever scopes it to labelled variants. */
+  .btn-cart--add { min-height: var(--touch); }
+}
 
 /* Honest stock signals — never hide a shortage. Uppercased to match the
    reference's IN STOCK line; the colours are the existing status tokens. */
-.stock-ok, .stock-low, .stock-out {
-  font: 700 11.5px/1.4 'Inter', system-ui, sans-serif;
-  letter-spacing: .06em; text-transform: uppercase;
+/* The staff-account note in the product page's buy panel, where the Add to
+   Cart button would otherwise be. */
+.pdp-note {
+  margin: 0; padding: 12px 14px; border-radius: 4px;
+  background: var(--line-soft); border: 1px solid var(--line);
+  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
 }
-.stock-ok   { color: var(--ok-fg); }
-.stock-low  { color: var(--warn-fg); }
-.stock-out  { color: var(--danger-fg); }
+
+/* The cart's "you've unlocked free delivery" line. This was .stock-ok, left
+   over from the trio whose -low/-out siblings became .stock-status — but it
+   never reported stock at all, so anyone grepping for stock classes found a
+   delivery promo and anyone changing "stock" styling would have hit it. */
+.free-delivery-note {
+  font: 700 11.5px/1.4 var(--font-sans);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ok-fg);
+}
 
 /* --------------------------------------------------- discover section
    The reference's centred label over a full-width rule. */
@@ -500,9 +1020,12 @@ body.shop {
   text-align: center; padding: 14px 0 12px;
   border-bottom: 3px solid var(--action); margin-bottom: 18px;
 }
+/* As .panel-head h2 above. The 3px green rule under this head is left
+   alone — that is a divider marking where the section starts, not a fourth
+   way of emphasising the same six characters. */
 .discover-head h2 {
-  font: 700 19px/1.2 'Inter', system-ui, sans-serif;
-  letter-spacing: .08em; text-transform: uppercase; color: var(--action);
+  font: 700 19px/1.2 var(--font-sans);
+  letter-spacing: 0; text-transform: none; color: var(--ink-900);
 }
 
 /* ------------------------------------------------------------ cart page */
@@ -516,6 +1039,22 @@ body.shop {
   width: 72px; height: 72px; border-radius: var(--r-input); background: var(--green-50);
   display: flex; align-items: center; justify-content: center; font-size: 32px;
 }
+
+/* The category glyph that stands in for a product photo — shop_extras'
+   product_icon, drawn at 1em so the three containers that hold it keep
+   sizing it with font-size exactly as they sized the emoji it replaces
+   (.pcard .thumb 46px, .cart-thumb 32px, .pdp-frame--empty 110px).
+
+   The colour is set here because those containers never set one: the glyph
+   would otherwise inherit body ink and sit on the pale-green tile as a grey
+   smudge. --action-700 is the darker of the two greens, which is what makes
+   a 1.5px stroke hold at 26px as well as at 110px.
+
+   vertical-align matters only in the two order tables (confirmation and
+   track-order) where the glyph runs INLINE beside an item name; an inline
+   SVG aligns to the baseline by default and hangs a third of its height
+   below the text it accompanies. */
+.prod-glyph { color: var(--action-700); vertical-align: -.18em; flex: none; }
 .qty-stepper { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
 .qty-stepper form { margin: 0; }
 .qty-btn {
@@ -525,7 +1064,25 @@ body.shop {
 }
 .qty-btn:hover:not(:disabled) { background: var(--green-50); border-color: var(--action); }
 .qty-btn:disabled { opacity: .4; cursor: not-allowed; }
-.qty-value { min-width: 32px; text-align: center; font-weight: 600; font-size: 15px; }
+/* The number between − and +.
+ *
+ * It used to be `min-width: 32px; text-align: center` and nothing else — an
+ * inline span. That was written for the stepper defined a few lines above it
+ * (30px buttons, 4px gap), but a SECOND .qty-stepper further down this file
+ * (the product page's joined pill) wins on source order and sets
+ * `align-items: stretch`. So this span became a stretched flex item 44px tall
+ * with its text sitting on the first line box: the digit rode at the top of
+ * the control while the two buttons beside it were centred. Centring it in
+ * its own box is what puts the number back on the same line as the signs.
+ *
+ * The side rules match .qty-stepper input's, so the cart's stepper and the
+ * product page's are the same object with the same three cells. */
+.qty-value {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 46px; min-height: 44px; padding: 0 6px;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  font: 600 15px/1 var(--font-sans); color: var(--ink-900);
+}
 .cart-line-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .cart-line-right form { margin: 0; }
 .cart-remove {
@@ -550,10 +1107,16 @@ body.shop {
 }
 
 /* --------------------------------------------------------------- footer */
+/* text-align: center is gone from here. It was left over from when this
+   footer was one centred line of copyright; against the four-column sitemap
+   it became four centred columns floating inside their own tracks while
+   every other block on the page starts at the container's left edge. The
+   copyright strip keeps the centring, on itself, where it belongs. */
 .shop-footer {
-  border-top: 1px solid var(--line); margin-top: 48px; padding: 28px 0;
-  text-align: center; color: var(--ink-600); font-size: 14px;
+  border-top: 1px solid var(--line); margin-top: 32px; padding: 28px 0;
+  color: var(--ink-600); font-size: 14px;
 }
+.footer-legal { text-align: center; }
 
 /* ----------------------------------------------------------- responsive */
 
@@ -587,6 +1150,10 @@ body.shop {
 
 @media (max-width: 1100px) {
   .cat-grid { grid-template-columns: repeat(6, 1fr); }
+  /* The three header columns stop having room to breathe before anything
+     else does; the search keeps its width by taking it from the gaps. */
+  .shop-nav { gap: 18px; }
+  .pgrid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 }
 @media (max-width: 900px) {
   /* minmax(0, 1fr) again, same trap as .shop-nav: a bare 1fr floors at the
@@ -601,7 +1168,14 @@ body.shop {
      and a line of copy. Below the two-column breakpoint the ratio is
      dropped and the height fixed instead. The slides are position:absolute
      so they contribute no height of their own; this value is the height. */
-  .banner-main { aspect-ratio: auto; min-height: 250px; }
+  .banner-main { min-height: 290px; }
+
+  /* iPad portrait is 768px: the brand's second line and the nav row's status
+     line are the two pieces of the header that are nice-to-have, so they are
+     what pays for the search field keeping its width here. */
+  .shop-nav { gap: 14px; }
+  .shop-brand-tag { display: none; }
+  .pgrid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
 }
 @media (max-width: 760px) {
   .shop-wrap { padding: 0 16px; }
@@ -614,47 +1188,48 @@ body.shop {
      brand name is nowrap — so the track refused to go below the full width
      of "Gerlyn Variety Store", pushed the cart and account buttons past the
      right edge, and gave the whole page a horizontal scrollbar. */
+  /* Two rows: identity and account controls above, the full-width search
+     below. The account cluster stays a normal flex box in one cell rather
+     than display:contents with a grid area per button — that version put the
+     cart and the sign-in link in the same cell whenever one of them changed
+     shape, and the cart painted straight over the other. */
   .shop-nav {
-    display: grid; gap: 10px 12px; padding: 12px 16px 10px;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas: "brand cart user" "search search search";
+    gap: 9px 12px; padding: 10px 16px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "brand actions" "search search" "quick quick";
   }
-  .shop-brand { grid-area: brand; min-width: 0; }
-  .shop-brand-name { overflow: hidden; text-overflow: ellipsis; }
-  .shop-search { grid-area: search; }
-  .shop-links { display: none; }
-  .shop-header-actions { display: contents; }
-  .shop-header-actions .cart-btn { grid-area: cart; }
-  /* :not(.cart-btn) matters — the cart link carries .btn too, so a bare
-     `> .btn` put the cart and the Log in button in the same grid cell at
-     equal specificity, and the cart painted straight over Log in. */
-  .shop-header-actions .user-menu,
-  .shop-header-actions > .btn:not(.cart-btn) { grid-area: user; }
-  .shop-quick { padding: 0 16px 10px; }
-  .search-box .search-submit { padding: 0 14px; }
-  /* The label would push the badge off a 360px row; the icon carries it. */
-  .cart-btn .cart-label { display: none; }
+  .shop-brand { min-width: 0; }
+  .shop-brand .brand-mark img { width: 36px; height: 36px; }
+  .shop-brand-name { font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
+  .shop-header-actions { gap: 8px; }
+  .shop-signin { padding: 0 14px; font-size: 14px; }
+
+  /* The page links stay — they scroll sideways instead. Hiding them was what
+     left a phone with no route to About or Contact at all. */
+  .shop-navbar-inner { padding: 0 16px; }
+  .shop-links { margin: 0 -4px; }
+  .shop-links a,
+  .shop-menu-trigger { height: 44px; padding: 0 10px; font-size: 14px; }
+  /* The branch line is the one part of the header a 360px row cannot hold.
+     It is not lost: the catalog's filter rail carries the same choice. */
+  .shop-status { display: none; }
 
   .cat-grid { grid-template-columns: repeat(3, 1fr); }
-  .svc-row { grid-template-columns: repeat(4, 1fr); }
+  /* Three, not four. The row is five tiles since "Get the App" came out
+     of it, and a four-column grid leaves the fifth alone on its own row.
+     3 + 2 reads as a block; 4 + 1 reads as something having broken. */
+  .svc-row { grid-template-columns: repeat(3, 1fr); }
   /* Trim the sticky band. It holds the top 151px of an 844px phone screen
      at all times, and on the cart the fixed checkout bar takes another 69 —
      a quarter of the display gone before any content. */
-  .shop-nav { padding: 10px 16px 8px; }
-  .shop-quick { padding-bottom: 8px; }
+  .shop-quick { gap: 14px; }
   /* Two-up on a phone rather than the desktop card scaled down: the
      reference's proportions hold at ~170px, but its 24px price and 20px
      padding do not, so the type steps down with the track. */
-  .pgrid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 12px; }
-  .pcard { border-radius: 14px; }
-  .pcard .thumb { padding: 12px 12px 6px; }
-  .pcard .thumb img { inset: 12px 12px 6px; width: calc(100% - 24px); height: calc(100% - 18px); }
-  .pcard .body { padding: 10px 13px 14px; }
-  .pcard .name { font-size: 15px; margin-bottom: 8px; }
-  .pcard .price { font-size: 19px; }
-  .pcard .pfoot { padding-top: 12px; gap: 8px; }
-  .pcard .pfoot .btn,
-  .pcard .pfoot .btn-cart { width: 100%; }
+  /* Two-up on a phone. The card's own container queries handle everything
+     inside it from here — this only sets how many fit across. */
+  .pgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .pcard { border-radius: 4px; }
   .banner-side { grid-template-columns: 1fr; }
 
   /* Sticky checkout bar — the running total is always visible. */
@@ -675,6 +1250,19 @@ body.shop {
      once the page is scrolled to the end. */
   body.has-sticky { padding-bottom: 88px; }
 }
+/* Small phones — 360px and the 320px iPhone SE. auto-fill drops to a SINGLE
+   column here on its own (two 150px tracks plus the gap need 310px of the
+   288px a 320px screen leaves inside .shop-wrap), and one card per row turns
+   a ten-item catalog into ten screens of scrolling. Two columns is the floor
+   the card is built to survive — its container queries bottom out at 178px
+   and the grid hands it ~139px, which is why the description and the button
+   label step down there rather than overflowing. */
+@media (max-width: 380px) {
+  .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .shop-wrap { padding: 0 12px; }
+  .shop-nav { padding: 9px 12px; }
+  .shop-navbar-inner { padding: 0 12px; }
+}
 @media (min-width: 761px) {
   .sticky-checkout { display: none; }
 }
@@ -687,6 +1275,19 @@ body.shop {
   display: flex; flex-direction: column; gap: 10px;
   width: calc(100vw - 32px); max-width: 360px;
   pointer-events: none;               /* clicks pass through the gaps */
+}
+/* Clear of the sticky header on the storefront. At top:16px the stack landed
+   squarely on the cart button and the account menu — the two controls a
+   shopper reaches for immediately after the toast that says "Added to cart",
+   which is the message this stack mostly carries. The header is three bands
+   and ~170px tall here; on a phone it restacks to ~235px, and pushing the
+   toast that far down a 640px screen would put it mid-page, so it anchors to
+   the bottom instead. body.has-sticky is the cart, where a fixed checkout bar
+   already owns the bottom 88px. */
+body.shop .toast-stack { top: 182px; }
+@media (max-width: 760px) {
+  body.shop .toast-stack { top: auto; bottom: 16px; left: 12px; right: 12px; width: auto; }
+  body.shop.has-sticky .toast-stack { bottom: 96px; }
 }
 .toast {
   pointer-events: auto;
@@ -710,7 +1311,7 @@ body.shop {
 .toast-undo {
   margin-top: 6px; padding: 2px 4px;
   background: none; border: none; cursor: pointer;
-  font: 700 13px/1 system-ui, sans-serif; color: var(--action);
+  font: 700 13px/1 var(--font-sans); color: var(--action);
   text-decoration: underline; text-underline-offset: 2px;
 }
 .toast-undo:hover { color: var(--action-700); }
@@ -741,148 +1342,169 @@ body.shop {
      the same hover still reports the state. The banner cross-fade is left
      as a fade but shortened — the rotator's autoplay is switched off in
      home_extra_js.html under the same query, so this only covers the dots. */
-  .pcard, .banner-card { transition: border-color .15s ease; }
-  .pcard:hover, .banner-card:hover { transform: none; }
+  .pcard, .banner-card { transition: border-color .15s ease, box-shadow .15s ease; }
+  .pcard:hover, .pcard:focus-within, .banner-card:hover { transform: none; }
   .banner-slide { transition: opacity .15s ease, visibility .15s ease; }
 }
 
 /* ======================================================================
    AUTH SCREEN  (.shop-auth)
 
-   The sign-in page as a room of its own rather than a card dropped into
-   the shop layout. Every selector here is scoped under .shop-auth, which
-   only login.html sets, so none of it reaches the catalog, the cart or
-   any other page that loads this file.
+   The marketplace sign-in shape: a slim white bar naming the screen, one
+   full-bleed brand band split into an identity panel and the form card,
+   then the ordinary storefront footer. Every selector here is scoped under
+   .shop-auth or an .auth- prefix, and .shop-auth is set by login.html
+   alone, so none of it reaches the catalog, the cart or any other page
+   that loads this file.
 
-   The backdrop is the brand's own green mist, not the blue of the design
-   reference this was modelled on: the reference's sky put a colour on the
-   largest surface in the app that appears nowhere else in it, directly
-   behind a green brand mark. Same composition — soft gradient, one
-   floating card, a medallion over the title — in the palette the rest of
-   the product already speaks.
+   The band is the brand's own --action green, not the reference's orange:
+   the reference paints the largest surface in the app a colour that
+   appears nowhere else in it, directly behind a green brand mark. Same
+   composition, in the palette the rest of the product already speaks.
+
+   This replaces a single glass card floating on a green mist. The card had
+   nothing beside it, so the widest part of the screen was empty gradient
+   and the store's name appeared only as a 17px corner mark. The split band
+   gives that half of the fold the mark and the sentence that says what the
+   store sells, and the card stops carrying the branding on its own.
    ====================================================================== */
-/* Column, so the announcement bar and the footer keep their own bands and
-   the card's band takes whatever is left. Without this the centring block
-   below claimed a full 100vh of its own and pushed the footer off the fold
-   on every screen. .toast-stack is position:fixed and sits outside the flow,
-   so it is unaffected. */
+/* Column, so the band takes the room the bar and the footer leave rather
+   than claiming a 100vh of its own and pushing the footer off the fold.
+   .toast-stack is position:fixed and sits outside the flow, unaffected. */
 body.shop-auth {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(900px 520px at 50% -8%, #FFFFFF 0%, rgba(255,255,255,0) 62%),
-    linear-gradient(180deg, var(--green-100) 0%, var(--green-50) 40%, #FFFFFF 100%);
-  background-attachment: fixed;
+  background: var(--surface);
 }
-/* Only the nav bar goes. The announcement above it and the footer below are
-   store information, not navigation — the delivery threshold is worth as
-   much to someone signing in as to someone browsing, and the branch list is
-   how a customer checks this is the store they meant. What is wrong on this
-   page is the nav specifically: its right-hand action is a "Log in" button
-   pointing at the page you are already on. */
-.shop-auth .shop-header { display: none; }
+/* The storefront nav goes, and the utility strip with it. The nav's
+   right-hand action is a "Log in" button pointing at the page you are
+   already on, and .shop-announce is a SIBLING of <header>, not a child —
+   hiding the header alone left a green utility band stranded above this
+   page's own bar, which is two different pages' chrome on one screen. */
+.shop-auth .shop-header,
+.shop-auth .shop-announce { display: none; }
 .shop-auth .shop-main {
   flex: 1;
-  display: grid;
-  place-items: center;
-  /* The positioning context for .auth-brand. Anchoring the mark here rather
-     than to the viewport is what keeps it clear of the announcement bar,
-     whose height this page does not need to know. */
-  position: relative;
-  padding: 72px var(--s4) var(--s8);
+  display: flex;
+  flex-direction: column;
+  /* min-height:0 against the global .shop-main{min-height:60vh}: inside a
+     flex column that floor fights `flex:1` on the band below. */
+  min-height: 0;
 }
-/* On the gradient the footer's own top border read as the edge of a panel
-   that was not there, so it is dropped and the band left transparent. */
-.shop-auth .shop-footer {
-  border-top: none;
-  margin-top: 0;
-  background: transparent;
-}
+/* The band runs straight into the footer's rule. .shop-footer's own
+   margin-top would otherwise leave a white gutter between the green and
+   the border, which reads as the page having stopped early. */
+.shop-auth .shop-footer { margin-top: 0; }
 
-/* Brand mark, top-left. It is also the way back out of this page now that
-   the nav is gone, so it is a link and not a decoration. */
-.auth-brand {
-  position: absolute; top: 22px; left: 24px;
+/* ------------------------------------------------------------- top bar
+   The mark, and nothing else. It carried the screen's name and a link out
+   as well; the card below states which screen this is in its own h1, and
+   the mark is the way back to the shop now that the nav is hidden — so it
+   is a link and not a decoration. */
+.auth-topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-soft);
+}
+.auth-topbar-inner {
+  display: flex; align-items: center; gap: var(--s4);
+  min-height: 74px;
+}
+.auth-topbar-brand {
   display: inline-flex; align-items: center; gap: 10px;
   text-decoration: none; color: var(--ink-900);
-  font: 700 17px/1 system-ui, sans-serif;
+  font: 400 19px/1 var(--font-sans);
+  /* Never the half that ellipses — the screen title beside it is the
+     shorter string and the one that can afford to shrink. */
+  flex: none;
 }
-.auth-brand img {
-  width: 34px; height: 34px; border-radius: 10px; display: block;
+.auth-topbar-brand img {
+  width: 36px; height: 36px; border-radius: 7px; display: block;
   box-shadow: var(--shadow-card);
 }
-.auth-brand:hover { color: var(--action); }
+.auth-topbar-brand strong { font-weight: 750; color: var(--action); }
+.auth-topbar-brand:hover { color: var(--action); }
 
+/* ---------------------------------------------------------------- band */
+.auth-band {
+  flex: 1;
+  display: flex; align-items: center;
+  background: var(--action);
+  padding: var(--s12) 0;
+}
+/* A fixed right column, not a fraction: the card is a fixed-width object
+   at every size the reference uses it at, and letting it take a share of
+   the row stretched the inputs to 600px on a desktop monitor. */
+.auth-band-inner {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: var(--s12);
+  align-items: center;
+}
+
+/* --------------------------------------------------------- identity half
+   Decorative — hidden below 860px, where the card is the whole point of
+   the screen and the store's name is already in the bar directly above. */
+.auth-hero { text-align: center; color: #fff; }
+.auth-hero-mark {
+  width: 220px; height: auto; display: block;
+  margin: 0 auto var(--s6);
+  object-fit: contain;
+  /* The transparent PNG sits straight on the green. The white rounded
+     plate this used to wear was the JPG's own background, squared off by
+     object-fit: cover and dressed with a radius — nothing the mark needs.
+     drop-shadow rather than box-shadow so it follows the artwork's edge
+     instead of a box that is no longer there. */
+  filter: drop-shadow(0 14px 34px rgba(0,0,0,.22));
+}
+.auth-hero-name {
+  margin: 0 0 var(--s4);
+  font: 800 38px/1.15 var(--font-sans);
+  letter-spacing: -.4px;
+}
+/* rgba white rather than a tint token: this sits on the brand green, and
+   at 18px it still clears contrast comfortably at .92. */
+.auth-hero-tag {
+  margin: 0;
+  font: 400 18px/1.6 var(--font-sans);
+  color: rgba(255,255,255,.92);
+}
+
+/* ---------------------------------------------------------------- card
+   Opaque white on the band. The previous card was translucent with a
+   backdrop-filter because it floated on a pale gradient; over a saturated
+   green that same treatment tints every input and the submit button. */
 .auth-card {
-  width: 100%; max-width: 420px;
-  background: rgba(255,255,255,.78);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,.85);
-  border-radius: 20px;
-  box-shadow: 0 18px 48px rgba(23,37,30,.10), 0 2px 8px rgba(23,37,30,.05);
-  padding: var(--s8) var(--s6) var(--s6);
-  position: relative; overflow: hidden;
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--r-card);
+  box-shadow: 0 10px 34px rgba(23,37,30,.20);
+  padding: var(--s6);
 }
-/* The tint the reference carries across the top of the card. Sits behind
-   the content on its own layer so it cannot pick up the text's stacking. */
-.auth-card::before {
-  content: ""; position: absolute; inset: 0 0 auto; height: 140px;
-  background: linear-gradient(180deg, var(--green-50) 0%, rgba(255,255,255,0) 100%);
-  pointer-events: none;
-}
-.auth-card > * { position: relative; }
-
-.auth-badge {
-  width: 56px; height: 56px; margin: 0 auto var(--s4);
-  border-radius: 16px; background: var(--surface);
-  display: grid; place-items: center; color: var(--action);
-  box-shadow: 0 4px 14px rgba(23,37,30,.10);
-}
-.auth-badge svg { width: 26px; height: 26px; display: block; }
-
 .auth-title {
-  font: 700 25px/1.2 system-ui, sans-serif;
-  text-align: center; margin: 0 0 6px; color: var(--ink-900);
-}
-.auth-sub {
-  text-align: center; margin: 0 0 var(--s6);
-  font: 400 14.5px/1.5 system-ui, sans-serif; color: var(--ink-500);
+  margin: 0 0 var(--s6);
+  font: 700 21px/1.3 var(--font-sans);
+  color: var(--ink-900);
 }
 
-/* Static labels, sitting above their field.
-
-   These used to float onto the top border and notch it, in a chip painted
-   --surface. Two things were wrong with that, and both are visible at once
-   the moment a browser fills the form:
-
-     · the chip is opaque white, but .auth-card is rgba(255,255,255,.78)
-       over a green gradient, so it was never the same colour as the thing
-       behind it — the notch read as a sticker laid across the border
-       rather than a gap in it;
-     · Chrome repaints an autofilled input #E8F0FE and ignores
-       background-color, so the field went pale blue while the chip stayed
-       white, and the mismatch became unmissable.
-
-   A label above the box has no seam to hide and no state to be in. It is
-   also what every other form in this app already does — register.html,
-   which sits one link away, has never floated its labels — so login was
-   the odd screen out. .field's own column layout does the work; the only
-   thing this needs to add is the icon's positioning context. */
+/* Labels sitting above their field — the default for every .auth-field, and
+   still what register.html's eight-field form uses. .field's own column
+   layout does the work; the only thing this adds is the icon's positioning
+   context. Sign-in opts out of it with .auth-field--float, below. */
 .auth-card .field.auth-field {
   display: flex; flex-direction: column; gap: 7px;
   margin: 0 0 var(--s4);
 }
 .auth-card .field.auth-field > label {
-  font: 600 13.5px/1.2 'Inter', system-ui, sans-serif;
+  font: 600 13.5px/1.2 var(--font-sans);
   color: var(--ink-700);
 }
 /* Wraps the input alone, so the icon centres on the box and not on the
    box-plus-label. */
 .auth-input-wrap { position: relative; display: block; }
 .auth-card .auth-field input {
-  min-height: 52px;
+  min-height: 50px;
   padding: 0 14px 0 44px;
 }
 .auth-field-icon {
@@ -891,6 +1513,94 @@ body.shop-auth {
   pointer-events: none; z-index: 1;
 }
 .auth-field-icon svg { width: 100%; height: 100%; display: block; }
+
+/* ------------------------------------------------- floating labels
+   Opt in per field with .auth-field--float. The label must be the input's
+   next sibling inside .auth-input-wrap, and the input needs placeholder=" "
+   so :placeholder-shown is what tracks "the box is empty" — no JS state.
+
+   The label travels between two positions this card already had: it rests
+   on the line the typing will land on, and rises to the exact spot, size,
+   weight and colour the static label above the box has always used. So a
+   filled form is the form as it was drawn before any of this — the float
+   only fills in what an empty box used to say with nothing.
+
+   Nothing paints a chip on the border, which is what got this idea dropped
+   the first time round: the label clears the box entirely, so there is no
+   seam to match against a card that was translucent then, and nothing to
+   go wrong when Chrome repaints an autofilled input.
+
+   The 23px is the label's own line box (13.5px × 1.2) plus the 7px .field
+   put between label and input. It is padding on the field rather than room
+   found inside the box, so the box itself never changes height.
+
+   The room is only held while the label is actually out of the box. An
+   empty field keeps its label on the typing line, so reserving the strip
+   above it reserves space nothing is using — which is what opened the gap
+   between the two boxes on a failed sign-in, where the username is filled
+   and the password is not. Empty now sits flush against the field above
+   it, and the space appears as the label rises into it.
+
+   :has() is what lets the field read its own input's state. Where it is
+   missing the room stays reserved on every field, which is the layout this
+   had before — looser, but never wrong. */
+.auth-card .field.auth-field--float { padding-top: 23px; }
+@supports selector(:has(*)) {
+  .auth-card .field.auth-field--float { padding-top: 0; }
+  .auth-card .field.auth-field--float:has(> .auth-input-wrap > input:focus),
+  .auth-card .field.auth-field--float:has(> .auth-input-wrap > input:not(:placeholder-shown)) {
+    padding-top: 23px;
+  }
+}
+.auth-card .field.auth-field--float > .auth-input-wrap > label {
+  position: absolute;
+  left: 44px;                        /* the input's text start, past the icon */
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: calc(100% - 58px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 400 15px/1.4 var(--font-sans);
+  color: var(--ink-500);
+  /* The label lies over the input's empty half; a click there has to reach
+     the box underneath. `for` still carries a tap once it has risen out. */
+  pointer-events: none;
+}
+/* Risen. -23px is measured from .auth-input-wrap, whose top edge is the top
+   of the box, so this lands the label in the field's padding — up and out,
+   left-aligned with the border below it, and identical to the label the
+   other auth screen still draws statically. */
+.auth-card .field.auth-field--float > .auth-input-wrap > input:focus + label,
+.auth-card .field.auth-field--float > .auth-input-wrap > input:not(:placeholder-shown) + label {
+  top: -23px;
+  left: 0;
+  transform: none;
+  max-width: 100%;
+  font: 600 13.5px/1.2 var(--font-sans);
+  color: var(--ink-700);
+}
+/* A failed sign-in paints both boxes .is-invalid. Nothing was drawing that
+   class on this card — the only sign of a rejected attempt was the message
+   under the fields — so the box and the label above it go red together. */
+.auth-card .field.auth-field--float > .auth-input-wrap > input.is-invalid {
+  border-color: var(--danger-dot);
+}
+.auth-card .field.auth-field--float > .auth-input-wrap > input.is-invalid:focus + label,
+.auth-card .field.auth-field--float > .auth-input-wrap > input.is-invalid:not(:placeholder-shown) + label {
+  color: var(--danger-fg);
+}
+/* font-weight is not on the list: it cannot tween, so naming it here would
+   only stall the jump from 400 to 600 partway through the move. */
+@media (prefers-reduced-motion: no-preference) {
+  .auth-card .field.auth-field--float > .auth-input-wrap > label {
+    transition: top .16s ease, left .16s ease, transform .16s ease,
+                font-size .16s ease, color .16s ease;
+  }
+  /* Opened on the same clock as the label that is moving into it, so the
+     box slides down with the text rather than snapping ahead of it. */
+  .auth-card .field.auth-field--float { transition: padding-top .16s ease; }
+}
 
 /* Autofill. Chrome will not honour background-color on an autofilled
    input; a 1000px inset shadow is the only way to repaint the box, and
@@ -908,7 +1618,7 @@ body.shop-auth {
    glyph is 18px, and it clears its own room in the input's padding. */
 .auth-card .auth-field input.has-reveal { padding-right: 50px; }
 .auth-reveal {
-  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
   width: 44px; height: 44px; padding: 0;
   display: grid; place-items: center;
   background: none; border: none; cursor: pointer;
@@ -918,13 +1628,22 @@ body.shop-auth {
 .auth-reveal svg { width: 18px; height: 18px; display: block; }
 
 .auth-submit {
-  width: 100%; margin-top: var(--s4);
-  min-height: 48px; font-size: 15.5px; border-radius: 10px;
+  width: 100%; margin-top: var(--s2);
+  min-height: 48px; font-size: 15.5px; border-radius: var(--r-input);
 }
+/* .field-error carries a negative top margin so it tucks under the field it
+   belongs to. That pulls the button up with it, to 8px below the message on
+   a failed sign-in — the one render where the two are on screen together. */
+.auth-card .field-error + .auth-submit { margin-top: var(--s4); }
+/* Ruled off, so the way to the other account screen reads as leaving the
+   form rather than as one more row inside it. */
 .auth-alt {
-  text-align: center; margin: var(--s6) 0 0;
-  font: 400 14px/1.5 system-ui, sans-serif; color: var(--ink-500);
+  text-align: center;
+  margin: var(--s6) 0 0; padding-top: var(--s4);
+  border-top: 1px solid var(--line-soft);
+  font: 400 14px/1.5 var(--font-sans); color: var(--ink-500);
 }
+.auth-alt a { font-weight: 700; color: var(--action); }
 
 @media (prefers-reduced-motion: no-preference) {
   .auth-card { animation: auth-in .22s ease-out; }
@@ -934,16 +1653,953 @@ body.shop-auth {
   }
 }
 
+/* ------------------------------------------------- create account
+   The same band and the same card, widened to what a form of this many
+   fields needs, and tightened so it still lands inside one screen on a
+   laptop. Every rule is a modifier — the sign-in card is untouched. */
+/* 660, not 468. The fields inside pair off two to a row, so this is the
+   width that makes eight of them five rows instead of eight — the card was
+   running ~900px tall down one edge of a band whose other half was empty. */
+.auth-band-inner--wide { grid-template-columns: minmax(0, 1fr) 660px; }
+/* Rows are 46px rather than 50px and sit 12px apart rather than 16px.
+   Across seven of them that is ~110px, which is the difference between the
+   Create Account button being on the fold and being below it. */
+.auth-card--wide .auth-field input { min-height: 46px; }
+.auth-card--wide .field.auth-field { margin-bottom: var(--s3); }
+
+/* Title and its line of sub-copy read as one block, so the s6 of air goes
+   under the pair rather than between them. */
+.auth-head { margin-bottom: var(--s6); }
+.auth-head .auth-title { margin-bottom: 5px; }
+.auth-sub {
+  margin: 0;
+  font: 400 13.5px/1.5 var(--font-sans);
+  color: var(--ink-500);
+}
+
+/* Two fields to a row, paired by what they are: the two halves of a name,
+   the two ways to identify the account, the password and its confirmation,
+   the two optional details. Only column-gap — the rows are spaced by each
+   field's own margin-bottom, so a hint under one cell cannot push its
+   neighbour's box out of line.
+
+   align-items:start so a cell carrying a hint (or the address block, which
+   is a summary and a button) does not stretch the plain field beside it. */
+.auth-row-2 {
+  display: grid; grid-template-columns: 1fr 1fr;
+  column-gap: var(--s4);
+  align-items: start;
+}
+
+/* "(optional)" inside the label, in the label's own line rather than as a
+   separate note under the field: what a person needs to know about an
+   optional field is that they may skip it, and they decide that while
+   reading the label. */
+.auth-optional { font-weight: 400; color: var(--ink-500); }
+/* Helper text under a field. --ink-500, not --ink-400: this runs at 12.5px,
+   far below the size that lets the lighter grey pass contrast. */
+.auth-hint {
+  margin: 6px 0 0;
+  font: 400 12.5px/1.45 var(--font-sans);
+  color: var(--ink-500);
+}
+
+/* The address slot. Dashed and muted while empty, solid and full-strength
+   once the picker has filled it — the state is the border, so it reads
+   without having to parse the sentence inside. */
+.auth-address-summary {
+  border: 1px dashed var(--line); border-radius: var(--r-input);
+  padding: 10px 12px;
+  font: 400 13px/1.5 var(--font-sans); color: var(--ink-500);
+}
+.auth-address-summary.is-set {
+  border-style: solid; border-color: var(--line);
+  color: var(--ink-900);
+}
+.auth-address-btn { margin-top: 8px; align-self: flex-start; }
+
+/* ----------------------------------------------------------- responsive
+   Widest breakpoint first, narrowing down. The order matters here: the two
+   cards share .auth-card, so a max-width set for the narrow one at a later
+   breakpoint would otherwise win over the wide one's at an earlier one. */
+
+/* The wide card gives up the identity panel before it gives up its second
+   column. Both into 1200px leaves the hero ~380px — narrower than the
+   wordmark at 38px — while folding the card to one column would undo the
+   whole reason it is wide. */
+@media (max-width: 1200px) {
+  .auth-band-inner--wide { grid-template-columns: minmax(0, 1fr); }
+  .auth-band-inner--wide .auth-hero { display: none; }
+  .auth-card--wide { max-width: 660px; margin: 0 auto; }
+}
+
+@media (max-width: 1024px) {
+  .auth-band { padding: var(--s8) 0; }
+  .auth-band-inner { grid-template-columns: minmax(0, 1fr) 372px; gap: var(--s8); }
+  .auth-hero-mark { width: 170px; }
+  .auth-hero-name { font-size: 30px; }
+  .auth-hero-tag { font-size: 16px; }
+}
+
+/* One column below this, and the identity half goes rather than stacking:
+   a 128px logo and a tagline above the card push the first field under the
+   fold on a phone, on the one screen the visitor came here to use.
+   :not(--wide) because the wide card set its own width at 1200 and this
+   rule would otherwise crush it to the sign-in card's 420. */
+@media (max-width: 860px) {
+  .auth-band-inner { grid-template-columns: minmax(0, 1fr); }
+  .auth-hero { display: none; }
+  .auth-card:not(.auth-card--wide) { max-width: 420px; margin: 0 auto; }
+}
+
+/* Below this the paired columns are narrower than the placeholders inside
+   them, so the pairs stack. */
+@media (max-width: 600px) {
+  .auth-row-2 { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 480px) {
   /* "Gerlyn Variety Store" does not fit beside the cart and the account
      menu at this width — it was ellipsing to "Gerlyn Vari…", which reads as
      a broken layout rather than an abbreviation. Dropping the second half
      outright is cleaner, and the logo's alt text still carries the full
-     name for anyone not reading it visually. */
+     name for anyone not reading it visually. (Storefront header, not this
+     page's bar — that one folds separately, just below.) */
   .shop-brand-name strong + strong { display: none; }
 
-  .shop-auth .shop-main { padding: 68px var(--s3) var(--s6); }
-  .auth-card { padding: var(--s6) var(--s4) var(--s4); border-radius: 16px; }
-  .auth-brand { top: 16px; left: 16px; font-size: 16px; }
-  .auth-title { font-size: 22px; }
+  .auth-topbar-inner { min-height: 60px; }
+  .auth-topbar-brand { font-size: 16px; gap: 8px; }
+  .auth-topbar-brand img { width: 30px; height: 30px; }
+  .auth-band { padding: var(--s6) 0; }
+  .auth-card { padding: var(--s4); }
+  .auth-title { margin-bottom: var(--s4); }
 }
+
+
+
+/* ======================================================================
+   BREADCRUMBS
+
+   Home › Products › <this product>. The trail replaced a bare "← Products"
+   back-link, which told a shopper where one step back was but never where
+   they actually stood. The separator is a decorative glyph, so it is
+   aria-hidden and the current page is marked instead.
+   ====================================================================== */
+.crumbs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  font: 400 13.5px/1.4 var(--font-sans);
+  margin-bottom: 18px;
+}
+.crumbs a { color: var(--action-700); text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.crumb-sep { color: var(--ink-400); }
+.crumb-current { color: var(--ink-500); min-width: 0; }
+
+/* ======================================================================
+   ABOUT US  (.about-*)
+   ====================================================================== */
+/* Flat --green-50, not a 160deg fade from it into #fff. The wash was the
+   page's only gradient and its only bare hex; the tint is what the hero
+   needed, and fading it to white at 78% just meant the bottom third of a
+   bordered panel quietly stopped being a panel. */
+.about-hero {
+  text-align: center; padding: 34px 20px 38px;
+  background: var(--green-50);
+  border: 1px solid var(--green-100); border-radius: 6px;
+  margin-bottom: 22px;
+}
+/* Bare mark, no plate. .brand-mark is shared with the sidebar, login,
+   register and download headers and paints a solid var(--brand) tile behind
+   its image, which on this hero showed as a green rounded square around the
+   logo; and .brand-mark img caps height at 40px, which cropped the square
+   artwork inside the 66px tile and left green bands above and below it.
+   Both are unset here rather than in gerlyn.css so the pages that do want
+   the tile keep it — the storefront header does the same thing at
+   .shop-brand .brand-mark. Paired with logo.png (transparent) instead of
+   logo.jpg (baked-on white), so the mark sits straight on the hero wash. */
+.about-mark {
+  width: auto; height: auto; border-radius: 0; background: none;
+  overflow: visible; display: inline-flex; margin-bottom: 14px;
+}
+.about-mark img {
+  width: auto; height: 64px; max-height: 64px;
+  object-fit: contain; display: block;
+}
+.about-hero h1 {
+  font: 700 30px/1.2 var(--font-sans); color: var(--ink-900);
+  margin-bottom: 10px;
+}
+.about-lead {
+  font: 400 16px/1.6 var(--font-sans); color: var(--ink-700);
+  max-width: 60ch; margin: 0 auto 20px;
+}
+
+/* 2×2 below the story block, collapsing to a single column on mobile — the
+   count is fixed rather than auto-fit so the second row can't reflow into a
+   3+1 at some in-between width. minmax(0, 1fr) rather than 1fr so a long
+   unbroken word can't push a column past its share. The single `gap` keeps
+   the row and column spacing identical in both the grid and the stack, and
+   grid's default align-items: stretch is what evens out card heights within
+   a row, so a short blurb doesn't leave a gap beside a tall one. */
+.about-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px; margin-bottom: 22px;
+}
+/* No hover state at all, and no transition to run one. The previous note
+   here opened by conceding that nothing in these four cards navigates — and
+   then gave them a lift, a green edge and a shadow anyway. A card that
+   rises under the pointer is promising a click that never arrives; on
+   touch it is invisible, and for a keyboard reader :focus-within was
+   advertising an interactive element that does not exist. If one of these
+   blurbs ever gains a link, the hover belongs on the link. */
+.about-card {
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 20px;
+}
+/* Bare glyph, no plate. The green rounded tile this used to paint behind the
+   icon read as a status pill on a page where nothing carries a status — the
+   same shape .about-badge and the KPI pills use to mean something. The icon
+   keeps the brand green, so it still leads the eye into the heading. */
+.about-ic {
+  display: flex; align-items: center; color: var(--action);
+  margin-bottom: 10px;
+}
+.about-card h2 {
+  font: 700 16px/1.3 var(--font-sans); color: var(--ink-900);
+  margin-bottom: 6px;
+}
+.about-card p {
+  font: 400 14px/1.6 var(--font-sans); color: var(--ink-700);
+  margin: 0;
+}
+
+.about-branches { margin-bottom: 22px; }
+.branch-list { list-style: none; margin: 0; padding: 0; }
+.branch-list li {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 18px; border-top: 1px solid var(--line-soft);
+  transition: background .15s ease;
+}
+.branch-list li:first-child { border-top: 0; }
+/* A row wash rather than the cards' edge-and-lift: these are rows inside a
+   panel that already has its own border, and a per-row border would draw a
+   box inside a box. --green-50 is what every other row in the product hovers
+   to (.gv-table tbody tr, .shop-menu-item, .rail-item), so the branch list
+   answers the pointer the same way the rest of the app does. The rows aren't
+   links — the panel head's "Choose a branch" is — so this is a reading aid
+   for keeping your place down a four-row list, not a click affordance. */
+.branch-list li:hover { background: var(--green-50); }
+/* No chip fill, matching .about-ic above. The 34px box stays: it is the icon
+   column for four stacked rows, and collapsing it to the 18px glyph would
+   pull every branch name left of the panel head's own text. */
+.branch-ic {
+  width: 34px; height: 34px; flex: none;
+  background: none; color: var(--action);
+  display: grid; place-items: center;
+}
+.branch-nm { font: 600 15px/1.3 var(--font-sans); color: var(--ink-900); }
+.branch-loc {
+  font: 400 13.5px/1.4 var(--font-sans); color: var(--ink-500);
+  min-width: 0;
+}
+.about-help {
+  text-align: center; font: 400 14px/1.6 var(--font-sans);
+  color: var(--ink-700);
+}
+.about-help a { color: var(--action-700); }
+
+/* The anniversary pill and the tagline sit inside .about-hero, which is
+   text-align: center. The pill is display:block + width:max-content rather
+   than inline-block: .about-mark above it is inline-flex, so an inline pill
+   flows up beside the logo instead of onto its own line under it. */
+/* --r-pill, not a raw 999px — the token exists precisely so the shapes that
+   mean "badge" can be found and changed together. The colours were already
+   the brand tokens and stay on them: this is marketing copy on a brand hero,
+   so brand green is what it should be. It must never move to --ok-bg/--ok-fg
+   however similar those look — an anniversary line is not a status, and
+   putting it on the status palette makes "Celebrating 10 years" rank against
+   Paid and In Stock. */
+.about-badge {
+  display: block; width: max-content; margin: 0 auto 12px; padding: 5px 13px;
+  border-radius: var(--r-pill); background: var(--green-50);
+  border: 1px solid var(--green-100); color: var(--action-700);
+  font: 600 12.5px/1.3 var(--font-sans); letter-spacing: .02em;
+}
+.about-tag {
+  font: 600 15px/1.5 var(--font-sans); color: var(--action-700);
+  margin: -6px 0 18px;
+}
+
+/* Prose block. The measure is capped well below the card grid's width —
+   full-bleed 15px paragraphs across a 1100px wrap are unreadable — and the
+   capped column is centred in the card rather than left-hugging it, so the
+   block reads as deliberate beside the centred hero above it. The cap is a
+   px value, not ch: ch resolves against each element's own font size, so a
+   shared 74ch made the 20px h2 box wider than the 15px paragraphs and threw
+   the heading's left edge out of alignment with the prose under it. */
+.about-story {
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 30px 24px; margin-bottom: 22px;
+}
+.about-story h2,
+.about-story p { max-width: 700px; margin-inline: auto; margin-top: 0; }
+.about-story h2 {
+  font: 700 20px/1.3 var(--font-sans); color: var(--ink-900);
+  margin-bottom: 14px;
+}
+.about-story p {
+  font: 400 15px/1.75 var(--font-sans); color: var(--ink-700);
+  margin-bottom: 14px;
+}
+.about-story p:last-child { margin-bottom: 0; }
+
+.about-social { text-align: center; margin-bottom: 10px; }
+.about-social a {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: 600 14.5px/1.5 var(--font-sans);
+  color: var(--action-700); text-decoration: none;
+}
+.about-social a:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .about-hero { padding: 26px 16px 30px; }
+  .about-hero h1 { font-size: 24px; }
+  .about-lead { font-size: 15px; }
+  .about-story { padding: 20px 16px; }
+  .about-story h2 { font-size: 18px; }
+  .about-story p { font-size: 14.5px; }
+  .about-grid { grid-template-columns: 1fr; }
+}
+
+/* ======================================================================
+   CATALOG  (.catalog-layout, .filter-rail, .results-bar)
+
+   Filter rail beside the grid, the shape the design reference uses. The rail
+   collapses above the results below 900px rather than becoming a drawer: it
+   is three short lists, and a drawer would hide the branch choice — the one
+   filter here with real consequences — behind a tap.
+   ====================================================================== */
+.catalog-layout {
+  display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 22px;
+  align-items: start;
+}
+.filter-rail {
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 18px 16px; position: sticky; top: 16px;
+}
+.rail-heading {
+  font: 700 16px/1.2 var(--font-sans); color: var(--ink-900);
+  padding-bottom: 12px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+/* <fieldset> now, so the reset that <fieldset> arrives with from the UA
+   sheet has to be undone: it ships with a border, its own padding and a
+   margin, none of which belong on a block whose only visual edge is the
+   hairline between filters. */
+.rail-block {
+  border: 0; margin: 0; min-width: 0;
+  padding: 14px 0; border-bottom: 1px solid var(--line-soft);
+}
+.rail-block:last-of-type { border-bottom: 0; }
+/* <legend> is the title now. Left as a legend rather than swapped for a
+   heading because it names the group of inputs underneath it, which is what
+   a screen reader reads out with each option in the group. float + width
+   makes it lay out as a plain block, which is the one reliable way to stop a
+   legend behaving like a legend across browsers. */
+.rail-title {
+  display: block; float: left; width: 100%; padding: 0;
+  font: 700 13px/1.2 var(--font-sans); color: var(--ink-900);
+  margin-bottom: 8px;
+}
+.rail-list { list-style: none; margin: 0; padding: 0; }
+.rail-item {
+  display: flex; align-items: center;
+  padding: 6px 10px; border-radius: 3px;
+  font: 400 13.5px/1.35 var(--font-sans);
+  color: var(--ink-700); text-decoration: none;
+  transition: background .12s ease, color .12s ease;
+}
+.rail-item:hover { background: var(--green-50); color: var(--action-700); }
+/* A tint and a rule, not a solid slab.
+
+   The live filter used to be white-on-green across the rail's full width,
+   which put two heavy bars — one per block — down the side of a page whose
+   whole job is the grid beside them. At 216px wide those bars read as the
+   loudest thing on the screen while saying the least: they mark a choice the
+   shopper already knows they made.
+
+   The 3px rule on the leading edge is the non-colour half of the signal and
+   the reason this can be quiet: WCAG 2.2 SC 1.4.1 does not accept a colour
+   change alone, so the old bar needed the full contrast swing to be safe.
+   With the rule and the weight change carrying the state, the ground only
+   has to be a hint. aria-current is set in the template alongside. */
+.rail-item.active {
+  background: var(--green-50); color: var(--action-700); font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--action);
+}
+.rail-item.active:hover { background: var(--green-100); color: var(--action-700); }
+.rail-note {
+  font: 400 12px/1.5 var(--font-sans); color: var(--ink-500);
+  margin: 10px 2px 0;
+}
+
+/* ------------------------------------------------------- rail checklist
+   Real <input type=checkbox|radio> under a drawn box. The input keeps its
+   size and position (it is not display:none) but is clipped to zero opacity,
+   so the browser's own hit-testing, keyboard handling and AT semantics are
+   all still the real ones — only the paint is ours.
+
+   The two shapes are deliberate and carry meaning: a square ticks several at
+   once (categories), a circle picks exactly one (branch, which is the
+   session's shopping branch and cannot be two places). */
+.rail-check {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 3px; cursor: pointer;
+  font: 400 13.5px/1.35 var(--font-sans); color: var(--ink-700);
+  transition: background .12s ease, color .12s ease;
+  min-height: 34px;
+}
+.rail-check:hover { background: var(--green-50); color: var(--action-700); }
+.rail-check input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; opacity: 0; cursor: pointer;
+}
+.rail-box {
+  flex: none; width: 18px; height: 18px; border-radius: 3px;
+  border: 1.5px solid var(--line); background: #fff;
+  display: grid; place-items: center; color: #fff;
+  transition: background .12s ease, border-color .12s ease;
+}
+.rail-box--radio { border-radius: 50%; }
+.rail-box svg { width: 12px; height: 12px; opacity: 0; transition: opacity .1s ease; }
+.rail-check input:checked ~ .rail-box {
+  background: var(--action); border-color: var(--action);
+}
+.rail-check input:checked ~ .rail-box svg { opacity: 1; }
+/* The radio's mark is a dot drawn by the box itself — there is no glyph
+   inside it to reveal, so the inset shadow is what makes the ring read as
+   filled rather than solid. */
+.rail-check input:checked ~ .rail-box--radio {
+  box-shadow: inset 0 0 0 3.5px #fff;
+}
+.rail-check input:checked ~ .rail-check-text {
+  color: var(--action-700); font-weight: 600;
+}
+/* The ring goes on the drawn box, because the input it belongs to is
+   invisible. Without this the whole control is unfocusable-looking to a
+   keyboard user even though it is perfectly focusable. */
+.rail-check input:focus-visible ~ .rail-box {
+  outline: 2px solid var(--brand); outline-offset: 2px;
+}
+.rail-check-text { min-width: 0; }
+
+.rail-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; }
+.rail-clear {
+  text-align: center; text-decoration: none;
+  font: 600 13px/1 var(--font-sans); color: var(--ink-500);
+  min-height: 32px; display: inline-flex; align-items: center; justify-content: center;
+}
+.rail-clear:hover { color: var(--action-700); text-decoration: underline; }
+
+.results-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 14px; margin-bottom: 16px;
+}
+.sort-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.sort-label {
+  font: 400 13px/1 var(--font-sans); color: var(--ink-500);
+  margin-right: 2px;
+}
+.sort-pill {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 4px; background: #fff;
+  font: 600 13px/1 var(--font-sans); color: var(--ink-700);
+  text-decoration: none; white-space: nowrap;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.sort-pill:hover { background: var(--green-50); color: var(--action-700); border-color: var(--green-300); }
+.sort-pill.active { background: var(--action); border-color: var(--action); color: #fff; }
+.results-meta { display: flex; align-items: center; gap: 12px; }
+
+.view-toggle { display: flex; gap: 4px; }
+.view-btn {
+  width: 32px; height: 32px; padding: 0; cursor: pointer;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: #fff; color: var(--ink-700);
+}
+.view-btn:hover { background: var(--green-50); color: var(--action-700); }
+.view-btn.active { background: var(--action); border-color: var(--action); color: #fff; }
+
+/* List layout: the same .pcard re-flowed into a row. One column of cards,
+   media pinned to a fixed width on the left — no separate list template, so
+   the two views can never disagree about what a card says. */
+.pgrid.is-list { grid-template-columns: 1fr; }
+.pgrid.is-list .pcard { flex-direction: row; align-items: stretch; }
+/* 136, down from 168: a list row is for scanning a lot of products, and the
+   picture is the least of what distinguishes one bag of rice from another —
+   the name and the price are. Narrower media also shortens the row, which is
+   the whole reason a shopper switched to this view. */
+.pgrid.is-list .pcard .thumb {
+  width: 136px; flex: none; aspect-ratio: auto; padding: 12px;
+}
+.pgrid.is-list .pcard .thumb img { inset: 12px; width: calc(100% - 24px); height: calc(100% - 24px); }
+.pgrid.is-list .pcard .body { padding: 12px 16px; }
+/* Two columns, not a wrapping row: everything the product SAYS down the left,
+   everything it COSTS and the way to buy it down the right.
+
+   It was one flex row with every child at flex-basis: 100%, which is a column
+   wearing a row's clothes — the price and the button ended up on a full-width
+   line under the description, so a list of six products put its six prices at
+   six different heights depending on how long each description ran, and the
+   eye could not run down them. Grid areas pin the price column to a constant
+   right edge whatever the left column does.
+
+   `desc` is declared even though .pdesc only renders when the product has a
+   description: an area with no item in it collapses to a zero row, and the
+   two remaining lines still sit against the same price block. */
+.pgrid.is-list .pcard .body {
+  display: grid; align-content: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "meta foot"
+    "name foot"
+    "desc foot";
+  column-gap: 24px; row-gap: 4px;
+}
+/* Flush left, not pushed apart. On a card the meta line spans the card's own
+   width and the two ends read as two corners of one object; across a list row
+   the same rule threw "43 sold" against the price column, where it read as a
+   line of the price block. Together on the left they read as what they are —
+   two notes about the product, above its name. */
+.pgrid.is-list .pcard .pmeta  { grid-area: meta; justify-content: flex-start; gap: 8px; }
+/* The dot rides on the sold count, not on the category: .pcat clips its own
+   overflow to an ellipsis, and a separator inside that box
+   gets clipped with the name it was meant to follow. :not(:last-child) is
+   on the count instead — a row with no sold figure gets no orphaned dot
+   either way. */
+.pgrid.is-list .pcard .psold:not(:first-child)::before {
+  content: "·"; margin-right: 8px; color: var(--ink-400);
+}
+.pgrid.is-list .pcard .name   { grid-area: name; margin-bottom: 0; -webkit-line-clamp: 1; }
+.pgrid.is-list .pcard .pdesc  { grid-area: desc; margin: 4px 0 0; -webkit-line-clamp: 1; }
+/* The price column. Right-aligned so the peso figures line up with the
+   button's right edge and with each other down the page — a column of
+   numbers is only scannable if it shares an edge. */
+.pgrid.is-list .pcard .pfoot {
+  grid-area: foot; align-self: center;
+  flex-direction: column; align-items: flex-end; justify-content: center;
+  flex-wrap: nowrap; gap: 10px;
+  margin: 0; padding: 0; min-width: 172px;
+}
+.pgrid.is-list .pcard .price-cluster { align-items: flex-end; text-align: right; }
+/* The button gets its words back here, and the full width of the column with
+   them. The grid card drops the label because the card is 200px wide and the
+   glyph is unambiguous; a list row has the width, and at this size a lone
+   44px icon floating at the end of a wide row is a target you have to look
+   for. .cta--icon's margin-left: auto is what the column already does. */
+.pgrid.is-list .pcard .pfoot .cta--icon { flex: 1 1 auto; width: 100%; }
+.pgrid.is-list .btn-cart--add { width: 100%; min-height: 38px; gap: 8px; }
+.pgrid.is-list .btn-cart--add .lbl-add { display: inline; }
+/* ...and swaps them for the two seconds it is confirming, the same pair the
+   product page swaps. Both hidden again in the grid, where the tick alone is
+   the whole message. */
+.pgrid.is-list .btn-cart--add.is-added .lbl-add { display: none; }
+.pgrid.is-list .btn-cart--add.is-added .lbl-added { display: inline; }
+
+/* ------------------------------------------------- card additions */
+/* .bulk-flag is gone. The corner flag announced that a wholesale price
+   exists without ever saying what it is, so it cost a card corner to tell
+   the shopper to go and look. The product page's .bulk-badge line, which
+   states the actual figure, is untouched — that is the useful form of the
+   same fact. position:relative stays: .btn-cart--add and the thumb overlay
+   still position against the card.
+
+   Nothing else uses the flag, so the .pgrid.is-list offset went with it. */
+.pcard { position: relative; }
+.pcard .pdesc {
+  font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-700);
+  margin: 0 0 7px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------- card, by its OWN width
+   Not by the viewport's — see the container-type note on .pcard. */
+
+/* The cart glyph is the first thing to go, not the layout. Measured at the
+   sizes above, a peso figure and a full "Add to cart" button share a row down
+   to ~247px of card; drop the 17px icon and its 6px gap and the same pair
+   fits to ~200px. So between those two widths — which is most of a desktop
+   grid, where a 1280px container gives ~230px tracks — the price and the
+   button stay side by side the way the reference sets them, instead of the
+   button spanning the card and adding a row of height to every card in the
+   grid. The button keeps its text, so nothing is lost but decoration. */
+@container (max-width: 247px) {
+  /* Drops the glyph so the LABEL still fits on a narrow card — which is only
+     coherent for the three CTA branches that have a label. :not() exempts the
+     icon-only Add to cart, whose glyph is the whole control: this rule is
+     (0,3,1) and beat .btn-cart--add.is-added .ico-added at (0,3,0), so every
+     card in a 216px track rendered an empty green box. */
+  .pcard .pfoot .btn-cart:not(.btn-cart--add) svg { display: none; }
+  .pcard .btn-cart:not(.btn-cart--add) { padding: 0 11px; }
+}
+
+/* Below ~200px the pair genuinely does not fit, and forcing it either wrapped
+   the button to its own line at whatever width was left over or squeezed the
+   price into an ellipsis. Stacked and full width, the card reads the same at
+   150px as it does at 300px. */
+@container (max-width: 200px) {
+  .pcard .pfoot { flex-direction: column; align-items: stretch; gap: 9px; padding-top: 10px; }
+  .pcard .pfoot .cta,
+  .pcard .pfoot .btn,
+  .pcard .pfoot .btn-cart { width: 100%; }
+  /* ...except the icon-only one, which is 44px wide and never was the reason
+     the row stopped fitting. Stacking it spends a whole extra row of card
+     height on a control the width of a thumbnail, and stretching it brings
+     back the full-width slab this variant exists to avoid. The rules above
+     are (0,3,0) and so are these — they win on order, not weight, so they
+     have to stay below. */
+  .pcard .pfoot:has(.cta--icon) { flex-direction: row; align-items: center; }
+  .pcard .pfoot .cta--icon,
+  .pcard .pfoot .cta--icon .btn-cart--add { width: auto; }
+}
+
+/* Phone-width track. The description is the first thing to go: two clamped
+   lines of body copy at this size is a grey block, and the name and price
+   are what a shopper scans a grid by. */
+@container (max-width: 178px) {
+  .pcard .body { padding: 9px 11px 12px; }
+  .pcard .name { font-size: 14px; margin-bottom: 6px; }
+  .pcard .price { font-size: 17px; }
+  .pcard .pdesc { display: none; }
+  .pcard .psku { margin-bottom: 5px; }
+  .pcard .btn-cart:not(.btn-cart--add) { padding: 0 9px; font-size: 12.5px; }
+  .pcard .thumb { padding: 10px 10px 4px; }
+  .pcard .thumb img { inset: 10px 10px 4px; width: calc(100% - 20px); height: calc(100% - 14px); }
+}
+
+@media (max-width: 900px) {
+  .catalog-layout { grid-template-columns: 1fr; }
+  .filter-rail { position: static; }
+  .results-bar { align-items: flex-start; }
+  .pgrid.is-list .pcard { flex-direction: column; }
+  .pgrid.is-list .pcard .thumb { width: auto; aspect-ratio: 4 / 3; }
+}
+
+/* ======================================================================
+   PRODUCT DETAIL  (.pdp-*)
+   ====================================================================== */
+.pdp {
+  display: grid; grid-template-columns: minmax(260px, 400px) minmax(0, 1fr);
+  gap: 26px; align-items: start;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 22px; margin-bottom: 18px;
+}
+.pdp-frame {
+  aspect-ratio: 1 / 1; border-radius: 4px; overflow: hidden; background: #fff;
+  border: 1px solid var(--line-soft);
+  display: flex; align-items: center; justify-content: center;
+}
+.pdp-frame img { width: 100%; height: 100%; object-fit: contain; }
+.pdp-frame--empty { background: var(--green-50); font-size: 110px; border-color: var(--green-100); }
+.pdp-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pdp-thumbs img {
+  width: 64px; height: 64px; object-fit: cover; cursor: pointer;
+  border-radius: 4px; border: 1px solid var(--line);
+}
+
+.pdp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+/* .chip and .chip-cat are gone. .chip lost -ok/-low/-out when the storefront's
+   stock readings were consolidated into .stock-status below, which left
+   .chip-cat — the PDP's category — as its only caller; that is a
+   classification, so it is a .tag like every other category in the app, and
+   the base class had nothing left to style. .pdp-chips (the flex row they
+   sat in) stays: it is the container, not the badge. */
+
+/* ------------------------------------------------------- stock status
+   ONE component for "can I get this", used at all three places the
+   storefront answers that question: the PDP header chip, each branch row
+   in Available At, and a cart line that cannot be fulfilled. It used to be
+   three — a .chip with hardcoded hexes, the internal .pill, and ALL-CAPS
+   .stock-low/.stock-out text — so the same fact wore a different face on
+   consecutive screens and none of the three colours were the tokens.
+   (.chip itself is gone now; this rule inherited its geometry.)
+
+   Built on the status tokens, and never on a hex.
+
+   The dot takes --*-dot, NOT currentColor. Painted in the text's own colour
+   it was a second copy of a signal the text already carried, which is to
+   say it encoded nothing; the -dot tokens are the saturated end of each
+   pair, so the dot now reads at a glance from further away than the
+   words do. */
+.stock-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 3px;
+  font: 600 12px/1.4 var(--font-sans);
+  white-space: nowrap;
+}
+.stock-status .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.stock-status--ok   { background: var(--ok-bg);     color: var(--ok-fg); }
+.stock-status--low  { background: var(--warn-bg);   color: var(--warn-fg); }
+.stock-status--out  { background: var(--danger-bg); color: var(--danger-fg); }
+.stock-status--ok   .dot { background: var(--ok-dot); }
+.stock-status--low  .dot { background: var(--warn-dot); }
+.stock-status--out  .dot { background: var(--danger-dot); }
+
+.pdp-title {
+  font: 700 27px/1.25 var(--font-sans); color: var(--ink-900);
+  margin-bottom: 6px;
+}
+.pdp-sku {
+  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-500);
+  margin-bottom: 16px;
+}
+
+/* The price in its own tinted band — what stops the biggest number on the
+   page from reading as a continuation of the SKU line above it. */
+/* Tinted with the price's own hue, not the old warm one: a green figure in a
+   peach box read as two different claims in one panel. */
+.price-band {
+  background: var(--green-50); border: 1px solid var(--green-300); border-radius: 4px;
+  padding: 16px 18px; margin-bottom: 18px;
+}
+.price-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.price-now {
+  font: 700 32px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums; color: var(--price-fg);
+}
+.price-unit { font: 400 14px/1 var(--font-sans); color: var(--ink-500); }
+.price-bulk {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin: 12px 0 0;
+  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
+}
+/* Was #FDE68A on #78350F — an amber pair belonging to no token in the
+   system, and near enough to --warn-bg/--warn-fg that it read as a warning
+   on a price. BULK is a product flag, not a status: it says a cheaper unit
+   price exists at volume, which is good news or no news, never a problem.
+
+   So it goes onto the brand tokens rather than the status ones, the same
+   family .about-badge uses for the other non-status mark on the
+   storefront. Deliberately NOT --warn-*: the moment this is amber it
+   is claiming a state it does not have.
+
+   Inverted against those two, though: this badge lives inside .price-band,
+   which is itself --green-50, so a --green-50 fill here disappears into its
+   own ground. It takes the surface as its fill and the brand as its edge —
+   the same palette, read the other way up. */
+.bulk-badge {
+  padding: 3px 8px; border-radius: 3px; flex: none;
+  background: var(--surface); color: var(--action-700);
+  border: 1px solid var(--green-300);
+  font: 700 10.5px/1.4 var(--font-sans); letter-spacing: .05em;
+}
+
+.buy-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.qty-field label {
+  display: block; margin-bottom: 6px;
+  font: 600 12.5px/1 var(--font-sans); color: var(--ink-700);
+}
+.qty-stepper {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
+  background: #fff;
+}
+.qty-btn {
+  width: 40px; min-height: 44px; padding: 0; cursor: pointer;
+  border: 0; background: #fff; color: var(--ink-900);
+  font: 400 19px/1 var(--font-sans);
+}
+.qty-btn:hover { background: var(--green-50); color: var(--action-700); }
+.qty-stepper input {
+  width: 58px; min-height: 44px; text-align: center;
+  border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  font: 600 15px/1 var(--font-sans); color: var(--ink-900);
+  background: #fff;
+}
+/* The native spinners duplicate the two buttons either side of them and
+   shrink the hit area of both. */
+.qty-stepper input::-webkit-outer-spin-button,
+.qty-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qty-stepper input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+.buy-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+/* The product page's own Add to Cart. Its LOOK is .btn .btn-outline now
+   (gerlyn.css) rather than a private copy of one — the card grid and this
+   page were drawing the same control out of two unrelated rule sets, and
+   only one of them moved when the outline treatment changed. What is left
+   here is what is particular to THIS button: the width it has to hold, and
+   the add/added swap below. */
+.btn-ghost-green {
+  /* Wide enough for "Add to Cart", which is the longer of the two labels this
+     button swaps between — so the two-second "Added" does not shrink it and
+     let it grow back under the pointer. */
+  min-width: 152px;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+/* Added, on the product page's own buy button: the cart glyph becomes a tick
+   and the outline fills in with the solid dark green — the same confirmation
+   the card button gives, because a successful add here raises no toast
+   either, and the same two seconds before it goes back. Both glyphs and both
+   labels are in the markup and CSS picks a pair, so neither swap costs a
+   reflow.
+   White on --action is 5.31:1, and the glyph changes SHAPE as well as
+   colour — which is what a colour-blind reader is left with. */
+.btn-ghost-green .ico-added,
+.btn-ghost-green .lbl-added { display: none; }
+.btn-ghost-green.is-added,
+.btn-ghost-green.is-added:hover {
+  background: var(--action); border-color: var(--action); color: #fff;
+}
+.btn-ghost-green.is-added .ico-add,
+.btn-ghost-green.is-added .lbl-add { display: none; }
+.btn-ghost-green.is-added .ico-added { display: block; }
+.btn-ghost-green.is-added .lbl-added { display: inline; }
+/* One pulse on the frame the tick appears, so a repeat add on a page the
+   shopper is already standing on still reads as an event. Shares the
+   cartAdded keyframe declared with the card button above. */
+.btn-ghost-green.is-added-now { animation: cartAdded .28s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .btn-ghost-green.is-added-now { animation: none; }
+}
+
+.pdp-panels {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px; margin-bottom: 8px;
+}
+.pdp-panel {
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 20px;
+}
+.pdp-panel h2 {
+  font: 700 16px/1.3 var(--font-sans); color: var(--ink-900);
+  padding-bottom: 12px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pdp-desc {
+  font: 400 14.5px/1.65 var(--font-sans); color: var(--ink-700);
+  margin: 0;
+}
+.pdp-desc--empty { color: var(--ink-500); font-style: italic; }
+.avail-list { list-style: none; margin: 0; padding: 0; }
+.avail-list li {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 0; border-top: 1px solid var(--line-soft);
+}
+.avail-list li:first-child { border-top: 0; }
+.avail-branch { font: 500 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
+.avail-note {
+  font: 400 12.5px/1.5 var(--font-sans); color: var(--ink-500);
+  margin: 14px 0 0;
+}
+
+@media (max-width: 760px) {
+  .pdp { grid-template-columns: 1fr; padding: 16px; }
+  .pdp-title { font-size: 22px; }
+  .price-now { font-size: 27px; }
+  .buy-row { flex-direction: column; align-items: stretch; }
+  .buy-actions { flex-direction: column; }
+  .buy-actions .btn { width: 100%; justify-content: center; }
+}
+
+/* ======================================================================
+   FOOTER
+   ====================================================================== */
+/* One named track for the brand column, then one equal track per column
+   that actually renders.
+
+   The four hard-coded tracks assumed four columns would always be there.
+   The Categories column is conditional — it does not render while the store
+   has a single category — so the grid kept drawing a fourth track for a
+   child that no longer existed, and the three remaining columns bunched into
+   the left three-quarters of the footer with a column of nothing beside
+   them. grid-auto-columns builds exactly as many tracks as there are
+   children, so the row stays even whether that column is there or not. */
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr;
+  grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: 28px; padding-top: 8px; padding-bottom: 26px;
+}
+.footer-mark {
+  display: inline-flex; align-items: center; gap: 10px;
+  text-decoration: none; color: inherit; margin-bottom: 12px;
+}
+.footer-mark img { width: auto; height: 40px; border-radius: 0; object-fit: contain; }
+.footer-mark span { font: 400 16px/1.2 var(--font-sans); }
+.footer-blurb {
+  font: 400 13.5px/1.65 var(--font-sans);
+  max-width: 34ch; margin: 0; opacity: .85;
+}
+.footer-title {
+  font: 700 12px/1.2 var(--font-sans);
+  letter-spacing: .08em; text-transform: uppercase;
+  margin-bottom: 14px; opacity: .8;
+}
+.footer-col ul { list-style: none; margin: 0; padding: 0; }
+.footer-col li { margin-bottom: 9px; }
+.footer-col a {
+  font: 400 13.5px/1.4 var(--font-sans);
+  text-decoration: none; color: inherit; opacity: .85;
+}
+.footer-col a:hover { opacity: 1; text-decoration: underline; }
+.footer-branches li { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+.footer-branch-nm { font: 600 13.5px/1.4 var(--font-sans); }
+.footer-branch-loc { font: 400 12.5px/1.5 var(--font-sans); opacity: .75; }
+.footer-note { font: 400 12.5px/1.55 var(--font-sans); opacity: .75; margin: 4px 0 0; }
+.footer-legal {
+  /* padding-block for the same reason as .section above — this one is also
+     a .shop-wrap. */
+  padding-block: 16px; border-top: 1px solid rgba(255,255,255,.16);
+}
+.footer-legal p { font: 400 12.5px/1.5 var(--font-sans); opacity: .75; margin: 0; }
+
+@media (max-width: 900px) {
+  .footer-grid { grid-auto-flow: row; grid-template-columns: 1fr 1fr; gap: 24px; }
+}
+@media (max-width: 560px) {
+  .footer-grid { grid-auto-flow: row; grid-template-columns: 1fr; }
+}
+
+/* ======================================================================
+   CART PAGE  (body.shop-cart)
+
+   A tightening pass, scoped to this page. The Order Summary column ran
+   24px of card padding, a 16px gap under the heading, another 16 under the
+   free-delivery meter, 16 between every field in the .stack and 24 above
+   it — roughly a third of a 340px column spent on air, on the one screen
+   where a shopper wants the whole thing in view at once before committing.
+
+   Every selector here is prefixed with body.shop-cart or a cart-only class.
+   .card-pad, .stack, .field and .summary-line are shared with the internal
+   shell and most of the storefront; editing them at the source would have
+   moved every panel in the app to tidy one column.
+   ====================================================================== */
+body.shop-cart .section { padding-block: 18px; }
+body.shop-cart .section-head { margin-bottom: 12px; }
+
+/* Item rows: 16px above and below each row plus a 14px column gap put ~46px
+   between one product name and the next on a list whose rows are 72px tall. */
+body.shop-cart .cart-row { padding: 10px 0; gap: 12px; }
+body.shop-cart .cart-thumb { width: 60px; height: 60px; font-size: 26px; }
+body.shop-cart .cart-row { grid-template-columns: 60px 1fr auto; }
+body.shop-cart .qty-stepper { margin-top: 6px; }
+
+.cart-summary { padding: 16px; }
+.cart-summary h3 { margin-bottom: 10px; }
+.cart-summary .cart-meter { margin-bottom: 12px; }
+.cart-summary .cart-meter p { margin-bottom: 6px; }
+.cart-summary .summary-line { padding: 5px 0; }
+.cart-summary .summary-total { padding-top: 10px; margin-top: 6px; }
+/* The checkout form: the fields are short and their labels sit directly on
+   them, so 16px between each was reading as four separate panels rather than
+   one form. */
+.cart-summary form.stack { gap: 10px; margin-top: 14px; }
+.cart-summary .field { gap: 4px; }
+.cart-summary .banner { margin-top: 2px; padding: 8px 12px; font-size: 12.5px; line-height: 1.4; }
+/* Place Order and Continue shopping are one pair; the .stack gap held them
+   as far apart as the unrelated fields above. */
+.cart-summary form.stack > .btn + .btn { margin-top: -4px; }

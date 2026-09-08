@@ -200,7 +200,7 @@ Status: settled. The codebase already has a proper design token system in `gerly
 | `.stat` | Quiet flat tile for secondary figures |
 | `.kpi-row` + `.stat-hero` / `.kpi-card` | The one KPI card, shared by the Dashboard rail (`.stat-hero`, a `<button>` tab, green when `.active`) and all four Reports tabs (`.kpi-card`). Reading order `.label` → `.value`, plus `.stat-status` on the Dashboard rail only. No icon, and **no sub-text** — the qualifying `.stat-foot` line ("at cost", "above reorder level") was removed from every KPI surface, and the class no longer exists. Tint is status only: `.warn` waiting on someone, `.danger` act now — never emphasis, and gated on a non-zero count so an all-clear page shows no colour. `.kpi-row.compact` trims the block padding and figure for rows that head a dense table (Stock per Branch, Stock Withdrawals) rather than a page |
 | `.toolbar` / `.toolbar-card` | Filter bars with search + dropdowns + export actions |
-| `.report-tabs` / `.filter-tabs` | One tab language, two jobs. `.report-tab` navigates between report sections; `.filter-tab` filters a list in place. Identical geometry — 14.5px/600, `--ink-600` → `--action-700`, a 2.5px active underline overlapping the bar's 1.5px hairline. They differ only in payload: a report tab carries an icon, a filter tab carries an icon **and** a `.count`. The pill `.tabs` / `.tab` component they replaced is gone |
+| `.report-tabs` / `.filter-tabs` | One tab language, two jobs. `.report-tab` navigates between report sections; `.filter-tab` filters a list in place. Identical geometry — 14.5px/600, `--ink-600` → `--action-700`, a 2.5px active underline overlapping the bar's 1.5px hairline. They differ only in payload: a report tab carries an icon, a filter tab carries an icon **and** a `.count` — except the storefront's My Orders, which is plain text links (see **Tabs** under Formatting standards). The pill `.tabs` / `.tab` component they replaced is gone |
 | `.count` + `.count-neutral` / `.count-info` / `.count-warn` / `.count-ok` / `.count-danger` | Count badge inside a `.filter-tab`. Selection lives in the underline, status in the badge — two independent channels, so colour never competes with "which filter is on". Tints are the `.pill-*` pairs below, and each page maps its badge to the same pill its own Status column uses. An unclassed `.count` is neutral (used for "All", which is not a status) |
 | `partials/_status_icon.html` | The filter tabs' glyphs, one copy. Four are deliberately the same paths as `reports/_row_icon.html` and `reports/_tabs.html` — a purchase order is the same truck everywhere it appears. No `{% else %}`: an unknown name draws nothing, rather than a plausible wrong glyph. SVGs carry `width`/`height` **and** a CSS rule, because a viewBox-only `<svg>` balloons to 300×150 the moment its stylesheet is stale |
 | `.back-link` | The `← Parent` affordance above the `<h1>` on eighteen detail/form/confirm routes, internal and storefront. Styled as `.breadcrumb`'s sibling — 13.5px/600, `--ink-500` → `--action`, no underline — because §2's Breadcrumbs note defines it as a two-level breadcrumb written as an action. It replaces `<a class="gv-meta">&larr; Parent</a>`, which fell through to the global `a` rule and rendered underlined in the same `--action` green as the page's primary button. The arrow is a masked SVG (`--icon-arrow-left`) rather than the `&larr;` glyph, so it takes `currentColor` and holds a 2.5px stroke that matches the label's weight; it rests at `--ink-400` and slides 3px left on hover, under `prefers-reduced-motion`. The label names the destination and nothing else — no "Back to", which the arrow already says |
@@ -277,6 +277,7 @@ This already exists conceptually as the Dashboard's low-stock preview and the Al
 Adapt as:
 - Dashboard keeps a compact `.card` version, max 5 rows: Low Stock, Expiring Soon, Pending POs, Unfulfilled/Pending Orders, Overdue Billing — each with a `.pill` count badge and trailing chevron
 - Zero-count checks collapse into a compact "All clear" chip instead of a full row — only checks with a nonzero count get a full row with icon, label, count badge, chevron, and outbound link
+- When exactly one check is live, it renders as `.attn-card` — the same row without the count badge (the detail sentence leads with the number) plus one line of context under the label. It is a plain row with a status-coloured left accent, **not** a tinted panel; see §3
 - Every actionable row links out: Low Stock/Expiring → Alerts Center tabs, Pending POs → Purchase Orders, Pending Orders → Sales & Orders, Overdue Billing → Billing's Outstanding Balances view
 - Retains "View all alerts →" link already specced in Cleanup tasks — this list is that preview, formalized
 - Alerts Center's own Low Stock Alerts tab is the full, non-compact version of this same row pattern (icon, label, count) but with the existing Qty/Reorder/Suggested/Risk columns intact — no change to that table
@@ -340,22 +341,34 @@ Why it went: sitting beside Needs Attention it read as a sixth unlisted check, a
 
 If per-branch pace is wanted again, it belongs somewhere with room to state its own axis — not adjacent to an actionable checklist. `_branch_status_rows()` and the `BRANCH_*` thresholds were deleted with the panel; recover them from history rather than rewriting from scratch.
 
-**3. Status color rule — enforce consistently**
+**3. Status color — tint a surface only where the surface's whole job is the status**
 
-> **A CTA inside a status-tinted surface takes that status's own color. `--action` green is reserved for CTAs on neutral/unthemed surfaces.**
-> The tint decides the CTA: a warn-tinted card's "Review →" is `--warn-cta`, a danger-tinted card's is `--danger-cta`. Off a tint, every CTA stays `--action` green.
-> Status color still never *substitutes* for action color: a "Create PO" button on a plain white page is `--action` green, never amber.
+> **A `-bg` fill belongs on a surface whose only job is to carry a status — a
+> confirmation icon, a `.pill`, a `.banner`. A checklist row is not that: it
+> carries a label and a link and reads as one of several. Mark its status
+> with a 3px left accent in the `-dot` color, never a `-bg` fill.**
 
-**This reverses the previous rule, it does not extend it.** §3 used to read "amber/warning means warning status only — never use it for action buttons… status color and action color are separate systems," and required a CTA to stay green *regardless* of the surface under it. That is no longer the rule and should not be reintroduced from doc history. What changed: on a tinted card the green CTA read as a second, competing status ("green = fine") on a surface whose whole job was to say "not fine." The surface owns the semantics; the CTA inherits them.
+`.attn-card` used to be the counter-example — a full `--warn-bg` panel with a
+1px border, a boxed icon, and a `--warn-cta`-tinted "Review →". Beside
+`.attn-row`, the plain form of the same check when more than one is live, the
+single-item case shouted. It now renders the way `.attn-row` does: a plain
+row on the panel surface, a `--line-soft` bottom hairline, the whole row as
+the link, status shown only by a left accent (`--status-dot`; red on
+`.attn-card--danger`). No `-bg` fill, no boxed icon, no count badge — the
+detail sentence opens with the number — and the chevron is affordance only:
+`--ink-400`, the non-text chevron token, with no hover shift. The
+`--status-bg` / `--status-line` / `--status-ink` / `--status-cta` custom
+properties that drove the old panel are deleted.
 
-The narrower claim inside the old rule survives — status color is not a *palette for buttons*. What died is the "regardless of surrounding color" clause.
-
-**Applying it:**
-- Scope is strictly CTAs *inside* a `*-bg`/`*-fg` tinted card or pill. Nav, table row actions, header links like "View all alerts →", and every `.btn-primary` are on neutral surfaces and stay green — this is a per-status modifier, not a change to `--action`
-- The card carries its status as local `--status-*` custom properties (`.attn-card` / `.attn-card--danger`); a CTA reads `var(--status-cta)`. A new status needs the five `--status-*` lines, not a new CTA rule
-- Hover deepens to the status's own `-fg`, never `--action-700` — jumping hue mid-interaction reads as a different control
-
-**The `-dot` tokens are not all usable as CTA type.** They were authored as dot/border colors. Measured against their own `-bg` at the CTA's 13.5px/700 — below the 18.66px-bold large-text threshold, so the bar is **4.5:1, not 3:1**:
+**CTAs on a genuinely tinted surface.** There is none in the app now. If one
+is added — a standalone alert card, say — its CTA takes that surface's own
+status color, never `--action` green, which would read as a second, competing
+status ("green = fine") on a surface whose job is "not fine". `--action`
+green stays the CTA color on neutral/unthemed surfaces; status color still
+never *substitutes* for it (a "Create PO" button on a white page is green,
+never amber). Such a CTA needs an `-cta` token verified numerically first —
+the `-dot` tokens were authored as dot/border colors and most fail 4.5:1 on
+their own `-bg` (the CTA's 13.5px/700 is below the large-text threshold):
 
 | status | `-dot` on own `-bg` | verdict |
 |---|---|---|
@@ -364,7 +377,10 @@ The narrower claim inside the old rule survives — status color is not a *palet
 | `--ok-dot` | 2.94:1 | would fail — needs its own `-cta` before use |
 | `--info-dot` | 3.05:1 | would fail — needs its own `-cta` before use |
 
-So: **add an `-cta` token per status and verify it numerically before tinting a CTA on that surface.** Do not reach for the `-dot` token and assume it carries. Softening `--warn-bg` toward the dot's hue is what pushed warn from 4.44:1 to 2.83:1 — a bg change can silently break a CTA that passed before, so re-measure both tokens whenever either moves.
+`--warn-cta` is still live — the `.confirm-warn` icon uses it — and
+`--danger-cta` stays defined alongside it. Softening a `-bg` toward its dot
+hue can silently break a CTA that passed before (this is what pushed warn
+from 4.44:1 to 2.83:1), so re-measure both tokens whenever either moves.
 
 **4. Typography — consider Inter**
 Current: `system-ui`. Works fine and avoids font-loading latency. If the team wants a more distinctive look, switch to Inter (open-source, humanist, wide weight range). Not a priority — only change if actively wanted.
@@ -440,12 +456,13 @@ Use `.toolbar` or `.toolbar-card` with consistent control patterns. All date fil
 - Navigating between report sections → `.report-tabs` / `.report-tab`
 - Never a pill tab bar — that component is gone, and there is one tab language now
 
-Each `.filter-tab` carries a glyph from `partials/_status_icon.html` and a `.count`. Tint the count with the same `.pill-*` family that page's own Status column uses for that status, so the tab bar and the table read as one scan. "All" is not a status and takes the unclassed neutral. Two exceptions worth knowing, both deliberate:
+Each `.filter-tab` carries a glyph from `partials/_status_icon.html` and a `.count`. Tint the count with the same `.pill-*` family that page's own Status column uses for that status, so the tab bar and the table read as one scan. "All" is not a status and takes the unclassed neutral. Three exceptions worth knowing, all deliberate:
 
 | Case | Why |
 |---|---|
 | Order Management's "Pending" is `count-neutral`, Billing's is `count-warn` | The tabs filter `order_status`; an unstarted order and an unpaid bill are different states. The badge follows the column it actually filters, not the status *name* |
 | Catalog's branch picker has no glyphs and no counts | One storefront icon repeated down a row of branch names carries no information, and a per-branch product count answers nothing at that point in the flow |
+| The storefront's My Orders has no glyphs and no counts — plain text tab links | A customer scanning their own order history is picking a view, not triaging a queue: the per-status counts answer a staff question, and beside the storefront's lighter chrome the row of stroked status icons read as decoration. The internal list pages — Order Management, Billing, Procurement, Sales — keep both the glyph and the tinted count |
 
 **Formatting standards**
 

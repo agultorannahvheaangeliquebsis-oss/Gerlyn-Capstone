@@ -1,4 +1,5 @@
 """Template context available on every page."""
+from core.module_permissions import module_access_map
 from core.permissions import INTERNAL_ROLES
 from core.scoping import branch_ids_for_user
 from core.version import APP_VERSION
@@ -6,6 +7,37 @@ from core.version import APP_VERSION
 
 def app_version(request):
     return {"APP_VERSION": APP_VERSION}
+
+
+def detail_modal(request):
+    """Which shell a detail page wears.
+
+    Every list's "see" action opens the record over the list instead of
+    navigating to it (detail-modal.js), and what it drops into the overlay is
+    the detail page's own content block — the same view, the same template,
+    the same branch checks — asked for with ?modal=1.
+
+    Resolving it here rather than in each view means a detail page opts in by
+    extending `base_template` instead of internal_base.html by name, and
+    nothing else about the view changes. Without the flag it renders as the
+    full page it always was, which is what a bookmark, a direct link, a
+    middle-click and a browser with JavaScript off all still get.
+    """
+    if request.GET.get("modal") == "1":
+        return {"base_template": "partials/_modal_base.html"}
+    return {"base_template": "internal_base.html"}
+
+
+def module_access(request):
+    """Exposes `module_access.<code>` for the sidebar (and anywhere else
+    that needs to hide a link to a section a Staff/Manager account can't
+    see — see core.module_permissions). Owner/Supplier/Customer always read
+    as True for every code, so templates don't need a role check alongside
+    this one."""
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return {}
+    return {"module_access": module_access_map(user)}
 
 
 # Maps the resolved URL name of the current request to the sidebar's
@@ -23,11 +55,11 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     "product_delete": "products", "product_detail": "products",
     "category_list": "categories", "category_add": "categories",
     "category_edit": "categories", "category_delete": "categories",
-    "inventory_list": "stock", "warehouse_stock_list": "stock",
-    "transfer_list": "stock_requests", "transfer_create": "stock_requests",
-    "transfer_detail": "stock_requests", "transfer_approve": "stock_requests",
-    "transfer_complete": "stock_requests", "transfer_confirm_receipt": "stock_requests",
-    "transfer_flag_discrepancy": "stock_requests",
+    "inventory_list": "stock", "warehouse_stock_list": "warehouse_stock",
+    "transfer_list": "withdrawals", "transfer_create": "withdrawals",
+    "transfer_detail": "withdrawals", "transfer_approve": "withdrawals",
+    "transfer_complete": "withdrawals", "transfer_confirm_receipt": "withdrawals",
+    "transfer_flag_discrepancy": "withdrawals",
     # Procurement
     "supplier_list": "suppliers", "supplier_add": "suppliers",
     "supplier_edit": "suppliers", "supplier_delete": "suppliers",
@@ -76,12 +108,51 @@ def nav_categories(request):
     the order pages all extend — none of which were passing categories of their
     own, so the row would have rendered empty on most of the shop.
 
-    Costs nothing on internal pages: a sliced QuerySet is lazy, and no internal
-    template names this variable, so the query is never executed there.
-    """
-    from inventory.models import ProductCategory
+    Empty while the store has fewer than two categories, which is what every
+    storefront surface keys its category UI off — the chips under the search,
+    the Shop menu, the footer column, the home page tiles, the catalog's
+    Category filter and the line on each product card.
 
-    return {"nav_categories": ProductCategory.objects.all()[:8]}
+    A lone category is not a choice. With one row in the table ("General",
+    holding every product), the chip row offered a filter that filters
+    nothing, the rail asked the shopper to pick between "All products" and
+    the only category there is, and every card in the grid carried the same
+    word. None of that told anyone anything; it just spent space saying
+    "General" six times per screen. The moment a second category exists all
+    of it comes back on its own — this is a threshold, not a deletion, and
+    nothing about the category is removed from the database or the internal
+    system.
+
+    Costs nothing on internal pages: SimpleLazyObject defers the query until
+    a template actually reads the variable, and no internal template names
+    it, so it is never executed there.
+    """
+    from django.utils.functional import SimpleLazyObject
+
+    def _categories():
+        from inventory.models import ProductCategory
+
+        cats = list(ProductCategory.objects.all()[:8])
+        return cats if len(cats) > 1 else []
+
+    return {"nav_categories": SimpleLazyObject(_categories)}
+
+
+def nav_branches(request):
+    """
+    Expose `nav_branches` for the storefront footer's Visit Us column.
+
+    Same reasoning as nav_categories: the footer lives in public_base.html,
+    which most of the shop extends, and none of those views pass branches.
+    Listing them from the database rather than hardcoding three names is what
+    keeps the footer from quietly lying the day a fourth branch opens.
+
+    Lazy QuerySet, so internal pages — which never name this variable — pay
+    nothing for it.
+    """
+    from branches.models import Branch
+
+    return {"nav_branches": Branch.objects.all()}
 
 
 ALERT_COUNT_CACHE_SECONDS = 30
@@ -122,3 +193,73 @@ def alerts(request):
 
     cache.set(cache_key, count, ALERT_COUNT_CACHE_SECONDS)
     return {"alert_count": count}
+
+
+def nav_selected_branch(request):
+    """
+    Expose `nav_selected_branch` for the storefront nav bar's status line.
+
+    The design reference puts a standing promise ("orders processed within 24
+    hours") in that slot. This store has no such SLA recorded anywhere, and a
+    delivery promise invented in a template is a claim the business never
+    made — so the slot carries the one fact the session actually knows: which
+    branch the shopper is buying from, with a link to change it when they are
+    not on one yet.
+
+    Only queries when a branch has been chosen, so staff pages and first-time
+    visitors pay nothing. Fail-safe: a nav bar must never break a render.
+    """
+    branch_id = request.session.get('branch_id') if hasattr(request, 'session') else None
+    if not branch_id:
+        return {}
+    try:
+        from branches.models import Branch
+
+        return {"nav_selected_branch": Branch.objects.filter(pk=branch_id).first()}
+    except Exception:
+        return {}
+
+
+def customer_nav(request):
+    """
+    Expose `cart_count` and `notification_count` for the storefront header's
+    icon row (bell · account · cart).
+
+    Both used to be per-view context: cart_count was passed by seven views in
+    orders/customer_views.py and by nothing else, so the badge on the cart
+    button simply vanished the moment a shopper stepped onto an account page
+    — the same header, the same session, a different number. A header that
+    lives in public_base.html needs its numbers from something that runs on
+    every render of public_base.html, which is this.
+
+    Those views still pass their own cart_count and still win: view context
+    overrides a context processor, and the value is identical either way.
+
+    Fail-safe on both counts — a badge must never break a page render.
+    """
+    out = {}
+
+    session = getattr(request, "session", None)
+    if session is not None:
+        try:
+            cart = session.get("cart", {})
+            out["cart_count"] = len(cart)
+            # No cart_product_ids any more. It existed so a card could paint
+            # its Add-to-cart button in the added state on first load; the
+            # tick is now a two-second receipt for a press (see toast.js
+            # markAdded), and painting one on load would have a card take
+            # credit for an add made on some earlier page. The badge above is
+            # what says what the cart holds.
+        except Exception:
+            pass
+
+    user = getattr(request, "user", None)
+    if user is not None and user.is_authenticated:
+        try:
+            out["notification_count"] = user.notifications.filter(
+                is_read=False
+            ).count()
+        except Exception:
+            pass
+
+    return out

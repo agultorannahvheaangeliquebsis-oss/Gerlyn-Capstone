@@ -1,11 +1,18 @@
 /* ==========================================================================
    GerlynPLUS Design System
    Implements the "Gerlyn Variety Store Redesign" foundation.
-   Self-contained: no CDN, no external fonts. System sans, 16px base.
+   Roboto (Google Fonts, linked from both base templates) at 16px base.
+   Every rule takes its family from --font-sans below, so the stack is
+   changed in one place rather than in the ~230 `font:` shorthands.
    ========================================================================== */
 
 /* ---------------------------------------------------------------- tokens */
 :root {
+  /* Typography. Roboto is linked in internal_base.html and public_base.html;
+     the tail is what renders in the gap before it arrives, or if Google Fonts
+     is unreachable. */
+  --font-sans: 'Roboto', -apple-system, 'Segoe UI', Arial, sans-serif;
+
   /* Brand. #2E9E6B is the identity colour, but anything with WHITE TEXT on it
      uses --action (#1E7A4F) so it passes WCAG AA. Never put white text on
      --brand for small text. */
@@ -57,9 +64,19 @@
   --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
   --s6: 24px; --s8: 32px; --s12: 48px;
 
-  /* Radius */
-  --r-input: 8px;
-  --r-card: 12px;
+  /* Radius — deliberately tight. Halved from 8/12 in a pass that took every
+     hard-coded corner in this file, storefront.css and account.css with it,
+     so nothing is left rounder than the tokens it sits beside.
+
+     --r-pill (999px) is reserved for things whose shape carries meaning:
+     count badges, meter tracks, and controls the eye should read as
+     pressable. Static status lozenges are NOT among them — a fully round
+     label looks like a button you can tap, so .pill sits on --r-card and
+     keeps the same corner as the card it is printed on. Circles
+     (border-radius: 50%) are left alone — an avatar is a circle, not a very
+     rounded square. */
+  --r-input: 4px;
+  --r-card: 7px;
   --r-pill: 999px;
 
   /* Icons drawn by CSS rather than by markup. Masked, not background-image,
@@ -89,21 +106,51 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink-900);
-  font: 400 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 400 16px/1.5 var(--font-sans);
 }
 a { color: var(--action); }
 a:hover { color: var(--action-700); }
 
+/* Form controls and buttons do not inherit font-family from body — the UA
+   sheet gives them the OS default instead, which is the whole thing this
+   change is undoing. The typed selector list below (.input, input[type=text]
+   and friends) sets the family in its `font:` shorthand, but it names eight
+   input types and misses file, submit, url, time and datetime-local, plus
+   any bare <button>. Family only here, so every size and weight set
+   elsewhere survives. */
+button, input, select, textarea, optgroup {
+  font-family: var(--font-sans);
+}
+
 /* Type scale */
-.gv-metric { font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.gv-page-title { font: 650 24px/1.25 system-ui, sans-serif; margin: 0; }
-h1 { font: 650 24px/1.25 system-ui, sans-serif; margin: 0; }
-h2 { font: 650 24px/1.25 system-ui, sans-serif; margin: 0; }
-h3, .gv-card-title { font: 600 18px/1.3 system-ui, sans-serif; margin: 0; }
-.gv-meta { font: 400 14px/1.45 system-ui, sans-serif; color: var(--ink-600); }
+.gv-metric { font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; }
+.gv-page-title { font: 650 24px/1.25 var(--font-sans); margin: 0; }
+h1 { font: 650 24px/1.25 var(--font-sans); margin: 0; }
+h2 { font: 650 24px/1.25 var(--font-sans); margin: 0; }
+h3, .gv-card-title { font: 600 18px/1.3 var(--font-sans); margin: 0; }
+.gv-meta { font: 400 14px/1.45 var(--font-sans); color: var(--ink-600); }
+/* The label on the number the page exists to show: the cart total, the
+   amount due, the order number on a confirmation. Every one of the nine
+   places this class is used is one of those, which is why it is not the
+   12px tracked grey caps it used to be — that is an eyebrow for a field
+   nobody reads twice, and it was whispering the one line each of those
+   screens is about. The caps also cost it sentence case, so "Amount due"
+   rendered as AMOUNT DUE.
+
+   Reading size, reading weight. If a true eyebrow is ever needed again, add
+   it as its own class — do not put the caps back here. */
 .gv-label {
-  font: 700 12px/1.2 system-ui, sans-serif;
-  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
+  font: 600 15px/1.3 var(--font-sans);
+  letter-spacing: 0; text-transform: none; color: var(--ink-700);
+}
+/* "View all X ›" — the storefront's .panel-more, ported so the internal
+   pages can use the same chevron instead of a "→" typed into the label.
+   A text arrow is a character in the string: it inherits the link's weight,
+   it is read out by screen readers as part of the name, and it cannot be
+   sized or aligned independently. The SVG is aria-hidden and sits on the
+   baseline the flex row sets. */
+.link-more {
+  display: inline-flex; align-items: center; gap: 6px;
 }
 .gv-muted { color: var(--ink-600); }
 .num { font-variant-numeric: tabular-nums; }
@@ -125,7 +172,7 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: var(--touch); padding: 0 18px;
   border-radius: var(--r-input);
-  font: 650 14.5px/1 system-ui, sans-serif;
+  font: 650 14.5px/1 var(--font-sans);
   text-decoration: none; cursor: pointer;
   border: 1.5px solid var(--input-line);
   background: var(--surface); color: var(--ink-900);
@@ -135,6 +182,17 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 /* One solid primary per screen. */
 .btn-primary { background: var(--action); border-color: var(--action); color: #fff; }
 .btn-primary:hover { background: var(--action-700); border-color: var(--action-700); color: #fff; }
+/* Outlined accent — border AND label both --action on a plain surface, with
+   no fill, no shadow and no gradient. For a call to action that has to read
+   as a real button without becoming the second solid pill on the screen.
+   #1E7A4F on white is 5.31:1, so the label clears 4.5:1 at .btn's 14.5px.
+   Hover TINTS rather than flips: --green-50 under the same frame, with the
+   border and text stepping to --action-700 (6.94:1 on that tint) — the state
+   is legible without the button turning into .btn-primary for a moment.
+   Radius, height, padding and gap all come from .btn; this modifier sets
+   colour only, which is what lets .btn-sm and the rest compose with it. */
+.btn-outline { background: var(--surface); border-color: var(--action); color: var(--action); }
+.btn-outline:hover { background: var(--green-50); border-color: var(--action-700); color: var(--action-700); }
 .btn-quiet { border-color: transparent; background: transparent; color: var(--ink-700); }
 .btn-quiet:hover { background: var(--line-soft); }
 /* Destructive stays OUTLINED until the final confirm step. */
@@ -145,22 +203,65 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 .btn-sm { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
 .btn[disabled], .btn:disabled { opacity: .5; cursor: not-allowed; }
 
+/* ----------------------------------------------------------- icon action */
+/* Every internal table's Actions column is icon-only. The verbs (Edit,
+   Delete, View…) repeat on every row, so once the icon is learned the word
+   is noise — and three text buttons per row turned the column into a wall
+   of boxes. The name still has to exist for anyone not reading the picture:
+   aria-label carries it to screen readers, title shows it on hover. An
+   icon-only control with neither has no accessible name at all, so both
+   stay on every one of these. */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none; width: 36px; height: 36px; padding: 0;
+  border: 1.5px solid transparent; border-radius: var(--r-input);
+  background: transparent; color: var(--ink-700);
+  cursor: pointer; text-decoration: none;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.icon-btn svg { display: block; width: 18px; height: 18px; }
+.icon-btn:hover { background: var(--line-soft); color: var(--ink-900); }
+/* Tinted on hover only, so a resting row stays quiet and the colour still
+   says which button is the destructive one the moment you reach for it. */
+.icon-btn-action:hover { background: var(--green-50); color: var(--action-700); }
+.icon-btn-danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
+.icon-btn[disabled], .icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+
 /* ---------------------------------------------------------------- inputs */
+/* input[type=tel] belongs on this list. It was missing, so the three
+   phone-number fields in the app — profile, internal settings and the
+   registration form — rendered as raw browser controls: shrink-wrapped
+   to ~180px, hairline border, wrong font, sitting beside full-width
+   siblings in the same .field stack. */
 .input, input[type=text], input[type=search], input[type=number],
-input[type=date], input[type=password], input[type=email], select, textarea {
+input[type=date], input[type=password], input[type=email],
+input[type=tel], select, textarea {
   min-height: var(--touch);
   padding: 0 14px;
   border: 1.5px solid var(--input-line);
   border-radius: var(--r-input);
   background: var(--surface);
   color: var(--ink-900);
-  font: 400 15px/1.4 system-ui, sans-serif;
+  font: 400 15px/1.4 var(--font-sans);
   width: 100%;
 }
 textarea { padding: 10px 14px; min-height: 80px; resize: vertical; max-width: 100%; }
 input::placeholder { color: var(--ink-500); }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field > label { font: 600 14px/1.2 system-ui, sans-serif; color: var(--ink-700); }
+.field > label { font: 600 14px/1.2 var(--font-sans); color: var(--ink-700); }
+
+/* The value of a field that is fixed and always will be: the branch you are
+   scoped to, the product row you opened the edit modal from. It is printed
+   as text at the input's own size and ink so it lines up with the real
+   controls beside it — NOT as a pill. A pill here reads as a status the form
+   is reporting, or worse as something clickable, when all it is is the
+   answer to the label above it. */
+.field-static {
+  min-height: 28px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font: 400 15px/1.4 var(--font-sans);
+  color: var(--ink-900);
+}
 
 /* Floating-label field: opt in with .field-float. Markup order must be
    input then label, and the input needs placeholder=" " so :placeholder-shown
@@ -174,7 +275,7 @@ input::placeholder { color: var(--ink-500); }
   left: 15px;
   top: 50%;
   transform: translateY(-50%);
-  font: 400 15px/1.4 system-ui, sans-serif;
+  font: 400 15px/1.4 var(--font-sans);
   color: var(--ink-700);
   background: transparent;
   pointer-events: none;
@@ -199,7 +300,7 @@ input::placeholder { color: var(--ink-500); }
 }
 .field-error {
   margin: calc(-1 * var(--s4) + 6px) 0 0;
-  font: 500 13px/1.4 system-ui, sans-serif;
+  font: 500 13px/1.4 var(--font-sans);
   color: var(--danger-fg);
 }
 
@@ -246,7 +347,7 @@ input::placeholder { color: var(--ink-500); }
 .stat-hero .label, .kpi-card .label { display: block; }
 .stat-hero .value, .kpi-card .value {
   display: block; margin-top: 2px;
-  font: 700 32px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums;
 }
 /* .stat-foot removed — every KPI card across the app dropped its qualifying
    sub-text ("at cost", "23 orders", "above reorder level") by request. A card
@@ -294,7 +395,7 @@ input::placeholder { color: var(--ink-500); }
    an absence, so it must not outweigh the figures it is explaining. */
 .kpi-compare-note {
   margin: var(--s3) 0 0;
-  font: 400 13px/1.45 system-ui, sans-serif;
+  font: 400 13px/1.45 var(--font-sans);
   color: var(--ink-500);
 }
 
@@ -330,7 +431,7 @@ input::placeholder { color: var(--ink-500); }
 }
 /* 30px against the h3's 18px. At the 20px it replaces, the label and the
    figure were close enough in size and weight that neither one led. */
-.kpi-graph-value { font: 700 30px/1.15 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.kpi-graph-value { font: 700 30px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; }
 /* .gv-meta.kpi-graph-peak, not .kpi-graph-peak alone — .gv-meta sets 14px in
    the same single-class breath, so on specificity alone this would win only
    by sitting later in the file. Left-aligned once it wraps to its own line,
@@ -341,22 +442,24 @@ input::placeholder { color: var(--ink-500); }
   background: var(--line-soft); border: 1px solid var(--line);
   border-radius: var(--r-card); padding: var(--s4) var(--s4);
 }
-.stat .value { font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.stat .label, .stat-hero .label, .kpi-card .label { font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-600); }
+.stat .value { font: 700 20px/1.2 var(--font-sans); font-variant-numeric: tabular-nums; }
+.stat .label, .stat-hero .label, .kpi-card .label { font: 400 14px/1.4 var(--font-sans); color: var(--ink-600); }
 .stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s3); }
-.trend-up { color: var(--ok-fg); font: 600 13px/1 system-ui, sans-serif; }
-.trend-down { color: var(--danger-fg); font: 600 13px/1 system-ui, sans-serif; }
+.trend-up { color: var(--ok-fg); font: 600 13px/1 var(--font-sans); }
+.trend-down { color: var(--danger-fg); font: 600 13px/1 var(--font-sans); }
 
 /* ------------------------------------------------------------ status pills
    Always a FULL text label — pills size to content so "Low Stock" can never
    be truncated, and the label is what makes them readable for colour-blind
-   staff. (They used to carry a leading ::before dot as well, but it was
-   painted in currentColor — the same hue as the text — so it conveyed no
-   information the label didn't already, and just added visual noise.) */
+   staff. --r-card, not --r-pill: these are read-only state, and a 999px
+   corner made them look like tappable filters sitting in the table. (They
+   used to carry a leading ::before dot as well, but it was painted in
+   currentColor — the same hue as the text — so it conveyed no information
+   the label didn't already, and just added visual noise.) */
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px; border-radius: var(--r-pill);
-  font: 600 13px/1.6 system-ui, sans-serif;
+  padding: 3px 10px; border-radius: var(--r-card);
+  font: 600 13px/1.6 var(--font-sans);
   white-space: nowrap;
 }
 .pill-ok     { background: var(--ok-bg);     color: var(--ok-fg); }
@@ -365,6 +468,27 @@ input::placeholder { color: var(--ink-500); }
 .pill-info   { background: var(--info-bg);   color: var(--info-fg); }
 .pill-neutral{ background: var(--line-soft); color: var(--ink-600); }
 
+/* ------------------------------------------------------------ neutral tag
+   A .tag is a CLASSIFICATION, not a state: which category a product is in,
+   which branch a row belongs to, Retail vs Wholesale, Floor vs Warehouse.
+   These have no good or bad value, so they must never borrow the .pill-*
+   tints — an "Online" order painted --info-bg reads as a status the eye
+   then tries to rank against Paid and Completed in the next column.
+
+   Deliberately one variant and no colour modifiers. The moment a tag can be
+   ok/warn/danger it is a status pill again. Outlined rather than filled, and
+   a lighter weight than .pill, so a row of tags recedes behind the one
+   tinted pill that actually carries state. */
+.tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px; border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-600);
+  font: 500 12.5px/1.6 var(--font-sans);
+  white-space: nowrap;
+}
+
 /* ---------------------------------------------------------------- tables
    48px rows, sticky header, faint zebra, right-aligned numbers, 16px data. */
 .table-wrap { overflow-x: auto; border-radius: var(--r-card); }
@@ -372,7 +496,7 @@ input::placeholder { color: var(--ink-500); }
 .gv-table th {
   position: sticky; top: 0; z-index: 1;
   background: var(--line-soft);
-  font: 700 12px/1.2 system-ui, sans-serif;
+  font: 700 12px/1.2 var(--font-sans);
   letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
   text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line);
   white-space: nowrap;
@@ -392,7 +516,7 @@ input::placeholder { color: var(--ink-500); }
 .gv-table th.end, .gv-table td.end { text-align: right; }
 .gv-table .sku { color: var(--ink-500); font-variant-numeric: tabular-nums; }
 .gv-table .strong { font-weight: 600; }
-.row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.row-actions { display: flex; gap: 2px; align-items: center; justify-content: flex-end; }
 
 /* ---------------------------------------------------------- empty states */
 .empty {
@@ -405,7 +529,17 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: center; justify-content: center;
   font-size: 22px; font-weight: 700;
 }
-.empty h3 { font: 600 18px/1.3 system-ui, sans-serif; }
+/* Every internal empty state now fills this circle from
+   partials/_empty_icon.html instead of typing a character into it. The
+   font-size and font-weight above are kept, not dead: the storefront's own
+   empty states (cart, order confirmation) still set a text glyph here, and
+   they are outside this change.
+
+   The 24px is a duplicate of the width/height attributes the partial writes
+   on each <svg>, and deliberately so -- see the note in that file about a
+   viewBox-only <svg> falling back to 300x150 when this stylesheet is stale. */
+.empty .glyph svg { display: block; width: 24px; height: 24px; }
+.empty h3 { font: 600 18px/1.3 var(--font-sans); }
 .empty p { color: var(--ink-600); font-size: 14px; margin: 0; }
 /* The `display: flex` above is a class selector, so it outranks the browser's
    own `[hidden] { display: none }` and the attribute silently does nothing.
@@ -461,6 +595,41 @@ input::placeholder { color: var(--ink-500); }
   display: flex; flex-direction: column; padding: var(--s4) var(--s3);
   overflow: hidden;
   transition: width .26s cubic-bezier(.4, 0, .2, 1);
+
+  /* Sidebar-local overrides of the card language, NOT edits to the global
+     tokens. The rail sits on --surface (#FFF), where --green-50 is ~4% of a
+     luminance step and --shadow-card (.06 alpha) lands under the perceptual
+     floor — the highlight rendered correctly but read flat. These values are
+     held here rather than in :root because --green-50 (~27 other uses) is
+     shared with the cards, modals, pills, table rows and storefront tiles,
+     all of which are correctly calibrated for their own surfaces already;
+     --sb-hl-shadow is its own token precisely because it needed a different
+     alpha/blur than --shadow-card to read on this surface.
+
+     --sb-hl-shadow is two layers on purpose: a tight contact shadow plus a
+     wide ambient one is what reads as lift; a single soft blur reads as a
+     smudge. The outward reach of the ambient layer (~blur/2 + spread) must
+     stay within HL_INSET_X (8px, sidebar.js) or .sb-nav's overflow-x: hidden
+     shaves the right halo, so anything bigger has to buy its size with
+     negative spread rather than more blur. It is the sidebar's only shadow
+     now, and it belongs to hover alone — the selected row is flat and has no
+     shadow token of its own (see .sb-highlight--rest). The inset is
+     right-side only now (see sidebar.js), so the LEFT halo is shaved on
+     top-level rows; the accent block paints over that edge, so there is
+     nothing there to lose.
+
+     Two fills, one step apart: --sb-hl-fill is what a hovered row gets and
+     --sb-active-fill the selected one. The selected row was a solid
+     --action-700 slab with white text, which won the rail so completely that
+     hover had nothing left to say next to it. Two related greens at different
+     weights separate "you are here" from "you're pointing at this" without
+     either shouting. --action-700 text measures 5.02:1 on --sb-active-fill —
+     AA at the 14.5px these labels run, though not AAA; the darker --ink-900
+     would buy headroom at the cost of the green identity on the selected row,
+     and the green is the point. */
+  --sb-hl-fill: #CDE7DA;              /* --action-700 on it: 5.80:1 */
+  --sb-active-fill: #B5DBC5;          /* --action-700 on it: 5.02:1 */
+  --sb-hl-shadow: 0 3px 8px rgba(23,37,30,.14), 0 1px 3px rgba(23,37,30,.08);
 }
 /* The brand block is a header, so it is given an edge instead of being left to
    float above the nav on whitespace alone.
@@ -503,7 +672,7 @@ input::placeholder { color: var(--ink-500); }
    column: too small to read as an indent, big enough to read as a mistake. */
 .sb-logo { display: flex; align-items: center; gap: 10px; padding-left: 12px; min-width: 0; }
 .brand-mark {
-  width: 36px; height: 36px; border-radius: 10px; flex: none;
+  width: 36px; height: 36px; border-radius: 6px; flex: none;
   background: var(--brand); color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-weight: 800; font-size: 17px;
@@ -524,36 +693,18 @@ input::placeholder { color: var(--ink-500); }
    plain inline <span>, which is what let long store names get hard-clipped
    by the sidebar instead of ellipsizing. */
 .sb-logo-text { min-width: 0; flex: 1 1 auto; }
-.sb-logo-name { display: block; font: 750 15px/1.2 system-ui, sans-serif; }
-.sb-logo-sub { display: block; font: 400 12px/1.2 system-ui, sans-serif; color: var(--ink-500); }
+.sb-logo-name { display: block; font: 750 15px/1.2 var(--font-sans); }
+.sb-logo-sub { display: block; font: 400 12px/1.2 var(--font-sans); color: var(--ink-500); }
 
-/* Neutral, not green-tinted. The chip used to be a filled --green-50 card,
-   which put a second solid green block in a rail whose one job is to show
-   which row you are on — the selected item and "who am I" were competing in
-   the same colour, and the chip is on every page while the selection moves.
-   Green is now the selection's alone; the avatar keeps it because a 34px disc
-   reads as identity, not as a state. 11px inline rather than the nav rows' 12
-   because this row is the only one with a border: 1px + 11px puts the avatar
-   on the same 12px icon column as the brand mark above and every nav icon
-   below. */
-.sb-who {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 11px; margin-bottom: var(--s3);
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--r-input);
-  text-decoration: none; color: inherit;
-}
-.sb-who:hover { background: var(--line-soft); color: inherit; }
-.sb-who-name { color: var(--ink-900); }
+/* The sidebar's "who am I" card is gone — identity lives in the header
+   avatar's menu now, so the rail's only green is the selected row. .avatar
+   stays: it is the header disc (and the storefront's), not a sidebar part. */
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
   background: var(--action); color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px;
 }
-.sb-who-text { min-width: 0; flex: 1 1 auto; }
-.sb-who-name { display: block; font: 600 14px/1.2 system-ui, sans-serif; }
-.sb-who-role { display: block; font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-600); }
 
 /* --------------------------------------------------------------- nav rows
    Shared row look for top-level links, tree-group headers, and tree files. */
@@ -564,6 +715,11 @@ input::placeholder { color: var(--ink-500); }
 .sb-nav {
   display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0;
   overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
+  /* position: relative makes this the offsetParent every row's offsetTop/Left
+     is measured against (sidebar.js), and the containing block the absolutely
+     positioned .sb-highlight scrolls with. isolation: isolate keeps that
+     element's z-index a local matter between it and the rows. */
+  position: relative; isolation: isolate;
 }
 .sb-nav + .sb-nav { margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line); }
 
@@ -577,25 +733,160 @@ input::placeholder { color: var(--ink-500); }
   min-height: var(--touch); padding: 0 12px;
   border: 0; border-radius: var(--r-input);
   background: transparent; color: var(--ink-700); text-decoration: none;
-  font: 600 14.5px/1.3 system-ui, sans-serif; cursor: pointer; text-align: left;
+  font: 600 14.5px/1.3 var(--font-sans); cursor: pointer; text-align: left;
+  /* Sit above .sb-highlight (z-index 0) so its wash never covers the label. */
+  position: relative; z-index: 1;
 }
-.sb-item:hover, .sb-tree-toggle:hover, .sb-tree-file:hover { background: var(--line-soft); color: var(--ink-900); }
+/* Hover: the square card and its shadow are no longer painted on the row — a
+   single .sb-highlight element slides behind whichever row is hovered/focused
+   and carries them (see below and sidebar.js). The row itself still shifts its
+   text/icon to green in step, the same as before. */
+.sb-item:hover, .sb-tree-toggle:hover, .sb-tree-file:hover {
+  color: var(--action-700);
+}
+
+/* The sliding highlight ("magic move"). One element, not one per row: JS sets
+   its translate/width/height from the target row's offset box and it eases
+   between rows instead of each row's wash popping in and out. It is a square
+   card — a green-50 fill, a --green-300 hairline and a soft --shadow-card drop
+   shadow so it reads as lightly lifted off the rail (both the hairline and the
+   shadow are box-shadow layers, so no layout shift). Square, not the 12px
+   corner it had: the accent block down the left edge is a straight vertical
+   piece, and a rounded card pulls away from it at both ends.
+   z-index 0 keeps it behind the row text and icons. opacity is JS-toggled: 0
+   when nothing is hovered and no row is selected. The global
+   prefers-reduced-motion rule near the end of this file already flattens the
+   transition below to ~0, so it needs no separate handling.
+
+   sidebar.js draws it HL_INSET_X (8px) narrower than the row on its RIGHT
+   side only. .sb-nav clips overflow-x, so a card flush to the rail edge loses
+   its hairline and that side of its shadow to the clip; the inset gives the
+   right room. The left is deliberately flush: the hover fill has to share its
+   left edge with the selected fill — which is painted on the row itself,
+   full-bleed — so that one accent block meets both with no gap. It also means
+   the highlight — a child of .sb-nav, not of
+   .sb-tree-inner — is the one element that COULD carry a selected tree-file's
+   shadow without .sb-tree-inner's overflow:hidden shaving it. Nothing needs
+   that now: the selected row is flat (see .sb-highlight--rest below). It still
+   matters for the hover shadow on tree files, which is drawn by this same
+   element and would otherwise be clipped on all four sides. */
+.sb-highlight {
+  position: absolute; top: 0; left: 0; z-index: 0;
+  width: 0; height: 0;
+  border-radius: 0;
+  background: var(--sb-hl-fill);
+  box-shadow: 0 0 0 1px var(--green-300), var(--sb-hl-shadow);
+  opacity: 0; pointer-events: none;
+  transition: transform .18s cubic-bezier(.4, 0, .2, 1),
+              width .18s cubic-bezier(.4, 0, .2, 1),
+              height .18s cubic-bezier(.4, 0, .2, 1),
+              box-shadow .18s ease,
+              opacity .15s linear;
+}
+/* Parked behind the current-page row (resting on it, or hovering it): flat.
+   This class is the ONLY thing that ever put a shadow under a selected row —
+   the row's own rule says box-shadow: none and always has, so the lift came
+   from this card sitting behind it, on a heavier two-layer shadow of its own
+   so "you are here" read as sitting higher than "you're pointing at this".
+   That token (--sb-hl-shadow-rest) is gone with it — this rule was its only
+   consumer, so nothing else lost a shadow when it went.
+
+   That was the floating-card language, and the sidebar is not that any more:
+   square corners, two flat green fills, and a solid accent block down the left
+   edge doing the work the elevation used to do. A drop shadow under a flat
+   square block reads as a sticker peeling off the rail, so it goes — the
+   hairline with it, since box-shadow is one property and the hairline was only
+   ever visible as a 1px line in the 2px gap above and below the row.
+
+   Selected-only by construction: sidebar.js applies this class exclusively
+   when the highlight's target IS the active row (restToggle), so every other
+   row keeps the plain .sb-highlight shadow above, untouched. That does mean
+   hovering the row you are already on no longer lifts either — the selected
+   row is flat in both of its states, which is the point. */
+.sb-highlight--rest { box-shadow: none; }
+/* Collapsed rail: rows are 44px circles, so the highlight drops the card
+   entirely — round it and strip the hairline + shadow to a plain wash. */
+.app.sidebar-collapsed .sb-highlight { border-radius: 50%; box-shadow: none; }
 .sb-item svg, .sb-tree-toggle > svg:first-child { width: 18px; height: 18px; flex: none; }
 
-/* Active/selected item: solid dark-forest-green pill, white text for AA
-   contrast. The explicit :hover pairing keeps it from reverting to the
-   grey hover style (equal-specificity tie would otherwise let :hover win). */
+/* Active/selected item: --sb-active-fill, one step deeper than the hover fill,
+   with --action-700 text at 5.02:1 (see the token block for why it is no longer
+   a solid dark card with white text). Square corners, matching .sb-highlight.
+   Flat: box-shadow: none here, and .sb-highlight--rest — the card parked
+   behind it, which used to supply the elevation — is now flat too. Setting
+   none on this rule alone was never enough to un-float the row; both halves
+   have to be flat, so if a shadow ever reappears under a selected row, look
+   at .sb-highlight--rest first, not here. The explicit :hover pairing keeps
+   it from reverting to the hover style (equal-specificity tie would otherwise
+   let :hover win). */
 .sb-item--active,
 .sb-item--active:hover {
-  background: var(--action-700); color: #fff;
+  background: var(--sb-active-fill); color: var(--action-700);
+  border-radius: 0; box-shadow: none;
 }
+
+/* Accent block. Both states carry one now — hover in --green-300, selection in
+   --action-700 — so the two read as one gesture at two weights instead of the
+   bar being the only thing that said "selected". The fills alone no longer
+   carry that job on their own now that both of them are light greens.
+
+   A pseudo-element rather than `inset 5px 0 0`: an inset box-shadow paints
+   inside the row's padding box, and a tree file's block has to sit OUTSIDE
+   that box, in the indentation gutter.
+
+   Two geometries, one shape. On a tree file, left:-5px spans the entire
+   gutter: left edge on .sb-tree's border-left rail, right edge on the row's
+   card, one solid piece bridging the two with no gap at either end and no
+   separate horizontal connector. The gutter was narrowed from 8px to 5px to
+   make that block read as an accent rather than a slab, so the two numbers
+   are locked together — see .sb-tree-inner's padding below. A top-level row
+   has no tree and so no gutter; its block sits inside the row at left:0, a
+   stripe on the fill's leading edge with nothing to bridge to.
+
+   Full height, not the centred 24px it was. That compromise existed only
+   because a full-height bar escaped the row's 12px corners and left a nub
+   poking into the rail at each end. The corners are square now.
+
+   Hover is excluded on .sb-item--danger, where a green block would fight the
+   Logout row's danger palette, and .sb-tree-toggle has no block in either
+   state: a group header that merely CONTAINS the selected leaf is not itself
+   selected, and it keeps the colour tint it already had for that. */
+.sb-item:not(.sb-item--danger):hover::before,
+.sb-item--active::before,
+.sb-tree-file:hover::before,
+.sb-tree-file--active::before {
+  content: ''; position: absolute;
+  top: 0; bottom: 0; width: 5px;
+  border-radius: 0;
+  background: var(--green-300);
+  pointer-events: none;
+}
+.sb-item:not(.sb-item--danger):hover::before,
+.sb-item--active::before { left: 0; }
+.sb-tree-file:hover::before,
+.sb-tree-file--active::before { left: -5px; }
+/* Selected outranks hover: hovering the row you are already on keeps the
+   darker block. The hover selectors above are the more specific ones
+   (:not() + :hover), so the --active ones have to match that weight and come
+   after it to win the tie. */
+.sb-item--active::before,
+.sb-item--active:not(.sb-item--danger):hover::before,
+.sb-tree-file--active::before,
+.sb-tree-file--active:hover::before { background: var(--action-700); }
+/* Logout hover matches the hover-card language (square corner), in the danger
+   palette. Like the --active rows it carries no shadow of its own — the inset
+   .sb-highlight sliding behind it does, so it clears the .sb-nav clip. It gets
+   no accent block; see the rule above. */
 .sb-item--danger { color: var(--danger-fg); }
-.sb-item--danger:hover { background: var(--danger-bg); }
+.sb-item--danger:hover {
+  background: var(--danger-bg); color: var(--danger-fg);
+  border-radius: 0; box-shadow: none;
+}
 
 .nav-badge {
   flex: none; margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px;
   border-radius: var(--r-pill); background: var(--danger-dot); color: #fff;
-  font: 700 11.5px/20px system-ui, sans-serif; text-align: center;
+  font: 700 11.5px/20px var(--font-sans); text-align: center;
 }
 
 /* --------------------------------------------------- grouped nav dropdowns
@@ -614,27 +905,45 @@ input::placeholder { color: var(--ink-500); }
 .sb-tree-root:has(.sb-tree-file--active) > .sb-tree { border-left-color: var(--green-300); }
 
 /* The indent is derived, not eyeballed. A parent row puts its icon at 12–30px
-   and its label at 40px (12 padding + 18 icon + 10 gap). 20 + 8 + the file's
-   own 12 lands a child label on that same 40px, so the two levels share a text
-   spine and the rail alone carries the depth — and the rail itself falls at
+   and its label at 40px (12 padding + 18 icon + 10 gap). The rail falls at
    20–21.5px, which is the parent icon's centre axis, so the branch line drops
    out of the icon that opened it.
 
-   It was 22 + 10, putting child labels at 44px: four pixels right of their
-   parent's. Not an indent, just an alignment that misses. */
+   The gutter between the rail and the child rows is 5px, down from 8. It is
+   not free space — it is the accent block's width: a hovered or selected child
+   paints a solid block across the whole of it, rail face to card edge, and at
+   8px that block read as a slab instead of an accent. The two numbers move
+   together; change one and the block stops touching one of its ends (see
+   .sb-item--active::before above).
+
+   The cost is 3px off the child indent: labels now land at 38.5px
+   (20 margin + 1.5 rail + 5 gutter + the file's own 12) against the parent's
+   40, so the text spine misses by 1.5px to the left where at 8px it missed by
+   1.5px to the right. The same miss mirrored — and the rail, not the label
+   offset, is what carries the depth here.
+
+   The padding sits on .sb-tree-inner, not on .sb-tree where it used to. The
+   geometry is identical (the border stays on .sb-tree), but .sb-tree-inner is
+   the element with overflow: hidden — the half of the 0fr->1fr collapse that
+   does the clipping — and an overflow clip is taken at the PADDING box. With
+   the gutter as .sb-tree's padding, a child's left:-5px block fell outside
+   .sb-tree-inner's box entirely and was clipped away to nothing. As
+   .sb-tree-inner's own padding, the gutter is inside the clip region and the
+   block paints. Moving it back breaks the block, silently. */
 .sb-tree {
   display: grid; grid-template-rows: 0fr;
   transition: grid-template-rows .22s ease;
-  margin: 0 0 0 20px; padding: 0 0 0 8px; list-style: none;
+  margin: 0 0 0 20px; padding: 0; list-style: none;
   border-left: 1.5px solid var(--line);
 }
 .sb-tree.open { grid-template-rows: 1fr; }
-.sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+.sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 2px 0 0 5px; }
 .sb-tree-file { min-height: 38px; font-weight: 500; color: var(--ink-600); }
-.sb-tree-file:hover { color: var(--ink-900); }
+.sb-tree-file:hover { color: var(--action-700); }
 .sb-tree-file--active,
 .sb-tree-file--active:hover {
-  background: var(--action-700); color: #fff; font-weight: 600;
+  background: var(--sb-active-fill); color: var(--action-700); font-weight: 600;
+  border-radius: 0; box-shadow: none;
 }
 
 /* min-width: 0 lets the label actually shrink inside its flex row instead of
@@ -673,26 +982,11 @@ input::placeholder { color: var(--ink-500); }
 }
 .app.sidebar-collapsed .sb-toggle svg { width: 14px; height: 14px; }
 .app.sidebar-collapsed .sb-logo-text,
-.app.sidebar-collapsed .sb-who-text,
 .app.sidebar-collapsed .sb-logo-name,
 .app.sidebar-collapsed .sb-logo-sub,
-.app.sidebar-collapsed .sb-who-name,
-.app.sidebar-collapsed .sb-who-role,
 .app.sidebar-collapsed .sb-label,
 .app.sidebar-collapsed .sb-chevron,
 .app.sidebar-collapsed .sb-tree-toggle .nav-badge { display: none; }
-.app.sidebar-collapsed .sb-who {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  margin: 0 auto var(--s3);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 50%;
-}
 .app.sidebar-collapsed .sb-item,
 .app.sidebar-collapsed .sb-tree-toggle {
   justify-content: center;
@@ -703,6 +997,20 @@ input::placeholder { color: var(--ink-500); }
   margin: 0 auto;
   border-radius: 50%;
 }
+/* Collapsed rail: the rows are 44px circles, so drop the left accent bar and
+   keep hover as a plain green wash — an inset bar on a circle reads as a
+   crescent, not a rail. */
+.app.sidebar-collapsed .sb-item:hover,
+.app.sidebar-collapsed .sb-tree-toggle:hover { box-shadow: none; }
+/* Same reason the selected row's accent block goes: a straight bar at the left
+   of a 44px circle reads as a crescent hanging off it. Both states are hidden,
+   hover as well as selected, since both paint a block at this width now. (The
+   plain .sb-item selector is the one that catches hover, and it is late enough
+   in the file to win the specificity tie against the hover rule above.
+   .sb-tree-file has no collapsed case — .app.sidebar-collapsed .sb-tree is
+   display:none.) */
+.app.sidebar-collapsed .sb-item::before,
+.app.sidebar-collapsed .sb-item--active::before { display: none; }
 .app.sidebar-collapsed .sb-item svg,
 .app.sidebar-collapsed .sb-tree-toggle > svg:first-child {
   margin: 0;
@@ -717,6 +1025,9 @@ input::placeholder { color: var(--ink-500); }
   border-radius: 50%;
   background: var(--action-700);
   color: #fff;
+  /* flat like the rest of the collapsed rail — the expanded state's card
+     shadow would just be a smudge behind a 44px circle. */
+  box-shadow: none;
 }
 .app.sidebar-collapsed .sb-item.sb-item--active svg,
 .app.sidebar-collapsed .sb-tree-toggle.sb-item--active svg,
@@ -745,22 +1056,72 @@ input::placeholder { color: var(--ink-500); }
    the left, so the bar was restating it on every page while the line that
    actually said where you were sat under it in 12.5px grey. The section line
    is the only line now and takes the title's weight. */
-.topbar-section { font: 600 15px/1.2 system-ui, sans-serif; color: var(--ink-900); }
+.topbar-section { font: 600 15px/1.2 var(--font-sans); color: var(--ink-900); }
+/* Static, not a control. This says what the page is scoped to; it has never
+   been clickable. It used to be a green tinted 999px pill with a map pin —
+   the app's button shape — sitting a few inches above the Dashboard's real
+   branch <select>, which is a plain bordered box at 400 weight. The one you
+   could not click looked pressable and the one you could looked inert.
+   Stripped to text on the bar's own background, with the pin kept as a
+   quiet marker and dropped to --ink-500 so it stops reading as an icon
+   button.
+
+   height stays 38px. The topbar's 62px band is measured off this element and
+   has to keep lining up with the sidebar header's — see the .sidebar note
+   above, which is load-bearing in both directions. */
 .branch-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  height: 38px; padding: 0 14px; border-radius: var(--r-pill);
-  background: var(--green-50); color: var(--action-700);
-  border: 1px solid var(--green-300);
-  font: 600 13.5px/1 system-ui, sans-serif;
+  height: 38px; padding: 0;
+  background: none; border: 0;
+  color: var(--ink-600);
+  font: 500 13.5px/1 var(--font-sans);
 }
-/* Header avatar menu: on desktop this is just the avatar (Administration
-   already lives in the sidebar there). At <=860px the sidebar is hidden, so
-   the trigger becomes clickable and the panel is allowed to render — see
-   the @media block below. */
-.avatar-menu { position: relative; }
-.avatar-menu-trigger { display: flex; list-style: none; cursor: default; }
-.avatar-menu-trigger::-webkit-details-marker { display: none; }
-.avatar-menu-panel { display: none; }
+.branch-chip svg { color: var(--ink-500); }
+
+/* The Dashboard's real branch selector — the other half of the same problem.
+   It carries the same weight and the same hover as the .daterange-trigger
+   standing next to it, because those two are the controls on that head and
+   the eye should find both. A bare <select> inherits 400 with no cursor and
+   no hover, which is what let a label out-signal it. */
+.branch-select {
+  cursor: pointer;
+  font-weight: 600;
+  min-width: 190px;
+  /* The native arrow sat far off the right edge in a chunky Windows-blue
+     wedge that matched nothing else on the head. Own chevron instead —
+     the same SVG data-URI, 16px size and --ink-400 non-text stroke as
+     .daterange-trigger beside it, so the two controls on this head carry
+     one caret rather than a drawn wedge next to a text glyph. */
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A968F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+}
+.branch-select:hover { border-color: var(--brand); }
+/* Header avatar: a link straight to My Profile, not a menu. It was a
+   <details> panel listing the signed-in name, My Profile, the owner's
+   Administration links and Logout; every one of those rows exists in the
+   sidebar or, below 860px where the sidebar is display:none, in the bottom
+   nav's More panel — so the panel was a second click in front of the one
+   destination people actually wanted. The disc itself is unchanged; what
+   is new is the hit area and ring around it, since it now behaves like a
+   link rather than a disclosure. */
+.avatar-link {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; text-decoration: none;
+  /* The disc is 34px; the padded box is 40px, so the tap target clears the
+     minimum without the green circle growing. */
+  padding: 3px;
+  box-shadow: 0 0 0 0 var(--green-300);
+  transition: box-shadow .14s ease;
+}
+.avatar-link:hover { box-shadow: 0 0 0 3px var(--green-300); }
+/* On Settings itself the ring stays lit, the way an .sb-item--active row
+   marks the page you are on. */
+.avatar-link--active { box-shadow: 0 0 0 3px var(--green-300); }
 
 .content { padding: var(--s6) var(--s8) var(--s12); }
 /* align-items: center, not flex-start. flex-start was right while every page
@@ -779,7 +1140,7 @@ input::placeholder { color: var(--ink-500); }
    subtitles-under-h1 removal above, because it is not a restatement of the
    heading. It carries today's date, which nothing else on that page shows
    (the range control reads "Last 30 days", not a date). Dashboard only. */
-.page-greet { font: 400 14px/1.45 system-ui, sans-serif; color: var(--ink-600); margin: 3px 0 0; }
+.page-greet { font: 400 14px/1.45 var(--font-sans); color: var(--ink-600); margin: 3px 0 0; }
 /* ------------------------------------------------------------ breadcrumb
    Lived in account.css, which only the customer account pages load — so the
    internal shell could not use the component it already had. It is page
@@ -793,7 +1154,7 @@ input::placeholder { color: var(--ink-500); }
    earns its place when the chain is genuinely three deep. */
 .breadcrumb {
   display: flex; align-items: center; gap: 6px;
-  font: 400 13.5px/1 system-ui, sans-serif;
+  font: 400 13.5px/1 var(--font-sans);
   color: var(--ink-500); margin-bottom: var(--s3);
 }
 .breadcrumb a { color: var(--ink-500); text-decoration: none; }
@@ -815,7 +1176,7 @@ input::placeholder { color: var(--ink-500); }
    above the title, in the same green as the page's primary button, sitting on
    its own underline.
 
-   The arrow is a masked SVG, not the &larr; character. system-ui draws that
+   The arrow is a masked SVG, not the &larr; character. The UI font draws that
    glyph as a hairline that reads optically lighter than the label beside it,
    and it shifts shape across platforms; a 2.5px stroke matches the 600-weight
    text everywhere. Masking rather than an <img> keeps it currentColor, so one
@@ -827,7 +1188,7 @@ input::placeholder { color: var(--ink-500); }
    where the link goes. */
 .back-link {
   display: inline-flex; align-items: center; gap: 7px;
-  font: 600 13.5px/1 system-ui, sans-serif;
+  font: 600 13.5px/1 var(--font-sans);
   color: var(--ink-500); text-decoration: none;
 }
 .back-link::before {
@@ -885,7 +1246,7 @@ input::placeholder { color: var(--ink-500); }
   padding: var(--s4) var(--s6);
   border-bottom: 1px solid var(--line);
 }
-.modal-head h2 { font: 650 20px/1.25 system-ui, sans-serif; margin: 0; }
+.modal-head h2 { font: 650 20px/1.25 var(--font-sans); margin: 0; }
 .modal-close {
   display: inline-flex; align-items: center; justify-content: center;
   flex: none;
@@ -906,6 +1267,69 @@ input::placeholder { color: var(--ink-500); }
   padding: var(--s4) var(--s6);
   border-top: 1px solid var(--line);
 }
+
+/* -------------------------------------------------------- detail modal
+   The read-only twin of the modal above. Every list ends its rows with the
+   same eye button, and it now opens the record on top of the list rather
+   than navigating to it, so closing puts the reader back on the row, the
+   tab and the scroll position they started from.
+
+   What lands in .modal-body is the detail PAGE's own content block, fetched
+   from its URL (see detail-modal.js and partials/_modal_base.html) — so
+   these rules dress a fragment written for a full page. Two things it
+   carries are the page's, not the dialog's: the back link, which has no job
+   in a box that closes, and the <h1>, which is lifted into .modal-head.
+   Both are removed in JS rather than styled away, since either one left in
+   the flow would still be read aloud.
+
+   Wider than .modal-card's default because a record is columns and a table,
+   not a column of fields — 860px is two .grid-2 cards side by side with
+   their 320px minimum intact, and it still clears the overlay's padding on
+   a 1024px screen. */
+.detail-modal .modal-card { max-width: 860px; }
+/* Focus is moved here when the overlay opens so Escape and Tab have
+   somewhere inside the dialog to act from. It is a container, not a
+   control, so it must not draw a ring — the record inside it is what
+   the reader is being shown. */
+.detail-modal .modal-card:focus { outline: none; }
+/* The h1 that was lifted up here brings its status pill with it, and a pill
+   on a 20px baseline sits low unless the two are laid out as a row. */
+.detail-modal .modal-head h2 {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  min-width: 0;
+}
+/* .modal-body is already a flex column with a gap, so the fragment's own
+   .mb-4 spacers would double every gutter. The gap is the one that stays —
+   it applies between siblings only, and so cannot leave a trailing space at
+   the bottom of the scroll area the way a margin does. */
+.detail-modal .modal-body > * { margin-top: 0; margin-bottom: 0; }
+/* Once detail-modal.js strips the title out to the modal's own head, a
+   page-head only survives here when it also carried something actionable
+   (Purchase Orders' Print PO). That leaves .page-head with a single child,
+   and space-between has nothing left to space — flex-end keeps it pinned to
+   the same top-right corner it holds on the full page instead of drifting
+   to the left edge. */
+.detail-modal .modal-body .page-head { margin-bottom: 0; justify-content: flex-end; }
+/* Cards inside a raised surface: the shadow was lifting them off the page,
+   and repeating it inside a box that is itself already lifted reads as
+   clutter. The border still does the separating. */
+.detail-modal .modal-body .card { box-shadow: none; }
+
+.detail-modal-loading {
+  display: flex; align-items: center; justify-content: center; gap: var(--s3);
+  padding: var(--s12) 0;
+  color: var(--ink-600);
+}
+.detail-modal-spinner {
+  width: 18px; height: 18px; flex: none;
+  border: 2px solid var(--line);
+  border-top-color: var(--ink-600);
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .detail-modal-spinner { animation: detail-modal-spin .7s linear infinite; }
+}
+@keyframes detail-modal-spin { to { transform: rotate(360deg); } }
 
 /* ------------------------------------------------------- confirm dialog
    The one-question modal: a stop placed in front of an action that cannot be
@@ -941,7 +1365,7 @@ input::placeholder { color: var(--ink-500); }
 .confirm-warn   .confirm-icon { background: var(--warn-bg);   color: var(--warn-cta); }
 
 .confirm-title {
-  font: 650 20px/1.25 system-ui, sans-serif;
+  font: 650 20px/1.25 var(--font-sans);
   margin: 0; color: var(--ink-900);
 }
 /* --ink-500, not --ink-400: this runs at 14.5px, below the 18.66px-bold
@@ -972,6 +1396,133 @@ input::placeholder { color: var(--ink-500); }
 
 .toolbar { display: flex; gap: var(--s2); margin-bottom: var(--s4); flex-wrap: wrap; }
 .toolbar .input, .toolbar select { width: auto; min-width: 200px; }
+/* ------------------------------------------------ search + filter bar
+   .toolbar-search is a MODIFIER on .toolbar, opted into per page — the
+   eleven other templates on a plain .toolbar are untouched.
+
+   What it restructures on Product Master List: the bar was five loose
+   controls sitting straight on the page background, and the search box
+   carried .grow, so it ran the entire width of the content column and
+   pushed Scan, both selects and Search into one undifferentiated clump
+   jammed against the right edge. Nothing in that row said which controls
+   narrowed the list and which one searched it, and the runway-width field
+   spent the page's whole horizontal budget on an input nobody types more
+   than a few characters into.
+
+   Two groups on one frame instead. LEFT is the query: a magnifier, the
+   field at a readable cap, then Scan as a trailing icon inside the SAME
+   border — scanning is another way of putting a code into that box, not a
+   separate control, so it stops being a second button competing with it.
+   The magnifier at the head of the field IS the submit, so there is no
+   standalone Search button trailing it either. RIGHT is the filters, pushed
+   over by margin-left:auto; the gap the cap opens up is what separates the
+   two groups, so no divider rule is needed.
+
+   That submit still matters even though live-filter.js preventDefaults this
+   form — it is the real fallback when that script is absent or bails early
+   (it returns before binding when the table renders no rows). */
+.toolbar-search {
+  align-items: center;
+  padding: var(--s2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* --- left: the query ---------------------------------------------------- */
+/* The frame lives on the wrapper, so the icon, the input and Scan read as
+   one control. The input inside it is borderless and takes its height from
+   this box, which is where var(--touch) is honoured. */
+.toolbar-search .search-field {
+  display: flex; align-items: center;
+  flex: 1 1 280px; max-width: 440px; min-width: 0;
+  min-height: var(--touch);
+  border: 1.5px solid var(--input-line);
+  border-radius: var(--r-input);
+  background: var(--surface);
+}
+.toolbar-search .search-field:hover { border-color: var(--brand); }
+/* The magnifier is a real submit now, so it needs a hit target rather than
+   just an inline glyph. 40px wide with an 18px icon centred leaves the icon
+   exactly where it sat when the wrapper carried padding-left:12px and a 10px
+   gap, and the input still starts at 40px — the button replaces that space
+   instead of adding to it. --ink-400 keeps it reading as an affordance. */
+.toolbar-search .search-btn {
+  flex: none; align-self: stretch;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; padding: 0; cursor: pointer;
+  border: 0; background: none; color: var(--ink-400);
+  border-radius: var(--r-input) 0 0 var(--r-input);
+  transition: background .12s ease, color .12s ease;
+}
+.toolbar-search .search-btn:hover { background: var(--line-soft); color: var(--ink-900); }
+/* Inward, so the ring hugs the button instead of drawing a second rectangle
+   outside the field's own border — the same reason .modal-close zeroes it. */
+.toolbar-search .search-btn:focus-visible { outline-offset: -3px; }
+.toolbar-search .search-icon { flex: none; }
+.toolbar-search .search-field input[type=search] {
+  flex: 1 1 auto; width: auto; min-width: 0;
+  min-height: 0; padding: 0 10px 0 0;
+  border: 0; background: none; border-radius: 0;
+}
+/* Ring on the frame, not on the bare input. The input has no border of its
+   own, so the global 3px/offset-2 focus ring would draw a second rectangle
+   floating inside the box. :has is the only way to move it outward, so the
+   @supports fallback puts the ring back on the input rather than leaving a
+   keyboard user with no visible focus at all. */
+.toolbar-search .search-field input[type=search]:focus-visible { outline: none; }
+.toolbar-search .search-field:has(input:focus-visible) {
+  border-color: var(--brand);
+  outline: 3px solid var(--brand); outline-offset: 2px;
+}
+@supports not selector(:has(*)) {
+  .toolbar-search .search-field input[type=search]:focus-visible { outline: 3px solid var(--brand); }
+}
+/* Icon-only, so the name has to reach a screen reader some other way:
+   aria-label AND title, the same contract .icon-btn documents. Sized off
+   the field's own height so the divider runs the full edge. */
+.toolbar-search .scan-btn {
+  flex: none; align-self: stretch;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; padding: 0; cursor: pointer;
+  border: 0; border-left: 1.5px solid var(--line-soft);
+  border-radius: 0 var(--r-input) var(--r-input) 0;
+  background: none; color: var(--ink-500);
+  transition: background .12s ease, color .12s ease;
+}
+.toolbar-search .scan-btn:hover { background: var(--line-soft); color: var(--ink-900); }
+
+/* --- right: the filters ------------------------------------------------- */
+.toolbar-search .search-filters {
+  display: flex; align-items: center; gap: var(--s2);
+  margin-left: auto; flex-wrap: wrap;
+}
+/* These auto-submit on change, so they are controls you operate, not fields
+   you fill: 600 weight and a pointer, matching .branch-select on the
+   Dashboard head. Own chevron for the same reason it has one — the native
+   wedge is a chunky Windows-blue block that matches nothing else here — and
+   deliberately the identical SVG data-URI, 16px, --ink-400 stroke. */
+.toolbar-search select {
+  width: auto; min-width: 168px; cursor: pointer; font-weight: 600;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A968F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+}
+.toolbar-search select:hover { border-color: var(--brand); }
+
+/* Below 860px the two groups stack and each fills the row — margin-left:auto
+   has nothing to push against once they are on separate lines. */
+@media (max-width: 860px) {
+  .toolbar-search .search-field { flex-basis: 100%; max-width: none; }
+  .toolbar-search .search-filters { width: 100%; margin-left: 0; }
+  .toolbar-search .search-filters > * { flex: 1 1 140px; min-width: 0; }
+}
+
 
 /* Mobile bottom nav (hidden on desktop) */
 .bottom-nav { display: none; }
@@ -992,31 +1543,15 @@ input::placeholder { color: var(--ink-500); }
   .bottom-nav a {
     flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
     min-height: var(--touch); padding: 6px 2px; text-decoration: none;
-    color: var(--ink-600); font: 600 11px/1.1 system-ui, sans-serif;
+    color: var(--ink-600); font: 600 11px/1.1 var(--font-sans);
     border-radius: var(--r-input); position: relative;
   }
   .bottom-nav a.active { color: var(--action-700); background: var(--green-50); }
   .bottom-nav svg { width: 20px; height: 20px; }
   .bottom-nav .nav-badge {
     position: absolute; top: 2px; right: 22%; margin: 0;
-    min-width: 16px; height: 16px; font: 700 10px/16px system-ui, sans-serif;
+    min-width: 16px; height: 16px; font: 700 10px/16px var(--font-sans);
   }
-
-  .avatar-menu-trigger { cursor: pointer; }
-  .avatar-menu-panel {
-    flex-direction: column; gap: 2px;
-    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
-    min-width: 210px; padding: 6px;
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--r-card); box-shadow: 0 8px 24px rgba(0,0,0,.14);
-  }
-  .avatar-menu[open] .avatar-menu-panel { display: flex; }
-  .avatar-menu-link {
-    display: flex; align-items: center; min-height: 40px; padding: 0 12px;
-    border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
-    font: 600 13.5px/1 system-ui, sans-serif;
-  }
-  .avatar-menu-link:hover { background: var(--line-soft); color: var(--ink-900); }
 
   /* Tables -> stacked cards. Each td carries its header in data-label. */
   .gv-table thead { display: none; }
@@ -1034,12 +1569,15 @@ input::placeholder { color: var(--ink-500); }
   .gv-table td:last-child { border-bottom: 0; }
   .gv-table td::before {
     content: attr(data-label);
-    font: 700 12px/1.2 system-ui, sans-serif;
+    font: 700 12px/1.2 var(--font-sans);
     letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
     text-align: left; flex: none;
   }
   .gv-table td.num { text-align: right; }
-  .row-actions { justify-content: flex-end; }
+  .row-actions { justify-content: flex-end; gap: 4px; }
+  /* Stacked cards are touched, not clicked — take the icon buttons up
+     to the full tap target instead of the 36px desktop square. */
+  .icon-btn { width: var(--touch); height: var(--touch); }
   .page-head { flex-direction: column; align-items: stretch; }
   .toolbar .input, .toolbar select { min-width: 0; width: 100%; }
   .toolbar-card { flex-direction: column; align-items: stretch; }
@@ -1076,6 +1614,14 @@ input::placeholder { color: var(--ink-500); }
 .grow { flex: 1; }
 .wrap { flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s4); }
+/* A .grid-2 card next to a taller sibling stretches to match it, and without
+   this the extra height pools below the content instead of around it — the
+   Delivery / Proof of Payment cards read as unfinished rather than just
+   lighter on content. Same fix as .donut-card above, generalized: the
+   heading stays pinned to the top, .card-fill-body takes the slack and
+   centers in it. */
+.card-fill { display: flex; flex-direction: column; }
+.card-fill > .card-fill-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .hidden { display: none !important; }
 .mt-0{margin-top:0}.mt-2{margin-top:var(--s2)}.mt-4{margin-top:var(--s4)}.mt-6{margin-top:var(--s6)}
 .mb-0{margin-bottom:0}.mb-2{margin-bottom:var(--s2)}.mb-4{margin-bottom:var(--s4)}.mb-6{margin-bottom:var(--s6)}
@@ -1086,7 +1632,7 @@ input::placeholder { color: var(--ink-500); }
 @media print {
   .sidebar, .bottom-nav, .topbar, .tabs, .toolbar, .no-print,
   .report-tabs, .toolbar-card,
-  .btn, .row-actions, .banner { display: none !important; }
+  .btn, .icon-btn, .row-actions, .banner { display: none !important; }
   .main { margin-left: 0; }
   .content { padding: 0; }
   body { background: #fff; }
@@ -1119,22 +1665,30 @@ input::placeholder { color: var(--ink-500); }
    DESIGN.md, and each page maps its badge to the same pill its own Status
    column uses, so scanning the tab bar and scanning the table are one act.
 
+   Written unscoped, because a count badge is not a tab thing. Anywhere a
+   number hangs off a label it already belongs to — "Inbox 4", "Receive
+   Stock · 2 waiting", a Needs Attention row — this is the component, and a
+   .pill is not: a pill is a standalone value in its own column, and using
+   one for a number that only means anything next to its parent makes the
+   count look like the row's status. It keeps --r-pill; a badge is one of the
+   two shapes 999px is actually for.
+
    The .count-* modifiers match this rule's specificity exactly and win on
-   source order alone. Written as a bare `.count-ok` they would be (0,1,0),
-   the neutral default below would outrank every one of them, and the whole
-   palette would silently collapse to grey. For the same reason, never add a
-   colour to the base rule — it is the unclassed fallback. */
-.filter-tab .count {
+   source order alone — which is why the base rule had to lose its
+   `.filter-tab` ancestor at the same time as the modifiers, not before. Keep
+   all six on one level. For the same reason, never add a colour to the base
+   rule — it is the unclassed fallback. */
+.count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 22px; padding: 0 6px; border-radius: var(--r-pill);
-  font: 700 12px/1.7 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  font: 700 12px/1.7 var(--font-sans); font-variant-numeric: tabular-nums;
   background: var(--line-soft); color: var(--ink-700);
 }
-.filter-tab .count-neutral { background: var(--line-soft); color: var(--ink-600); }
-.filter-tab .count-info    { background: var(--info-bg);   color: var(--info-fg); }
-.filter-tab .count-warn    { background: var(--warn-bg);   color: var(--warn-fg); }
-.filter-tab .count-ok      { background: var(--ok-bg);     color: var(--ok-fg); }
-.filter-tab .count-danger  { background: var(--danger-bg); color: var(--danger-fg); }
+.count-neutral { background: var(--line-soft); color: var(--ink-600); }
+.count-info    { background: var(--info-bg);   color: var(--info-fg); }
+.count-warn    { background: var(--warn-bg);   color: var(--warn-fg); }
+.count-ok      { background: var(--ok-bg);     color: var(--ok-fg); }
+.count-danger  { background: var(--danger-bg); color: var(--danger-fg); }
 
 /* A .filter-tabs bar carries tabs and nothing else. Three attempts at hanging a
    page summary off it — above the bar as .filter-head/.filter-summary, then as
@@ -1148,7 +1702,7 @@ input::placeholder { color: var(--ink-500); }
 .report-tab {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 0 2px 12px; margin-bottom: -1.5px;
-  font: 600 14.5px/1 system-ui, sans-serif;
+  font: 600 14.5px/1 var(--font-sans);
   color: var(--ink-600); text-decoration: none;
   border-bottom: 2.5px solid transparent;
   min-height: var(--touch);
@@ -1182,7 +1736,7 @@ input::placeholder { color: var(--ink-500); }
 .filter-tab {
   display: inline-flex; align-items: center; gap: var(--s2);
   padding: 0 2px 12px; margin-bottom: -1.5px;
-  font: 600 14.5px/1 system-ui, sans-serif;
+  font: 600 14.5px/1 var(--font-sans);
   color: var(--ink-600); text-decoration: none;
   /* border:0 before border-bottom, not after — Alerts Center's tabs are real
      <button>s (they switch panels in place rather than navigating), and a
@@ -1226,7 +1780,7 @@ input::placeholder { color: var(--ink-500); }
   print-color-adjust: exact; -webkit-print-color-adjust: exact;
 }
 .pie-legend { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 10px; }
-.pie-legend li { display: flex; align-items: center; gap: 8px; font: 400 14px/1.4 system-ui, sans-serif; color: var(--ink-700); }
+.pie-legend li { display: flex; align-items: center; gap: 8px; font: 400 14px/1.4 var(--font-sans); color: var(--ink-700); }
 .pie-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .pie-count { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 /* The Dashboard's donut legend carries a per-branch status pill as well as
@@ -1256,18 +1810,18 @@ input::placeholder { color: var(--ink-500); }
 .hbar-chart { display: flex; flex-direction: column; gap: var(--s4); }
 .hbar-row { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); align-items: center; }
 .hbar-label {
-  font: 600 14px/1.3 system-ui, sans-serif; color: var(--ink-700); text-align: right;
+  font: 600 14px/1.3 var(--font-sans); color: var(--ink-700); text-align: right;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.hbar-track { position: relative; height: 22px; background: var(--line-soft); border-radius: 4px; }
+.hbar-track { position: relative; height: 22px; background: var(--line-soft); border-radius: 3px; }
 .hbar-fill {
-  position: absolute; left: 0; top: 0; height: 100%; min-width: 4px; background: var(--brand); border-radius: 4px;
+  position: absolute; left: 0; top: 0; height: 100%; min-width: 4px; background: var(--brand); border-radius: 3px;
   print-color-adjust: exact; -webkit-print-color-adjust: exact;
 }
-.hbar-value { font: 600 13.5px/1 system-ui, sans-serif; color: var(--ink-900); font-variant-numeric: tabular-nums; }
+.hbar-value { font: 600 13.5px/1 var(--font-sans); color: var(--ink-900); font-variant-numeric: tabular-nums; }
 .hbar-axis { display: grid; grid-template-columns: 170px 1fr 90px; gap: var(--s3); margin-top: var(--s1); }
 .hbar-axis-ticks { display: flex; justify-content: space-between; border-top: 1px solid var(--line-soft); padding-top: 6px; }
-.hbar-axis-ticks span { font: 400 12px/1 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.hbar-axis-ticks span { font: 400 12px/1 var(--font-sans); color: var(--ink-500); font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------ dashboard "Needs Attention"
    DESIGN.md §2b. Three presentations of the same check, chosen server-side
@@ -1275,22 +1829,19 @@ input::placeholder { color: var(--ink-500); }
 
      .attn-row    one actionable check among several — icon, label, count
                   badge, chevron, whole row is the link
-     .attn-card   the single-actionable case — the same check promoted to a
-                  status-tinted card with a sentence of context
+     .attn-card   the single-actionable case — the same check as a quiet list
+                  row with a sentence of context
      .attn-chip   an all-clear check, collapsed so it costs one grid cell
                   instead of a full row
 
-   The tint on .attn-card is status, never action (§3): it says "this is a
-   warning", not "click here". Its call to action takes the card's OWN status
-   colour (--status-cta below), not --action green — §3 was reversed on this
-   point. --action green is now reserved for CTAs on neutral surfaces, so the
-   "View all alerts →" link in this panel's header stays green while the
-   "Review →" inside the tinted card does not.
-
-   The card carries its status as local custom properties rather than
-   repeating each token in a --danger override, so a third status only needs
-   the five --status-* lines. Escalation is a data decision made in
-   _needs_attention_rows (pill-danger), not re-derived here. */
+   .attn-card is a quiet list row, not a tinted panel (§3): plain surface, a
+   3px amber left accent for status, a bottom hairline, and the whole row is
+   the link — so no "Review" text, just a muted chevron as affordance. The
+   count that used to sit beside the title is gone; the detail line already
+   opens with the number ("2 purchase orders raised but not yet received").
+   Escalation (critical stock, expired batches) is a data decision made in
+   _needs_attention_rows and only swaps the left accent to red via
+   --status-dot. */
 /* Padding tracks .feed-row exactly. The two lists sit side by side in one grid
    row at the same type size, so any difference between them reads as a
    mistake rather than as a distinction — these rows are single-line, so
@@ -1313,61 +1864,48 @@ input::placeholder { color: var(--ink-500); }
 .attn-chevron { color: var(--ink-400); font-size: 18px; line-height: 1; }
 
 .attn-card {
-  --status-bg:   var(--warn-bg);
-  --status-line: #EAC97E;
-  --status-ink:  var(--warn-fg);
-  --status-dot:  var(--warn-dot);
-  --status-cta:  var(--warn-cta);
+  --status-dot: var(--warn-dot);
 
   display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: var(--s3);
-  margin: var(--s4) var(--s6); padding: 13px var(--s4);
-  background: var(--status-bg); border: 1px solid var(--status-line);
-  border-left: 4px solid var(--status-dot); border-radius: 11px;
+  /* Same left inset as .attn-row's content — the 3px accent eats the first
+     3px of the gutter, it does not add to it. */
+  padding: 12px var(--s6); padding-left: calc(var(--s6) - 3px);
+  background: none;
+  border: 0;
+  border-left: 3px solid var(--status-dot);
+  border-bottom: 1px solid var(--line-soft);
   color: var(--ink-900); text-decoration: none;
 }
-/* An escalated check — critical stock, already-expired batches. Without this
-   the card stayed amber while the .pill inside it went red, so the surface
-   and its own count badge disagreed about severity. */
-.attn-card--danger {
-  --status-bg:   var(--danger-bg);
-  --status-line: #E6B3AE;
-  --status-ink:  var(--danger-fg);
-  --status-dot:  var(--danger-dot);
-  --status-cta:  var(--danger-cta);
-}
-.attn-card:hover { box-shadow: var(--shadow-card); color: var(--ink-900); }
-.attn-card .attn-ico {
-  width: 32px; height: 32px; border-radius: var(--r-input);
-  background: var(--surface); border: 1px solid var(--status-line); color: var(--status-ink);
-  align-items: center; justify-content: center;
-}
-/* The count badge is a .pill, whose -bg is the SAME token as the card it sits
-   on (pill-warn on --warn-bg, pill-danger on --danger-bg), so it painted tint
-   on identical tint and the count read as loose text. Lift it onto --surface;
-   the pill keeps its own -fg, so the status colour still comes through. */
-.attn-card .pill { background: var(--surface); }
-.attn-card-title { display: flex; align-items: center; gap: var(--s2); font: 700 14.5px/1.3 system-ui, sans-serif; color: var(--status-ink); }
+.attn-card:last-child { border-bottom: none; }
+/* An escalated check — critical stock, already-expired batches — swaps the
+   left accent to red so it agrees with the danger pill the multi-row form of
+   the same check carries. */
+.attn-card--danger { --status-dot: var(--danger-dot); }
+.attn-card:hover { background: var(--green-50); color: var(--ink-900); }
+/* Neutral ink, no box — the icon marks the row, it does not carry the status;
+   the left accent does that. 1px nudge to sit it on the title's baseline. */
+.attn-card .attn-ico { margin-top: 1px; }
+.attn-card-title { display: block; font: 700 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
 /* 1.4 and 2px, matching the title/sub pairing in .feed-row beside it: the
-   detail is this title's second line, not a paragraph under it. The sentence
-   itself was cut back in _needs_attention_rows to fit that. */
-.attn-card-body { font: 400 13px/1.4 system-ui, sans-serif; color: var(--ink-700); margin-top: 2px; }
-/* §3: the CTA takes the card's status colour, not --action. Hover deepens to
-   the status's own -fg (warn 5.43:1, danger 7.01:1) rather than --action-700,
-   which would jump hue mid-interaction. */
-.attn-card-go { align-self: center; white-space: nowrap; font: 700 13.5px/1 system-ui, sans-serif; color: var(--status-cta, var(--action)); }
-.attn-card:hover .attn-card-go { color: var(--status-ink, var(--action-700)); }
+   detail is this title's second line, not a paragraph under it. It opens with
+   the count, which is why the title carries no separate badge. */
+.attn-card-body { font: 400 13px/1.4 var(--font-sans); color: var(--ink-600); margin-top: 2px; }
+/* The whole card is the link; the chevron is affordance only, so it takes the
+   same muted non-text ink as the .attn-row chevron and does not shift on
+   hover. */
+.attn-card-go { display: inline-flex; align-items: center; align-self: center; color: var(--ink-400); }
 
 .attn-clear { padding: var(--s4) var(--s6); }
 .attn-clear-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
 .attn-clear-label {
-  font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
+  font: 600 11px/1 var(--font-sans); text-transform: uppercase;
   letter-spacing: .07em; color: var(--ink-500); white-space: nowrap;
 }
 .attn-clear-rule { height: 1px; flex: 1; background: var(--line); }
 .attn-clear-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
 .attn-chip {
   display: flex; align-items: center; gap: var(--s2); min-height: var(--touch);
-  padding: var(--s2) 11px; font: 400 13.5px/1.3 system-ui, sans-serif;
+  padding: var(--s2) 11px; font: 400 13.5px/1.3 var(--font-sans);
   color: var(--ink-600); text-decoration: none;
   background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-input);
 }
@@ -1376,8 +1914,14 @@ input::placeholder { color: var(--ink-500); }
   width: 16px; height: 16px; flex: none; border-radius: var(--r-pill);
   background: var(--ok-bg); color: var(--ok-fg);
   display: flex; align-items: center; justify-content: center;
-  font: 700 10px/1 system-ui, sans-serif;
+  font: 700 10px/1 var(--font-sans);
 }
+/* The tick is the 16px `check` from partials/_empty_icon.html, scaled down
+   here rather than given its own copy at 10px -- one drawing, two sizes.
+   Without this rule the SVG falls back to its own 16px attributes and exactly
+   fills the 16px circle, edge to edge: tight, but still a tick. That is the
+   whole reason the attributes are on the <svg> at all. */
+.attn-check svg { display: block; width: 10px; height: 10px; }
 @media (max-width: 520px) {
   .attn-clear-grid { grid-template-columns: 1fr; }
 }
@@ -1390,14 +1934,21 @@ input::placeholder { color: var(--ink-500); }
 .daterange { position: relative; }
 .daterange-trigger {
   display: inline-flex; align-items: center; gap: 8px; list-style: none;
-  min-height: var(--touch); padding: 0 14px; border-radius: var(--r-input);
+  min-height: var(--touch); padding: 0 36px 0 14px; border-radius: var(--r-input);
   border: 1.5px solid var(--input-line); background: var(--surface);
-  color: var(--ink-900); font: 600 14px/1 system-ui, sans-serif; cursor: pointer;
+  color: var(--ink-900); font: 600 14px/1 var(--font-sans); cursor: pointer;
+  /* Same chevron as .branch-select next to it — the same SVG data-URI, 16px,
+     and --ink-400 non-text stroke — drawn as a background rather than a child
+     <span> glyph so both controls on the head render the caret identically.
+     Longhand after the `background` shorthand above so it is not reset. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A968F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
 }
 .daterange-trigger::-webkit-details-marker { display: none; }
 .daterange-trigger:hover { border-color: var(--brand); }
 .daterange[open] .daterange-trigger { border-color: var(--brand); }
-.daterange-caret { color: var(--ink-600); font-size: 11px; }
 .daterange-panel {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
   display: flex; flex-direction: column; gap: var(--s1); min-width: 240px;
@@ -1411,7 +1962,7 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: center; width: 100%; text-align: left;
   min-height: var(--touch); padding: 0 12px; border-radius: var(--r-input);
   border: none; background: none; color: var(--ink-700);
-  font: 500 14px/1 system-ui, sans-serif; cursor: pointer;
+  font: 500 14px/1 var(--font-sans); cursor: pointer;
 }
 .daterange-preset:hover { background: var(--line-soft); color: var(--ink-900); }
 .daterange-preset.is-active { background: var(--green-50); color: var(--action-700); font-weight: 650; }
@@ -1421,11 +1972,11 @@ input::placeholder { color: var(--ink-500); }
   border-top: 1px solid var(--line);
 }
 .daterange-custom-head {
-  font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase;
+  font: 600 11px/1 var(--font-sans); text-transform: uppercase;
   letter-spacing: .07em; color: var(--ink-500); padding: 0 12px;
 }
 .daterange-field { display: flex; align-items: center; gap: var(--s2); padding: 0 12px; }
-.daterange-field > span { width: 38px; font: 400 13px/1 system-ui, sans-serif; color: var(--ink-600); }
+.daterange-field > span { width: 38px; font: 400 13px/1 var(--font-sans); color: var(--ink-600); }
 .daterange-field input[type=date] { flex: 1; min-width: 0; width: auto; }
 .daterange-custom .btn-primary { margin: 0 12px; }
 @media (max-width: 520px) {
@@ -1493,11 +2044,11 @@ input::placeholder { color: var(--ink-500); }
    block. The leading is the only thing binding them — there is no other
    device holding a pair together. */
 .feed-title, .feed-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed-title { font: 600 13.5px/1.3 system-ui, sans-serif; }
-.feed-sub { font: 400 12.5px/1.3 system-ui, sans-serif; color: var(--ink-600); }
+.feed-title { font: 600 13.5px/1.3 var(--font-sans); }
+.feed-sub { font: 400 12.5px/1.3 var(--font-sans); color: var(--ink-600); }
 .feed-right { flex: none; text-align: right; }
-.feed-amount { display: block; font: 700 13.5px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.feed-time { display: block; font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.feed-amount { display: block; font: 700 13.5px/1.3 var(--font-sans); font-variant-numeric: tabular-nums; }
+.feed-time { display: block; font: 400 12px/1.3 var(--font-sans); color: var(--ink-500); font-variant-numeric: tabular-nums; }
 /* In-app camera barcode scanner overlay (static/js/barcode-scanner.js). In
    gerlyn.css rather than account.css/storefront.css since it's used from
    internal admin pages (POS, Inventory, Products) that don't load those. */
@@ -1516,7 +2067,7 @@ input::placeholder { color: var(--ink-500); }
 .barcode-scan-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px; border-bottom: 1px solid var(--line);
-  font: 650 16px/1.2 system-ui, sans-serif; color: var(--ink-900);
+  font: 650 16px/1.2 var(--font-sans); color: var(--ink-900);
 }
 .barcode-scan-close {
   border: none; background: none; cursor: pointer;
@@ -1528,18 +2079,22 @@ input::placeholder { color: var(--ink-500); }
   width: 100%; min-height: 280px; background: #000;
 }
 .barcode-scan-hint {
-  margin: 0; padding: 12px 18px; font: 400 13px/1.4 system-ui, sans-serif;
+  margin: 0; padding: 12px 18px; font: 400 13px/1.4 var(--font-sans);
   color: var(--ink-600); text-align: center;
 }
 
 /* Shared "Barcode" field status line (Add Product / Stock Adjustment) —
    static/js/barcode-scanner.js's attachBarcodeField() sets both the text
    and one of these modifier classes after every lookup. */
+/* flex, not block, so the success tick attachBarcodeField() prepends sits on
+   the text's centre line rather than its baseline. An empty status line still
+   holds its 18px, so the field below does not jump when a lookup reports. */
 .barcode-status {
-  display: block; margin-top: 6px;
-  font: 600 13px/1.4 system-ui, sans-serif;
+  display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  font: 600 13px/1.4 var(--font-sans);
   min-height: 18px;
 }
+.barcode-status-icon { flex: none; display: flex; }
 .barcode-status-pending { color: var(--ink-500); font-weight: 400; }
 .barcode-status-success { color: var(--ok-fg); }
 .barcode-status-info { color: var(--warn-fg); }
@@ -1576,7 +2131,7 @@ input::placeholder { color: var(--ink-500); }
   position: relative;
   width: 100%; max-width: 480px;
   background: var(--surface);
-  border-radius: 20px 20px 0 0;
+  border-radius: 11px 11px 0 0;
   box-shadow: 0 -10px 30px rgba(23, 37, 30, .18);
   padding: 30px var(--s6) calc(var(--s6) + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; align-items: center; gap: var(--s3);
@@ -1597,7 +2152,7 @@ input::placeholder { color: var(--ink-500); }
   display: flex; align-items: center; justify-content: center;
 }
 .bottom-sheet-icon svg { width: 26px; height: 26px; }
-.bottom-sheet-panel p { margin: 0; font: 500 15.5px/1.5 system-ui, sans-serif; color: var(--ink-900); }
+.bottom-sheet-panel p { margin: 0; font: 500 15.5px/1.5 var(--font-sans); color: var(--ink-900); }
 .bottom-sheet-panel .btn { width: 100%; margin-top: var(--s2); }
 
 /* ---------------------------------------------------- bottom nav "More"
@@ -1609,7 +2164,7 @@ input::placeholder { color: var(--ink-500); }
   flex: 1; list-style: none; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   min-height: var(--touch); padding: 6px 2px;
-  color: var(--ink-600); font: 600 11px/1.1 system-ui, sans-serif;
+  color: var(--ink-600); font: 600 11px/1.1 var(--font-sans);
   border-radius: var(--r-input); position: relative;
 }
 .more-menu > summary::-webkit-details-marker { display: none; }
@@ -1626,17 +2181,30 @@ input::placeholder { color: var(--ink-500); }
   animation: moreMenuIn .16s ease forwards;
 }
 @keyframes moreMenuIn { to { transform: translateY(0); opacity: 1; } }
-.more-menu-link {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+/* Scoped through .bottom-nav, which is where this panel always lives. The
+   rows are inside <nav class="bottom-nav">, so `.bottom-nav a` reaches them
+   at 0,1,1 and out-specifies a bare `.more-menu-link` — the rows were being
+   drawn as the nav's own tabs are, centred in an 11px column, rather than as
+   the menu rows they are. 0,2,0 here settles it. */
+.bottom-nav .more-menu-link {
+  flex: none;
+  display: flex; flex-direction: row;
+  align-items: center; justify-content: space-between; gap: 8px;
   min-height: 40px; padding: 0 12px;
   border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
-  font: 600 13.5px/1 system-ui, sans-serif;
+  font: 600 13.5px/1 var(--font-sans);
 }
-.more-menu-link:hover, .more-menu-link.active { background: var(--line-soft); color: var(--ink-900); }
+.bottom-nav .more-menu-link:hover,
+.bottom-nav .more-menu-link.active { background: var(--line-soft); color: var(--ink-900); }
 /* Reset the absolute badge position .bottom-nav .nav-badge sets (this panel
    is nested inside <nav class="bottom-nav">, so that rule reaches it too)
    back to an inline badge that sits next to the link's own label. */
-.more-menu-link .nav-badge--inline { position: static; margin: 0; }
+.bottom-nav .more-menu-link .nav-badge--inline { position: static; margin: 0; }
+/* Logout, the one row in here that ends the session rather than moving the
+   user around inside it — the same colour the sidebar's .sb-item--danger
+   gives it, so the two places it now lives read alike. */
+.bottom-nav .more-menu-link--danger { color: var(--danger-fg); }
+.bottom-nav .more-menu-link--danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
 
 /* --------------------------------------------------------- tap feedback
    A brief scale-down on press so touch targets feel responsive instead of
@@ -1648,7 +2216,7 @@ input::placeholder { color: var(--ink-500); }
   .btn:active, .sb-item:active, .sb-tree-file:active, .bottom-nav a:active,
   .stat-hero[data-kpi-key]:active, .attn-row:active, .attn-card:active,
   .attn-chip:active, .feed-row:active, .tab:active, .pcard:active, .cat:active,
-  .more-menu > summary:active, .avatar-menu-link:active {
+  .more-menu > summary:active, .bottom-nav .more-menu-link:active, .avatar-link:active {
     transform: scale(.97);
     transition: transform .1s ease;
   }
@@ -1683,7 +2251,7 @@ input::placeholder { color: var(--ink-500); }
   display: inline-flex; align-items: center; min-height: var(--touch);
   padding: 0 18px; border-radius: var(--r-input);
   background: var(--action); color: #fff; text-decoration: none;
-  font: 600 14px/1 system-ui, sans-serif;
+  font: 600 14px/1 var(--font-sans);
   box-shadow: var(--shadow-hero);
 }
 .skip-link:focus { top: var(--s4); }

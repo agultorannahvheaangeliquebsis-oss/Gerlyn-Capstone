@@ -8,6 +8,15 @@
   <link rel="manifest" href="{% static 'manifest.json' %}">
   <meta name="theme-color" content="#1E7A4F">
   <link rel="apple-touch-icon" href="{% static 'img/icons/apple-touch-icon-180.png' %}">
+  {% comment %}
+  Roboto, matching public_base.html. This shell had no webfont at all before
+  and ran on whatever sans the OS supplied, so the same screen looked
+  different on Windows and on the manager's phone. preconnect because the
+  stylesheet is render-blocking and the font host is a second origin.
+  {% endcomment %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
   <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
   <script src="https://unpkg.com/lucide@1.31.0/dist/umd/lucide.js" defer></script>
   <script src="{% static 'js/live-filter.js' %}" defer></script>
@@ -49,13 +58,13 @@ DOM — it is off-screen until focused (see .skip-link).
       </button>
     </div>
 
-    <a class="sb-who" href="{% url 'internal_settings' %}" title="My Profile">
-      <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
-      <span class="sb-who-text">
-        <span class="sb-label sb-who-name">{{ request.user.get_full_name|default:request.user.username }}</span>
-        <span class="sb-label sb-who-role">{{ request.user.get_role_display }}</span>
-      </span>
-    </a>
+    {% comment %}
+    No "who am I" card here any more. The header avatar sitting next to the
+    branch chip already is the account control, and two avatars on one screen
+    made the rail's job (which page am I on) compete with an identity block
+    that never changes. Name, role and the account links now live in the
+    header avatar's menu — see .avatar-menu below.
+    {% endcomment %}
 
     <nav class="sb-nav" aria-label="Primary">
       {# Dashboard stays a top-level anchor — it's the home target, not a category. #}
@@ -74,7 +83,7 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'stock_requests' %}open{% endif %}" id="tree-inventory">
           <li class="sb-tree-inner">
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            {% if module_access.products %}
             {% comment %}
             Categories is no longer its own nav item — it is reached from the
             Products page, which is where you are when you need it. It still
@@ -83,21 +92,31 @@ DOM — it is off-screen until focused (see .skip-link).
             {% endcomment %}
             <a class="sb-tree-file {% if active_page == 'products' or active_page == 'categories' %}sb-tree-file--active{% endif %}" href="{% url 'product_list' %}"><span class="sb-label">Product Master List</span></a>
             {% endif %}
+            {% if module_access.floor_stock %}
             <a class="sb-tree-file {% if active_page == 'stock' %}sb-tree-file--active{% endif %}" href="{% url 'inventory_list' %}"><span class="sb-label">Floor Stock</span></a>
+            {% endif %}
+            {% if module_access.warehouse_stock %}
             <a class="sb-tree-file {% if active_page == 'warehouse_stock' %}sb-tree-file--active{% endif %}" href="{% url 'warehouse_stock_list' %}"><span class="sb-label">Warehouse Stock</span></a>
+            {% endif %}
             {% comment %}
-            No longer manager-only. Staff raise restock requests, record
+            Gated on module_access.withdrawals (core.module_permissions), not
+            manager-only any more. Staff raise restock requests, record
             write-offs and confirm receipt of released slips — all of which
             land on this page — so hiding it left them with no way back to
             their own request. The list itself is scoped to their branch.
+            Label reads "Stock Requests": that is what a restock ask and a
+            write-off actually are from the counter, "Withdrawals" is the
+            back-office term for the same slip.
             {% endcomment %}
-            <a class="sb-tree-file {% if active_page == 'stock_requests' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Requests</span></a>
+            {% if module_access.withdrawals %}
+            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Requests</span></a>
+            {% endif %}
           </li>
         </ul>
       </div>
 
       {# -------------------------------------------------------- Procurement #}
-      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+      {% if module_access.procurement or module_access.deliveries %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-procurement" title="Procurement"
           aria-expanded="{% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}true{% else %}false{% endif %}">
@@ -107,17 +126,20 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}" id="tree-procurement">
           <li class="sb-tree-inner">
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            {% if module_access.procurement %}
             <a class="sb-tree-file {% if active_page == 'suppliers' %}sb-tree-file--active{% endif %}" href="{% url 'supplier_list' %}"><span class="sb-label">Suppliers</span></a>
-            {% endif %}
             <a class="sb-tree-file {% if active_page == 'procurement' %}sb-tree-file--active{% endif %}" href="{% url 'procurement_list' %}"><span class="sb-label">Purchase Orders</span></a>
+            {% endif %}
+            {% if module_access.deliveries %}
             <a class="sb-tree-file {% if active_page == 'deliveries' %}sb-tree-file--active{% endif %}" href="{% url 'delivery_list' %}"><span class="sb-label">Deliveries</span></a>
+            {% endif %}
           </li>
         </ul>
       </div>
       {% endif %}
 
       {# --------------------------------------------------------- Financials #}
+      {% if module_access.sales_pos or module_access.billing %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-financials" title="Financials"
           aria-expanded="{% if active_page == 'orders' or active_page == 'billing' %}true{% else %}false{% endif %}">
@@ -127,16 +149,19 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}" id="tree-financials">
           <li class="sb-tree-inner">
+            {% if module_access.sales_pos %}
             <a class="sb-tree-file {% if active_page == 'orders' %}sb-tree-file--active{% endif %}" href="{% url 'transaction_list' %}"><span class="sb-label">Sales &amp; Orders</span></a>
-            {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+            {% endif %}
+            {% if module_access.billing %}
             <a class="sb-tree-file {% if active_page == 'billing' %}sb-tree-file--active{% endif %}" href="{% url 'billing_list' %}"><span class="sb-label">Billing</span></a>
             {% endif %}
           </li>
         </ul>
       </div>
+      {% endif %}
 
       {# -------------------------------------------------- System / Monitoring #}
-      {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+      {% if module_access.reports or module_access.alerts %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-monitoring" title="System &amp; Monitoring"
           aria-expanded="{% if active_page == 'reports' or active_page == 'alerts' %}true{% else %}false{% endif %}">
@@ -147,11 +172,15 @@ DOM — it is off-screen until focused (see .skip-link).
         </button>
         <ul class="sb-tree {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}" id="tree-monitoring">
           <li class="sb-tree-inner">
+            {% if module_access.reports %}
             <a class="sb-tree-file {% if active_page == 'reports' %}sb-tree-file--active{% endif %}" href="{% url 'reports_dashboard' %}"><span class="sb-label">Reports</span></a>
+            {% endif %}
+            {% if module_access.alerts %}
             <a class="sb-tree-file {% if active_page == 'alerts' %}sb-tree-file--active{% endif %}" href="{% url 'alerts_center' %}">
               <span class="sb-label">Alerts</span>
               {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
             </a>
+            {% endif %}
           </li>
         </ul>
       </div>
@@ -212,32 +241,38 @@ DOM — it is off-screen until focused (see .skip-link).
       {% endcomment %}
       <div class="topbar-section">{% block page_subtitle %}{% endblock %}</div>
       <div class="row">
+        {% comment %}
+        Default is the static scope label — .branch-chip in gerlyn.css is
+        deliberately not a control. A page that needs a real branch switcher on
+        the bar overrides the whole branch_chip block (Floor Stock does);
+        every other page just keeps filling branch_scope as before.
+        {% endcomment %}
+        {% block branch_chip %}
         <span class="branch-chip">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
           {% block branch_scope %}All Branches{% endblock %}
         </span>
-        {% if request.user.role == 'OWNER' %}
+        {% endblock %}
         {% comment %}
-          On mobile the sidebar (which holds Administration) is hidden, so the
-          header avatar doubles as the entry point to it there. Desktop keeps
-          using the sidebar; the panel below only renders open at <=860px
-          (see .avatar-menu-panel in gerlyn.css).
+          The account control, at every width. It was a <details> panel whose
+          first row was My Profile; it is now that link directly, because that
+          row is what the menu was being opened for.
+
+          The other rows have somewhere else to be. Branch Management, User
+          Management and Logout are all in the sidebar, and the bottom nav's
+          More panel carries them below 860px where the sidebar is
+          display:none — so nothing is reachable only through the avatar.
+
+          The disc shows one letter, so title and the visually-hidden span
+          state who is signed in and where the link goes; that name and role
+          were what the panel's identity row said.
         {% endcomment %}
-        <details class="avatar-menu">
-          <summary class="avatar-menu-trigger" aria-label="Administration menu" title="Administration">
-            <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
-          </summary>
-          <div class="avatar-menu-panel">
-            <a class="avatar-menu-link" href="{% url 'internal_settings' %}">My Profile</a>
-            <a class="avatar-menu-link" href="{% url 'branch_list' %}">Branch Management</a>
-            <a class="avatar-menu-link" href="{% url 'accounts:user_list' %}">User Management</a>
-          </div>
-        </details>
-        {% else %}
-        <a href="{% url 'internal_settings' %}" title="My Profile" style="text-decoration:none;">
+        <a class="avatar-link{% if active_page == 'internal_settings' %} avatar-link--active{% endif %}"
+           href="{% url 'internal_settings' %}"
+           title="{{ request.user.get_full_name|default:request.user.username }} — My Profile">
           <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+          <span class="sr-only">My Profile — signed in as {{ request.user.get_full_name|default:request.user.username }}, {{ request.user.get_role_display }}</span>
         </a>
-        {% endif %}
       </div>
     </header>
 
@@ -302,46 +337,88 @@ DOM — it is off-screen until focused (see .skip-link).
   <!-- ========================= BOTTOM NAV (mobile) ==================== -->
   {% comment %}
   Capped at 4 items on purpose. Alerts/Reports/Deliveries/Settings all move
-  into the "More" panel, which also fixes a pre-existing gap: Staff has
-  view-level access to Deliveries (see procurement/views.py's role_required
-  lists) but previously had zero nav path to it — the desktop sidebar's
-  Procurement section is Owner/Manager only.
+  into the "More" panel. Each item here and in that panel is gated by
+  module_access (core.module_permissions) — the same per-user module
+  permissions the desktop sidebar uses — so a Staff/Manager account only
+  ever sees a nav path to a section it actually has.
   {% endcomment %}
   <nav class="bottom-nav">
     <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ dash_url }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       Home
     </a>
+    {% if module_access.sales_pos %}
     <a class="{% if active_page == 'orders' %}active{% endif %}" href="{% url 'transaction_list' %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
       Orders
     </a>
+    {% endif %}
+    {% if module_access.floor_stock %}
     <a class="{% if active_page == 'stock' %}active{% endif %}" href="{% url 'inventory_list' %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
       Stock
     </a>
+    {% endif %}
     <details class="more-menu">
       <summary class="{% if active_page == 'alerts' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'internal_settings' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         More
-        {% if alert_count and request.user.role == 'OWNER' or alert_count and request.user.role == 'BRANCH_MANAGER' %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
+        {% if alert_count and module_access.alerts %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
       </summary>
       <div class="more-menu-panel">
-        {% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' %}
+        {% if module_access.alerts %}
         <a class="more-menu-link {% if active_page == 'alerts' %}active{% endif %}" href="{% url 'alerts_center' %}">
           Alerts {% if alert_count %}<span class="nav-badge nav-badge--inline">{{ alert_count }}</span>{% endif %}
         </a>
+        {% endif %}
+        {% if module_access.reports %}
         <a class="more-menu-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
         {% endif %}
+        {% if module_access.deliveries %}
         <a class="more-menu-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
+        {% endif %}
         <a class="more-menu-link {% if active_page == 'internal_settings' %}active{% endif %}" href="{% url 'internal_settings' %}">Settings</a>
+        {% comment %}
+        Below 860px the sidebar is display:none, so these three rows have no
+        other home on the screen — the header avatar used to carry them and is
+        now a plain link to My Profile. Logout in particular cannot be the one
+        thing a phone cannot reach.
+        {% endcomment %}
+        {% if request.user.role == 'OWNER' %}
+        <a class="more-menu-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">Branch Management</a>
+        <a class="more-menu-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'accounts:user_list' %}">User Management</a>
+        {% endif %}
+        <a class="more-menu-link more-menu-link--danger" href="{% url 'accounts:logout' %}">Logout</a>
       </div>
     </details>
   </nav>
 
 </div>
-<script src="{% static 'js/sidebar.js' %}" defer></script>
+
+{% comment %}
+The overlay every list's "see" action fills. One shell for the whole system,
+not one per module: the record inside it is fetched from its own detail URL,
+so all this markup has to be is a titled box with somewhere to put it. Empty
+until a row is clicked, and emptied again on close. See detail-modal.js.
+{% endcomment %}
+<div class="modal-overlay detail-modal" id="detail-modal" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title" tabindex="-1">
+    <div class="modal-head">
+      <h2 id="detail-modal-title">Details</h2>
+      <button type="button" class="modal-close" id="detail-modal-close" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body" id="detail-modal-body"></div>
+  </div>
+</div>
+
+<script src="{% static 'js/sidebar.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/detail-modal.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/bottom-sheet.js' %}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}

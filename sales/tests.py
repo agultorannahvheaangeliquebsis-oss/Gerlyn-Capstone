@@ -1,9 +1,9 @@
-"""Walk-in Sale moved from its own page into a modal on the Order Console.
+"""Walk-in Sale is its own page (sales/transaction_form.html) reached from
+the Order Console's "New Walk-in Sale" link, not a modal on the console.
 
-The POST handler's writes were left alone; these pin down that a recorded sale
-still creates the same transaction, items, stock movement and paid billing
-record, and cover the two things the move did change — the GET route, and a
-rejected submit coming back with the basket intact instead of redirecting and
+These pin down that a recorded sale still creates the same transaction,
+items, stock movement and paid billing record, and that a rejected submit
+re-renders the form with the basket intact instead of redirecting and
 throwing it away.
 """
 from django.test import TestCase
@@ -15,7 +15,7 @@ from inventory.models import Inventory, Product
 from sales.models import SalesTransaction
 
 
-class WalkInSaleModalTests(TestCase):
+class WalkInSaleFormTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
             username='owner', password='pw', role=User.Role.OWNER
@@ -33,17 +33,17 @@ class WalkInSaleModalTests(TestCase):
         )
         self.client.force_login(self.owner)
 
-    def test_get_redirects_to_the_console_with_the_modal_open(self):
-        self.assertRedirects(
-            self.client.get(reverse('transaction_add')),
-            reverse('transaction_list') + '?add=1',
-        )
+    def test_get_renders_the_walk_in_sale_page(self):
+        response = self.client.get(reverse('transaction_add'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'sales/transaction_form.html')
+        self.assertIn(self.product, list(response.context['pos_products']))
+        self.assertContains(response, 'id="pos-form"')
 
-    def test_console_carries_the_pos_fields_for_a_user_who_may_sell(self):
+    def test_console_links_to_the_walk_in_sale_page_for_a_user_who_may_sell(self):
         response = self.client.get(reverse('transaction_list'))
         self.assertTrue(response.context['can_pos'])
-        self.assertIn(self.product, list(response.context['pos_products']))
-        self.assertContains(response, 'id="pos-modal"')
+        self.assertContains(response, reverse('transaction_add'))
 
     def test_recording_a_sale_still_deducts_stock_and_marks_it_paid(self):
         response = self.client.post(reverse('transaction_add'), {
@@ -52,6 +52,7 @@ class WalkInSaleModalTests(TestCase):
             'order_type': 'Retail',
             'product_id': [str(self.product.pk)],
             'quantity': ['3'],
+            'amount_tendered': '300',
         })
         txn = SalesTransaction.objects.get()
         self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
@@ -65,23 +66,62 @@ class WalkInSaleModalTests(TestCase):
         self.assertEqual(txn.billing_record.status, 'Paid')
         self.assertEqual(txn.billing_record.amount_due, 300)
 
+    def test_cash_walk_in_is_still_auto_paid_and_confirmed_by_the_ringing_user(self):
+        """A-1 regression — cash is settled at the counter, so a cash walk-in
+        still lands Paid with the ringing user recorded as confirmer. The
+        maker/checker rule only touches the methods that clear later."""
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            'amount_tendered': '200',
+        })
+        billing = SalesTransaction.objects.get().billing_record
+        self.assertEqual(billing.status, 'Paid')
+        self.assertEqual(billing.confirmed_by, self.owner)
+        self.assertEqual(billing.payment_method, 'Cash')
+
+    def test_non_cash_walk_in_is_left_pending_for_a_separate_check(self):
+        """A-1 — a GCash walk-in rung by Staff must clear through
+        billing_confirm as its own step: the record stays Pending with no
+        confirmer, so it can't be recorded and cleared by the same hand."""
+        staff = User.objects.create_user(
+            username='rey', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=staff, defaults={'staff_name': 'Rey', 'branch': self.branch}
+        )
+        self.client.force_login(staff)
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'GCash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['2'],
+        })
+        txn = SalesTransaction.objects.get()
+        self.assertEqual(txn.staff, staff)
+        billing = txn.billing_record
+        self.assertEqual(billing.status, 'Pending')
+        self.assertIsNone(billing.confirmed_by)
+        self.assertEqual(billing.payment_method, 'GCash')
+
     def test_wholesale_still_bills_at_the_wholesale_price(self):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
             'order_type': 'Wholesale',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            'amount_tendered': '160',
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.order_type, 'Wholesale')
         self.assertEqual(txn.total_amount, 160)
 
-    def test_no_branch_reopens_the_modal_and_keeps_the_basket(self):
+    def test_no_branch_reopens_the_form_and_keeps_the_basket(self):
         response = self.client.post(reverse('transaction_add'), {
             'branch': '', 'mode_of_payment': 'GCash', 'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['4'],
         })
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context['show_pos_modal'])
+        self.assertTemplateUsed(response, 'sales/transaction_form.html')
         self.assertIn(
             'Please choose a branch for this sale.', response.context['pos_errors']
         )
@@ -101,7 +141,7 @@ class WalkInSaleModalTests(TestCase):
             'order_type': 'Retail', 'product_id': [''], 'quantity': ['1'],
         })
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context['show_pos_modal'])
+        self.assertTemplateUsed(response, 'sales/transaction_form.html')
         self.assertIn(
             'Add at least one item with a quantity.', response.context['pos_errors']
         )
@@ -131,7 +171,7 @@ class WalkInSaleModalTests(TestCase):
         )
         self.client.force_login(staff)
 
-        response = self.client.get(reverse('transaction_list'))
+        response = self.client.get(reverse('transaction_add'))
         self.assertEqual(response.context['pos_user_branch'], self.branch)
         self.assertEqual(list(response.context['pos_branches']), [])
 
@@ -140,12 +180,13 @@ class WalkInSaleModalTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': other.pk, 'mode_of_payment': 'Cash', 'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
+            'amount_tendered': '100',
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.branch_id, self.branch.pk)
         self.assertEqual(txn.staff, staff)
 
-    def test_a_role_that_cannot_sell_gets_no_modal_and_cannot_post(self):
+    def test_a_role_that_cannot_sell_gets_no_form_and_cannot_post(self):
         supplier = User.objects.create_user(
             username='century', password='pw', role=User.Role.SUPPLIER
         )

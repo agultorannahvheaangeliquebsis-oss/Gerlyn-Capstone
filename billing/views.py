@@ -1,4 +1,5 @@
-from django.db.models import Sum
+from django.db import transaction
+from django.db.models import Q, Sum
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -7,11 +8,12 @@ from django.utils import timezone
 from .models import BillingRecord
 from sales.models import SalesTransaction
 from accounts.models import User
-from core.scoping import user_can_access_branch
-from core.permissions import OWNER, BRANCH_MANAGER, CUSTOMER, SUPPLIER, role_required
+from branches.models import Branch
+from core.scoping import branch_for_user, user_can_access_branch
+from core.permissions import OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER, role_required
 
 
-@role_required(OWNER, BRANCH_MANAGER, CUSTOMER, SUPPLIER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER)
 def billing_list(request):
     records = BillingRecord.objects.select_related('transaction', 'transaction__branch').all()
 
@@ -32,6 +34,22 @@ def billing_list(request):
     elif request.user.role == User.Role.SUPPLIER:
         records = records.none()
 
+    search_query = request.GET.get('q', '')
+    if search_query:
+        records = records.filter(
+            Q(transaction__order_number__icontains=search_query) |
+            Q(reference_number__icontains=search_query)
+        )
+
+    # Owner-only branch filter — Manager/Staff are already pinned to their
+    # own branch's records above, so a selector would do nothing for them.
+    user_branch = branch_for_user(request.user)
+    branch_filter = request.GET.get('branch', '') if request.user.role == User.Role.OWNER else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        records = records.filter(transaction__branch_id=branch_filter)
+
     records = records.order_by('-date_recorded')
 
     status_filter = request.GET.get('status', '')
@@ -48,11 +66,21 @@ def billing_list(request):
         status=BillingRecord.PaymentStatus.PENDING
     ).aggregate(total=Sum('amount_due'))['total'] or 0
 
+    branches = Branch.objects.all() if request.user.role == User.Role.OWNER else []
+
     return render(request, 'billing/billing_list.html', {
         'records': records,
         'counts': counts,
         'status_filter': status_filter,
         'outstanding': outstanding,
+        'search_query': search_query,
+        'branches': branches,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock, Product Master List, Stock Adjustments, Receive
+        # Delivery and the Order Console.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
     })
 
 
@@ -182,16 +210,65 @@ def billing_confirm(request, pk):
 
     if request.method == 'POST':
         new_status = request.POST.get('status')
-        # This form only ever offers Mark as Paid / Reject — anything else
-        # (a tampered POST) is rejected outright rather than persisted as an
-        # arbitrary string that would quietly break status-based filters.
-        if new_status not in (BillingRecord.PaymentStatus.PAID, BillingRecord.PaymentStatus.REJECTED):
+        # The Pending card offers Mark as Paid / Reject; a Rejected record's
+        # card offers Re-open (back to Pending). Anything else is a tampered
+        # POST and is rejected outright rather than persisted as an arbitrary
+        # string that would quietly break status-based filters.
+        offered = {
+            BillingRecord.PaymentStatus.PAID,
+            BillingRecord.PaymentStatus.REJECTED,
+            BillingRecord.PaymentStatus.PENDING,
+        }
+        if new_status not in offered:
             messages.error(request, 'Invalid payment status.')
             return redirect('billing_detail', pk=pk)
-        record.status = new_status
-        record.confirmed_by = request.user
-        record.date_confirmed = timezone.now()
-        record.save()
-        messages.success(request, f'Payment marked as {new_status}.')
+
+        with transaction.atomic():
+            # Re-fetch and lock so two confirmations racing the same record
+            # (double-click, retry) can't both pass the transition check
+            # against the same stale, pre-lock status.
+            locked = BillingRecord.objects.select_for_update().select_related(
+                'transaction'
+            ).get(pk=pk)
+
+            # A-1 — maker/checker separation. Whether this user may act on
+            # the record at all is logically prior to what they're moving it
+            # to, so this runs before the transition check (same ordering as
+            # C-6's branch-scope gate). Only a decision that records a
+            # confirmer — Paid or Rejected — is gated; re-opening a rejected
+            # record to Pending clears confirmed_by and has nothing to guard.
+            if (
+                new_status != BillingRecord.PaymentStatus.PENDING
+                and locked.is_self_confirmation(request.user)
+            ):
+                messages.error(
+                    request,
+                    "You can't confirm a payment you recorded yourself — ask "
+                    "another staff member, a manager, or the owner."
+                )
+                return redirect('billing_detail', pk=pk)
+
+            if not locked.can_transition_to(new_status):
+                messages.error(
+                    request,
+                    f'{locked.transaction.order_number}: a {locked.status} '
+                    f'payment cannot be changed to {new_status}.'
+                )
+                return redirect('billing_detail', pk=pk)
+
+            locked.status = new_status
+            if new_status == BillingRecord.PaymentStatus.PENDING:
+                # Re-opening a rejected payment — clear the prior decision so
+                # the record reads as genuinely awaiting a fresh check, not
+                # as still "confirmed by / on" the rejection.
+                locked.confirmed_by = None
+                locked.date_confirmed = None
+            else:
+                locked.confirmed_by = request.user
+                locked.date_confirmed = timezone.now()
+            locked.save()
+
+        verb = 're-opened' if new_status == BillingRecord.PaymentStatus.PENDING else f'marked as {new_status}'
+        messages.success(request, f'{record.transaction.order_number} payment {verb}.')
 
     return redirect('billing_detail', pk=pk)

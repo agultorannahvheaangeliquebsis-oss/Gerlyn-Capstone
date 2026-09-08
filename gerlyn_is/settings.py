@@ -99,6 +99,9 @@ MIDDLEWARE = [
     # Settings > Sessions (list/revoke active logins).
     'accounts.middleware.SessionTrackingMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    # Per-user module access (core.module_permissions) — after Auth (needs
+    # request.user) and Message (denial shows a message) middleware.
+    'accounts.middleware.ModulePermissionMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Backs the idle-timeout / back-button auth guard: blocks the browser
     # from serving a cached authenticated page after logout or session expiry.
@@ -153,7 +156,12 @@ TEMPLATES = [
                 'core.context_processors.active_nav',
                 'core.context_processors.alerts',
                 'core.context_processors.app_version',
+                'core.context_processors.customer_nav',
+                'core.context_processors.detail_modal',
+                'core.context_processors.module_access',
+                'core.context_processors.nav_branches',
                 'core.context_processors.nav_categories',
+                'core.context_processors.nav_selected_branch',
             ],
         },
     },

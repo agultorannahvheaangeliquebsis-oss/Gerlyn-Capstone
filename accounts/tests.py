@@ -4,10 +4,11 @@ two things the move did change (the GET route and the error path), plus the
 writes themselves, so a regression in either shows up here rather than in a
 browser.
 """
+from django.core import mail
 from django.test import TestCase
 from django.urls import reverse
 
-from accounts.models import BranchManagerProfile, User
+from accounts.models import BranchManagerProfile, User, VerificationToken
 from branches.models import Branch
 
 
@@ -245,3 +246,56 @@ class BranchModalFlowTests(TestCase):
         self.client.force_login(staff)
         self.client.post(reverse('branch_add'), {'branch_name': 'Sneaky'})
         self.assertFalse(Branch.objects.filter(branch_name='Sneaky').exists())
+
+
+class RegistrationVerificationEmailTests(TestCase):
+    """register_view creates the account and logs the customer straight in
+    (verification is optional, not a login gate), but it must still send
+    them a verification email — it used to silently not call
+    send_verification_email at all, so nobody who signed up ever got one
+    unless they found the "Resend" banner on their own Profile page."""
+
+    def _register(self, **overrides):
+        payload = {
+            'username': 'newcustomer',
+            'email': 'newcustomer@example.com',
+            'password1': 'Str0ngPass!2026',
+            'password2': 'Str0ngPass!2026',
+            'first_name': 'New',
+            'last_name': 'Customer',
+            'contact_number': '09171234567',
+            'address': '',
+        }
+        payload.update(overrides)
+        return self.client.post(reverse('accounts:register'), payload)
+
+    def test_registering_sends_a_verification_email(self):
+        response = self._register()
+        self.assertRedirects(response, reverse('accounts:customer_dashboard'))
+
+        user = User.objects.get(username='newcustomer')
+        self.assertFalse(user.is_email_verified)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['newcustomer@example.com'])
+        self.assertIn('verify', mail.outbox[0].subject.lower())
+        self.assertTrue(
+            VerificationToken.objects.filter(
+                user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+            ).exists()
+        )
+
+    def test_the_emailed_link_actually_verifies_the_account(self):
+        self._register()
+        user = User.objects.get(username='newcustomer')
+        token = VerificationToken.objects.get(
+            user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+
+        response = self.client.get(reverse('accounts:verify_email', args=[token.token]))
+        self.assertRedirects(
+            response, reverse('accounts:login'), fetch_redirect_response=False
+        )
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_email_verified)

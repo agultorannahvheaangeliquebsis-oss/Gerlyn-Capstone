@@ -1,20 +1,26 @@
+import os
+import uuid
+
+from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models, transaction, IntegrityError
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 from datetime import date
-from decimal import InvalidOperation as DecimalException
+from decimal import Decimal, InvalidOperation as DecimalException
 
 from .models import (
     ProductCategory, Product, ProductImage, Inventory,
-    Warehouse, WarehouseStock,
-    StockTransfer, StockTransferItem, StockMovement
+    Warehouse, WarehouseStock, Batch,
+    StockTransfer, StockTransferItem, StockMovement,
+    ProductImportMappingTemplate,
 )
-from .alerts import alert_summary
+from .alerts import alert_summary, stock_status
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
@@ -52,6 +58,16 @@ def _product_list_context(request):
 
     search_query = request.GET.get('q', '')
     category_filter = request.GET.get('category', '')
+    # The catalog itself has no owning branch — a product just carries
+    # Inventory rows at whichever branches stock it — so this filter narrows
+    # the LIST to products carried at the chosen branch rather than scoping a
+    # branch-owned field. Owner only: Manager/Staff already see the same
+    # unrestricted catalog everyone else does, so a selector here would only
+    # ever have one meaningful choice for them.
+    show_branch_filter = request.user.role == User.Role.OWNER
+    branch_filter = request.GET.get('branch', '') if show_branch_filter else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
 
     if search_query:
         products = products.filter(
@@ -60,6 +76,8 @@ def _product_list_context(request):
         )
     if category_filter:
         products = products.filter(category_id=category_filter)
+    if branch_filter:
+        products = products.filter(inventory_records__branch_id=branch_filter)
 
     # Availability = the branches that actually carry the product.
     branches = cached_branches()
@@ -79,6 +97,13 @@ def _product_list_context(request):
         'categories': categories,
         'search_query': search_query,
         'category_filter': category_filter,
+        'show_branch_filter': show_branch_filter,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this, so choosing a branch in the
+        # toolbar moves the chip too instead of leaving it reading "All
+        # Branches" over a list that is no longer all branches. str() because
+        # branch_filter is still the raw (validated-digits) GET string.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'total_count': Product.objects.count(),
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         'unit_choices': Product.UnitOfMeasure.choices,
@@ -99,6 +124,7 @@ def _edit_modal_values(product, form_data=None):
     return {
         'sku_code': product.sku_code,  # locked — never editable via this form
         'product_name': pick('product_name', product.product_name),
+        'barcode': pick('barcode', product.barcode or ''),
         'category_id': pick('category', str(product.category_id or '')),
         'unit_of_measure': pick('unit_of_measure', product.unit_of_measure),
         'unit_price': pick('unit_price', product.unit_price),
@@ -279,6 +305,7 @@ def product_edit(request, pk):
         return redirect(f"{reverse('product_list')}?edit={pk}")
 
     product_name = request.POST.get('product_name', '').strip()
+    barcode = request.POST.get('barcode', '').strip() or None
     unit_price = request.POST.get('unit_price', '').strip()
     wholesale_price = request.POST.get('wholesale_price', '').strip()
     description = request.POST.get('description', '').strip()
@@ -288,6 +315,10 @@ def product_edit(request, pk):
         errors.append('Product name is required.')
     if not unit_price:
         errors.append('Retail price is required.')
+    # Excludes this product itself — re-saving with its own existing barcode
+    # unchanged must not read as a collision.
+    if barcode and Product.objects.filter(barcode__iexact=barcode).exclude(pk=product.pk).exists():
+        errors.append(f'Barcode "{barcode}" is already assigned to another product.')
 
     if not errors:
         try:
@@ -296,6 +327,7 @@ def product_edit(request, pk):
                 # sku_code is locked in the edit modal — never trust a posted
                 # value for it, so it can't be tampered with client-side.
                 product.product_name = product_name
+                product.barcode = barcode
                 product.unit_of_measure = request.POST.get('unit_of_measure')
                 product.unit_price = unit_price
                 product.wholesale_price = wholesale_price or None
@@ -360,6 +392,479 @@ def product_delete(request, pk):
     return render(request, 'inventory/product_confirm_delete.html', {
         'product': product,
     })
+
+
+# ─────────────────────────────────────────────
+# PRODUCT IMPORT / EXPORT (Excel)
+#
+# Export downloads the catalog as .xlsx with one column per field below;
+# Import reads a .xlsx back in through a 3-step wizard (upload -> map
+# columns -> preview & confirm), matching by Barcode to decide whether a
+# row updates an existing product or creates a new one. A saved
+# ProductImportMappingTemplate lets a repeat import skip re-mapping.
+#
+# The uploaded file lives on local disk for the lifetime of the wizard
+# (session holds only its path + the chosen mapping, never the parsed
+# rows) — _parse_import_rows() re-reads and re-validates it fresh at both
+# the preview and the commit step, so the two can never disagree about
+# what a row means.
+# ─────────────────────────────────────────────
+
+# (field_key, column header — used for both the export file and the
+# mapping form's label, required)
+_MAPPABLE_FIELDS = [
+    ('product_name', 'Product Name', True),
+    ('barcode', 'Barcode', False),
+    ('category', 'Category', False),
+    ('unit_of_measure', 'Unit of Measure', False),
+    ('unit_price', 'Retail Price', True),
+    ('wholesale_price', 'Wholesale Price', False),
+    ('description', 'Description', False),
+    ('is_vat_exempt', 'VAT Exempt', False),
+    ('is_pwd_eligible', 'PWD Eligible', False),
+    ('is_senior_eligible', 'Senior Eligible', False),
+]
+
+_IMPORT_TMP_DIR = os.path.join(settings.BASE_DIR, 'tmp_uploads', 'product_imports')
+
+# Common spellings for "yes" across a hand-built spreadsheet — anything else
+# (including blank) reads as False. Matches what product_export_xlsx writes
+# ("Yes"/"No"), so an exported file round-trips through Import unchanged.
+_TRUTHY_CELL_VALUES = {'yes', 'y', 'true', '1', 'x'}
+
+
+def _clear_import_session(request):
+    """Drop the in-progress import's session state and delete its temp file,
+    if any. Safe to call when there is nothing to clear."""
+    state = request.session.pop('product_import', None)
+    request.session.modified = True
+    if state and state.get('path') and os.path.exists(state['path']):
+        try:
+            os.remove(state['path'])
+        except OSError:
+            pass  # already gone or locked — not worth failing the request over
+
+
+def _parse_bool_cell(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if value is None:
+        return False
+    return str(value).strip().lower() in _TRUTHY_CELL_VALUES
+
+
+def _match_unit_of_measure(value):
+    """Case-insensitive match against Product.UnitOfMeasure (by either the
+    stored value or its display label) — None if blank or unrecognized;
+    the caller decides whether that's an error or a default."""
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    for choice_value, choice_label in Product.UnitOfMeasure.choices:
+        if text == choice_value.lower() or text == choice_label.lower():
+            return choice_value
+    return None
+
+
+def _guess_mapping(headers):
+    """Best-effort default mapping by matching an uploaded header's text to
+    a field, ignoring case/spacing/punctuation — so a sensibly-titled sheet
+    needs little or no manual remapping. Never trusted blindly: the mapping
+    form always renders (and stays fully editable) regardless of the guess."""
+    def norm(s):
+        return ''.join(ch for ch in s.lower() if ch.isalnum())
+
+    header_by_norm = {norm(h): h for h in headers}
+    aliases = {
+        'product_name': ['productname', 'name', 'product', 'item', 'itemname'],
+        'barcode': ['barcode', 'upc', 'ean', 'code'],
+        'category': ['category', 'categoryname', 'cat'],
+        'unit_of_measure': ['unitofmeasure', 'unit', 'uom', 'units'],
+        'unit_price': ['retailprice', 'unitprice', 'price', 'srp'],
+        'wholesale_price': ['wholesaleprice', 'wholesale'],
+        'description': ['description', 'desc', 'notes'],
+        'is_vat_exempt': ['vatexempt', 'vat'],
+        'is_pwd_eligible': ['pwdeligible', 'pwd'],
+        'is_senior_eligible': ['senioreligible', 'senior', 'seniorcitizen'],
+    }
+    guess = {}
+    for field_key, names in aliases.items():
+        for name in names:
+            if name in header_by_norm:
+                guess[field_key] = header_by_norm[name]
+                break
+    return guess
+
+
+def _parse_import_rows(path, mapping):
+    """Read the sheet at `path`, apply `mapping` ({field_key: column header
+    text}), and return one dict per non-blank data row:
+
+        row_number, product_name, barcode, category_name, unit_of_measure,
+        unit_price, wholesale_price, description, is_vat_exempt,
+        is_pwd_eligible, is_senior_eligible, action, errors, existing_id
+
+    `action` is 'error' (skip on commit), 'update' (barcode matched an
+    existing product — existing_id is set), or 'create'. Nothing is written
+    to the database here — this is the one place both the preview and the
+    commit step compute row meaning, so they can never disagree.
+
+    Matched by column HEADER TEXT, not position: a supplier re-exporting
+    the same kind of sheet next month may reorder columns, and a saved
+    mapping template should still apply correctly.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+    header_row = next(rows_iter, None)
+    if header_row is None:
+        return []
+    headers = [str(h).strip() if h is not None else '' for h in header_row]
+    col_index = {h: i for i, h in enumerate(headers) if h}
+
+    def cell(raw_row, field_key):
+        header = mapping.get(field_key)
+        if not header or header not in col_index:
+            return None
+        idx = col_index[header]
+        return raw_row[idx] if idx < len(raw_row) else None
+
+    seen_barcodes = {}  # barcode -> the first row_number that claimed it
+    results = []
+    for row_number, raw_row in enumerate(rows_iter, start=2):
+        if raw_row is None or all(c is None or str(c).strip() == '' for c in raw_row):
+            continue  # a fully blank row is not a product to skip loudly over
+
+        errors = []
+
+        product_name = str(cell(raw_row, 'product_name') or '').strip()
+        if not product_name:
+            errors.append('Product Name is required.')
+
+        unit_price_raw = cell(raw_row, 'unit_price')
+        unit_price = None
+        if unit_price_raw in (None, ''):
+            errors.append('Retail Price is required.')
+        else:
+            try:
+                unit_price = Decimal(str(unit_price_raw))
+                if unit_price < 0:
+                    errors.append('Retail Price cannot be negative.')
+            except DecimalException:
+                errors.append(f'Retail Price "{unit_price_raw}" is not a number.')
+
+        wholesale_raw = cell(raw_row, 'wholesale_price')
+        wholesale_price = None
+        if wholesale_raw not in (None, ''):
+            try:
+                wholesale_price = Decimal(str(wholesale_raw))
+                if wholesale_price < 0:
+                    errors.append('Wholesale Price cannot be negative.')
+            except DecimalException:
+                errors.append(f'Wholesale Price "{wholesale_raw}" is not a number.')
+
+        barcode_raw = cell(raw_row, 'barcode')
+        barcode = str(barcode_raw).strip() if barcode_raw not in (None, '') else ''
+        if barcode:
+            if barcode in seen_barcodes:
+                errors.append(f'Duplicate barcode in this file (also row {seen_barcodes[barcode]}).')
+            else:
+                seen_barcodes[barcode] = row_number
+
+        uom_raw = cell(raw_row, 'unit_of_measure')
+        if uom_raw in (None, ''):
+            unit_of_measure = Product.UnitOfMeasure.PIECE
+        else:
+            unit_of_measure = _match_unit_of_measure(uom_raw)
+            if unit_of_measure is None:
+                errors.append(f'Unrecognized Unit of Measure "{uom_raw}".')
+                unit_of_measure = Product.UnitOfMeasure.PIECE
+
+        existing = Product.objects.filter(barcode__iexact=barcode).first() if barcode else None
+        action = 'error' if errors else ('update' if existing else 'create')
+
+        results.append({
+            'row_number': row_number,
+            'product_name': product_name,
+            'barcode': barcode,
+            'category_name': str(cell(raw_row, 'category') or '').strip(),
+            'unit_of_measure': unit_of_measure,
+            'unit_price': unit_price,
+            'wholesale_price': wholesale_price,
+            'description': str(cell(raw_row, 'description') or '').strip(),
+            'is_vat_exempt': _parse_bool_cell(cell(raw_row, 'is_vat_exempt')),
+            'is_pwd_eligible': _parse_bool_cell(cell(raw_row, 'is_pwd_eligible')),
+            'is_senior_eligible': _parse_bool_cell(cell(raw_row, 'is_senior_eligible')),
+            'action': action,
+            'errors': errors,
+            'existing_id': existing.pk if existing else None,
+        })
+    return results
+
+
+@login_required(login_url='accounts:login')
+def product_export_xlsx(request):
+    """Download the whole catalog as .xlsx — one column per _MAPPABLE_FIELDS
+    entry, plus a leading reference-only SKU column, so the same file can be
+    edited and fed straight back through Import with little to no remapping."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to export the catalog.')
+        return redirect('product_list')
+
+    import openpyxl
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Products'
+
+    headers = ['SKU Code'] + [label for _key, label, _required in _MAPPABLE_FIELDS]
+    ws.append(headers)
+    for c in ws[1]:
+        c.font = openpyxl.styles.Font(bold=True)
+
+    for p in Product.objects.select_related('category').order_by('product_name'):
+        ws.append([
+            p.sku_code,
+            p.product_name,
+            p.barcode or '',
+            p.category.category_name if p.category else '',
+            p.unit_of_measure,
+            float(p.unit_price),
+            float(p.wholesale_price) if p.wholesale_price is not None else '',
+            p.description,
+            'Yes' if p.is_vat_exempt else 'No',
+            'Yes' if p.is_pwd_eligible else 'No',
+            'Yes' if p.is_senior_eligible else 'No',
+        ])
+
+    for i in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(i)].width = 20
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    filename = f'gerlyn-products-{timezone.localdate().isoformat()}.xlsx'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    wb.save(response)
+    return response
+
+
+@login_required(login_url='accounts:login')
+def product_import_upload(request):
+    """Step 1: upload the .xlsx file and read its header row. The file is
+    saved to a private temp directory (never under MEDIA_ROOT — it's a
+    working file for this wizard, not a record the app keeps); only its
+    path and headers go into the session."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to import products.')
+        return redirect('product_list')
+
+    if request.method == 'POST':
+        upload = request.FILES.get('file')
+        if not upload or not upload.name.lower().endswith('.xlsx'):
+            messages.error(request, 'Choose a .xlsx file to import.')
+            return render(request, 'inventory/product_import_upload.html')
+
+        _clear_import_session(request)  # drop any abandoned previous upload
+
+        os.makedirs(_IMPORT_TMP_DIR, exist_ok=True)
+        tmp_path = os.path.join(_IMPORT_TMP_DIR, f'{uuid.uuid4().hex}.xlsx')
+        with open(tmp_path, 'wb') as f:
+            for chunk in upload.chunks():
+                f.write(chunk)
+
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
+            header_row = next(wb.active.iter_rows(values_only=True), None)
+        except Exception:
+            os.remove(tmp_path)
+            messages.error(request, 'Could not read that file — make sure it is a valid .xlsx spreadsheet.')
+            return render(request, 'inventory/product_import_upload.html')
+
+        headers = [str(h).strip() for h in (header_row or []) if h is not None and str(h).strip()]
+        if not headers:
+            os.remove(tmp_path)
+            messages.error(request, 'The first row of the sheet must contain column headers.')
+            return render(request, 'inventory/product_import_upload.html')
+
+        request.session['product_import'] = {'path': tmp_path, 'headers': headers, 'mapping': None}
+        return redirect('product_import_map')
+
+    return render(request, 'inventory/product_import_upload.html')
+
+
+@login_required(login_url='accounts:login')
+def product_import_map(request):
+    """Step 2: map each uploaded column to a system field, optionally
+    starting from a saved template (?template=<id>, a plain GET so loading
+    one is just a link/select — never a state change) and optionally saving
+    the mapping just built under a new name before moving on."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to import products.')
+        return redirect('product_list')
+
+    state = request.session.get('product_import')
+    if not state:
+        messages.error(request, 'Upload a file to start an import.')
+        return redirect('product_import_upload')
+
+    headers = state['headers']
+    templates = ProductImportMappingTemplate.objects.filter(
+        models.Q(created_by=request.user) | models.Q(is_shared=True)
+    ).select_related('created_by')
+
+    if request.method == 'POST':
+        mapping = {}
+        for field_key, _label, _required in _MAPPABLE_FIELDS:
+            chosen = request.POST.get(f'map_{field_key}', '')
+            if chosen and chosen in headers:
+                mapping[field_key] = chosen
+
+        errors = [
+            f'Map a column to "{label}" — it is required.'
+            for field_key, label, required in _MAPPABLE_FIELDS
+            if required and field_key not in mapping
+        ]
+
+        if errors:
+            for e in errors:
+                messages.error(request, e)
+            current_mapping = mapping  # keep what they picked instead of losing it
+        else:
+            save_name = request.POST.get('save_template_name', '').strip()
+            if save_name:
+                ProductImportMappingTemplate.objects.update_or_create(
+                    created_by=request.user, name=save_name,
+                    defaults={
+                        'mapping': mapping,
+                        'is_shared': request.POST.get('template_visibility') == 'shared',
+                    },
+                )
+                messages.success(request, f'Saved mapping template "{save_name}".')
+
+            state['mapping'] = mapping
+            request.session['product_import'] = state
+            request.session.modified = True
+            return redirect('product_import_preview')
+    else:
+        template_id = request.GET.get('template')
+        if template_id:
+            tmpl = templates.filter(pk=template_id).first()
+            current_mapping = tmpl.mapping if tmpl else {}
+        else:
+            current_mapping = state.get('mapping') or _guess_mapping(headers)
+
+    fields = [
+        {'key': key, 'label': label, 'required': required, 'selected': current_mapping.get(key, '')}
+        for key, label, required in _MAPPABLE_FIELDS
+    ]
+    return render(request, 'inventory/product_import_map.html', {
+        'headers': headers,
+        'fields': fields,
+        'templates': templates,
+    })
+
+
+@login_required(login_url='accounts:login')
+def product_import_preview(request):
+    """Step 3: GET shows what the mapped file resolves to (counts + a
+    sample of interpreted rows) without writing anything; POST commits it —
+    both read the same _parse_import_rows() output, so what was previewed
+    is exactly what gets applied."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to import products.')
+        return redirect('product_list')
+
+    state = request.session.get('product_import')
+    if not state or not state.get('mapping'):
+        messages.error(request, 'Map the columns first.')
+        return redirect('product_import_upload')
+
+    path = state['path']
+    if not os.path.exists(path):
+        _clear_import_session(request)
+        messages.error(request, 'Your uploaded file is no longer available — please upload it again.')
+        return redirect('product_import_upload')
+
+    rows = _parse_import_rows(path, state['mapping'])
+
+    if request.method == 'POST':
+        created = updated = skipped = 0
+        any_new_category = False
+        with transaction.atomic():
+            for row in rows:
+                if row['action'] == 'error':
+                    skipped += 1
+                    continue
+
+                category = None
+                if row['category_name']:
+                    category = ProductCategory.objects.filter(
+                        category_name__iexact=row['category_name']
+                    ).first()
+                    if category is None:
+                        category = ProductCategory.objects.create(category_name=row['category_name'])
+                        any_new_category = True
+
+                if row['action'] == 'update':
+                    product = Product.objects.get(pk=row['existing_id'])
+                    updated += 1
+                else:
+                    product = Product(sku_code=Product.next_sku_code())
+                    created += 1
+
+                product.product_name = row['product_name']
+                if row['barcode']:
+                    product.barcode = row['barcode']
+                product.category = category
+                product.unit_of_measure = row['unit_of_measure']
+                product.unit_price = row['unit_price']
+                product.wholesale_price = row['wholesale_price']
+                product.description = row['description']
+                product.is_vat_exempt = row['is_vat_exempt']
+                product.is_pwd_eligible = row['is_pwd_eligible']
+                product.is_senior_eligible = row['is_senior_eligible']
+                product.save()
+
+        if any_new_category:
+            bust_categories_cache()
+
+        _clear_import_session(request)
+        messages.success(
+            request,
+            f'Import complete — {created} product{"s" if created != 1 else ""} added, '
+            f'{updated} updated, {skipped} skipped due to errors.'
+        )
+        return redirect('product_list')
+
+    counts = {
+        'total': len(rows),
+        'create': sum(1 for r in rows if r['action'] == 'create'),
+        'update': sum(1 for r in rows if r['action'] == 'update'),
+        'error': sum(1 for r in rows if r['action'] == 'error'),
+    }
+    return render(request, 'inventory/product_import_preview.html', {
+        'rows': rows[:200],
+        'counts': counts,
+        'truncated': len(rows) > 200,
+    })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def product_import_cancel(request):
+    """A real (POST) action, not a plain link — this deletes the temp file
+    and its session state, so it must not be something a stray GET (a
+    prefetch, a bookmark) can trigger by accident."""
+    _clear_import_session(request)
+    messages.info(request, 'Import cancelled.')
+    return redirect('product_list')
 
 
 # ─────────────────────────────────────────────
@@ -495,7 +1000,7 @@ def category_delete(request, pk):
 # inventory.alerts engine so these numbers match the Dashboard exactly.
 # ─────────────────────────────────────────────
 
-@role_required(OWNER, BRANCH_MANAGER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def alerts_center(request):
     branch_ids = branch_ids_for_user(request.user)  # None = all branches
     summary = alert_summary(branch_ids)
@@ -516,6 +1021,72 @@ def alerts_center(request):
     })
 
 
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+@require_POST
+def expiry_write_off(request, pk):
+    """Confirm-and-remove one expired Floor Stock BATCH, reached from the
+    Expired tab of Alerts Center. Zeroes just that lot — not the whole
+    product/branch row, which may still have other, unexpired batches — and
+    logs it as a write-off. A deliberate, one-way action a human triggers,
+    never anything automatic.
+
+    Distinct from inventory_edit (Owner/Branch Manager only, for the
+    reorder level): this only ever zeroes a lot that is ALREADY expired, so
+    it is open to Staff too — "only after staff confirms the expiry" is the
+    whole point of this action existing.
+    """
+    batch = get_object_or_404(
+        Batch.objects.select_related('product', 'branch'),
+        pk=pk, location=Batch.Location.FLOOR,
+    )
+    if not user_can_access_branch(request.user, batch.branch_id):
+        messages.error(request, 'That batch belongs to another branch.')
+        return redirect('alerts_center')
+
+    if not batch.expiry_date or batch.expiry_date > timezone.localdate():
+        messages.error(
+            request,
+            f'{batch.product.product_name} at {batch.branch.branch_name} is not past its expiry date.'
+        )
+        return redirect('alerts_center')
+
+    with transaction.atomic():
+        locked = Batch.objects.select_for_update().get(pk=batch.pk)
+        before = locked.quantity
+        if before > 0:
+            locked.quantity = 0
+            locked.save(update_fields=['quantity'])
+
+            # Batches back the aggregate row's quantity_on_hand — writing
+            # off a lot has to bring the row down with it, the same as any
+            # other floor-stock-reducing movement.
+            inv = get_object_or_404(
+                Inventory.objects.select_for_update(),
+                product=locked.product, branch=locked.branch,
+            )
+            inv_before = inv.quantity_on_hand
+            inv.quantity_on_hand = max(inv.quantity_on_hand - before, 0)
+            inv.save()
+
+            StockMovement.objects.create(
+                inventory=inv,
+                location_type=StockMovement.LocationType.FLOOR,
+                movement_type=StockMovement.MovementType.MANUAL_OUT,
+                quantity_change=-before,
+                quantity_before=inv_before,
+                quantity_after=inv.quantity_on_hand,
+                notes=f'Expired batch {locked.batch_number} written off by '
+                      f'{request.user.get_full_name() or request.user.username}',
+                created_by=request.user,
+            )
+
+    messages.success(
+        request,
+        f'{batch.product.product_name} at {batch.branch.branch_name} written off ({before} unit{"s" if before != 1 else ""}).'
+    )
+    return redirect('alerts_center')
+
+
 # ─────────────────────────────────────────────
 # STORE FLOOR INVENTORY VIEW
 # ─────────────────────────────────────────────
@@ -534,6 +1105,11 @@ def _inventory_list_context(request):
     branch_filter = request.GET.get('branch', '')
     category_filter = request.GET.get('category', '')
     status_filter = request.GET.get('status', '')
+    # A non-numeric value (tampered URL) must not reach the ORM as a pk
+    # lookup — .filter(branch_id='abc') raises ValueError rather than
+    # returning no rows, since the pk field is numeric.
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
 
     if search_query:
         records = records.filter(
@@ -545,38 +1121,71 @@ def _inventory_list_context(request):
     if category_filter:
         records = records.filter(product__category_id=category_filter)
 
-    rows = []
+    records = list(records)
+
     # Keys are template-safe (no spaces) so they can be used with dot lookup.
-    counts = {'in_stock': 0, 'low': 0, 'critical': 0}
-    key_for = {'Critical': 'critical', 'Low Stock': 'low', 'In Stock': 'in_stock'}
+    counts = {'in_stock': 0, 'low': 0, 'critical': 0, 'no_stock': 0}
+    key_for = {
+        'Critical': 'critical', 'Low Stock': 'low',
+        'In Stock': 'in_stock', 'No Stock': 'no_stock',
+    }
+    matching = []
     for r in records:
         # Computed live from quantity_on_hand/reorder_level, not from the
         # stored Inventory.restock flag — that flag is only ever recomputed
         # inside Inventory.save(), so anything that bypasses save() (bulk
         # update, a data import) leaves it stale with nothing to catch it.
-        if r.reorder_level and r.quantity_on_hand <= r.reorder_level * 0.5:
-            status = 'Critical'
-        elif r.quantity_on_hand <= r.reorder_level:
-            status = 'Low Stock'
-        else:
-            status = 'In Stock'
+        status = stock_status(r.quantity_on_hand, r.reorder_level)
         counts[key_for[status]] += 1
         if status_filter and status != status_filter:
             continue
-        rows.append({'inv': r, 'status': status})
+        matching.append((r, status))
+
+    # One table row per BATCH, not per product/branch — a restock with a
+    # different expiry never merges into an existing row this way (see the
+    # Batch model's docstring). Each batch row still carries its parent
+    # product/branch's aggregate qty_on_hand/reorder_level/status, since
+    # those are row-level facts a single lot doesn't have its own version of.
+    pairs = {(r.product_id, r.branch_id) for r, _ in matching}
+    batches_by_pair = {}
+    if pairs:
+        batch_qs = Batch.objects.filter(
+            location=Batch.Location.FLOOR, quantity__gt=0
+        ).order_by(models.F('expiry_date').asc(nulls_last=True))
+        for b in batch_qs:
+            key = (b.product_id, b.branch_id)
+            if key in pairs:
+                batches_by_pair.setdefault(key, []).append(b)
+
+    rows = []
+    for r, status in matching:
+        batches = batches_by_pair.get((r.product_id, r.branch_id))
+        if batches:
+            for b in batches:
+                rows.append({'inv': r, 'status': status, 'batch': b})
+        else:
+            # No batch to show (typically a 0-quantity "No Stock" row) —
+            # still needs a row, or it would simply vanish from the table.
+            rows.append({'inv': r, 'status': status, 'batch': None})
+
+    branches = cached_branches() if not user_branch else []
 
     return {
         'rows': rows,
         'counts': counts,
-        'branches': cached_branches() if not user_branch else [],
+        'branches': branches,
         'categories': cached_categories(),
         'search_query': search_query,
         'branch_filter': branch_filter,
+        # The topbar branch chip renders this, so an Owner picking a branch
+        # in the toolbar moves the chip too instead of leaving it reading
+        # "All Branches" over a list that is no longer all branches — same
+        # pattern as the Product Master List's filter_branch.
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'category_filter': category_filter,
         'status_filter': status_filter,
         'user_branch': user_branch,
         'can_adjust': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
-        'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         'adjust_products': Product.objects.order_by('product_name'),
     }
 
@@ -595,13 +1204,18 @@ def inventory_list(request):
 
 @login_required(login_url='accounts:login')
 def inventory_edit(request, pk):
-    """Set the nearest-expiry date for one existing Inventory row, and — for
-    Owner/Branch Manager only — its reorder threshold too. Staff can update
-    the expiry date but not the reorder level, which is a planning decision
-    above their role; this never touches quantity_on_hand though, so unlike
-    Correct Stock Count it needs no audit trail for either field."""
-    if request.user.role not in INTERNAL_ROLES:
-        messages.error(request, 'Access denied.')
+    """Set the reorder threshold for one existing Inventory row. Owner/Branch
+    Manager only — Staff can view Floor Stock but not change it, matching
+    Stock Adjustment's own gating.
+
+    Expiry is no longer set here: it lives on that row's Batches now (see
+    the Batch model's docstring), each with its own lot and expiry_date, so
+    there is no single "the row's expiry" left to edit — receiving a
+    delivery or a stock adjustment is what sets a lot's expiry going
+    forward.
+    """
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Only the Owner or a Branch Manager can edit Floor Stock.')
         return redirect('inventory_list')
     if request.method != 'POST':
         return redirect('inventory_list')
@@ -611,23 +1225,17 @@ def inventory_edit(request, pk):
         messages.error(request, 'That inventory record belongs to another branch.')
         return redirect('inventory_list')
 
-    can_edit_reorder = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
-    expiry_date = request.POST.get('expiry_date', '').strip()
+    reorder_level = request.POST.get('reorder_level', '').strip()
+    if not reorder_level.isdigit():
+        messages.error(request, 'Enter a valid reorder level.')
+        return redirect('inventory_list')
 
-    if can_edit_reorder:
-        reorder_level = request.POST.get('reorder_level', '').strip()
-        if not reorder_level.isdigit():
-            messages.error(request, 'Enter a valid reorder level.')
-            return redirect('inventory_list')
-        inv.reorder_level = int(reorder_level)
-
-    inv.expiry_date = expiry_date or None
+    inv.reorder_level = int(reorder_level)
     inv.save()
 
     messages.success(
         request,
-        f'{"Reorder level and expiry date" if can_edit_reorder else "Expiry date"} '
-        f'for {inv.product.product_name} at {inv.branch.branch_name} updated.'
+        f'Reorder level for {inv.product.product_name} at {inv.branch.branch_name} updated.'
     )
     return redirect('inventory_list')
 
@@ -678,8 +1286,6 @@ def stock_adjustment_add(request):
         inv, _created = Inventory.objects.get_or_create(product=product, branch=branch)
         qty_before = inv.quantity_on_hand
         inv.quantity_on_hand += int(quantity)
-        if expiry_date:
-            inv.expiry_date = expiry_date
         inv.save()
 
         StockMovement.objects.create(
@@ -693,11 +1299,20 @@ def stock_adjustment_add(request):
             created_by=request.user,
         )
 
-    messages.success(
-        request,
-        f'Count corrected: added {quantity} to {product.product_name} '
-        f'at {branch.branch_name}.'
-    )
+        # A correction/spot-count is its own lot too — it must not silently
+        # widen an existing batch's quantity (or worse, have no batch at all
+        # and drift the row's batches out of sync with quantity_on_hand).
+        Batch.objects.create(
+            product=product,
+            branch=branch,
+            location=Batch.Location.FLOOR,
+            quantity=int(quantity),
+            received_date=timezone.localdate(),
+            expiry_date=parse_date(expiry_date) if expiry_date else None,
+            notes='Manual stock adjustment',
+        )
+
+    messages.success(request, f'Added {quantity} to {product.product_name} at {branch.branch_name}.')
     return redirect('inventory_list')
 
 
@@ -705,23 +1320,41 @@ def stock_adjustment_add(request):
 # WAREHOUSE STOCK VIEW
 # ─────────────────────────────────────────────
 
-@login_required(login_url='accounts:login')
-def warehouse_stock_list(request):
-    if request.user.role not in [
-        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
-    ]:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
+def _branch_scoped_modal_target(request):
+    """Which branch a branch-scoped create modal (Warehouse Stock's "Request
+    Stock to Floor", Stock Adjustments' "New Stock Adjustment") is scoped to.
+    Staff/Manager are pinned to their own branch as always; an Owner has
+    none, so this reads branch_id off a resubmitted POST first (redisplaying
+    the modal after a validation error) and falls back to the ?branch= GET
+    param (the modal's own branch-picker step, or the toolbar's branch
+    filter) — kept separate from the main table's branch_filter so a POST
+    error redisplay doesn't need a query string to recover the branch.
+    """
+    user_branch = get_user_branch(request.user)
+    if user_branch:
+        return user_branch
+    branch_id = request.POST.get('branch_id') or request.GET.get('branch')
+    if branch_id and str(branch_id).isdigit():
+        return Branch.objects.filter(pk=branch_id).first()
+    return None
 
+
+def _warehouse_stock_list_context(request):
     # Get the warehouse for this user's branch
     user_branch = get_user_branch(request.user)
+
+    # Owner-only branch filter — a Manager/Staff account is already pinned to
+    # its own single warehouse above, so a selector would do nothing for them.
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
 
     if user_branch:
         try:
             warehouse = Warehouse.objects.get(branch=user_branch)
             stock_records = WarehouseStock.objects.filter(
                 warehouse=warehouse
-            ).select_related('product', 'product__category')
+            ).select_related('product', 'product__category', 'warehouse', 'warehouse__branch')
         except Warehouse.DoesNotExist:
             messages.error(
                 request,
@@ -730,11 +1363,13 @@ def warehouse_stock_list(request):
             )
             return redirect('inventory_list')
     else:
-        # Owner sees all warehouses
+        # Owner sees all warehouses, narrowed to one via branch_filter if set.
         stock_records = WarehouseStock.objects.select_related(
             'product', 'product__category', 'warehouse', 'warehouse__branch'
         ).all()
         warehouse = None
+        if branch_filter:
+            stock_records = stock_records.filter(warehouse__branch_id=branch_filter)
 
     search_query = request.GET.get('q', '')
     category_filter = request.GET.get('category', '')
@@ -750,19 +1385,58 @@ def warehouse_stock_list(request):
     # restock_flag — same reasoning as Inventory's floor-stock status: a
     # write that bypasses save() would leave the stored flag stale with
     # nothing to catch it, so this reads the real numbers every time.
-    rows = []
-    counts = {'in_stock': 0, 'low': 0, 'critical': 0}
-    for s in stock_records:
-        if s.reorder_level and s.quantity_on_hand <= s.reorder_level * 0.5:
-            status = 'Critical'
-        elif s.quantity_on_hand <= s.reorder_level:
-            status = 'Low Stock'
-        else:
-            status = 'In Stock'
-        counts['critical' if status == 'Critical' else 'low' if status == 'Low Stock' else 'in_stock'] += 1
-        rows.append({'stock': s, 'status': status})
+    stock_records = list(stock_records)
+    counts = {'in_stock': 0, 'low': 0, 'critical': 0, 'no_stock': 0}
+    key_for = {
+        'Critical': 'critical', 'Low Stock': 'low',
+        'In Stock': 'in_stock', 'No Stock': 'no_stock',
+    }
+    matching = [(s, stock_status(s.quantity_on_hand, s.reorder_level)) for s in stock_records]
+    for _, status in matching:
+        counts[key_for[status]] += 1
 
-    return render(request, 'inventory/warehouse_stock_list.html', {
+    # One table row per BATCH, not per product/warehouse — see
+    # inventory.views._inventory_list_context's identical treatment of
+    # Floor Stock, and the Batch model's own docstring for why. Batch has no
+    # warehouse FK (it's keyed by branch — a branch has exactly one
+    # warehouse), so rows are matched on (product, branch) throughout.
+    pairs = {(s.product_id, s.warehouse.branch_id) for s, _ in matching}
+    batches_by_pair = {}
+    if pairs:
+        batch_qs = Batch.objects.filter(
+            location=Batch.Location.WAREHOUSE, quantity__gt=0
+        ).order_by(models.F('expiry_date').asc(nulls_last=True))
+        for b in batch_qs:
+            key = (b.product_id, b.branch_id)
+            if key in pairs:
+                batches_by_pair.setdefault(key, []).append(b)
+
+    rows = []
+    for s, status in matching:
+        batches = batches_by_pair.get((s.product_id, s.warehouse.branch_id))
+        if batches:
+            for b in batches:
+                rows.append({'stock': s, 'status': status, 'batch': b})
+        else:
+            rows.append({'stock': s, 'status': status, 'batch': None})
+
+    # "Request Stock to Floor" now opens as a modal on this page instead of
+    # its own URL — see warehouse_stock_request. Staff/Manager already have a
+    # target branch (user_branch); an Owner needs one picked first, via the
+    # modal's own branch-picker step or the toolbar's branch filter, both of
+    # which land here as ?branch=.
+    request_target_branch = _branch_scoped_modal_target(request)
+    request_warehouse_stock = None
+    if request_target_branch:
+        request_warehouse = warehouse if warehouse else Warehouse.objects.filter(
+            branch=request_target_branch
+        ).first()
+        if request_warehouse:
+            request_warehouse_stock = WarehouseStock.objects.filter(
+                warehouse=request_warehouse, quantity_on_hand__gt=0
+            ).select_related('product')
+
+    return {
         'active_page': 'warehouse_stock',
         'rows': rows,
         'counts': counts,
@@ -770,28 +1444,52 @@ def warehouse_stock_list(request):
         'categories': cached_categories(),
         'search_query': search_query,
         'category_filter': category_filter,
-        # rows was built by fully iterating this exact (already-filtered)
-        # queryset above, so re-counting it is a second identical query for
-        # a number Python already has.
-        'total_products': len(rows),
+        'branches': cached_branches() if not user_branch else [],
+        'branch_filter': branch_filter,
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
+        # Distinct products, not len(rows) — rows is now one-per-batch, so a
+        # product with two lots would otherwise count itself twice.
+        'total_products': len(matching),
         'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         # Always available to any internal role — when there's no single
-        # pinned branch (Owner), warehouse_stock_request shows a branch
-        # picker first rather than the button being hidden outright.
+        # pinned branch (Owner), the modal shows a branch picker step first
+        # rather than the button being hidden outright.
         'can_request_to_floor': True,
-    })
+        'request_target_branch': request_target_branch,
+        'request_warehouse_stock': request_warehouse_stock,
+        'show_request_modal': request.GET.get('open_request') == '1',
+    }
+
+
+@login_required(login_url='accounts:login')
+def warehouse_stock_list(request):
+    if request.user.role not in [
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+    ]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    context = _warehouse_stock_list_context(request)
+    if not isinstance(context, dict):
+        # A Staff/Manager whose branch has no warehouse yet — the context
+        # builder bails out with a redirect instead of a context dict.
+        return context
+    return render(request, 'inventory/warehouse_stock_list.html', context)
 
 
 @login_required(login_url='accounts:login')
 def warehouse_stock_edit(request, pk):
-    """Set the expiry date for one WarehouseStock row, and — for Owner/Branch
-    Manager only — its reorder threshold too. Mirrors inventory_edit's role
-    split for the floor-stock version: Staff can flag an expiry date but not
-    change the reorder threshold, which is a planning decision above their
-    role. Reorder level stays independent of Inventory's — editing one never
-    touches the other."""
-    if request.user.role not in INTERNAL_ROLES:
-        messages.error(request, 'Access denied.')
+    """Set the reorder threshold for one WarehouseStock row. Owner/Branch
+    Manager only, matching Floor Stock's inventory_edit.
+
+    Previously Staff could set this row's expiry date here (just not its
+    reorder level) — that's no longer a thing this endpoint does at all:
+    expiry now lives on that row's Batches, each with its own lot (see the
+    Batch model's docstring), so there is no single row-level expiry left
+    for Staff to set, and nothing else remains here for them to edit.
+    """
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Only the Owner or a Branch Manager can edit Warehouse Stock.')
         return redirect('warehouse_stock_list')
     if request.method != 'POST':
         return redirect('warehouse_stock_list')
@@ -801,23 +1499,18 @@ def warehouse_stock_edit(request, pk):
         messages.error(request, 'That warehouse stock record belongs to another branch.')
         return redirect('warehouse_stock_list')
 
-    can_edit_reorder = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
-    expiry_date = request.POST.get('expiry_date', '').strip()
+    reorder_level = request.POST.get('reorder_level', '').strip()
+    if not reorder_level.isdigit():
+        messages.error(request, 'Enter a valid reorder level.')
+        return redirect('warehouse_stock_list')
 
-    if can_edit_reorder:
-        reorder_level = request.POST.get('reorder_level', '').strip()
-        if not reorder_level.isdigit():
-            messages.error(request, 'Enter a valid reorder level.')
-            return redirect('warehouse_stock_list')
-        ws.reorder_level = int(reorder_level)
-
-    ws.expiry_date = expiry_date or None
+    ws.reorder_level = int(reorder_level)
     ws.save()
 
     messages.success(
         request,
-        f'{"Warehouse reorder level and expiry date" if can_edit_reorder else "Warehouse expiry date"} '
-        f'for {ws.product.product_name} at {ws.warehouse.branch.branch_name} updated.'
+        f'Warehouse reorder level for {ws.product.product_name} '
+        f'at {ws.warehouse.branch.branch_name} updated.'
     )
     return redirect('warehouse_stock_list')
 
@@ -926,14 +1619,7 @@ def _movement_log(branch_ids=None):
 # STOCK SLIP (STOCK TRANSFER) VIEWS — restocks and write-offs
 # ─────────────────────────────────────────────
 
-# STAFF included deliberately: they can raise a restock request, record a
-# write-off and confirm receipt of a released slip, and every one of those
-# views redirects here on success. Excluding them meant a staff member
-# submitted a request and landed on a 403 instead of a confirmation. The
-# queryset below is already branch-scoped, and the per-slip actions stay
-# role-gated in their own views.
-@role_required(OWNER, BRANCH_MANAGER, STAFF)
-def transfer_list(request):
+def _transfer_list_context(request):
     transfers = StockTransfer.objects.select_related(
         'source_branch', 'destination_branch',
         'requested_by', 'warehouse'
@@ -950,6 +1636,13 @@ def transfer_list(request):
     purpose_filter = request.GET.get('purpose', '')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
+    # Owner-only branch filter — Manager/Staff are already pinned to their own
+    # branch's transfers above, so a selector would do nothing for them.
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        transfers = transfers.filter(source_branch_id=branch_filter)
 
     if search_query:
         transfers = transfers.filter(
@@ -993,14 +1686,38 @@ def transfer_list(request):
         status=StockTransfer.Status.DISCREPANCY
     ).count()
 
-    return render(request, 'inventory/transfer_list.html', {
+    # The Movement Log tab shares this page, so the same branch choice narrows
+    # it too — [int(branch_filter)] when the Owner has picked one, otherwise
+    # the pre-existing role-based scoping (None = every branch for the Owner).
+    movement_branch_ids = [int(branch_filter)] if branch_filter else branch_ids_for_user(request.user)
+
+    # "New Stock Adjustment" now opens as a modal on this page instead of
+    # its own URL — see transfer_create. Staff/Manager already have a target
+    # branch (user_branch); an Owner needs one picked first, via the modal's
+    # own branch-picker step or the toolbar's branch filter, both of which
+    # land here as ?branch=. Same pattern as Warehouse Stock's "Request
+    # Stock to Floor" modal — see _branch_scoped_modal_target.
+    create_target_branch = _branch_scoped_modal_target(request)
+    create_floor_stock = None
+    if create_target_branch:
+        create_floor_stock = Inventory.objects.filter(
+            branch=create_target_branch, quantity_on_hand__gt=0
+        ).select_related('product')
+
+    return {
         'transfers': transfers,
-        'movement_log': _movement_log(branch_ids_for_user(request.user)),
+        'movement_log': _movement_log(movement_branch_ids),
         'search_query': search_query,
         'status_filter': status_filter,
         'purpose_filter': purpose_filter,
         'date_from': date_from,
         'date_to': date_to,
+        'branches': cached_branches() if not user_branch else [],
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock and Product Master List's filter_branch.
+        'filter_branch': next((b for b in cached_branches() if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
         'status_choices': StockTransfer.Status.choices,
         'purpose_choices': StockTransfer.Purpose.choices,
         'total_released_this_month': total_released_this_month,
@@ -1010,7 +1727,21 @@ def transfer_list(request):
         # already localtime()-derived, so it cannot disagree with the
         # month_start/month_end bounds the count itself was filtered on.
         'month_label': today.strftime('%B'),
-    })
+        'create_target_branch': create_target_branch,
+        'create_floor_stock': create_floor_stock,
+        # Write-offs only — Branch Restock has its own dedicated flow (the
+        # Request Stock to Floor modal on Warehouse Stock).
+        'write_off_purposes': [
+            c for c in StockTransfer.Purpose.choices
+            if c[0] != StockTransfer.Purpose.BRANCH_RESTOCK
+        ],
+        'show_create_modal': request.GET.get('open_create') == '1',
+    }
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transfer_list(request):
+    return render(request, 'inventory/transfer_list.html', _transfer_list_context(request))
 
 
 class _InsufficientStockError(Exception):
@@ -1032,39 +1763,72 @@ def _safe_positive_int(value):
     return parsed if parsed > 0 else None
 
 
+def _try_auto_approve(transfer, is_restock):
+    """If the requester is the Owner, approve this brand-new transfer in
+    full immediately — there is nobody above the Owner to approve it, so
+    transfer_approve's separate step would otherwise just make them approve
+    their own request. Falls back to leaving it Pending (unchanged) if any
+    item doesn't have enough stock for its full requested quantity right
+    now, the same shortfall transfer_approve's own check would reject —
+    auto-approval only ever grants exactly what a manual approval already
+    would have.
+
+    Must be called from inside the same transaction that created `transfer`
+    and its items, before anything outside this function reads their
+    Pending/0-approved state.
+    """
+    if transfer.requested_by is None or transfer.requested_by.role != User.Role.OWNER:
+        return
+
+    items = list(transfer.items.select_related('product').all())
+    for item in items:
+        if is_restock:
+            stock = WarehouseStock.objects.select_for_update().filter(
+                warehouse=transfer.warehouse, product=item.product
+            ).first()
+        else:
+            stock = Inventory.objects.select_for_update().filter(
+                branch=transfer.source_branch, product=item.product
+            ).first()
+        if stock is None or item.quantity_requested > stock.quantity_on_hand:
+            return  # leave Pending for a human to resolve the shortfall
+
+    for item in items:
+        item.quantity_approved = item.quantity_requested
+        item.save(update_fields=['quantity_approved'])
+    transfer.status = StockTransfer.Status.APPROVED
+    transfer.approved_by = transfer.requested_by
+    transfer.save(update_fields=['status', 'approved_by'])
+
+
 @login_required(login_url='accounts:login')
 def warehouse_stock_request(request):
-    """Dedicated "Request Stock to Floor" entry point, reached from the
-    Warehouse Stock page — always a Branch Restock, no Purpose picker.
-    Separate on purpose from Report Damaged / Lost Stock (transfer_create
-    below), which only handles floor-level write-offs, so the two actions
-    can never be confused for each other.
+    """POST handler for the "Request Stock to Floor" modal on the Warehouse
+    Stock page — always a Branch Restock, no Purpose picker. Separate on
+    purpose from New Stock Adjustment (transfer_create below), which now
+    only handles floor-level write-offs, so the two actions can never be
+    confused for each other.
 
-    Staff/Manager are pinned to their own branch as before. The Owner has no
-    single branch to default to, so they pick one via ?branch=<id> (or the
-    branch_id field on resubmit) — same pattern as the Floor Stock page's
-    Correct Stock Count modal, which shows a branch picker under the same
-    condition rather than hiding the action outright."""
+    The modal itself (branch picker + item form) is rendered inline by
+    warehouse_stock_list/_warehouse_stock_list_context — this view only ever
+    handles the submit, redisplaying that same page with the modal reopened
+    on a validation error so the picked branch and entered quantities aren't
+    lost. See _branch_scoped_modal_target for how the target branch (pinned
+    for Staff/Manager, picked by an Owner) is resolved.
+    """
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
         messages.error(request, 'You do not have permission to request stock.')
         return redirect('warehouse_stock_list')
 
-    user_branch = get_user_branch(request.user)
-    if user_branch:
-        target_branch = user_branch
-    else:
-        branch_id = request.GET.get('branch') or request.POST.get('branch_id')
-        target_branch = Branch.objects.filter(pk=branch_id).first() if branch_id else None
+    if request.method != 'POST':
+        return redirect('warehouse_stock_list')
 
+    target_branch = _branch_scoped_modal_target(request)
     if not target_branch:
-        # Owner hasn't picked a branch yet — show the picker instead of the
-        # item form (there's nothing to list warehouse stock FROM yet).
-        return render(request, 'inventory/warehouse_stock_request.html', {
-            'warehouse': None,
-            'branches': cached_branches(),
-        })
+        messages.error(request, 'Choose a branch first.')
+        return redirect('warehouse_stock_list')
 
     try:
         warehouse = Warehouse.objects.get(branch=target_branch)
@@ -1072,148 +1836,155 @@ def warehouse_stock_request(request):
         messages.error(request, f'No warehouse found for {target_branch.branch_name}.')
         return redirect('warehouse_stock_list')
 
-    warehouse_stock = WarehouseStock.objects.filter(
-        warehouse=warehouse, quantity_on_hand__gt=0
-    ).select_related('product')
+    transfer_date = request.POST.get('transfer_date') or date.today()
+    notes = request.POST.get('notes', '')
+    product_ids = request.POST.getlist('product_id')
+    quantities = request.POST.getlist('quantity_requested')
 
-    if request.method == 'POST':
-        transfer_date = request.POST.get('transfer_date') or date.today()
-        notes = request.POST.get('notes', '')
-        product_ids = request.POST.getlist('product_id')
-        quantities = request.POST.getlist('quantity_requested')
+    valid_items = [
+        (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
+        if pid and _safe_positive_int(qty) is not None
+    ]
 
-        valid_items = [
-            (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
-            if pid and _safe_positive_int(qty) is not None
-        ]
+    if not valid_items:
+        messages.error(request, 'Please add at least one product.')
+        context = _warehouse_stock_list_context(request)
+        if not isinstance(context, dict):
+            return context
+        context['show_request_modal'] = True
+        return render(request, 'inventory/warehouse_stock_list.html', context)
 
-        if not valid_items:
-            messages.error(request, 'Please add at least one product.')
-            return render(request, 'inventory/warehouse_stock_request.html', {
-                'warehouse_stock': warehouse_stock,
-                'warehouse': warehouse,
-            })
-
-        with transaction.atomic():
-            transfer = StockTransfer.objects.create(
-                warehouse=warehouse,
-                source_branch=warehouse.branch,
-                destination_branch=target_branch,
-                purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
-                requested_by=request.user,
-                status=StockTransfer.Status.PENDING,
-                transfer_date=transfer_date,
-                notes=notes,
+    with transaction.atomic():
+        transfer = StockTransfer.objects.create(
+            warehouse=warehouse,
+            source_branch=warehouse.branch,
+            destination_branch=target_branch,
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+            requested_by=request.user,
+            status=StockTransfer.Status.PENDING,
+            transfer_date=transfer_date,
+            notes=notes,
+        )
+        for product_id, qty in valid_items:
+            StockTransferItem.objects.create(
+                transfer=transfer,
+                product_id=product_id,
+                quantity_requested=qty,
+                quantity_approved=0,
             )
-            for product_id, qty in valid_items:
-                StockTransferItem.objects.create(
-                    transfer=transfer,
-                    product_id=product_id,
-                    quantity_requested=qty,
-                    quantity_approved=0,
-                )
 
+        _try_auto_approve(transfer, is_restock=True)
+
+    if transfer.status == StockTransfer.Status.APPROVED:
+        messages.success(
+            request,
+            f'Stock request {transfer.slip_number} approved automatically — '
+            f'ready to release.'
+        )
+    else:
         messages.success(
             request,
             f'Stock request {transfer.slip_number} created — awaiting approval.'
         )
-        return redirect('transfer_list')
-
-    return render(request, 'inventory/warehouse_stock_request.html', {
-        'warehouse_stock': warehouse_stock,
-        'warehouse': warehouse,
-    })
+    return redirect('transfer_list')
 
 
 @login_required(login_url='accounts:login')
 def transfer_create(request):
-    """"Report Damaged / Lost Stock" — floor-level write-offs only
-    (damaged/spoiled, sample/display, other). Restocking the floor FROM the
-    warehouse is its own dedicated flow (see warehouse_stock_request,
-    reached from the Warehouse Stock page's "Request Stock to Floor"
-    button) — keeping the two entry points separate is the whole point: a
-    write-off never touches the warehouse, and a restock request never
-    reduces floor stock."""
+    """POST handler for the "New Stock Adjustment" modal on the Stock
+    Adjustments page — floor-level write-offs only (damaged/spoiled,
+    sample/display, other). Restocking the floor FROM the warehouse is its
+    own dedicated flow (see warehouse_stock_request) — keeping the two entry
+    points separate is the whole point: a write-off never touches the
+    warehouse, and a restock request never touches the floor directly.
+
+    The modal itself (branch picker + item form) is rendered inline by
+    transfer_list/_transfer_list_context — this view only ever handles the
+    submit, redisplaying that same page with the modal reopened on a
+    validation error. See _branch_scoped_modal_target for how the target
+    branch (pinned for Staff/Manager, picked by an Owner) is resolved.
+    """
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
         messages.error(request, 'You do not have permission to report damaged or lost stock.')
         return redirect('transfer_list')
 
-    user_branch = get_user_branch(request.user)
+    if request.method != 'POST':
+        return redirect('transfer_list')
+
+    target_branch = _branch_scoped_modal_target(request)
+    if not target_branch:
+        messages.error(request, 'Choose a branch first.')
+        return redirect('transfer_list')
 
     # StockTransfer.warehouse is a required FK even for a floor write-off —
     # it's what identifies which branch this slip belongs to. The write-off
     # path below never reads or writes WarehouseStock through it.
     try:
-        warehouse = Warehouse.objects.get(
-            branch=user_branch or Branch.objects.first()
-        )
+        warehouse = Warehouse.objects.get(branch=target_branch)
     except Warehouse.DoesNotExist:
-        messages.error(request, 'No warehouse found for your branch.')
+        messages.error(request, f'No warehouse found for {target_branch.branch_name}.')
         return redirect('transfer_list')
-
-    floor_stock = Inventory.objects.filter(
-        branch=warehouse.branch, quantity_on_hand__gt=0
-    ).select_related('product')
 
     write_off_purposes = [
         c for c in StockTransfer.Purpose.choices
         if c[0] != StockTransfer.Purpose.BRANCH_RESTOCK
     ]
 
-    if request.method == 'POST':
-        purpose = request.POST.get('purpose')
-        if purpose not in dict(write_off_purposes):
-            purpose = StockTransfer.Purpose.OTHER  # guards against a tampered POST
-        notes = request.POST.get('notes', '')
-        transfer_date = request.POST.get('transfer_date') or date.today()
-        product_ids = request.POST.getlist('product_id')
-        quantities = request.POST.getlist('quantity_requested')
+    purpose = request.POST.get('purpose')
+    if purpose not in dict(write_off_purposes):
+        purpose = StockTransfer.Purpose.OTHER  # guards against a tampered POST
+    notes = request.POST.get('notes', '')
+    transfer_date = request.POST.get('transfer_date') or date.today()
+    product_ids = request.POST.getlist('product_id')
+    quantities = request.POST.getlist('quantity_requested')
 
-        # Validate at least one item
-        valid_items = [
-            (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
-            if pid and _safe_positive_int(qty) is not None
-        ]
+    valid_items = [
+        (pid, _safe_positive_int(qty)) for pid, qty in zip(product_ids, quantities)
+        if pid and _safe_positive_int(qty) is not None
+    ]
 
-        if not valid_items:
-            messages.error(request, 'Please add at least one product.')
-            return render(request, 'inventory/transfer_form.html', {
-                'floor_stock': floor_stock,
-                'purpose_choices': write_off_purposes,
-            })
+    if not valid_items:
+        messages.error(request, 'Please add at least one product.')
+        context = _transfer_list_context(request)
+        context['show_create_modal'] = True
+        return render(request, 'inventory/transfer_list.html', context)
 
-        with transaction.atomic():
-            transfer = StockTransfer.objects.create(
-                warehouse=warehouse,
-                source_branch=warehouse.branch,
-                destination_branch=None,  # write-offs go nowhere
-                purpose=purpose,
-                requested_by=request.user,
-                status=StockTransfer.Status.PENDING,
-                transfer_date=transfer_date,
-                notes=notes,
+    with transaction.atomic():
+        transfer = StockTransfer.objects.create(
+            warehouse=warehouse,
+            source_branch=warehouse.branch,
+            destination_branch=None,  # write-offs go nowhere
+            purpose=purpose,
+            requested_by=request.user,
+            status=StockTransfer.Status.PENDING,
+            transfer_date=transfer_date,
+            notes=notes,
+        )
+
+        for product_id, qty in valid_items:
+            StockTransferItem.objects.create(
+                transfer=transfer,
+                product_id=product_id,
+                quantity_requested=qty,
+                quantity_approved=0,
             )
 
-            for product_id, qty in valid_items:
-                StockTransferItem.objects.create(
-                    transfer=transfer,
-                    product_id=product_id,
-                    quantity_requested=qty,
-                    quantity_approved=0,
-                )
+        _try_auto_approve(transfer, is_restock=False)
 
+    if transfer.status == StockTransfer.Status.APPROVED:
+        messages.success(
+            request,
+            f'Stock Adjustment {transfer.slip_number} approved automatically — '
+            f'ready to release.'
+        )
+    else:
         messages.success(
             request,
             f'Write-off {transfer.slip_number} recorded — awaiting approval.'
         )
-        return redirect('transfer_list')
-
-    return render(request, 'inventory/transfer_form.html', {
-        'floor_stock': floor_stock,
-        'purpose_choices': write_off_purposes,
-    })
+    return redirect('transfer_list')
 
 
 @login_required(login_url='accounts:login')
@@ -1473,6 +2244,52 @@ def transfer_complete(request, pk):
                                 notes=f'Stock request {transfer.slip_number}',
                                 created_by=request.user,
                             )
+
+                            # 3. Batches: consume the SOURCE warehouse's
+                            # nearest-expiry lots first, and create one
+                            # matching FLOOR batch per lot consumed — this is
+                            # what stops a restock with a different expiry
+                            # from merging into whatever the floor already
+                            # had. Two lots split across this one release
+                            # become two floor batches, each keeping its own
+                            # real expiry_date.
+                            consumed = Batch.consume_fefo(
+                                item.product, transfer.source_branch,
+                                Batch.Location.WAREHOUSE, qty_release,
+                            )
+                            for source_batch, taken in consumed:
+                                Batch.objects.create(
+                                    product=item.product,
+                                    branch=transfer.destination_branch,
+                                    location=Batch.Location.FLOOR,
+                                    source_batch=source_batch,
+                                    procurement=source_batch.procurement,
+                                    quantity=taken,
+                                    received_date=timezone.localdate(),
+                                    expiry_date=source_batch.expiry_date,
+                                    notes=f'Restocked via {transfer.slip_number}',
+                                )
+                            # Safety net: the aggregate WarehouseStock row
+                            # above already confirmed enough TOTAL quantity
+                            # existed, but if its batches don't quite cover
+                            # qty_release (a gap somewhere, not expected once
+                            # every write path stays batch-in-sync), the
+                            # floor side still received the full amount, so
+                            # it needs a batch for whatever wasn't traceable
+                            # to a specific lot rather than silently drifting
+                            # out of sync with quantity_on_hand.
+                            untracked = qty_release - sum(t for _, t in consumed)
+                            if untracked > 0:
+                                Batch.objects.create(
+                                    product=item.product,
+                                    branch=transfer.destination_branch,
+                                    location=Batch.Location.FLOOR,
+                                    quantity=untracked,
+                                    received_date=timezone.localdate(),
+                                    expiry_date=None,
+                                    notes=f'Restocked via {transfer.slip_number} '
+                                          f'(no matching warehouse batch found)',
+                                )
                     else:
                         # Write-off (damaged/spoiled, sample/display, other):
                         # deducted straight from the floor — it's already on
@@ -1505,6 +2322,14 @@ def transfer_complete(request, pk):
                             reference_id=transfer.pk,
                             notes=f'Write-off {transfer.slip_number} — {transfer.purpose}',
                             created_by=request.user,
+                        )
+                        # A write-off pulls from the floor's own nearest-
+                        # expiry batches first — the stock most worth
+                        # clearing out is exactly what FEFO already orders
+                        # ahead of everything else.
+                        Batch.consume_fefo(
+                            item.product, transfer.source_branch,
+                            Batch.Location.FLOOR, qty_release,
                         )
 
                 released_total = sum(
@@ -1706,6 +2531,28 @@ def transfer_flag_discrepancy(request, pk):
                     notes=f'Discrepancy on {transfer.slip_number}: {reason}',
                     created_by=request.user,
                 )
+                # Keep batches in step with the corrected aggregate: fewer
+                # units arriving than released means some of what
+                # transfer_complete just credited to a batch never actually
+                # showed up, so it comes back out FEFO-first; more arriving
+                # means an untraceable extra lot (nobody knows which
+                # warehouse batch it really came from).
+                actual_change = inv.quantity_on_hand - qty_before
+                if actual_change < 0:
+                    Batch.consume_fefo(
+                        first_item.product, transfer.destination_branch,
+                        Batch.Location.FLOOR, -actual_change,
+                    )
+                elif actual_change > 0:
+                    Batch.objects.create(
+                        product=first_item.product,
+                        branch=transfer.destination_branch,
+                        location=Batch.Location.FLOOR,
+                        quantity=actual_change,
+                        received_date=timezone.localdate(),
+                        expiry_date=None,
+                        notes=f'Discrepancy on {transfer.slip_number}: {reason}',
+                    )
 
         transfer.status = StockTransfer.Status.DISCREPANCY
         transfer.acknowledged_by = request.user

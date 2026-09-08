@@ -1,7 +1,10 @@
 {% extends "internal_base.html" %}
 {% block title %}Procurement Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
-{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% comment %}Same pattern as Floor Stock, Product Master List, etc: the topbar
+chip has to track whichever branch the toolbar is actually narrowed to, not
+sit frozen on "All Branches" once an Owner picks one.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -108,7 +111,7 @@ for this to be built from existing primitives, and that includes the grid.
       </div>
       {% else %}
       <div class="empty">
-        <span class="glyph">□</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
         <h3>No purchase orders</h3>
         <p>Raise one and its status shows up here.</p>
       </div>
@@ -136,7 +139,7 @@ for this to be built from existing primitives, and that includes the grid.
       </svg>
       {% else %}
       <div class="empty">
-        <span class="glyph">□</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
         <h3>Nothing to chart</h3>
         <p>No purchase orders were raised between {{ range_start|date:"Y-m-d" }} and {{ range_end|date:"Y-m-d" }}.</p>
       </div>
@@ -156,7 +159,7 @@ for this to be built from existing primitives, and that includes the grid.
     </div>
     <div class="card-pad">
       {% if spend_split.total %}
-      <p class="mb-0" style="font: 700 20px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums;">{{ spend_split.pct }}%</p>
+      <p class="mb-0" style="font: 700 20px/1.2 var(--font-sans); font-variant-numeric: tabular-nums;">{{ spend_split.pct }}%</p>
       <p class="gv-meta">₱{{ spend_split.received|floatformat:2 }} received of ₱{{ spend_split.total|floatformat:2 }} ordered</p>
       <div class="meter" role="img"
            aria-label="{{ spend_split.pct }}% of committed spend received">
@@ -165,7 +168,7 @@ for this to be built from existing primitives, and that includes the grid.
       <p class="gv-meta mt-2 mb-0">₱{{ spend_split.outstanding|floatformat:2 }} still outstanding</p>
       {% else %}
       <div class="empty">
-        <span class="glyph">□</span>
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="chart" %}</span>
         <h3>Nothing committed</h3>
         <p>Once orders are raised, this shows how much of their value has been received.</p>
       </div>
@@ -185,7 +188,7 @@ for this to be built from existing primitives, and that includes the grid.
         {% for p in procurements %}
         <tr>
           <td data-label="PO ID" class="sku strong">
-            <a href="{% url 'procurement_detail' p.pk %}">{{ p.po_number }}</a></td>
+            <a href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order">{{ p.po_number }}</a></td>
           <td data-label="Branch">{{ p.branch.branch_name }}</td>
           <td data-label="Supplier">
             {% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</td>
@@ -199,7 +202,7 @@ for this to be built from existing primitives, and that includes the grid.
         </tr>
         {% empty %}
         <tr><td colspan="6"><div class="empty">
-          <span class="glyph">□</span><h3>No purchase orders</h3></div></td></tr>
+          <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span><h3>No purchase orders</h3></div></td></tr>
         {% endfor %}
       </tbody>
     </table>

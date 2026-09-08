@@ -37,6 +37,17 @@ authorised), so it should not be a second thing to learn.
     font-size: 11px; font-weight: 700; letter-spacing: .04em;
     text-transform: uppercase; white-space: nowrap;
   }
+  /* The picked/approved fraction, beside the status word rather than glued
+     into it with a middot. "Short · 3/8" was one string doing two jobs: the
+     word is the state, the fraction is a measurement, and running them
+     together meant the number inherited the state's colour and weight and
+     could not be read as a quantity. Kept adjacent, in ink, at the table's
+     own figure treatment. */
+  .v-count {
+    font-size: 12px; color: var(--ink-600); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .v-count:empty { display: none; }
   .scan-tally { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; }
   .scan-tally b { font-size: 17px; display: block; }
 </style>
@@ -126,7 +137,7 @@ authorised), so it should not be a second thing to learn.
                    value="{{ item.quantity_approved|unlocalize }}"
                    style="max-width:120px; margin-left:auto;">
           </td>
-          <td data-label="Status"><span class="v-badge"></span></td>
+          <td data-label="Status"><span class="v-badge"></span> <span class="v-count"></span></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -164,8 +175,10 @@ authorised), so it should not be a second thing to learn.
     var got = parseInt(tr.querySelector('.qty-input').value, 10);
     if (isNaN(got)) got = 0;
     var badge = tr.querySelector('.v-badge');
+    var count = tr.querySelector('.v-count');
 
     tr.classList.remove('v-complete', 'v-partial', 'v-over');
+    count.textContent = '';
 
     if (got > approved) {
       badge.textContent = 'Over by ' + (got - approved);
@@ -180,7 +193,8 @@ authorised), so it should not be a second thing to learn.
       return 'complete';
     }
     if (got > 0) {
-      badge.textContent = 'Short · ' + got + '/' + approved;
+      badge.textContent = 'Short';
+      count.textContent = got + '/' + approved;
       badge.style.color = 'var(--warn, #B45309)';
       tr.classList.add('v-partial');
       return 'partial';

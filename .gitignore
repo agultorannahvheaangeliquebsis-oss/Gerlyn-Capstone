@@ -13,6 +13,7 @@ __pycache__/
 db.sqlite3
 /media/
 /staticfiles/
+/tmp_uploads/
 *.log
 
 # Frontend

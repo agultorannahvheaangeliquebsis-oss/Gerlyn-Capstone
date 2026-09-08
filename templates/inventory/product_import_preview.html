@@ -1,0 +1,100 @@
+{% extends "internal_base.html" %}
+{% block title %}Import Products — Preview{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'product_import_map' %}">Back to column mapping</a>
+    <h1 class="mt-2">Import Products</h1>
+    <p class="gv-meta mb-0">Step 3 of 3 — review before confirming</p>
+  </div>
+</div>
+
+{% comment %}
+The same four-card KPI row every list page in the app opens with — .label
+then .value, no inline tints except where a count needs one to act on.
+{% endcomment %}
+<div class="kpi-row compact mb-4">
+  <div class="kpi-card">
+    <span class="label">Rows Found</span>
+    <span class="value">{{ counts.total }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">New Products</span>
+    <span class="value">{{ counts.create }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Updating Existing</span>
+    <span class="value">{{ counts.update }}</span>
+  </div>
+  <div class="kpi-card{% if counts.error %} danger{% endif %}">
+    <span class="label">Skipped (Errors)</span>
+    <span class="value">{{ counts.error }}</span>
+  </div>
+</div>
+
+<div class="card table-wrap mb-4">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Row</th>
+        <th>Product</th>
+        <th>Barcode</th>
+        <th>Category</th>
+        <th class="num">Retail Price</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td data-label="Row" class="gv-meta">{{ row.row_number }}</td>
+        <td data-label="Product" class="strong">{{ row.product_name|default:"—" }}</td>
+        <td data-label="Barcode" class="sku">{{ row.barcode|default:"—" }}</td>
+        <td data-label="Category">{{ row.category_name|default:"—" }}</td>
+        <td data-label="Retail Price" class="num">{% if row.unit_price %}₱{{ row.unit_price|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td data-label="Action">
+          {% if row.action == 'error' %}
+            <span class="pill pill-danger">Skipped</span>
+            <div class="gv-meta">{{ row.errors|join:" " }}</div>
+          {% elif row.action == 'update' %}
+            <span class="pill pill-info">Update existing</span>
+          {% else %}
+            <span class="pill pill-ok">New product</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="6">
+          <div class="empty">
+            <span class="glyph">□</span>
+            <h3>No rows found</h3>
+            <p>The sheet has no data below its header row.</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if truncated %}
+  <div class="card-pad" style="border-top:1px solid var(--line);">
+    <p class="gv-meta mb-0">Showing the first 200 of {{ counts.total }} rows — every row is still included in the counts above and will be processed on confirm.</p>
+  </div>
+  {% endif %}
+</div>
+
+<div class="row" style="gap:var(--s3);">
+  <form method="POST">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary" {% if not counts.create and not counts.update %}disabled{% endif %}>
+      Confirm Import
+    </button>
+  </form>
+  <form method="POST" action="{% url 'product_import_cancel' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn">Cancel Import</button>
+  </form>
+</div>
+{% endblock %}

@@ -32,7 +32,7 @@
   border-radius: var(--r-input);
   color: var(--ink-700);
   text-decoration: none;
-  font: 600 14.5px/1 system-ui, sans-serif;
+  font: 600 14.5px/1 var(--font-sans);
   transition: background .12s ease, color .12s ease;
 }
 .account-nav-link svg { width: 17px; height: 17px; flex: none; color: var(--ink-400); }
@@ -44,8 +44,13 @@
 .account-nav-link.active svg { color: #fff; }
 
 /* ── Profile hero card ─────────────────────────────────────────── */
+/* Flat --action-700, not the 135deg --action -> --action-700 wash it was.
+   The gradient carried no information — the hero means the same thing at
+   both ends of it — and it is the darker end that white type and the
+   translucent .role-pill are legible against, so the flat colour is the end
+   the wash was resolving to anyway. */
 .profile-hero {
-  background: linear-gradient(135deg, var(--action) 0%, var(--action-700) 100%);
+  background: var(--action-700);
   border-radius: var(--r-card) var(--r-card) 0 0;
   padding: 28px 28px 20px;
   display: flex;
@@ -63,7 +68,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 700 26px/1 system-ui, sans-serif;
+  font: 700 26px/1 var(--font-sans);
   color: #fff;
   overflow: hidden;
 }
@@ -86,12 +91,12 @@
 .avatar-upload-btn svg { width: 13px; height: 13px; }
 .profile-hero-info { flex: 1; min-width: 0; }
 .profile-hero-name {
-  font: 700 22px/1.2 system-ui, sans-serif;
+  font: 700 22px/1.2 var(--font-sans);
   color: #fff;
   margin: 0 0 4px;
 }
 .profile-hero-email {
-  font: 400 14px/1 system-ui, sans-serif;
+  font: 400 14px/1 var(--font-sans);
   color: rgba(255,255,255,.8);
   margin: 0 0 10px;
 }
@@ -101,18 +106,19 @@
   gap: 10px;
   flex-wrap: wrap;
 }
+/* --r-card, not --r-pill — a role is read-only state, same as .pill. */
 .role-pill {
   display: inline-flex;
   align-items: center;
   padding: 3px 10px;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-card);
   background: rgba(255,255,255,.2);
   color: #fff;
-  font: 600 12.5px/1.5 system-ui, sans-serif;
+  font: 600 12.5px/1.5 var(--font-sans);
   border: 1px solid rgba(255,255,255,.3);
 }
 .member-since {
-  font: 400 13px/1 system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   color: rgba(255,255,255,.75);
 }
 
@@ -142,12 +148,12 @@
 }
 .profile-stat-icon svg { width: 17px; height: 17px; }
 .profile-stat-value {
-  font: 700 22px/1.1 system-ui, sans-serif;
+  font: 700 22px/1.1 var(--font-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink-900);
 }
 .profile-stat-label {
-  font: 400 13px/1.2 system-ui, sans-serif;
+  font: 400 13px/1.2 var(--font-sans);
   color: var(--ink-600);
 }
 
@@ -170,7 +176,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 600 16px/1.2 system-ui, sans-serif;
+  font: 600 16px/1.2 var(--font-sans);
   color: var(--ink-900);
 }
 .account-card-title svg { width: 17px; height: 17px; color: var(--ink-600); }
@@ -186,7 +192,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font: 400 13px/1 system-ui, sans-serif;
+  font: 400 13px/1 var(--font-sans);
   color: var(--ink-500);
   margin-bottom: 4px;
   text-transform: uppercase;
@@ -194,28 +200,27 @@
   font-size: 12px;
   font-weight: 700;
 }
-.info-field label svg { width: 13px; height: 13px; }
+/* .info-field label svg is gone: no field label carries an icon any more.
+   The person glyph was doing duty for both Full Name and Username, which is
+   the tell — an icon that stands for two different things stands for
+   neither, and the four labels were legible without any of them. */
 .info-field .val {
-  font: 500 15px/1.4 system-ui, sans-serif;
+  font: 500 15px/1.4 var(--font-sans);
   color: var(--ink-900);
 }
-.verified-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 600 12.5px/1 system-ui, sans-serif;
-  color: var(--ok-fg);
-  margin-left: 8px;
-}
-.verified-badge svg { width: 14px; height: 14px; }
-.unverified-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 600 12.5px/1 system-ui, sans-serif;
-  color: var(--warn-fg);
-  margin-left: 8px;
-}
+/* .verified-badge / .unverified-badge are gone. Whether an email is verified
+   is a binary status on a record, which is what .pill is for, and these two
+   were the last binary status in the app still drawn as bare coloured text
+   with an icon — so the same kind of fact was a filled lozenge in every
+   table and a tinted word here. They are now .pill-ok and .pill-neutral.
+
+   Unverified takes NEUTRAL, not warn: an address you have simply not
+   confirmed yet is a state, not a problem, and amber next to the field made
+   a fresh account look like it had something wrong with it.
+
+   The icons went with them. .pill carries a full text label and nothing
+   else — see the note on the component in gerlyn.css. */
+.info-field .val .pill { margin-left: 6px; vertical-align: middle; }
 
 /* ── Edit form (hidden by default) ────────────────────────────── */
 .edit-form { display: none; padding: 20px 24px; border-top: 1px solid var(--line-soft); }
@@ -252,11 +257,11 @@
 }
 .security-item-icon svg { width: 16px; height: 16px; }
 .security-item-label {
-  font: 600 14.5px/1.2 system-ui, sans-serif;
+  font: 600 14.5px/1.2 var(--font-sans);
   color: var(--ink-900);
 }
 .security-item-sub {
-  font: 400 13px/1.3 system-ui, sans-serif;
+  font: 400 13px/1.3 var(--font-sans);
   color: var(--ink-500);
   margin-top: 2px;
 }
@@ -308,21 +313,21 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 500 14px/1.4 system-ui, sans-serif;
+  font: 500 14px/1.4 var(--font-sans);
   color: var(--warn-fg);
 }
 .verify-banner-text svg { width: 16px; height: 16px; flex: none; }
 
 /* ── Pending email notice ──────────────────────────────────────── */
 .pending-notice {
-  font: 400 13px/1.4 system-ui, sans-serif;
+  font: 400 13px/1.4 var(--font-sans);
   color: var(--warn-fg);
   margin-top: 4px;
 }
 
 /* ── Error messages ────────────────────────────────────────────── */
 .field-err {
-  font: 500 13px/1.4 system-ui, sans-serif;
+  font: 500 13px/1.4 var(--font-sans);
   color: var(--danger-fg);
   margin-top: 4px;
 }
@@ -361,7 +366,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   border-bottom: 1px solid var(--line);
   flex: none;
 }
-.modal-head h2 { font: 650 18px/1.25 system-ui, sans-serif; margin: 0; }
+.modal-head h2 { font: 650 18px/1.25 var(--font-sans); margin: 0; }
 .modal-close {
   display: inline-flex; align-items: center; justify-content: center;
   flex: none;
@@ -409,26 +414,37 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .address-card-body { flex: 1; min-width: 0; }
 .address-card-label {
   display: flex; align-items: center; gap: 8px;
-  font: 600 14.5px/1.2 system-ui, sans-serif;
+  font: 600 14.5px/1.2 var(--font-sans);
   color: var(--ink-900);
 }
-.default-badge {
+/* Two badges, not one. .default-badge used to carry both "Default" on a
+   delivery address and "This device" on a login session — unrelated facts
+   about unrelated records, sharing a class only because they happened to
+   look the same on the day they were written. Either one moving would have
+   silently dragged the other with it.
+
+   They still look identical today, and that is fine; what matters is that
+   they can now stop looking identical without a rewrite. Shared geometry
+   sits in the grouped selector, so a change to only one of them means
+   giving it its own block, not untangling a class first. */
+.address-default-badge,
+.session-current-badge {
   display: inline-flex; align-items: center;
   padding: 2px 9px;
   border-radius: var(--r-pill);
   background: var(--green-50);
   color: var(--action);
-  font: 600 12px/1.6 system-ui, sans-serif;
+  font: 600 12px/1.6 var(--font-sans);
 }
 .address-card-text {
-  font: 400 14px/1.4 system-ui, sans-serif;
+  font: 400 14px/1.4 var(--font-sans);
   color: var(--ink-600);
   margin-top: 3px;
 }
 .address-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .address-set-default-link {
   background: none; border: none; padding: 0; cursor: pointer;
-  font: 600 13px/1 system-ui, sans-serif;
+  font: 600 13px/1 var(--font-sans);
   color: var(--action);
 }
 .address-set-default-link:hover { text-decoration: underline; }
@@ -448,7 +464,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   border: 1.5px solid var(--line);
   background: var(--surface);
   color: var(--ink-700);
-  font: 600 13.5px/1 system-ui, sans-serif;
+  font: 600 13.5px/1 var(--font-sans);
   cursor: pointer;
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
@@ -464,7 +480,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   text-align: center;
   padding: 32px 16px;
   color: var(--ink-500);
-  font: 400 14px/1.4 system-ui, sans-serif;
+  font: 400 14px/1.4 var(--font-sans);
 }
 
 /* ── Address map picker ───────────────────────────────────────────── */
@@ -504,3 +520,184 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   .address-card { flex-wrap: wrap; }
   .address-map-thumb { width: 100%; height: 140px; margin-top: 10px; }
 }
+
+/* ── Account shell: tighter, squarer ────────────────────────────────────
+   Everything below is scoped under .account-wrap on purpose. The radii are
+   redeclared as CUSTOM PROPERTIES rather than as border-radius rules: every
+   component in here already reads var(--r-card)/var(--r-input), so
+   overriding the two tokens on the wrapper squares off the cards, the inputs,
+   the sidebar rows and the modals in one place — and, because a custom
+   property only cascades to descendants, it reaches nothing outside the
+   account pages. gerlyn.css is untouched, so the internal shell and the rest
+   of the storefront keep the corners they have.
+
+   The vertical rhythm comes down with it: 32/24/20 was a settings screen
+   that scrolled twice as far as it had content for. */
+.account-wrap {
+  --r-card: 4px;
+  --r-input: 3px;
+  padding: 20px 24px 40px;
+}
+.account-grid { gap: 16px; }
+.account-wrap .stack { gap: 12px; }
+
+.account-sidebar { padding: 5px; }
+.account-nav-link { min-height: 38px; padding: 0 11px; font-size: 14px; gap: 9px; }
+.account-nav-link svg { width: 16px; height: 16px; }
+
+/* Replaces the inline `<div style="height:1px; background:…">` the rail used
+   to carry between its two halves — it now has two of them, and a divider is
+   not something a template should be redrawing by hand each time. */
+.account-nav-sep { height: 1px; background: var(--line-soft); margin: 5px 6px; }
+
+/* Unread count on the Notifications row. Sits at the end of the row rather
+   than floating over the icon: this list has room for the number inline, and
+   an overlay badge on a 16px glyph is unreadable at this size. */
+.account-nav-count {
+  margin-left: auto; flex: none;
+  min-width: 19px; padding: 0 6px;
+  border-radius: var(--r-pill); background: #B45309; color: #fff;
+  font: 700 11px/19px var(--font-sans); text-align: center;
+}
+.account-nav-link.active .account-nav-count { background: #fff; color: var(--action-700); }
+
+.account-nav-link--danger { color: var(--danger-fg); }
+.account-nav-link--danger svg { color: var(--danger-fg); }
+.account-nav-link--danger:hover { background: var(--danger-bg); color: var(--danger-fg); }
+.account-nav-link--danger:hover svg { color: var(--danger-fg); }
+
+.account-wrap .account-card-head { padding: 12px 18px; }
+.account-wrap .account-card-title { font-size: 15px; }
+.account-wrap .account-card-body { padding: 16px 18px; }
+.account-wrap .info-grid { gap: 14px 24px; }
+.account-wrap .profile-hero { padding: 20px 20px 16px; gap: 16px; }
+.account-wrap .breadcrumb { margin-bottom: 10px; }
+/* The page title used to be followed by a 24px gap holding a subtitle that is
+   gone; without shrinking this the heading floats alone over the columns. */
+.account-wrap .gv-page-title { margin-bottom: 14px; }
+
+/* ── My Orders ──────────────────────────────────────────────────────────
+   The order list is the right-hand column of the same shell as Settings, so
+   its rows are cards from gerlyn.css inheriting the squared radii above.
+   These rules only handle what the shared .card does not: the two-column
+   split of an order row and how it stacks on a phone. */
+.order-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding: 13px 16px;
+}
+.order-row-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.order-row-num { font: 700 15px/1.2 var(--font-sans); color: var(--ink-900); }
+.order-row-meta { margin-top: 5px; font: 400 13px/1.5 var(--font-sans); color: var(--ink-600); }
+.order-row-side { text-align: right; flex: none; }
+.order-row-total { font: 700 19px/1.2 var(--font-sans); color: var(--action); }
+.order-row-side .btn { margin-top: 7px; }
+
+/* Five tabs now (All · In progress · To receive · Completed · Cancelled)
+   instead of three, in a column narrower than the internal tables this
+   component was built for. gerlyn.css already wraps them; only the gap and
+   the rule-to-content distance come in, and the gap stays wide enough that
+   two underlines never read as one. */
+.account-wrap .filter-tabs { gap: 20px; margin-bottom: 12px; }
+
+@media (max-width: 560px) {
+  .order-row { flex-direction: column; }
+  .order-row-side { text-align: left; }
+}
+
+/* ── Notifications ──────────────────────────────────────────────────── */
+.notif-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px; padding: 13px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.notif-row:last-child { border-bottom: 0; }
+/* Unread is marked by a green rail down the left edge AND the "New" pill —
+   two cues, because a tint alone is the one difference a colour-blind reader
+   cannot see (WCAG 2.2 SC 1.4.1). */
+.notif-row--unread { background: var(--green-50); box-shadow: inset 3px 0 0 var(--action); }
+/* Solid, not the tinted .pill-info this uses on white: --info-bg and
+   --green-50 are within a few levels of each other, so on an unread row the
+   "New" pill lost its shape entirely and read as loose green text. */
+.notif-row--unread .pill-info { background: var(--action); color: #fff; }
+.notif-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.notif-title strong { font: 600 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
+.notif-msg { margin: 4px 0 0; font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700); }
+.notif-time { display: block; margin-top: 4px; font: 400 12px/1.2 var(--font-sans); color: var(--ink-400); }
+
+/* The preferences card is an anchor target: /profile/notification-preferences/
+   301s to #preferences, and every toggle save returns there. .shop-header is
+   position:sticky, so without this the browser scrolls the card to y=0 and
+   parks it UNDER the header — the reader lands on a page that looks like it
+   ignored them. 130px is the two sticky bands plus a little air. */
+#preferences { scroll-margin-top: 130px; }
+
+/* ── Page header with an action on the right ────────────────────────────
+   Title left, one control hard right. The h1 keeps the margin it had, so
+   the row costs no extra vertical space over a bare heading. */
+.page-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+}
+.page-head .gv-page-title { margin-bottom: 0; }
+.account-wrap .page-head { margin-bottom: 14px; }
+
+/* A quiet square icon control. Sized to the 44px touch floor even though the
+   glyph is 18px — it is the only way into the preferences now, and a 24px
+   pencil in the corner of a page is a target people miss twice before they
+   hit it. */
+.icon-action {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--r-input);
+  background: var(--surface); color: var(--ink-600); cursor: pointer;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.icon-action svg { width: 18px; height: 18px; }
+.icon-action:hover { background: var(--green-50); color: var(--action-700); border-color: var(--action); }
+/* Pressed = the panel it controls is open. aria-expanded is the source of
+   truth for both the styling and the screen reader, so the two cannot drift. */
+.icon-action[aria-expanded="true"] {
+  background: var(--action); border-color: var(--action); color: #fff;
+}
+@media (pointer: coarse) {
+  .icon-action { width: var(--touch); height: var(--touch); }
+}
+
+/* The two card-head controls, side by side. */
+.account-card-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+/* 32px in a card head, where the pencil sits beside a text button rather than
+   alone in the corner of a page: at 40 it set the height of the whole header
+   row and the Inbox title floated in the middle of it. The coarse-pointer
+   rule below restores the 44px thumb target, and it has to name this same
+   selector — (0,2,0) here would otherwise outrank the (0,1,0) media rule and
+   the touch floor would silently never apply. */
+.account-card-head .icon-action { width: 32px; height: 32px; }
+.account-card-head .icon-action svg { width: 16px; height: 16px; }
+@media (pointer: coarse) {
+  .account-card-head .icon-action { width: var(--touch); height: var(--touch); }
+}
+
+/* The preferences panel this opens. It is [hidden] until the script or the
+   #preferences anchor says otherwise — `display: block` here would override
+   the hidden attribute, so nothing in this block sets one.
+
+   It lives inside the Inbox card now, so it drops the card chrome it used to
+   carry and reads as a drawer under the header instead: tinted to separate it
+   from the list below, and a bottom rule where the notifications start. */
+.prefs-panel {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.prefs-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.prefs-panel-title {
+  font: 600 13px/1.2 var(--font-sans); color: var(--ink-600);
+  letter-spacing: .02em; text-transform: uppercase;
+}
+/* Tighter than a card body: this is a drawer, and the switches carry their
+   own row padding. */
+.prefs-panel .account-card-body { padding: 6px 24px 10px; }

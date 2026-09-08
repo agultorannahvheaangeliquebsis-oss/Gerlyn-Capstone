@@ -129,7 +129,23 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 {'branchId': 'You do not have access to that branch.'}
             )
 
+        # A client asking for WHOLESALE is a request, not a decision. The tier
+        # is resolved from the account: only a customer the Owner or a Branch
+        # Manager has marked wholesale-eligible actually gets wholesale
+        # prices, and anyone else is priced at RETAIL no matter what the
+        # payload said. Until this check existed, any authenticated CUSTOMER
+        # could post orderType=Wholesale and be billed at wholesale_price.
+        #
+        # This is the same refusal the PWD/Senior claim already gets a few
+        # lines down: an unverified assertion over the wire does not move
+        # money.
         order_type = validated_data['orderType']
+        if order_type == SalesTransaction.OrderType.WHOLESALE:
+            profile = getattr(user, 'customer_profile', None)
+            if user.role == user.Role.CUSTOMER and not (
+                profile and profile.is_wholesale_eligible
+            ):
+                order_type = SalesTransaction.OrderType.RETAIL
 
         with transaction.atomic():
             # Lock stock and validate availability before writing anything, so
@@ -149,10 +165,12 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price
                     else product.unit_price
                 )
-                inv = Inventory.objects.select_for_update().filter(
+                # available_qty nets out anything past its expiry_date — a
+                # POS or online sale must never draw down expired stock.
+                inv = Inventory.objects.select_for_update().sellable().filter(
                     product=product, branch_id=branch_id
                 ).first()
-                if not inv or inv.quantity_on_hand < qty:
+                if not inv or inv.available_qty < qty:
                     raise serializers.ValidationError(
                         {'items': f'Not enough stock for {product.product_name}.'}
                     )
@@ -194,8 +212,8 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 )
                 inv.quantity_on_hand -= qty
                 inv.save()
-                # FEFO: drain whatever batches exist for this product/branch,
-                # nearest-expiry first — mirrors sales/views.py:_deduct_stock.
-                Batch.consume_fefo(product, inv.branch, qty)
+                # FEFO: drain the nearest-expiry floor batches for this
+                # product/branch — mirrors sales/views.py:_deduct_stock.
+                Batch.consume_fefo(product, inv.branch, Batch.Location.FLOOR, qty)
 
         return txn

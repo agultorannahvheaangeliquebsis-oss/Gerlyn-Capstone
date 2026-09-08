@@ -1,0 +1,82 @@
+{% comment %}
+The card's buy control, in one file.
+
+These same four branches were written out twice — once in
+partials/catalog_grid.html and once in partials/home_content.html — and the
+copies had already drifted: only the home one passed a `next`, so a shopper
+with JavaScript off who added from the catalog was answered by being thrown
+back to an unfiltered /shop/. One copy, both grids (and the product page's
+"You might also like" rail, which was a third copy).
+
+Expects `product` and `selected_branch_id` in context.
+{% endcomment %}
+{% if not request.user.is_authenticated %}
+  <a class="btn-cart cta" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
+{% elif request.user.role != 'CUSTOMER' %}
+  {% comment %}
+  The cart is customer-only (orders.customer_views.customer_required).
+  Offering "Add to cart" to a staff or owner session and refusing it on
+  submit is how the redirect loop was reachable in the first place — say so
+  on the card instead of after the click.
+
+  Two words, because .btn-cart is `white-space: nowrap` and this pill sits in
+  the footer row beside the price. "Customer accounts only" is 22 characters
+  — about 178px of unbreakable button on a card whose whole footer is ~330px
+  — so it could not share the row with a peso figure and .pfoot wrapped it
+  onto a line of its own, making every staff-session card taller than the
+  customer cards next to it. At 14 characters it is the same size as "Choose
+  a branch" and sits where every other branch's button sits.
+  {% endcomment %}
+  <span class="btn-cart cta is-inert" aria-disabled="true">Customers only</span>
+{% elif not selected_branch_id %}
+  <a class="btn-cart cta" href="{% url 'orders:select_branch' %}">Choose a branch</a>
+{% else %}
+  <form class="cta cta--icon" method="POST" action="{% url 'orders:add_to_cart' product.id %}" data-add-to-cart>
+    {% csrf_token %}
+    <input type="hidden" name="quantity" value="1">
+    {# Without JS the POST redirects; send the shopper back where they were, filters and all. #}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% comment %}
+    A cart glyph and no words, on a button that spans the card's action slot:
+    the label used to read "Add to cart" in 12.5px, which on a 200px card was
+    a line of text the eye had to read to find a control it could have
+    recognised by shape. Wide, because the reason to keep a label is the tap
+    target it gives you — so the target stays and the words go.
+
+    Both glyphs are drawn, and CSS shows one: swapping innerHTML would make
+    the tick cost a reflow every time it appears and disappears, and it now
+    does both within two seconds.
+
+    Neither state is rendered from cart_product_ids any more. The tick is a
+    RECEIPT — it says "that press worked" and then gets out of the way — so
+    painting it on load for anything already in the cart would have the card
+    claim credit for an add that happened on some earlier page. What the cart
+    holds is the header badge's job, and the badge says it without expiring.
+
+    The product name is in the accessible name because every card's button is
+    otherwise "Add to cart" — with no visible text left, that is now the ONLY
+    name this control has. It does not change when the tick shows: the button
+    still adds, the name still says so, and toast.js announces the add in a
+    live region instead of renaming the control under the reader's cursor.
+    {% endcomment %}
+    {% comment %}
+    The two labels are for the LIST view, which has a whole row's width and
+    where a lone 44px glyph at the end of it is a target you have to hunt for.
+    CSS shows them there and hides them in the grid, so both views run the one
+    button instead of two that drift.
+
+    "Add to cart" leads the accessible name so that the visible label, where
+    there is one, is a prefix of it — WCAG 2.5.3 is what lets a voice-control
+    user say the words they can see.
+    {% endcomment %}
+    <button class="btn-cart btn-cart--add"
+            type="submit"
+            aria-label="Add to cart — {{ product.product_name }}"
+            title="Add to cart">
+      <svg class="ico-add" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><path d="M3 4h2.4l2.5 12h10.7l2.4-8.5H6.2"/></svg>
+      <svg class="ico-added" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5"/></svg>
+      <span class="btn-cart-label lbl-add">Add to Cart</span>
+      <span class="btn-cart-label lbl-added">Added</span>
+    </button>
+  </form>
+{% endif %}

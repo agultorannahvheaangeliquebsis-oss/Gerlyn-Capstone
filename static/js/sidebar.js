@@ -1,5 +1,5 @@
 // Internal-system sidebar: icon-rail <-> full-panel collapse, expandable nav
-// groups (the "file tree"), and the mobile header avatar menu. Icons are
+// groups (the "file tree"), and the header account menu. Icons are
 // Lucide, rendered client-side from the <i data-lucide="..."> markup in
 // internal_base.html — this file also fires that render pass.
 (function () {
@@ -109,12 +109,142 @@
     try { localStorage.setItem(COLLAPSE_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0'); } catch (e) {}
   }
 
-  /* Header avatar menu (mobile Administration entry point) and the bottom-nav
-     "More" menu: close them when the user taps/clicks anywhere outside,
-     since <details> only closes natively on re-toggle. */
+  /* The bottom-nav "More" menu: close it when the user taps/clicks anywhere
+     outside, since <details> only closes natively on re-toggle. The header
+     avatar used to be handled here too; it is a plain link to My Profile now
+     and has nothing to close. */
   document.addEventListener('click', function (e) {
-    document.querySelectorAll('.avatar-menu[open], .more-menu[open]').forEach(function (d) {
+    document.querySelectorAll('.more-menu[open]').forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;
     });
   });
+
+  /* Sliding nav highlight ("magic move"): one absolutely-positioned element
+     inside .sb-nav that slides and resizes to sit behind whichever row is
+     hovered or keyboard-focused, and rests behind the active/current-page row
+     when nothing is. It replaces the per-row hover wash, which popped in and
+     out on each row on its own. The motion is a CSS transform/size transition
+     (.sb-highlight in gerlyn.css); the global prefers-reduced-motion rule there
+     already flattens every transition to ~0, so nothing extra is needed here.
+
+     Because the highlight is an absolute child of the scrolling .sb-nav, it
+     scrolls with the rows for free and offsetTop stays right — the only times
+     it must re-measure are when a layout-changing transition finishes (sidebar
+     collapse/expand, a group opening) or the window resizes. */
+  var sidebarEl = document.getElementById('sidebar');
+  if (sbNav) {
+    var highlight = document.createElement('div');
+    highlight.className = 'sb-highlight';
+    highlight.setAttribute('aria-hidden', 'true');
+    sbNav.insertBefore(highlight, sbNav.firstChild);
+
+    var HL_SEL = '.sb-item, .sb-tree-toggle, .sb-tree-file';
+    var hoverTarget = null;
+
+    /* The card is drawn 8px narrower than the row on its RIGHT side only, so
+       its hairline and drop shadow have room to sit inside .sb-nav, which clips
+       overflow-x (a full-bleed card's shadow gets shaved flush at the rail
+       edge). The left is flush on purpose: the selected row's fill is painted
+       on the row itself and runs the row's full width, so an inset hover card
+       would start 8px right of it and leave a gap between the accent block and
+       whichever card it is supposed to be touching. Sharing one left edge is
+       what lets a single block meet both states (see .sb-item--active::before
+       in gerlyn.css). It costs the card's left hairline on top-level rows,
+       which sit flush against the .sb-nav clip — but that is the edge the
+       block paints over, so there is nothing visible to lose. Skipped when
+       collapsed — there the highlight is a bare 44px circle with no shadow
+       (see .app.sidebar-collapsed .sb-highlight in gerlyn.css). */
+    var HL_INSET_X = 8;
+
+    function placeHighlight(el, visible) {
+      if (!el) return;
+      var inset = app.classList.contains('sidebar-collapsed') ? 0 : HL_INSET_X;
+      highlight.style.transform =
+        'translate(' + el.offsetLeft + 'px, ' + el.offsetTop + 'px)';
+      highlight.style.width = (el.offsetWidth - inset) + 'px';
+      highlight.style.height = el.offsetHeight + 'px';
+      highlight.style.opacity = visible ? '1' : '0';
+    }
+
+    function activeRow() {
+      var active = sbNav.querySelector('.sb-item--active, .sb-tree-file--active');
+      if (!active) return null;
+      /* Collapsed: a group's files are display:none, so a selected file has no
+         box to rest behind — use its group's icon, which is the row that
+         carries the active tint at this width. */
+      if (app.classList.contains('sidebar-collapsed') &&
+          active.classList.contains('sb-tree-file')) {
+        var root = active.closest('.sb-tree-root');
+        return root ? root.querySelector('.sb-tree-toggle') : null;
+      }
+      return active;
+    }
+
+    /* Rest state: behind the hovered row if any, else the active row. With
+       neither, park (invisibly) on the first row so the first hover slides in
+       from a sane spot instead of growing out of the corner.
+
+       .sb-highlight--rest goes on whenever the card is over the current-page
+       row (resting on it, or hovering it). It used to swap in a heavier shadow
+       there; it now strips the shadow instead — the selected row is flat, and
+       this class is what makes it flat, so it is still load-bearing. Because
+       it is applied only when the target IS the active row, that flattening
+       cannot leak onto an ordinary hovered row — see gerlyn.css. */
+    function restToggle(target) {
+      highlight.classList.toggle('sb-highlight--rest', !!target && target === activeRow());
+    }
+    function settle() {
+      var target = hoverTarget || activeRow();
+      restToggle(target);
+      placeHighlight(target || sbNav.querySelector(HL_SEL), !!target);
+    }
+
+    sbNav.addEventListener('mouseover', function (e) {
+      var el = e.target.closest(HL_SEL);
+      if (el && el !== hoverTarget && sbNav.contains(el)) {
+        hoverTarget = el;
+        restToggle(el);
+        placeHighlight(el, true);
+      }
+    });
+    sbNav.addEventListener('mouseleave', function () {
+      hoverTarget = null;
+      settle();
+    });
+    sbNav.addEventListener('focusin', function (e) {
+      var el = e.target.closest(HL_SEL);
+      if (el) { hoverTarget = el; restToggle(el); placeHighlight(el, true); }
+    });
+    sbNav.addEventListener('focusout', function (e) {
+      if (!sbNav.contains(e.relatedTarget)) { hoverTarget = null; settle(); }
+    });
+
+    if (sidebarEl) {
+      sidebarEl.addEventListener('transitionend', function (e) {
+        if (e.target === sidebarEl && e.propertyName === 'width') settle();
+      });
+    }
+    sbNav.addEventListener('transitionend', function (e) {
+      if (e.target.classList.contains('sb-tree') &&
+          e.propertyName === 'grid-template-rows') settle();
+    });
+
+    var hlResizeTimer;
+    window.addEventListener('resize', function () {
+      clearTimeout(hlResizeTimer);
+      hlResizeTimer = setTimeout(settle, 100);
+    });
+
+    requestAnimationFrame(settle);
+    window.addEventListener('load', settle);
+    /* Back/forward restores from bfcache skip 'load' entirely and replay the
+       page exactly as it was frozen — including the highlight's inline
+       transform/opacity from whatever row the mouse was over when the user
+       navigated away. Without this, that stale hover position sits behind a
+       row forever, with the cursor nowhere near the sidebar, until the user
+       happens to hover the nav again. */
+    window.addEventListener('pageshow', function (e) {
+      if (e.persisted) { hoverTarget = null; settle(); }
+    });
+  }
 })();

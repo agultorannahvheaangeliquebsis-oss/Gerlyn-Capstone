@@ -1,6 +1,10 @@
 from datetime import timedelta
 
+from django.contrib import messages
+from django.shortcuts import redirect
 from django.utils import timezone
+
+from core.module_permissions import URL_NAME_TO_MODULE, user_can_access_module
 
 
 class NoCacheForAuthenticatedMiddleware:
@@ -22,6 +26,47 @@ class NoCacheForAuthenticatedMiddleware:
             response['Pragma'] = 'no-cache'
             response['Expires'] = '0'
         return response
+
+
+class ModulePermissionMiddleware:
+    """Enforces core.module_permissions: a single, central gate instead of a
+    decorator that has to be remembered on every gated view.
+
+    Resolves the current request's URL name against MODULE_REGISTRY's
+    reverse index. A URL name not in the registry (dashboards, login,
+    Settings, Branch/User Management, every write/approve action the
+    registry deliberately excludes — see module_permissions.py) is left
+    alone entirely. Only STAFF/BRANCH_MANAGER are ever actually checked —
+    user_can_access_module() passes everyone else through unconditionally.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return None
+        if user.role not in ('STAFF', 'BRANCH_MANAGER'):
+            return None
+
+        url_name = request.resolver_match.url_name if request.resolver_match else None
+        module_code = URL_NAME_TO_MODULE.get(url_name)
+        if module_code is None:
+            return None
+
+        if not user_can_access_module(user, module_code):
+            messages.error(
+                request,
+                "You don't have access to that section. Ask your Owner or "
+                "Branch Manager to grant it if you need it."
+            )
+            from .views import redirect_by_role
+            return redirect_by_role(request, user)
+        return None
 
 
 class LanguageMiddleware:
