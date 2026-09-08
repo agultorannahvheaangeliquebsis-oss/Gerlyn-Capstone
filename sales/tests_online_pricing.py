@@ -25,7 +25,7 @@ from django.urls import reverse
 
 from accounts.models import User
 from branches.models import Branch
-from inventory.models import Inventory, Product
+from inventory.models import Inventory, Product, StockMovement
 from sales.models import SalesTransaction
 
 
@@ -335,6 +335,96 @@ class SalesApiOrderTypeTests(OnlinePricingTestCase):
         self.assertEqual(sale.total_discount_amount, Decimal('0.00'))
         self.assertEqual(sale.total_vat_amount, Decimal('24.00'))
         self.assertFalse(sale.items.get().is_vat_exempt_line)
+
+
+class SalesApiOnlineStockDeductionTests(OnlinePricingTestCase):
+    """F-01: SalesTransactionWriteSerializer.create() deducted stock for
+    every channel at creation time, including Online. transaction_set_status
+    then deducted it AGAIN when the Order Console walked that same order to
+    Completed — a 5-unit online order dropped 10 units of stock.
+
+    Stock must move exactly once, at Completion, matching the storefront
+    checkout path (orders.customer_views.checkout) and
+    core.tests.test_online_order_deducts_stock_only_once_on_completion,
+    which pins the same rule for that other write path.
+    """
+
+    def post_sale(self, user, **extra):
+        self.client.force_login(user)
+        payload = {
+            'branchId': self.branch.pk,
+            'transactionType': SalesTransaction.TransactionType.ONLINE,
+            'modeOfPayment': 'Cash on Delivery',
+            'deliveryAddress': '12 Real St, Baliuag',
+            'items': [{'productId': self.product.pk, 'quantity': 5}],
+        }
+        payload.update(extra)
+        return self.client.post(
+            '/api/sales/', payload, content_type='application/json'
+        )
+
+    def test_an_online_order_does_not_deduct_stock_at_creation(self):
+        inv = Inventory.objects.get(product=self.product, branch=self.branch)
+        before = inv.quantity_on_hand
+
+        response = self.post_sale(self.customer())
+
+        self.assertEqual(response.status_code, 201)
+        inv.refresh_from_db()
+        self.assertEqual(inv.quantity_on_hand, before, 'stock must not move at creation')
+        self.assertFalse(
+            StockMovement.objects.exists(),
+            'no movement should be logged until the order is actually fulfilled',
+        )
+
+    def test_walking_the_order_to_completed_deducts_exactly_once(self):
+        inv = Inventory.objects.get(product=self.product, branch=self.branch)
+        before = inv.quantity_on_hand
+
+        response = self.post_sale(self.customer())
+        order = SalesTransaction.objects.get(pk=response.data['id'])
+
+        self.client.force_login(self.owner)
+        for status in ['Approved', 'Preparing', 'Completed']:
+            resp = self.client.post(
+                reverse('transaction_set_status', args=[order.pk, status])
+            )
+            self.assertEqual(resp.status_code, 302)
+
+        order.refresh_from_db()
+        inv.refresh_from_db()
+        self.assertEqual(order.order_status, 'Completed')
+        # Exactly the 5 ordered units — once, not the 10 the double
+        # deduction used to take.
+        self.assertEqual(inv.quantity_on_hand, before - 5)
+
+        movement = StockMovement.objects.get()
+        self.assertEqual(movement.quantity_change, -5)
+        self.assertEqual(movement.reference_id, order.pk)
+        self.assertEqual(movement.movement_type, StockMovement.MovementType.SALE)
+
+    def test_a_physical_sale_still_deducts_at_creation_and_now_logs_it(self):
+        """Physical IS the point of sale for this endpoint — there is no
+        console step to wait for — so it keeps deducting immediately. It
+        previously did so with no StockMovement row; this pins that it now
+        gets one, same as the walk-in POS and the Console's own deduction."""
+        inv = Inventory.objects.get(product=self.product, branch=self.branch)
+        before = inv.quantity_on_hand
+
+        response = self.post_sale(
+            self.owner, transactionType=SalesTransaction.TransactionType.PHYSICAL,
+            deliveryAddress='',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        order = SalesTransaction.objects.get(pk=response.data['id'])
+        inv.refresh_from_db()
+        self.assertEqual(inv.quantity_on_hand, before - 5)
+
+        movement = StockMovement.objects.get()
+        self.assertEqual(movement.quantity_change, -5)
+        self.assertEqual(movement.reference_id, order.pk)
+        self.assertEqual(movement.movement_type, StockMovement.MovementType.SALE)
 
 
 class CartPreviewPricingTests(OnlinePricingTestCase):
