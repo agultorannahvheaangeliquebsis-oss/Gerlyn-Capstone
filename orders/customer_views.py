@@ -656,6 +656,18 @@ def checkout(request):
     # there must not be one.
     order_type = order_type_for(request.user)
 
+    # --- payment method --------------------------------------------------------
+    # Validated against the model's choices, same fall-back-to-default shape as
+    # discount_type just below (and order_type at the counter): an unrecognised
+    # value — a tampered form, a client bug — becomes the online default (Cash
+    # on Delivery) rather than being written to the column and the billing
+    # record verbatim, which broke the Billing report's payment breakdown.
+    mode_of_payment = (
+        request.POST.get('mode_of_payment') or SalesTransaction.ModeOfPayment.COD
+    )
+    if mode_of_payment not in SalesTransaction.ModeOfPayment.values:
+        mode_of_payment = SalesTransaction.ModeOfPayment.COD
+
     # --- PWD / Senior Citizen claim ----------------------------------------
     # The same three fields the counter collects, validated the same way:
     # a claim needs both the ID number and the name on it, and the two
@@ -729,8 +741,7 @@ def checkout(request):
             customer=request.user,
             transaction_type=SalesTransaction.TransactionType.ONLINE,
             order_status=SalesTransaction.OrderStatus.PENDING,
-            mode_of_payment=request.POST.get('mode_of_payment')
-                            or SalesTransaction.ModeOfPayment.COD,
+            mode_of_payment=mode_of_payment,
             delivery_address=request.POST.get('delivery_address', '').strip(),
             order_type=order_type,
             discount_type=discount_type,

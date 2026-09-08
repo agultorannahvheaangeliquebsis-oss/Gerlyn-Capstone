@@ -396,7 +396,14 @@ def transaction_add(request):
         return render(request, 'sales/transaction_form.html', _pos_context(request))
 
     branch_id = user_branch.id if user_branch else request.POST.get('branch')
-    mode_of_payment = request.POST.get('mode_of_payment') or 'Cash'
+    # Validated against the model's choices, same fall-back-to-default shape as
+    # order_type and discount_type below — an unrecognised value (a typo, a
+    # tampered form) becomes Cash rather than being written to the column
+    # verbatim, which broke the Billing report's payment breakdown and, worse,
+    # slipped the amount-tendered check below (only "Cash" triggers it).
+    mode_of_payment = request.POST.get('mode_of_payment') or SalesTransaction.ModeOfPayment.CASH
+    if mode_of_payment not in SalesTransaction.ModeOfPayment.values:
+        mode_of_payment = SalesTransaction.ModeOfPayment.CASH
     order_type = request.POST.get('order_type') or SalesTransaction.OrderType.RETAIL
     if order_type not in SalesTransaction.OrderType.values:
         order_type = SalesTransaction.OrderType.RETAIL
