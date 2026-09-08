@@ -68,6 +68,58 @@
 </div>
 {% endif %}
 
+{# ---- apply PWD / Senior discount (walk-in or pickup only) ---- #}
+{% comment %}
+F-04. This is the only place the statutory discount can be granted:
+customer checkout no longer accepts one at all. can_apply_discount comes
+from SalesTransaction.can_apply_pwd_senior_discount() via the view, which
+re-checks it on POST — a Delivery order is refused server-side even if
+this form is forged, so hiding the control is convenience, not the guard.
+{% endcomment %}
+{% if can_apply_discount %}
+<div class="card card-pad mb-4">
+  <h3>Apply PWD / Senior Citizen discount</h3>
+  <p class="gv-meta">
+    {% if transaction.transaction_type == "Online" %}
+    Record this when the customer presents their PWD / OSCA ID as they collect the order.
+    {% else %}
+    Record this if the ID was presented at the counter but not entered on the sale.
+    {% endif %}
+    20% comes off the VAT-exclusive price and the eligible lines become VAT-exempt.
+    Your name is recorded against it.
+  </p>
+  <form method="post" action="{% url 'transaction_apply_discount' transaction.pk %}" class="stack"
+        data-confirm="This re-prices {{ transaction.order_number }} and updates the amount due. Only apply it if you have seen the ID."
+        data-confirm-title="Apply statutory discount?"
+        data-confirm-ok="Apply discount"
+        data-confirm-dismiss="Not yet">
+    {% csrf_token %}
+    <div class="grid-2">
+      <div class="field">
+        <label for="discount_type">Discount type</label>
+        <select id="discount_type" name="discount_type" required>
+          <option value="">Select…</option>
+          {% for value, label in discount_choices %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="discount_id_number">ID number</label>
+        <input type="text" id="discount_id_number" name="discount_id_number"
+               placeholder="PWD / OSCA ID" required>
+      </div>
+      <div class="field">
+        <label for="discount_holder_name">Name on ID</label>
+        <input type="text" id="discount_holder_name" name="discount_holder_name"
+               placeholder="Full name" required>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Apply discount</button>
+  </form>
+</div>
+{% endif %}
+
 <div class="grid-2 mb-4">
   <!-- Order info -->
   <div class="card card-pad">
@@ -84,6 +136,15 @@
         <tr><td class="gv-meta">Recorded by</td><td style="text-align:right;">
           {% if transaction.staff %}{{ transaction.staff.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ transaction.mode_of_payment }}</td></tr>
+        {% comment %}
+        Shown for every online order, not only the ones with an address:
+        "Pickup" is now a recorded fact rather than the absence of one, and
+        it is what decides whether the discount form above appears (F-11).
+        {% endcomment %}
+        {% if transaction.transaction_type == "Online" %}
+        <tr><td class="gv-meta">Fulfillment</td><td style="text-align:right;">
+          <span class="tag">{{ transaction.get_fulfillment_type_display }}</span></td></tr>
+        {% endif %}
         {% if transaction.delivery_address %}
         <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ transaction.delivery_address }}</td></tr>{% endif %}
         {% comment %}
@@ -99,6 +160,18 @@
           {% if transaction.discount_holder_name %}<div class="gv-meta">{{ transaction.discount_holder_name }}</div>{% endif %}</td></tr>
         <tr><td class="gv-meta">Less: discount</td>
             <td class="num" style="text-align:right; color:var(--ok-fg);">−₱{{ transaction.total_discount_amount|floatformat:2 }}</td></tr>
+        {% comment %}
+        Who granted it and when — the A-1 audit trail. Null on a sale rung
+        up through the POS before this was recorded, which reads as "—"
+        rather than pretending nobody was responsible.
+        {% endcomment %}
+        {% if transaction.discount_applied_by or transaction.discount_applied_at %}
+        <tr><td class="gv-meta">Discount applied by</td><td style="text-align:right;">
+          {{ transaction.discount_applied_by.username|default:"—" }}
+          {% if transaction.discount_applied_at %}
+          <div class="gv-meta">{{ transaction.discount_applied_at|date:"j M Y, g:i a" }}</div>
+          {% endif %}</td></tr>
+        {% endif %}
         {% endif %}
         {% if transaction.total_vat_amount %}
         <tr><td class="gv-meta">VAT (included)</td>

@@ -83,6 +83,12 @@ MODULE_REGISTRY = {
         'Sales / Order Console',
         ['transaction_list', 'transaction_add', 'transaction_detail',
          'transaction_set_status',
+         # Applying the statutory PWD/Senior discount is part of this
+         # section (F-04). Listed here for the reason F-07 exists: an
+         # unregistered url name resolves to module_code None and is not
+         # gated at all, so leaving it off would let a Staff account whose
+         # Owner revoked the Order Console still re-price an order.
+         'transaction_apply_discount',
          # API (sales/api_urls.py) — list also serves POST (mirrors
          # transaction_add); detail mirrors transaction_detail.
          'api-sales-list', 'api-sales-detail'],

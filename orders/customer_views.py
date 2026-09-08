@@ -151,10 +151,10 @@ def _cart_items(request):
 
     Priced at the shopper's own tier — the same one checkout() will use — so
     the figures here are what they will actually be billed. The PWD/Senior
-    discount is deliberately NOT previewed: that claim is made at checkout by
-    typing an ID number and the name on it, and showing a discount before it
-    has been claimed (let alone identified) would be promising a price the
-    order may not get.
+    discount is deliberately NOT previewed, and since F-04 it cannot be
+    claimed here at all: it is granted by staff, against a sighted ID, after
+    the order exists. Showing it on the cart would promise a price the order
+    is not entitled to and may never get.
     """
     branch_id = request.session.get('branch_id')
     cart = request.session.get('cart', {})
@@ -674,11 +674,16 @@ def checkout(request):
     order_type = order_type_for(request.user)
 
     # --- payment method --------------------------------------------------------
-    # Validated against the model's choices, same fall-back-to-default shape as
-    # discount_type just below (and order_type at the counter): an unrecognised
-    # value — a tampered form, a client bug — becomes the online default (Cash
-    # on Delivery) rather than being written to the column and the billing
+    # Validated against the model's choices, the same fall-back-to-default
+    # shape order_type uses at the counter: an unrecognised value — a
+    # tampered form, a client bug — becomes the online default (Cash on
+    # Delivery) rather than being written to the column and the billing
     # record verbatim, which broke the Billing report's payment breakdown.
+    #
+    # Falling back is right here and wrong for fulfillment_type just below;
+    # the difference is that every payment method on this form is recorded
+    # only, and settled in person either way, so the default cannot mislead
+    # anyone about what happens next.
     mode_of_payment = (
         request.POST.get('mode_of_payment') or SalesTransaction.ModeOfPayment.COD
     )
@@ -721,33 +726,24 @@ def checkout(request):
         # own tracking page all key off this field being non-blank.
         delivery_address = ''
 
-    # --- PWD / Senior Citizen claim ----------------------------------------
-    # The same three fields the counter collects, validated the same way:
-    # a claim needs both the ID number and the name on it, and the two
-    # failures are collected rather than reported one at a time.
-    discount_type = request.POST.get('discount_type') or SalesTransaction.DiscountType.NONE
-    if discount_type not in SalesTransaction.DiscountType.values:
-        discount_type = SalesTransaction.DiscountType.NONE
-    discount_claimed = discount_type != SalesTransaction.DiscountType.NONE
-    discount_id_number = request.POST.get('discount_id_number', '').strip() if discount_claimed else ''
-    discount_holder_name = request.POST.get('discount_holder_name', '').strip() if discount_claimed else ''
-
-    discount_errors = []
-    if discount_claimed and not discount_id_number:
-        discount_errors.append(
-            f'Enter the {discount_type} ID number — a discount cannot be '
-            f'recorded without it.'
-        )
-    if discount_claimed and not discount_holder_name:
-        discount_errors.append(f'Enter the name on the {discount_type} ID.')
-
-    if discount_errors:
-        # Back to the cart with the claim rejected outright. Nothing is
-        # written and no partial discount is applied — a half-identified
-        # claim is the one thing an audit would ask about.
-        for error in discount_errors:
-            messages.error(request, error)
-        return redirect('orders:cart')
+    # --- PWD / Senior Citizen discount --------------------------------------
+    # Deliberately NOT read from this form, and there is no UI offering it.
+    #
+    # F-04 — checkout used to take discount_type straight from the POST and
+    # apply the full statutory 20% + VAT exemption on it. The only guard was
+    # that the ID-number and holder-name fields be non-empty strings, so
+    # 'MADE-UP-123' bought a permanent 20% discount; no staff member ever saw
+    # a card. The discount is conditioned on presenting a PWD or OSCA ID, and
+    # nothing typed into a web form is presenting anything.
+    #
+    # So every order this view writes is undiscounted, whatever the request
+    # contains. Where a discount is genuinely owed, staff apply it afterwards
+    # from the Order Console (sales.views.transaction_apply_discount), which
+    # records who verified the ID — and which refuses outright on a Delivery
+    # order, because nobody at the branch ever meets that customer.
+    #
+    # This matches the API write path next door, which has always passed
+    # discount_type=None for the same reason (SalesTransactionWriteSerializer).
 
     with transaction.atomic():
         # Validate availability WITHOUT deducting: an online order only leaves
@@ -778,13 +774,15 @@ def checkout(request):
 
         # Same pricing engine as the counter. This used to be a raw
         # unit_price x qty sum, which meant an online order recorded no VAT
-        # breakdown at all (total_vat_amount stayed 0 on every one of them),
-        # could not honour a wholesale tier, and had nowhere to put a
-        # PWD/Senior discount. price_cart owns the VAT and discount
+        # breakdown at all (total_vat_amount stayed 0 on every one of them)
+        # and could not honour a wholesale tier. price_cart owns the VAT
         # arithmetic; the only decision made out here is the price TIER.
+        #
+        # No discount_type is passed — not None-by-omission but None on
+        # purpose: customer checkout never discounts (F-04).
         priced = price_cart(
             [(product, qty, price_for(product, order_type)) for product, qty in planned],
-            discount_type=discount_type,
+            discount_type=None,
         )
         total = priced['total_amount']
 
@@ -798,9 +796,6 @@ def checkout(request):
             fulfillment_type=fulfillment_type,
             delivery_address=delivery_address,
             order_type=order_type,
-            discount_type=discount_type,
-            discount_id_number=discount_id_number,
-            discount_holder_name=discount_holder_name,
         )
 
         for line in priced['lines']:

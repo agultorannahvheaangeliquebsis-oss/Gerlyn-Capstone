@@ -6,8 +6,11 @@ pricing wrong, in opposite directions.
 
 checkout() summed unit_price x qty by hand and wrote that as the total. No
 VAT was ever broken out (total_vat_amount was 0 on every online order ever
-placed), a wholesale customer could not be billed at wholesale, and there
-was nowhere to record a PWD/Senior discount at all.
+placed) and a wholesale customer could not be billed at wholesale.
+
+(It briefly grew a PWD/Senior claim here too. F-04 took it back out — the
+discount is granted by staff against an ID they have seen, in the Order
+Console; see sales/tests_verified_discount.py.)
 
 The API had the reverse problem: it ran the real pricing engine, but took
 the caller's word for orderType. Any authenticated customer could post
@@ -182,96 +185,24 @@ class OnlineCheckoutPricingTests(OnlinePricingTestCase):
         self.assertEqual(sale.billing_record.amount_due, sale.total_amount)
 
 
-class OnlineDiscountClaimTests(OnlinePricingTestCase):
-
-    def test_a_senior_claim_is_applied_and_the_line_goes_vat_exempt(self):
-        self.shop_as(self.customer())
-
-        self.check_out(
-            discount_type='Senior',
-            discount_id_number='OSCA-12345',
-            discount_holder_name='Maria Santos',
-        )
-
-        sale = SalesTransaction.objects.get()
-        # Identical to the counter's figures for this cart
-        # (core.tests_feature_update.test_a_senior_discount_is_applied_and_recorded).
-        self.assertEqual(sale.total_amount, Decimal('160.00'))       # 2 x ₱80.00
-        self.assertEqual(sale.total_discount_amount, Decimal('40.00'))
-        self.assertEqual(sale.total_vat_amount, Decimal('0.00'))
-        self.assertEqual(sale.discount_type, 'Senior')
-        self.assertEqual(sale.discount_id_number, 'OSCA-12345')
-        self.assertEqual(sale.discount_holder_name, 'Maria Santos')
-
-        item = sale.items.get()
-        self.assertEqual(item.unit_price, Decimal('80.00'))
-        self.assertEqual(item.discount_amount, Decimal('40.00'))
-        self.assertTrue(item.is_vat_exempt_line)
-
-    def test_an_online_discounted_total_matches_the_counter_for_the_same_cart(self):
-        claim = {
-            'discount_type': 'Senior',
-            'discount_id_number': 'OSCA-12345',
-            'discount_holder_name': 'Maria Santos',
-        }
-        self.shop_as(self.customer())
-        self.check_out(**claim)
-        online = SalesTransaction.objects.get()
-
-        self.client.force_login(self.owner)
-        self.client.post(reverse('transaction_add'), dict(claim, **{
-            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail', 'amount_tendered': '500',
-            'product_id': [str(self.product.pk)], 'quantity': ['2'],
-        }))
-        walk_in = SalesTransaction.objects.exclude(pk=online.pk).get()
-
-        self.assertEqual(online.total_amount, walk_in.total_amount)
-        self.assertEqual(online.total_discount_amount, walk_in.total_discount_amount)
-        self.assertEqual(online.total_vat_amount, walk_in.total_vat_amount)
-        self.assertEqual(
-            online.items.get().unit_price, walk_in.items.get().unit_price
-        )
-
-    def test_a_claim_without_an_id_number_is_refused_outright(self):
-        self.shop_as(self.customer())
-
-        response = self.check_out(
-            discount_type='Senior', discount_holder_name='Maria Santos',
-        )
-
-        self.assertEqual(SalesTransaction.objects.count(), 0)
-        self.assertIn('ID number', response.content.decode())
-
-    def test_a_claim_without_a_holder_name_is_refused_outright(self):
-        self.shop_as(self.customer())
-
-        response = self.check_out(
-            discount_type='PWD', discount_id_number='PWD-999',
-        )
-
-        self.assertEqual(SalesTransaction.objects.count(), 0)
-        self.assertIn('name on the PWD ID', response.content.decode())
-
-    def test_both_missing_fields_are_reported_together(self):
-        self.shop_as(self.customer())
-
-        response = self.check_out(discount_type='PWD')
-
-        self.assertEqual(SalesTransaction.objects.count(), 0)
-        body = response.content.decode()
-        self.assertIn('ID number', body)
-        self.assertIn('name on the PWD ID', body)
-
-    def test_an_unrecognised_claim_type_is_ignored_not_honoured(self):
-        self.shop_as(self.customer())
-
-        self.check_out(discount_type='Employee')
-
-        sale = SalesTransaction.objects.get()
-        self.assertEqual(sale.discount_type, SalesTransaction.DiscountType.NONE)
-        self.assertEqual(sale.total_amount, Decimal('224.00'))
-        self.assertEqual(sale.total_discount_amount, Decimal('0.00'))
+# The PWD/Senior claim used to be made HERE, on the checkout form, and this
+# module carried six tests pinning that behaviour: a Senior claim applied and
+# went VAT-exempt, an online discounted total matched the counter's, a claim
+# missing its ID number or holder name was refused, and an unrecognised claim
+# type fell back to no discount.
+#
+# F-04 removed the whole surface. The guard those tests described — that the
+# ID fields be non-empty strings — was never verification: 'MADE-UP-123'
+# satisfied it, and no staff member ever saw a card. Checkout now ignores
+# discount_type entirely, so there is nothing left here to assert about it
+# beyond "it is ignored", and that lives with the rest of the F-04 coverage
+# in sales/tests_verified_discount.py, next to the Order Console action that
+# replaced it.
+#
+# The parity these tests were really protecting — that an online discounted
+# total matches the counter's for the same cart — is still asserted, in
+# ConsoleDiscountAllowedTests.test_a_pickup_order_is_discounted_and_recalculated
+# against the same ₱112.00 fixture and the same expected ₱160.00.
 
 
 class SalesApiOrderTypeTests(OnlinePricingTestCase):
