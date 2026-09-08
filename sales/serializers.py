@@ -6,7 +6,7 @@ from django.db import transaction
 from .models import SalesTransaction, SalesItem
 from .pricing import price_cart
 from core.scoping import user_can_access_branch
-from inventory.models import Product, Inventory, Batch
+from inventory.models import Product, Inventory, Batch, StockMovement
 from branches.models import Branch
 
 
@@ -155,6 +155,9 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             # oversold cart is rejected outright instead of being silently
             # short-filled (fine when staff are watching; not fine for
             # unattended customer checkout).
+            #
+            # Availability is checked on EVERY channel; stock is only DEDUCTED
+            # on Physical ones — see the deduction loop below.
             cart_lines = []
             inventories = []
             for item in items_data:
@@ -200,6 +203,24 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 total_vat_amount=priced['total_vat_amount'],
             )
 
+            # An Online order has not left the shelf yet — it is Pending
+            # until the Order Console walks it to Completed, and
+            # sales.views.transaction_set_status deducts it there
+            # (_deduct_stock). Deducting here as well took the stock twice for
+            # one sale: 5 units at creation, 5 more at completion. Availability
+            # was still validated above, exactly like the storefront checkout
+            # (orders.customer_views.checkout) does — reserve nothing, promise
+            # nothing that isn't on the shelf, and let completion be the one
+            # place stock moves.
+            #
+            # A Physical sale over this endpoint IS the moment of sale (there
+            # is no console step to wait for, the way there is none for the
+            # walk-in POS), so it still deducts here.
+            deducts_now = (
+                validated_data['transactionType']
+                == SalesTransaction.TransactionType.PHYSICAL
+            )
+
             for line, inv in zip(priced['lines'], inventories):
                 product, qty = line['product'], line['quantity']
                 SalesItem.objects.create(
@@ -210,10 +231,28 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     is_vat_exempt_line=line['is_vat_exempt_line'],
                     vat_amount=line['vat_amount'],
                 )
+                if not deducts_now:
+                    continue
+                before = inv.quantity_on_hand
                 inv.quantity_on_hand -= qty
                 inv.save()
                 # FEFO: drain the nearest-expiry floor batches for this
                 # product/branch — mirrors sales/views.py:_deduct_stock.
                 Batch.consume_fefo(product, inv.branch, Batch.Location.FLOOR, qty)
+                # ...and so does the audit row. Stock that moves without a
+                # StockMovement is stock nobody can trace: the Stock Movement
+                # log, and every report reading it, silently missed every sale
+                # written through this endpoint.
+                StockMovement.objects.create(
+                    inventory=inv,
+                    location_type=StockMovement.LocationType.FLOOR,
+                    movement_type=StockMovement.MovementType.SALE,
+                    quantity_change=inv.quantity_on_hand - before,
+                    quantity_before=before,
+                    quantity_after=inv.quantity_on_hand,
+                    reference_id=txn.pk,
+                    notes=f'Order {txn.order_number}',
+                    created_by=user,
+                )
 
         return txn
