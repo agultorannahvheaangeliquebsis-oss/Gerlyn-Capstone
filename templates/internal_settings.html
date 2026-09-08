@@ -5,6 +5,148 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
+<style>
+  {% comment %}
+  Everything here is scoped to this page's own wrappers (.settings-group,
+  .settings-card-title, #store-settings, #home-hero) so none of it leaks into
+  the shared account.css / gerlyn.css components.
+  {% endcomment %}
+
+  /* ── Purpose groups ────────────────────────────────────────────────
+     The page is three <section class="settings-group"> blocks — one per
+     purpose (your account / store settings / storefront home). Each opens
+     with a small label + one line of context. */
+  .settings-group { margin-bottom: 32px; }
+  .settings-group:last-of-type { margin-bottom: 0; }
+  .settings-group-head { margin: 0 0 14px; }
+  .settings-group-head h2 {
+    margin: 0;
+    font: 700 12px/1.2 var(--font-sans);
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-500);
+  }
+  .settings-group-head p {
+    margin: 5px 0 0; max-width: 62ch;
+    font: 400 13px/1.45 var(--font-sans);
+    color: var(--ink-500);
+  }
+
+  /* Cards within a group stack with an even gap instead of each carrying
+     its own inline margin-bottom. */
+  .settings-group > .account-card,
+  .settings-group > .card,
+  .settings-store-form > .card { margin-bottom: 16px; }
+  .settings-store-form { margin: 0; }
+  .settings-store-form > .card:last-of-type { margin-bottom: 0; }
+
+  /* Card header for the security + store cards. Was four copies of the
+     same inline style block. */
+  .settings-card-title {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
+    font: 600 16px/1.2 var(--font-sans);
+    color: var(--ink-900);
+  }
+  .settings-card-title > i,
+  .settings-card-title > svg { width: 18px; height: 18px; flex: none; }
+  .settings-card-note { margin: 2px 0 16px; }
+
+  /* ── Collapsible Store Settings cards ─────────────────────────────────
+     Each card in the store form is a <details> dropdown so the page opens
+     as a short list of section headings instead of one long wall of
+     fields. Every section carries its own Save button (they all post the
+     one store form). */
+  .ss-card > summary {
+    cursor: pointer; list-style: none;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin-bottom: 0;
+  }
+  .ss-card > summary::-webkit-details-marker { display: none; }
+  .ss-card > summary:focus-visible {
+    outline: 2px solid var(--action); outline-offset: 3px; border-radius: 4px;
+  }
+  .ss-card > summary .ss-card-chevron {
+    width: 16px; height: 16px; flex: none; color: var(--ink-400);
+    transition: transform .15s ease;
+  }
+  .ss-card[open] > summary .ss-card-chevron { transform: rotate(90deg); }
+  .ss-card-body { padding-top: 14px; }
+  .ss-card-save { margin-top: 16px; }
+
+  .ss-check {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--ink-700); margin: 4px 0;
+  }
+  .ss-check input { width: 16px; height: 16px; }
+
+  /* Printed-document editor: fields left, live preview right. */
+  .ss-doc-editor { display: grid; grid-template-columns: 1fr 300px; gap: 22px; align-items: start; }
+  @media (max-width: 820px) { .ss-doc-editor { grid-template-columns: 1fr; } }
+  .ss-doc-fields { display: flex; flex-direction: column; gap: 12px; }
+  /* Per-field guidance. Indented under the checkbox it explains; flush inside
+     a .field where the 6px column gap already spaces it. */
+  .ss-doc-fields .ss-hint {
+    margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-500);
+  }
+  .ss-doc-fields > .ss-hint { margin: -4px 0 0 24px; }
+  .ss-doc-preview { position: sticky; top: 16px; }
+  .ss-doc-preview-label {
+    font: 600 11px/1 var(--font-sans); letter-spacing: .07em;
+    text-transform: uppercase; color: var(--ink-400); margin-bottom: 6px;
+  }
+  .ss-doc-paper {
+    background: #fff; color: #111; border: 1px solid var(--line);
+    border-radius: 8px; padding: 16px; font-size: 11px; line-height: 1.5;
+  }
+  .ss-doc-paper img { max-height: 40px; width: auto; margin-bottom: 6px; }
+  .ss-doc-paper .rp-branch { font-weight: 700; font-size: 13px; }
+  .ss-doc-paper .rp-sub { color: #555; }
+  .ss-doc-paper .rp-note { color: #555; margin-top: 6px; white-space: pre-line; }
+  .ss-doc-paper .rp-rule { border-top: 2px solid #111; margin: 10px 0; }
+  .ss-doc-paper .rp-title { font-weight: 700; letter-spacing: .06em; }
+  .ss-doc-paper .rp-items { width: 100%; margin: 8px 0; }
+  .ss-doc-paper .rp-items td { padding: 2px 0; }
+  .ss-doc-paper .rp-items td:last-child { text-align: right; }
+  .ss-doc-paper .rp-total { border-top: 1px solid #111; padding-top: 4px; font-weight: 700; text-align: right; }
+  .ss-doc-paper .rp-thanks { margin-top: 8px; text-align: center; font-style: italic; color: #333; }
+  .ss-doc-paper .rp-foot { margin-top: 6px; color: #666; border-top: 1px solid #ddd; padding-top: 6px; }
+
+  /* Hero-slide manager */
+  .ss-slide { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; background: var(--surface, #fff); }
+  .ss-slide[data-inactive] { opacity: .7; }
+  .ss-slide > summary {
+    cursor: pointer; padding: 11px 14px; display: flex; align-items: center;
+    gap: 10px; font-size: 13px; list-style: none;
+  }
+  .ss-slide > summary::-webkit-details-marker { display: none; }
+  .ss-slide > summary::before { content: "▸"; color: var(--ink-400); }
+  .ss-slide[open] > summary::before { content: "▾"; }
+  .ss-slide-tag {
+    font: 600 10px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-500); background: var(--ink-50, #f1f1f1); padding: 3px 7px; border-radius: 999px;
+  }
+  .ss-slide-name { font-weight: 600; color: var(--ink-900); }
+  .ss-slide-off { color: var(--danger-fg); font-size: 11px; }
+  .ss-slide-form { padding: 4px 14px 16px; }
+  .ss-slide-add > summary .ss-slide-name { color: var(--action); }
+
+  /* Draft workflow — an unpublished slide, a slide staged for removal, and
+     the banner that offers Apply / Discard for the whole batch. */
+  .ss-slide-draft {
+    font: 600 10px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase;
+    color: var(--action); background: #e6f4ec; padding: 3px 7px; border-radius: 999px;
+  }
+  .ss-slide-removing { border-color: var(--danger-fg); }
+  .ss-draft-banner {
+    display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap;
+    padding: 12px 16px; margin-bottom: 16px;
+    border: 1px solid var(--action); border-radius: 8px; background: rgba(30, 122, 79, .08);
+  }
+  .ss-draft-banner-text { flex: 1 1 240px; display: flex; flex-direction: column; gap: 2px; }
+  .ss-draft-banner-text strong { font: 600 14px/1.3 var(--font-sans); color: var(--ink-900); }
+  .ss-draft-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .ss-draft-banner-actions form { margin: 0; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -50,320 +192,622 @@
 </script>
 {% endif %}
 
-<div class="account-card" style="margin-bottom:20px;">
+{% comment %}
+════════════════════════════════════════════════════════════════════════
+GROUP 1 — YOUR ACCOUNT
+Personal to the signed-in user: identity/profile and sign-in security.
+════════════════════════════════════════════════════════════════════════
+{% endcomment %}
+<section class="settings-group">
+  <div class="settings-group-head">
+    <h2>Your account</h2>
+    <p>Your personal profile and sign-in security. Only you see and change these.</p>
+  </div>
 
-  <!-- Avatar upload form (hidden input, triggered by pencil button) -->
-  <form method="post" action="{% url 'accounts:update_avatar' %}" enctype="multipart/form-data" id="avatar-form">
-    {% csrf_token %}
-    <input type="file" name="avatar" id="avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none;">
-  </form>
+  <div class="account-card">
 
-  <!-- Identity banner — same hero the customer profile uses -->
-  <div class="profile-hero">
-    <div class="profile-avatar-wrap">
-      <div class="profile-avatar">
-        {% if avatar_url %}
-          <img src="{{ avatar_url }}" alt="{% if full_name %}{{ full_name }}{% else %}{{ username }}{% endif %}">
-        {% else %}
-          {{ initials }}
-        {% endif %}
+    <!-- Avatar upload form (hidden input, triggered by pencil button) -->
+    <form method="post" action="{% url 'accounts:update_avatar' %}" enctype="multipart/form-data" id="avatar-form">
+      {% csrf_token %}
+      <input type="file" name="avatar" id="avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none;">
+    </form>
+
+    <!-- Identity banner — same hero the customer profile uses -->
+    <div class="profile-hero">
+      <div class="profile-avatar-wrap">
+        <div class="profile-avatar">
+          {% if avatar_url %}
+            <img src="{{ avatar_url }}" alt="{% if full_name %}{{ full_name }}{% else %}{{ username }}{% endif %}">
+          {% else %}
+            {{ initials }}
+          {% endif %}
+        </div>
+        <button type="button" class="avatar-upload-btn" onclick="document.getElementById('avatar-input').click()" title="Change photo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
       </div>
-      <button type="button" class="avatar-upload-btn" onclick="document.getElementById('avatar-input').click()" title="Change photo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      <div class="profile-hero-info">
+        {# Staff accounts are often created without a first/last name, so the #}
+        {# username carries the banner rather than leaving it blank.          #}
+        <p class="profile-hero-name">{% if full_name %}{{ full_name }}{% else %}@{{ username }}{% endif %}</p>
+        <p class="profile-hero-email">{% if email %}{{ email }}{% else %}No email address yet{% endif %}</p>
+        <div class="profile-hero-meta">
+          <span class="role-pill">{{ role }}</span>
+          <span class="member-since">Member since {{ request.user.date_joined|date:"F Y" }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="account-card-head">
+      <span class="account-card-title">
+        My Profile
+      </span>
+      <button type="button" class="btn btn-sm btn-quiet" id="myprofile-toggle-btn" onclick="toggleMyProfileForm()" style="color:var(--action);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Edit
       </button>
     </div>
-    <div class="profile-hero-info">
-      {# Staff accounts are often created without a first/last name, so the #}
-      {# username carries the banner rather than leaving it blank.          #}
-      <p class="profile-hero-name">{% if full_name %}{{ full_name }}{% else %}@{{ username }}{% endif %}</p>
-      <p class="profile-hero-email">{% if email %}{{ email }}{% else %}No email address yet{% endif %}</p>
-      <div class="profile-hero-meta">
-        <span class="role-pill">{{ role }}</span>
-        <span class="member-since">Member since {{ request.user.date_joined|date:"F Y" }}</span>
-      </div>
-    </div>
-  </div>
 
-  <div class="account-card-head">
-    <span class="account-card-title">
-      My Profile
-    </span>
-    <button type="button" class="btn btn-sm btn-quiet" id="myprofile-toggle-btn" onclick="toggleMyProfileForm()" style="color:var(--action);">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      Edit
-    </button>
-  </div>
-
-  <!-- View mode -->
-  <div class="account-card-body" id="myprofile-view" style="display:{% if errors %}none{% else %}block{% endif %};">
-    <div class="info-grid">
-      <div class="info-field">
-        <label>
-          Full Name
-        </label>
-        <div class="val">
-          {% if full_name %}{{ full_name }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
+    <!-- View mode -->
+    <div class="account-card-body" id="myprofile-view" style="display:{% if errors %}none{% else %}block{% endif %};">
+      <div class="info-grid">
+        <div class="info-field">
+          <label>
+            Full Name
+          </label>
+          <div class="val">
+            {% if full_name %}{{ full_name }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
+          </div>
         </div>
-      </div>
-      <div class="info-field">
-        <label>
-          Mobile Number
-        </label>
-        <div class="val">
-          {% if contact_number %}{{ contact_number }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
+        <div class="info-field">
+          <label>
+            Mobile Number
+          </label>
+          <div class="val">
+            {% if contact_number %}{{ contact_number }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
+          </div>
         </div>
-      </div>
-      <div class="info-field">
-        <label>
-          Email Address
-        </label>
-        <div class="val">
-          {% if email %}
-            {{ email }}
-            {% if is_email_verified %}
-              <span class="pill pill-ok">Verified</span>
+        <div class="info-field">
+          <label>
+            Email Address
+          </label>
+          <div class="val">
+            {% if email %}
+              {{ email }}
+              {% if is_email_verified %}
+                <span class="pill pill-ok">Verified</span>
+              {% else %}
+                <span class="pill pill-neutral">Unverified</span>
+              {% endif %}
             {% else %}
-              <span class="pill pill-neutral">Unverified</span>
+              {# No email on file — an "Unverified" badge against a blank value reads as a bug. #}
+              <span style="color:var(--ink-400);">Not set</span>
             {% endif %}
-          {% else %}
-            {# No email on file — an "Unverified" badge against a blank value reads as a bug. #}
-            <span style="color:var(--ink-400);">Not set</span>
-          {% endif %}
-          {% if pending_email %}<div class="pending-notice">Pending: {{ pending_email }}</div>{% endif %}
+            {% if pending_email %}<div class="pending-notice">Pending: {{ pending_email }}</div>{% endif %}
+          </div>
         </div>
-      </div>
-      <div class="info-field">
-        <label>
-          Username
-        </label>
-        <div class="val">@{{ username }}</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Edit mode -->
-  <div class="edit-form {% if errors %}is-open{% endif %}" id="myprofile-form">
-    <form method="post" action="{% url 'accounts:update_profile' %}">
-      {% csrf_token %}
-      <div class="edit-grid">
-        <div class="field">
-          <label for="ms_first_name">First Name</label>
-          <input type="text" id="ms_first_name" name="first_name"
-            value="{{ first_name }}"
-            class="{% if errors.first_name %}is-invalid{% endif %}">
-          {% if errors.first_name %}<div class="field-err">{{ errors.first_name }}</div>{% endif %}
-        </div>
-        <div class="field">
-          <label for="ms_last_name">Last Name</label>
-          <input type="text" id="ms_last_name" name="last_name"
-            value="{{ last_name }}"
-            class="{% if errors.last_name %}is-invalid{% endif %}">
-          {% if errors.last_name %}<div class="field-err">{{ errors.last_name }}</div>{% endif %}
-        </div>
-        <div class="field">
-          <label for="ms_username">Username</label>
-          <input type="text" id="ms_username" name="username"
-            value="{{ username }}"
-            class="{% if errors.username %}is-invalid{% endif %}">
-          {% if errors.username %}<div class="field-err">{{ errors.username }}</div>{% endif %}
-        </div>
-        <div class="field">
-          <label for="ms_contact_number">Mobile Number</label>
-          <input type="tel" id="ms_contact_number" name="contact_number"
-            value="{{ contact_number }}"
-            placeholder="+63 9XX XXX XXXX"
-            class="{% if errors.contact_number %}is-invalid{% endif %}">
-          {% if errors.contact_number %}<div class="field-err">{{ errors.contact_number }}</div>{% endif %}
-        </div>
-        <div class="field" style="grid-column: 1 / -1;">
-          <label for="ms_email">Email Address</label>
-          <input type="email" id="ms_email" name="email"
-            value="{{ email }}"
-            class="{% if errors.email %}is-invalid{% endif %}">
-          {% if errors.email %}
-            <div class="field-err">{{ errors.email }}</div>
-          {% else %}
-            <div class="gv-meta" style="margin-top:4px;">Changing your email will send a verification link to the new address.</div>
-          {% endif %}
-        </div>
-      </div>
-      <div class="edit-actions">
-        <button type="button" class="btn btn-sm" onclick="toggleMyProfileForm()">Cancel</button>
-        <button type="submit" class="btn btn-sm btn-primary">Save changes</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="card card-pad" style="margin-bottom:20px;">
-  <div class="account-card-title" style="margin-bottom:14px; display:flex; align-items:center; gap:8px; font:600 16px/1.2 var(--font-sans); color:var(--ink-900);">
-    <i data-lucide="shield-check" style="width:18px;height:18px;"></i>
-    Account Security
-  </div>
-
-  <!-- Password -->
-  <div class="security-item">
-    <div class="security-item-info">
-      <div class="security-item-icon"><i data-lucide="key-round" style="width:16px;height:16px;"></i></div>
-      <div>
-        <div class="security-item-label">Password</div>
-        <div class="security-item-sub">
-          {% if two_factor_enabled %}
-            Password changes are confirmed via email while two-factor authentication is on.
-          {% else %}
-            ••••••••••••
-          {% endif %}
+        <div class="info-field">
+          <label>
+            Username
+          </label>
+          <div class="val">@{{ username }}</div>
         </div>
       </div>
     </div>
-    {% if two_factor_enabled %}
-      <form method="post" action="{% url 'accounts:request_password_change_email' %}" style="margin:0;">
+
+    <!-- Edit mode -->
+    <div class="edit-form {% if errors %}is-open{% endif %}" id="myprofile-form">
+      <form method="post" action="{% url 'accounts:update_profile' %}">
         {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--action);">Manage</button>
+        <div class="edit-grid">
+          <div class="field">
+            <label for="ms_first_name">First Name</label>
+            <input type="text" id="ms_first_name" name="first_name"
+              value="{{ first_name }}"
+              class="{% if errors.first_name %}is-invalid{% endif %}">
+            {% if errors.first_name %}<div class="field-err">{{ errors.first_name }}</div>{% endif %}
+          </div>
+          <div class="field">
+            <label for="ms_last_name">Last Name</label>
+            <input type="text" id="ms_last_name" name="last_name"
+              value="{{ last_name }}"
+              class="{% if errors.last_name %}is-invalid{% endif %}">
+            {% if errors.last_name %}<div class="field-err">{{ errors.last_name }}</div>{% endif %}
+          </div>
+          <div class="field">
+            <label for="ms_username">Username</label>
+            <input type="text" id="ms_username" name="username"
+              value="{{ username }}"
+              class="{% if errors.username %}is-invalid{% endif %}">
+            {% if errors.username %}<div class="field-err">{{ errors.username }}</div>{% endif %}
+          </div>
+          <div class="field">
+            <label for="ms_contact_number">Mobile Number</label>
+            <input type="tel" id="ms_contact_number" name="contact_number"
+              value="{{ contact_number }}"
+              placeholder="+63 9XX XXX XXXX"
+              class="{% if errors.contact_number %}is-invalid{% endif %}">
+            {% if errors.contact_number %}<div class="field-err">{{ errors.contact_number }}</div>{% endif %}
+          </div>
+          <div class="field" style="grid-column: 1 / -1;">
+            <label for="ms_email">Email Address</label>
+            <input type="email" id="ms_email" name="email"
+              value="{{ email }}"
+              class="{% if errors.email %}is-invalid{% endif %}">
+            {% if errors.email %}
+              <div class="field-err">{{ errors.email }}</div>
+            {% else %}
+              <div class="gv-meta" style="margin-top:4px;">Changing your email will send a verification link to the new address.</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="edit-actions">
+          <button type="button" class="btn btn-sm" onclick="toggleMyProfileForm()">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">Save changes</button>
+        </div>
       </form>
-    {% else %}
-      <button type="button" class="btn btn-sm btn-quiet" id="pwd-toggle-btn" onclick="togglePasswordForm()" style="color:var(--action);">Manage</button>
+    </div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="settings-card-title">
+      <i data-lucide="shield-check"></i>
+      Account Security
+    </div>
+    <p class="gv-meta settings-card-note">Your password, two-factor authentication, and the devices signed in to this account.</p>
+
+    <!-- Password -->
+    <div class="security-item">
+      <div class="security-item-info">
+        <div class="security-item-icon"><i data-lucide="key-round" style="width:16px;height:16px;"></i></div>
+        <div>
+          <div class="security-item-label">Password</div>
+          <div class="security-item-sub">
+            {% if two_factor_enabled %}
+              Password changes are confirmed via email while two-factor authentication is on.
+            {% else %}
+              ••••••••••••
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% if two_factor_enabled %}
+        <form method="post" action="{% url 'accounts:request_password_change_email' %}" style="margin:0;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--action);">Manage</button>
+        </form>
+      {% else %}
+        <button type="button" class="btn btn-sm btn-quiet" id="pwd-toggle-btn" onclick="togglePasswordForm()" style="color:var(--action);">Manage</button>
+      {% endif %}
+    </div>
+
+    {% if not two_factor_enabled %}
+      <!-- Inline change-password form (hidden by default) -->
+      <div class="edit-form" id="pwd-form" style="padding:18px 0 4px;">
+        <form method="post" action="{% url 'accounts:change_password' %}">
+          {% csrf_token %}
+          <div class="stack" style="gap:16px;">
+            <div class="field">
+              <label for="id_current_password">Current Password</label>
+              <div style="position:relative;">
+                <input type="password" id="id_current_password" name="current_password"
+                  placeholder="Enter current password" style="padding-right:44px;">
+                <button type="button" onclick="togglePwd('id_current_password', this)"
+                  style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                  <svg id="id_current_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="id_new_password">New Password</label>
+              <div style="position:relative;">
+                <input type="password" id="id_new_password" name="new_password"
+                  placeholder="Enter new password"
+                  pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
+                  title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
+                  style="padding-right:44px;">
+                <button type="button" onclick="togglePwd('id_new_password', this)"
+                  style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                  <svg id="id_new_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+              <div class="gv-meta" style="margin-top:4px;">Must include an uppercase letter, a number, and a special character.</div>
+            </div>
+            <div class="field">
+              <label for="id_confirm_password">Confirm New Password</label>
+              <div style="position:relative;">
+                <input type="password" id="id_confirm_password" name="confirm_password"
+                  placeholder="Re-enter new password" style="padding-right:44px;">
+                <button type="button" onclick="togglePwd('id_confirm_password', this)"
+                  style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                  <svg id="id_confirm_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="edit-actions" style="margin-top:20px;">
+            <button type="button" class="btn btn-sm" onclick="togglePasswordForm()">Cancel</button>
+            <button type="submit" class="btn btn-sm btn-primary">Save password</button>
+          </div>
+        </form>
+      </div>
     {% endif %}
+
+    <!-- Two-Factor Authentication -->
+    <div class="security-item">
+      <div class="security-item-info">
+        <div class="security-item-icon"><i data-lucide="shield-check" style="width:16px;height:16px;"></i></div>
+        <div>
+          <div class="security-item-label">Two-Factor Authentication</div>
+          <div class="security-item-sub">
+            {% if not two_factor_enabled and not is_email_verified %}
+              Verify your email address first to enable this
+            {% else %}
+              Add an extra layer of security to your account
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% if not two_factor_enabled and not is_email_verified %}
+        <label class="toggle" title="Verify your email address before enabling two-factor authentication">
+          <input type="checkbox" disabled>
+          <span class="toggle-track"></span>
+        </label>
+      {% else %}
+        <label class="toggle" title="{% if two_factor_enabled %}Disable{% else %}Enable{% endif %} two-factor authentication">
+          <input type="checkbox" id="tfa-checkbox" {% if two_factor_enabled %}checked{% endif %} onclick="event.preventDefault(); openTfaModal();">
+          <span class="toggle-track"></span>
+        </label>
+      {% endif %}
+    </div>
+
+    <!-- Sessions -->
+    <div class="security-item" style="border-bottom:0;">
+      <div class="security-item-info">
+        <div class="security-item-icon"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;"></i></div>
+        <div>
+          <div class="security-item-label">Sessions</div>
+          <div class="security-item-sub">See and log out devices signed in to your account</div>
+        </div>
+      </div>
+      <button type="button" class="btn btn-sm btn-quiet" id="sessions-toggle-btn" onclick="toggleSessionsPanel()" style="color:var(--action);">Manage</button>
+    </div>
+
+    <div class="edit-form" id="sessions-panel" style="padding:16px 0 0;">
+      {% if sessions|length > 1 %}
+        <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0 0 8px; text-align:right;"
+              data-confirm="Every other device signed in to this account will be signed out. This one stays signed in."
+              data-confirm-title="Log out of all other sessions?"
+              data-confirm-variant="warn"
+              data-confirm-ok="Log them out">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out all other sessions</button>
+        </form>
+      {% endif %}
+      {% for s in sessions %}
+        <div class="security-item">
+          <div class="security-item-info">
+            <div class="security-item-icon"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;"></i></div>
+            <div>
+              <div class="security-item-label">
+                {{ s.device_label }}
+                {% if s.session_key == current_session_key %}<span class="session-current-badge">This device</span>{% endif %}
+              </div>
+              <div class="security-item-sub">{{ s.ip_address|default:"—" }} · Last active {{ s.last_active|timesince }} ago</div>
+            </div>
+          </div>
+          {% if s.session_key != current_session_key %}
+            <form method="post" action="{% url 'accounts:session_revoke' s.pk %}" style="margin:0;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out</button>
+            </form>
+          {% endif %}
+        </div>
+      {% empty %}
+        <p class="account-empty">No other active sessions.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% comment %}
+════════════════════════════════════════════════════════════════════════
+GROUP 2 — STORE SETTINGS
+Store-wide details the Owner controls: legal identity, the public About Us
+copy, and the printed PO / receipt layout. Everyone else reads a summary.
+The one #store-settings save posts all three cards together.
+════════════════════════════════════════════════════════════════════════
+{% endcomment %}
+<section class="settings-group" id="store-settings">
+  <div class="settings-group-head">
+    <h2>Store settings</h2>
+    <p>
+      Details that appear on the public site and on printed purchase orders
+      &amp; receipts.
+      {% if not can_edit_store_settings %}Only the store owner can change these.{% endif %}
+    </p>
   </div>
 
-  {% if not two_factor_enabled %}
-    <!-- Inline change-password form (hidden by default) -->
-    <div class="edit-form" id="pwd-form" style="padding:18px 0 4px;">
-      <form method="post" action="{% url 'accounts:change_password' %}">
+  {% if can_edit_store_settings %}
+  <form method="post" action="{% url 'store_settings_update' %}" enctype="multipart/form-data" class="settings-store-form">
+    {% csrf_token %}
+
+    <details class="card card-pad ss-card">
+      <summary class="settings-card-title">
+        Legal details
+        <svg class="ss-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </summary>
+      <div class="ss-card-body">
+        <p class="gv-meta settings-card-note">Printed on official receipts and purchase orders.</p>
+        <div class="edit-grid">
+          <div class="field">
+            <label for="ss_tin">TIN</label>
+            <input type="text" id="ss_tin" name="tin" value="{{ store_settings.tin }}" maxlength="20" placeholder="000-000-000-000">
+          </div>
+          <div class="field">
+            <label for="ss_vat_registration">VAT registration line</label>
+            <input type="text" id="ss_vat_registration" name="vat_registration" value="{{ store_settings.vat_registration }}" maxlength="80"
+              placeholder="e.g. VAT Reg. TIN 000-000-000-000">
+          </div>
+        </div>
+        <div class="edit-actions ss-card-save">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="card card-pad ss-card">
+      <summary class="settings-card-title">
+        About Us page
+        <svg class="ss-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </summary>
+      <div class="ss-card-body">
+        <p class="gv-meta settings-card-note">
+          Shown on the public <a href="/about/" target="_blank" rel="noopener">About Us</a> page.
+          Leave a box blank to keep the built-in text.
+        </p>
+        <div class="stack" style="gap:14px;">
+          <div class="field">
+            <label for="ss_about_hero_lead">Opening paragraph</label>
+            <textarea id="ss_about_hero_lead" name="about_hero_lead" rows="2" maxlength="600">{{ store_settings.about_hero_lead }}</textarea>
+          </div>
+          <div class="field">
+            <label for="ss_about_tagline">Tagline</label>
+            <input type="text" id="ss_about_tagline" name="about_tagline" value="{{ store_settings.about_tagline }}" maxlength="120"
+              placeholder="e.g. Sa Gerlyn, Lahat Panalo.">
+          </div>
+          <div class="field">
+            <label for="ss_about_story">“Our story” section</label>
+            <textarea id="ss_about_story" name="about_story" rows="6" placeholder="One blank line starts a new paragraph.">{{ store_settings.about_story }}</textarea>
+          </div>
+        </div>
+        <div class="edit-actions ss-card-save">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="card card-pad ss-card">
+      <summary class="settings-card-title">
+        Printed purchase orders &amp; receipts
+        <svg class="ss-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </summary>
+      <div class="ss-card-body">
+      <p class="gv-meta settings-card-note">Sets the logo, letterhead and footer that print on every receipt and purchase order. The preview on the right updates as you type, and anything you leave blank is simply left off the printed page.</p>
+      <div class="ss-doc-editor">
+        <div class="ss-doc-fields">
+          <label class="ss-check">
+            <input type="checkbox" name="receipt_show_logo" value="1" data-rp-toggle="rp-logo" {% if store_settings.receipt_show_logo %}checked{% endif %}>
+            Show a logo
+          </label>
+          <div class="field">
+            <label for="ss_receipt_logo">Logo image</label>
+            {% if store_settings.receipt_logo %}
+            <div class="gv-meta" style="margin-bottom:6px;">
+              Current: <a href="{{ store_settings.receipt_logo.url }}" target="_blank" rel="noopener">{{ store_settings.receipt_logo.name }}</a>
+              &nbsp;<label class="ss-check" style="display:inline-flex;"><input type="checkbox" name="receipt_logo_clear" value="1"> remove</label>
+            </div>
+            {% endif %}
+            <input type="file" id="ss_receipt_logo" name="receipt_logo" accept="image/png,image/jpeg,image/webp" data-rp-logo-input>
+          </div>
+          <div class="field">
+            <label for="ss_receipt_letterhead">Letterhead (store name &amp; address)</label>
+            <textarea id="ss_receipt_letterhead" name="receipt_letterhead" rows="3" data-rp="letterhead"
+              placeholder="Gerlyn Variety Store&#10;123 Poblacion, Baliwag, Bulacan">{{ store_settings.receipt_letterhead }}</textarea>
+            <p class="ss-hint">Prints at the very top of every purchase order and receipt, under the logo. Registered business name on the first line, address below. Leave blank to use each branch&rsquo;s own name and location &mdash; when set, the branch is still named on a small line beneath.</p>
+          </div>
+          <div class="field">
+            <label for="ss_receipt_header">Header note (under the letterhead)</label>
+            <textarea id="ss_receipt_header" name="receipt_header" rows="2" data-rp="header">{{ store_settings.receipt_header }}</textarea>
+            <p class="ss-hint">One or two short lines under the branch name and address &mdash; a hotline, opening hours, or a &ldquo;Main office&rdquo; label, for example. Line breaks are kept.</p>
+          </div>
+          <label class="ss-check">
+            <input type="checkbox" name="receipt_show_tin" value="1" data-rp-toggle="rp-tin" {% if store_settings.receipt_show_tin %}checked{% endif %}>
+            Print the TIN on documents
+          </label>
+          <label class="ss-check">
+            <input type="checkbox" name="receipt_show_vat" value="1" data-rp-toggle="rp-vat" {% if store_settings.receipt_show_vat %}checked{% endif %}>
+            Print the VAT registration line on documents
+          </label>
+          <div class="field">
+            <label for="ss_receipt_footer">Footer line</label>
+            <input type="text" id="ss_receipt_footer" name="receipt_footer" value="{{ store_settings.receipt_footer }}" maxlength="200"
+              data-rp="footer" placeholder="e.g. This serves as your official receipt. Thank you!">
+            <p class="ss-hint">Small print across the bottom of both receipts and purchase orders &mdash; usually the &ldquo;This serves as your official receipt&rdquo; notice. Up to 200 characters.</p>
+          </div>
+          <div class="field">
+            <label for="ss_receipt_thank_you">Sales-receipt thank-you line</label>
+            <input type="text" id="ss_receipt_thank_you" name="receipt_thank_you" value="{{ store_settings.receipt_thank_you }}" maxlength="120"
+              data-rp="thanks" placeholder="e.g. Thank you for shopping with us!">
+            <p class="ss-hint">A short thank-you near the bottom of walk-in <strong>sales receipts only</strong> &mdash; purchase orders don&rsquo;t show it. Up to 120 characters.</p>
+          </div>
+        </div>
+
+        <div class="ss-doc-preview" aria-hidden="true">
+          <div class="ss-doc-preview-label">Preview</div>
+          <div class="ss-doc-paper">
+            <img id="rp-logo" src="{% if store_settings.receipt_logo %}{{ store_settings.receipt_logo.url }}{% endif %}"
+                 alt="" {% if not store_settings.receipt_show_logo or not store_settings.receipt_logo %}hidden{% endif %}>
+            <div class="rp-branch" data-rp-out="letterhead" style="white-space:pre-line;" {% if not store_settings.receipt_letterhead %}hidden{% endif %}>{{ store_settings.receipt_letterhead }}</div>
+            <div class="rp-branch" id="rp-branch-primary" {% if store_settings.receipt_letterhead %}hidden{% endif %}>Makinabang Branch</div>
+            <div class="rp-sub" id="rp-branch-sub">{% if store_settings.receipt_letterhead %}Makinabang Branch · Makinabang, Baliwag, Bulacan{% else %}Makinabang, Baliwag, Bulacan{% endif %}</div>
+            <div class="rp-sub" id="rp-tin" {% if not store_settings.receipt_show_tin or not store_settings.tin %}hidden{% endif %}>TIN: <span data-rp-echo="tin">{{ store_settings.tin }}</span></div>
+            <div class="rp-sub" id="rp-vat" {% if not store_settings.receipt_show_vat or not store_settings.vat_registration %}hidden{% endif %}><span data-rp-echo="vat">{{ store_settings.vat_registration }}</span></div>
+            <div class="rp-note" data-rp-out="header" {% if not store_settings.receipt_header %}hidden{% endif %}>{{ store_settings.receipt_header }}</div>
+            <div class="rp-rule"></div>
+            <div class="rp-title">PURCHASE ORDER</div>
+            <table class="rp-items"><tr><td>Sample item × 2</td><td>₱240.00</td></tr></table>
+            <div class="rp-total">TOTAL ₱240.00</div>
+            <div class="rp-thanks" data-rp-out="thanks" {% if not store_settings.receipt_thank_you %}hidden{% endif %}>{{ store_settings.receipt_thank_you }}</div>
+            <div class="rp-foot" data-rp-out="footer" {% if not store_settings.receipt_footer %}hidden{% endif %}>{{ store_settings.receipt_footer }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="edit-actions ss-card-save">
+        <button type="submit" class="btn btn-sm btn-primary">Save</button>
+      </div>
+      </div>
+    </details>
+  </form>
+  {% else %}
+  <div class="card card-pad">
+    <div class="info-grid">
+      <div class="info-field"><label>TIN</label><div class="val">{{ store_settings.tin|default:"—" }}</div></div>
+      <div class="info-field"><label>VAT registration</label><div class="val">{{ store_settings.vat_registration|default:"—" }}</div></div>
+      <div class="info-field" style="grid-column:1/-1;"><label>About Us — opening</label><div class="val">{{ store_settings.about_hero_lead|default:"Using the built-in text." }}</div></div>
+      <div class="info-field" style="grid-column:1/-1;"><label>About Us — our story</label><div class="val" style="white-space:pre-line;">{{ store_settings.about_story|default:"Using the built-in text." }}</div></div>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+{% if can_edit_store_settings %}
+{% comment %}
+════════════════════════════════════════════════════════════════════════
+GROUP 3 — STOREFRONT HOME PAGE (Owner only)
+The rotating banner and side cards on the public home page. Each slide is
+its own save/delete form; #home-hero is the redirect target after either.
+════════════════════════════════════════════════════════════════════════
+{% endcomment %}
+<section class="settings-group">
+  <div class="settings-group-head">
+    <h2>Storefront home page</h2>
+    <p>
+      The rotating banner and the two cards beside it on the
+      {# Owner hits "/" and gets redirected to their dashboard, so the plain #}
+      {# storefront URL never shows them the page they are editing here.     #}
+      <a href="/?preview=1" target="_blank" rel="noopener">public home page</a>.
+      Edits here are held as a <strong>draft</strong> — preview the page, then
+      Apply to publish or Cancel to discard.
+    </p>
+  </div>
+
+  {% if hero_has_pending_changes %}
+  <div class="ss-draft-banner">
+    <div class="ss-draft-banner-text">
+      <strong>You have unpublished home-page changes.</strong>
+      <span class="gv-meta">Visitors still see the previous version until you apply them.</span>
+    </div>
+    <div class="ss-draft-banner-actions">
+      <a class="btn btn-sm btn-quiet" href="/?preview=1" target="_blank" rel="noopener"
+         style="color:var(--action);">Preview</a>
+      <form method="post" action="{% url 'hero_draft_discard' %}" style="margin:0;"
+        data-confirm="Your unpublished hero-slide changes will be thrown away. The live home page stays as it is now."
+        data-confirm-title="Discard home page changes?"
+        data-confirm-variant="danger"
+        data-confirm-ok="Discard changes">
         {% csrf_token %}
-        <div class="stack" style="gap:16px;">
-          <div class="field">
-            <label for="id_current_password">Current Password</label>
-            <div style="position:relative;">
-              <input type="password" id="id_current_password" name="current_password"
-                placeholder="Enter current password" style="padding-right:44px;">
-              <button type="button" onclick="togglePwd('id_current_password', this)"
-                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
-                <svg id="id_current_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="id_new_password">New Password</label>
-            <div style="position:relative;">
-              <input type="password" id="id_new_password" name="new_password"
-                placeholder="Enter new password"
-                pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
-                title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
-                style="padding-right:44px;">
-              <button type="button" onclick="togglePwd('id_new_password', this)"
-                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
-                <svg id="id_new_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-            <div class="gv-meta" style="margin-top:4px;">Must include an uppercase letter, a number, and a special character.</div>
-          </div>
-          <div class="field">
-            <label for="id_confirm_password">Confirm New Password</label>
-            <div style="position:relative;">
-              <input type="password" id="id_confirm_password" name="confirm_password"
-                placeholder="Re-enter new password" style="padding-right:44px;">
-              <button type="button" onclick="togglePwd('id_confirm_password', this)"
-                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
-                <svg id="id_confirm_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="edit-actions" style="margin-top:20px;">
-          <button type="button" class="btn btn-sm" onclick="togglePasswordForm()">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary">Save password</button>
-        </div>
+        <input type="hidden" name="return_to" value="settings">
+        <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Discard</button>
+      </form>
+      <form method="post" action="{% url 'hero_draft_apply' %}" style="margin:0;">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="settings">
+        <button type="submit" class="btn btn-sm btn-primary">Apply changes</button>
       </form>
     </div>
+  </div>
   {% endif %}
 
-  <!-- Two-Factor Authentication -->
-  <div class="security-item">
-    <div class="security-item-info">
-      <div class="security-item-icon"><i data-lucide="shield-check" style="width:16px;height:16px;"></i></div>
-      <div>
-        <div class="security-item-label">Two-Factor Authentication</div>
-        <div class="security-item-sub">
-          {% if not two_factor_enabled and not is_email_verified %}
-            Verify your email address first to enable this
-          {% else %}
-            Add an extra layer of security to your account
-          {% endif %}
-        </div>
-      </div>
+  <div class="card card-pad" id="home-hero">
+    <div class="settings-card-title" style="justify-content:space-between;">
+      <span>Hero &amp; announcements</span>
+      <a class="btn btn-sm btn-quiet" href="/?preview=1" target="_blank" rel="noopener"
+         style="color:var(--action); font-weight:600;">
+        Preview home page
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
     </div>
-    {% if not two_factor_enabled and not is_email_verified %}
-      <label class="toggle" title="Verify your email address before enabling two-factor authentication">
-        <input type="checkbox" disabled>
-        <span class="toggle-track"></span>
-      </label>
-    {% else %}
-      <label class="toggle" title="{% if two_factor_enabled %}Disable{% else %}Enable{% endif %} two-factor authentication">
-        <input type="checkbox" id="tfa-checkbox" {% if two_factor_enabled %}checked{% endif %} onclick="event.preventDefault(); openTfaModal();">
-        <span class="toggle-track"></span>
-      </label>
-    {% endif %}
-  </div>
+    <p class="gv-meta settings-card-note">
+      Use a <strong>rotating slide</strong> for an announcement or promo; use a
+      <strong>side card</strong> for a standing note (max two show). With none
+      active, the built-in banner runs.
+    </p>
 
-  <!-- Sessions -->
-  <div class="security-item" style="border-bottom:0;">
-    <div class="security-item-info">
-      <div class="security-item-icon"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;"></i></div>
-      <div>
-        <div class="security-item-label">Sessions</div>
-        <div class="security-item-sub">See and log out devices signed in to your account</div>
+    {% for slide in hero_slides %}
+    <details class="ss-slide{% if slide.pending_delete %} ss-slide-removing{% endif %}"{% if not slide.is_active %} data-inactive="1"{% endif %}>
+      <summary>
+        <span class="ss-slide-tag">{{ slide.get_placement_display }}</span>
+        <span class="ss-slide-name">{{ slide.headline|default:"(no headline)" }}</span>
+        {% if slide.pending_delete %}<span class="ss-slide-off">staged for removal</span>
+        {% elif slide.is_draft %}<span class="ss-slide-draft">unpublished</span>{% endif %}
+        {% if not slide.is_active and not slide.pending_delete %}<span class="ss-slide-off">hidden</span>{% endif %}
+      </summary>
+      {% if slide.pending_delete %}
+      <div class="ss-slide-form">
+        <p class="gv-meta" style="margin:0 0 12px;">
+          This slide leaves the home page when you apply your changes.
+        </p>
+        <form method="post" action="{% url 'hero_slide_save' %}" style="margin:0;">
+          {% csrf_token %}
+          <input type="hidden" name="slide_id" value="{{ slide.pk }}">
+          <button type="submit" name="undo_delete" value="1" class="btn btn-sm">Keep this slide</button>
+        </form>
       </div>
-    </div>
-    <button type="button" class="btn btn-sm btn-quiet" id="sessions-toggle-btn" onclick="toggleSessionsPanel()" style="color:var(--action);">Manage</button>
-  </div>
-
-  <div class="edit-form" id="sessions-panel" style="padding:16px 0 0;">
-    {% if sessions|length > 1 %}
-      <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0 0 8px; text-align:right;"
-            data-confirm="Every other device signed in to this account will be signed out. This one stays signed in."
-            data-confirm-title="Log out of all other sessions?"
-            data-confirm-variant="warn"
-            data-confirm-ok="Log them out">
+      {% else %}
+      <form method="post" action="{% url 'hero_slide_save' %}" class="ss-slide-form">
         {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out all other sessions</button>
-      </form>
-    {% endif %}
-    {% for s in sessions %}
-      <div class="security-item">
-        <div class="security-item-info">
-          <div class="security-item-icon"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;"></i></div>
-          <div>
-            <div class="security-item-label">
-              {{ s.device_label }}
-              {% if s.session_key == current_session_key %}<span class="session-current-badge">This device</span>{% endif %}
-            </div>
-            <div class="security-item-sub">{{ s.ip_address|default:"—" }} · Last active {{ s.last_active|timesince }} ago</div>
-          </div>
+        <input type="hidden" name="slide_id" value="{{ slide.pk }}">
+        {% include "partials/_hero_slide_fields.html" with slide=slide is_add=0 icon_choices=hero_icon_choices placement_choices=hero_placement_choices %}
+        <div class="edit-actions" style="margin-top:14px; justify-content:space-between;">
+          {% comment %}
+          Its own form, not a button inside the edit form: confirm-dialog.js
+          reads data-confirm off the <form>, and its commit path calls
+          form.submit(), which would drop a formaction override.
+          {% endcomment %}
+          <button type="submit" form="hero-del-{{ slide.pk }}"
+            class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Delete</button>
+          <button type="submit" class="btn btn-sm btn-primary">Save slide</button>
         </div>
-        {% if s.session_key != current_session_key %}
-          <form method="post" action="{% url 'accounts:session_revoke' s.pk %}" style="margin:0;">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out</button>
-          </form>
-        {% endif %}
-      </div>
+      </form>
+      <form method="post" action="{% url 'hero_slide_delete' %}" id="hero-del-{{ slide.pk }}"
+        data-confirm="“{{ slide.headline }}” will be staged for removal from the home page. It stays live until you apply your changes."
+        data-confirm-title="Remove this hero slide?"
+        data-confirm-variant="danger"
+        data-confirm-ok="Remove slide">
+        {% csrf_token %}
+        <input type="hidden" name="slide_id" value="{{ slide.pk }}">
+      </form>
+      {% endif %}
+    </details>
     {% empty %}
-      <p class="account-empty">No other active sessions.</p>
+    <p class="gv-meta" style="margin:0 0 16px;">No custom slides yet — the storefront shows its built-in banner.</p>
     {% endfor %}
-  </div>
-</div>
 
-<div class="card card-pad">
-  <div class="account-card-title" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; font:600 16px/1.2 var(--font-sans); color:var(--ink-900);">
-    <i data-lucide="store" style="width:18px;height:18px;"></i>
-    Store Settings
+    <details class="ss-slide ss-slide-add">
+      <summary><span class="ss-slide-name">＋ Add a slide or side card</span></summary>
+      <form method="post" action="{% url 'hero_slide_save' %}" class="ss-slide-form">
+        {% csrf_token %}
+        <input type="hidden" name="slide_id" value="">
+        {% include "partials/_hero_slide_fields.html" with is_add=1 icon_choices=hero_icon_choices placement_choices=hero_placement_choices %}
+        <div class="edit-actions" style="margin-top:14px;">
+          <button type="submit" class="btn btn-sm btn-primary">Add slide</button>
+        </div>
+      </form>
+    </details>
   </div>
-  <p class="gv-meta" style="margin:0;">
-    Store-wide configuration (branch defaults, low-stock thresholds, receipt details, and similar) isn't built yet —
-    this section is a placeholder until that scope is defined.
-  </p>
-</div>
+</section>
+{% endif %}
 
 <!-- ── Confirm-password modal (2FA toggle) ── -->
 <div class="modal-overlay" id="tfa-modal">
@@ -468,5 +912,78 @@ document.addEventListener('keydown', function (e) {
     closeTfaModal();
   }
 });
+
+// ── Printed-document live preview ─────────────────────────────────────────
+// Mirrors the receipt/PO fields into the mock document beside them. No
+// network — it just reflects what's typed. Absent (Staff view has no form),
+// this whole block no-ops.
+(function () {
+  var editor = document.querySelector('.ss-doc-editor');
+  if (!editor) return;
+  var paper = editor.querySelector('.ss-doc-paper');
+
+  function bindText(name) {
+    var input = editor.querySelector('[data-rp="' + name + '"]');
+    var out = paper.querySelector('[data-rp-out="' + name + '"]');
+    if (!input || !out) return;
+    input.addEventListener('input', function () {
+      out.textContent = input.value;
+      out.hidden = input.value.trim() === '';
+    });
+  }
+  ['letterhead', 'header', 'footer', 'thanks'].forEach(bindText);
+
+  // Letterhead: when the Owner types one it replaces the sample branch name
+  // and the branch drops to a small identifying line, mirroring the print
+  // templates' fallback.
+  (function () {
+    var lh = editor.querySelector('[data-rp="letterhead"]');
+    var primary = paper.querySelector('#rp-branch-primary');
+    var sub = paper.querySelector('#rp-branch-sub');
+    if (!lh || !primary || !sub) return;
+    lh.addEventListener('input', function () {
+      var has = lh.value.trim() !== '';
+      primary.hidden = has;
+      sub.textContent = has
+        ? 'Makinabang Branch · Makinabang, Baliwag, Bulacan'
+        : 'Makinabang, Baliwag, Bulacan';
+    });
+  })();
+
+  // TIN / VAT: a checkbox shows the line, and its value echoes the matching
+  // legal field so the preview shows the real text.
+  [['rp-tin', 'tin'], ['rp-vat', 'vat_registration']].forEach(function (pair) {
+    var toggle = editor.querySelector('[data-rp-toggle="' + pair[0] + '"]');
+    var row = paper.querySelector('#' + pair[0]);
+    var src = document.getElementById('ss_' + pair[1]);
+    var echo = row ? row.querySelector('[data-rp-echo]') : null;
+    if (!toggle || !row) return;
+    function sync() {
+      if (echo && src) echo.textContent = src.value;
+      var hasText = src ? src.value.trim() !== '' : true;
+      row.hidden = !(toggle.checked && hasText);
+    }
+    toggle.addEventListener('change', sync);
+    if (src) src.addEventListener('input', sync);
+    sync();
+  });
+
+  // Logo: checkbox + file picker.
+  var logoToggle = editor.querySelector('[data-rp-toggle="rp-logo"]');
+  var logoInput = editor.querySelector('[data-rp-logo-input]');
+  var logoImg = paper.querySelector('#rp-logo');
+  function syncLogo() {
+    if (!logoImg) return;
+    logoImg.hidden = !(logoToggle && logoToggle.checked && logoImg.getAttribute('src'));
+  }
+  if (logoToggle) logoToggle.addEventListener('change', syncLogo);
+  if (logoInput && logoImg) {
+    logoInput.addEventListener('change', function () {
+      var f = logoInput.files && logoInput.files[0];
+      if (f) { logoImg.src = URL.createObjectURL(f); }
+      syncLogo();
+    });
+  }
+})();
 </script>
 {% endblock %}

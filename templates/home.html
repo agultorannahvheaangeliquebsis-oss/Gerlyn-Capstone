@@ -69,10 +69,72 @@
       padding: 16px 0 !important;
     }
   }
+
+  /* ── Preview bar (Owner only, /?preview=1) ─────────────────────────────
+     Scoped to this page — the storefront never shows it to a real shopper
+     because home_view only sets hero_preview for an internal user. */
+  .preview-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1200;
+    background: #1E7A4F; color: #fff;
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, .22);
+  }
+  .preview-bar-inner {
+    max-width: 1200px; margin: 0 auto; padding: 10px 16px;
+    display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap;
+    font-size: 13px; line-height: 1.4;
+  }
+  .preview-bar-msg { flex: 1 1 220px; }
+  .preview-bar-msg strong { font-weight: 700; }
+  .preview-bar-actions { display: flex; gap: 8px; }
+  .preview-bar form { margin: 0; }
+  .preview-bar .pv-btn {
+    font: 600 13px/1 var(--font-sans, sans-serif); cursor: pointer;
+    padding: 8px 14px; border-radius: 8px; border: 1.5px solid #fff;
+    background: transparent; color: #fff;
+  }
+  .preview-bar .pv-btn-primary { background: #fff; color: #1E7A4F; }
+  .preview-bar-back { color: #fff; font-weight: 600; white-space: nowrap; text-decoration: underline; }
+  /* Without this the global a:hover (dark green) turns the link near-invisible
+     against the green preview bar. */
+  .preview-bar-back:hover,
+  .preview-bar-back:focus { color: #fff; opacity: .82; }
+  .preview-bar-spacer { height: 56px; }
 </style>
 {% endblock %}
 
 {% block content %}
+
+{% if hero_preview %}
+<div class="preview-bar" role="region" aria-label="Home page preview">
+  <div class="preview-bar-inner">
+    {% if hero_has_pending_changes %}
+    <span class="preview-bar-msg">
+      <strong>Previewing unpublished changes.</strong>
+      Visitors still see the current home page until you apply these.
+    </span>
+    <div class="preview-bar-actions">
+      <form method="post" action="{% url 'hero_draft_discard' %}"
+        data-confirm="Your unpublished hero-slide changes will be thrown away. The live home page stays exactly as it is now."
+        data-confirm-title="Discard home page changes?"
+        data-confirm-variant="danger"
+        data-confirm-ok="Discard changes">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="preview">
+        <button type="submit" class="pv-btn">Cancel</button>
+      </form>
+      <form method="post" action="{% url 'hero_draft_apply' %}">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="preview">
+        <button type="submit" class="pv-btn pv-btn-primary">Apply changes</button>
+      </form>
+    </div>
+    {% else %}
+    <span class="preview-bar-msg">Home page preview — no unpublished changes.</span>
+    {% endif %}
+    <a class="preview-bar-back" href="{% url 'internal_settings' %}#home-hero">Back to settings</a>
+  </div>
+</div>
+{% endif %}
 
 <!-- ================= DESKTOP VIEW ================= -->
 <div class="desktop-hero-box">
@@ -143,6 +205,11 @@
     </div>
 
 </div>
+
+{% if hero_preview %}
+{# Keeps the fixed preview bar from covering the footer. #}
+<div class="preview-bar-spacer" aria-hidden="true"></div>
+{% endif %}
 
 {% endblock %}
 

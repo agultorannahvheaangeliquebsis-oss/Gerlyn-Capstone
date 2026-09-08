@@ -937,7 +937,21 @@ input::placeholder { color: var(--ink-500); }
   border-left: 1.5px solid var(--line);
 }
 .sb-tree.open { grid-template-rows: 1fr; }
-.sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 2px 0 0 5px; }
+/* No padding-top. On a closed group that padding was the one part with any
+   height left, propping .sb-tree open by 2px - just enough for its
+   border-left rail to paint a stray tick in the gutter under every collapsed
+   group, a row of dots down the rail with nothing above or below them.
+   .sb-tree-root's own 2px gap already separates the header from the files.
+
+   A closed group is clipped but NOT inert by CSS alone: overflow: hidden
+   hides these links while leaving them in the layout and in the tab order,
+   stacked directly under the group header - which is where the NEXT group's
+   row is drawn. Tabbing into one used to park the sliding highlight on it and
+   paint a green card across a row it had nothing to do with. sidebar.js sets
+   the `inert` attribute on a closed .sb-tree to take those rows out of the
+   tab order and hit-testing at the moment it closes, and refuses them as a
+   highlight target besides. */
+.sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 0 0 0 5px; }
 .sb-tree-file { min-height: 38px; font-weight: 500; color: var(--ink-600); }
 .sb-tree-file:hover { color: var(--action-700); }
 .sb-tree-file--active,
@@ -1333,50 +1347,35 @@ input::placeholder { color: var(--ink-500); }
 
 /* ------------------------------------------------------- confirm dialog
    The one-question modal: a stop placed in front of an action that cannot be
-   taken back. Deliberately NOT the same shape as .modal-card above — that one
-   is a workspace you fill in, this one is a question you answer, so it is
-   narrower, centre-aligned, and its two buttons are equal halves rather than
-   a right-aligned pair. Nothing in here is reachable by a page that does not
-   opt in: confirm-dialog.js builds the markup, and it only builds it for a
-   form carrying data-confirm.
+   taken back. Same three parts as .modal-card above — a titled head with a
+   close control, a block of body copy, and a right-aligned button pair — so a
+   delete prompt reads as an ordinary modal rather than a special object. (It
+   was once a centre-aligned medallion layout; that is gone.) Nothing in here
+   is reachable by a page that does not opt in: confirm-dialog.js builds the
+   markup, and only for a form carrying data-confirm.
 
    Two variants, and the difference is meaning, not decoration:
-     .confirm-danger — the record is destroyed (delete)
-     .confirm-warn   — the record survives but the state change is not
-                       reversible from the same screen (cancel, deactivate)
-   There is no success variant on purpose. A success modal makes the user
-   dismiss a dialog to acknowledge something that already worked; success is
-   the .banner at the top of .content, which needs no click. */
-.confirm-card { max-width: 420px; }
-.confirm-body {
-  padding: var(--s8) var(--s6) var(--s4);
-  display: flex; flex-direction: column; align-items: center;
-  text-align: center; gap: var(--s3);
-}
-/* The medallion. --r-card rather than a full circle so it reads as part of
-   the same family as .card and .btn instead of a floating bubble. */
-.confirm-icon {
-  width: 56px; height: 56px; flex: none;
-  border-radius: var(--r-card);
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.confirm-icon svg { display: block; width: 26px; height: 26px; }
-.confirm-danger .confirm-icon { background: var(--danger-bg); color: var(--danger-dot); }
-.confirm-warn   .confirm-icon { background: var(--warn-bg);   color: var(--warn-cta); }
+     danger — the record is destroyed (delete)
+     warn   — the record survives but the state change is not reversible from
+              the same screen (cancel, deactivate)
+   The only thing they change is the confirming button (btn-danger-solid vs
+   btn-primary), set in confirm-dialog.js. There is no success variant on
+   purpose — success is the .banner at the top of .content, which needs no
+   click. */
+.confirm-card { max-width: 440px; }
+/* Same box as .modal-body — the scale has no --s5, and an undefined token
+   silently voids the whole padding declaration. */
+.confirm-body { padding: var(--s6); }
+/* Plain body copy, no tint — the same neutral prose colour a paragraph gets
+   anywhere else. The message names the record; it is not a warning banner. */
+.confirm-text { margin: 0; color: var(--ink-700); font-size: 14.5px; line-height: 1.5; }
+.confirm-text strong { color: var(--ink-900); font-weight: 650; }
 
-.confirm-title {
-  font: 650 20px/1.25 var(--font-sans);
-  margin: 0; color: var(--ink-900);
+.confirm-foot {
+  display: flex; justify-content: flex-end; gap: var(--s3);
+  padding: var(--s4) var(--s6);
+  border-top: 1px solid var(--line);
 }
-/* --ink-500, not --ink-400: this runs at 14.5px, below the 18.66px-bold
-   large-text allowance, so it needs the 4.5:1 token (see §tokens). */
-.confirm-text { margin: 0; color: var(--ink-500); font-size: 14.5px; line-height: 1.5; }
-
-.confirm-foot { display: flex; gap: var(--s3); padding: var(--s4) var(--s6) var(--s6); }
-/* Equal halves. Cancel is not the smaller target — reaching for it is the
-   recovery path, and a recovery path should never be harder to hit than the
-   destructive one it undoes. */
-.confirm-foot .btn { flex: 1 1 0; justify-content: center; }
 
 @media (prefers-reduced-motion: no-preference) {
   .confirm-card { animation: confirm-in .16s ease-out; }

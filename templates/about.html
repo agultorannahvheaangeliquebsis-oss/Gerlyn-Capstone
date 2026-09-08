@@ -40,21 +40,32 @@ never signed in sees, so it carries the storefront chrome instead.
     </span>
     <span class="about-badge">{% t "Celebrating 10 years in 2026" %}</span>
     <h1>{% t "Gerlyn Variety Store" %}</h1>
+    {% comment %}
+    The lead, tagline and "Our story" below are Owner-editable
+    (core.models.StoreSetting, on the internal Settings page). Left blank
+    they fall back to the copy the store already shipped, so this page is
+    never empty. Owner text is not run through {% t %} — it is whatever the
+    Owner typed, in whatever language they typed it.
+    {% endcomment %}
     <p class="about-lead">
-      {% t "Ten years of serving Baliwag — one counter at a time. From a single variety store to four branches, we are still the neighbours you send the kids to." %}
+      {% if store_settings.about_hero_lead %}{{ store_settings.about_hero_lead }}{% else %}{% t "Ten years of serving Baliwag — one counter at a time. From a single variety store to four branches, we are still the neighbours you send the kids to." %}{% endif %}
     </p>
-    <p class="about-tag">{% t "Sa Gerlyn, Lahat Panalo." %}</p>
+    <p class="about-tag">{% if store_settings.about_tagline %}{{ store_settings.about_tagline }}{% else %}{% t "Sa Gerlyn, Lahat Panalo." %}{% endif %}</p>
     <a class="btn btn-primary" href="{% url 'orders:catalog' %}">{% t "Browse products" %} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
   </section>
 
   <section class="about-story">
     <h2>{% t "Our story" %}</h2>
+    {% if store_settings.about_story %}
+      {{ store_settings.about_story|linebreaks }}
+    {% else %}
     <p>
       {% t "Gerlyn Variety Store started with one counter and one family. We stocked what the neighbours actually needed: rice, canned goods, soap, the late-night sachet. What kept people coming back was simple — we knew them, and we remembered what they buy." %}
     </p>
     <p>
       {% t "Ten years on, that one store has become four. Gerlyn Variety Store, Gerlyn Mega Save Mini Mart, Gerlyn Bigasan and Gerlyn Savers Mini Mart serve Tiaong and Tarcan Makinabang. Groceries, household goods, bulk supplies, rice by the sack — still family-run, still here in Baliwag." %}
     </p>
+    {% endif %}
   </section>
 
   <div class="about-grid">

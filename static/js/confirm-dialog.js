@@ -36,12 +36,7 @@
 (function () {
   'use strict';
 
-  var ICONS = {
-    danger: '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6"/><path d="M10 11v6M14 11v6"/>',
-    warn: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/>'
-  };
-
-  var overlay, card, iconEl, titleEl, textEl, okBtn, cancelBtn, closeBtn;
+  var overlay, titleEl, textEl, okBtn, cancelBtn, closeBtn;
   var pendingForm = null;
   var lastFocused = null;
 
@@ -51,7 +46,8 @@
     overlay.innerHTML =
       '<div class="modal-card confirm-card" role="alertdialog" aria-modal="true"' +
       ' aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-text">' +
-        '<div class="modal-head" style="border-bottom:none; padding-bottom:0; justify-content:flex-end;">' +
+        '<div class="modal-head">' +
+          '<h2 id="confirm-dialog-title"></h2>' +
           '<button type="button" class="modal-close" data-confirm-close aria-label="Close">' +
             '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
             ' stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/>' +
@@ -59,8 +55,6 @@
           '</button>' +
         '</div>' +
         '<div class="confirm-body">' +
-          '<span class="confirm-icon" data-confirm-icon aria-hidden="true"></span>' +
-          '<h2 class="confirm-title" id="confirm-dialog-title"></h2>' +
           '<p class="confirm-text" id="confirm-dialog-text"></p>' +
         '</div>' +
         '<div class="confirm-foot">' +
@@ -70,8 +64,6 @@
       '</div>';
     document.body.appendChild(overlay);
 
-    card = overlay.querySelector('.confirm-card');
-    iconEl = overlay.querySelector('[data-confirm-icon]');
     titleEl = overlay.querySelector('#confirm-dialog-title');
     textEl = overlay.querySelector('#confirm-dialog-text');
     okBtn = overlay.querySelector('[data-confirm-ok]');
@@ -107,12 +99,10 @@
     pendingForm._confirmSubmitter = submitter || null;
     lastFocused = document.activeElement;
 
+    /* danger destroys the record, warn is a state change that can't be undone
+       here — the only thing that now differs between them is the confirming
+       button's treatment. */
     var variant = form.dataset.confirmVariant === 'warn' ? 'warn' : 'danger';
-    card.classList.remove('confirm-danger', 'confirm-warn');
-    card.classList.add('confirm-' + variant);
-    iconEl.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
-      ' stroke-linecap="round" stroke-linejoin="round">' + ICONS[variant] + '</svg>';
 
     titleEl.textContent = form.dataset.confirmTitle || 'Are you sure?';
     textEl.textContent = form.dataset.confirm || '';

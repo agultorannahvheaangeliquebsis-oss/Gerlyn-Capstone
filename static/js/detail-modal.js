@@ -16,6 +16,13 @@
    added to a detail page shows up in the modal because it is the same
    template, rendered by the same view, guarded by the same branch checks.
 
+   The trigger is normally the eye button, but a bare click anywhere on its
+   row opens the same record: an internal-system row carries one "see" action
+   and nothing else worth clicking, so the whole strip of cells is a fair
+   target. A click that lands on its own control — another link, a button, a
+   form field — or one that finishes a text selection is left alone, and the
+   eye button stays in place for keyboard users and as the visible affordance.
+
    Progressive enhancement, so nothing here is load-bearing:
      - the trigger stays a real <a href> to the full page. No JS (or a fetch
        that fails) means the click navigates, exactly as it did before.
@@ -59,12 +66,20 @@
   }
 
   function open(title) {
-    lastFocused = document.activeElement;
+    // Only when the overlay is being raised from the page — not on a
+    // modal-to-modal hop (Print PO from an already-open detail modal), where
+    // document.activeElement is a control inside .modal-body that the next
+    // line is about to destroy, leaving close() nothing real to focus.
+    if (!overlay.classList.contains('is-open')) lastFocused = document.activeElement;
     titleEl.textContent = title || 'Details';
     bodyEl.innerHTML = SKELETON;
     overlay.classList.add('is-open');
     overlay.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
+    // A hook for a fragment that needs to know it is being read inside the
+    // overlay rather than on a page of its own — the printable purchase
+    // order uses it to drop the list behind the overlay from window.print().
+    document.body.classList.add('detail-modal-open');
     // The dialog itself takes focus, not the close button: Escape and Tab
     // both need focus inside the overlay, but landing it on Close draws a
     // focus ring around the one control whose job is to undo the click the
@@ -76,6 +91,7 @@
     overlay.classList.remove('is-open');
     overlay.setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
+    document.body.classList.remove('detail-modal-open');
     // Emptied on close, not on open: a stale record must never flash behind
     // the spinner the next time the overlay is raised.
     bodyEl.innerHTML = '';
@@ -128,8 +144,48 @@
     }
   }
 
+  /* From a click, the eye button it should stand in for: the button itself
+     when that is what was hit, otherwise the one in the surrounding row —
+     unless the click was really meant for something else in that row. */
+  function resolveTrigger(e) {
+    if (!e.target.closest) return null;
+
+    var direct = e.target.closest('a[data-detail-modal]');
+    if (direct) return direct;
+
+    var row = e.target.closest('tr');
+    if (!row) return null;
+    var rowLink = row.querySelector('a[data-detail-modal][href]');
+    if (!rowLink) return null;
+
+    // A control in the row that owns this click — another link, a button, a
+    // form or a form field — keeps it. Only bare cell space falls through to
+    // the row.
+    var own = e.target.closest('a, button, input, select, textarea, label, form, [role="button"], [onclick]');
+    if (own && own !== rowLink) return null;
+
+    // A click that ended a drag-select of text in the row was after the text,
+    // not the record.
+    var sel = window.getSelection && window.getSelection();
+    if (sel && sel.type === 'Range' && String(sel).trim()) return null;
+
+    return rowLink;
+  }
+
+  // Point the cursor on rows a bare click will open — the hover tint the
+  // list already carries is the other half of the hint. Left off when JS is
+  // absent, which is right: the row does nothing then.
+  function markRows() {
+    var links = document.querySelectorAll('tr a[data-detail-modal][href]');
+    for (var i = 0; i < links.length; i++) {
+      var row = links[i].closest('tr');
+      if (row) row.style.cursor = 'pointer';
+    }
+  }
+  markRows();
+
   document.addEventListener('click', function (e) {
-    var link = e.target.closest ? e.target.closest('a[data-detail-modal]') : null;
+    var link = resolveTrigger(e);
     if (!link) return;
     // Anything but a plain left click is the user asking the browser for a
     // page — a new tab, a new window, a saved link. Let them have it.

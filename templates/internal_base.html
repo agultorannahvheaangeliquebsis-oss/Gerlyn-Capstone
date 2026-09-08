@@ -76,7 +76,7 @@ DOM — it is off-screen until focused (see .skip-link).
       {# ---------------------------------------------------------- Inventory #}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-inventory" title="Inventory"
-          aria-expanded="{% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'withdrawals' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'withdrawals' %}true{% else %}false{% endif %}">
           <i data-lucide="package"></i>
           <span class="sb-label">Inventory</span>
           <i class="sb-chevron" data-lucide="chevron-right"></i>

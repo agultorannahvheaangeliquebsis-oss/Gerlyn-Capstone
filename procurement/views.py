@@ -1287,10 +1287,6 @@ def supplier_delete(request, pk):
     open_orders = Procurement.objects.filter(supplier=supplier).exclude(
         status__in=[Procurement.Status.RECEIVED, Procurement.Status.CANCELLED]
     ).count()
-    # Deleting cascades SupplierProduct away silently, so surface the count
-    # and point at the transfer flow — moving the catalog to another supplier
-    # is almost always what's actually wanted before retiring one.
-    linked_products = SupplierProduct.objects.filter(supplier=supplier).count()
 
     if request.method == 'POST':
         if open_orders:
@@ -1304,11 +1300,9 @@ def supplier_delete(request, pk):
         messages.success(request, f'Supplier "{name}" deleted.')
         return redirect('supplier_list')
 
-    return render(request, 'procurement/supplier_confirm_delete.html', {
-        'supplier': supplier,
-        'open_orders': open_orders,
-        'linked_products': linked_products,
-    })
+    # The confirm step is a modal on the supplier list now (confirm-dialog.js
+    # off the row's Delete button). A direct GET here just goes to the list.
+    return redirect('supplier_list')
 
 
 # =============================================================================

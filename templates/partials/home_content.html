@@ -26,7 +26,35 @@ heading changing every six seconds.
 <div class="shop-wrap">
   <div class="banner-rail">
 
+    {% comment %}
+    The rotating slides and the two side cards are Owner-editable
+    (core.models.HomeHeroSlide, managed on the internal Settings page).
+    When nothing is active for a placement the built-in copy below runs
+    instead, so the hero is never empty. The rotator JS
+    (partials/home_extra_js.html) takes any slide count — it just stays
+    static below two.
+    {% endcomment %}
     <div class="banner-main" id="banner-rotator">
+      {% if hero_slides %}
+        {% for s in hero_slides %}
+        <a class="banner-slide{% if forloop.first %} is-active{% endif %}" href="{{ s.cta_url }}" data-slide {% if not forloop.first %}tabindex="-1"{% endif %}>
+          <span class="eyebrow">
+            {% include "partials/_hero_icon.html" with key=s.icon size=15 %}
+            {{ s.eyebrow }}
+          </span>
+          <h2>{{ s.headline }}</h2>
+          <p>{{ s.body }}</p>
+          {% if s.cta_label %}<span class="banner-cue">{{ s.cta_label }} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>{% endif %}
+        </a>
+        {% endfor %}
+        {% if hero_slides|length > 1 %}
+        <div class="banner-dots" role="tablist" aria-label="Store highlights">
+          {% for s in hero_slides %}
+          <button class="banner-dot" type="button" role="tab" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" aria-label="{{ s.headline }}" data-dot></button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% else %}
       <a class="banner-slide is-active" href="{% url 'orders:catalog' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
@@ -63,9 +91,33 @@ heading changing every six seconds.
         <button class="banner-dot" type="button" role="tab" aria-selected="false" aria-label="Three branches"  data-dot></button>
         <button class="banner-dot" type="button" role="tab" aria-selected="false" aria-label="Cash on delivery" data-dot></button>
       </div>
+      {% endif %}
     </div>
 
     <div class="banner-side">
+      {% if hero_side_cards %}
+        {% for s in hero_side_cards %}
+        <a class="banner-card" href="{{ s.cta_url }}">
+          <span class="bc-ic">{% include "partials/_hero_icon.html" with key=s.icon size=18 %}</span>
+          <span class="bc-t">{{ s.headline }}</span>
+          <span class="bc-s">{{ s.body }}</span>
+        </a>
+        {% endfor %}
+        {% if hero_side_cards|length == 1 %}
+        {% comment %}
+        .banner-side is a 1fr 1fr grid — one card alone would leave the lower
+        half empty next to the full-height rotator. Pad with the built-in
+        second card so a partial config still looks finished.
+        {% endcomment %}
+        <a class="banner-card" href="{% url 'orders:select_branch' %}">
+          <span class="bc-ic">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          </span>
+          <span class="bc-t">Delivery or pickup</span>
+          <span class="bc-s">Free delivery within Baliuag over ₱500, or collect at a branch.</span>
+        </a>
+        {% endif %}
+      {% else %}
       <a class="banner-card" href="{% url 'orders:catalog' %}">
         <span class="bc-ic">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
@@ -88,6 +140,7 @@ heading changing every six seconds.
         <span class="bc-t">Delivery or pickup</span>
         <span class="bc-s">Free delivery within Baliuag over ₱500, or collect at a branch.</span>
       </a>
+      {% endif %}
     </div>
 
   </div>

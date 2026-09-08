@@ -1,20 +1,28 @@
-{% extends "internal_base.html" %}
+{% extends base_template %}
 {% load static %}
 {% block title %}{{ procurement.po_number }} — Purchase Order{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
 
 {% comment %}
-The printable purchase order. It extends internal_base so it previews inside
-the app shell (back link, nav, the Print button) — the global @media print
-block in gerlyn.css already strips all of that chrome, and .po-doc below
-restyles what's left into a document rather than a dashboard card.
+The printable purchase order. Like every other record it extends
+base_template, so a direct visit gets the full app shell for a preview and
+the "Print PO" link on the detail page opens it (?modal=1) in the same
+#detail-modal overlay the rest of the system uses — the Print button below
+then calls window.print() from inside that overlay. The global @media print
+block in gerlyn.css strips the shell chrome; the @media print rules in the
+<style> below strip the overlay's own framing and the list still sitting
+behind it, and .po-doc restyles what's left into a document.
+
+The <style> lives inside the content block, not in an extra_css block,
+because _modal_base.html renders only the content block — the CSS has to
+travel with the fragment.
 
 Deliberately read-only: nothing here posts. Editing a PO happens on the
 detail page; this is the artefact that leaves the building.
 {% endcomment %}
 
-{% block extra_css %}
+{% block content %}
 <style>
   /* A document, not a dashboard. Fixed to a page-width column so what's on
      screen is what comes out of the printer. */
@@ -34,6 +42,11 @@ detail page; this is the artefact that leaves the building.
   }
   .po-store-name { font-size: 19px; font-weight: 700; line-height: 1.25; }
   .po-store-sub  { font-size: 12px; color: #555; margin-top: 2px; }
+  .po-logo { max-height: 48px; width: auto; margin-bottom: 8px; display: block; }
+  .po-header-note {
+    font-size: 12px; color: #555; line-height: 1.5;
+    margin-top: 10px; white-space: pre-line;
+  }
   .po-doc-title  { font-size: 22px; font-weight: 700; letter-spacing: .06em; text-align: right; }
   .po-doc-meta   { font-size: 12px; text-align: right; margin-top: 6px; line-height: 1.6; }
   .po-doc-meta strong { font-size: 13px; }
@@ -104,23 +117,52 @@ detail page; this is the artefact that leaves the building.
     padding: 8px 12px; margin-bottom: 16px; font-weight: 600;
   }
 
+  /* On a narrow screen the A4 gutters are too much of the modal's width —
+     enough that the item table starts wrapping. Only the on-screen preview
+     is affected; print always restores the full page-width padding below. */
+  @media (max-width: 700px) {
+    .po-doc { padding: 16px 14px; }
+  }
+
   @media print {
-    /* internal_base's shell is already hidden by the global print block;
-       this just drops the document's own on-screen framing. */
+    /* The app shell is already hidden by the global @media print block;
+       this drops the document's own on-screen framing. */
     .po-doc { border: 0; border-radius: 0; padding: 0; max-width: none; }
     .po-items { font-size: 11.5px; }
     .po-items thead { display: table-header-group; }   /* repeat header across pages */
     .po-items tr { break-inside: avoid; }
     .po-signatures { break-inside: avoid; }
+
+    /* When the document is being read inside the #detail-modal overlay
+       (Print PO from the detail page), the list it opened over is still in
+       the DOM behind the overlay, and the overlay brings its own dark
+       backdrop, card and close button. detail-modal.js flags the body while
+       the overlay is open; print the document alone. */
+    body.detail-modal-open .app { display: none; }
+    body.detail-modal-open .detail-modal {
+      position: static; background: none; padding: 0; display: block;
+    }
+    body.detail-modal-open .detail-modal .modal-card {
+      max-width: none; max-height: none; box-shadow: none; display: block;
+    }
+    body.detail-modal-open .detail-modal .modal-head { display: none; }
+    body.detail-modal-open .detail-modal .modal-body {
+      display: block; padding: 0; overflow: visible;
+    }
   }
 </style>
-{% endblock %}
 
-{% block content %}
 <div class="page-head no-print">
   <div>
-    <a class="back-link" href="{% url 'procurement_detail' procurement.pk %}">{{ procurement.po_number }}</a>
-    <h1 class="mt-2">Purchase Order</h1>
+    {% comment %}
+    The <h1> carries the PO number, not "Purchase Order": detail-modal.js
+    lifts it into the overlay's title bar, where every other record shows its
+    id, and the document below already says PURCHASE ORDER in 22px. The back
+    link returns to the order rather than the list — this page is only ever
+    reached from there.
+    {% endcomment %}
+    <a class="back-link" href="{% url 'procurement_detail' procurement.pk %}">Order details</a>
+    <h1 class="mt-2">{{ procurement.po_number }}</h1>
   </div>
   <button type="button" class="btn btn-primary" onclick="window.print()">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
@@ -147,11 +189,29 @@ it print too, so nobody signs a document with a broken figure.
   <div class="po-void">DRAFT — not yet placed with the supplier.</div>
   {% endif %}
 
+  {% comment %}
+  Letterhead: by default a PO belongs to the branch that raised it, so the
+  branch name and location are the heading. The Owner can override that with
+  a store-wide letterhead (core.models.StoreSetting.receipt_letterhead) — a
+  registered name and address block — and the branch then drops to a small
+  identifying line beneath. The logo, the free-text note under the
+  letterhead, and whether the TIN / VAT line print are all set by the Owner
+  on the internal Settings page too.
+  {% endcomment %}
   <div class="po-letterhead">
     <div>
-      <div class="po-store-name">Gerlyn Variety Store</div>
-      <div class="po-store-sub">{{ procurement.branch.branch_name }}</div>
+      {% if store_settings.receipt_show_logo and store_settings.receipt_logo %}
+      <img class="po-logo" src="{{ store_settings.receipt_logo.url }}" alt="">
+      {% endif %}
+      {% if store_settings.receipt_letterhead %}
+      <div class="po-store-name">{{ store_settings.receipt_letterhead|linebreaksbr }}</div>
+      <div class="po-store-sub">{{ procurement.branch.branch_name }} &middot; {{ procurement.branch.location }}</div>
+      {% else %}
+      <div class="po-store-name">{{ procurement.branch.branch_name }}</div>
       <div class="po-store-sub">{{ procurement.branch.location }}</div>
+      {% endif %}
+      {% if store_settings.receipt_show_tin and store_settings.tin %}<div class="po-store-sub">TIN: {{ store_settings.tin }}</div>{% endif %}
+      {% if store_settings.receipt_show_vat and store_settings.vat_registration %}<div class="po-store-sub">{{ store_settings.vat_registration }}</div>{% endif %}
     </div>
     <div>
       <div class="po-doc-title">PURCHASE ORDER</div>
@@ -161,6 +221,7 @@ it print too, so nobody signs a document with a broken figure.
       </div>
     </div>
   </div>
+  {% if store_settings.receipt_header %}<div class="po-header-note">{{ store_settings.receipt_header|linebreaksbr }}</div>{% endif %}
 
   <div class="po-parties">
     <div class="po-party">
@@ -179,7 +240,7 @@ it print too, so nobody signs a document with a broken figure.
 
     <div class="po-party">
       <h4>Deliver To</h4>
-      <div class="name">Gerlyn Variety Store — {{ procurement.branch.branch_name }}</div>
+      <div class="name">{{ procurement.branch.branch_name }}</div>
       <div>{{ procurement.branch.location }}</div>
     </div>
   </div>
@@ -264,6 +325,7 @@ it print too, so nobody signs a document with a broken figure.
     <span>
       Goods are accepted only after receipt validation at the delivering branch.
       Quantities short-delivered are recorded against this order.
+      {% if store_settings.receipt_footer %}<br>{{ store_settings.receipt_footer }}{% endif %}
     </span>
     <span>Printed {{ printed_on|date:"d M Y" }} by {{ printed_by }}</span>
   </div>
