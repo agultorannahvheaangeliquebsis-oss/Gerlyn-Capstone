@@ -9,7 +9,7 @@ throwing it away.
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from accounts.models import StaffProfile, User
+from accounts.models import BranchManagerProfile, StaffProfile, User
 from branches.models import Branch
 from core.module_permissions import DEFAULT_STAFF_MODULES, SALES_POS
 from inventory.models import Inventory, Product
@@ -384,3 +384,118 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.mode_of_payment, 'GCash')
         self.assertEqual(txn.billing_record.payment_method, 'GCash')
+
+
+class WalkInSaleBranchGuardTests(TestCase):
+    """F-13 — _pos_user_branch returned None both for the Owner (unrestricted)
+    and for a Staff/Manager account whose branch profile was missing, so a
+    half-provisioned cashier was handed the Owner's every-branch selector and
+    the POST handler never ran user_can_access_branch on the branch it took
+    from the form. Now the two cases are distinct: an unassigned Staff/Manager
+    is refused outright, and the resolved branch is scope-checked for every
+    role.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.other_branch = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-001', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.other_branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+
+    _MISSING_BRANCH_MSG = (
+        'Your account is not assigned to a branch, so it cannot record '
+        'sales. Ask the Owner or an administrator to set your branch.'
+    )
+
+    def _branchless_staff(self):
+        user = User.objects.create_user(
+            username='otis', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=user, defaults={'staff_name': 'Otis', 'branch': None}
+        )
+        return user
+
+    def _branchless_manager(self):
+        user = User.objects.create_user(
+            username='mara', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=user, defaults={'manager_name': 'Mara', 'branch': None}
+        )
+        return user
+
+    def test_branchless_staff_get_is_refused_not_shown_a_branch_selector(self):
+        self.client.force_login(self._branchless_staff())
+        response = self.client.get(reverse('transaction_add'), follow=True)
+        self.assertTemplateNotUsed(response, 'sales/transaction_form.html')
+        self.assertContains(response, self._MISSING_BRANCH_MSG)
+
+    def test_branchless_manager_get_is_refused_not_shown_a_branch_selector(self):
+        self.client.force_login(self._branchless_manager())
+        response = self.client.get(reverse('transaction_add'), follow=True)
+        self.assertTemplateNotUsed(response, 'sales/transaction_form.html')
+        self.assertContains(response, self._MISSING_BRANCH_MSG)
+
+    def test_branchless_staff_post_records_nothing_and_is_told_why(self):
+        self.client.force_login(self._branchless_staff())
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            'amount_tendered': '200',
+        }, follow=True)
+        self.assertContains(response, self._MISSING_BRANCH_MSG)
+        self.assertFalse(SalesTransaction.objects.exists())
+
+    def test_staff_cannot_post_a_transaction_against_a_branch_outside_their_scope(self):
+        """The foreign branch id is supplied directly in POST, not via the
+        rendered selector (Staff never get one). No sale is booked against it."""
+        staff = User.objects.create_user(
+            username='ana', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=staff, defaults={'staff_name': 'Ana', 'branch': self.branch}
+        )
+        self.client.force_login(staff)
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.other_branch.pk, 'mode_of_payment': 'Cash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['1'],
+            'amount_tendered': '100',
+        })
+        # Nothing booked against the branch they tried to name...
+        self.assertFalse(
+            SalesTransaction.objects.filter(branch=self.other_branch).exists()
+        )
+        # ...the sale, if it lands at all, lands on their own pinned branch.
+        for txn in SalesTransaction.objects.all():
+            self.assertEqual(txn.branch_id, self.branch.pk)
+
+    def test_owner_can_still_pick_any_branch(self):
+        self.client.force_login(self.owner)
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.other_branch.pk, 'mode_of_payment': 'Cash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['1'],
+            'amount_tendered': '100',
+        })
+        txn = SalesTransaction.objects.get()
+        self.assertEqual(txn.branch_id, self.other_branch.pk)
