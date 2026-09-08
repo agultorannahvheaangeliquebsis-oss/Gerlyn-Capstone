@@ -61,12 +61,16 @@ def billing_list(request):
         'paid': records.filter(status=BillingRecord.PaymentStatus.PAID).count(),
         'rejected': records.filter(status=BillingRecord.PaymentStatus.REJECTED).count(),
     }
-    if status_filter:
-        records = records.filter(status=status_filter)
 
+    # Outstanding is a property of the whole (pre-filter) result set, exactly
+    # like the tab counts above — computing it after the status filter would
+    # zero it out on every tab except All and Pending.
     outstanding = records.filter(
         status=BillingRecord.PaymentStatus.PENDING
     ).aggregate(total=Sum('amount_due'))['total'] or 0
+
+    if status_filter:
+        records = records.filter(status=status_filter)
 
     branches = Branch.objects.all() if request.user.role == User.Role.OWNER else []
 

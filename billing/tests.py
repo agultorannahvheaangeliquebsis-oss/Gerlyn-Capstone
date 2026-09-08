@@ -2,6 +2,7 @@ import base64
 import shutil
 import tempfile
 import threading
+from decimal import Decimal
 from importlib import import_module
 
 from django.conf import settings
@@ -26,6 +27,64 @@ from core.module_permissions import BILLING, DEFAULT_STAFF_MODULES
 from sales.models import SalesTransaction
 
 SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
+
+
+class BillingListOutstandingTotalTests(TestCase):
+    """F-12 — billing_list computed the outstanding total from the queryset
+    *after* the tab's status filter had been applied, so on the Paid or
+    Rejected tab it summed an empty set and rendered P0.00. The tab counts
+    right above it are taken from the pre-filter queryset and stayed correct;
+    the outstanding figure now follows the same pattern, so it reads the same
+    (correct) amount on every tab.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='ot-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='OT Branch', location='Baliuag', owner=cls.owner
+        )
+
+        # Two Pending (100 + 50), one Paid (200), one Rejected (400).
+        # Only the Pending records are "outstanding": 150.00, no matter
+        # which tab is selected.
+        cls.EXPECTED_OUTSTANDING = Decimal('150.00')
+        cls._make_record(100, BillingRecord.PaymentStatus.PENDING)
+        cls._make_record(50, BillingRecord.PaymentStatus.PENDING)
+        cls._make_record(200, BillingRecord.PaymentStatus.PAID)
+        cls._make_record(400, BillingRecord.PaymentStatus.REJECTED)
+
+    @classmethod
+    def _make_record(cls, amount, status):
+        # billing.signals auto-creates the record in Pending with
+        # amount_due = total_amount; flip the status afterwards if needed.
+        txn = SalesTransaction.objects.create(
+            branch=cls.branch, staff=None, total_amount=amount,
+        )
+        record = txn.billing_record
+        if status != BillingRecord.PaymentStatus.PENDING:
+            record.status = status
+            record.save(update_fields=['status'])
+        return record
+
+    def _outstanding_on_tab(self, status):
+        client = Client()
+        client.force_login(self.owner)
+        params = {'status': status} if status else {}
+        response = client.get('/billing/', params)
+        self.assertEqual(response.status_code, 200)
+        return response.context['outstanding']
+
+    def test_outstanding_total_is_correct_and_tab_independent(self):
+        for tab in ('', 'Pending', 'Paid', 'Rejected'):
+            with self.subTest(tab=tab or 'All'):
+                self.assertEqual(
+                    self._outstanding_on_tab(tab),
+                    self.EXPECTED_OUTSTANDING,
+                    f'outstanding total wrong on the {tab or "All"} tab',
+                )
 
 
 class BillingConfirmStateMachineTests(TestCase):
