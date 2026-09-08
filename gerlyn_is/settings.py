@@ -200,6 +200,30 @@ DATABASES = {
     }
 }
 
+
+# Cache
+# --------------------------------------------------------------------------
+# The login lockout (accounts/rate_limit.py) counts failed attempts in the
+# cache. With no CACHES set the default is LocMemCache — per-process and
+# in-memory — so under Gunicorn (Procfile / railway.json run 2+ workers)
+# each worker keeps its own count. The real cap becomes 5 x worker count,
+# and every redeploy wipes it back to zero. DatabaseCache gives every
+# worker one shared, durable store and needs no extra service — just a
+# table in the database we already have.
+#
+# ONE-TIME SETUP, per environment (local dev AND production): this table is
+# NOT created by `migrate`. Run once, alongside deploying this change:
+#     python manage.py createcachetable
+# It is idempotent (safe to re-run), which is why railway.json also runs it
+# on every deploy so a fresh production database is never missing it.
+# --------------------------------------------------------------------------
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'gerlyn_cache',
+    }
+}
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",

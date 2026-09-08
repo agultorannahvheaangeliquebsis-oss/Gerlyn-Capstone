@@ -71,6 +71,28 @@ railway run python manage.py seed_demo --reset
 
 Or use Railway's shell. This creates the demo data and the logins.
 
+### 5b. Create the cache table (one-time)
+
+The login lockout (`accounts/rate_limit.py`) counts failed attempts in the
+cache, and the cache backend is now `DatabaseCache` (`CACHES` in
+`settings.py`) so all Gunicorn workers share one durable count. That needs a
+table, and **`migrate` does not create it** — it is a separate command:
+
+```bash
+python manage.py createcachetable
+```
+
+- Run it **once in production** (Railway shell or `railway run …`). It is also
+  wired into `railway.json`'s start command, which runs it on every deploy, so
+  a brand-new production database can't come up without it. The command is
+  idempotent — re-running it just prints "already exists".
+- Run it **once locally too**, in every working copy / database you test
+  against, or the lockout has nowhere to write and `manage.py test` will error
+  on the cache table.
+
+Without this the lockout silently degrades: each worker keeps its own count
+(real cap = 5 × worker count) and every redeploy resets it to zero.
+
 ### 6. Test the live site — properly
 - [ ] Open the URL. Log in as `gerlyn` / `demo1234`.
 - [ ] **CSS loads** (if the page looks like plain text, `collectstatic` failed).
@@ -97,6 +119,7 @@ guessing:
 | Infinite redirect loop behind the host's TLS proxy | `SECURE_PROXY_SSL_HEADER` |
 | App boots with an insecure default `SECRET_KEY` | startup guard raises `RuntimeError` |
 | Django's own `check --deploy` raised 5 security warnings | HSTS, secure cookies, nosniff, `X_FRAME_OPTIONS` — now **0 warnings** |
+| Login lockout counted attempts in per-process memory (LocMemCache), so each Gunicorn worker had its own count and redeploys reset it | `DatabaseCache` in `settings.py` — shared across workers + durable. Needs `manage.py createcachetable` once per environment (see **step 5b**); it's in `railway.json`'s start command for production |
 
 Verify anytime with:
 ```bash
@@ -111,6 +134,7 @@ Do this **before** deploying — it catches nearly everything:
 
 ```bash
 python manage.py collectstatic --noinput
+python manage.py createcachetable          # one-time; safe to re-run
 
 export DJANGO_SECRET_KEY="$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')"
 export DJANGO_DEBUG=False

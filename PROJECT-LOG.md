@@ -137,7 +137,13 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env               # then open .env and put in your MySQL password
 python manage.py migrate
+python manage.py createcachetable  # login lockout needs this; migrate doesn't do it
 ```
+
+> `createcachetable` is a one-time step, separate from `migrate`. The login
+> lockout (5 wrong passwords) counts attempts in a `DatabaseCache` table so all
+> server workers share one count; without the table, `./run.sh test` errors and
+> the lockout can't record anything. Safe to re-run any time.
 
 ## Every time you want to test
 
