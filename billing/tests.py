@@ -443,6 +443,15 @@ class BillingConfirmAPIBranchScopeTests(TestCase):
         StaffProfile.objects.update_or_create(
             user=cls.staff1, defaults={'staff_name': 'Sid', 'branch': cls.branch1}
         )
+        # cs-staff1 is a Staff the Owner has granted the Billing module to.
+        # Since F-07, ModulePermissionMiddleware also gates the API confirm
+        # endpoint, so without this a new Staff (DEFAULT_STAFF_MODULES, no
+        # Billing) is redirected before branch scope is ever reached — and
+        # this suite is about branch scope, not the module toggle.
+        User.objects.filter(pk=cls.staff1.pk).update(
+            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+        )
+        cls.staff1.refresh_from_db()
         cls.manager1 = User.objects.create_user(
             username='cs-manager1', password='pw', role=User.Role.BRANCH_MANAGER
         )
@@ -543,3 +552,116 @@ class BillingConfirmAPIBranchScopeTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
         self.assertIsNone(record.confirmed_by)
+
+
+class BillingAPIModulePermissionTests(TestCase):
+    """F-07 — MODULE_REGISTRY only listed billing_* (the template url names),
+    so ModulePermissionMiddleware turned a Staff account whose Owner revoked
+    the Billing module away from /billing/ but let the same account reach
+    /api/billing/<pk>/confirm/ (and the rest of the billing API) directly.
+    The API url names are now in the Billing module's registry entry, so the
+    one middleware gate covers both surfaces the same way — a redirect, with
+    the record left untouched.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='f7b-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='F7B Branch', location='Baliuag', owner=cls.owner
+        )
+        # Two Staff on the same branch: one WITH the Billing module, one
+        # WITHOUT. Both pass branch scope (F-02) — the only difference is the
+        # module toggle this test is about.
+        cls.staff_with = User.objects.create_user(
+            username='f7b-staff-with', password='pw', role=User.Role.STAFF
+        )
+        cls.staff_without = User.objects.create_user(
+            username='f7b-staff-without', password='pw', role=User.Role.STAFF
+        )
+        for user, name in ((cls.staff_with, 'Wanda'), (cls.staff_without, 'Otto')):
+            StaffProfile.objects.update_or_create(
+                user=user, defaults={'staff_name': name, 'branch': cls.branch}
+            )
+        User.objects.filter(pk=cls.staff_with.pk).update(
+            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+        )
+        User.objects.filter(pk=cls.staff_without.pk).update(
+            allowed_modules=list(DEFAULT_STAFF_MODULES)  # no BILLING
+        )
+
+    def _pending_record(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=None, total_amount=500,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        return record
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def test_staff_without_billing_module_is_refused_the_api_confirm(self):
+        record = self._pending_record()
+
+        response = self._client(self.staff_without).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+
+        # Same refusal the template view already gave this account: a
+        # redirect away, nothing written.
+        self.assertEqual(response.status_code, 302)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+
+    def test_api_and_web_now_agree_for_a_module_revoked_staff(self):
+        record = self._pending_record()
+
+        api_resp = self._client(self.staff_without).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+        web_resp = self._client(self.staff_without).post(
+            f'/billing/{record.pk}/confirm/', {'status': 'Paid'}
+        )
+
+        self.assertEqual(api_resp.status_code, 302)
+        self.assertEqual(web_resp.status_code, 302)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_staff_without_billing_module_is_refused_the_api_list(self):
+        response = self._client(self.staff_without).get('/api/billing/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_staff_with_billing_module_still_reaches_the_api(self):
+        """The gate must not over-block: a Staff the Owner granted Billing to
+        confirms through the API exactly as before."""
+        record = self._pending_record()
+
+        response = self._client(self.staff_with).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.staff_with)
+
+    def test_owner_is_never_module_gated_on_the_api(self):
+        record = self._pending_record()
+
+        response = self._client(self.owner).patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
