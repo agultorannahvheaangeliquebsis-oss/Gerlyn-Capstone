@@ -249,7 +249,16 @@ def _dashboard_daily_series(sales_qs, procurement_qs, start, end):
     core/timebounds for why that lookup silently matches nothing on this
     MySQL deployment. order_date is a plain DateField with no tz component
     and buckets directly, with no per-row conversion.
+
+    `sales_qs` is narrowed to realised revenue here (revenue_sales) so every
+    surface built on this series — the KPI rail's Total Sales / Total
+    Transactions / ATV, the Sales tab's Daily Sales panel, the per-branch
+    trend chart and each dashboard's previous-window comparison — excludes
+    Cancelled and still-open orders from one place, rather than each caller
+    remembering to.
     """
+    sales_qs = revenue_sales(sales_qs)
+
     n_days = (end - start).days + 1
     buckets = {
         start + timedelta(n): {'sales': 0, 'txn_count': 0, 'procurement_cost': 0}
@@ -333,7 +342,13 @@ def _dashboard_branch_breakdown(sales_qs, start, end, prev_start, prev_end):
     whichever single branch the selector currently has picked, while the KPI
     rail itself does narrow. Behaviour for the KPI rail's own call is
     unchanged — this is a pure extraction, not a logic change.
+
+    Both the current and previous window are narrowed to realised revenue
+    (revenue_sales) so the donut, its centre figure and its legend's trend
+    pills describe the same Completed-only total the KPI rail shows.
     """
+    sales_qs = revenue_sales(sales_qs)
+
     range_start, range_end = local_range_bounds(start, end)
     branch_breakdown = _sales_by_branch_chart(
         sales_qs.filter(transaction_date__gte=range_start, transaction_date__lt=range_end)
@@ -726,6 +741,42 @@ OPEN_ORDER_STATUSES = [
 
 # A dashboard preview, not the full list (§2g).
 OPEN_ORDERS_LIMIT = 8
+
+
+# --- What counts as revenue: one definition, every dashboard figure --------
+# A sale is revenue only once its order_status reaches Completed. A Cancelled
+# order is a voided/returned sale — the money was reversed — and a
+# Pending/Approved/Preparing order has not moved stock or been paid for yet.
+# Neither belongs in Total Sales, the daily trend, the Sales-by-Branch donut
+# or the average transaction value.
+#
+# Every place the dashboards sum total_amount narrows its queryset through
+# revenue_sales() first (or through a helper that already does), so the
+# Reports Sales tab and the Billing Report — which scopes its revenue to
+# Completed the same way, see billing_report — can no longer report a
+# different total for the same rows.
+REVENUE_ORDER_STATUSES = [SalesTransaction.OrderStatus.COMPLETED]
+
+# The flip side of revenue: money a customer has committed but the store has
+# not realised yet. Deliberately the same non-terminal set the Open Orders
+# panel calls "open" (OPEN_ORDER_STATUSES) — an order is in the pipeline for
+# exactly as long as it is unfulfilled. Surfaced next to Total Sales as its
+# own figure, never added into it.
+PIPELINE_ORDER_STATUSES = list(OPEN_ORDER_STATUSES)
+
+
+def revenue_sales(sales_qs):
+    """Narrow a SalesTransaction queryset to realised revenue — Completed
+    orders only. The single definition of "counts as a sale" that every
+    range total, daily series and branch breakdown on the dashboards reads
+    through, so they cannot drift apart from each other or from Billing."""
+    return sales_qs.filter(order_status__in=REVENUE_ORDER_STATUSES)
+
+
+def pipeline_sales(sales_qs):
+    """Narrow to committed-but-unfulfilled orders (Pending / Approved /
+    Preparing) — the pipeline figure shown alongside Total Sales."""
+    return sales_qs.filter(order_status__in=PIPELINE_ORDER_STATUSES)
 
 
 def _needs_attention_rows(summary, procurement_qs, sales_qs):
@@ -1141,7 +1192,9 @@ def operational_dashboard(request):
     )
     range_dt_start, range_dt_end = local_range_bounds(range_start, range_end)
     top_products = _top_products(
-        sales_qs.filter(transaction_date__gte=range_dt_start, transaction_date__lt=range_dt_end)
+        revenue_sales(sales_qs).filter(
+            transaction_date__gte=range_dt_start, transaction_date__lt=range_dt_end
+        )
     )
 
     # --- Restock suggestions + "needs attention" list (same engine as the
@@ -1306,16 +1359,35 @@ def reports_dashboard(request):
 
     sales_qs = sales_qs.order_by('-transaction_date')
 
-    total_orders = sales_qs.count()
-    total_sales = sales_qs.aggregate(t=Sum('total_amount'))['t'] or 0
+    # `sales_qs` stays the full row set — the transactions table below lists
+    # every order, Cancelled ones included, so they can be seen and audited.
+    # Every *money* figure reads `revenue_qs` instead: realised revenue only
+    # (Completed), the same definition billing_report already uses. Before
+    # this, a voided P300 sale still showed as P300 / 1 order / P300 ATV here
+    # while the Billing tab correctly showed P0 on the same data.
+    revenue_qs = revenue_sales(sales_qs)
+
+    total_orders = revenue_qs.count()
+    total_sales = revenue_qs.aggregate(t=Sum('total_amount'))['t'] or 0
     avg_order_value = (total_sales / total_orders) if total_orders else 0
+    # Channel mix, not revenue — a pending online order is still an online
+    # order — so this one stays on the full row set.
     online_orders = sales_qs.filter(
         transaction_type=SalesTransaction.TransactionType.ONLINE
     ).count()
 
-    # Donut panel — built from the same filtered sales_qs as the KPIs/table
-    # above, so branch + month selections carry into it (DESIGN.md 2c).
-    branch_chart = _sales_by_branch_chart(sales_qs)
+    # Committed but unfulfilled: orders a customer has placed that have not
+    # been completed or cancelled (Pending / Approved / Preparing). Shown as
+    # its own line under the KPI rail, never folded into Total Sales — the
+    # Owner keeps sight of the pipeline without it inflating revenue.
+    pipeline_qs = pipeline_sales(sales_qs)
+    pipeline_total = pipeline_qs.aggregate(t=Sum('total_amount'))['t'] or 0
+    pipeline_count = pipeline_qs.count()
+
+    # Donut panel — built from the same revenue_qs as the KPIs above, so
+    # branch + range selections carry into it (DESIGN.md 2c) and it shows the
+    # same Completed-only total.
+    branch_chart = _sales_by_branch_chart(revenue_qs)
 
     # A one-branch donut is a full ring, and every part of the panel then
     # states the same number: the ring's only segment, the figure in its
@@ -1330,7 +1402,7 @@ def reports_dashboard(request):
     # produces a single-segment ring. An active branch filter is the same
     # case reached deliberately.
     show_branch_donut = not branch_filter and branch_chart['branch_count'] > 1
-    top_products = _top_products(sales_qs)
+    top_products = _top_products(revenue_qs)
 
     # --- §2c trend panel + §2a delta pills ------------------------------
     # Both need a real lower edge, and 'All time' has none by design. The
@@ -1340,11 +1412,11 @@ def reports_dashboard(request):
     # indexed aggregate, and only on the 'all' branch.
     chart_start = range_start
     if chart_start is None:
-        first_sale = sales_qs.aggregate(m=Min('transaction_date'))['m']
+        first_sale = revenue_qs.aggregate(m=Min('transaction_date'))['m']
         # No sales at all: collapse to a single day rather than an unbounded
         # span, which would bucket from year zero.
         chart_start = timezone.localtime(first_sale).date() if first_sale else range_end
-    sales_series = _daily_sales_series(sales_qs, chart_start, range_end)
+    sales_series = _daily_sales_series(revenue_qs, chart_start, range_end)
 
     # Deltas compare against the equal-length window immediately before the
     # selected one, measured off scoped_qs for the reason noted above. For
@@ -1372,6 +1444,10 @@ def reports_dashboard(request):
         'total_sales': total_sales,
         'avg_order_value': avg_order_value,
         'online_orders': online_orders,
+        # Committed-but-unfulfilled pipeline (Pending / Approved / Preparing),
+        # rendered as a quiet line under the rail — see the template.
+        'pipeline_total': pipeline_total,
+        'pipeline_count': pipeline_count,
         # Online Orders gets no pill: the daily series carries no channel
         # split, so comparing it would mean a second query for a fourth card
         # nobody asked to compare. Absent beats invented.
