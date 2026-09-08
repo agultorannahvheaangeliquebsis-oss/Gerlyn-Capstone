@@ -2,15 +2,19 @@ import threading
 from importlib import import_module
 
 from django.conf import settings
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.management import call_command
 from django.db import connections
 from django.test import Client, RequestFactory, TestCase, TransactionTestCase
+from django.utils import timezone
 
-from accounts.models import User
+from accounts.models import BranchManagerProfile, StaffProfile, User
 from billing.models import BillingRecord
+from billing.serializers import BillingConfirmSerializer
 from billing.views import billing_confirm
 from branches.models import Branch
+from core.module_permissions import BILLING, DEFAULT_STAFF_MODULES
 from sales.models import SalesTransaction
 
 SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
@@ -217,3 +221,194 @@ class BillingConfirmConcurrencyTests(TransactionTestCase):
             )
             self.assertEqual(successes, 1, f'expected exactly one success {ctx}')
             self.assertEqual(rejections, 1, f'expected exactly one rejection {ctx}')
+
+
+class BillingConfirmMakerCheckerTests(TestCase):
+    """A-1 — maker/checker separation on non-cash payment.
+
+    billing_confirm (and its DRF mirror BillingConfirmSerializer) must refuse
+    a Paid/Rejected decision made by the same Staff member who recorded the
+    sale — a second person has to check it. Owner and Branch Manager may
+    confirm a sale they recorded themselves (the role, not the identity, is
+    what the guard turns on). A sale with no recorded staff actor — an
+    Owner/Manager-rung walk-in, or any online order, where
+    SalesTransaction.staff is None — is confirmable by anyone; the guard's
+    id comparison can never match a Staff user, so it simply doesn't fire
+    (Finding A-3).
+    """
+
+    SELF_CONFIRM_ERROR = (
+        "You can't confirm a payment you recorded yourself — ask another "
+        "staff member, a manager, or the owner."
+    )
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='mc-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='MC Branch', location='Baliuag', owner=cls.owner
+        )
+        cls.manager = User.objects.create_user(
+            username='mc-manager', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=cls.manager, defaults={'manager_name': 'Mira', 'branch': cls.branch}
+        )
+        cls.staff = User.objects.create_user(
+            username='mc-staff', password='pw', role=User.Role.STAFF
+        )
+        cls.other_staff = User.objects.create_user(
+            username='mc-staff-2', password='pw', role=User.Role.STAFF
+        )
+        for staff, name in ((cls.staff, 'Sam'), (cls.other_staff, 'Tara')):
+            StaffProfile.objects.update_or_create(
+                user=staff, defaults={'staff_name': name, 'branch': cls.branch}
+            )
+            # Both are staff the Owner has granted the Billing module to —
+            # otherwise ModulePermissionMiddleware turns them away before
+            # billing_confirm runs and the maker/checker guard is never
+            # reached. (New Staff default to DEFAULT_STAFF_MODULES, no Billing.)
+            User.objects.filter(pk=staff.pk).update(
+                allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+            )
+            staff.refresh_from_db()
+        cls.customer = User.objects.create_user(
+            username='mc-customer', password='pw', role=User.Role.CUSTOMER
+        )
+
+    def _pending_record(self, staff):
+        """A non-cash sale recorded by `staff` (pass None for an
+        Owner/Manager-rung or online sale), plus the Pending BillingRecord
+        billing.signals auto-creates for it."""
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=staff, total_amount=500,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        return record
+
+    def _confirm(self, user, pk, new_status='Paid'):
+        client = Client()
+        client.force_login(user)
+        return client.post(f'/billing/{pk}/confirm/', {'status': new_status})
+
+    # -- blocked: the recorder cannot confirm their own -----------------------
+
+    def test_staff_cannot_confirm_a_sale_they_recorded(self):
+        record = self._pending_record(self.staff)
+        response = self._confirm(self.staff, record.pk)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+        self.assertIsNone(record.date_confirmed)
+        self.assertIn(
+            self.SELF_CONFIRM_ERROR,
+            [str(m) for m in get_messages(response.wsgi_request)],
+        )
+
+    def test_staff_cannot_reject_a_sale_they_recorded_either(self):
+        record = self._pending_record(self.staff)
+        self._confirm(self.staff, record.pk, new_status='Rejected')
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+
+    # -- allowed: a second person, or a trusted role ------------------------
+
+    def test_a_different_staff_member_can_confirm_it(self):
+        record = self._pending_record(self.staff)
+        self._confirm(self.other_staff, record.pk)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.other_staff)
+
+    def test_owner_can_confirm_their_own_non_cash_walk_in(self):
+        # An Owner-rung sale carries staff=None (staff is only ever set for a
+        # STAFF user), and the guard's role test is false for an Owner anyway
+        # — so the override needs no branch of its own.
+        record = self._pending_record(None)
+        self._confirm(self.owner, record.pk)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.owner)
+
+    def test_branch_manager_can_confirm_their_own_non_cash_walk_in(self):
+        record = self._pending_record(None)
+        self._confirm(self.manager, record.pk)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.manager)
+
+    def test_a_staff_member_can_confirm_an_online_order(self):
+        # Every online order has staff=None, so a Staff user's id can never
+        # equal record.transaction.staff_id — the null case resolves to
+        # "allowed" on its own. Proven here, not assumed.
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=None, customer=self.customer,
+            transaction_type=SalesTransaction.TransactionType.ONLINE,
+            mode_of_payment=SalesTransaction.ModeOfPayment.COD,
+            total_amount=500,
+        )
+        record = txn.billing_record
+        self._confirm(self.staff, record.pk)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.staff)
+
+    def test_original_recorder_can_still_reopen_a_rejected_record(self):
+        # Rejected -> Pending records no confirmer (it clears it), so the
+        # maker/checker guard must not apply to the re-open path.
+        record = self._pending_record(self.staff)
+        record.status = BillingRecord.PaymentStatus.REJECTED
+        record.confirmed_by = self.other_staff
+        record.date_confirmed = timezone.now()
+        record.save(update_fields=['status', 'confirmed_by', 'date_confirmed'])
+
+        self._confirm(self.staff, record.pk, new_status='Pending')
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+        self.assertIsNone(record.date_confirmed)
+
+    # -- DRF parity: same guard via BillingConfirmSerializer ---------------
+
+    def _serializer(self, record, user, new_status='Paid'):
+        request = RequestFactory().patch(
+            f'/api/billing/{record.pk}/confirm/', {'status': new_status}
+        )
+        request.user = user
+        return BillingConfirmSerializer(
+            record, data={'status': new_status}, context={'request': request}
+        )
+
+    def test_serializer_blocks_a_self_confirmation(self):
+        record = self._pending_record(self.staff)
+        serializer = self._serializer(record, self.staff)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(
+            self.SELF_CONFIRM_ERROR,
+            [str(e) for e in serializer.errors['status']],
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_serializer_allows_a_different_staff_member(self):
+        record = self._pending_record(self.staff)
+        serializer = self._serializer(record, self.other_staff)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.other_staff)

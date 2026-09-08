@@ -54,9 +54,25 @@ class BillingConfirmSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=BillingRecord.PaymentStatus.choices)
 
     def validate_status(self, value):
+        record = self.instance
+
+        # A-1 — maker/checker separation, the same guard billing_confirm
+        # applies and checked first for the same reason: whether this user
+        # may act on the record is prior to what they're moving it to. Only
+        # Paid/Rejected record a confirmer; the Rejected -> Pending re-open
+        # does not, so it is not gated.
+        if (
+            record is not None
+            and value != BillingRecord.PaymentStatus.PENDING
+            and record.is_self_confirmation(self.context['request'].user)
+        ):
+            raise serializers.ValidationError(
+                "You can't confirm a payment you recorded yourself — ask "
+                "another staff member, a manager, or the owner."
+            )
+
         # Same state machine billing_confirm enforces — see
         # BillingRecord.ALLOWED_STATUS_TRANSITIONS.
-        record = self.instance
         if record is not None and not record.can_transition_to(value):
             raise serializers.ValidationError(
                 f'A {record.status} payment cannot be changed to {value}.'

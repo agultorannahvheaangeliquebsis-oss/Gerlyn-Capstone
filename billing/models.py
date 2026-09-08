@@ -47,6 +47,29 @@ class BillingRecord(models.Model):
         """True when billing_confirm may move this record to `new_status`."""
         return new_status in self.ALLOWED_STATUS_TRANSITIONS.get(self.status, set())
 
+    def is_self_confirmation(self, user):
+        """True when `user` recorded this sale and must not confirm its payment.
+
+        A-1 maker/checker separation. A Staff member who rang up a walk-in
+        sale cannot be the one to confirm the payment for it — someone else
+        has to check it. Owner and Branch Manager are trusted to confirm a
+        sale they recorded themselves: the role test is simply false for
+        them, so they never reach the identity comparison — the role
+        condition IS the override, there is no separate branch for it.
+
+        A sale with no recorded staff actor — an Owner/Manager-rung walk-in,
+        or any online order, where SalesTransaction.staff is None — can
+        never equal a Staff user's id, so this returns False on its own with
+        no null-check needed. See Finding A-3.
+
+        Both entry points (billing_confirm and BillingConfirmSerializer) call
+        this — one definition, same rule as can_transition_to.
+        """
+        return (
+            user.role == User.Role.STAFF
+            and self.transaction.staff_id == user.id
+        )
+
     transaction = models.OneToOneField(
         SalesTransaction, on_delete=models.CASCADE,
         related_name='billing_record'

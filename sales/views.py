@@ -519,15 +519,23 @@ def transaction_add(request):
                     # line item is oversold.
                     _deduct_stock(txn, request.user)
 
-                    # billing.signals already created the record; mark it paid.
+                    # billing.signals already created the record (Pending, no
+                    # confirmer). A cash walk-in is settled the moment it's
+                    # rung — the money crossed the counter — so it's marked
+                    # Paid here with the ringing user as confirmer, exactly as
+                    # before. Every other method (GCash, Card) has to clear as
+                    # a separate step through billing_confirm, checked by
+                    # someone who didn't record the sale (A-1 maker/checker
+                    # separation), so the record is left Pending for that.
                     billing = getattr(txn, 'billing_record', None)
                     if billing:
                         billing.amount_due = total
                         billing.payment_method = (
                             mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
                         )
-                        billing.status = 'Paid'
-                        billing.confirmed_by = request.user
+                        if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
+                            billing.status = 'Paid'
+                            billing.confirmed_by = request.user
                         billing.save()
             except _OrderActionError as e:
                 errors.append(str(e))

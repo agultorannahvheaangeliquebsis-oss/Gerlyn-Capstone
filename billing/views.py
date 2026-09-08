@@ -231,6 +231,23 @@ def billing_confirm(request, pk):
                 'transaction'
             ).get(pk=pk)
 
+            # A-1 — maker/checker separation. Whether this user may act on
+            # the record at all is logically prior to what they're moving it
+            # to, so this runs before the transition check (same ordering as
+            # C-6's branch-scope gate). Only a decision that records a
+            # confirmer — Paid or Rejected — is gated; re-opening a rejected
+            # record to Pending clears confirmed_by and has nothing to guard.
+            if (
+                new_status != BillingRecord.PaymentStatus.PENDING
+                and locked.is_self_confirmation(request.user)
+            ):
+                messages.error(
+                    request,
+                    "You can't confirm a payment you recorded yourself — ask "
+                    "another staff member, a manager, or the owner."
+                )
+                return redirect('billing_detail', pk=pk)
+
             if not locked.can_transition_to(new_status):
                 messages.error(
                     request,
