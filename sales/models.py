@@ -197,3 +197,122 @@ class SalesItem(models.Model):
 
     def __str__(self):
         return f"{self.product.product_name} x{self.quantity_sold}"
+
+
+class SalesReturn(models.Model):
+    """A customer return against a COMPLETED sale — per line item, unlike
+    transaction_set_status's whole-order void (Completed -> Cancelled). A
+    customer returning 2 of the 5 items they bought does not need the other
+    3 cancelled, and the order itself is never touched by a return.
+
+    Two independently-decided outcomes travel together on one record:
+      - condition: whether the returned stock goes back to the floor
+        (Resellable) or is written off (Damaged/Write-off) — decided at
+        Approve, same moment sales.views._restock_return runs.
+      - refund: money owed back, tracked to Refunded separately from
+        Approved so "approved, stock is back, refund not yet paid" is a
+        real, visible state rather than being folded into Approved.
+
+    Deliberately does NOT touch billing.BillingRecord.status — that field
+    describes the ORDER's bill as a whole (Pending/Paid/Rejected/Cancelled),
+    and a partial return leaves the original sale exactly as billed. Refund
+    status lives here instead, same as PaymentMethod.COD's "recorded only,
+    no gateway" limitation documented on BillingRecord.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'Pending', 'Pending Review'
+        APPROVED = 'Approved', 'Approved'
+        REFUNDED = 'Refunded', 'Refunded'
+        REJECTED = 'Rejected', 'Rejected'
+
+    class Reason(models.TextChoices):
+        WRONG_ITEM = 'Wrong Item', 'Wrong item given'
+        DEFECTIVE = 'Defective', 'Defective / damaged'
+        DAMAGED_IN_TRANSIT = 'Damaged in Transit', 'Damaged in transit'
+        EXPIRED = 'Expired', 'Expired stock'
+        CHANGED_MIND = 'Changed Mind', 'Changed mind'
+        OTHER = 'Other', 'Other'
+
+    class Condition(models.TextChoices):
+        RESELLABLE = 'Resellable', 'Resellable'
+        WRITE_OFF = 'Write-off', 'Damaged / Write-off'
+
+    class RefundMethod(models.TextChoices):
+        STORE_CREDIT = 'Store Credit', 'Store Credit'
+        CASH = 'Cash', 'Cash'
+        ORIGINAL = 'Original Payment Method', 'Original Payment Method'
+
+    transaction = models.ForeignKey(
+        SalesTransaction, on_delete=models.CASCADE, related_name='returns'
+    )
+    return_number = models.CharField(
+        max_length=20, unique=True, blank=True,
+        help_text="Auto-generated e.g. RET-2026-001"
+    )
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING
+    )
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    condition = models.CharField(max_length=12, choices=Condition.choices)
+    refund_method = models.CharField(max_length=30, choices=RefundMethod.choices)
+    refund_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        help_text="Sum of every line's refund_subtotal, frozen at request time."
+    )
+    notes = models.TextField(blank=True)
+
+    requested_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True,
+        related_name='requested_returns'
+    )
+    decided_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='decided_returns',
+        help_text="Who approved or rejected this return."
+    )
+    decision_notes = models.CharField(
+        max_length=255, blank=True,
+        help_text="Reason given when rejecting a return."
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    refunded_at = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.return_number:
+            from django.utils import timezone
+            year = timezone.now().year
+            self.return_number = f"RET-{year}-{str(self.pk).zfill(3)}"
+            super().save(update_fields=['return_number'])
+
+    def __str__(self):
+        return f"{self.return_number or f'Return #{self.id}'} - {self.transaction.order_number}"
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Sales Return"
+        verbose_name_plural = "Sales Returns"
+
+
+class SalesReturnItem(models.Model):
+    sales_return = models.ForeignKey(
+        SalesReturn, on_delete=models.CASCADE, related_name='items'
+    )
+    # The ORIGINAL line being returned against, not just the product — so a
+    # sale with the same product on two lines (e.g. two different discount
+    # treatments) can't have a return misattributed to the wrong one.
+    sales_item = models.ForeignKey(
+        SalesItem, on_delete=models.CASCADE, related_name='return_items'
+    )
+    quantity_returned = models.PositiveIntegerField()
+    refund_subtotal = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        help_text="quantity_returned * the line's unit_price, frozen at request time."
+    )
+
+    def __str__(self):
+        return f"{self.sales_item.product.product_name} x{self.quantity_returned}"

@@ -5,16 +5,18 @@ from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from accounts.models import User
 from billing.models import BillingRecord
 from branches.models import Branch
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
+from core.timebounds import local_month_bounds
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
-from .models import SalesItem, SalesTransaction
+from .models import SalesItem, SalesReturn, SalesReturnItem, SalesTransaction
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
@@ -557,3 +559,376 @@ def transaction_add(request):
         ],
     })
     return render(request, 'sales/transaction_form.html', context)
+
+
+# ─────────────────────────────────────────────
+# CUSTOMER RETURNS
+# Pending -> Approved -> Refunded, or -> Rejected. Per line item, against a
+# COMPLETED sale — distinct from transaction_set_status's whole-order void.
+# ─────────────────────────────────────────────
+
+def _safe_positive_int(value):
+    """int(value) if it's a clean positive integer, else None — guards
+    against a tampered or malformed POST instead of a bare int() raising."""
+    if value is None:
+        return None
+    value = str(value).strip()
+    if not value.isdigit():
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _already_returned_qty(sales_item):
+    """How many units of this SalesItem are already spoken for by a return
+    that isn't Rejected — Pending and Approved both hold their claim on the
+    remaining quantity (a second cashier must not also accept a return for
+    stock the first request already covers), Refunded is the same claim
+    made final. Only Rejected releases it back to the returnable pool."""
+    total = SalesReturnItem.objects.filter(sales_item=sales_item).exclude(
+        sales_return__status=SalesReturn.Status.REJECTED
+    ).aggregate(total=dj_models.Sum('quantity_returned'))['total']
+    return total or 0
+
+
+class _ReturnActionError(Exception):
+    """Raised inside a return_create/return_approve atomic block so the
+    whole block rolls back instead of partially applying a rejected action."""
+
+
+def _restock_return(sales_return, user):
+    """Credit floor stock for a Resellable return, the inverse of
+    _deduct_stock/_reverse_stock above. Called once, from return_approve,
+    only when condition is Resellable — a Damaged/Write-off return is
+    approved (the refund is still owed) without ever touching Inventory,
+    the same way a floor write-off (inventory.views.transfer_create) never
+    credits stock back either."""
+    txn = sales_return.transaction
+    for return_item in sales_return.items.select_related('sales_item__product').all():
+        product = return_item.sales_item.product
+        inv, _ = Inventory.objects.select_for_update().get_or_create(
+            product=product, branch=txn.branch,
+            defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+        )
+        before = inv.quantity_on_hand
+        inv.quantity_on_hand += return_item.quantity_returned
+        inv.save()
+        StockMovement.objects.create(
+            inventory=inv,
+            location_type=StockMovement.LocationType.FLOOR,
+            movement_type=StockMovement.MovementType.CUSTOMER_RETURN,
+            quantity_change=inv.quantity_on_hand - before,
+            quantity_before=before,
+            quantity_after=inv.quantity_on_hand,
+            reference_id=sales_return.pk,
+            notes=f'{sales_return.return_number} — return of {product.product_name} from {txn.order_number}',
+            created_by=user,
+        )
+
+
+def _return_list_context(request):
+    returns = (
+        SalesReturn.objects
+        .select_related('transaction', 'transaction__branch', 'transaction__customer', 'requested_by')
+        .order_by('-created_at')
+    )
+    returns = scope_queryset(returns, request.user, branch_field='transaction__branch')
+
+    search_query = request.GET.get('q', '')
+    status_filter = request.GET.get('status', '')
+    # Owner-only branch filter — a Manager/Staff account is already pinned
+    # to its own branch's returns above, so a selector would do nothing.
+    user_branch = branch_for_user(request.user)
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        returns = returns.filter(transaction__branch_id=branch_filter)
+
+    if search_query:
+        returns = returns.filter(
+            dj_models.Q(return_number__icontains=search_query) |
+            dj_models.Q(transaction__order_number__icontains=search_query) |
+            dj_models.Q(transaction__customer__first_name__icontains=search_query) |
+            dj_models.Q(transaction__customer__last_name__icontains=search_query)
+        )
+
+    # Counts per tab computed BEFORE the status filter, same reasoning as
+    # _transaction_list_context — a tab's own count must not shrink when
+    # that tab is the one currently selected.
+    base = returns
+    counts = {
+        'all': base.count(),
+        'pending': base.filter(status=SalesReturn.Status.PENDING).count(),
+        'approved': base.filter(status=SalesReturn.Status.APPROVED).count(),
+        'refunded': base.filter(status=SalesReturn.Status.REFUNDED).count(),
+        'rejected': base.filter(status=SalesReturn.Status.REJECTED).count(),
+    }
+    if status_filter:
+        returns = returns.filter(status=status_filter)
+
+    today = timezone.localtime().date()
+    month_start, month_end = local_month_bounds(today.year, today.month)
+    refunded_this_month = base.filter(
+        status=SalesReturn.Status.REFUNDED,
+        refunded_at__gte=month_start, refunded_at__lt=month_end,
+    ).aggregate(total=dj_models.Sum('refund_amount'))['total'] or 0
+
+    # "New Return" modal, step 1: look up the original sale by order number.
+    # Same two-step shape as Warehouse Stock's "Request Stock to Floor" and
+    # Stock Adjustments' "New Stock Adjustment" modals (a picker step, then
+    # the item form) — see inventory.views._branch_scoped_modal_target and
+    # its callers. Read from POST first so a validation error in
+    # return_create can redisplay this same step-2 form without losing the
+    # order the cashier already looked up.
+    order_number = (request.POST.get('order_number') or request.GET.get('order_number', '')).strip()
+    origin_transaction = None
+    origin_items = []
+    if order_number:
+        origin_transaction = SalesTransaction.objects.filter(
+            order_number__iexact=order_number,
+            order_status=SalesTransaction.OrderStatus.COMPLETED,
+        ).select_related('branch', 'customer').first()
+        if origin_transaction and not user_can_access_branch(request.user, origin_transaction.branch_id):
+            origin_transaction = None
+        if origin_transaction:
+            for item in origin_transaction.items.select_related('product').all():
+                already_returned = _already_returned_qty(item)
+                remaining = item.quantity_sold - already_returned
+                if remaining > 0:
+                    origin_items.append({
+                        'item': item,
+                        'already_returned': already_returned,
+                        'remaining': remaining,
+                    })
+
+    branches = Branch.objects.all() if not user_branch else []
+    return {
+        'returns': returns,
+        'counts': counts,
+        'search_query': search_query,
+        'status_filter': status_filter,
+        'branches': branches,
+        'branch_filter': branch_filter,
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
+        'refunded_this_month': refunded_this_month,
+        'month_label': today.strftime('%B'),
+        'reason_choices': SalesReturn.Reason.choices,
+        'refund_method_choices': SalesReturn.RefundMethod.choices,
+        'order_number': order_number,
+        'origin_transaction': origin_transaction,
+        'origin_items': origin_items,
+        'show_create_modal': request.GET.get('open_create') == '1' or bool(request.POST),
+    }
+
+
+@login_required(login_url='accounts:login')
+def return_list(request):
+    """Customer Returns — every return, filterable by status, plus the
+    New Return modal that creates one against a completed sale."""
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    return render(request, 'sales/return_list.html', _return_list_context(request))
+
+
+@login_required(login_url='accounts:login')
+def return_create(request):
+    """POST handler for the New Return modal on Customer Returns. Staff can
+    request a return same as they can ring up a walk-in sale; only Owner/
+    Branch Manager can approve one (return_approve) — same request/approve
+    split as a Stock Request slip.
+
+    Validation failure re-renders the list template with the modal reopened
+    on step 2 (item selection), same pattern as transfer_create/
+    warehouse_stock_request — see _return_list_context's order_number
+    handling for how the already-looked-up sale survives the redisplay.
+    """
+    if request.user.role not in [OWNER, BRANCH_MANAGER, STAFF]:
+        messages.error(request, 'You do not have permission to record a return.')
+        return redirect('return_list')
+
+    if request.method != 'POST':
+        return redirect('return_list')
+
+    order_number = request.POST.get('order_number', '').strip()
+    txn = SalesTransaction.objects.filter(
+        order_number__iexact=order_number,
+        order_status=SalesTransaction.OrderStatus.COMPLETED,
+    ).select_related('branch').first()
+
+    errors = []
+    if not txn:
+        errors.append(f'No completed order found for "{order_number}".')
+    elif not user_can_access_branch(request.user, txn.branch_id):
+        errors.append('That order belongs to another branch.')
+
+    reason = request.POST.get('reason')
+    if reason not in SalesReturn.Reason.values:
+        errors.append('Choose a reason for the return.')
+
+    condition = request.POST.get('condition')
+    if condition not in SalesReturn.Condition.values:
+        errors.append('Choose the item condition.')
+
+    refund_method = request.POST.get('refund_method')
+    if refund_method not in SalesReturn.RefundMethod.values:
+        errors.append('Choose a refund method.')
+
+    notes = request.POST.get('notes', '').strip()
+    item_ids = request.POST.getlist('sales_item_id')
+    quantities = request.POST.getlist('quantity_returned')
+    valid_lines = [
+        (item_id, _safe_positive_int(qty))
+        for item_id, qty in zip(item_ids, quantities)
+        if item_id and _safe_positive_int(qty)
+    ]
+    if not valid_lines:
+        errors.append('Select at least one item and quantity to return.')
+
+    if not errors:
+        try:
+            with transaction.atomic():
+                sales_return = SalesReturn.objects.create(
+                    transaction=txn,
+                    reason=reason,
+                    condition=condition,
+                    refund_method=refund_method,
+                    notes=notes,
+                    requested_by=request.user,
+                )
+                total_refund = Decimal('0')
+                for item_id, qty in valid_lines:
+                    sales_item = txn.items.select_related('product').filter(pk=item_id).first()
+                    if not sales_item:
+                        raise _ReturnActionError('That item is not on this order.')
+                    remaining = sales_item.quantity_sold - _already_returned_qty(sales_item)
+                    if qty > remaining:
+                        raise _ReturnActionError(
+                            f'Cannot return {qty} of {sales_item.product.product_name} — '
+                            f'only {remaining} remain returnable.'
+                        )
+                    refund_subtotal = (sales_item.unit_price * qty).quantize(Decimal('0.01'))
+                    SalesReturnItem.objects.create(
+                        sales_return=sales_return,
+                        sales_item=sales_item,
+                        quantity_returned=qty,
+                        refund_subtotal=refund_subtotal,
+                    )
+                    total_refund += refund_subtotal
+                sales_return.refund_amount = total_refund
+                sales_return.save(update_fields=['refund_amount'])
+        except _ReturnActionError as e:
+            errors.append(str(e))
+        else:
+            messages.success(request, f'{sales_return.return_number} created — awaiting approval.')
+            return redirect('return_detail', pk=sales_return.pk)
+
+    for e in errors:
+        messages.error(request, e)
+    context = _return_list_context(request)
+    context['show_create_modal'] = True
+    return render(request, 'sales/return_list.html', context)
+
+
+@login_required(login_url='accounts:login')
+def return_detail(request, pk):
+    sales_return = get_object_or_404(
+        SalesReturn.objects.select_related(
+            'transaction', 'transaction__branch', 'transaction__customer',
+            'requested_by', 'decided_by',
+        ), pk=pk
+    )
+    if not user_can_access_branch(request.user, sales_return.transaction.branch_id):
+        messages.error(request, 'That return is not available to you.')
+        return redirect('return_list')
+
+    items = sales_return.items.select_related('sales_item__product').all()
+    return render(request, 'sales/return_detail.html', {
+        'sales_return': sales_return,
+        'items': items,
+        'can_decide': request.user.role in [OWNER, BRANCH_MANAGER],
+    })
+
+
+@role_required(OWNER, BRANCH_MANAGER)
+def return_approve(request, pk):
+    """Approve a Pending return — restocks the floor if Resellable (never
+    if Damaged/Write-off). The refund itself is a separate step
+    (return_mark_refunded): approval says the return is accepted and the
+    stock side is settled, not that money has moved yet."""
+    sales_return = get_object_or_404(SalesReturn.objects.select_related('transaction'), pk=pk)
+    if not user_can_access_branch(request.user, sales_return.transaction.branch_id):
+        messages.error(request, 'That return belongs to another branch.')
+        return redirect('return_list')
+    if request.method != 'POST':
+        return redirect('return_detail', pk=pk)
+
+    try:
+        with transaction.atomic():
+            locked = SalesReturn.objects.select_for_update().select_related('transaction').get(pk=pk)
+            if locked.status != SalesReturn.Status.PENDING:
+                raise _ReturnActionError(f'{locked.return_number} has already been processed.')
+
+            if locked.condition == SalesReturn.Condition.RESELLABLE:
+                _restock_return(locked, request.user)
+
+            locked.status = SalesReturn.Status.APPROVED
+            locked.decided_by = request.user
+            locked.decided_at = timezone.now()
+            locked.save()
+    except _ReturnActionError as e:
+        messages.error(request, str(e))
+        return redirect('return_detail', pk=pk)
+
+    messages.success(request, f'{sales_return.return_number} approved.')
+    return redirect('return_detail', pk=pk)
+
+
+@role_required(OWNER, BRANCH_MANAGER)
+def return_reject(request, pk):
+    sales_return = get_object_or_404(SalesReturn.objects.select_related('transaction'), pk=pk)
+    if not user_can_access_branch(request.user, sales_return.transaction.branch_id):
+        messages.error(request, 'That return belongs to another branch.')
+        return redirect('return_list')
+    if request.method != 'POST':
+        return redirect('return_detail', pk=pk)
+
+    decision_notes = request.POST.get('decision_notes', '').strip()
+    with transaction.atomic():
+        locked = SalesReturn.objects.select_for_update().get(pk=pk)
+        if locked.status != SalesReturn.Status.PENDING:
+            messages.error(request, f'{locked.return_number} has already been processed.')
+            return redirect('return_detail', pk=pk)
+        locked.status = SalesReturn.Status.REJECTED
+        locked.decided_by = request.user
+        locked.decided_at = timezone.now()
+        locked.decision_notes = decision_notes
+        locked.save()
+
+    messages.success(request, f'{sales_return.return_number} rejected.')
+    return redirect('return_detail', pk=pk)
+
+
+@role_required(OWNER, BRANCH_MANAGER)
+def return_mark_refunded(request, pk):
+    sales_return = get_object_or_404(SalesReturn.objects.select_related('transaction'), pk=pk)
+    if not user_can_access_branch(request.user, sales_return.transaction.branch_id):
+        messages.error(request, 'That return belongs to another branch.')
+        return redirect('return_list')
+    if request.method != 'POST':
+        return redirect('return_detail', pk=pk)
+
+    with transaction.atomic():
+        locked = SalesReturn.objects.select_for_update().get(pk=pk)
+        if locked.status != SalesReturn.Status.APPROVED:
+            messages.error(request, 'Only an approved return can be marked refunded.')
+            return redirect('return_detail', pk=pk)
+        locked.status = SalesReturn.Status.REFUNDED
+        locked.refunded_at = timezone.now()
+        locked.save()
+
+    messages.success(request, f'{sales_return.return_number} marked as refunded.')
+    return redirect('return_detail', pk=pk)

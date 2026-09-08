@@ -30,6 +30,7 @@ WAREHOUSE_STOCK = 'warehouse_stock'
 WITHDRAWALS = 'withdrawals'
 ALERTS = 'alerts'
 SALES_POS = 'sales_pos'
+RETURNS = 'returns'
 BILLING = 'billing'
 PROCUREMENT = 'procurement'
 DELIVERIES = 'deliveries'
@@ -63,6 +64,10 @@ MODULE_REGISTRY = {
         ['transaction_list', 'transaction_add', 'transaction_detail',
          'transaction_set_status'],
     ),
+    RETURNS: (
+        'Customer Returns',
+        ['return_list', 'return_detail'],
+    ),
     BILLING: (
         'Billing',
         ['billing_list', 'billing_detail', 'billing_create', 'billing_confirm'],
@@ -85,10 +90,12 @@ MODULE_REGISTRY = {
 # Deliberately NOT covered by any module (stay gated purely by role, as
 # before): product_add/edit/delete, category_form/delete, transfer_approve/
 # complete, procurement_add/update_status, supplier_add/edit/delete,
-# export_csv. These are management/approval/data-export actions rather than
-# "viewing a section" — granting a module here only ever opens the view, not
-# these adjacent write/approve actions, which stay Owner/Manager-only exactly
-# as they were before this feature existed.
+# export_csv, return_create, return_approve, return_reject,
+# return_mark_refunded. These are management/approval/data-export actions
+# rather than "viewing a section" — granting a module here only ever opens
+# the view, not these adjacent write/approve actions, which stay
+# Owner/Manager-only (or, for return_create, role-checked inline the same
+# way transfer_create is) exactly as they were before this feature existed.
 
 ALL_MODULE_CODES = list(MODULE_REGISTRY.keys())
 
@@ -104,7 +111,7 @@ URL_NAME_TO_MODULE = {
 # turning this on never silently expands anyone's access. The Owner opts
 # staff INTO the newly-available modules (Product Master List, Withdrawals,
 # Alerts, Billing, Procurement, Reports) explicitly, per employee.
-DEFAULT_STAFF_MODULES = [FLOOR_STOCK, WAREHOUSE_STOCK, SALES_POS, DELIVERIES]
+DEFAULT_STAFF_MODULES = [FLOOR_STOCK, WAREHOUSE_STOCK, SALES_POS, RETURNS, DELIVERIES]
 
 
 def default_allowed_modules():

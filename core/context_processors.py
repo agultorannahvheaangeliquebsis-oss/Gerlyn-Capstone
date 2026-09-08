@@ -70,6 +70,9 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     # Financials
     "transaction_list": "orders", "transaction_add": "orders",
     "transaction_detail": "orders", "transaction_set_status": "orders",
+    "return_list": "returns", "return_create": "returns",
+    "return_detail": "returns", "return_approve": "returns",
+    "return_reject": "returns", "return_mark_refunded": "returns",
     "billing_list": "billing", "billing_create": "billing",
     "billing_detail": "billing", "billing_confirm": "billing",
     # System & Monitoring

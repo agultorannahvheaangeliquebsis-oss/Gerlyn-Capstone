@@ -139,18 +139,21 @@ DOM — it is off-screen until focused (see .skip-link).
       {% endif %}
 
       {# --------------------------------------------------------- Financials #}
-      {% if module_access.sales_pos or module_access.billing %}
+      {% if module_access.sales_pos or module_access.returns or module_access.billing %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-financials" title="Financials"
-          aria-expanded="{% if active_page == 'orders' or active_page == 'billing' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'orders' or active_page == 'returns' or active_page == 'billing' %}true{% else %}false{% endif %}">
           <i data-lucide="receipt"></i>
           <span class="sb-label">Financials</span>
           <i class="sb-chevron" data-lucide="chevron-right"></i>
         </button>
-        <ul class="sb-tree {% if active_page == 'orders' or active_page == 'billing' %}open{% endif %}" id="tree-financials">
+        <ul class="sb-tree {% if active_page == 'orders' or active_page == 'returns' or active_page == 'billing' %}open{% endif %}" id="tree-financials">
           <li class="sb-tree-inner">
             {% if module_access.sales_pos %}
             <a class="sb-tree-file {% if active_page == 'orders' %}sb-tree-file--active{% endif %}" href="{% url 'transaction_list' %}"><span class="sb-label">Sales &amp; Orders</span></a>
+            {% endif %}
+            {% if module_access.returns %}
+            <a class="sb-tree-file {% if active_page == 'returns' %}sb-tree-file--active{% endif %}" href="{% url 'return_list' %}"><span class="sb-label">Customer Returns</span></a>
             {% endif %}
             {% if module_access.billing %}
             <a class="sb-tree-file {% if active_page == 'billing' %}sb-tree-file--active{% endif %}" href="{% url 'billing_list' %}"><span class="sb-label">Billing</span></a>

@@ -626,6 +626,7 @@ class StockMovement(models.Model):
         MANUAL_IN = 'Manual In', 'Manual Stock In'
         MANUAL_OUT = 'Manual Out', 'Manual Stock Out'
         ADJUSTMENT = 'Adjustment', 'Stock Adjustment'
+        CUSTOMER_RETURN = 'Customer Return', 'Customer Return (Floor In)'
 
     class LocationType(models.TextChoices):
         WAREHOUSE = 'Warehouse', 'Warehouse'

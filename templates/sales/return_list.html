@@ -1,0 +1,301 @@
+{% extends "internal_base.html" %}
+{% block title %}Customer Returns{% endblock %}
+{% block page_subtitle %}Customer Returns{% endblock %}
+{% comment %}Same pattern as Order Console, Floor Stock, Warehouse Stock and
+Stock Adjustments: the topbar chip has to track whichever branch the toolbar
+is actually narrowed to.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Customer Returns</h1>
+    <p class="gv-meta mb-0">Process an item return against a completed sale — restock, write-off, or refund.</p>
+  </div>
+  <button type="button" class="btn btn-primary" id="open-create-modal">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    New Return
+  </button>
+</div>
+
+{% comment %}
+The one KPI card shape (DESIGN.md §2) shared across the app — .label then
+.value, no inline tints. Refunded this Month is a FLOW (throughput over the
+window); Pending Review and Rejected are BACKLOGS (what's outstanding right
+now, unscoped by date) — see transfer_list.html's identical reasoning for why
+these are never subtracted from one another.
+{% endcomment %}
+<div class="kpi-row compact">
+  <div class="kpi-card{% if counts.pending %} warn{% endif %}">
+    <span class="label">Pending Review</span>
+    <span class="value">{{ counts.pending }}</span>
+  </div>
+  <div class="kpi-card{% if counts.rejected %} danger{% endif %}">
+    <span class="label">Rejected</span>
+    <span class="value">{{ counts.rejected }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Refunded in {{ month_label }}</span>
+    <span class="value">₱{{ refunded_this_month|floatformat:2 }}</span>
+  </div>
+</div>
+
+<form method="GET" class="toolbar toolbar-search">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search returns">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search return ID, order number or customer…" value="{{ search_query }}" autocomplete="off" aria-label="Search by return ID, order number or customer">
+  </div>
+  {% if branches %}
+  <div class="search-filters">
+    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <input type="hidden" name="status" value="{{ status_filter }}">
+</form>
+
+<div class="filter-tabs">
+  <a class="filter-tab {% if not status_filter %}active{% endif %}"
+     href="?q={{ search_query }}&branch={{ branch_filter }}">All <span class="count count-neutral">{{ counts.all }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}"
+     href="?q={{ search_query }}&branch={{ branch_filter }}&status=Pending">Pending Review <span class="count count-neutral">{{ counts.pending }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Approved' %}active{% endif %}"
+     href="?q={{ search_query }}&branch={{ branch_filter }}&status=Approved">Approved <span class="count count-neutral">{{ counts.approved }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Refunded' %}active{% endif %}"
+     href="?q={{ search_query }}&branch={{ branch_filter }}&status=Refunded">Refunded <span class="count count-neutral">{{ counts.refunded }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}"
+     href="?q={{ search_query }}&branch={{ branch_filter }}&status=Rejected">Rejected <span class="count count-neutral">{{ counts.rejected }}</span></a>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Return ID</th>
+        <th>Original Sale</th>
+        <th>Customer</th>
+        <th>Items</th>
+        <th>Reason</th>
+        <th>Status</th>
+        <th>Date</th>
+        <th class="end">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in returns %}
+      <tr>
+        <td data-label="Return ID" class="sku strong">{{ r.return_number }}</td>
+        <td data-label="Original Sale" class="sku">{{ r.transaction.order_number }}</td>
+        <td data-label="Customer">
+          {% if r.transaction.customer %}{{ r.transaction.customer.get_full_name|default:r.transaction.customer.username }}
+          {% else %}Walk-in{% endif %}
+        </td>
+        <td data-label="Items">{{ r.items.count }} item{{ r.items.count|pluralize }}</td>
+        <td data-label="Reason">{{ r.get_reason_display }}</td>
+        <td data-label="Status">
+          {% if r.status == 'Approved' %}<span class="pill pill-info">Approved</span>
+          {% elif r.status == 'Refunded' %}<span class="pill pill-ok">Refunded</span>
+          {% elif r.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
+          {% else %}<span class="pill pill-warn">Pending Review</span>{% endif %}
+        </td>
+        <td data-label="Date" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
+        <td data-label="Action">
+          <span class="row-actions">
+            <a class="icon-btn icon-btn-action" href="{% url 'return_detail' r.pk %}" data-detail-modal="Customer Return"
+               title="View" aria-label="View return {{ r.return_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8">
+          <div class="empty">
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span>
+            <h3>No returns yet</h3>
+            <p>{% if status_filter or search_query %}Nothing matches this filter — try "All".{% else %}A return records an item coming back from a customer against a completed sale — restocked if resellable, written off if damaged, either way with a refund owed.{% endif %}</p>
+            {% if not status_filter and not search_query %}<button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('open-create-modal').click()">New Return</button>{% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% comment %}
+Two-body modal, same shape as Warehouse Stock's "Request Stock to Floor" and
+Stock Adjustments' "New Stock Adjustment": with an origin sale resolved
+(looked up by order number below) it's the item form; without one, it's just
+the lookup step, which auto-submits on blur/enter and reloads this page with
+open_create=1 so the item form reopens already populated. See
+_return_list_context and return_create in sales/views.py.
+{% endcomment %}
+<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-return-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-return-title" style="max-width:680px;">
+    <div class="modal-head">
+      <h2 id="create-return-title">New Return</h2>
+      <button type="button" class="modal-close" id="close-create-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    {% if origin_transaction %}
+    <form method="POST" action="{% url 'return_create' %}" class="modal-body" id="create-return-form">
+      {% csrf_token %}
+      <input type="hidden" name="order_number" value="{{ origin_transaction.order_number }}">
+      <div class="field">
+        <label>Original sale</label>
+        <div class="field-static" style="display:flex; align-items:center; justify-content:space-between; gap:var(--s2); flex-wrap:wrap;">
+          <span>
+            <strong>{{ origin_transaction.order_number }}</strong>
+            — {% if origin_transaction.customer %}{{ origin_transaction.customer.get_full_name|default:origin_transaction.customer.username }}{% else %}Walk-in{% endif %}
+            · {{ origin_transaction.branch.branch_name }} · ₱{{ origin_transaction.total_amount|floatformat:2 }}
+          </span>
+          <a href="?open_create=1" style="font-size:13px;">Change</a>
+        </div>
+      </div>
+
+      {% if origin_items %}
+      <div class="field">
+        <label>Items to return</label>
+        <div class="table-wrap" style="max-height:280px; overflow-y:auto;">
+          <table class="gv-table" id="return-items-table">
+            <thead><tr><th>Product</th><th class="num">Purchased</th><th class="num">Already Returned</th><th class="num">Returning</th><th class="num">Refund</th></tr></thead>
+            <tbody>
+            {% for row in origin_items %}
+              <tr data-price="{{ row.item.unit_price }}" data-max="{{ row.remaining }}">
+                <td data-label="Product">
+                  {{ row.item.product.product_name }}
+                  <input type="hidden" name="sales_item_id" value="{{ row.item.pk }}">
+                </td>
+                <td class="num" data-label="Purchased">{{ row.item.quantity_sold }}</td>
+                <td class="num" data-label="Already Returned">{{ row.already_returned }}</td>
+                <td data-label="Returning"><input type="number" class="qty-input" name="quantity_returned" min="0" max="{{ row.remaining }}" value="0" style="width:90px;"></td>
+                <td class="num line-total" data-label="Refund">₱0.00</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="return-reason">Reason</label>
+          <select id="return-reason" name="reason" required>
+            <option value="">— Choose a reason —</option>
+            {% for val, label in reason_choices %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="return-refund-method">Refund method</label>
+          <select id="return-refund-method" name="refund_method" required>
+            <option value="">— Choose a method —</option>
+            {% for val, label in refund_method_choices %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="return-condition">Item condition</label>
+        <select id="return-condition" name="condition" required>
+          <option value="">— Choose a condition —</option>
+          <option value="Resellable">Resellable — returns to floor stock</option>
+          <option value="Write-off">Damaged / Write-off — removed from inventory</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="return-notes">Notes <span class="gv-meta">(optional)</span></label>
+        <textarea id="return-notes" name="notes" rows="2"></textarea>
+      </div>
+
+      <div class="stat" style="display:flex; align-items:baseline; justify-content:space-between;">
+        <span class="gv-label">Total refund</span>
+        <span id="return-total-amount" class="gv-metric" style="font-size:24px; color:var(--action-700);">₱0.00</span>
+      </div>
+      {% else %}
+      <p class="gv-meta">Every item on {{ origin_transaction.order_number }} has already been fully returned.</p>
+      {% endif %}
+    </form>
+    <div class="modal-foot">
+      <span class="gv-meta" style="margin-right:auto;">Requires Owner or Branch Manager approval before stock or refund is posted.</span>
+      <button type="button" class="btn" id="cancel-create-modal">Cancel</button>
+      {% if origin_items %}<button type="submit" form="create-return-form" class="btn btn-primary">Submit for Approval</button>{% endif %}
+    </div>
+    {% else %}
+    <form method="GET" class="modal-body" id="create-return-lookup-form">
+      <p class="gv-meta" style="margin:0;">Enter the order number from the customer's receipt.</p>
+      <div class="field">
+        <label for="return-order-number">Order number <span style="color:var(--danger-dot);">*</span></label>
+        <input id="return-order-number" type="text" name="order_number" placeholder="ORD-2026-001" required
+               value="{{ order_number }}" autofocus>
+        {% if order_number %}<p class="field-error" style="margin:4px 0 0;">No completed order found for "{{ order_number }}" at a branch you can access.</p>{% endif %}
+      </div>
+      <input type="hidden" name="open_create" value="1">
+      {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
+      {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    </form>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="cancel-create-modal">Cancel</button>
+      <button type="submit" form="create-return-lookup-form" class="btn btn-primary">Find Order</button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var modal = document.getElementById('create-return-modal');
+  var openBtn = document.getElementById('open-create-modal');
+  var closeBtn = document.getElementById('close-create-modal');
+  var cancelBtn = document.getElementById('cancel-create-modal');
+  if (!modal) return;
+
+  function open() { modal.classList.add('is-open'); }
+  function close() { modal.classList.remove('is-open'); }
+
+  if (openBtn) openBtn.addEventListener('click', open);
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+  });
+  if (modal.dataset.autoopen === '1') open();
+
+  function peso(n) { return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  function recalc() {
+    var total = 0;
+    document.querySelectorAll('#return-items-table tbody tr').forEach(function (row) {
+      var price = parseFloat(row.dataset.price);
+      var max = parseInt(row.dataset.max, 10);
+      var input = row.querySelector('.qty-input');
+      var qty = Math.max(0, Math.min(max, parseInt(input.value || '0', 10) || 0));
+      input.value = qty;
+      var lineTotal = price * qty;
+      row.querySelector('.line-total').textContent = peso(lineTotal);
+      total += lineTotal;
+    });
+    var totalEl = document.getElementById('return-total-amount');
+    if (totalEl) totalEl.textContent = peso(total);
+  }
+  document.querySelectorAll('.qty-input').forEach(function (input) {
+    input.addEventListener('input', recalc);
+  });
+  recalc();
+})();
+</script>
+{% endblock %}
