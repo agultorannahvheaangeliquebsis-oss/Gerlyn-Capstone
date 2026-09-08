@@ -99,6 +99,21 @@ class BillingRecord(models.Model):
     date_recorded = models.DateTimeField(auto_now_add=True)
     date_confirmed = models.DateTimeField(null=True, blank=True)
 
+    # Voiding a completed sale (or cancelling an earlier-stage order) moves
+    # this record to CANCELLED from sales.views.transaction_set_status. That
+    # is a different actor at a different moment from the original payment
+    # confirmation, so it gets its own trail: confirmed_by / date_confirmed
+    # stay pointing at whoever cleared the payment, and these record who
+    # voided the record and when. Either can be null — a still-Pending order
+    # that is cancelled was never confirmed, and a void done before this
+    # field existed has neither.
+    voided_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
+        related_name='voided_billings'
+    )
+    date_voided = models.DateTimeField(null=True, blank=True)
+
     def __str__(self):
         return f"Billing #{self.id} - Transaction #{self.transaction_id} - {self.status}"
 

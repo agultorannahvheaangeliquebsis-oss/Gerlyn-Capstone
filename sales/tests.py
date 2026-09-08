@@ -8,8 +8,10 @@ throwing it away.
 """
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import StaffProfile, User
+from billing.models import BillingRecord
 from branches.models import Branch
 from core.module_permissions import DEFAULT_STAFF_MODULES, SALES_POS
 from inventory.models import Inventory, Product
@@ -384,3 +386,75 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.mode_of_payment, 'GCash')
         self.assertEqual(txn.billing_record.payment_method, 'GCash')
+
+
+class VoidPreservesConfirmationTrailTests(TestCase):
+    """F-10 — transaction_set_status used to overwrite billing.confirmed_by
+    with whoever voided a completed sale, while leaving date_confirmed at the
+    original confirmation time. The record then read "confirmed by [voider] on
+    [original date]" — a pairing that never happened — and the real confirmer
+    was lost. The void now writes its own voided_by / date_voided pair and
+    never touches the confirmation trail.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.checker = User.objects.create_user(
+            username='checker', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-001', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+
+    def _completed_sale_with_confirmed_payment(self):
+        """A completed GCash walk-in whose payment was later confirmed by
+        someone other than the owner — mirrors what billing_confirm writes
+        (status Paid, confirmed_by = the checker, date_confirmed = now)."""
+        self.client.force_login(self.owner)
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'GCash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)], 'quantity': ['2'],
+        })
+        txn = SalesTransaction.objects.get()
+        billing = txn.billing_record
+        billing.status = BillingRecord.PaymentStatus.PAID
+        billing.confirmed_by = self.checker
+        billing.date_confirmed = timezone.now()
+        billing.save()
+        return txn, billing
+
+    def test_voiding_a_completed_sale_keeps_the_original_confirmation_trail(self):
+        txn, billing = self._completed_sale_with_confirmed_payment()
+        original_confirmed_by = billing.confirmed_by_id
+        original_date_confirmed = billing.date_confirmed
+
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Cancelled'])
+        )
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[txn.pk])
+        )
+
+        billing.refresh_from_db()
+        # The billing record followed the order into Cancelled...
+        self.assertEqual(billing.status, BillingRecord.PaymentStatus.CANCELLED)
+        # ...but the confirmation trail is exactly as the checker left it.
+        self.assertEqual(billing.confirmed_by_id, original_confirmed_by)
+        self.assertEqual(billing.confirmed_by, self.checker)
+        self.assertEqual(billing.date_confirmed, original_date_confirmed)
+        # The void is recorded on its own pair.
+        self.assertEqual(billing.voided_by, self.owner)
+        self.assertIsNotNone(billing.date_voided)
+        self.assertGreaterEqual(billing.date_voided, original_date_confirmed)

@@ -355,10 +355,18 @@ def transaction_set_status(request, pk, new_status):
                 # any actual refund happens outside the system (no payment
                 # gateway integration — see billing.PaymentMethod.COD) and
                 # this only reflects that in the record.
+                #
+                # F-10: record the void on its own voided_by / date_voided
+                # pair. Do NOT touch confirmed_by / date_confirmed — writing
+                # the voider into confirmed_by while date_confirmed kept the
+                # original timestamp made the record read "confirmed by
+                # [voider] on [original date]", a pairing that never happened,
+                # and erased the real confirmer.
                 billing = getattr(locked_txn, 'billing_record', None)
                 if billing and billing.status != BillingRecord.PaymentStatus.CANCELLED:
                     billing.status = BillingRecord.PaymentStatus.CANCELLED
-                    billing.confirmed_by = request.user
+                    billing.voided_by = request.user
+                    billing.date_voided = timezone.now()
                     billing.save()
     except _OrderActionError as e:
         messages.error(request, str(e))

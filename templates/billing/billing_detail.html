@@ -63,6 +63,10 @@
         <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ record.reference_number|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ record.confirmed_by.username|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date confirmed</td><td style="text-align:right;">{{ record.date_confirmed|date:"Y-m-d H:i"|default:"—" }}</td></tr>
+        {% if record.status == "Cancelled" %}
+        <tr><td class="gv-meta">Voided by</td><td style="text-align:right;">{{ record.voided_by.username|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Date voided</td><td style="text-align:right;">{{ record.date_voided|date:"Y-m-d H:i"|default:"—" }}</td></tr>
+        {% endif %}
       </tbody>
     </table>
     {% if record.status != "Paid" %}
