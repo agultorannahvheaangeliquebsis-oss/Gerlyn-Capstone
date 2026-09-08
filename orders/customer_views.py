@@ -17,6 +17,8 @@ from inventory.stats import (
     attach_storefront_counts, in_stock_product_ids, units_sold_by_product,
 )
 from sales.models import SalesItem, SalesTransaction
+from sales.pricing import price_cart
+from sales.views import price_for
 
 # Cap on how many rows the live-search dropdown shows at once.
 SEARCH_SUGGESTION_LIMIT = 8
@@ -613,6 +615,47 @@ def checkout(request):
     if request.method != 'POST':
         return redirect('orders:cart')
 
+    # --- price tier ---------------------------------------------------------
+    # Decided here, from the account, and never read from the POST. There is no
+    # order_type input on this form and there must not be one: a shopper who
+    # could name their own tier would be choosing their own prices. Wholesale
+    # is a standing property of the account that the Owner or a Branch Manager
+    # sets (CustomerProfile.is_wholesale_eligible); everyone else is Retail.
+    profile = getattr(request.user, 'customer_profile', None)
+    order_type = (
+        SalesTransaction.OrderType.WHOLESALE
+        if profile and profile.is_wholesale_eligible
+        else SalesTransaction.OrderType.RETAIL
+    )
+
+    # --- PWD / Senior Citizen claim ----------------------------------------
+    # The same three fields the counter collects, validated the same way:
+    # a claim needs both the ID number and the name on it, and the two
+    # failures are collected rather than reported one at a time.
+    discount_type = request.POST.get('discount_type') or SalesTransaction.DiscountType.NONE
+    if discount_type not in SalesTransaction.DiscountType.values:
+        discount_type = SalesTransaction.DiscountType.NONE
+    discount_claimed = discount_type != SalesTransaction.DiscountType.NONE
+    discount_id_number = request.POST.get('discount_id_number', '').strip() if discount_claimed else ''
+    discount_holder_name = request.POST.get('discount_holder_name', '').strip() if discount_claimed else ''
+
+    discount_errors = []
+    if discount_claimed and not discount_id_number:
+        discount_errors.append(
+            f'Enter the {discount_type} ID number — a discount cannot be '
+            f'recorded without it.'
+        )
+    if discount_claimed and not discount_holder_name:
+        discount_errors.append(f'Enter the name on the {discount_type} ID.')
+
+    if discount_errors:
+        # Back to the cart with the claim rejected outright. Nothing is
+        # written and no partial discount is applied — a half-identified
+        # claim is the one thing an audit would ask about.
+        for error in discount_errors:
+            messages.error(request, error)
+        return redirect('orders:cart')
+
     with transaction.atomic():
         # Validate availability WITHOUT deducting: an online order only leaves
         # the shelf when staff mark it Completed in the Order Console.
@@ -640,6 +683,18 @@ def checkout(request):
                 return redirect('orders:cart')
             planned.append((inv.product, qty))
 
+        # Same pricing engine as the counter. This used to be a raw
+        # unit_price x qty sum, which meant an online order recorded no VAT
+        # breakdown at all (total_vat_amount stayed 0 on every one of them),
+        # could not honour a wholesale tier, and had nowhere to put a
+        # PWD/Senior discount. price_cart owns the VAT and discount
+        # arithmetic; the only decision made out here is the price TIER.
+        priced = price_cart(
+            [(product, qty, price_for(product, order_type)) for product, qty in planned],
+            discount_type=discount_type,
+        )
+        total = priced['total_amount']
+
         sale = SalesTransaction.objects.create(
             branch_id=branch_id,
             staff=None,
@@ -649,17 +704,28 @@ def checkout(request):
             mode_of_payment=request.POST.get('mode_of_payment')
                             or SalesTransaction.ModeOfPayment.COD,
             delivery_address=request.POST.get('delivery_address', '').strip(),
+            order_type=order_type,
+            discount_type=discount_type,
+            discount_id_number=discount_id_number,
+            discount_holder_name=discount_holder_name,
         )
 
-        total = Decimal('0')
-        for product, qty in planned:
+        for line in priced['lines']:
             SalesItem.objects.create(
-                transaction=sale, product=product,
-                quantity_sold=qty, unit_price=product.unit_price,
+                transaction=sale, product=line['product'],
+                quantity_sold=line['quantity'],
+                # Already-discounted unit price — SalesItem.save multiplies it
+                # out, so the discount lives in the price and must not be
+                # taken off the subtotal a second time.
+                unit_price=line['unit_price'],
+                is_vat_exempt_line=line['is_vat_exempt_line'],
+                vat_amount=line['vat_amount'],
+                discount_amount=line['discount_amount'],
             )
-            total += product.unit_price * qty
 
         sale.total_amount = total
+        sale.total_vat_amount = priced['total_vat_amount']
+        sale.total_discount_amount = priced['total_discount_amount']
         sale.save()
 
         # billing.signals already created the record — update it, never re-create
