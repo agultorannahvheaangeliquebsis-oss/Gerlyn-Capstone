@@ -5,10 +5,17 @@ writes themselves, so a regression in either shows up here rather than in a
 browser.
 """
 from django.core import mail
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User, VerificationToken
+from accounts.rate_limit import (
+    LOGIN_MAX_ATTEMPTS,
+    clear_failed_logins,
+    is_login_locked_out,
+    register_failed_login,
+)
 from branches.models import Branch
 
 
@@ -299,3 +306,91 @@ class RegistrationVerificationEmailTests(TestCase):
 
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
+
+
+class LoginLockoutCacheTests(TestCase):
+    """The 5-attempt lockout (accounts/rate_limit.py) stores its counter in
+    the Django cache. It used to land in the default LocMemCache, which is
+    per-process: under Gunicorn's multiple workers each worker kept its own
+    count, so the real cap was 5 x worker count and every redeploy reset it.
+    settings.py now points CACHES at DatabaseCache so all workers share one
+    durable store.
+
+    A single-process test run can't prove multi-worker sharing, so these
+    tests do two things it *can* prove: (1) the backend is actually the
+    shared one, not LocMemCache — a misconfiguration guard; (2) the lockout
+    still counts, trips and clears end to end against whatever backend is
+    configured.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.user = User.objects.create_user(
+            username='cashier', password='Right-Pass-2026', role=User.Role.STAFF
+        )
+
+    def test_configured_cache_is_shared_across_processes(self):
+        # LocMemCache is per-process and would silently reintroduce the bug.
+        from django.conf import settings
+
+        backend = settings.CACHES['default']['BACKEND']
+        self.assertNotEqual(
+            backend, 'django.core.cache.backends.locmem.LocMemCache',
+            'login lockout must not run on a per-process cache',
+        )
+        self.assertEqual(
+            backend, 'django.core.cache.backends.db.DatabaseCache', backend
+        )
+
+    def test_helpers_count_trip_and_clear(self):
+        for _ in range(LOGIN_MAX_ATTEMPTS - 1):
+            register_failed_login('cashier')
+        self.assertFalse(is_login_locked_out('cashier'))
+
+        register_failed_login('cashier')
+        self.assertTrue(is_login_locked_out('cashier'))
+
+        clear_failed_logins('cashier')
+        self.assertFalse(is_login_locked_out('cashier'))
+
+    def test_identifier_is_normalised(self):
+        for _ in range(LOGIN_MAX_ATTEMPTS):
+            register_failed_login('  CASHIER  ')
+        # Same account, different casing/whitespace -> same lock.
+        self.assertTrue(is_login_locked_out('cashier'))
+
+    def test_login_view_locks_out_after_five_failures(self):
+        login_url = reverse('accounts:login')
+        for _ in range(LOGIN_MAX_ATTEMPTS):
+            self.client.post(login_url, {'username': 'cashier', 'password': 'wrong'})
+
+        # 6th attempt — even with the CORRECT password — is refused.
+        response = self.client.post(
+            login_url, {'username': 'cashier', 'password': 'Right-Pass-2026'}
+        )
+        self.assertContains(response, 'Too many failed attempts')
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_successful_login_clears_the_counter(self):
+        login_url = reverse('accounts:login')
+        for _ in range(LOGIN_MAX_ATTEMPTS - 1):
+            self.client.post(login_url, {'username': 'cashier', 'password': 'wrong'})
+
+        self.client.post(
+            login_url, {'username': 'cashier', 'password': 'Right-Pass-2026'}
+        )
+        self.assertIn('_auth_user_id', self.client.session)
+        self.assertFalse(is_login_locked_out('cashier'))
+
+    def test_api_login_returns_429_after_five_failures(self):
+        api_url = reverse('api-login')
+        for _ in range(LOGIN_MAX_ATTEMPTS):
+            self.client.post(
+                api_url, {'username': 'cashier', 'password': 'wrong'}
+            )
+
+        response = self.client.post(
+            api_url, {'username': 'cashier', 'password': 'Right-Pass-2026'}
+        )
+        self.assertEqual(response.status_code, 429)

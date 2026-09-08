@@ -5,7 +5,7 @@
     "buildCommand": "python manage.py collectstatic --noinput"
   },
   "deploy": {
-    "startCommand": "python manage.py migrate --noinput && gunicorn gerlyn_is.wsgi --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread --timeout 60 --log-file -",
+    "startCommand": "python manage.py migrate --noinput && python manage.py createcachetable && gunicorn gerlyn_is.wsgi --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread --timeout 60 --log-file -",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
