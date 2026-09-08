@@ -65,7 +65,8 @@ MODULE_REGISTRY = {
     ),
     BILLING: (
         'Billing',
-        ['billing_list', 'billing_detail', 'billing_create', 'billing_confirm'],
+        ['billing_list', 'billing_detail', 'billing_proof', 'billing_create',
+         'billing_confirm'],
     ),
     PROCUREMENT: (
         'Procurement / Purchase Orders',

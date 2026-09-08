@@ -49,8 +49,16 @@ urlpatterns = [
 #
 # NOTE: hosts like Railway have an EPHEMERAL filesystem — uploads are wiped on
 # every redeploy unless MEDIA_ROOT is on a mounted volume. See ROADMAP.md.
+#
+# F-06: payment_proofs/ is deliberately EXCLUDED here. Those files are the
+# billing audit trail's evidence (customer name, reference number, amount) and
+# django.views.static.serve does no authentication — anyone with the path could
+# read them. They are now reachable only through billing.views.billing_proof,
+# which applies the same branch/customer scoping as the billing views. Everything
+# else under MEDIA_ROOT (product images, avatars) stays public as before.
 urlpatterns += [
     re_path(
-        r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}
+        r'^media/(?!payment_proofs/)(?P<path>.*)$',
+        serve, {'document_root': settings.MEDIA_ROOT},
     ),
 ]

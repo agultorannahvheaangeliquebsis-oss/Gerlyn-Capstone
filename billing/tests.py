@@ -1,17 +1,25 @@
+import base64
+import shutil
+import tempfile
 import threading
 from importlib import import_module
 
 from django.conf import settings
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.files.base import ContentFile
 from django.core.management import call_command
 from django.db import connections
-from django.test import Client, RequestFactory, TestCase, TransactionTestCase
+from django.test import (
+    Client, RequestFactory, TestCase, TransactionTestCase, override_settings,
+)
+from django.urls import Resolver404, resolve
 from django.utils import timezone
+from django.views.static import serve
 
 from accounts.models import BranchManagerProfile, StaffProfile, User
 from billing.models import BillingRecord
-from billing.serializers import BillingConfirmSerializer
+from billing.serializers import BillingConfirmSerializer, BillingRecordSerializer
 from billing.views import billing_confirm
 from branches.models import Branch
 from core.module_permissions import BILLING, DEFAULT_STAFF_MODULES
@@ -412,3 +420,167 @@ class BillingConfirmMakerCheckerTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
         self.assertEqual(record.confirmed_by, self.other_staff)
+
+
+# A real 1x1 PNG — ImageField doesn't validate bytes on a model .save(), but a
+# genuine image keeps the fixture honest and lets us byte-compare the stream.
+_PNG_BYTES = base64.b64decode(
+    b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAen63NgAAAAASUVORK5CYII='
+)
+_PROOF_MEDIA_ROOT = tempfile.mkdtemp(prefix='f06-payment-proofs-')
+
+
+@override_settings(MEDIA_ROOT=_PROOF_MEDIA_ROOT)
+class PaymentProofAuthGateTests(TestCase):
+    """F-06 — GCash payment-proof screenshots were handed to django.views.
+    static.serve by the r'^media/...' route in gerlyn_is/urls.py with no
+    authentication and no middleware in front of it: anyone who had or guessed
+    a path under /media/payment_proofs/ — signed in or not — could read a
+    customer's name, reference number and payment amount, i.e. the billing
+    audit trail's evidence.
+
+    The proofs are now reachable ONLY through billing.views.billing_proof,
+    which applies the same scoping (user_can_access_billing_record) the billing
+    API views already use, and the /media/ route no longer matches
+    payment_proofs/ at all. Every other prefix under MEDIA_ROOT (product
+    images, avatars) is still served exactly as before.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.addClassCleanup(shutil.rmtree, _PROOF_MEDIA_ROOT, ignore_errors=True)
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='pp-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch1 = Branch.objects.create(
+            branch_name='PP Branch 1', location='Baliuag', owner=cls.owner
+        )
+        cls.branch2 = Branch.objects.create(
+            branch_name='PP Branch 2', location='Baliuag', owner=cls.owner
+        )
+        cls.staff1 = cls._make_staff('pp-staff1', 'Sena', cls.branch1)
+        cls.staff2 = cls._make_staff('pp-staff2', 'Toby', cls.branch2)
+
+        # A GCash sale on branch 1 with an uploaded proof. staff=None so the
+        # maker/checker guard is irrelevant here — this is about who may read
+        # the file, not who may confirm the payment.
+        txn = SalesTransaction.objects.create(
+            branch=cls.branch1, staff=None, total_amount=500,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        cls.record = txn.billing_record
+        cls.record.proof_of_payment.save(
+            'proof.png', ContentFile(_PNG_BYTES), save=True
+        )
+        # e.g. "payment_proofs/proof.png" — the exact path the old raw route
+        # used to serve.
+        cls.proof_name = cls.record.proof_of_payment.name
+
+    @classmethod
+    def _make_staff(cls, username, name, branch):
+        user = User.objects.create_user(
+            username=username, password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=user, defaults={'staff_name': name, 'branch': branch}
+        )
+        # Billing is one of the modules a new Staff account does NOT get by
+        # default; without it ModulePermissionMiddleware redirects before
+        # billing_proof runs (billing_proof is registered under the Billing
+        # module, same as billing_detail).
+        User.objects.filter(pk=user.pk).update(
+            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+        )
+        user.refresh_from_db()
+        return user
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def _proof_url(self, pk=None):
+        return f'/billing/{pk or self.record.pk}/proof/'
+
+    # -- the new view: allowed --------------------------------------------------
+
+    def test_same_branch_staff_gets_the_file_streamed(self):
+        response = self._client(self.staff1).get(self._proof_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b''.join(response.streaming_content), _PNG_BYTES)
+
+    def test_owner_gets_the_file_for_any_branch(self):
+        response = self._client(self.owner).get(self._proof_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b''.join(response.streaming_content), _PNG_BYTES)
+
+    # -- the new view: refused -----------------------------------------------
+
+    def test_other_branch_staff_gets_404_not_the_file(self):
+        response = self._client(self.staff2).get(self._proof_url())
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_unauthenticated_request_is_redirected_to_login(self):
+        response = Client().get(self._proof_url())
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login', response['Location'])
+
+    def test_record_with_no_proof_uploaded_is_404(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch1, staff=None, total_amount=100,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        response = self._client(self.staff1).get(
+            self._proof_url(txn.billing_record.pk)
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    # -- the raw /media/ path is closed ------------------------------------
+
+    def test_direct_get_on_the_old_raw_media_path_no_longer_serves_it(self):
+        raw_path = f'/media/{self.proof_name}'
+
+        # The original repro: unauthenticated.
+        self.assertEqual(Client().get(raw_path).status_code, 404)
+        # And even for the Owner — the route simply doesn't match anymore.
+        self.assertEqual(
+            self._client(self.owner).get(raw_path).status_code, 404
+        )
+
+    def test_media_route_still_serves_every_other_prefix(self):
+        # payment_proofs/ no longer resolves to a view at all...
+        with self.assertRaises(Resolver404):
+            resolve('/media/payment_proofs/anything.png')
+        # ...while product images and avatars still route to the static server
+        # (a real request would 404 only if the file is missing, not because
+        # the route is gone).
+        for path in (
+            '/media/products/2026/01/widget.png',
+            '/media/avatars/7/avatar.png',
+        ):
+            self.assertEqual(resolve(path).func, serve, path)
+
+    # -- callers point at the new view, not the raw URL -------------------
+
+    def test_billing_detail_template_links_the_gated_view(self):
+        html = self._client(self.owner).get(
+            f'/billing/{self.record.pk}/'
+        ).content.decode()
+
+        self.assertIn(self._proof_url(), html)
+        self.assertNotIn('/media/payment_proofs/', html)
+
+    def test_api_serializer_emits_the_gated_view_url(self):
+        data = BillingRecordSerializer(self.record).data
+
+        self.assertEqual(data['proofOfPayment'], self._proof_url())
+        self.assertNotIn('payment_proofs', data['proofOfPayment'])
