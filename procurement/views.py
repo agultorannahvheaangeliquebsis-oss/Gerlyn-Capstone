@@ -777,15 +777,22 @@ def supplier_portal(request):
     }
     # A Draft PO hasn't been placed yet — the supplier should never see it.
     orders = orders.exclude(status=Procurement.Status.DRAFT)
-    if status_filter:
-        orders = orders.filter(status=status_filter)
 
+    # The stat strip is a global summary of the supplier's whole order book,
+    # not a summary of the current tab — so it's computed from `orders`
+    # before the status filter below narrows it down for the list. Computing
+    # it after the filter (as this used to) meant the Delivered/Cancelled
+    # tabs had no Ordered rows left to summarize, and every stat silently
+    # collapsed to 0 / ₱0.00 the moment you weren't on All or To fulfil.
     today = timezone.now().date()
     open_orders = [o for o in orders if o.status == Procurement.Status.ORDERED]
     open_value = sum(o.total_cost for o in open_orders)
     overdue = sum(
         1 for o in open_orders if o.delivery_date and o.delivery_date < today
     )
+
+    if status_filter:
+        orders = orders.filter(status=status_filter)
 
     return render(request, 'procurement/supplier_portal.html', {
         'orders': orders,

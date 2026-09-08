@@ -11,7 +11,11 @@
        .portal-header/.portal-wrap on purpose: .brand-mark, .avatar, .btn,
        .filter-tab and .stat are shared with the login/register/storefront/
        sidebar chrome, so overriding them globally would restyle those too. */
-    .portal-wrap { max-width: 1080px; width: 100%; margin: 0 auto; padding: 0 24px; box-sizing: border-box; }
+    /* No max-width on purpose: the Admin Dashboard's .content (its own main
+       content area) has none either and fills the full window width at any
+       size/zoom — this now matches that instead of the centered-card pattern
+       the Customer Shop's .shop-wrap uses. */
+    .portal-wrap { width: 100%; padding: 0 24px; box-sizing: border-box; }
     .portal-header { width: 100%; background: #1E7A4F; color: #fff; border-bottom: none; padding: 14px 0; }
     .portal-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     @media (max-width: 640px) { .portal-wrap { padding: 0 16px; } }
@@ -51,14 +55,14 @@
     /* Stat cards: first one highlighted, the rest plain white/gray. */
     .portal-wrap .stat-strip .stat { background: #fff; border: 1px solid #E3E8E4; border-radius: 10px; }
     .portal-wrap .stat-strip .stat.stat-highlight {
-      position: relative; background: #F2F9F4; border-color: #227A4F;
+      position: relative; overflow: hidden; background: #F2F9F4; border-color: #227A4F;
     }
     .portal-wrap .stat-strip .stat.stat-highlight::before {
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
       background: #227A4F; border-radius: 10px 10px 0 0;
     }
     .portal-wrap .stat-strip .stat.stat-danger {
-      position: relative; background: #FDECEC; border-color: #D64545;
+      position: relative; overflow: hidden; background: #FDECEC; border-color: #D64545;
     }
     .portal-wrap .stat-strip .stat.stat-danger::before {
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
@@ -122,10 +126,6 @@
 
     /* Consistent card corners for this page. */
     .portal-wrap .card { border-radius: 10px; }
-
-    /* Table headers: sentence case instead of the app-wide uppercase — size,
-       colour and letter-spacing are untouched, only the transform. */
-    .portal-wrap .gv-table th { text-transform: none; }
 
     /* ---------------------------------------------------------- responsive
        Two explicit breakpoints so the page actually restructures instead of
