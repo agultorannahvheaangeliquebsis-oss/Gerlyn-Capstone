@@ -89,7 +89,8 @@ MODULE_REGISTRY = {
     ),
     BILLING: (
         'Billing',
-        ['billing_list', 'billing_detail', 'billing_create', 'billing_confirm',
+        ['billing_list', 'billing_detail', 'billing_proof', 'billing_create',
+         'billing_confirm',
          # API (billing/api_urls.py) — pay mirrors billing_create; confirm
          # mirrors billing_confirm (the endpoint F-02 branch-scoped).
          'api-billing-list', 'api-billing-detail', 'api-billing-pay',

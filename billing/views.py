@@ -1,11 +1,13 @@
 from django.db import transaction
 from django.db.models import Q, Sum
+from django.http import FileResponse, Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
 from .models import BillingRecord
+from .api_views import user_can_access_billing_record
 from sales.models import SalesTransaction
 from accounts.models import User
 from branches.models import Branch
@@ -103,6 +105,33 @@ def billing_detail(request, pk):
         return redirect('billing_list')
 
     return render(request, 'billing/billing_detail.html', {'record': record})
+
+
+@login_required(login_url='accounts:login')
+def billing_proof(request, pk):
+    """Stream a billing record's GCash payment proof, gated by the same
+    scoping as the rest of billing.
+
+    F-06 — payment proofs are the billing audit trail's evidence (customer
+    name, reference number, amount paid). They were served straight off
+    django.views.static.serve via the /media/ route with no auth check at
+    all, so anyone who had or guessed a path under /media/payment_proofs/
+    could read them. This view is now the ONLY way in: the /media/ route no
+    longer serves payment_proofs/ (see gerlyn_is/urls.py), and callers who
+    can't reach the record itself get a 404 that doesn't confirm it exists —
+    the same helper and convention BillingRecordDetailAPIView already uses.
+    """
+    record = get_object_or_404(
+        BillingRecord.objects.select_related('transaction'), pk=pk
+    )
+    if not user_can_access_billing_record(request.user, record):
+        raise Http404
+    if not record.proof_of_payment:
+        raise Http404
+    # FileResponse streams the file and sets Content-Type/Content-Length from
+    # the storage backend, so this works the same whether the file is on the
+    # local disk or Cloudinary.
+    return FileResponse(record.proof_of_payment.open('rb'))
 
 
 @login_required(login_url='accounts:login')

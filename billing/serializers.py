@@ -1,5 +1,6 @@
 # billing/serializers.py
 
+from django.urls import reverse
 from rest_framework import serializers
 from .models import BillingRecord
 
@@ -11,7 +12,10 @@ class BillingRecordSerializer(serializers.ModelSerializer):
     amountDue = serializers.DecimalField(source='amount_due', max_digits=12, decimal_places=2, read_only=True)
     paymentMethod = serializers.CharField(source='payment_method', read_only=True)
     referenceNumber = serializers.CharField(source='reference_number', read_only=True)
-    proofOfPayment = serializers.ImageField(source='proof_of_payment', read_only=True, allow_null=True)
+    # F-06 — never the raw /media/payment_proofs/ URL (that path is no longer
+    # served). Point at the auth-gated billing_proof view instead; absolute if
+    # the serializer was given the request in context, relative otherwise.
+    proofOfPayment = serializers.SerializerMethodField()
     confirmedBy = serializers.SerializerMethodField()
     dateRecorded = serializers.DateTimeField(source='date_recorded', read_only=True)
     dateConfirmed = serializers.DateTimeField(source='date_confirmed', read_only=True)
@@ -23,6 +27,13 @@ class BillingRecordSerializer(serializers.ModelSerializer):
             'paymentMethod', 'referenceNumber', 'proofOfPayment', 'status',
             'confirmedBy', 'dateRecorded', 'dateConfirmed',
         ]
+
+    def get_proofOfPayment(self, obj):
+        if not obj.proof_of_payment:
+            return None
+        url = reverse('billing_proof', args=[obj.pk])
+        request = self.context.get('request')
+        return request.build_absolute_uri(url) if request else url
 
     def get_confirmedBy(self, obj):
         if not obj.confirmed_by:
