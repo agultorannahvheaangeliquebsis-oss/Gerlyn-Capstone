@@ -6,10 +6,33 @@
 #   - Added delivery_address (for Online orders)
 #   - All original fields untouched
 
-from django.db import models
+from django.db import models, transaction
 from branches.models import Branch
 from inventory.models import Product
 from accounts.models import User
+
+
+class OrderNumberSequence(models.Model):
+    """Per-calendar-year counter behind SalesTransaction.order_number.
+
+    order_number is ``ORD-{year}-{NNN}``. NNN used to be the global
+    auto-increment pk, which never resets — so the first order of a new
+    year came out as ORD-2027-104, reading as if a hundred orders had
+    vanished at the year boundary. This table holds the last sequence
+    value handed out for each year instead, so NNN restarts at 001 every
+    January.
+
+    SalesTransaction.save bumps the row under ``select_for_update`` in the
+    same transaction as the INSERT, so two concurrent creates can't read
+    the same last_value — the row-lock pattern billing_confirm (D-1) and
+    the billing confirm API (F-02) already use against this same class of
+    race.
+    """
+    year = models.PositiveIntegerField(primary_key=True)
+    last_value = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.year}: {self.last_value}"
 
 
 class SalesTransaction(models.Model):
@@ -139,13 +162,33 @@ class SalesTransaction(models.Model):
     )
 
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        super().save(*args, **kwargs)
-        if is_new and not self.order_number:
-            from django.utils import timezone
-            year = timezone.now().year
-            self.order_number = f"ORD-{year}-{str(self.pk).zfill(3)}"
-            super().save(update_fields=['order_number'])
+        # Existing row, or a caller that set order_number explicitly: nothing
+        # to allocate, save straight through.
+        if self.pk is not None or self.order_number:
+            super().save(*args, **kwargs)
+            return
+
+        from django.utils import timezone
+        year = timezone.now().year
+        # Allocate the number and INSERT the row in one transaction:
+        #   * the per-year counter is read under select_for_update, so two
+        #     concurrent creates can't be handed the same NNN (the row-lock
+        #     pattern billing_confirm / the billing API already use — D-1,
+        #     F-02);
+        #   * order_number is written on the INSERT itself, so the old
+        #     create-then-patch step is gone — no row ever sits under the
+        #     UNIQUE index carrying order_number='' for two concurrent
+        #     creates to collide on.
+        with transaction.atomic():
+            seq, _ = (
+                OrderNumberSequence.objects
+                .select_for_update()
+                .get_or_create(year=year)
+            )
+            seq.last_value += 1
+            seq.save(update_fields=['last_value'])
+            self.order_number = f"ORD-{year}-{seq.last_value:03d}"
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return (

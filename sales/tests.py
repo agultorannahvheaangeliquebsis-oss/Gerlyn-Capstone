@@ -6,14 +6,19 @@ items, stock movement and paid billing record, and that a rejected submit
 re-renders the form with the basket intact instead of redirecting and
 throwing it away.
 """
-from django.test import Client, TestCase
+import threading
+from datetime import datetime, timezone as dt_timezone
+from unittest import mock
+
+from django.db import connections
+from django.test import Client, TestCase, TransactionTestCase
 from django.urls import reverse
 
 from accounts.models import StaffProfile, User
 from branches.models import Branch
 from core.module_permissions import DEFAULT_STAFF_MODULES, SALES_POS
 from inventory.models import Inventory, Product
-from sales.models import SalesTransaction
+from sales.models import OrderNumberSequence, SalesTransaction
 
 
 class WalkInSaleFormTests(TestCase):
@@ -384,3 +389,142 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.mode_of_payment, 'GCash')
         self.assertEqual(txn.billing_record.payment_method, 'GCash')
+
+
+class OrderNumberYearScopedTests(TestCase):
+    """F-14 — SalesTransaction.order_number is ORD-{year}-{NNN}. NNN used to be
+    the global auto-increment pk, which never resets, so the first order of a
+    new year came out as ORD-2027-104 — reading as if a hundred orders had
+    gone missing at the year boundary. NNN now comes from a per-year counter
+    (OrderNumberSequence) and restarts at 001 each January.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='on-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='ON Branch', location='Baliuag', owner=self.owner
+        )
+
+    @staticmethod
+    def _at_year(year):
+        # save() reads django.utils.timezone.now().year to pick the ORD- year;
+        # pin it so these assertions don't depend on the wall clock.
+        return mock.patch(
+            'django.utils.timezone.now',
+            return_value=datetime(year, 6, 1, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def _order(self):
+        return SalesTransaction.objects.create(
+            branch=self.branch, total_amount=100
+        )
+
+    def test_orders_within_one_year_number_sequentially_from_001(self):
+        with self._at_year(2026):
+            numbers = [self._order().order_number for _ in range(3)]
+        self.assertEqual(
+            numbers, ['ORD-2026-001', 'ORD-2026-002', 'ORD-2026-003']
+        )
+
+    def test_the_sequence_restarts_at_001_after_a_year_rollover(self):
+        with self._at_year(2026):
+            self._order()
+            self._order()
+
+        # First order of the new year: pre-fix this was ORD-2027-003 (pk=3).
+        with self._at_year(2027):
+            first = self._order().order_number
+            second = self._order().order_number
+        self.assertEqual(first, 'ORD-2027-001')
+        self.assertEqual(second, 'ORD-2027-002')
+
+        # The 2026 run is untouched and keeps counting from where it stopped.
+        with self._at_year(2026):
+            self.assertEqual(self._order().order_number, 'ORD-2026-003')
+
+        self.assertEqual(
+            OrderNumberSequence.objects.get(year=2026).last_value, 3
+        )
+        self.assertEqual(
+            OrderNumberSequence.objects.get(year=2027).last_value, 2
+        )
+
+    def test_order_number_is_written_on_the_insert_never_left_blank(self):
+        # The row is created with its real number in one write — it never sits
+        # under the UNIQUE index carrying order_number='' waiting on a second
+        # write, which is what two concurrent creates used to collide on.
+        with self._at_year(2026):
+            txn = self._order()
+        self.assertEqual(txn.order_number, 'ORD-2026-001')
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_number, 'ORD-2026-001')
+        self.assertFalse(
+            SalesTransaction.objects.filter(order_number='').exists()
+        )
+
+
+class OrderNumberConcurrencyTests(TransactionTestCase):
+    """F-14 — two near-simultaneous creates must get distinct order numbers
+    with no IntegrityError. The old code INSERTed every row with
+    order_number='' under a UNIQUE index and patched it in a second write, so
+    two creates landing together collided on the shared empty string; the
+    number is now allocated from a select_for_update-locked per-year counter
+    and written on the INSERT itself.
+
+    Same shape as billing's D-1 concurrency test: real threads, real commits
+    (TransactionTestCase), driven straight through the ORM rather than the
+    test Client, and skipped on sqlite where SELECT ... FOR UPDATE takes no
+    lock so the race can't be expressed. Runs for real on MySQL/InnoDB.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='onc-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='ONC Branch', location='Baliuag', owner=self.owner
+        )
+
+    def _create(self, results, index, barrier):
+        outcome = {'order_number': None, 'error': None}
+        try:
+            barrier.wait(timeout=10)          # both threads create together
+            txn = SalesTransaction.objects.create(
+                branch=self.branch, total_amount=100
+            )
+            outcome['order_number'] = txn.order_number
+        except Exception as exc:              # recorded, re-asserted on main thread
+            outcome['error'] = repr(exc)
+        finally:
+            connections.close_all()
+        results[index] = outcome
+
+    def test_two_racing_creates_get_distinct_numbers_with_no_integrityerror(self):
+        if connections['default'].vendor == 'sqlite':
+            self.skipTest(
+                'sqlite takes no row lock for SELECT ... FOR UPDATE, so this '
+                'contention cannot be exercised. Runs for real on MySQL.'
+            )
+
+        # A single race can serialise by luck even with a broken lock; repeat.
+        for attempt in range(5):
+            results = [None, None]
+            barrier = threading.Barrier(2)
+            threads = [
+                threading.Thread(target=self._create, args=(results, i, barrier))
+                for i in range(2)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=30)
+
+            ctx = f'(attempt {attempt}) {results}'
+            self.assertNotIn(None, results, f'a create thread never returned {ctx}')
+            self.assertEqual([r['error'] for r in results], [None, None], ctx)
+            numbers = {r['order_number'] for r in results}
+            self.assertEqual(
+                len(numbers), 2, f'expected two distinct order numbers {ctx}'
+            )
