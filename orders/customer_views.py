@@ -475,9 +475,26 @@ def add_to_cart(request, product_id):
         messages.info(request, 'Choose a branch first so we can check stock.')
         return redirect('orders:select_branch')
 
-    qty = int(request.POST.get('quantity', 1) or 1)
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
     back = _safe_next(request)
+
+    # The quantity is raw POST input. Two failure modes, handled here before
+    # it can reach the stock comparison below:
+    #   - non-numeric ("abc") used to raise ValueError out of int() and 500.
+    #     Fall back to 1, the same default the field carries when omitted.
+    #   - a negative (or zero) value parsed fine but then sailed through the
+    #     `already + qty > available` guard trivially and *shrank* the cart
+    #     line instead of erroring. Reject it at the cast site.
+    try:
+        qty = int(request.POST.get('quantity', 1) or 1)
+    except (TypeError, ValueError):
+        qty = 1
+    if qty < 1:
+        error = 'Enter a quantity of at least 1.'
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': error}, status=409)
+        messages.error(request, error)
+        return redirect(back or 'orders:catalog')
 
     # Not get_object_or_404: the home page's discover grid is not
     # branch-scoped, so it can legitimately offer a product the chosen branch

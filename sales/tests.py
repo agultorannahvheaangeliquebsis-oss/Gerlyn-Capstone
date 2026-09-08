@@ -162,6 +162,30 @@ class WalkInSaleFormTests(TestCase):
         )
         self.assertFalse(SalesTransaction.objects.exists())
 
+    def test_a_product_id_that_no_longer_exists_is_refused_without_a_500(self):
+        """F-08b — a product deleted (or never real) after the form loaded
+        used to raise an uncaught Product.DoesNotExist when the cart was
+        priced. It is collected as a form error and the basket re-rendered
+        instead, the same way a missing branch is — no 500, nothing written."""
+        ghost_id = self.product.pk + 9999
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'order_type': 'Retail',
+            'product_id': [str(ghost_id)], 'quantity': ['1'],
+            'amount_tendered': '100',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'sales/transaction_form.html')
+        self.assertTrue(any(
+            'no longer available' in e for e in response.context['pos_errors']
+        ))
+        # The row still comes back so the cashier can see which line was wrong.
+        self.assertEqual(
+            response.context['pos_restore_rows'],
+            [{'product_id': str(ghost_id), 'quantity': '1'}],
+        )
+        self.assertFalse(SalesTransaction.objects.exists())
+
     def test_staff_are_pinned_to_their_own_branch(self):
         staff = User.objects.create_user(
             username='ana', password='pw', role=User.Role.STAFF

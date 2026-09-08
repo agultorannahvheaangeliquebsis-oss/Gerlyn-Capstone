@@ -412,3 +412,82 @@ class BillingConfirmMakerCheckerTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
         self.assertEqual(record.confirmed_by, self.other_staff)
+
+
+class BillingCreateValidationTests(TestCase):
+    """F-08a — billing_create takes payment_method straight from POST and
+    writes it onto BillingRecord, a NOT NULL column. A POST that omits the
+    field used to reach the model save and 500 with an IntegrityError. It
+    must be caught as a form error, with nothing persisted.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='bc-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='BC Branch', location='Baliuag', owner=cls.owner
+        )
+
+    def _pending_txn(self):
+        """A sale plus the Pending BillingRecord billing.signals auto-creates
+        for it (payment_method defaults to Cash there)."""
+        return SalesTransaction.objects.create(
+            branch=self.branch, total_amount=250,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+
+    def _client(self):
+        client = Client()
+        client.force_login(self.owner)
+        return client
+
+    def test_missing_payment_method_reopens_the_form_without_persisting(self):
+        txn = self._pending_txn()
+        record = txn.billing_record
+        original_method = record.payment_method
+
+        response = self._client().post(
+            f'/billing/create/{txn.pk}/',
+            {'reference_number': 'GC-1'},  # no payment_method at all
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'billing/billing_form.html')
+        self.assertIn(
+            'Choose a payment method to record this payment.',
+            [str(m) for m in get_messages(response.wsgi_request)],
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.payment_method, original_method)
+        self.assertEqual(record.reference_number, '')
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_a_blank_payment_method_is_rejected_the_same_way(self):
+        txn = self._pending_txn()
+        response = self._client().post(
+            f'/billing/create/{txn.pk}/',
+            {'payment_method': '', 'reference_number': 'GC-2'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'billing/billing_form.html')
+        txn.billing_record.refresh_from_db()
+        self.assertEqual(txn.billing_record.reference_number, '')
+
+    def test_a_supplied_payment_method_still_saves_exactly_as_before(self):
+        """Regression guard — the presence check must not disturb a normal
+        submit."""
+        txn = self._pending_txn()
+        record = txn.billing_record
+
+        response = self._client().post(
+            f'/billing/create/{txn.pk}/',
+            {'payment_method': 'GCash', 'reference_number': 'GC-9'},
+        )
+
+        self.assertRedirects(response, f'/billing/{record.pk}/')
+        record.refresh_from_db()
+        self.assertEqual(record.payment_method, 'GCash')
+        self.assertEqual(record.reference_number, 'GC-9')
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
