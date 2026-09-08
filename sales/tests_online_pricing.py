@@ -519,3 +519,35 @@ class CartPreviewPricingTests(OnlinePricingTestCase):
             order_type_for(customer), SalesTransaction.OrderType.WHOLESALE
         )
         self.assertEqual(self.cart_page(customer).context['total'], Decimal('179.20'))
+
+
+class OnlineCheckoutPaymentMethodTests(OnlinePricingTestCase):
+    """F-05 — checkout() wrote request.POST['mode_of_payment'] onto the sale
+    and the billing record with no check against ModeOfPayment.choices, while
+    discount_type right beside it (and order_type at the counter) fall back to
+    a safe default on an unrecognised value. A tampered form could stamp
+    'FREE MONEY' onto both rows and break the Billing report's payment
+    breakdown. Same fix: fall back to the online default (Cash on Delivery).
+    """
+
+    def test_a_bogus_payment_method_falls_back_to_the_online_default(self):
+        self.shop_as(self.customer())
+        self.check_out(mode_of_payment='FREE MONEY')
+
+        sale = SalesTransaction.objects.get()
+        self.assertEqual(sale.mode_of_payment, SalesTransaction.ModeOfPayment.COD)
+        self.assertNotEqual(sale.mode_of_payment, 'FREE MONEY')
+        # The billing record is written from the same value, so it is clean too.
+        self.assertEqual(sale.billing_record.payment_method, 'Cash on Delivery')
+
+    def test_a_valid_payment_method_is_kept(self):
+        # Guards against the check being blunt enough to rewrite every order to
+        # the default — 'Pay at Store' is a real ModeOfPayment choice.
+        self.shop_as(self.customer())
+        self.check_out(mode_of_payment=SalesTransaction.ModeOfPayment.PAY_AT_STORE)
+
+        sale = SalesTransaction.objects.get()
+        self.assertEqual(
+            sale.mode_of_payment, SalesTransaction.ModeOfPayment.PAY_AT_STORE
+        )
+        self.assertEqual(sale.billing_record.payment_method, 'Pay at Store')
