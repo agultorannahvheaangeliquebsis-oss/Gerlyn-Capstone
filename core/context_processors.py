@@ -9,6 +9,20 @@ def app_version(request):
     return {"APP_VERSION": APP_VERSION}
 
 
+def store_settings(request):
+    """Expose `store_settings` — the single StoreSetting row — on every page.
+
+    Templates that print a document (the purchase order, receipts) read the
+    store identity off this, and anywhere that shows an inventory threshold
+    can read the live number instead of restating a hardcoded one. One
+    cached row (see core.models.StoreSetting.load), so this costs a cache
+    hit per render, not a query.
+    """
+    from core.models import StoreSetting
+
+    return {"store_settings": StoreSetting.load()}
+
+
 def detail_modal(request):
     """Which shell a detail page wears.
 

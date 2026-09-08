@@ -389,9 +389,10 @@ def product_delete(request, pk):
         messages.success(request, 'Product deleted.')
         return redirect('product_list')
 
-    return render(request, 'inventory/product_confirm_delete.html', {
-        'product': product,
-    })
+    # The confirm step is a modal on the product list now (confirm-dialog.js
+    # off the row's Delete button). Anyone landing here directly — bookmark,
+    # back button, typed URL — just goes to the list; same as product_edit.
+    return redirect('product_list')
 
 
 # ─────────────────────────────────────────────
@@ -988,10 +989,9 @@ def category_delete(request, pk):
         messages.success(request, f'Category "{name}" deleted.')
         return redirect('category_list')
 
-    return render(request, 'inventory/category_confirm_delete.html', {
-        'category': category,
-        'product_count': product_count,
-    })
+    # The confirm step is a modal on the category list now (confirm-dialog.js
+    # off the row's Delete button). A direct GET here just goes to the list.
+    return redirect('category_list')
 
 
 # ─────────────────────────────────────────────

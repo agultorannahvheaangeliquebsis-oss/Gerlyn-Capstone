@@ -526,10 +526,20 @@ def home_view(request):
     # this page already *is* their correct landing page. (SUPPLIER is
     # deliberately left alone here — see conversation notes: their portal
     # has its own pre-existing bug unrelated to this fix.)
+    # ?preview=1 is the one exception: the Owner edits the storefront hero on
+    # the internal Settings page and needs to see the result with the staged
+    # changes applied. Without this the "preview" link there would just bounce
+    # them back to their dashboard. Only internal users get the preview — an
+    # anonymous visitor with ?preview=1 sees the ordinary live page.
     from core.permissions import INTERNAL_ROLES
-    if request.user.is_authenticated and request.user.role in INTERNAL_ROLES:
+    is_internal = (
+        request.user.is_authenticated and request.user.role in INTERNAL_ROLES
+    )
+    previewing = is_internal and request.GET.get('preview') == '1'
+    if is_internal and not previewing:
         return redirect_by_role(request, request.user)
 
+    from core.models import HomeHeroSlide
     from inventory.stats import (
         attach_storefront_counts, best_sellers, in_stock_product_ids,
     )
@@ -560,6 +570,15 @@ def home_view(request):
         # Empty on a store with no sales yet — the rail hides itself rather
         # than showing a "top products" list nobody has bought.
         'best_sellers': best_sellers(limit=8),
+        # Owner-editable hero. Empty lists → the template's built-in copy.
+        # In preview mode the Owner sees the staged (unpublished) slides.
+        'hero_slides': HomeHeroSlide.rotator_slides(preview=previewing),
+        'hero_side_cards': HomeHeroSlide.side_cards(preview=previewing),
+        # Drives the Apply changes / Cancel bar on the preview.
+        'hero_preview': previewing,
+        'hero_has_pending_changes': (
+            previewing and HomeHeroSlide.has_pending_changes()
+        ),
     })
 
 def _register_form_values(request):
@@ -731,11 +750,29 @@ def _internal_settings_context(request):
     so re-rendering this template after a validation failure doesn't drop
     the internal chrome or any of its account-security data."""
     from accounts.services import get_active_sessions
+    from core.models import HomeHeroSlide
+    from core.permissions import OWNER
+    is_owner = getattr(request.user, 'role', None) == OWNER
     context = {
         **_profile_context(request.user),
         'active_page': 'internal_settings',
         'sessions': get_active_sessions(request.user),
         'current_session_key': request.session.session_key,
+        # Store Settings card: Owner edits, everyone else reads. The row
+        # itself (`store_settings`) comes from the context processor.
+        'can_edit_store_settings': is_owner,
+        # The hero-slide manager list — only the Owner sees (and edits) it.
+        # Shadow rows are internal snapshots for the draft workflow, never
+        # shown in the editor.
+        'hero_slides': (
+            list(HomeHeroSlide.objects.filter(is_shadow=False)) if is_owner else []
+        ),
+        'hero_icon_choices': HomeHeroSlide.Icon.choices,
+        'hero_placement_choices': HomeHeroSlide.Placement.choices,
+        # Shows the "unpublished changes" banner + Apply / Discard controls.
+        'hero_has_pending_changes': (
+            is_owner and HomeHeroSlide.has_pending_changes()
+        ),
     }
     return context
 

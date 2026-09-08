@@ -135,8 +135,7 @@ def branch_delete(request, pk):
         messages.success(request, f'Branch "{name}" deleted.')
         return redirect('branch_list')
 
-    return render(request, 'branches/branch_confirm_delete.html', {
-        'branch': branch,
-        'stock_on_hand': stock_on_hand,
-        'staff_count': staff_count,
-    })
+    # The confirm step is a modal on the branch list now (confirm-dialog.js off
+    # the row's Delete button). A direct GET here — bookmark, back button —
+    # just goes to the list.
+    return redirect('branch_list')

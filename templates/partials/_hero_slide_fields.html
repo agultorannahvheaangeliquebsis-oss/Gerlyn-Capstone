@@ -1,0 +1,60 @@
+{% comment %}
+The editable fields for one storefront hero card, shared by the "edit" and
+"add" forms on the internal Settings page. Expects:
+  slide            — a core.models.HomeHeroSlide, or unset for the add form
+  is_add           — "1" on the add form, "0"/unset when editing
+  icon_choices     — HomeHeroSlide.Icon.choices
+  placement_choices— HomeHeroSlide.Placement.choices
+Side cards ignore the eyebrow and link-label fields (the template doesn't
+draw them), which the hint under each notes.
+{% endcomment %}
+<div class="edit-grid">
+  <div class="field">
+    <label>Where it shows</label>
+    <select name="placement">
+      {% for value, label in placement_choices %}
+      <option value="{{ value }}" {% if slide.placement == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label>Icon</label>
+    <select name="icon">
+      {% for value, label in icon_choices %}
+      <option value="{{ value }}" {% if slide.icon == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Eyebrow <span class="gv-meta">(rotating slides only)</span></label>
+    <input type="text" name="eyebrow" value="{{ slide.eyebrow }}" maxlength="40" placeholder="e.g. Free delivery">
+  </div>
+  <div class="field">
+    <label>Sort order</label>
+    <input type="number" name="sort_order" value="{{ slide.sort_order|default:0 }}" min="0" step="1">
+  </div>
+
+  <div class="field" style="grid-column:1/-1;">
+    <label>Headline</label>
+    <input type="text" name="headline" value="{{ slide.headline }}" maxlength="60" required placeholder="e.g. Closed on Independence Day">
+  </div>
+  <div class="field" style="grid-column:1/-1;">
+    <label>Body line</label>
+    <input type="text" name="body" value="{{ slide.body }}" maxlength="160" required placeholder="e.g. All branches are closed June 12. Orders resume June 13.">
+  </div>
+
+  <div class="field">
+    <label>Link text <span class="gv-meta">(rotating slides only)</span></label>
+    <input type="text" name="cta_label" value="{{ slide.cta_label|default_if_none:'' }}" maxlength="30" placeholder="e.g. See details">
+  </div>
+  <div class="field">
+    <label>Links to</label>
+    <input type="text" name="cta_url" value="{{ slide.cta_url|default:'/shop/' }}" maxlength="200" placeholder="/shop/">
+  </div>
+
+  <label class="ss-check" style="grid-column:1/-1;">
+    <input type="checkbox" name="is_active" value="1" {% if is_add or slide.is_active %}checked{% endif %}>
+    Visible on the storefront
+  </label>
+</div>

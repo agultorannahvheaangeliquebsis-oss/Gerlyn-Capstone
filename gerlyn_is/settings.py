@@ -162,6 +162,7 @@ TEMPLATES = [
                 'core.context_processors.nav_branches',
                 'core.context_processors.nav_categories',
                 'core.context_processors.nav_selected_branch',
+                'core.context_processors.store_settings',
             ],
         },
     },

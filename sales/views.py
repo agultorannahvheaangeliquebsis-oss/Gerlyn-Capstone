@@ -5,6 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from accounts.models import User
 from billing.models import BillingRecord
@@ -29,6 +30,20 @@ def price_for(product, order_type):
     if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price:
         return product.wholesale_price
     return product.unit_price
+
+
+def _person_name(user):
+    """A person's display name, or '' when there is nobody — mirrors
+    procurement.views._person_name.
+
+    Used by the printed receipt, where the cashier (txn.staff) is only set
+    for a Staff account: a sale the Owner or a Branch Manager rang up has no
+    staff, and a chained `{{ x.get_full_name|default:x.username }}` raises
+    when x is null because a filter argument is resolved strictly.
+    """
+    if user is None:
+        return ''
+    return user.get_full_name() or user.username
 
 
 # ─────────────────────────────────────────────
@@ -191,6 +206,56 @@ def transaction_detail(request, pk):
         'items': items,
         'billing': getattr(txn, 'billing_record', None),
         'next_actions': _next_actions(txn, request.user),
+    })
+
+
+@login_required(login_url='accounts:login')
+def transaction_receipt(request, pk):
+    """The printable sales receipt for a completed order.
+
+    Read-only and server-rendered, so the browser's own print-to-PDF does
+    the output — the same approach po_print.html and the Reports pages take,
+    and it keeps a PDF library out of the dependency list. Reached from the
+    "Print Receipt" button on transaction_detail, which opens it (?modal=1)
+    in the same #detail-modal overlay every other record uses; this template
+    extends base_template so that fetch returns the bare document.
+
+    The store identity on the letterhead — logo, TIN, the VAT line, the
+    header and footer text, the closing thank-you line — is the
+    Owner-controlled StoreSetting row, the same one the printed purchase
+    order reads, exposed on every page by
+    core.context_processors.store_settings.
+    """
+    txn = get_object_or_404(
+        SalesTransaction.objects.select_related('branch', 'staff', 'customer'), pk=pk
+    )
+    if not user_can_access_branch(request.user, txn.branch_id):
+        messages.error(request, 'That order belongs to another branch.')
+        return redirect('transaction_list')
+
+    items = txn.items.select_related('product').all()
+
+    # total_amount is the stored, authoritative figure and stays so on the
+    # document. The line sum is computed alongside it only so the template
+    # can flag a mismatch rather than print a total that doesn't add up.
+    line_sum = sum((i.subtotal for i in items), Decimal('0'))
+
+    # Gross before the statutory discount. unit_price on a discounted line
+    # was already reduced by sales.pricing, so the line subtotals (and
+    # total_amount) are net; adding the recorded discount back gives the
+    # figure to print on the "Subtotal" line above "Less: discount".
+    gross_subtotal = txn.total_amount + (txn.total_discount_amount or Decimal('0'))
+
+    return render(request, 'sales/transaction_receipt.html', {
+        'transaction': txn,
+        'items': items,
+        'billing': getattr(txn, 'billing_record', None),
+        'line_sum': line_sum,
+        'totals_disagree': line_sum != txn.total_amount,
+        'gross_subtotal': gross_subtotal,
+        'served_by_name': _person_name(txn.staff),
+        'printed_on': timezone.localdate(),
+        'printed_by': _person_name(request.user),
     })
 
 

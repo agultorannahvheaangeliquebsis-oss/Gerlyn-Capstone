@@ -19,11 +19,21 @@
   var openGroups;
   try { openGroups = JSON.parse(localStorage.getItem(OPEN_KEY)) || {}; } catch (e) { openGroups = {}; }
 
+  /* A closed branch is clipped to nothing by CSS, but its links stay in the
+     layout and in the tab order, stacked under the group header - i.e. on top
+     of the next group's row. Tabbing into one focused a link nobody could see
+     and dragged the sliding highlight onto that hidden box, painting a green
+     card across an unrelated row. `inert` takes the whole closed branch out of
+     the tab order and out of hit-testing, and it flips the instant the group
+     closes rather than after the collapse animation, so nothing can land there
+     mid-transition either. The rows still animate shut normally - inert changes
+     what they respond to, not how they are drawn. */
   function setGroupOpen(btn, open) {
     var branch = document.getElementById(btn.getAttribute('data-target'));
     if (!branch) return;
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     branch.classList.toggle('open', open);
+    branch.inert = !open;
   }
   function persistOpen() {
     try { localStorage.setItem(OPEN_KEY, JSON.stringify(openGroups)); } catch (e) {}
@@ -32,6 +42,12 @@
   groupToggles.forEach(function (btn) {
     var id = btn.getAttribute('data-target');
     if (openGroups[id] === true) setGroupOpen(btn, true);   // restore user's choice
+  });
+  /* Seal every branch the server rendered closed - setGroupOpen above only ran
+     for the ones being re-opened - so a page starts with no focusable links
+     buried inside a collapsed group. */
+  document.querySelectorAll('.sb-tree').forEach(function (branch) {
+    branch.inert = !branch.classList.contains('open');
   });
 
   /* Sidebar scroll position: every nav click is a normal <a href> that fully
@@ -156,8 +172,20 @@
        (see .app.sidebar-collapsed .sb-highlight in gerlyn.css). */
     var HL_INSET_X = 8;
 
+    /* A row inside a closed group has an offset box even though nothing is
+       drawn there: the box sits under its group header, on top of the next
+       group's row. Sizing the card from one puts a green block across a row
+       it does not belong to - the bug this guard exists for. A closed branch is
+       `inert` (see setGroupOpen), so nothing can hover or focus one any more
+       either; this still catches a SELECTED file whose group is rendered
+       closed, which no pointer or key has to touch. */
+    function rowVisible(el) {
+      var tree = el.closest('.sb-tree');
+      return !tree || tree.classList.contains('open');
+    }
+
     function placeHighlight(el, visible) {
-      if (!el) return;
+      if (!el || !rowVisible(el)) { highlight.style.opacity = '0'; return; }
       var inset = app.classList.contains('sidebar-collapsed') ? 0 : HL_INSET_X;
       highlight.style.transform =
         'translate(' + el.offsetLeft + 'px, ' + el.offsetTop + 'px)';
@@ -172,8 +200,11 @@
       /* Collapsed: a group's files are display:none, so a selected file has no
          box to rest behind — use its group's icon, which is the row that
          carries the active tint at this width. */
-      if (app.classList.contains('sidebar-collapsed') &&
-          active.classList.contains('sb-tree-file')) {
+      /* Same when the group is merely closed: the file is there but drawn
+         nowhere, so the header that contains it is the row that can carry
+         "you are here". */
+      if (active.classList.contains('sb-tree-file') &&
+          (app.classList.contains('sidebar-collapsed') || !rowVisible(active))) {
         var root = active.closest('.sb-tree-root');
         return root ? root.querySelector('.sb-tree-toggle') : null;
       }
@@ -210,6 +241,20 @@
     sbNav.addEventListener('mouseleave', function () {
       hoverTarget = null;
       settle();
+    });
+    /* Collapsing a group can pull the hovered row out from under the pointer
+       (keyboard-activating the header while the mouse rests on one of its
+       files does exactly that). No mouseover follows - the pointer never
+       moved - so without this the card keeps a target that is no longer
+       drawn. The header's own click listener is on the button and so has
+       already flipped .open by the time this delegated one runs. */
+    sbNav.addEventListener('click', function (e) {
+      var btn = e.target.closest('.sb-tree-toggle');
+      if (btn && hoverTarget && !rowVisible(hoverTarget)) {
+        hoverTarget = btn;
+        restToggle(btn);
+        placeHighlight(btn, true);
+      }
     });
     sbNav.addEventListener('focusin', function (e) {
       var el = e.target.closest(HL_SEL);

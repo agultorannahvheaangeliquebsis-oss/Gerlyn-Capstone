@@ -493,6 +493,14 @@ class DetailModalTests(TestCase):
             f'/procurement/{Procurement.objects.first().pk}/',
             f'/sales/{SalesTransaction.objects.first().pk}/',
             f'/billing/{BillingRecord.objects.first().pk}/',
+            # The printable PO is reached from the detail modal's "Print PO"
+            # button, so it has to answer ?modal=1 as a fragment too — it
+            # extends base_template rather than internal_base.html by name.
+            f'/procurement/{Procurement.objects.first().pk}/print/',
+            # The sales receipt is the same story: reached from "Print
+            # Receipt" on the order detail, so it also has to be a fragment
+            # under ?modal=1.
+            f'/sales/{SalesTransaction.objects.first().pk}/receipt/',
         ]
 
     def test_modal_flag_returns_a_fragment(self):

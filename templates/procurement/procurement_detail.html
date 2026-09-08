@@ -17,8 +17,15 @@
   {% comment %}
   Available at every status: a cancelled or draft PO still gets printed for
   the paper file, and the document itself says which it is.
+
+  data-detail-modal so the document opens in the same overlay every other
+  record does, instead of navigating the window away to a page whose only
+  way back was the browser's Back button. po_print.html extends
+  base_template, so the ?modal=1 fetch gets the bare document and its own
+  Print button calls window.print() from inside the overlay.
   {% endcomment %}
-  <a class="btn btn-primary" href="{% url 'procurement_print' procurement.pk %}">
+  <a class="btn btn-primary" data-detail-modal="Purchase Order"
+     href="{% url 'procurement_print' procurement.pk %}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
     Print PO
   </a>

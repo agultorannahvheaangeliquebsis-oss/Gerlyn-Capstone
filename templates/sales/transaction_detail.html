@@ -15,6 +15,20 @@
       {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}
     </h1>
   </div>
+  {% comment %}
+  Only a completed sale has a receipt to hand over. data-detail-modal opens
+  the document in the same overlay every other record uses;
+  transaction_receipt.html extends base_template, so the ?modal=1 fetch
+  returns the bare document and its own Print button calls window.print()
+  from inside the overlay. Same pattern as Print PO on procurement_detail.
+  {% endcomment %}
+  {% if transaction.order_status == "Completed" %}
+  <a class="btn btn-primary" data-detail-modal="Sales Receipt"
+     href="{% url 'transaction_receipt' transaction.pk %}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
+    Print Receipt
+  </a>
+  {% endif %}
 </div>
 
 {# ---- lifecycle actions ---- #}
@@ -122,7 +136,14 @@
       </tbody>
     </table>
     <div class="row mt-4" style="justify-content: flex-end;">
-      <a class="btn" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
+      {% comment %}
+      data-detail-modal so the billing record swaps into this same overlay
+      instead of navigating the window away — the modal-to-modal hop that
+      Print PO uses. billing_detail.html extends base_template, so the
+      ?modal=1 fetch already returns the bare fragment.
+      {% endcomment %}
+      <a class="btn" data-detail-modal="Billing record"
+         href="{% url 'billing_detail' billing.pk %}">View billing record</a>
       {% if billing.status != "Paid" %}
         <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
       {% endif %}

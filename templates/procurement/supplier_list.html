@@ -65,8 +65,18 @@
           <span class="row-actions">
             <a class="icon-btn icon-btn-action" href="{% url 'supplier_list' %}?edit={{ s.pk }}"
                title="Edit" aria-label="Edit {{ s.supplier_profile.supplier_name|default:s.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></a>
-            <a class="icon-btn icon-btn-danger" href="{% url 'supplier_delete' s.pk %}"
-               title="Delete" aria-label="Delete {{ s.supplier_profile.supplier_name|default:s.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></a>
+            {% comment %}confirm-dialog.js draws the "Delete this supplier?" modal off this
+            submit. A supplier with open orders is blocked server-side and comes back as
+            an error toast. No JS -> the form POSTs straight through.{% endcomment %}
+            <form method="POST" action="{% url 'supplier_delete' s.pk %}" style="display:inline;"
+                  data-confirm="Purchase order history is kept, but {{ s.supplier_profile.supplier_name|default:s.username }} can no longer be selected on new orders, and any products mapped to them are unmapped. A supplier with open orders can't be deleted."
+                  data-confirm-title="Delete this supplier?"
+                  data-confirm-variant="danger"
+                  data-confirm-ok="Delete supplier">
+              {% csrf_token %}
+              <button type="submit" class="icon-btn icon-btn-danger"
+                      title="Delete" aria-label="Delete {{ s.supplier_profile.supplier_name|default:s.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+            </form>
           </span>
         </td>
         {% endif %}

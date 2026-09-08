@@ -4,8 +4,9 @@ from django.conf import settings
 from django.views.static import serve
 
 from core.views import (
-    about_view, db_latency_check, download_view, internal_settings_view,
-    service_worker_view,
+    about_view, db_latency_check, download_view, hero_draft_apply,
+    hero_draft_discard, hero_slide_delete, hero_slide_save,
+    internal_settings_view, service_worker_view, store_settings_update,
 )
 
 urlpatterns = [
@@ -19,6 +20,11 @@ urlpatterns = [
     path('about/', about_view, name='about'),
     path('download/', download_view, name='download'),
     path('internal/settings/', internal_settings_view, name='internal_settings'),
+    path('internal/settings/store/', store_settings_update, name='store_settings_update'),
+    path('internal/settings/hero/save/', hero_slide_save, name='hero_slide_save'),
+    path('internal/settings/hero/delete/', hero_slide_delete, name='hero_slide_delete'),
+    path('internal/settings/hero/apply/', hero_draft_apply, name='hero_draft_apply'),
+    path('internal/settings/hero/discard/', hero_draft_discard, name='hero_draft_discard'),
     path('', include('accounts.urls', namespace='accounts')),
     path('inventory/', include('inventory.urls')),
     path('branches/', include('branches.urls')),
