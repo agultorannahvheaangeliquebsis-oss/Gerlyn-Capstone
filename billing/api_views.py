@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from .models import BillingRecord
@@ -110,11 +111,32 @@ class BillingConfirmAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        record = get_object_or_404(BillingRecord, pk=pk)
-        serializer = BillingConfirmSerializer(
-            record, data=request.data, context={'request': request}
+        record = get_object_or_404(
+            BillingRecord.objects.select_related('transaction'), pk=pk
         )
-        if serializer.is_valid():
-            updated = serializer.save()
-            return Response(BillingRecordSerializer(updated).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        # F-02 — this was the one confirm/reject path that skipped branch
+        # scoping entirely: a Staff/Manager account could PATCH a record
+        # belonging to another branch just by knowing its pk, while the web
+        # view (billing_confirm) already refused the same thing. 404, not
+        # 403 — same convention as every other API view in this file: don't
+        # confirm to a caller outside their scope that the record exists at
+        # all.
+        if not user_can_access_billing_record(request.user, record):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        with transaction.atomic():
+            # Re-fetch and lock so two confirmations racing the same record
+            # (double-click, retry) can't both pass BillingConfirmSerializer's
+            # transition/self-confirmation checks against the same stale,
+            # pre-lock status — the same protection billing_confirm's own
+            # select_for_update already gives the web path.
+            locked = BillingRecord.objects.select_for_update().select_related(
+                'transaction'
+            ).get(pk=pk)
+            serializer = BillingConfirmSerializer(
+                locked, data=request.data, context={'request': request}
+            )
+            if serializer.is_valid():
+                updated = serializer.save()
+                return Response(BillingRecordSerializer(updated).data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

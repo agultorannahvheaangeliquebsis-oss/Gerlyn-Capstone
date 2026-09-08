@@ -412,3 +412,134 @@ class BillingConfirmMakerCheckerTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
         self.assertEqual(record.confirmed_by, self.other_staff)
+
+
+class BillingConfirmAPIBranchScopeTests(TestCase):
+    """F-02 — BillingConfirmAPIView.patch checked role but never branch
+    scope: a Staff/Manager account could PATCH /api/billing/<pk>/confirm/
+    for a record belonging to another branch just by knowing its pk, while
+    the web view (billing_confirm) already refused the same request via
+    user_can_access_branch. The fix routes the API through the same
+    scoping helper this file's other API views already use
+    (user_can_access_billing_record) and returns 404, matching how
+    BillingRecordDetailAPIView and BillingPaymentAPIView already respond to
+    an out-of-scope pk.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='cs-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch1 = Branch.objects.create(
+            branch_name='CS Branch 1', location='Baliuag', owner=cls.owner
+        )
+        cls.branch2 = Branch.objects.create(
+            branch_name='CS Branch 2', location='Baliuag', owner=cls.owner
+        )
+        cls.staff1 = User.objects.create_user(
+            username='cs-staff1', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff1, defaults={'staff_name': 'Sid', 'branch': cls.branch1}
+        )
+        cls.manager1 = User.objects.create_user(
+            username='cs-manager1', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=cls.manager1, defaults={'manager_name': 'Mona', 'branch': cls.branch1}
+        )
+
+    def _record_for(self, branch):
+        """A Pending BillingRecord on `branch`. staff=None (an Owner/Manager
+        -rung or online sale) so the maker/checker self-confirmation guard
+        never fires here — this test is about branch scope, not that."""
+        txn = SalesTransaction.objects.create(
+            branch=branch, staff=None, total_amount=500,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        return record
+
+    def _confirm_api(self, user, pk, new_status='Paid'):
+        client = Client()
+        client.force_login(user)
+        return client.patch(
+            f'/api/billing/{pk}/confirm/', {'status': new_status},
+            content_type='application/json',
+        )
+
+    def test_staff_cannot_confirm_a_record_from_another_branch(self):
+        record = self._record_for(self.branch2)
+
+        response = self._confirm_api(self.staff1, record.pk)
+
+        self.assertEqual(response.status_code, 404)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
+
+    def test_staff_can_still_confirm_a_record_from_their_own_branch(self):
+        """The fix must not over-block a legitimate same-branch confirm."""
+        record = self._record_for(self.branch1)
+
+        response = self._confirm_api(self.staff1, record.pk)
+
+        self.assertEqual(response.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+        self.assertEqual(record.confirmed_by, self.staff1)
+
+    def test_manager_cannot_confirm_a_record_from_another_branch(self):
+        record = self._record_for(self.branch2)
+
+        response = self._confirm_api(self.manager1, record.pk)
+
+        self.assertEqual(response.status_code, 404)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_manager_can_still_confirm_a_record_from_their_own_branch(self):
+        record = self._record_for(self.branch1)
+
+        response = self._confirm_api(self.manager1, record.pk)
+
+        self.assertEqual(response.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+
+    def test_owner_can_confirm_a_record_on_any_branch(self):
+        """Owner is unrestricted in user_can_access_billing_record — the fix
+        must not accidentally scope the Owner to a branch too."""
+        for branch in (self.branch1, self.branch2):
+            with self.subTest(branch=branch.branch_name):
+                record = self._record_for(branch)
+
+                response = self._confirm_api(self.owner, record.pk)
+
+                self.assertEqual(response.status_code, 200)
+                record.refresh_from_db()
+                self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+
+    def test_reproduces_the_reported_bug_is_now_fixed(self):
+        """The exact repro from the bug report: a Staff account pinned to
+        Branch 1 PATCHing a Branch 2 record used to succeed (200,
+        confirmed_by set) where the equivalent web endpoint on the same
+        record correctly refused it (302, still Pending). Both paths must
+        now agree."""
+        record = self._record_for(self.branch2)
+
+        api_response = self._confirm_api(self.staff1, record.pk)
+        self.assertEqual(api_response.status_code, 404)
+
+        web_client = Client()
+        web_client.force_login(self.staff1)
+        web_response = web_client.post(
+            f'/billing/{record.pk}/confirm/', {'status': 'Paid'}
+        )
+        self.assertEqual(web_response.status_code, 302)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+        self.assertIsNone(record.confirmed_by)
