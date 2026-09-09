@@ -98,11 +98,16 @@ def price_line(product, quantity, unit_price=None, discount_type=None):
         # statutory discount, not a side effect of the product's own flag.
         base = listed if product.is_vat_exempt else vat_exclusive(listed)
         unit_discount = base * PWD_SENIOR_DISCOUNT_RATE
-        net_unit = base - unit_discount
+        # Round the per-unit net price once, here. SalesItem.save() independently
+        # recomputes subtotal as quantity * unit_price from the frozen unit_price;
+        # if we rounded the line total instead, that recompute could land a
+        # centavo away and trip the receipt's totals-disagree check. Rounding the
+        # unit first makes the two agree by construction.
+        net_unit = peso(base - unit_discount)
         return {
-            'unit_price': peso(net_unit),
-            'subtotal': peso(net_unit * quantity),
-            'discount_amount': peso(unit_discount * quantity),
+            'unit_price': net_unit,
+            'subtotal': net_unit * quantity,
+            'discount_amount': (peso(base) - net_unit) * quantity,
             'vat_amount': Decimal('0.00'),
             'is_vat_exempt_line': True,
             'discount_applied': True,
