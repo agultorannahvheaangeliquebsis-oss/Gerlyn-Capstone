@@ -219,11 +219,22 @@ def transaction_detail(request, pk):
         return redirect('transaction_list')
 
     items = txn.items.select_related('product').all()
+    billing = getattr(txn, 'billing_record', None)
+
     return render(request, 'sales/transaction_detail.html', {
         'transaction': txn,
         'items': items,
-        'billing': getattr(txn, 'billing_record', None),
+        'billing': billing,
         'next_actions': _next_actions(txn, request.user),
+        # Whether to offer the after-the-fact PWD/Senior discount form.
+        # transaction_apply_discount re-checks every one of these conditions
+        # itself - this only decides what to draw, and asks the same model
+        # method the view enforces so the two cannot drift apart.
+        'can_apply_discount': _can_offer_discount(txn, billing),
+        'discount_choices': [
+            c for c in SalesTransaction.DiscountType.choices
+            if c[0] != SalesTransaction.DiscountType.NONE
+        ],
     })
 
 
@@ -391,6 +402,193 @@ def transaction_set_status(request, pk, new_status):
         return redirect('transaction_detail', pk=pk)
 
     messages.success(request, f'{txn.order_number} is now {new_status}.')
+    return redirect('transaction_detail', pk=pk)
+
+
+def _can_offer_discount(txn, billing):
+    """Whether the Order Console should show the apply-discount form.
+
+    Kept beside the view that enforces the same conditions so the two are
+    read together. `billing` is passed in rather than looked up again — the
+    detail page already has it.
+    """
+    return (
+        txn.can_apply_pwd_senior_discount()
+        and txn.discount_type == SalesTransaction.DiscountType.NONE
+        and txn.order_status != SalesTransaction.OrderStatus.CANCELLED
+        and not (billing and billing.status == BillingRecord.PaymentStatus.PAID)
+    )
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transaction_apply_discount(request, pk):
+    """Apply the statutory PWD / Senior Citizen discount to an existing order.
+
+    F-04 — this used to be claimable at customer checkout by typing an ID
+    number into a web form, with no verification of any kind: 'MADE-UP-123'
+    bought a permanent 20% reduction. The discount is conditioned on
+    presenting a PWD or OSCA card, so the only place it can honestly be
+    granted is where a staff member is looking at one. That is here.
+
+    Two cases qualify, and `can_apply_pwd_senior_discount` is the single
+    definition of them:
+
+      * a walk-in (Physical) sale — the cashier saw the card at the counter
+        but did not record the claim on the sale, and
+      * an Online order collected in store (Pickup), at the moment the
+        customer arrives.
+
+    A Delivery order never qualifies: nobody at the branch meets that
+    customer, so there is no verification moment to record.
+
+    The re-pricing goes back through sales.pricing.price_cart — VAT stripped
+    first, then 20% off the exclusive base, per RA 10754 / RA 9994. The
+    arithmetic is not reimplemented here; that engine is what the POS, the
+    storefront and the printed receipt all already agree on.
+    """
+    txn = get_object_or_404(SalesTransaction, pk=pk)
+
+    if not user_can_access_branch(request.user, txn.branch_id):
+        messages.error(request, 'That order belongs to another branch.')
+        return redirect('transaction_list')
+
+    if request.method != 'POST':
+        return redirect('transaction_detail', pk=pk)
+
+    # The gate, before anything about what is being claimed: whether this
+    # user may act on this order at all is logically prior to what they are
+    # asking for (the ordering billing_confirm uses for A-1 / C-6).
+    if not txn.can_apply_pwd_senior_discount():
+        messages.error(
+            request,
+            f'{txn.order_number} is for delivery — a PWD / Senior Citizen '
+            f'discount can only be applied in person, at the counter for a '
+            f'walk-in or when a pickup order is collected.'
+        )
+        return redirect('transaction_detail', pk=pk)
+
+    if txn.order_status == SalesTransaction.OrderStatus.CANCELLED:
+        messages.error(
+            request,
+            f'{txn.order_number} is cancelled — there is nothing to discount.'
+        )
+        return redirect('transaction_detail', pk=pk)
+
+    if txn.discount_type != SalesTransaction.DiscountType.NONE:
+        # Re-pricing already-discounted lines would take 20% off the
+        # discounted price, compounding it. One claim per sale, as the
+        # column comment on the model says.
+        messages.error(
+            request,
+            f'{txn.order_number} already carries a '
+            f'{txn.get_discount_type_display()} discount.'
+        )
+        return redirect('transaction_detail', pk=pk)
+
+    billing = getattr(txn, 'billing_record', None)
+    if billing and billing.status == BillingRecord.PaymentStatus.PAID:
+        messages.error(
+            request,
+            f'{txn.order_number} is already paid — the amount due cannot be '
+            f'changed. Reverse the payment first if this discount is owed.'
+        )
+        return redirect('transaction_detail', pk=pk)
+
+    # NONE is not offerable: "apply no discount" is not an action, and
+    # accepting it would write an audit trail for a no-op.
+    discount_type = request.POST.get('discount_type') or ''
+    if discount_type not in (SalesTransaction.DiscountType.PWD,
+                             SalesTransaction.DiscountType.SENIOR):
+        messages.error(request, 'Choose PWD or Senior Citizen.')
+        return redirect('transaction_detail', pk=pk)
+
+    # The ID details are still required. They are no longer the *only*
+    # control — a person now vouches for having seen the card, and is named
+    # in discount_applied_by for it — but they remain the record that makes
+    # the discount defensible if it is ever questioned.
+    id_number = request.POST.get('discount_id_number', '').strip()
+    holder_name = request.POST.get('discount_holder_name', '').strip()
+    errors = []
+    if not id_number:
+        errors.append(
+            f'Enter the {discount_type} ID number — the discount is '
+            f'conditioned on one being presented.'
+        )
+    if not holder_name:
+        errors.append(f'Enter the name on the {discount_type} ID.')
+    if errors:
+        for error in errors:
+            messages.error(request, error)
+        return redirect('transaction_detail', pk=pk)
+
+    with transaction.atomic():
+        # Re-fetch under lock so two staff applying a discount to the same
+        # order at once cannot both pass the "no discount yet" check against
+        # the same stale read and compound the reduction — the pattern
+        # billing_confirm (D-1) and transaction_set_status already use.
+        locked = SalesTransaction.objects.select_for_update().get(pk=pk)
+
+        if locked.discount_type != SalesTransaction.DiscountType.NONE:
+            messages.error(
+                request,
+                f'{locked.order_number} already carries a '
+                f'{locked.get_discount_type_display()} discount.'
+            )
+            return redirect('transaction_detail', pk=pk)
+
+        # Every line on an undiscounted order was stored at its original
+        # tier price, so SalesItem.unit_price is exactly the listed,
+        # VAT-inclusive figure price_cart expects. Passing it back in
+        # re-prices the frozen lines without re-deriving the tier, so a
+        # wholesale order stays at wholesale.
+        items = list(locked.items.select_related('product').all())
+        priced = price_cart(
+            [(i.product, i.quantity_sold, i.unit_price) for i in items],
+            discount_type=discount_type,
+        )
+
+        for item, line in zip(items, priced['lines']):
+            item.unit_price = line['unit_price']
+            item.is_vat_exempt_line = line['is_vat_exempt_line']
+            item.vat_amount = line['vat_amount']
+            item.discount_amount = line['discount_amount']
+            item.save()
+
+        locked.discount_type = discount_type
+        locked.discount_id_number = id_number
+        locked.discount_holder_name = holder_name
+        locked.total_amount = priced['total_amount']
+        locked.total_vat_amount = priced['total_vat_amount']
+        locked.total_discount_amount = priced['total_discount_amount']
+        # The audit trail: who granted this, and when. Same shape as
+        # BillingRecord.confirmed_by / date_confirmed (A-1).
+        locked.discount_applied_by = request.user
+        locked.discount_applied_at = timezone.now()
+        locked.save()
+
+        if billing:
+            # The bill has to follow the total, or the customer is asked for
+            # the pre-discount amount.
+            billing.amount_due = priced['total_amount']
+            billing.save()
+
+    if priced['total_discount_amount'] == Decimal('0'):
+        # Recorded, but nothing moved: PWD and Senior are separate statutes
+        # with separate exclusion lists, and no item on this order carries
+        # the matching eligibility flag. Say so rather than reporting a
+        # success the customer will not see on the total.
+        messages.warning(
+            request,
+            f'{discount_type} recorded on {txn.order_number}, but no item on '
+            f'it is eligible for that discount — the total is unchanged.'
+        )
+    else:
+        messages.success(
+            request,
+            f'{discount_type} discount applied to {txn.order_number} — '
+            f'₱{priced["total_discount_amount"]} off, now '
+            f'₱{priced["total_amount"]}.'
+        )
     return redirect('transaction_detail', pk=pk)
 
 

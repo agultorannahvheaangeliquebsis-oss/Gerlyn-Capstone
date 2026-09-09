@@ -106,6 +106,7 @@ class AcceptanceTests(TestCase):
         session.save()
         customer.post('/shop/checkout/', {
             'mode_of_payment': 'Cash on Delivery',
+            'fulfillment_type': 'Delivery',
             'delivery_address': 'Baliuag',
         })
 

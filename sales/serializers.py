@@ -198,6 +198,20 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 transaction_type=validated_data['transactionType'],
                 mode_of_payment=validated_data['modeOfPayment'],
                 order_type=order_type,
+                # This endpoint's validate() already refuses an Online order
+                # with a blank deliveryAddress, so an Online sale here is
+                # always a Delivery and a Physical one is always handed over
+                # at the counter. Set explicitly rather than left on the
+                # model default: fulfillment_type gates who may apply the
+                # statutory discount (F-04), and defaulting an addressed
+                # online order to Pickup would open exactly the in-person
+                # verification hole that gate exists to close.
+                fulfillment_type=(
+                    SalesTransaction.FulfillmentType.DELIVERY
+                    if validated_data['transactionType']
+                    == SalesTransaction.TransactionType.ONLINE
+                    else SalesTransaction.FulfillmentType.PICKUP
+                ),
                 delivery_address=validated_data.get('deliveryAddress', ''),
                 total_amount=total,
                 total_vat_amount=priced['total_vat_amount'],

@@ -61,6 +61,17 @@ class SalesTransaction(models.Model):
         COMPLETED = 'Completed', 'Completed'
         CANCELLED = 'Cancelled', 'Cancelled'
 
+    class FulfillmentType(models.TextChoices):  # <-- new: how it's handed over
+        # An EXPLICIT choice made at checkout, never inferred from whether
+        # delivery_address came back blank. A genuine pickup order and a
+        # delivery order that lost its address used to be indistinguishable
+        # to everything downstream, the Order Console included (F-11).
+        #
+        # Values are Capitalised to match every other TextChoices on this
+        # model (Online/Physical, Retail/Wholesale, Pending/Approved...).
+        DELIVERY = 'Delivery', 'Delivery'
+        PICKUP = 'Pickup', 'Pickup'
+
     # --- existing fields (untouched) ----------------------------------------
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL,
@@ -113,7 +124,16 @@ class SalesTransaction(models.Model):
     )
     delivery_address = models.TextField(
         blank=True,
-        help_text="Required for Online orders; blank for Physical"
+        help_text="Required for a Delivery order; blank for Pickup and for "
+                  "walk-in (Physical) sales"
+    )
+    fulfillment_type = models.CharField(
+        max_length=10, choices=FulfillmentType.choices,
+        default=FulfillmentType.PICKUP,
+        help_text="How the customer takes the order. 'Delivery' always "
+                  "carries a delivery_address; 'Pickup' never does. A walk-in "
+                  "(Physical) sale is handed over at the counter, so it is "
+                  "Pickup."
     )
 
     # --- statutory discount (PWD / Senior Citizen) --------------------------
@@ -137,6 +157,24 @@ class SalesTransaction(models.Model):
                   "statutory discount is conditioned on."
     )
     discount_holder_name = models.CharField(max_length=150, blank=True)
+
+    # Who granted the statutory discount, and when. The same maker/checker
+    # audit trail BillingRecord.confirmed_by / date_confirmed keeps for a
+    # payment confirmation (A-1), for the same reason: this is a decision a
+    # named person made on the strength of an ID they say they saw, and a
+    # 20% reduction with nobody's name against it is exactly what an audit
+    # asks about.
+    #
+    # Null on a sale that carries no discount, and on one rung up through
+    # the POS before this field existed.
+    discount_applied_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
+        related_name='applied_discounts',
+        help_text="Staff member who verified the PWD/OSCA ID and applied "
+                  "the discount."
+    )
+    discount_applied_at = models.DateTimeField(null=True, blank=True)
     total_discount_amount = models.DecimalField(
         max_digits=12, decimal_places=2, default=0
     )
@@ -160,6 +198,29 @@ class SalesTransaction(models.Model):
         max_digits=12, decimal_places=2, null=True, blank=True,
         help_text="amount_tendered minus total_amount, frozen at sale time."
     )
+
+    def can_apply_pwd_senior_discount(self):
+        """Whether staff may apply the statutory PWD/Senior discount here.
+
+        Only where a staff member actually sees the ID face to face:
+
+          * a walk-in (Physical) sale, rung up at the counter, and
+          * an Online order the customer collects in store (Pickup), at the
+            moment they arrive.
+
+        A Delivery order has no in-person verification step anywhere in this
+        system — nobody at the branch ever meets the cardholder — so it can
+        never receive the discount (F-04). The customer-facing checkout does
+        not apply it either: every order it writes is undiscounted, and staff
+        grant it afterwards from the Order Console if the ID warrants it.
+
+        This is the single definition of the rule; the view enforces it and
+        the template asks it whether to render the form, so the control
+        shown and the control allowed can never drift apart.
+        """
+        if self.transaction_type == self.TransactionType.PHYSICAL:
+            return True
+        return self.fulfillment_type == self.FulfillmentType.PICKUP
 
     def save(self, *args, **kwargs):
         # Existing row, or a caller that set order_number explicitly: nothing
