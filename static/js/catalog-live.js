@@ -28,11 +28,11 @@
   // rendered the page — which goes stale the instant a live filter change
   // below updates the grid without a reload: ticking/unticking a box after
   // that never touches those hrefs, so clicking Sort would silently discard
-  // whatever the shopper had just changed and reapply whatever filters (and
-  // session branch) were active on the last full page load instead. Reading
-  // sort from `sortOverride`/the current URL, but everything else fresh
-  // from the live DOM state every time, is what keeps sort from ever
-  // clobbering a filter change made since.
+  // whatever the shopper had just changed and reapply whatever filters were
+  // active on the last full page load instead. Reading sort from
+  // `sortOverride`/the current URL, but everything else fresh from the live
+  // DOM state every time, is what keeps sort from ever clobbering a filter
+  // change made since.
   function targetUrl(sortOverride) {
     const current = new URLSearchParams(window.location.search);
     const params = new URLSearchParams();
@@ -44,13 +44,13 @@
       // The rail's hidden <input name="branch" value=""> guarantees a plain
       // submit always sends a `branch` key, even with every box unticked —
       // that's what tells product_catalog "this is an explicit empty
-      // filter, show every branch" rather than "no branch info in this
-      // request, fall back to the session's last one". FormData preserves
+      // filter, show every branch" rather than "no branch filter in this
+      // request, fall back to the session branch's stock". FormData preserves
       // that hidden field's empty entry, but the filter below was dropping
       // every falsy value including it, so an all-unticked submit built a
       // URL with NO `branch` key at all — indistinguishable from never
-      // having filtered, which is why it fell back to the last branch
-      // instead of showing all of them. Appending it explicitly here
+      // having filtered, which is why the grid stayed pinned to the session
+      // branch instead of showing all of them. Appending it explicitly here
       // reproduces the hidden input's guarantee for the fetch()'d URL too.
       params.append('branch', '');
       // getAll, not get: both category and branch are checklists, so there

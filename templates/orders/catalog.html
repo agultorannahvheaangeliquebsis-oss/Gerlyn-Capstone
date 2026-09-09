@@ -37,12 +37,12 @@ same list, one row down. See public_base.html's own comment on this block.
     facet would be a list of headings with nothing behind them, and a min/max
     peso box only hides rows.
 
-    Branch takes that space instead, because it is the filter with real
-    consequences in this store — stock and the cart are per-branch, so
-    choosing one changes what is actually buyable. It is a session choice
-    rather than a query parameter (customer_views.set_branch / .clear_branch),
-    which is why those entries are plain links while the categories carry
-    ?category=.
+    Branch takes that space instead, because stock is per-branch and a
+    per-branch view is the useful thing to narrow to. It is a browse filter
+    exactly like Category — same ?branch= query parameter, same getlist() on
+    the view side. It does NOT change the branch the cart is tied to: that is
+    set only on the "Choose a branch" / nav "Change" controls and the
+    select_branch page.
     {% endcomment %}
     <aside class="filter-rail" aria-label="Filters">
       <h2 class="rail-heading">Filters</h2>
@@ -54,13 +54,12 @@ same list, one row down. See public_base.html's own comment on this block.
       Categories are CHECKBOXES because "Rice and Canned goods" is a
       reasonable thing to ask for, and the view reads them with getlist().
 
-      Branches are checkboxes too, but they mean something slightly
-      different, and orders.customer_views.product_catalog documents the
-      rule: ticking several BROWSES several branches, while the cart still
-      needs exactly one. Tick a single branch and it becomes the branch you
-      are shopping at; tick several and the storefront falls back to the
-      same state as having chosen none, where the cards ask you to pick one
-      before ordering.
+      Branches are checkboxes on the same footing: ticking any combination
+      just filters the grid to what those branches stock. It does not touch
+      the shopping branch or the cart — see the rule in
+      orders.customer_views.product_catalog. The cards' own Add-to-cart /
+      "Choose a branch" state still keys off the session's shopping branch,
+      not off what is ticked here.
 
       Ticking a box updates the grid immediately (catalog-live.js) — there is
       no Apply button, because there is nothing left for one to do. Clear
@@ -112,9 +111,11 @@ same list, one row down. See public_base.html's own comment on this block.
           The empty hidden value is what makes unticking everything work. An
           unchecked checkbox submits nothing at all, so with no hidden field a
           shopper who cleared every branch would send no `branch` key — which
-          the view reads as "no branch filter in this request, leave the
-          session alone" and their last branch would stick. This guarantees
-          the key is always present; the view drops it for not being a digit.
+          the view reads as "no branch filter in this request" and falls back
+          to showing their session branch's stock, so their last branch would
+          stick. This guarantees the key is always present (an explicit,
+          possibly empty, branch filter); the view drops it for not being a
+          digit.
           {% endcomment %}
           <input type="hidden" name="branch" value="">
           <ul class="rail-list">
@@ -138,14 +139,13 @@ same list, one row down. See public_base.html's own comment on this block.
           {% comment %}
           &branch= (empty) is not decorative — without it this URL has no
           `branch` key at all, which orders.customer_views.product_catalog
-          reads as "no branch info in this request" and answers by reusing
-          whatever branch is still in the session, rather than "explicitly
-          clear it". That gap is why Clear filters looked like it worked
-          (the boxes reset) while the grid kept showing only the
-          last-selected branch: the session was never actually told to let
-          go of it. See the Branch fieldset's own hidden input above, which
-          exists for exactly this reason on every other request this rail
-          sends.
+          reads as "no branch filter in this request" and answers by falling
+          back to the session branch's stock, rather than "an explicit empty
+          filter, show every branch". That gap is why Clear filters looked
+          like it worked (the boxes reset) while the grid kept showing only
+          the last-selected branch. See the Branch fieldset's own hidden
+          input above, which exists for exactly this reason on every other
+          request this rail sends.
           {% endcomment %}
           <a class="rail-clear" href="{% url 'orders:catalog' %}?sort={{ sort }}&amp;branch=">Clear filters</a>
         </div>

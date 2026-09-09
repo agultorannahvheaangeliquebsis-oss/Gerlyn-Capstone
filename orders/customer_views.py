@@ -26,6 +26,14 @@ SEARCH_SUGGESTION_LIMIT = 8
 # Free delivery threshold shown on the cart meter.
 FREE_DELIVERY_OVER = Decimal('500')
 
+# Shown when a shopper reaches the cart or checkout with items but no branch
+# set. The cart is priced and stocked per branch, so neither page can mean
+# anything until one is chosen. add_to_cart already requires a branch before
+# a line can be added, and nothing clears the branch without also clearing
+# the cart, so in practice this is only reachable by a session that predates
+# that guarantee.
+PICK_BRANCH_TO_CHECK_OUT = 'Pick a branch to check out.'
+
 # Catalog sort orders. The dict is the single source of truth for both the
 # <select> the template renders and the validation of ?sort= — an unknown or
 # hand-edited value falls back to DEFAULT_SORT rather than 500ing on a
@@ -158,6 +166,12 @@ def _cart_items(request):
     """
     branch_id = request.session.get('branch_id')
     cart = request.session.get('cart', {})
+    # No branch → nothing to price the cart against. view_cart and checkout
+    # now redirect to branch selection before they get here, so this is a
+    # belt-and-braces guard for any future caller: it keeps this helper from
+    # quietly returning an empty cart that disagrees with the header badge.
+    if not branch_id:
+        return [], Decimal('0')
     order_type = order_type_for(request.user)
     items, total = [], Decimal('0')
 
@@ -191,23 +205,23 @@ def _cart_items(request):
 def product_catalog(request):
     branches = Branch.objects.all()
 
-    # Branch is two things at once, and the rail has to serve both.
+    # The Filters rail's Branch checklist is a BROWSE filter and nothing more:
+    # multi-select, exactly like the Category checklist beside it. Tick any
+    # combination and the grid lists what those branches have on the shelf; it
+    # does not touch request.session['branch_id'] or the cart.
     #
-    # As a FILTER it is multi-select: tick several and the grid lists what
-    # any of them has on the shelf. As the SHOPPING branch it stays single,
-    # because the cart is per-branch — stock and prices differ between
-    # branches, and a line item has to come from one of them.
+    # The branch the cart belongs to — the "shopping branch" — is a separate
+    # thing, set only by the explicit controls (the nav bar's "Change" link,
+    # the select_branch page, a card's "Choose a branch" button), all of which
+    # route through _start_shopping_at(). The two used to be fused here: a
+    # single tick called _start_shopping_at(), so glancing at another branch's
+    # shelves silently emptied the cart — and on the live-filter (XHR) path the
+    # explanatory message was never even rendered.
     #
-    # The two are reconciled by the rule that is true of both: an order needs
-    # exactly one branch. Tick one and it becomes the shopping branch. Tick
-    # none or several and there is no single answer, so the session branch is
-    # dropped and the cards fall back to "Choose a branch" — which is the
-    # browsing state the storefront already had, not a new one.
-    #
-    # Only when `branch` is actually in the query string. A shopper who chose
-    # a branch and then clicked Shop in the nav arrives with no parameters at
-    # all, and forgetting their branch on a plain navigation would be a bug,
-    # not a filter.
+    # `branch` is only read as a filter when it is actually in the query
+    # string. A shopper who chose a branch and then clicked Shop in the nav
+    # arrives with no parameters at all, and the grid should still show their
+    # branch's stock — so that case falls back to the session branch.
     branch_id = request.session.get('branch_id')
     if 'branch' in request.GET:
         wanted = [b for b in request.GET.getlist('branch') if b.isdigit()]
@@ -215,20 +229,18 @@ def product_catalog(request):
         # names no branch would otherwise sit in the URL, tick nothing in the
         # rail, and quietly filter the grid down to zero rows.
         valid = list(branches.filter(pk__in=wanted).values_list('pk', flat=True))
-        if len(valid) == 1 and valid[0] != branch_id:
-            _start_shopping_at(request, branches.get(pk=valid[0]))
-            branch_id = valid[0]
-        elif len(valid) != 1 and branch_id is not None:
-            request.session.pop('branch_id', None)
-            messages.info(
-                request,
-                'Browsing more than one branch, so no branch is set for your cart. '
-                'Choose a single branch when you are ready to order.'
-            )
-            branch_id = None
         branch_filters = [str(pk) for pk in valid]
     else:
         branch_filters = [str(branch_id)] if branch_id else []
+
+    # The single branch whose shelves the grid is currently showing, for the
+    # summary's "N of M items at <branch>" line. It follows the Branch
+    # checklist above (a browse filter), which since the decoupling is no
+    # longer the same thing as the session's shopping branch — so this is
+    # deliberately NOT selected_branch_id.
+    summary_branch = None
+    if len(branch_filters) == 1:
+        summary_branch = branches.filter(pk=branch_filters[0]).first()
 
     # sellable() annotates available_qty — the non-expired portion of each
     # row's stock — so a product with an expired lot at one branch and a
@@ -292,6 +304,7 @@ def product_catalog(request):
         'search_query': search_query,
         'category_filters': category_filters,
         'branch_filters': branch_filters,
+        'summary_branch': summary_branch,
         'sort': sort,
         # Everything except `sort`, pre-encoded, so the sort links can carry
         # the live filters without the template having to loop the category
@@ -307,7 +320,6 @@ def product_catalog(request):
             {'value': value, 'label': option['label']}
             for value, option in SORT_OPTIONS.items()
         ],
-        'cart_count': len(request.session.get('cart', {})),
     }
 
     # Live search (catalog-live.js) asks for just the two regions that
@@ -392,7 +404,6 @@ def product_detail(request, product_id):
             branch_id=request.session.get('branch_id'),
         ),
         'selected_branch_id': request.session.get('branch_id'),
-        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -413,10 +424,13 @@ def _start_shopping_at(request, branch):
     Point the session at a branch and start a fresh cart, saying so.
 
     Switching branches empties the cart — stock and prices are per-branch, so
-    the old lines cannot be carried across. All three entry points below used
-    to do that in silence, which from the shopper's side is indistinguishable
-    from the cart having lost itself. The wording only mentions the clearing
-    when there was actually something to clear.
+    the old lines cannot be carried across. This used to happen in silence,
+    which from the shopper's side is indistinguishable from the cart having
+    lost itself. The wording only mentions the clearing when there was
+    actually something to clear.
+
+    Reached only from select_branch (the branch page's POST) — the catalog's
+    Branch checklist is a browse filter now and no longer routes here.
     """
     had_items = bool(request.session.get('cart'))
     request.session['branch_id'] = branch.pk
@@ -450,18 +464,6 @@ def select_branch(request):
         _start_shopping_at(request, branch)
         return redirect('orders:catalog')
     return render(request, 'orders/select_branch.html', {'branches': branches})
-
-
-def set_branch(request, branch_id):
-    _start_shopping_at(request, get_object_or_404(Branch, pk=branch_id))
-    return redirect('orders:catalog')
-
-
-def clear_branch(request):
-    # Leaves the cart alone, as it always has — only the silence is fixed here.
-    request.session.pop('branch_id', None)
-    messages.success(request, 'Branch cleared. Pick one to start shopping again.')
-    return redirect('orders:catalog')
 
 
 # ─────────────────────────────────────────────
@@ -635,6 +637,15 @@ def remove_from_cart(request, product_id):
 
 @customer_required
 def view_cart(request):
+    # A cart with lines in it but no branch cannot be priced or checked out —
+    # stock and prices are per-branch. Rather than render a cart that shows
+    # nothing while the header badge shows a count, send the shopper to pick a
+    # branch. (_start_shopping_at then clears the stale lines, so this also
+    # cleans up a session left in that state by an older build.)
+    if request.session.get('cart') and not request.session.get('branch_id'):
+        messages.error(request, PICK_BRANCH_TO_CHECK_OUT)
+        return redirect('orders:select_branch')
+
     items, total = _cart_items(request)
     remaining = max(FREE_DELIVERY_OVER - total, Decimal('0'))
     return render(request, 'orders/cart.html', {
@@ -659,9 +670,17 @@ def checkout(request):
     branch_id = request.session.get('branch_id')
     cart = request.session.get('cart', {})
 
-    if not branch_id or not cart:
+    if not cart:
         messages.error(request, 'Your cart is empty.')
         return redirect('orders:catalog')
+
+    # Items but no branch: a distinct state from an empty cart, and it gets a
+    # distinct answer — pick a branch, don't be told the cart is empty when it
+    # is not. In practice only reachable from a session predating the rule
+    # that a cart always has a branch.
+    if not branch_id:
+        messages.error(request, PICK_BRANCH_TO_CHECK_OUT)
+        return redirect('orders:select_branch')
 
     if request.method != 'POST':
         return redirect('orders:cart')
@@ -892,7 +911,6 @@ def my_orders(request):
         'counts': counts,
         'status_filter': status_filter,
         'active_page': 'orders',
-        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -922,7 +940,6 @@ def track_order(request, transaction_id):
         'steps': steps,
         'cancelled': cancelled,
         'blurb': STATUS_BLURB.get(sale.order_status, ''),
-        'cart_count': len(request.session.get('cart', {})),
     })
 
 
