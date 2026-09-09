@@ -90,6 +90,13 @@ These were all real. Most would have broken a live demo.
 | 14 | User admin URLs sat under `/admin/`, which Django owns | Those pages 404'd |
 | 15 | `make_random_password` was removed in Django 5 | Would crash when adding a supplier |
 
+A second, larger review followed (8–9 Sept 2026): 15 security/correctness
+findings (F-01…F-15), 15 storefront-truthfulness fixes, and the fail-open
+branch-scoping fix — an unassigned Manager/Staff could read every branch's
+data. All are on `main`. Details and what's still open:
+[`docs/audit-report-2026-09-09.md`](docs/audit-report-2026-09-09.md) and
+[`docs/next-fixes-plan.md`](docs/next-fixes-plan.md).
+
 ---
 
 ## The React question (settled with evidence)
@@ -103,7 +110,7 @@ a real browser.
 | Withdrawal Slips (a core process) | **missing** | implemented |
 | CSV export | missing | 4 reports |
 | Order search / status tabs / filters | missing | implemented |
-| Automated tests | 0 | 13, passing |
+| Automated tests | 0 | full suite, passing |
 | Correctness | showed **staff names in the Customer column** on walk-in sales | correct |
 | To run | `npm install` + 2 servers + CORS | one command |
 | Category management | **had it** ✅ | *(was missing — now ported over)* |
@@ -285,9 +292,12 @@ share one system.
 ./run.sh test
 ```
 
-**You should see:** `Ran 13 tests ... OK`
+**You should see:** it ends with `OK` (not `FAILED`).
 
-This automatically checks all five business rules above. **Run it after anyone
+This automatically checks the five business rules above. `./run.sh test` runs
+the `core` acceptance suite; the full check is
+`python manage.py test accounts core sales orders billing inventory
+procurement reports` (pass your own `DB_NAME`). **Run it after anyone
 changes code.** If it says `FAILED`, something broke — tell the person who
 changed it.
 
@@ -322,6 +332,8 @@ changed it.
 | File | What's in it |
 |---|---|
 | **`ROADMAP.md`** | **What's left: now → Final Defense (Nov 2026), including deployment** |
+| `docs/audit-report-2026-09-09.md` | The 8–9 Sept code audit: every finding, the fix, the commit |
+| `docs/next-fixes-plan.md` | What to fix next, prioritised, with recommendations |
 | `README.md` | Setup, the tech stack, and how each business rule is enforced |
 | `docs/evaluation-pack.md` | The 12-minute demo script, ISO 25010 self-assessment, and the evaluator questionnaires |
 | `gerlyn-one-week-build-plan.md` | The original build plan and its status |
