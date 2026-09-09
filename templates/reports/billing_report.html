@@ -139,6 +139,7 @@ Only Pending Collection is ever tinted; the money cards are plain.
         <td data-label="Status">
           {% if r.status == "Paid" %}<span class="pill pill-ok">Paid</span>
           {% elif r.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+          {% elif r.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
           {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
         </td>
       </tr>

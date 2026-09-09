@@ -196,6 +196,7 @@ this form is forged, so hiding the control is convenience, not the guard.
       {% if billing %}
         {% if billing.status == "Paid" %}<span class="pill pill-ok">Paid</span>
         {% elif billing.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+        {% elif billing.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
         {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
       {% endif %}
     </div>

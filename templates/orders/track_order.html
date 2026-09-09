@@ -82,6 +82,7 @@
         <tr><td class="gv-meta">Payment status</td><td style="text-align:right;">
           {% if billing.status == 'Paid' %}<span class="pill pill-ok">Paid</span>
           {% elif billing.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
+          {% elif billing.status == 'Cancelled' %}<span class="pill pill-neutral">Cancelled</span>
           {% else %}<span class="pill pill-warn">Not yet paid</span>{% endif %}</td></tr>
         {% if sale.delivery_address %}
         <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ sale.delivery_address }}</td></tr>

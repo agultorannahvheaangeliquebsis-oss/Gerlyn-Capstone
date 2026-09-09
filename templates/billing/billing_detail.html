@@ -9,6 +9,7 @@
     <h1 class="mt-2">Billing for {{ record.transaction.order_number }}
       {% if record.status == "Paid" %}<span class="pill pill-ok">Paid</span>
       {% elif record.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+      {% elif record.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
       {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
     </h1>
   </div>

@@ -38,11 +38,13 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
 </form>
 
 <div class="filter-tabs">
-  {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger. #}
+  {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger, Voided neutral. #}
   <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}">All</a>
   <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Pending">Pending</a>
   <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Paid">Paid</a>
   <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Rejected">Rejected</a>
+  {# status=Cancelled is the void trail: the order behind the bill was cancelled or a completed sale was voided. #}
+  <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Cancelled">Cancelled</a>
 </div>
 
 <div class="card table-wrap">
@@ -71,6 +73,7 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
         <td data-label="Status">
           {% if r.status == "Paid" %}<span class="pill pill-ok">Paid</span>
           {% elif r.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+          {% elif r.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
           {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
         </td>
         <td data-label="Action">
