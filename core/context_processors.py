@@ -114,18 +114,14 @@ def active_nav(request):
     return {"active_page": page} if page else {}
 
 
-def nav_categories(request):
+def storefront_categories(limit=None):
     """
-    Expose `nav_categories` for the storefront header's quick-link row.
-
-    The row sits in public_base.html, which cart, checkout, product detail and
-    the order pages all extend — none of which were passing categories of their
-    own, so the row would have rendered empty on most of the shop.
+    The categories the STOREFRONT is allowed to draw, newest rule in one place.
 
     Empty while the store has fewer than two categories, which is what every
     storefront surface keys its category UI off — the chips under the search,
     the Shop menu, the footer column, the home page tiles, the catalog's
-    Category filter and the line on each product card.
+    Category filter rail and the line on each product card.
 
     A lone category is not a choice. With one row in the table ("General",
     holding every product), the chip row offered a filter that filters
@@ -137,19 +133,43 @@ def nav_categories(request):
     nothing about the category is removed from the database or the internal
     system.
 
+    A function rather than a rule written twice: the catalog view used to
+    pass its own unconditional ProductCategory.objects.all() for the filter
+    rail, so on a one-category store the header hid its chips and the rail
+    beside the grid still offered the single tick-box that filters nothing.
+
+    `limit` caps the row count for the fixed-width surfaces (the header's
+    quick-link row takes 8). It must leave room for the threshold to be
+    judged — a limit of 1 would slice the list down to one row and then read
+    that as "only one category exists".
+    """
+    from inventory.models import ProductCategory
+
+    if limit is not None and limit < 2:
+        raise ValueError('limit must be at least 2, or the threshold cannot be judged')
+    qs = ProductCategory.objects.all()
+    cats = list(qs[:limit] if limit else qs)
+    return cats if len(cats) > 1 else []
+
+
+def nav_categories(request):
+    """
+    Expose `nav_categories` for the storefront header's quick-link row.
+
+    The row sits in public_base.html, which cart, checkout, product detail and
+    the order pages all extend — none of which were passing categories of their
+    own, so the row would have rendered empty on most of the shop.
+
+    The fewer-than-two rule, and why it exists, lives in
+    storefront_categories() above.
+
     Costs nothing on internal pages: SimpleLazyObject defers the query until
     a template actually reads the variable, and no internal template names
     it, so it is never executed there.
     """
     from django.utils.functional import SimpleLazyObject
 
-    def _categories():
-        from inventory.models import ProductCategory
-
-        cats = list(ProductCategory.objects.all()[:8])
-        return cats if len(cats) > 1 else []
-
-    return {"nav_categories": SimpleLazyObject(_categories)}
+    return {"nav_categories": SimpleLazyObject(lambda: storefront_categories(limit=8))}
 
 
 def nav_branches(request):

@@ -613,7 +613,7 @@ The one #store-settings save posts all three cards together.
           <div class="field">
             <label for="ss_receipt_letterhead">Letterhead (store name &amp; address)</label>
             <textarea id="ss_receipt_letterhead" name="receipt_letterhead" rows="3" data-rp="letterhead"
-              placeholder="Gerlyn Variety Store&#10;123 Poblacion, Baliwag, Bulacan">{{ store_settings.receipt_letterhead }}</textarea>
+              placeholder="Gerlyn Variety Store&#10;123 Poblacion, Baliuag, Bulacan">{{ store_settings.receipt_letterhead }}</textarea>
             <p class="ss-hint">Prints at the very top of every purchase order and receipt, under the logo. Registered business name on the first line, address below. Leave blank to use each branch&rsquo;s own name and location &mdash; when set, the branch is still named on a small line beneath.</p>
           </div>
           <div class="field">
@@ -650,7 +650,7 @@ The one #store-settings save posts all three cards together.
                  alt="" {% if not store_settings.receipt_show_logo or not store_settings.receipt_logo %}hidden{% endif %}>
             <div class="rp-branch" data-rp-out="letterhead" style="white-space:pre-line;" {% if not store_settings.receipt_letterhead %}hidden{% endif %}>{{ store_settings.receipt_letterhead }}</div>
             <div class="rp-branch" id="rp-branch-primary" {% if store_settings.receipt_letterhead %}hidden{% endif %}>Makinabang Branch</div>
-            <div class="rp-sub" id="rp-branch-sub">{% if store_settings.receipt_letterhead %}Makinabang Branch · Makinabang, Baliwag, Bulacan{% else %}Makinabang, Baliwag, Bulacan{% endif %}</div>
+            <div class="rp-sub" id="rp-branch-sub">{% if store_settings.receipt_letterhead %}Makinabang Branch · Makinabang, Baliuag, Bulacan{% else %}Makinabang, Baliuag, Bulacan{% endif %}</div>
             <div class="rp-sub" id="rp-tin" {% if not store_settings.receipt_show_tin or not store_settings.tin %}hidden{% endif %}>TIN: <span data-rp-echo="tin">{{ store_settings.tin }}</span></div>
             <div class="rp-sub" id="rp-vat" {% if not store_settings.receipt_show_vat or not store_settings.vat_registration %}hidden{% endif %}><span data-rp-echo="vat">{{ store_settings.vat_registration }}</span></div>
             <div class="rp-note" data-rp-out="header" {% if not store_settings.receipt_header %}hidden{% endif %}>{{ store_settings.receipt_header }}</div>
@@ -945,8 +945,8 @@ document.addEventListener('keydown', function (e) {
       var has = lh.value.trim() !== '';
       primary.hidden = has;
       sub.textContent = has
-        ? 'Makinabang Branch · Makinabang, Baliwag, Bulacan'
-        : 'Makinabang, Baliwag, Bulacan';
+        ? 'Makinabang Branch · Makinabang, Baliuag, Bulacan'
+        : 'Makinabang, Baliuag, Bulacan';
     });
   })();
 

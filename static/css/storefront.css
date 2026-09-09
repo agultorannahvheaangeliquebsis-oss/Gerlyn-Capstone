@@ -2311,7 +2311,13 @@ body.shop-auth {
   border-radius: 4px; border: 1px solid var(--line);
 }
 
-.pdp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.pdp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+/* Which shelf the .stock-status beside it is counting. The chip is scoped
+   to the chosen branch (customer_views.product_detail), so "In stock" on
+   its own would not say in stock WHERE — and the answer changes the moment
+   the shopper switches branch. Sits on the same line at meta weight so it
+   reads as the chip's caption rather than a second badge. */
+.pdp-stock-where { font: 400 12.5px/1 var(--font-sans); color: var(--ink-500); }
 /* .chip and .chip-cat are gone. .chip lost -ok/-low/-out when the storefront's
    stock readings were consolidated into .stock-status below, which left
    .chip-cat — the PDP's category — as its only caller; that is a

@@ -1,71 +1,11 @@
 {% comment %}
-Product card. Hierarchy, top to bottom:
-
-    category → name → social proof → price + action
-
-Deliberately not drawn, because there is no field behind them and a card is
-the easiest place in a storefront to state something the store never said:
-
-  · the wishlist heart      — no wishlist model; a button that does nothing
-                              is worse than no button
-  · the ★★★★☆ rating         — no review model. The "N sold" line takes that
-                              slot instead, and it is a real SalesItem sum
-                              (inventory/stats.py), shown only when non-zero
-  · the struck-through price — Product has one retail price. A fake "was"
-                              price is a false discount claim, not styling
-  · the BULK RATE flag       — wholesale_price is a real second price, but a
-                              corner flag on the card only says one exists
-                              without saying what it is. The product page
-                              states the actual figure, which is the useful
-                              form of it
-  · a brand line             — Product has no brand/manufacturer column
-
-There is no stock badge and no out-of-stock state at all here: the
-storefront hides anything at zero (inventory.stats.in_stock_product_ids),
-so every card that renders is a card you can buy from.
+The catalog's product grid. The card itself is partials/product_card.html,
+shared with the home page's "More to Discover" grid — see the comment there
+for what the card does and does not draw. This template is only the loop and
+the empty state, which are the catalog's own.
 {% endcomment %}
 {% for row in rows %}
-<article class="pcard">
-  <a class="thumb" href="{% url 'orders:product_detail' row.product.id %}">{% include "partials/product_thumb.html" with product=row.product %}</a>
-  <div class="body">
-    {% comment %}
-    Category left, sold count right, on one line. Stacked down the left edge
-    these two left most of the card's width empty while pushing the price
-    further down it.
-    {% endcomment %}
-    <div class="pmeta">
-      {% if row.product.category %}
-        <span class="pcat">{{ row.product.category.category_name }}</span>
-      {% endif %}
-      {% if row.product.units_sold %}
-        <span class="psold">{{ row.product.units_sold }} sold</span>
-      {% endif %}
-    </div>
-
-    <a class="name" href="{% url 'orders:product_detail' row.product.id %}">{{ row.product.product_name }}</a>
-
-
-    {% if row.product.description %}
-      <p class="pdesc">{{ row.product.description }}</p>
-    {% endif %}
-
-    <div class="pfoot">
-      <span class="price-cluster">
-        <span class="price">₱{{ row.product.unit_price|floatformat:2 }}</span>
-        <span class="unit">per {{ row.product.unit_of_measure|lower }}</span>
-      </span>
-
-      {% comment %}
-      No out-of-stock branch here any more: customer_views.product_catalog
-      drops zero-quantity rows before the grid is rendered, so a card for
-      something unavailable never reaches this template. The product DETAIL
-      page still carries that branch, because a bookmarked or shared link to
-      an out-of-stock product must still open rather than 404.
-      {% endcomment %}
-      {% include "partials/_add_to_cart.html" with product=row.product %}
-    </div>
-  </div>
-</article>
+{% include "partials/product_card.html" with product=row.product %}
 {% empty %}
 <div style="grid-column: 1 / -1;">
   <div class="card">

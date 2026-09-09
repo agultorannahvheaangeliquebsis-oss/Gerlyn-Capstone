@@ -68,10 +68,10 @@ heading changing every six seconds.
       <a class="banner-slide" href="{% url 'orders:select_branch' %}" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
-          Three branches
+          {% if nav_branches %}{{ nav_branches|length }} branch{{ nav_branches|length|pluralize:"es" }}{% else %}Our branches{% endif %}
         </span>
         <h2>Pick up near you</h2>
-        <p>Tarcan, Makinabang and Tiaong. Choose a branch to see what is on its shelves right now.</p>
+        <p>{% for b in nav_branches %}{{ b.branch_name }}{% if not forloop.last %}{% if forloop.revcounter == 2 %} and {% else %}, {% endif %}{% endif %}{% endfor %}{% if nav_branches %}. {% endif %}Choose a branch to see what is on its shelves right now.</p>
         <span class="banner-cue">Choose a branch <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
@@ -88,7 +88,7 @@ heading changing every six seconds.
       {# Tabs, not decoration: each one moves the rotator, so each is a button. #}
       <div class="banner-dots" role="tablist" aria-label="Store highlights">
         <button class="banner-dot" type="button" role="tab" aria-selected="true"  aria-label="Free delivery"   data-dot></button>
-        <button class="banner-dot" type="button" role="tab" aria-selected="false" aria-label="Three branches"  data-dot></button>
+        <button class="banner-dot" type="button" role="tab" aria-selected="false" aria-label="Branches"        data-dot></button>
         <button class="banner-dot" type="button" role="tab" aria-selected="false" aria-label="Cash on delivery" data-dot></button>
       </div>
       {% endif %}
@@ -246,34 +246,13 @@ heading changing every six seconds.
     <h2>More to Discover</h2>
   </div>
   <div class="pgrid">
+    {% comment %}
+    The same card the catalog grid draws, from the same file — this grid used
+    to inline its own copy, which had lost the description line and so sat at
+    a different height from the identical .pgrid on the catalog page.
+    {% endcomment %}
     {% for p in products %}
-    <article class="pcard">
-      <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{% include "partials/product_thumb.html" with product=p %}</a>
-      <div class="body">
-        {% comment %}
-        Category left, sold count right, on one line — same row the catalog
-        card uses, so the two grids read identically.
-
-        No stock line any more: accounts.views.home_view filters this grid to
-        in-stock products, so every card here is buyable and a badge saying
-        so on all of them carries no information.
-        {% endcomment %}
-        <div class="pmeta">
-          {% if p.category %}<span class="pcat">{{ p.category.category_name }}</span>{% endif %}
-          {% if p.units_sold %}<span class="psold">{{ p.units_sold }} sold</span>{% endif %}
-        </div>
-
-        <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
-
-        <div class="pfoot">
-          <span class="price-cluster">
-            <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
-            <span class="unit">per {{ p.unit_of_measure|lower }}</span>
-          </span>
-          {% include "partials/_add_to_cart.html" with product=p %}
-        </div>
-      </div>
-    </article>
+    {% include "partials/product_card.html" with product=p %}
     {% empty %}
     <div style="grid-column: 1 / -1;">
       <div class="card"><div class="empty">

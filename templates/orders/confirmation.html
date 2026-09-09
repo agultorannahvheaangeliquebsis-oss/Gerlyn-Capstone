@@ -5,6 +5,14 @@
 {% block content %}
 <div class="shop-wrap section" style="max-width:760px;">
 
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">&rsaquo;</span>
+    <a href="{% url 'orders:my_orders' %}">My Orders</a>
+    <span class="sep">&rsaquo;</span>
+    <span class="current">{{ sale.order_number }}</span>
+  </nav>
+
   <div class="card card-pad" style="text-align:center;">
     <div class="empty" style="padding-bottom:16px;">
       <span class="glyph" style="background:var(--ok-bg); color:var(--ok-fg);">✓</span>
@@ -21,7 +29,7 @@
     <h3 class="mb-4">Order Details</h3>
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
-        <tr><td class="gv-meta">Status</td><td style="text-align:right;"><span class="pill pill-neutral">{{ sale.order_status }}</span></td></tr>
+        <tr><td class="gv-meta">Status</td><td style="text-align:right;">{% include "partials/_order_status_pill.html" with status=sale.order_status %}</td></tr>
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
         {% if sale.delivery_address %}
