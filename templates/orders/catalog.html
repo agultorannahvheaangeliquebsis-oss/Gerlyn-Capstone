@@ -18,14 +18,41 @@ same list, one row down. See public_base.html's own comment on this block.
 {% block content %}
 <div class="shop-wrap section">
 
+  {% comment %}
+  The trail names the category when exactly ONE is ticked, and walks its
+  department first — Home › Fresh › Fresh Beef, the reference's Home › Food.
+  With two or more ticked there is no single trail to draw (the shopper is
+  standing in two places at once), so it falls back to "All products" and the
+  chips below carry the detail instead. A search term wins over both, because
+  that is the narrower thing the page is answering.
+  {% endcomment %}
   <nav class="crumbs" aria-label="Breadcrumb">
     <a href="/">Home</a>
     <span class="crumb-sep" aria-hidden="true">›</span>
-    <span class="crumb-current" aria-current="page">{% if search_query %}Results for “{{ search_query }}”{% else %}All products{% endif %}</span>
+    {% if search_query %}
+      <span class="crumb-current" aria-current="page">Results for “{{ search_query }}”</span>
+    {% elif active_categories|length == 1 %}
+      {% with c=active_categories.0 %}
+      <a href="{% url 'orders:catalog' %}?branch=">All products</a>
+      <span class="crumb-sep" aria-hidden="true">›</span>
+      {% if c.parent %}
+        <a href="{% url 'orders:catalog' %}?category={{ c.parent.id }}">{{ c.parent.category_name }}</a>
+        <span class="crumb-sep" aria-hidden="true">›</span>
+      {% endif %}
+      <span class="crumb-current" aria-current="page">{{ c.category_name }}</span>
+      {% endwith %}
+    {% else %}
+      <span class="crumb-current" aria-current="page">All products</span>
+    {% endif %}
   </nav>
 
-  {# h1, not h2: this is the page's own title, and the page had no h1 at all. #}
-  <h1 class="sr-only">{% if search_query %}Results for “{{ search_query }}”{% else %}All Products{% endif %}</h1>
+  {% comment %}
+  h1, not h2: this is the page's own title, and the page had no h1 at all.
+  It names the category for the same reason the trail does — a screen reader
+  landing here should hear what it is looking at, not "All Products" on a
+  page showing one shelf.
+  {% endcomment %}
+  <h1 class="sr-only">{% if search_query %}Results for “{{ search_query }}”{% elif active_categories|length == 1 %}{{ active_categories.0.category_name }}{% else %}All Products{% endif %}</h1>
 
   <div class="catalog-layout">
 
@@ -46,6 +73,43 @@ same list, one row down. See public_base.html's own comment on this block.
     {% endcomment %}
     <aside class="filter-rail" aria-label="Filters">
       <h2 class="rail-heading">Filters</h2>
+
+      {% comment %}
+      What is currently narrowing the grid, as removable chips — the
+      reference's "Brand: Ajinomoto ×" block above its facets.
+
+      It earns its space because the facets below it are long: once the
+      Category tree is scrolled past, nothing on screen says why the grid is
+      showing six products, and the one ticked box that explains it is out of
+      view. Each chip's × drops exactly that one filter and keeps the rest,
+      which is the thing the "Clear filters" link at the bottom cannot do.
+
+      Real links, not JS: each href is the current filter set minus this one
+      chip, built by the view (see _chip_querystring), so the × works with
+      JavaScript off and can be middle-clicked. catalog-live.js has nothing
+      to intercept here — the rail redraws from the server on this path
+      because a removed chip changes the rail itself.
+      {% endcomment %}
+      {% if active_chips %}
+      <div class="rail-chips">
+        <div class="rail-chips-head">
+          <span class="rail-title">Filter</span>
+          <a class="rail-clear-all" href="{% url 'orders:catalog' %}?sort={{ sort }}&amp;branch=">Clear All</a>
+        </div>
+        <ul class="chip-list">
+          {% for chip in active_chips %}
+          <li class="chip">
+            <span class="chip-label">{{ chip.label }}:</span>
+            <span class="chip-value">{{ chip.value }}</span>
+            <a class="chip-x" href="?sort={{ sort }}{% if chip.remaining_qs %}&amp;{{ chip.remaining_qs }}{% endif %}"
+               aria-label="Remove {{ chip.label|lower }} filter {{ chip.value }}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
 
       {% comment %}
       One GET form for both blocks, with real inputs — the rail used to be
@@ -82,12 +146,28 @@ same list, one row down. See public_base.html's own comment on this block.
         {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
         <input type="hidden" name="sort" value="{{ sort }}">
 
+        {% comment %}
+        Two levels, the same tree the header's mega-menu opens to: a
+        department row, then its shelves indented under it.
+
+        The department's own box is not a "select all" that ticks its
+        children — it is a filter in its own right that MEANS the whole
+        department, expanded server-side by storefront_category_ids(). That
+        distinction is what keeps "Fresh" and "Fresh, Fresh Beef" from being
+        two ways of writing the same query with different boxes lit.
+
+        The count beside each row is live: sellable stock, narrowed by the
+        branches and search term in play, so a row saying (6) puts six
+        products in the grid. Rows with nothing behind them are not drawn at
+        all — see _category_rail in orders.customer_views — so there is no
+        such thing as a (0) here to click and be disappointed by.
+        {% endcomment %}
         {% if categories %}
         <fieldset class="rail-block">
           <legend class="rail-title">Category</legend>
-          <ul class="rail-list">
+          <ul class="rail-list rail-tree">
             {% for c in categories %}
-            <li>
+            <li class="rail-dept">
               <label class="rail-check">
                 <input type="checkbox" name="category" value="{{ c.id }}"
                        {% if c.id|stringformat:'s' in category_filters %}checked{% endif %}>
@@ -95,7 +175,26 @@ same list, one row down. See public_base.html's own comment on this block.
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
                 </span>
                 <span class="rail-check-text">{{ c.category_name }}</span>
+                <span class="rail-count">({{ c.stock_count }})</span>
               </label>
+
+              {% if c.shelves %}
+              <ul class="rail-list rail-shelves">
+                {% for s in c.shelves %}
+                <li>
+                  <label class="rail-check">
+                    <input type="checkbox" name="category" value="{{ s.id }}"
+                           {% if s.id|stringformat:'s' in category_filters %}checked{% endif %}>
+                    <span class="rail-box" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
+                    </span>
+                    <span class="rail-check-text">{{ s.category_name }}</span>
+                    <span class="rail-count">({{ s.stock_count }})</span>
+                  </label>
+                </li>
+                {% endfor %}
+              </ul>
+              {% endif %}
             </li>
             {% endfor %}
           </ul>

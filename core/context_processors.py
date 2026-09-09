@@ -116,12 +116,19 @@ def active_nav(request):
 
 def storefront_categories(limit=None):
     """
-    The categories the STOREFRONT is allowed to draw, newest rule in one place.
+    The category tree the STOREFRONT is allowed to draw, the rule in one place.
 
-    Empty while the store has fewer than two categories, which is what every
-    storefront surface keys its category UI off — the chips under the search,
-    the Shop menu, the footer column, the home page tiles, the catalog's
-    Category filter rail and the line on each product card.
+    Returns top-level departments, each carrying a `subcategories` list of its
+    own shelves — the two-level shape ProductCategory now stores and every
+    storefront surface renders: the header's Shop mega-menu (departments down
+    the left, that department's shelves in the flyout), the home page's
+    department tiles, the footer column, and the catalog's Category filter
+    rail, which groups its tick-boxes under department headings.
+
+    Empty while the store has fewer than two categories a shopper could
+    actually pick between — counting shelves, not just departments, because
+    one department holding six shelves is six real choices and a menu worth
+    opening.
 
     A lone category is not a choice. With one row in the table ("General",
     holding every product), the chip row offered a filter that filters
@@ -138,25 +145,99 @@ def storefront_categories(limit=None):
     rail, so on a one-category store the header hid its chips and the rail
     beside the grid still offered the single tick-box that filters nothing.
 
-    `limit` caps the row count for the fixed-width surfaces (the header's
-    quick-link row takes 8). It must leave room for the threshold to be
-    judged — a limit of 1 would slice the list down to one row and then read
-    that as "only one category exists".
+    `limit` caps the DEPARTMENT count for the fixed-width surfaces (the
+    header's quick-link row takes 8) — never the shelves under one, which are
+    a flyout that scrolls. It must leave room for the threshold to be judged:
+    a limit of 1 would slice the list to one department and then read that as
+    "only one category exists".
+
+    A category with nothing filed under it is not drawn at all. Every one of
+    these surfaces is a link into a filtered catalog, and an empty category
+    is a link to an empty grid — the storefront promising a shelf that isn't
+    there. It is a threshold like the one above and not a deletion: the row
+    stays in the database, stays in Inventory › Categories where the owner
+    manages it, and reappears on the shop the moment a product is filed under
+    it. This is also what keeps a placeholder like "General" — the category a
+    catalog starts life with because Product needs one — out of the menu once
+    its last product has been sorted into a real shelf.
+
+    A department counts its shelves' products as its own, matching what
+    clicking it does (storefront_category_ids). So a department that holds
+    nothing directly but has six full shelves is still drawn, and one whose
+    every shelf is empty is not.
+
+    Two queries, not one per department: the counts ride along on the
+    department/child queries, so a nine-department menu costs the same two
+    round trips no matter how many shelves hang off it.
     """
+    from django.db.models import Count, Prefetch, Q
+
     from inventory.models import ProductCategory
 
     if limit is not None and limit < 2:
         raise ValueError('limit must be at least 2, or the threshold cannot be judged')
-    qs = ProductCategory.objects.all()
-    cats = list(qs[:limit] if limit else qs)
-    return cats if len(cats) > 1 else []
+
+    children = (
+        ProductCategory.objects
+        .annotate(product_total=Count('products'))
+        .filter(product_total__gt=0)
+        .order_by('category_name')
+    )
+    departments = list(
+        ProductCategory.objects
+        .filter(parent__isnull=True)
+        # distinct=True on both: without it, joining products AND
+        # children__products in one query multiplies the two row sets
+        # together and each count comes back as the product of the pair.
+        .annotate(
+            own_products=Count('products', distinct=True),
+            child_products=Count('children__products', distinct=True),
+        )
+        .filter(Q(own_products__gt=0) | Q(child_products__gt=0))
+        .prefetch_related(Prefetch('children', queryset=children, to_attr='subcategories'))
+        .order_by('category_name')
+    )
+
+    # Counted BEFORE the limit is applied, so trimming a long department list
+    # for a fixed-width surface can never itself trip the threshold.
+    pickable = sum(1 + len(d.subcategories) for d in departments)
+    if pickable < 2:
+        return []
+
+    return departments[:limit] if limit else departments
+
+
+def storefront_category_ids(category_ids):
+    """Expand a set of chosen category ids to include each department's shelves.
+
+    Ticking "Fresh" has to mean "and everything filed under Fresh", or the
+    department row in the filter rail — and every ?category= link in the
+    mega-menu's left column — would return only the loose products sitting
+    directly on the department, which in a well-organised catalog is none of
+    them. A department link that reliably shows an empty grid is worse than
+    no link.
+
+    Takes and returns ids as strings, matching what request.GET.getlist()
+    hands over and what the template compares its tick-boxes against.
+    """
+    from inventory.models import ProductCategory
+
+    if not category_ids:
+        return []
+    wanted = {str(c) for c in category_ids}
+    children = ProductCategory.objects.filter(
+        parent_id__in=wanted
+    ).values_list('pk', flat=True)
+    return sorted(wanted | {str(pk) for pk in children})
 
 
 def nav_categories(request):
     """
-    Expose `nav_categories` for the storefront header's quick-link row.
+    Expose `nav_categories` for the storefront header's Shop mega-menu and
+    quick-link row — a list of departments, each carrying its own
+    `subcategories`.
 
-    The row sits in public_base.html, which cart, checkout, product detail and
+    They sit in public_base.html, which cart, checkout, product detail and
     the order pages all extend — none of which were passing categories of their
     own, so the row would have rendered empty on most of the shop.
 

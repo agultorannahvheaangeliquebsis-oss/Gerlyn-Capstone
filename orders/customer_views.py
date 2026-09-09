@@ -13,8 +13,8 @@ from django.utils.functional import SimpleLazyObject
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
-from core.context_processors import storefront_categories
-from inventory.models import Inventory, Product
+from core.context_processors import storefront_categories, storefront_category_ids
+from inventory.models import Inventory, Product, ProductCategory
 from inventory.stats import (
     attach_storefront_counts, in_stock_product_ids, units_sold_by_product,
 )
@@ -280,7 +280,16 @@ def product_catalog(request):
     if search_query:
         stock = stock.filter(product__product_name__icontains=search_query)
     if category_filters:
-        stock = stock.filter(product__category_id__in=category_filters)
+        # Ticking a department means its shelves too. `category_filters` is
+        # deliberately NOT overwritten with the expanded set: the rail ticks
+        # its boxes off this list, and folding the children in would light up
+        # every shelf under a department the shopper never touched — and then
+        # unticking one of those phantom ticks would read as "Fresh minus
+        # Fresh Beef", which is not what they asked for. The expansion is a
+        # query detail; the ticks stay the shopper's own answer.
+        stock = stock.filter(
+            product__category_id__in=storefront_category_ids(category_filters)
+        )
 
     # Collapse to one row per product when no branch is chosen; keep the
     # best availability so stock signals stay honest.
@@ -315,6 +324,21 @@ def product_catalog(request):
         sort = DEFAULT_SORT
     ordered_rows.sort(key=SORT_OPTIONS[sort]['key'])
 
+    # Memoised, because both `active_categories` (the breadcrumb) and
+    # `active_chips` need it and neither should pay for the other's query.
+    # A list rather than a queryset for the same reason: a queryset re-runs
+    # on each iteration, and the breadcrumb tests its length before reading
+    # its first row.
+    _resolved = []
+
+    def _active_categories():
+        if not _resolved:
+            _resolved.append(list(
+                ProductCategory.objects.filter(pk__in=category_filters)
+                .select_related('parent').order_by('category_name')
+            ))
+        return _resolved[0]
+
     context = {
         'rows': ordered_rows,
         'branches': branches,
@@ -331,9 +355,30 @@ def product_catalog(request):
         # neither of the two partials rendered there names `categories`. A
         # bare call would have bought a query per keystroke for a rail that
         # is not being redrawn.
-        'categories': SimpleLazyObject(storefront_categories),
+        #
+        # Departments carrying `shelves` and a `stock_count`, not a flat list
+        # — the rail groups its tick-boxes the same two levels the header's
+        # mega-menu opens to. See _category_rail.
+        'categories': SimpleLazyObject(
+            lambda: _category_rail(branch_filters, search_query)
+        ),
         'search_query': search_query,
         'category_filters': category_filters,
+        # The ticked categories themselves, for the removable chips above the
+        # grid and the breadcrumb's trail. Ids alone cannot name themselves,
+        # and the rail's tree has empty rows dropped from it, so a chip read
+        # off that would vanish for a category that is genuinely ticked and
+        # genuinely has nothing in stock — leaving a filtered grid with no
+        # visible reason and no way back out.
+        'active_categories': SimpleLazyObject(_active_categories),
+        # Reads active_categories through the same lazy callable rather than
+        # off the context, so neither list is queried on the live-search XHR
+        # path — which renders neither partial that names them.
+        'active_chips': SimpleLazyObject(
+            lambda: _active_chips(
+                search_query, _active_categories(), branches, branch_filters
+            )
+        ),
         'branch_filters': branch_filters,
         'summary_branch': summary_branch,
         'sort': sort,
@@ -455,6 +500,71 @@ def product_detail(request, product_id):
     })
 
 
+def _category_rail(branch_filters, search_query):
+    """The Filters rail's Category tree, with a live in-stock count per row.
+
+    The counts are the reference's "Biscuits (348)", and they are counted the
+    same way the grid is: sellable stock only, narrowed by whatever branches
+    and search term are in play, so a shelf reading (0) genuinely has nothing
+    on it here rather than nothing at this branch while the number claims
+    otherwise. What they are deliberately NOT narrowed by is the category
+    filter itself — a count that collapsed to the ticked category would
+    print (6) beside it and (0) beside every other row, which says nothing
+    about what ticking those rows would do.
+
+    A department's count includes its shelves, matching what clicking it
+    does (storefront_category_ids), so "Fresh (14)" and its shelves summing
+    to 14 are the same statement twice rather than two different ones.
+
+    Rows with nothing behind them are dropped, and a department whose every
+    shelf is empty goes with them. An empty shelf in a filter rail is a
+    promise the grid then breaks.
+
+    One aggregate query on top of the tree's two, and only on the full-page
+    path — product_catalog wraps this in a SimpleLazyObject, and the
+    live-search XHR renders neither partial that names it.
+    """
+    departments = storefront_categories()
+    if not departments:
+        return []
+
+    stock = Inventory.objects.sellable()
+    if branch_filters:
+        stock = stock.filter(branch_id__in=branch_filters)
+    if search_query:
+        stock = stock.filter(product__product_name__icontains=search_query)
+
+    # distinct() because a product stocked at three branches is three
+    # Inventory rows and one product on the shelf.
+    counts = {}
+    pairs = stock.filter(
+        available_qty__gt=0, product__category__isnull=False
+    ).values_list('product__category_id', 'product_id').distinct()
+    for category_id, product_id in pairs:
+        counts.setdefault(category_id, set()).add(product_id)
+
+    rail = []
+    for department in departments:
+        shelves = []
+        for shelf in department.subcategories:
+            count = len(counts.get(shelf.id, ()))
+            if count:
+                shelf.stock_count = count
+                shelves.append(shelf)
+        # Products filed directly on the department, plus everything on its
+        # shelves — a set union, not a sum, because the two never overlap but
+        # the union is what makes that obvious at a glance.
+        own = set(counts.get(department.id, ()))
+        for shelf in department.subcategories:
+            own |= counts.get(shelf.id, set())
+        if not own:
+            continue
+        department.stock_count = len(own)
+        department.shelves = shelves
+        rail.append(department)
+    return rail
+
+
 def _filter_querystring(search_query, category_filters, branch_filters):
     """`q` and every ticked category and branch, urlencoded, without `sort`."""
     params = QueryDict(mutable=True)
@@ -465,6 +575,78 @@ def _filter_querystring(search_query, category_filters, branch_filters):
     if branch_filters:
         params.setlist('branch', branch_filters)
     return params.urlencode()
+
+
+def _active_chips(search_query, active_categories, branches, branch_filters):
+    """The removable "Category: Fresh Beef ×" chips at the top of the rail.
+
+    Each chip carries `remaining_qs` — this exact filter set with that one
+    item taken out — so the × is a plain link that works with JavaScript off.
+    Built here rather than in the template because dropping one value out of
+    a multi-valued query string is not something Django's template language
+    can express, and doing it by string surgery in HTML is how a `category=`
+    ends up half-removed.
+
+    `branch` is always written into the remaining set, even when removing the
+    chip empties it. Leaving the key out entirely means something different
+    to product_catalog — "no branch filter in this request", which falls back
+    to the session's shopping branch — so a shopper clearing their last
+    branch chip would watch the grid keep that branch anyway. Same reason the
+    rail's Branch fieldset carries a hidden empty input.
+    """
+    chips = []
+    branch_by_id = {str(b.pk): b for b in branches}
+
+    def remaining(q=None, categories=None, wanted_branches=None):
+        params = QueryDict(mutable=True)
+        if q:
+            params['q'] = q
+        if categories:
+            params.setlist('category', categories)
+        params.setlist('branch', wanted_branches or [''])
+        return params.urlencode()
+
+    category_ids = [str(c.pk) for c in active_categories]
+
+    if search_query:
+        chips.append({
+            'label': 'Search',
+            'value': search_query,
+            'remaining_qs': remaining(categories=category_ids, wanted_branches=branch_filters),
+        })
+
+    for category in active_categories:
+        # Named with its department where it has one, because two departments
+        # may well both keep an "Others" shelf and two identical chips that
+        # remove different filters is the one thing a chip row must not do.
+        value = category.category_name
+        if category.parent_id:
+            value = f'{category.parent.category_name} › {value}'
+        chips.append({
+            'label': 'Category',
+            'value': value,
+            'remaining_qs': remaining(
+                q=search_query,
+                categories=[c for c in category_ids if c != str(category.pk)],
+                wanted_branches=branch_filters,
+            ),
+        })
+
+    for branch_id in branch_filters:
+        branch = branch_by_id.get(branch_id)
+        if branch is None:
+            continue
+        chips.append({
+            'label': 'Branch',
+            'value': branch.branch_name,
+            'remaining_qs': remaining(
+                q=search_query,
+                categories=category_ids,
+                wanted_branches=[b for b in branch_filters if b != branch_id],
+            ),
+        })
+
+    return chips
 
 
 def _start_shopping_at(request, branch):

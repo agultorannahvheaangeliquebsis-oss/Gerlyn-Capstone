@@ -2,6 +2,7 @@ import os
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
@@ -880,10 +881,43 @@ def product_import_cancel(request):
 # ─────────────────────────────────────────────
 
 def _category_list_context(request):
+    """The category table, flattened into display order: each department
+    followed by its own shelves, rather than one alphabetical list in which
+    "Fresh Beef" files under F and its department under Fr, twelve rows apart.
+
+    `depth` is what the template indents on — the model is two levels and
+    only ever will be (ProductCategory.clean refuses a third), so this is a
+    flag, not a recursion.
+
+    One query for the lot. The children are grouped in Python off the same
+    annotated queryset the table already needed, which is cheaper than a
+    prefetch and avoids counting products twice.
+    """
+    rows = list(ProductCategory.objects.annotate(
+        product_count=models.Count('products')
+    ).order_by('category_name'))
+
+    children = {}
+    for row in rows:
+        if row.parent_id:
+            children.setdefault(row.parent_id, []).append(row)
+
+    ordered = []
+    for row in rows:
+        if row.parent_id:
+            continue
+        row.depth = 0
+        ordered.append(row)
+        for child in children.get(row.id, []):
+            child.depth = 1
+            ordered.append(child)
+
     return {
-        'categories': ProductCategory.objects.annotate(
-            product_count=models.Count('products')
-        ).order_by('category_name'),
+        'categories': ordered,
+        # The Parent picker's options. Departments only — offering a shelf
+        # there would let someone build the third level clean() then refuses,
+        # which is a validation error the form could have avoided asking for.
+        'departments': [row for row in rows if row.parent_id is None],
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
     }
 
@@ -929,6 +963,7 @@ def category_form(request, pk=None):
 
     name = request.POST.get('category_name', '').strip()
     description = request.POST.get('description', '').strip()
+    parent_id = request.POST.get('parent') or None
 
     errors = []
     if not name:
@@ -940,17 +975,35 @@ def category_form(request, pk=None):
         if clash.exists():
             errors.append(f'A category called "{name}" already exists.')
 
+    # Round-tripped through the database rather than trusted: a hand-edited
+    # id naming no category would otherwise be assigned straight onto the FK
+    # and blow up as an IntegrityError under the success message.
+    if parent_id is not None:
+        if not str(parent_id).isdigit() or not ProductCategory.objects.filter(pk=parent_id).exists():
+            errors.append('That parent category no longer exists.')
+            parent_id = None
+
     if not errors:
-        if category is None:
-            ProductCategory.objects.create(category_name=name, description=description)
-            messages.success(request, f'Category "{name}" created.')
+        target = category or ProductCategory()
+        target.category_name = name
+        target.description = description
+        target.parent_id = parent_id
+        try:
+            # full_clean, not save(): the two-levels-deep rule and the
+            # no-self-parent rule live on the model (ProductCategory.clean),
+            # so the import path and the API get them too. Reported here as
+            # form errors rather than a 500 — the picker cannot offer a shelf
+            # as a parent, but it can still be reached by a stale page or a
+            # hand-posted form.
+            target.full_clean(exclude=['category_name', 'description'])
+        except ValidationError as exc:
+            errors.extend(exc.messages)
         else:
-            category.category_name = name
-            category.description = description
-            category.save()
-            messages.success(request, f'Category "{name}" updated.')
-        bust_categories_cache()
-        return redirect('category_list')
+            target.save()
+            verb = 'updated' if category else 'created'
+            messages.success(request, f'Category "{name}" {verb}.')
+            bust_categories_cache()
+            return redirect('category_list')
 
     context = _category_list_context(request)
     if category:
@@ -977,6 +1030,7 @@ def category_delete(request, pk):
 
     category = get_object_or_404(ProductCategory, pk=pk)
     product_count = category.products.count()
+    child_count = category.children.count()
 
     if request.method == 'POST':
         # Products would be orphaned (category is SET_NULL), so make the user
@@ -986,6 +1040,18 @@ def category_delete(request, pk):
                 request,
                 f'Cannot delete "{category.category_name}" — {product_count} '
                 f'product{"s" if product_count != 1 else ""} still use it.'
+            )
+            return redirect('category_list')
+        # `parent` is PROTECT, so deleting a department that still has shelves
+        # raises ProtectedError — a 500 on a button press. Caught here and
+        # answered the same way the product check above is: say what is in the
+        # way, and how many.
+        if child_count:
+            messages.error(
+                request,
+                f'Cannot delete "{category.category_name}" — {child_count} '
+                f'sub-categor{"ies are" if child_count != 1 else "y is"} filed '
+                f'under it. Move or delete {"them" if child_count != 1 else "it"} first.'
             )
             return redirect('category_list')
         name = category.category_name

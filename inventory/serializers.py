@@ -7,10 +7,44 @@ from .models import (
 
 class ProductCategorySerializer(serializers.ModelSerializer):
     categoryName = serializers.CharField(source='category_name')
+    # Categories are two levels deep — a department and its shelves. Without
+    # these a client gets a flat list it cannot rebuild the tree from, and
+    # cannot tell a department from a shelf at all.
+    parentId = serializers.PrimaryKeyRelatedField(
+        source='parent', queryset=ProductCategory.objects.all(),
+        allow_null=True, required=False,
+    )
+    parentName = serializers.CharField(
+        source='parent.category_name', read_only=True, default=None
+    )
+
+    def validate(self, attrs):
+        """Run the model's own two-levels-deep rule rather than restating it.
+
+        A serializer that skipped this would be the one writer able to build
+        the third level that every storefront surface then fails to draw.
+        """
+        instance = ProductCategory(**{**_model_fields(self.instance), **attrs})
+        instance.pk = self.instance.pk if self.instance else None
+        instance.full_clean(exclude=['category_name', 'description'])
+        return attrs
 
     class Meta:
         model = ProductCategory
-        fields = ['id', 'categoryName', 'description']
+        fields = ['id', 'categoryName', 'description', 'parentId', 'parentName']
+
+
+def _model_fields(instance):
+    """The concrete field values of an existing category, or nothing for a
+    create — so validate() can build the object the rule is checked against
+    out of "what is stored" overlaid with "what is being written"."""
+    if instance is None:
+        return {}
+    return {
+        'category_name': instance.category_name,
+        'description': instance.description,
+        'parent': instance.parent,
+    }
 
 
 class ProductSerializer(serializers.ModelSerializer):

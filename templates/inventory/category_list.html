@@ -41,6 +41,16 @@
      the categories that actually hold stock. */
   .count-zero { color: var(--ink-500); font-variant-numeric: tabular-nums; }
 
+  /* A sub-category reads as belonging to the department above it: the corner
+     glyph carries the nesting, the lighter weight keeps the department names
+     as the column's scan line. Both are needed — indent alone disappears the
+     moment two adjacent departments have very different name lengths. */
+  .cat-child td.strong { font-weight: 500; }
+  .cat-branch {
+    display: inline-block; width: 1.4em;
+    color: var(--ink-400); font-weight: 400;
+  }
+
   /* Stacked-card mode: fixed colgroup widths would squeeze the label/value
      rows the table turns into below this width. */
   @media (max-width: 860px) {
@@ -94,8 +104,16 @@
     </thead>
     <tbody>
       {% for c in categories %}
-      <tr>
-        <td data-label="Category" class="strong">{{ c.category_name }}</td>
+      <tr class="{% if c.depth %}cat-child{% else %}cat-dept{% endif %}">
+        {% comment %}
+        The indent is a real corner glyph, not padding alone: on the stacked
+        card layout below 860px the table's columns become label/value rows
+        and a left indent goes with them, so nesting would read as a slightly
+        crooked card rather than as a child. The glyph survives that.
+        {% endcomment %}
+        <td data-label="Category" class="strong">
+          {% if c.depth %}<span class="cat-branch" aria-hidden="true">└</span>{% endif %}{{ c.category_name }}
+        </td>
         <td data-label="Description" class="gv-meta">{{ c.description|default:"—"|truncatechars:60 }}</td>
         <td data-label="Products" class="num">
           {% if c.product_count %}
@@ -173,6 +191,25 @@
         <input id="add-category-name" type="text" name="category_name" required
                value="{{ add_form_data.category_name|default:'' }}" placeholder="Canned Goods">
       </div>
+      {% comment %}
+      Parent is what makes the storefront's Shop menu a two-pane mega-menu
+      instead of a list: departments run down its left edge, and whatever is
+      filed under the one being pointed at fills the panel beside it.
+
+      Only departments are offered. Categories go exactly two levels deep
+      (ProductCategory.clean), so listing a sub-category here would be
+      offering a choice the save then refuses.
+      {% endcomment %}
+      <div class="field">
+        <label for="add-category-parent">Parent Category <span class="gv-meta">— optional</span></label>
+        <select id="add-category-parent" name="parent">
+          <option value="">None — this is a top-level department</option>
+          {% for d in departments %}
+          <option value="{{ d.id }}" {% if add_form_data.parent == d.id|stringformat:'s' %}selected{% endif %}>{{ d.category_name }}</option>
+          {% endfor %}
+        </select>
+        <p class="gv-meta mt-1">Leave empty for a department like “Fresh”. Pick one to file this as a shelf inside it, like “Fresh” › “Fresh Beef”.</p>
+      </div>
       <div class="field">
         <label for="add-category-description">Description <span class="gv-meta">— optional</span></label>
         <textarea id="add-category-description" name="description" rows="2"
@@ -224,6 +261,32 @@
         <label for="edit-category-name">Category Name</label>
         <input id="edit-category-name" type="text" name="category_name" required
                value="{{ edit_form_data.category_name|default:edit_category.category_name }}">
+      </div>
+      <div class="field">
+        <label for="edit-category-parent">Parent Category <span class="gv-meta">— optional</span></label>
+        <select id="edit-category-parent" name="parent">
+          <option value="">None — this is a top-level department</option>
+          {% for d in departments %}
+          {% comment %}
+          A department cannot be offered itself as a parent — that is the
+          self-parent cycle ProductCategory.clean refuses, and there is no
+          reason to put it on the menu just to reject it on save.
+          {% endcomment %}
+          {% if d.id != edit_category.id %}
+          <option value="{{ d.id }}"
+                  {% if edit_form_data.parent %}{% if edit_form_data.parent == d.id|stringformat:'s' %}selected{% endif %}{% elif edit_category.parent_id == d.id %}selected{% endif %}>{{ d.category_name }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+        {% comment %}
+        A department with shelves of its own has to stay top-level — clean()
+        refuses to file it under another, because that would be the third
+        level. Said here rather than only in the error, so it is known before
+        the save is attempted.
+        {% endcomment %}
+        {% if edit_category.children.exists %}
+        <p class="gv-meta mt-1">“{{ edit_category.category_name }}” has sub-categories of its own, so it has to stay top-level.</p>
+        {% endif %}
       </div>
       <div class="field">
         <label for="edit-category-description">Description <span class="gv-meta">— optional</span></label>

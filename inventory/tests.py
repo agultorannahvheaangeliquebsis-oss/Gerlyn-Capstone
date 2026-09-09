@@ -1,7 +1,10 @@
 import io
+from decimal import Decimal
+from io import StringIO
 
 import openpyxl
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 
@@ -130,6 +133,277 @@ class CategoryModalFlowTests(TestCase):
         self.assertFalse(
             ProductCategory.objects.filter(category_name='Canned Goods').exists()
         )
+
+
+class CategoryParentTests(TestCase):
+    """Categories are two levels deep — a department and its shelves — and
+    the storefront's Shop mega-menu is built off that. These cover the half
+    of the rule the model cannot enforce on its own: what the form offers,
+    what it refuses, and what deleting a department does."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='parent-owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(self.owner)
+        self.fresh = ProductCategory.objects.create(category_name='Fresh')
+
+    def test_post_files_a_new_category_under_a_parent(self):
+        self.client.post(reverse('category_add'), {
+            'category_name': 'Fresh Beef', 'parent': self.fresh.pk,
+        })
+
+        beef = ProductCategory.objects.get(category_name='Fresh Beef')
+        self.assertEqual(beef.parent, self.fresh)
+
+    def test_an_empty_parent_creates_a_department(self):
+        self.client.post(reverse('category_add'), {
+            'category_name': 'Household', 'parent': '',
+        })
+
+        self.assertIsNone(
+            ProductCategory.objects.get(category_name='Household').parent
+        )
+
+    def test_a_third_level_is_rejected_with_the_modal_reopened(self):
+        beef = ProductCategory.objects.create(
+            category_name='Fresh Beef', parent=self.fresh
+        )
+
+        response = self.client.post(reverse('category_add'), {
+            'category_name': 'Wagyu', 'parent': beef.pk,
+        })
+
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertTrue(response.context['add_errors'])
+        self.assertFalse(
+            ProductCategory.objects.filter(category_name='Wagyu').exists()
+        )
+
+    def test_an_unknown_parent_is_rejected_rather_than_assigned(self):
+        response = self.client.post(reverse('category_add'), {
+            'category_name': 'Frozen', 'parent': '9999',
+        })
+
+        self.assertTrue(response.context['add_errors'])
+        self.assertFalse(
+            ProductCategory.objects.filter(category_name='Frozen').exists()
+        )
+
+    def test_editing_can_move_a_shelf_to_another_department(self):
+        household = ProductCategory.objects.create(category_name='Household')
+        soap = ProductCategory.objects.create(
+            category_name='Soap', parent=self.fresh
+        )
+
+        self.client.post(reverse('category_edit', args=[soap.pk]), {
+            'category_name': 'Soap', 'parent': household.pk,
+        })
+
+        soap.refresh_from_db()
+        self.assertEqual(soap.parent, household)
+
+    def test_editing_can_promote_a_shelf_to_a_department(self):
+        beef = ProductCategory.objects.create(
+            category_name='Fresh Beef', parent=self.fresh
+        )
+
+        self.client.post(reverse('category_edit', args=[beef.pk]), {
+            'category_name': 'Fresh Beef', 'parent': '',
+        })
+
+        beef.refresh_from_db()
+        self.assertIsNone(beef.parent)
+
+    def test_a_department_with_shelves_cannot_be_deleted(self):
+        ProductCategory.objects.create(category_name='Fresh Beef', parent=self.fresh)
+
+        response = self.client.post(
+            reverse('category_delete', args=[self.fresh.pk]), follow=True
+        )
+
+        self.assertTrue(ProductCategory.objects.filter(pk=self.fresh.pk).exists())
+        self.assertContains(response, 'sub-categor')
+
+    def test_an_empty_department_can_still_be_deleted(self):
+        self.client.post(reverse('category_delete', args=[self.fresh.pk]))
+
+        self.assertFalse(ProductCategory.objects.filter(pk=self.fresh.pk).exists())
+
+    def test_the_list_orders_shelves_under_their_department(self):
+        household = ProductCategory.objects.create(category_name='Household')
+        ProductCategory.objects.create(category_name='Aaa Soap', parent=household)
+        ProductCategory.objects.create(category_name='Zzz Beef', parent=self.fresh)
+
+        response = self.client.get(reverse('category_list'))
+
+        # Alphabetical by department, each followed by its own shelves —
+        # NOT one flat alphabetical list, in which "Aaa Soap" would sort
+        # above the "Household" it belongs to.
+        self.assertEqual(
+            [(c.category_name, c.depth) for c in response.context['categories']],
+            [('Fresh', 0), ('Zzz Beef', 1), ('Household', 0), ('Aaa Soap', 1)],
+        )
+
+    def test_the_parent_picker_offers_departments_only(self):
+        ProductCategory.objects.create(category_name='Fresh Beef', parent=self.fresh)
+
+        response = self.client.get(reverse('category_list'))
+
+        self.assertEqual(
+            [c.category_name for c in response.context['departments']], ['Fresh']
+        )
+
+
+class CategoryApiParentTests(TestCase):
+    """/api/categories/ is a writer too, so the two-levels rule has to hold
+    there as well — otherwise it is the one path that can build a third level
+    the storefront then cannot draw."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='api-owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(self.owner)
+        self.fresh = ProductCategory.objects.create(category_name='Fresh')
+        self.beef = ProductCategory.objects.create(
+            category_name='Fresh Beef', parent=self.fresh
+        )
+
+    def test_list_exposes_the_parent(self):
+        response = self.client.get('/api/categories/')
+
+        rows = response.json()
+        rows = rows['results'] if isinstance(rows, dict) else rows
+        beef = next(r for r in rows if r['categoryName'] == 'Fresh Beef')
+        self.assertEqual(beef['parentId'], self.fresh.pk)
+        self.assertEqual(beef['parentName'], 'Fresh')
+
+    def test_a_department_reports_no_parent(self):
+        response = self.client.get('/api/categories/')
+
+        rows = response.json()
+        rows = rows['results'] if isinstance(rows, dict) else rows
+        fresh = next(r for r in rows if r['categoryName'] == 'Fresh')
+        self.assertIsNone(fresh['parentId'])
+
+    def test_post_can_file_a_shelf_under_a_department(self):
+        response = self.client.post(
+            '/api/categories/',
+            {'categoryName': 'Fresh Pork', 'parentId': self.fresh.pk},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            ProductCategory.objects.get(category_name='Fresh Pork').parent,
+            self.fresh,
+        )
+
+    def test_post_refuses_a_third_level(self):
+        response = self.client.post(
+            '/api/categories/',
+            {'categoryName': 'Wagyu', 'parentId': self.beef.pk},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            ProductCategory.objects.filter(category_name='Wagyu').exists()
+        )
+
+    def test_patch_refuses_to_bury_a_department_that_has_shelves(self):
+        household = ProductCategory.objects.create(category_name='Household')
+
+        response = self.client.patch(
+            f'/api/categories/{self.fresh.pk}/',
+            {'parentId': household.pk},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.fresh.refresh_from_db()
+        self.assertIsNone(self.fresh.parent)
+
+
+class SeedCategoriesCommandTests(TestCase):
+    """seed_categories runs against a live catalog, unlike seed_demo which
+    wipes one first — so what matters is that it adds without destroying and
+    that a second run is a no-op."""
+
+    def test_it_builds_a_two_level_tree(self):
+        call_command('seed_categories', stdout=StringIO())
+
+        canned = ProductCategory.objects.get(category_name='Canned Goods')
+        sardines = ProductCategory.objects.get(category_name='Sardines & Fish')
+
+        self.assertIsNone(canned.parent)
+        self.assertEqual(sardines.parent, canned)
+
+    def test_running_it_twice_creates_nothing_new(self):
+        call_command('seed_categories', stdout=StringIO())
+        before = ProductCategory.objects.count()
+
+        call_command('seed_categories', stdout=StringIO())
+
+        self.assertEqual(ProductCategory.objects.count(), before)
+
+    def test_dry_run_writes_nothing(self):
+        call_command('seed_categories', '--dry-run', stdout=StringIO())
+
+        self.assertEqual(ProductCategory.objects.count(), 0)
+
+    def test_it_adopts_a_category_the_owner_already_typed_in(self):
+        """Same name, no duplicate row — it is filed, not cloned."""
+        existing = ProductCategory.objects.create(category_name='Biscuits')
+
+        call_command('seed_categories', stdout=StringIO())
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.parent.category_name, 'Snacks & Sweets')
+        self.assertEqual(
+            ProductCategory.objects.filter(category_name='Biscuits').count(), 1
+        )
+
+    def test_it_leaves_an_existing_filing_alone(self):
+        household = ProductCategory.objects.create(category_name='Household')
+        ProductCategory.objects.create(category_name='Biscuits', parent=household)
+
+        call_command('seed_categories', stdout=StringIO())
+
+        self.assertEqual(
+            ProductCategory.objects.get(category_name='Biscuits').parent, household
+        )
+
+    def test_it_deletes_no_existing_category(self):
+        general = ProductCategory.objects.create(category_name='General')
+
+        call_command('seed_categories', stdout=StringIO())
+
+        self.assertTrue(ProductCategory.objects.filter(pk=general.pk).exists())
+
+    def test_it_files_a_known_product_onto_its_shelf(self):
+        product = Product.objects.create(
+            sku_code='DEMO-003', product_name='Canned Sardines',
+            unit_of_measure='Can', unit_price=Decimal('35.00'),
+        )
+
+        call_command('seed_categories', stdout=StringIO())
+
+        product.refresh_from_db()
+        self.assertEqual(product.category.category_name, 'Sardines & Fish')
+
+    def test_it_does_not_refile_an_unlisted_product(self):
+        mine = ProductCategory.objects.create(category_name='My Shelf')
+        product = Product.objects.create(
+            sku_code='SKU-MINE', product_name='Something', category=mine,
+            unit_of_measure='Piece', unit_price=Decimal('10.00'),
+        )
+
+        call_command('seed_categories', stdout=StringIO())
+
+        product.refresh_from_db()
+        self.assertEqual(product.category, mine)
 
 
 def _xlsx_upload(filename, header, data_rows):

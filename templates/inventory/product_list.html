@@ -211,7 +211,10 @@ input[type=search] within the form — all three survive the restructure.
     <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
       <option value="">All Categories</option>
       {% for c in categories %}
-        <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c.category_name }}</option>
+        {# {{ c }}, not {{ c.category_name }} — a shelf prints as "Fresh › Fresh Beef", #}
+        {# so two departments can both keep an "Others" without the two rows #}
+        {# being indistinguishable in the list. #}
+        <option value="{{ c.id }}" {% if category_filter == c.id|stringformat:"s" %}selected{% endif %}>{{ c }}</option>
       {% endfor %}
     </select>
   </div>
@@ -366,7 +369,8 @@ input[type=search] within the form — all three survive the restructure.
           <select id="add-category" name="category">
             {% for category in categories %}
               <option value="{{ category.id }}" {% if add_form_data.category|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>
-                {{ category.category_name }}
+                {# The department-qualified name; see the filter select above. #}
+                {{ category }}
               </option>
             {% endfor %}
           </select>
@@ -486,7 +490,8 @@ input[type=search] within the form — all three survive the restructure.
           <select id="edit-category" name="category">
             {% for category in categories %}
               <option value="{{ category.id }}" {% if edit_values.category_id|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>
-                {{ category.category_name }}
+                {# The department-qualified name; see the filter select above. #}
+                {{ category }}
               </option>
             {% endfor %}
           </select>

@@ -148,12 +148,32 @@ class CatalogCategoryRailThresholdTests(TestCase):
         self.assertNotContains(response, 'rail-title">Category')
 
     def test_a_second_category_brings_the_rail_back(self):
-        ProductCategory.objects.create(category_name='Rice')
+        # Stocked, not just created. An empty category is not drawn at all —
+        # see storefront_categories — so a bare create() here would leave the
+        # store on one drawable category and the rail correctly still hidden.
+        rice = ProductCategory.objects.create(category_name='Rice')
+        grain = Product.objects.create(
+            sku_code='SKU-SF2-RICE', product_name='Rice 5kg', category=rice,
+            unit_of_measure='Sack', unit_price=Decimal('280.00'),
+        )
+        Inventory.objects.create(
+            product=grain, branch=self.branch,
+            quantity_on_hand=4, reorder_level=1,
+        )
 
         response = self.client.get(reverse('orders:catalog'))
 
         self.assertEqual(len(response.context['categories']), 2)
         self.assertContains(response, 'rail-title">Category')
+
+    def test_an_empty_second_category_is_not_drawn(self):
+        """A category with nothing in it is a link to an empty grid."""
+        ProductCategory.objects.create(category_name='Rice')
+
+        response = self.client.get(reverse('orders:catalog'))
+
+        self.assertEqual(list(response.context['categories']), [])
+        self.assertNotContains(response, 'rail-title">Category')
 
 
 class ConfirmationPageTests(TestCase):

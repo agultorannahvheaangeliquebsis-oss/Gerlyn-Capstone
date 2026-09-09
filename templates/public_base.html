@@ -278,20 +278,29 @@ white-on-white.
         the panel held a single "All products" item — a menu whose entire
         content was the thing clicking the menu should have done — so Shop
         becomes the plain link it is behaving as.
+
+        Two panes, the reference's shape: departments down the left, and the
+        shelves of whichever one is highlighted filling the panel to the
+        right. That is the whole reason the categories are a tree — a flat
+        drop-down of forty rows is a scrollbar, not a menu.
+
+        The left column is BUTTONS, not links, for any department that has
+        shelves. A link there would be unusable on a touch screen: the first
+        tap is the only tap, so it would navigate away before the flyout it
+        is supposed to open had ever been seen, putting every sub-category
+        out of reach on a phone. The department is still one click away —
+        it is the "Shop all of X" row at the top of its own pane, where a
+        tap can reach it. A department with no shelves has no pane to open,
+        so that one stays the plain link it behaves as.
         {% endcomment %}
         {% if nav_categories %}
         <div class="shop-menu" id="shop-menu">
           <button type="button" class="shop-menu-trigger {% if request.path == '/shop/' %}active{% endif %}"
                   aria-expanded="false" aria-haspopup="true" aria-controls="shop-menu-panel">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shop-menu-burger" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             {% t "Shop" %}
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shop-menu-caret" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
-          <div class="shop-menu-panel" id="shop-menu-panel">
-            <a href="{% url 'orders:catalog' %}" class="shop-menu-item"><strong>{% t "All products" %}</strong></a>
-            {% for c in nav_categories %}
-              <a href="{% url 'orders:catalog' %}?category={{ c.id }}" class="shop-menu-item">{{ c.category_name }}</a>
-            {% endfor %}
-          </div>
         </div>
         {% else %}
         <a href="{% url 'orders:catalog' %}" class="{% if request.path == '/shop/' %}active{% endif %}">{% t "Shop" %}</a>
@@ -299,6 +308,97 @@ white-on-white.
 
         <a href="{% url 'about' %}" class="{% if request.path == '/about/' %}active{% endif %}">{% t "About Us" %}</a>
       </nav>
+
+      {% comment %}
+      The panel is a SIBLING of the link row, not a child of it. .shop-links
+      scrolls horizontally on a narrow screen (overflow-x: auto), and an
+      overflow scroller clips its absolutely-positioned descendants on both
+      axes — per spec, overflow-y computes to auto the moment overflow-x is
+      set — so a panel opened from inside it would be cut off at the row's
+      own 46px height. Out here it is positioned against .shop-navbar-inner
+      instead, which is also what lets it span the page rather than dangle
+      off a nav item three quarters of the way across it.
+      {% endcomment %}
+      {% if nav_categories %}
+          <div class="shop-mega" id="shop-menu-panel">
+            <ul class="mega-depts">
+              <li>
+                <a href="{% url 'orders:catalog' %}" class="mega-dept mega-dept-all">
+                  <strong>{% t "All products" %}</strong>
+                </a>
+              </li>
+              {% for c in nav_categories %}
+              <li>
+                {% if c.subcategories %}
+                {% comment %}
+                aria-expanded, not aria-selected: this is a disclosure that
+                reveals a pane, and the pane stays in the DOM either way —
+                a screen reader needs to hear that pressing it opened
+                something, which "selected" does not say.
+                {% endcomment %}
+                <button type="button" class="mega-dept" data-mega-dept="{{ c.id }}"
+                        aria-expanded="false" aria-controls="mega-pane-{{ c.id }}">
+                  <span>{{ c.category_name }}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mega-chev" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+                </button>
+                {% else %}
+                <a href="{% url 'orders:catalog' %}?category={{ c.id }}" class="mega-dept">
+                  <span>{{ c.category_name }}</span>
+                </a>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+
+            <div class="mega-panes">
+              {% comment %}
+              One pane per department that has shelves, all rendered and all
+              hidden but the open one. Rendering them up front rather than
+              fetching on hover is what makes the menu instant and keeps it
+              working with JavaScript off — the panes are already prefetched
+              alongside the departments (one query for the pair), so there is
+              nothing to fetch.
+
+              `hidden` rather than a display class, so the panes are out of
+              the accessibility tree and out of the tab order until opened —
+              otherwise Tab from the trigger would walk every shelf of every
+              department before reaching the next nav link.
+              {% endcomment %}
+              {% for c in nav_categories %}
+                {% if c.subcategories %}
+                <div class="mega-pane" id="mega-pane-{{ c.id }}" data-mega-pane="{{ c.id }}" hidden>
+                  <a class="mega-pane-head" href="{% url 'orders:catalog' %}?category={{ c.id }}">
+                    {{ c.category_name }}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+                  </a>
+                  <ul class="mega-subs">
+                    {% for s in c.subcategories %}
+                    <li><a href="{% url 'orders:catalog' %}?category={{ s.id }}">{{ s.category_name }}</a></li>
+                    {% endfor %}
+                  </ul>
+                  {% comment %}
+                  The reference closes each column with "View All Fresh
+                  Items". Ours says the department by name and lands on the
+                  same filtered catalog the heading above does — kept because
+                  at the bottom of a long flowed list the heading has scrolled
+                  out of reach of the eye, not because the two do different
+                  things.
+
+                  OUTSIDE the <ul>, not the last <li> in it. The list flows
+                  into three columns, and a final item inside it is placed by
+                  the column algorithm like any other — with two shelves in
+                  the department it landed at the top of column two, beside
+                  the shelves rather than under them. Out here it is a block
+                  after the columns, which is the one position that reads as
+                  "and the rest" no matter how many shelves there are.
+                  {% endcomment %}
+                  <a class="mega-sub-all" href="{% url 'orders:catalog' %}?category={{ c.id }}">{% t "View all" %} {{ c.category_name }}</a>
+                </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+      {% endif %}
 
       {% comment %}
       Overridden empty on the catalog page: its own Filters rail already has
@@ -426,36 +526,13 @@ one task the page exists for.
 </footer>
 {% endblock %}
 
-<script>
-/* Shop menu in the white nav row. Click to open (not hover): a hover menu is
-   unreachable on a touch screen, and this row is the storefront's only path
-   to a category on a phone. Escape closes and returns focus to the trigger,
-   which is what keeps it operable from the keyboard alone. */
-(function () {
-  var menu = document.getElementById('shop-menu');
-  if (!menu) return;
-  var trigger = menu.querySelector('.shop-menu-trigger');
-  var panel   = document.getElementById('shop-menu-panel');
-
-  function setOpen(open) {
-    panel.classList.toggle('is-open', open);
-    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
-  trigger.addEventListener('click', function (e) {
-    e.stopPropagation();
-    setOpen(!panel.classList.contains('is-open'));
-  });
-  document.addEventListener('click', function (e) {
-    if (!menu.contains(e.target)) setOpen(false);
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && panel.classList.contains('is-open')) {
-      setOpen(false);
-      trigger.focus();
-    }
-  });
-})();
-</script>
+{% comment %}
+The Shop menu's behaviour moved out of an inline block and into a file of its
+own when it grew a second pane — it is no longer the six lines a toggle takes,
+and inline script is the one thing on this page that cannot be cache-busted
+by APP_VERSION or read in a stack trace by name.
+{% endcomment %}
+<script src="{% static 'js/shop-mega-menu.js' %}?v={{ APP_VERSION }}" defer></script>
 
 <script src="{% static 'js/live-search.js' %}"></script>
 <script src="{% static 'js/toast.js' %}"></script>

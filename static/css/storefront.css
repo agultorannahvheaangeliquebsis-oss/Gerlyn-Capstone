@@ -200,6 +200,10 @@ body.shop {
 .shop-navbar-inner {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   max-width: 1280px; margin: 0 auto; padding: 0 24px;
+  /* The anchor for .shop-mega, which hangs below this row full-width. It
+     cannot anchor to the Shop trigger inside .shop-links: that is an
+     overflow scroller, which clips absolutely-positioned descendants. */
+  position: relative;
 }
 .shop-links {
   display: flex; align-items: center; gap: 2px; min-width: 0;
@@ -242,21 +246,92 @@ body.shop {
 .shop-menu { position: relative; flex: none; }
 .shop-menu-caret { transition: transform .18s ease; }
 .shop-menu-trigger[aria-expanded="true"] .shop-menu-caret { transform: rotate(180deg); }
-.shop-menu-panel {
-  display: none; position: absolute; top: 100%; left: 4px;
-  min-width: 224px; background: var(--surface);
+.shop-menu-burger { flex: none; }
+
+/* ------------------------------------------------------------ mega-menu
+   Two panes: departments down the left, the highlighted department's
+   shelves filling the rest. The old single column of eight links became a
+   scrollbar the moment categories grew a second level, which is the whole
+   reason the reference set uses this shape.
+
+   Not `position: absolute` against .shop-menu the way the old panel was:
+   anchored to the trigger, a 720px panel hanging off a nav item three
+   quarters of the way across a 1200px page would run off the right edge of
+   the window. It is anchored to the nav row instead (left: 0 on a
+   position: relative ancestor, .shop-navbar-inner) so it opens into the
+   page rather than out of it. */
+.shop-mega {
+  display: none; position: absolute; top: 100%; left: 0;
+  width: min(760px, 100%);
+  background: var(--surface);
   border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: 0 8px 24px rgba(23,37,30,.12); z-index: 30;
-  padding: 6px; animation: menuIn .15s ease;
+  box-shadow: 0 12px 32px rgba(23,37,30,.14); z-index: 30;
+  overflow: hidden; animation: menuIn .15s ease;
 }
-.shop-menu-panel.is-open { display: flex; flex-direction: column; }
-.shop-menu-item {
-  display: flex; align-items: center; min-height: 40px; padding: 0 12px;
-  border-radius: var(--r-input); color: var(--ink-700); text-decoration: none;
-  font: 500 14px/1.25 var(--font-sans);
+.shop-mega.is-open { display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+
+.mega-depts {
+  list-style: none; margin: 0; padding: 8px 6px;
+  background: var(--surface);
+  border-right: 1px solid var(--line-soft);
+  /* Capped so a store with forty departments scrolls its list instead of
+     growing a menu taller than the viewport, which cannot be closed without
+     scrolling the page underneath it. */
+  max-height: 60vh; overflow-y: auto;
 }
-.shop-menu-item:hover { background: var(--green-50); color: var(--action-700); }
-.shop-menu-item strong { font-weight: 700; }
+/* One rule for the <button>s and the <a>s — the left column mixes both
+   (a department with shelves discloses, one without navigates) and they
+   have to be indistinguishable to the eye. */
+.mega-dept {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; min-height: 40px; padding: 0 10px 0 12px;
+  background: none; border: 0; border-radius: var(--r-input); cursor: pointer;
+  text-align: left; text-decoration: none;
+  font: 500 14px/1.25 var(--font-sans); color: var(--ink-700);
+  transition: background .12s ease, color .12s ease;
+}
+.mega-dept:hover,
+.mega-dept.is-active { background: var(--green-50); color: var(--action-700); }
+/* Weight, not colour alone — the highlighted row is the one saying which
+   pane is showing, and SC 1.4.1 does not accept a tint as the only signal. */
+.mega-dept.is-active { font-weight: 700; }
+.mega-dept .mega-chev { flex: none; color: var(--ink-400); transition: transform .15s ease; }
+.mega-dept.is-active .mega-chev { color: var(--action-700); transform: translateX(2px); }
+.mega-dept-all { border-bottom: 1px solid var(--line-soft); border-radius: 0; margin-bottom: 6px; }
+.mega-dept-all strong { font-weight: 700; }
+
+.mega-panes { padding: 16px 18px; max-height: 60vh; overflow-y: auto; }
+.mega-pane-head {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: 700 14px/1.2 var(--font-sans); color: var(--brand);
+  text-decoration: none; margin-bottom: 12px;
+}
+.mega-pane-head:hover { color: var(--action-700); text-decoration: underline; }
+/* Flowed into columns rather than laid out in a grid: the shelves under one
+   department are a single alphabetical list, and a grid would break the
+   reading order into rows so "Fruits" sat beside "Vegetables" with "Herbs"
+   on the line below. Columns keep it one list that happens to wrap. */
+.mega-subs {
+  list-style: none; margin: 0; padding: 0;
+  columns: 3; column-gap: 22px;
+}
+.mega-subs li { break-inside: avoid; }
+.mega-subs a {
+  display: block; padding: 5px 0;
+  font: 400 13.5px/1.4 var(--font-sans); color: var(--ink-700);
+  text-decoration: none;
+}
+.mega-subs a:hover { color: var(--action-700); text-decoration: underline; }
+/* A block after the flowed columns, not an item inside them — see the
+   template's comment. The rule above it separates it from the shelves it is
+   summarising, which is the whole reason it is not just another row. */
+.mega-sub-all {
+  display: block; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font: 600 13px/1.4 var(--font-sans); color: var(--action);
+  text-decoration: none;
+}
+.mega-sub-all:hover { color: var(--action-700); text-decoration: underline; }
 
 /* The status line at the right edge of the nav row. The reference prints a
    standing delivery promise here; this one prints which branch the session
@@ -627,17 +702,43 @@ body.shop {
    Hairline grid: each cell draws only its right and bottom edge, so shared
    borders never double up and the panel's own border closes the outside. */
 /* auto-fill, not repeat(10, 1fr): this store currently has a single category
-   and a fixed ten-column track drew nine empty hairline cells beside it. The
-   120px floor still yields ten across at the 1280px container. */
-.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+   and a fixed ten-column track drew nine empty hairline cells beside it.
+
+   The floor went 120px → 190px when the tiles started carrying their
+   department's shelf names underneath. At 120px a name like "Dairy, Creams &
+   Chilled" wrapped to three lines on its own; there is no width left over
+   for a list under it. Ten across became six, which is also the right number
+   for a top level — the tile row is a way in, not the whole catalog. */
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .cat {
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  background: #fff; padding: 20px 8px 18px; text-align: center;
-  text-decoration: none; color: var(--ink-900);
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: #fff; padding: 18px 16px 16px;
+  display: flex; flex-direction: column; gap: 10px;
   min-height: 132px; transition: box-shadow .18s ease;
 }
-.cat:hover { box-shadow: 0 4px 14px rgba(23,37,30,.10); color: var(--action-700); position: relative; z-index: 1; }
+.cat:hover { box-shadow: 0 4px 14px rgba(23,37,30,.10); position: relative; z-index: 1; }
+/* Left-aligned now, and a row rather than a stack: the shelf links below are
+   a list, and a centred list has no edge for the eye to run down. The ring
+   moves beside the name to buy that list its vertical space back. */
+.cat-head {
+  display: flex; align-items: center; gap: 10px;
+  text-decoration: none; color: var(--ink-900);
+}
+.cat-head:hover { color: var(--action-700); }
+.cat-head:hover .nm { text-decoration: underline; }
+
+/* Up to three shelves and a "+n more" — a sample of the department, not the
+   department. The full list is one click away in the mega-menu and in the
+   catalog's filter rail, both of which are built for a list that long. */
+.cat-subs { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.cat-subs a {
+  display: block; padding: 2px 0;
+  font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-500);
+  text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cat-subs a:hover { color: var(--action-700); text-decoration: underline; }
+.cat-sub-more a { color: var(--action); font-weight: 600; }
 /* A tinted rounded square carrying the category's initial, not a green
    circle with an emoji. Categories are rows the owner types in, so there is
    no fixed icon set to draw from — an initial always exists, and the tint is
@@ -647,14 +748,15 @@ body.shop {
    The letter is aria-hidden and the name below it is the accessible label:
    read aloud, "R, Rice & Grains" is noise. */
 .cat .ring {
-  width: 56px; height: 56px; border-radius: 8px;
+  flex: none;
+  width: 40px; height: 40px; border-radius: 8px;
   background: var(--green-50); color: var(--action-700);
   display: flex; align-items: center; justify-content: center;
-  font: 700 22px/1 var(--font-sans);
+  font: 700 17px/1 var(--font-sans);
   transition: transform .18s ease;
 }
-.cat:hover .ring { transform: translateY(-2px); }
-.cat .nm { font: 400 13px/1.3 var(--font-sans); }
+.cat-head:hover .ring { transform: translateY(-2px); }
+.cat .nm { font: 600 13.5px/1.3 var(--font-sans); min-width: 0; }
 
 /* Eight tints, assigned by category id. Each pairs a pale ground with its
    own darker ink: every combination below clears 4.5:1, so the initial is
@@ -1149,7 +1251,9 @@ body.shop {
 }
 
 @media (max-width: 1100px) {
-  .cat-grid { grid-template-columns: repeat(6, 1fr); }
+  /* Four, not six. The tiles carry three shelf links each now, so a
+     1/6th column here is narrower than the names it has to print. */
+  .cat-grid { grid-template-columns: repeat(4, 1fr); }
   /* The three header columns stop having room to breathe before anything
      else does; the search keeps its width by taking it from the gaps. */
   .shop-nav { gap: 18px; }
@@ -1176,6 +1280,28 @@ body.shop {
   .shop-nav { gap: 14px; }
   .shop-brand-tag { display: none; }
   .pgrid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
+
+  /* The mega-menu stops being side-by-side and stacks: 232px of department
+     list plus three columns of shelves does not fit a tablet, let alone a
+     phone. The department list stays on top and its pane opens beneath the
+     one that was tapped, which is the accordion shape a narrow screen wants
+     — and the reason the department rows are buttons rather than links, so
+     that first tap opens the pane instead of leaving the page.
+
+     The panel is capped and scrolls as one, rather than each column
+     scrolling separately: two nested scrollers on a touch screen means a
+     swipe that moves the wrong thing. */
+  .shop-mega.is-open { grid-template-columns: minmax(0, 1fr); }
+  .shop-mega { width: 100%; max-height: 72vh; overflow-y: auto; }
+  .mega-depts {
+    max-height: none; overflow: visible;
+    border-right: 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .mega-panes { max-height: none; overflow: visible; padding: 14px 16px; }
+  /* One column of shelves, not three — a 3-up flow at 360px is four
+     characters and an ellipsis per name. */
+  .mega-subs { columns: 1; }
+  .mega-subs a { padding: 9px 0; }
 }
 @media (max-width: 760px) {
   .shop-wrap { padding: 0 16px; }
@@ -1214,7 +1340,10 @@ body.shop {
      It is not lost: the catalog's filter rail carries the same choice. */
   .shop-status { display: none; }
 
-  .cat-grid { grid-template-columns: repeat(3, 1fr); }
+  /* Two. Three columns of a tile that now holds a name and three shelf
+     links is 110px each on a 360px phone, which ellipsises every one of
+     them into uselessness. */
+  .cat-grid { grid-template-columns: repeat(2, 1fr); }
   /* Three, not four. The row is five tiles since "Get the App" came out
      of it, and a four-column grid leaves the fifth alone on its own row.
      3 + 2 reads as a block; 4 + 1 reads as something having broken. */
@@ -2092,6 +2221,82 @@ body.shop-auth {
   outline: 2px solid var(--brand); outline-offset: 2px;
 }
 .rail-check-text { min-width: 0; }
+
+/* ------------------------------------------------------ rail: two levels
+   Shelves indented under their department. The 1px guide line is what makes
+   the indent read as containment rather than as a stray margin — with eight
+   departments open at once, whitespace alone stops separating "the last
+   shelf of Fresh" from "the first shelf of Frozen". */
+.rail-shelves {
+  margin: 0 0 6px 9px; padding-left: 11px;
+  border-left: 1px solid var(--line-soft);
+}
+.rail-dept > .rail-check .rail-check-text { font-weight: 600; }
+.rail-shelves .rail-check { min-height: 30px; padding-top: 5px; padding-bottom: 5px; }
+.rail-shelves .rail-check-text { font-size: 13px; }
+/* The box on a shelf is a size down from its department's — a second, quieter
+   signal of the nesting for anyone reading the shapes rather than the indent. */
+.rail-shelves .rail-box { width: 16px; height: 16px; }
+
+/* The live count. Pushed to the right edge so the numbers form their own
+   column and can be compared down the list, and tabular figures so they
+   actually line up when they do. Never the only thing in the row that
+   changed — it sits beside a label, so a colour-blind reader loses nothing. */
+.rail-count {
+  margin-left: auto; padding-left: 8px; flex: none;
+  font: 400 12.5px/1 var(--font-sans); color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+.rail-check input:checked ~ .rail-count { color: var(--action-700); font-weight: 600; }
+
+/* --------------------------------------------------------- active chips
+   What is narrowing the grid, above the facets that set it. */
+.rail-chips { padding: 12px 0 14px; border-bottom: 1px solid var(--line-soft); }
+.rail-chips-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin-bottom: 8px;
+}
+/* .rail-title is a floated <legend> inside the form; here it is a plain span
+   in a flex row, so the float has to come back off or it drops out of the
+   row and takes the Clear All link with it. */
+.rail-chips .rail-title { float: none; width: auto; margin: 0; }
+.rail-clear-all {
+  font: 600 12.5px/1 var(--font-sans); color: var(--action);
+  text-decoration: none; white-space: nowrap;
+}
+.rail-clear-all:hover { color: var(--action-700); text-decoration: underline; }
+.chip-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+/* Label above value, not beside it. The rail is 216px wide and a value like
+   "Canned Goods > Sardines & Fish" wraps to three lines there — set beside a
+   one-word label, that leaves "Category:" floating against a three-line
+   block with nothing lining up. Stacked, the label is a caption over its
+   value and the row keeps a single baseline whatever the value's length. */
+.chip {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'label x' 'value x';
+  align-items: center; column-gap: 4px;
+  padding: 6px 4px 7px 9px; border-radius: 4px;
+  background: var(--green-50);
+  font: 400 12.5px/1.35 var(--font-sans); color: var(--ink-700);
+}
+.chip-label {
+  grid-area: label; color: var(--ink-500);
+  font-size: 11px; letter-spacing: .02em;
+}
+.chip-value { grid-area: value; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+/* 28px, not the 24px the glyph needs: this is the one control in the rail
+   that destroys a filter, and a 24px target is under the 2.2 SC 2.5.8
+   minimum. margin-left:auto pins it to the chip's right edge so every × in
+   the stack is in the same place. */
+.chip-x {
+  grid-area: x; align-self: center;
+  width: 28px; height: 28px; border-radius: 4px;
+  display: inline-grid; place-items: center;
+  color: var(--ink-500); text-decoration: none;
+  transition: background .12s ease, color .12s ease;
+}
+.chip-x:hover { background: var(--green-100); color: var(--danger-cta); }
+.chip-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 .rail-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; }
 .rail-clear {
