@@ -47,14 +47,28 @@ def branch_for_user(user):
     """
     The single Branch a manager/staff is pinned to, or None.
 
-    None means "not pinned to one branch" — for the Owner that means ALL
-    branches, so callers MUST role-check before using this to filter, e.g.
+    DO NOT USE THIS TO FILTER A QUERYSET. None is returned for TWO different
+    situations that must not be treated alike:
 
-        if user.role in (BRANCH_MANAGER, STAFF):
-            qs = qs.filter(branch=branch_for_user(user))
+        * the Owner            -> sees ALL branches
+        * a Manager/Staff whose profile branch is NULL -> must see NOTHING
 
-    Prefer `scope_queryset()` where you can; this exists for the API views,
-    which need the Branch object itself rather than a filtered queryset.
+    That second case is reachable in normal operation: BranchManagerProfile
+    .branch and StaffProfile.branch are both on_delete=SET_NULL, so deleting
+    a branch nulls them out. The idiom
+
+        user_branch = branch_for_user(user)
+        if user_branch:                      # WRONG - fails OPEN
+            qs = qs.filter(branch=user_branch)
+
+    silently hands that account every branch's data. Use `scope_queryset()`
+    (or `branch_ids_for_user()` when you need the ids) instead — those
+    return None only for the Owner and [] for an unassigned account, so they
+    fail CLOSED.
+
+    This function is for the cases that genuinely want the Branch object and
+    treat None as "ask which branch": a form default, a filename label, a
+    "should I show the Owner's branch picker" check.
     """
     if not getattr(user, "is_authenticated", False):
         return None
