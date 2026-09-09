@@ -132,8 +132,16 @@ every panel in the app to fix one column.
           <textarea id="delivery_address" name="delivery_address" rows="2" required
                     placeholder="House no., street, barangay, Baliuag"></textarea>
         </div>
+        {% comment %}
+        "if paying by GCash" undersold this: checkout now refuses a GCash
+        order with no reference, because with no gateway integrated the
+        reference is the only record of the transfer. Anything typed here is
+        discarded for the other methods, so the wording says which rule
+        applies. Not a `required` attribute — it is conditional on the
+        select above, and the server is the guard either way.
+        {% endcomment %}
         <div class="field">
-          <label for="reference_number">GCash reference <span class="gv-meta">— if paying by GCash</span></label>
+          <label for="reference_number">GCash reference <span class="gv-meta">— required when paying by GCash</span></label>
           <input id="reference_number" type="text" name="reference_number" placeholder="e.g. GC-2026-0001">
         </div>
 

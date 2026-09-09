@@ -134,6 +134,23 @@ def _safe_next(request):
     return None
 
 
+def _safe_referer(request):
+    """The Referer header, but only if it points back into this site.
+
+    The same reasoning as _safe_next, for the one caller that has no `next`
+    field to read. Referer arrives from the browser, but whoever authored the
+    page that linked here chose what it says, and redirect() will follow it
+    off-origin without complaint. Returns None when absent or off-site, and
+    the caller falls back to its own default.
+    """
+    ref = request.META.get('HTTP_REFERER')
+    if ref and url_has_allowed_host_and_scheme(
+        ref, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return ref
+    return None
+
+
 def order_type_for(user):
     """The price tier this shopper buys at online.
 
@@ -574,7 +591,16 @@ def undo_add(request):
         return JsonResponse({'ok': True, 'cart_count': cart_count})
 
     messages.info(request, 'Removed from your cart.')
-    return redirect(request.META.get('HTTP_REFERER') or 'orders:catalog')
+    # Every other redirect in this file validates where it is sending the
+    # browser; this one used to hand redirect() the raw Referer header, which
+    # is chosen by whoever built the page that linked here and can therefore
+    # name another origin. Undo is a bare <button> driven by toast.js fetch(),
+    # with no form and so no `next` field — _safe_next is here for a future
+    # caller that grows one, and the validated Referer is what actually
+    # answers on this path.
+    return redirect(
+        _safe_next(request) or _safe_referer(request) or 'orders:catalog'
+    )
 
 
 @customer_required
@@ -605,18 +631,37 @@ def update_cart(request, product_id):
         )
         return redirect('orders:cart')
 
+    # Every branch below says what it did or why it declined. The refusals
+    # already spoke; the successes and the floor did not, and a + or − that
+    # changes a number without a word is the same to read as one that failed
+    # to register — especially the floor, where nothing on screen moves.
+    name = inv.product.product_name
     action = request.POST.get('action')
     if action == 'increase':
         if cart[key] >= inv.available_qty:
             messages.error(
                 request,
-                f'Only {inv.available_qty} of {inv.product.product_name} left at this branch.'
+                f'Only {inv.available_qty} of {name} left at this branch.'
             )
         else:
             cart[key] += 1
+            messages.success(request, f'{name} — {cart[key]} in your cart.')
     elif action == 'decrease':
-        # Minimum of 1 — use Remove to clear the line entirely.
-        cart[key] = max(cart[key] - 1, 1)
+        # Minimum of 1 — Remove is what clears the line entirely, and at the
+        # floor that has to be said rather than silently doing nothing.
+        if cart[key] <= 1:
+            messages.info(
+                request,
+                f'{name} is down to one. Use Remove to take it out of your cart.'
+            )
+        else:
+            cart[key] -= 1
+            messages.success(request, f'{name} — {cart[key]} in your cart.')
+    else:
+        # Neither button — a malformed or tampered POST. Nothing changed, so
+        # this exit says so instead of redirecting to an unchanged cart in
+        # silence, which would read as the press having been swallowed.
+        messages.error(request, 'That cart change was not understood.')
 
     request.session['cart'] = cart
     return redirect('orders:cart')
@@ -683,6 +728,11 @@ def checkout(request):
         return redirect('orders:select_branch')
 
     if request.method != 'POST':
+        # There is no checkout PAGE — the form lives on the cart — so a GET
+        # here is a bookmark, a refresh or the back button, never the form.
+        # Nothing is written either way, but bouncing to the cart without a
+        # word looks like a checkout page that failed to load.
+        messages.info(request, 'Review your order below, then press Place Order.')
         return redirect('orders:cart')
 
     # --- price tier ---------------------------------------------------------
@@ -708,6 +758,31 @@ def checkout(request):
     )
     if mode_of_payment not in SalesTransaction.ModeOfPayment.values:
         mode_of_payment = SalesTransaction.ModeOfPayment.COD
+
+    # --- GCash reference ----------------------------------------------------
+    # No payment gateway is integrated (Chapter 1, Limitation 1), so for a
+    # GCash order the reference the shopper types IS the record: it is the
+    # only handle anyone has when matching the transfer against the billing
+    # row. Accepting a blank one wrote a row reading "GCash" with nothing to
+    # reconcile it against.
+    #
+    # This refuses rather than falling back, for the same reason
+    # fulfillment_type below does: there is no safe value to invent. The
+    # opposite error was live too — the field was written for EVERY method,
+    # so a reference left in the box before switching to Cash on Delivery
+    # rode along onto a row that has no reference by definition. Hence the
+    # clear on the else branch.
+    reference_number = request.POST.get('reference_number', '').strip()
+    if mode_of_payment == SalesTransaction.ModeOfPayment.GCASH:
+        if not reference_number:
+            messages.error(
+                request,
+                'Enter your GCash reference number, or choose another payment '
+                'method — we cannot match the payment to your order without it.'
+            )
+            return redirect('orders:cart')
+    else:
+        reference_number = ''
 
     # --- delivery vs pickup -------------------------------------------------
     # F-11 — delivery_address used to be written straight from the POST with
@@ -841,7 +916,10 @@ def checkout(request):
         if billing:
             billing.amount_due = total
             billing.payment_method = sale.mode_of_payment
-            billing.reference_number = request.POST.get('reference_number', '').strip()
+            # Validated above: non-blank exactly when the method is GCash,
+            # blank for every other method. Not re-read from the POST here —
+            # that is what let an unvalidated value onto the row.
+            billing.reference_number = reference_number
             billing.save()
 
     request.session['cart'] = {}
@@ -875,9 +953,13 @@ def my_orders(request):
         .order_by('-transaction_date')
     )
 
-    # Which lifecycle statuses each tab stands for. One table, read twice —
-    # once to count and once to filter — so a tab can never show a number it
-    # then fails to list.
+    # Which lifecycle statuses each tab stands for. One table, so the tab a
+    # shopper picks and the rows they get back cannot drift apart.
+    #
+    # It used to be read twice, the second time to build a `counts` dict of
+    # five .count() queries for numbers beside each tab label. The tabs render
+    # as plain text by design, so nothing ever read them: five queries per
+    # page load whose results went nowhere.
     #
     # 'active' used to mean everything that was neither Completed nor
     # Cancelled, which included Preparing. Now that Preparing has a tab of its
@@ -897,18 +979,11 @@ def my_orders(request):
     if status_filter not in tab_statuses:
         status_filter = ''          # an unknown ?status= falls back to All
 
-    counts = {'all': orders.count()}
-    counts.update({
-        tab: orders.filter(order_status__in=statuses).count()
-        for tab, statuses in tab_statuses.items()
-    })
-
     if status_filter:
         orders = orders.filter(order_status__in=tab_statuses[status_filter])
 
     return render(request, 'orders/my_orders.html', {
         'orders': orders,
-        'counts': counts,
         'status_filter': status_filter,
         'active_page': 'orders',
     })
