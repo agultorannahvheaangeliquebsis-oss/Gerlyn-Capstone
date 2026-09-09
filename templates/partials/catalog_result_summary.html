@@ -3,8 +3,12 @@
 the number reads as a filter result rather than as the size of the shop. Also
 re-rendered on its own by catalog-live.js on every keystroke, which is why it
 is a partial and not inline in catalog.html.
+
+`summary_branch` is the Branch when the Filters rail has exactly one branch
+ticked (or, on a plain visit, the shopper's session branch) — it names whose
+shelves the grid below is showing. It is NOT selected_branch_id: that is the
+cart's shopping branch, which the rail's browse filter no longer changes, so
+the two can now point at different branches.
 {% endcomment %}
 <span id="result-count">{{ rows|length }}</span> of {{ total_count }} item{{ total_count|pluralize }}
-{% if selected_branch_id %}
-  {% for b in branches %}{% if b.id == selected_branch_id %}at {{ b.branch_name }}{% endif %}{% endfor %}
-{% endif %}
+{% if summary_branch %}at {{ summary_branch.branch_name }}{% endif %}

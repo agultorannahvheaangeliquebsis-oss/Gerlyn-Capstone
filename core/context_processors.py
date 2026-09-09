@@ -246,9 +246,6 @@ def customer_nav(request):
     lives in public_base.html needs its numbers from something that runs on
     every render of public_base.html, which is this.
 
-    Those views still pass their own cart_count and still win: view context
-    overrides a context processor, and the value is identical either way.
-
     Fail-safe on both counts — a badge must never break a page render.
     """
     out = {}
@@ -257,7 +254,13 @@ def customer_nav(request):
     if session is not None:
         try:
             cart = session.get("cart", {})
-            out["cart_count"] = len(cart)
+            # Only count a cart that has a branch behind it. A line can only be
+            # added once a branch is chosen (add_to_cart), and nothing clears
+            # the branch without clearing the cart, so "cart set, no branch" is
+            # a stale artifact of an older build — the cart page will refuse to
+            # show it and send the shopper to pick a branch, so the badge must
+            # not advertise a count for it either.
+            out["cart_count"] = len(cart) if session.get("branch_id") else 0
             # No cart_product_ids any more. It existed so a card could paint
             # its Add-to-cart button in the added state on first load; the
             # tick is now a two-second receipt for a press (see toast.js
