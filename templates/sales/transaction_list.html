@@ -111,6 +111,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <td data-label="Pay Status">
           {% if t.billing_record.status == "Paid" %}<span class="pill pill-ok">Paid</span>
           {% elif t.billing_record.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+          {% elif t.billing_record.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
           {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
         </td>
         <td data-label="Order Status">

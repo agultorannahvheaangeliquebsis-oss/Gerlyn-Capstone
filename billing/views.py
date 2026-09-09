@@ -60,6 +60,7 @@ def billing_list(request):
         'pending': records.filter(status=BillingRecord.PaymentStatus.PENDING).count(),
         'paid': records.filter(status=BillingRecord.PaymentStatus.PAID).count(),
         'rejected': records.filter(status=BillingRecord.PaymentStatus.REJECTED).count(),
+        'cancelled': records.filter(status=BillingRecord.PaymentStatus.CANCELLED).count(),
     }
 
     # Outstanding is a property of the whole (pre-filter) result set, exactly
