@@ -257,6 +257,23 @@ class SalesTransaction(models.Model):
             f"{self.branch} - {self.transaction_date.strftime('%Y-%m-%d')}"
         )
 
+    class Meta:
+        indexes = [
+            # Every branch-scoped surface in the back office filters on
+            # exactly this pair — core.scoping narrows to a branch, then the
+            # date range is applied on top (the Dashboard's daily series and
+            # its previous-window comparison, the Reports Sales tab, the
+            # branch-breakdown donut, every CSV export). The standalone
+            # db_index on transaction_date can only serve the date half, so
+            # a Branch Manager's report still scanned every branch's rows in
+            # the window before narrowing. Descending on the date because
+            # every one of those queries reads newest-first.
+            models.Index(
+                fields=['branch', '-transaction_date'],
+                name='sales_txn_branch_date_idx',
+            ),
+        ]
+
 
 class SalesItem(models.Model):
     # --- unchanged ---
