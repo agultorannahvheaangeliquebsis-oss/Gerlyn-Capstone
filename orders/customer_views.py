@@ -320,7 +320,6 @@ def product_catalog(request):
             {'value': value, 'label': option['label']}
             for value, option in SORT_OPTIONS.items()
         ],
-        'cart_count': len(request.session.get('cart', {})),
     }
 
     # Live search (catalog-live.js) asks for just the two regions that
@@ -405,7 +404,6 @@ def product_detail(request, product_id):
             branch_id=request.session.get('branch_id'),
         ),
         'selected_branch_id': request.session.get('branch_id'),
-        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -913,7 +911,6 @@ def my_orders(request):
         'counts': counts,
         'status_filter': status_filter,
         'active_page': 'orders',
-        'cart_count': len(request.session.get('cart', {})),
     })
 
 
@@ -943,7 +940,6 @@ def track_order(request, transaction_id):
         'steps': steps,
         'cancelled': cancelled,
         'blurb': STATUS_BLURB.get(sale.order_status, ''),
-        'cart_count': len(request.session.get('cart', {})),
     })
 
 
