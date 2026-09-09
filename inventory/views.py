@@ -25,7 +25,9 @@ from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
-from core.scoping import branch_ids_for_user, user_can_access_branch
+from core.scoping import (
+    branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
+)
 from core.timebounds import local_month_bounds
 
 
@@ -33,15 +35,18 @@ from core.timebounds import local_month_bounds
 # HELPER: get branch for current user
 # ─────────────────────────────────────────────
 
-def get_user_branch(user):
-    try:
-        if user.role == User.Role.BRANCH_MANAGER:
-            return user.manager_profile.branch
-        elif user.role == User.Role.STAFF:
-            return user.staff_profile.branch
-    except Exception:
-        return None
-    return None
+# One definition, in core.scoping. This module used to carry its own copy
+# wrapped in a bare `except Exception: return None`, which turned any error
+# (a missing profile, a DB hiccup) into "no branch" — and every caller reads
+# "no branch" as "Owner, show everything". Aliased rather than renamed at the
+# call sites below so the two implementations cannot drift apart again.
+#
+# NOTE: this returns None for an Owner AND for a Manager/Staff whose profile
+# branch is NULL. Never use it to decide whether to filter a queryset — use
+# scope_queryset() / branch_ids_for_user(), which distinguish the two and
+# fail CLOSED. It is fine for "which branch do I default this form to", where
+# None means "ask".
+get_user_branch = branch_for_user
 
 
 # ─────────────────────────────────────────────
@@ -1097,9 +1102,13 @@ def _inventory_list_context(request):
     ).all()
 
     # Managers/staff see only their own branch (server-side, not just the UI).
+    # scope_queryset, not `if user_branch:`: user_branch is None for an Owner
+    # and for a Manager/Staff with a NULL profile branch alike, so the second
+    # case fell through unfiltered and saw every branch's stock. user_branch
+    # itself is still read below — but only to decide whether to offer the
+    # Owner's branch picker, never to scope the data.
     user_branch = get_user_branch(request.user)
-    if user_branch:
-        records = records.filter(branch=user_branch)
+    records = scope_queryset(records, request.user, 'branch')
 
     search_query = request.GET.get('q', '')
     branch_filter = request.GET.get('branch', '')
@@ -1257,7 +1266,21 @@ def stock_adjustment_add(request):
 
     user_branch = get_user_branch(request.user)
     product_id = request.POST.get('product_id', '').strip()
-    branch_id = user_branch.id if user_branch else request.POST.get('branch_id', '').strip()
+    # Only the Owner may name the branch in the POST. A Branch Manager is
+    # pinned to their own, and if they have none (profile.branch is SET_NULL,
+    # so deleting a branch leaves exactly that) the adjustment is refused
+    # rather than allowed to name any branch — this is a stock WRITE.
+    if user_branch:
+        branch_id = user_branch.id
+    elif request.user.role == User.Role.OWNER:
+        branch_id = request.POST.get('branch_id', '').strip()
+    else:
+        messages.error(
+            request,
+            'No branch is assigned to your account, so this adjustment cannot '
+            'be recorded. Ask the Owner to assign you to a branch.'
+        )
+        return redirect('inventory_list')
     quantity = request.POST.get('quantity', '').strip()
     expiry_date = request.POST.get('expiry_date', '').strip()
 
@@ -1333,6 +1356,11 @@ def _branch_scoped_modal_target(request):
     user_branch = get_user_branch(request.user)
     if user_branch:
         return user_branch
+    # Only the Owner picks a branch here. A Manager/Staff whose profile branch
+    # is NULL also lands past the check above — they get no branch (the create
+    # modal it feeds is a stock write), not a free choice from the POST/GET.
+    if request.user.role != User.Role.OWNER:
+        return None
     branch_id = request.POST.get('branch_id') or request.GET.get('branch')
     if branch_id and str(branch_id).isdigit():
         return Branch.objects.filter(pk=branch_id).first()
@@ -1370,6 +1398,13 @@ def _warehouse_stock_list_context(request):
         warehouse = None
         if branch_filter:
             stock_records = stock_records.filter(warehouse__branch_id=branch_filter)
+        # This else is only meant for the Owner, but it is also where a
+        # Manager/Staff whose profile branch is NULL lands (user_branch is
+        # None for them too). No-op for the Owner; filters to nothing for an
+        # unassigned account, so it can't read every branch's warehouse.
+        stock_records = scope_queryset(
+            stock_records, request.user, 'warehouse__branch'
+        )
 
     search_query = request.GET.get('q', '')
     category_filter = request.GET.get('category', '')
@@ -1608,10 +1643,12 @@ def _transfer_list_context(request):
         'requested_by', 'warehouse'
     ).all()
 
-    # Branch managers and staff only see their branch's transfers
+    # Branch managers and staff only see their branch's transfers.
+    # scope_queryset fails closed for an unassigned account; the old
+    # `if user_branch:` form showed it every branch's withdrawal slips.
+    # user_branch is still read below, only for the Owner's branch filter.
     user_branch = get_user_branch(request.user)
-    if user_branch:
-        transfers = transfers.filter(source_branch=user_branch)
+    transfers = scope_queryset(transfers, request.user, 'source_branch')
 
     # Filters from GET parameters
     search_query = request.GET.get('q', '')

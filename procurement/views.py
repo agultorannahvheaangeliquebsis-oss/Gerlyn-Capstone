@@ -210,9 +210,15 @@ def _procurement_form_context(user):
         suppliers = User.objects.filter(role=User.Role.SUPPLIER).filter(
             Q(supplier_profile__branch=user_branch) | Q(supplier_profile__branch__isnull=True)
         )
-    else:
+    elif user.role == User.Role.OWNER:
         branches = Branch.objects.all()
         suppliers = User.objects.filter(role=User.Role.SUPPLIER)
+    else:
+        # branch_for_user() is also None for a Manager/Staff whose profile
+        # branch is NULL. They have no branch to raise a PO for, so the modal
+        # gets nothing to pick — not the Owner's every-branch list.
+        branches = Branch.objects.none()
+        suppliers = User.objects.filter(role=User.Role.SUPPLIER).none()
 
     return {
         'products': Product.objects.all(),

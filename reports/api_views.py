@@ -19,7 +19,14 @@ from accounts.models import User
 
 # Branch scoping lives in core.scoping so the API and the template views can
 # never drift apart — this is security-critical logic, it gets ONE definition.
-from core.scoping import branch_for_user as get_user_branch  # noqa: E402
+#
+# scope_queryset(), not `if get_user_branch(user):` — branch_for_user() returns
+# None both for an Owner (sees every branch) and for a Manager/Staff whose
+# profile branch is NULL (on_delete=SET_NULL makes that reachable), and the
+# `if` form leaks every branch to the second case. branch_ids_for_user beneath
+# scope_queryset returns None only for the Owner and [] for an unassigned
+# account, so it fails CLOSED.
+from core.scoping import scope_queryset  # noqa: E402
 
 
 def check_report_access(request):
@@ -44,11 +51,9 @@ class DashboardSummaryAPIView(APIView):
         procurement_qs = Procurement.objects.all()
         inventory_qs = Inventory.objects.select_related('product', 'branch').all()
 
-        user_branch = get_user_branch(request.user)
-        if user_branch:
-            sales_qs = sales_qs.filter(branch=user_branch)
-            procurement_qs = procurement_qs.filter(branch=user_branch)
-            inventory_qs = inventory_qs.filter(branch=user_branch)
+        sales_qs = scope_queryset(sales_qs, request.user, 'branch')
+        procurement_qs = scope_queryset(procurement_qs, request.user, 'branch')
+        inventory_qs = scope_queryset(inventory_qs, request.user, 'branch')
 
         total_sales = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
         total_transactions = sales_qs.count()
@@ -108,10 +113,7 @@ class SalesReportAPIView(APIView):
             return denied
 
         qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer').all()
-        user_branch = get_user_branch(request.user)
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
-        qs = qs.order_by('-transaction_date')
+        qs = scope_queryset(qs, request.user, 'branch').order_by('-transaction_date')
 
         from sales.serializers import SalesTransactionSerializer
         return Response(SalesTransactionSerializer(qs, many=True).data)
@@ -126,10 +128,10 @@ class InventoryReportAPIView(APIView):
         if denied:
             return denied
 
-        qs = Inventory.objects.select_related('product', 'branch').all()
-        user_branch = get_user_branch(request.user)
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
+        qs = scope_queryset(
+            Inventory.objects.select_related('product', 'branch').all(),
+            request.user, 'branch',
+        )
 
         from inventory.serializers import InventorySerializer
         return Response(InventorySerializer(qs, many=True).data)
@@ -145,10 +147,7 @@ class ProcurementReportAPIView(APIView):
             return denied
 
         qs = Procurement.objects.select_related('branch', 'supplier').all()
-        user_branch = get_user_branch(request.user)
-        if user_branch:
-            qs = qs.filter(branch=user_branch)
-        qs = qs.order_by('-order_date')
+        qs = scope_queryset(qs, request.user, 'branch').order_by('-order_date')
 
         from procurement.serializers import ProcurementReadSerializer
         return Response(ProcurementReadSerializer(qs, many=True).data)
