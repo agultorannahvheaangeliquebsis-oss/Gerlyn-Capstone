@@ -41,7 +41,9 @@ class UserModalFlowTests(TestCase):
 
     def test_creating_a_manager_sets_their_branch(self):
         response = self.client.post(reverse('accounts:user_add'), {
-            'username': 'carlo', 'password': 'pw123456',
+            # StrongPasswordValidator (uppercase + digit + symbol) is applied
+            # on create — the old 'pw123456' no longer passes.
+            'username': 'carlo', 'password': 'Vault-7788x',
             'role': User.Role.BRANCH_MANAGER, 'branch': self.branch.pk,
             'first_name': 'Carlo', 'last_name': 'Reyes', 'email': 'c@x.ph',
         })
