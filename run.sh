@@ -5,7 +5,8 @@
 #   ./run.sh          start the server (kills any stale one first)
 #   ./run.sh fresh    wipe + reload demo data, then start
 #   ./run.sh stop     stop the server
-#   ./run.sh test     run the acceptance tests
+#   ./run.sh test     run the acceptance tests (core only — fast)
+#   ./run.sh test-all run the full suite, every app (a few minutes)
 #
 # Stop the server any time with Ctrl+C, or: ./run.sh stop
 
@@ -45,8 +46,13 @@ case "${1:-start}" in
     ;;
 
   test)
-    echo "Running acceptance tests..."
+    echo "Running acceptance tests (core only — fast). Use ./run.sh test-all before a merge."
     python manage.py test core
+    ;;
+
+  test-all)
+    echo "Running the full suite (every app). This takes a few minutes."
+    python manage.py test accounts core sales orders billing inventory procurement reports
     ;;
 
   fresh|start)

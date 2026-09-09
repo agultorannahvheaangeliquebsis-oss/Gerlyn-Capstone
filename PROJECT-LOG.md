@@ -165,7 +165,8 @@ That's it. It prints the links and the logins. Stop it with **Ctrl+C**.
 | `./run.sh` | Start the system |
 | `./run.sh fresh` | Reset the demo data back to normal, then start |
 | `./run.sh stop` | Stop it |
-| `./run.sh test` | Run the automatic tests (takes 5 seconds) |
+| `./run.sh test` | Run the core acceptance tests (fast) |
+| `./run.sh test-all` | Run the full suite, every app (a few minutes) — do this before a merge |
 
 > **If you break the data** (deleted stock, cancelled everything) — don't panic.
 > Run `./run.sh fresh` and it's back to normal.
