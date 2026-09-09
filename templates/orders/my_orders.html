@@ -56,11 +56,7 @@ the header lands.
           <div>
             <div class="order-row-head">
               <span class="order-row-num">{{ o.order_number }}</span>
-              {% if o.order_status == 'Completed' %}<span class="pill pill-ok">{% t "Completed" %}</span>
-              {% elif o.order_status == 'Cancelled' %}<span class="pill pill-danger">{% t "Cancelled" %}</span>
-              {% elif o.order_status == 'Preparing' %}<span class="pill pill-warn">{% t "Being packed" %}</span>
-              {% elif o.order_status == 'Approved' %}<span class="pill pill-info">{% t "Confirmed" %}</span>
-              {% else %}<span class="pill pill-neutral">{% t "Waiting for the store" %}</span>{% endif %}
+              {% include "partials/_order_status_pill.html" with status=o.order_status %}
             </div>
             <div class="order-row-meta">
               {{ o.transaction_date|date:"F d, Y" }} · {{ o.branch.branch_name }}

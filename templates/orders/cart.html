@@ -87,7 +87,12 @@ every panel in the app to fix one column.
     <div class="card card-pad cart-summary">
       <h3>Order Summary</h3>
 
-      <!-- free-delivery meter -->
+      {% comment %}
+      The ₱500 threshold is a real store policy — the announcement strip, the
+      footer and the About page all state it, and free_delivery_over is the
+      one figure behind all of them (orders.customer_views.FREE_DELIVERY_OVER),
+      so it is printed from the context rather than typed in again here.
+      {% endcomment %}
       <div class="cart-meter">
         {% if qualifies %}
           <p class="free-delivery-note">✓ You've unlocked free delivery within Baliuag</p>
@@ -99,12 +104,27 @@ every panel in the app to fix one column.
       </div>
 
       <div class="summary-line"><span class="gv-meta">Subtotal</span><span class="num">₱{{ total|floatformat:2 }}</span></div>
+      {% comment %}
+      This line used to read "Calculated at delivery" below the threshold,
+      which promised a figure nothing produces: checkout() writes no delivery
+      fee — there is no fee field on SalesTransaction and no rate table
+      anywhere to compute one from — so the amount recorded against the
+      order is the subtotal, exactly as shown. Saying a charge is coming and
+      then never quoting it is the surprise the About page promises there
+      isn't one of. What actually happens below ₱500 is that the branch
+      settles delivery with the customer, so that is what it now says.
+      {% endcomment %}
       <div class="summary-line"><span class="gv-meta">Delivery</span>
-        <span class="num">{% if qualifies %}Free{% else %}Calculated at delivery{% endif %}</span></div>
+        <span class="num">{% if qualifies %}Free{% else %}Arranged with the branch{% endif %}</span></div>
       <div class="summary-total">
         <span class="gv-label">Total</span>
         <span class="gv-metric" style="color:var(--action);">₱{{ total|floatformat:2 }}</span>
       </div>
+      {% if not qualifies %}
+      <p class="gv-meta mt-2">Under ₱{{ free_delivery_over|floatformat:0 }} no delivery fee is added
+        here — the total above is what we record for this order. The branch will
+        confirm delivery with you, or you can collect it yourself.</p>
+      {% endif %}
 
       <form method="POST" action="{% url 'orders:checkout' %}" class="stack">
         {% csrf_token %}

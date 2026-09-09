@@ -48,7 +48,7 @@ never signed in sees, so it carries the storefront chrome instead.
     Owner typed, in whatever language they typed it.
     {% endcomment %}
     <p class="about-lead">
-      {% if store_settings.about_hero_lead %}{{ store_settings.about_hero_lead }}{% else %}{% t "Ten years of serving Baliwag — one counter at a time. From a single variety store to four branches, we are still the neighbours you send the kids to." %}{% endif %}
+      {% if store_settings.about_hero_lead %}{{ store_settings.about_hero_lead }}{% else %}{% t "Ten years of serving Baliuag — one counter at a time. From a single variety store to the branches listed below, we are still the neighbours you send the kids to." %}{% endif %}
     </p>
     <p class="about-tag">{% if store_settings.about_tagline %}{{ store_settings.about_tagline }}{% else %}{% t "Sa Gerlyn, Lahat Panalo." %}{% endif %}</p>
     <a class="btn btn-primary" href="{% url 'orders:catalog' %}">{% t "Browse products" %} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
@@ -63,7 +63,7 @@ never signed in sees, so it carries the storefront chrome instead.
       {% t "Gerlyn Variety Store started with one counter and one family. We stocked what the neighbours actually needed: rice, canned goods, soap, the late-night sachet. What kept people coming back was simple — we knew them, and we remembered what they buy." %}
     </p>
     <p>
-      {% t "Ten years on, that one store has become four. Gerlyn Variety Store, Gerlyn Mega Save Mini Mart, Gerlyn Bigasan and Gerlyn Savers Mini Mart serve Tiaong and Tarcan Makinabang. Groceries, household goods, bulk supplies, rice by the sack — still family-run, still here in Baliwag." %}
+      {% t "Ten years on, that one counter has grown into the branches listed below. Groceries, household goods, bulk supplies, rice by the sack — still family-run, still here in Baliuag." %}
     </p>
     {% endif %}
   </section>
@@ -74,7 +74,7 @@ never signed in sees, so it carries the storefront chrome instead.
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
       </span>
       <h2>{% t "Delivery" %}</h2>
-      <p>{% t "Free delivery anywhere in Baliwag on orders over ₱500 — we bring it to your gate. Below ₱500, or outside the area, you can still collect at whichever branch is closest to you. No delivery surprises at checkout." %}</p>
+      <p>{% t "Free delivery anywhere in Baliuag on orders over ₱500 — we bring it to your gate. Below ₱500, or outside the area, you can still collect at whichever branch is closest to you, or arrange delivery with the branch directly. Nothing is added to your total at checkout." %}</p>
     </div>
 
     <div class="about-card">
@@ -90,7 +90,7 @@ never signed in sees, so it carries the storefront chrome instead.
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
       </span>
       <h2>{% t "Ways to pay" %}</h2>
-      <p>{% t "Cash, GCash, card, bank transfer, cash on delivery, or simply pay at the store. No card is needed to place an order — reserve it online and settle at the counter. Whichever is easiest for you works for us." %}</p>
+      <p>{% t "Online, choose cash on delivery, pay at store or GCash — with GCash, add your reference number and the branch matches it against the payment. At the counter we take cash, GCash, card and bank transfer. No card is needed to place an order: reserve it online and settle when it reaches you." %}</p>
     </div>
 
     <div class="about-card">
@@ -98,7 +98,7 @@ never signed in sees, so it carries the storefront chrome instead.
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 8h14M5 16h14"/><circle cx="12" cy="12" r="9"/></svg>
       </span>
       <h2>{% t "Statutory discounts" %}</h2>
-      <p>{% t "PWD and Senior Citizen discounts are honoured at the counter on eligible items, with a valid ID. Present it when you pay, or when your order is handed over. The same discount applies online or in person, as the law provides." %}</p>
+      <p>{% t "PWD and Senior Citizen discounts are honoured on eligible items, with a valid ID. The ID has to be seen by a person, so the discount is never applied by the checkout form — staff apply it at the branch when you pay or collect. Order online for pickup, bring your ID, and we will apply it before you settle. A delivery order cannot carry it, because nobody at the branch ever sees the card." %}</p>
     </div>
   </div>
 

@@ -9,10 +9,12 @@ from django.http import JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils.functional import SimpleLazyObject
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
-from inventory.models import Inventory, Product, ProductCategory
+from core.context_processors import storefront_categories
+from inventory.models import Inventory, Product
 from inventory.stats import (
     attach_storefront_counts, in_stock_product_ids, units_sold_by_product,
 )
@@ -300,7 +302,19 @@ def product_catalog(request):
         'rows': ordered_rows,
         'branches': branches,
         'selected_branch_id': branch_id,
-        'categories': ProductCategory.objects.all(),
+        # Not ProductCategory.objects.all(): the whole storefront hides its
+        # category UI below two categories (core.context_processors.
+        # storefront_categories), and this rail was the one surface still
+        # ignoring that — on a one-category store the header dropped its
+        # chips while the rail beside the grid kept offering the single
+        # tick-box that filters nothing.
+        #
+        # Lazy, because the queryset it replaced was: this same context is
+        # handed to catalog_grid.html on every live-search keystroke, and
+        # neither of the two partials rendered there names `categories`. A
+        # bare call would have bought a query per keystroke for a rail that
+        # is not being redrawn.
+        'categories': SimpleLazyObject(storefront_categories),
         'search_query': search_query,
         'category_filters': category_filters,
         'branch_filters': branch_filters,
@@ -365,12 +379,25 @@ def search_suggestions(request):
 
 def product_detail(request, product_id):
     product = get_object_or_404(Product, id=product_id)
+    branch_id = request.session.get('branch_id')
     # Same treatment the grid cards get, so the detail page can show the
     # "In stock · N sold" line instead of making the shopper infer both from
-    # the per-branch table below it. Not branch-scoped: this line describes
-    # the product across the store, and the table underneath is what breaks
-    # it down per branch.
-    attach_storefront_counts([product])
+    # the per-branch table below it.
+    #
+    # Scoped to the chosen branch, because product.on_hand does two jobs in
+    # this template and only the branch figure is right for either. It draws
+    # the stock chip AND it gates the Add to Cart button — and the cart only
+    # ever accepts stock from the session's branch (add_to_cart looks up one
+    # Inventory row, for this product at this branch). Summed across every
+    # branch it told a shopper at Tarcan "In stock" for something only
+    # Makinabang has, offered them the button, and let add_to_cart refuse it.
+    # With no branch chosen yet the all-branch sum is still the honest
+    # reading — "available somewhere in the store" — and the panel is showing
+    # "Choose a branch to buy" rather than a live button.
+    #
+    # The per-branch table underneath is unaffected: it reads its own
+    # Inventory rows and still breaks the whole store down, branch by branch.
+    attach_storefront_counts([product], branch_id=branch_id)
     branches = Branch.objects.all()
 
     branch_stock = []
@@ -397,13 +424,17 @@ def product_detail(request, product_id):
             list(
                 Product.objects.filter(category=product.category)
                 .exclude(id=product.id)
-                .filter(id__in=in_stock_product_ids(request.session.get('branch_id')))
+                .filter(id__in=in_stock_product_ids(branch_id))
                 .select_related('category')
                 .prefetch_related('images')[:6]
             ),
-            branch_id=request.session.get('branch_id'),
+            branch_id=branch_id,
         ),
-        'selected_branch_id': request.session.get('branch_id'),
+        'selected_branch_id': branch_id,
+        # The Branch object, not just its id: the stock chip and the disabled
+        # Add to Cart button both name the branch they are talking about, and
+        # `branches` above is the whole list, not the chosen one.
+        'selected_branch': next((b for b in branches if b.pk == branch_id), None),
     })
 
 
@@ -653,7 +684,7 @@ def view_cart(request):
         'total': total,
         'free_delivery_over': FREE_DELIVERY_OVER,
         'remaining_for_free': remaining,
-        'qualifies': total >= FREE_DELIVERY_OVER and total > 0,
+        'qualifies': total >= FREE_DELIVERY_OVER,
         'progress_pct': min(int((total / FREE_DELIVERY_OVER) * 100), 100) if total else 0,
         'branch': Branch.objects.filter(id=request.session.get('branch_id')).first(),
         'payment_choices': [

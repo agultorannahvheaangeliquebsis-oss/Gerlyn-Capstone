@@ -187,7 +187,14 @@
     // so it opts out of the fetch path and submits normally.
     if (e.submitter && e.submitter.hasAttribute('data-skip-ajax')) return;
     e.preventDefault();
-    const btn = form.querySelector('button[type="submit"]');
+    // The button the shopper actually pressed, not the first submit in the
+    // form. The product page's buy row holds two of them (Add to Cart and
+    // Buy Now), so querySelector returned whichever happens to be first in
+    // the markup — the disabled state and the "Added" tick could land on the
+    // other one, and would silently swap the moment the two were reordered.
+    // e.submitter is undefined only in browsers older than this storefront
+    // supports, hence the fallback.
+    const btn = e.submitter || form.querySelector('button[type="submit"]');
     if (btn) btn.disabled = true;
     try {
       const res = await fetch(form.action, {

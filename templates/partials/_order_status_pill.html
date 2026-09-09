@@ -1,0 +1,19 @@
+{% load i18n_extra %}
+{% comment %}
+The order-status pill a CUSTOMER sees, in customer words.
+
+SalesTransaction.order_status is an internal enum — "Preparing" and
+"Approved" are stages of the store's workflow, not answers to the question a
+shopper is actually asking ("has anyone looked at it yet, and when do I get
+it"). My Orders already translated them; the confirmation page printed the
+raw value straight out of the column, so the same order read "Pending" on
+one screen and "Waiting for the store" on the next. One file now, so a new
+status cannot be worded two ways again.
+
+Include with `status=`, e.g. {% include "partials/_order_status_pill.html" with status=sale.order_status %}
+{% endcomment %}
+{% if status == 'Completed' %}<span class="pill pill-ok">{% t "Completed" %}</span>
+{% elif status == 'Cancelled' %}<span class="pill pill-danger">{% t "Cancelled" %}</span>
+{% elif status == 'Preparing' %}<span class="pill pill-warn">{% t "Being packed" %}</span>
+{% elif status == 'Approved' %}<span class="pill pill-info">{% t "Confirmed" %}</span>
+{% else %}<span class="pill pill-neutral">{% t "Waiting for the store" %}</span>{% endif %}

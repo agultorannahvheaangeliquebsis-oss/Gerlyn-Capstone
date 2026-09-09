@@ -63,8 +63,12 @@ can actually answer.
       {% endcomment %}
       <div class="pdp-chips">
         {% comment %}
-        Stock across every branch. The panel underneath breaks it down, so
-        this chip answers only "can I get this at all".
+        product.on_hand is scoped to the chosen branch when there is one
+        (customer_views.product_detail) — this chip and the Add to Cart
+        button below it have to agree, and the cart only ever accepts stock
+        from that branch. So the chip is labelled with the branch it is
+        counting, and falls back to the whole store before one is picked.
+        The "Available at" panel further down is the per-branch breakdown.
         {% endcomment %}
         {% if product.on_hand == 0 %}
           <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
@@ -73,6 +77,9 @@ can actually answer.
         {% else %}
           <span class="stock-status stock-status--ok"><span class="dot" aria-hidden="true"></span>In stock</span>
         {% endif %}
+        <span class="pdp-stock-where">
+          {% if selected_branch %}at {{ selected_branch.branch_name }}{% else %}across all branches{% endif %}
+        </span>
       </div>
 
       <h1 class="pdp-title">{{ product.product_name }}</h1>
@@ -119,7 +126,13 @@ can actually answer.
       {% elif not selected_branch_id %}
         <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
       {% elif product.on_hand == 0 %}
-        <button class="btn" disabled>Out of stock</button>
+        {% comment %}
+        Out of stock AT THE CHOSEN BRANCH. Naming it matters: the panel below
+        may well show the product on another branch's shelf, and without the
+        branch named the disabled button reads as "the store has none".
+        {% endcomment %}
+        <button class="btn" disabled>Out of stock at {{ selected_branch.branch_name|default:"this branch" }}</button>
+        <p class="pdp-note">It may be on another branch's shelf — see Available at, below.</p>
       {% else %}
         {% comment %}
         One <form>, two submits, differing only in where the shopper lands:
