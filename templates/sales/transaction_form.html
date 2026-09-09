@@ -323,6 +323,10 @@ function posRemoveRow(btn) {
   if (posRows.children.length > 1) { btn.closest('.item-row').remove(); posRecalc(); }
 }
 function posPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+// Centavo rounding for the preview only — the server (sales.pricing.peso) stays
+// authoritative. Kept here so the discounted-line preview rounds the per-unit
+// net price before multiplying by qty, the same order the server now uses.
+function posRound2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
 function posUpdateItemCount() {
   var n = posRows.children.length;
@@ -392,8 +396,8 @@ function posPriceLine(opt, price, qty, discountType) {
   if (applies) {
     var base = vatExempt ? price : price / (1 + POS_VAT_RATE);
     var unitDiscount = base * POS_DISCOUNT_RATE;
-    var net = base - unitDiscount;
-    return { unit: net, sub: net * qty, discount: unitDiscount * qty, vat: 0, exempt: true };
+    var net = posRound2(base - unitDiscount);
+    return { unit: net, sub: net * qty, discount: (posRound2(base) - net) * qty, vat: 0, exempt: true };
   }
   if (vatExempt) {
     return { unit: price, sub: price * qty, discount: 0, vat: 0, exempt: true };
