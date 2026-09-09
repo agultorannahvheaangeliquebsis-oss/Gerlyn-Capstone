@@ -18,7 +18,8 @@ from accounts.models import User
 from branches.models import Branch
 from core.scoping import scope_queryset
 from inventory.models import (
-    Inventory, Product, StockMovement, StockTransfer, StockTransferItem, Warehouse,
+    Inventory, Product, StockMovement, StockTransfer, StockTransferItem,
+    Warehouse, WarehouseStock,
 )
 from procurement.models import Procurement
 from sales.models import SalesTransaction
@@ -136,11 +137,17 @@ class AcceptanceTests(TestCase):
     def test_short_delivery_flags_discrepancy_and_adds_only_delivered(self):
         po = Procurement.objects.filter(status='Ordered').first()
         items = list(po.items.all())
-        inv, _ = Inventory.objects.get_or_create(
-            product=items[0].product, branch=po.branch,
+        # A received delivery credits the branch WAREHOUSE, never floor
+        # Inventory — floor stock only increases via an approved, released
+        # withdrawal slip (see delivery_receive and the Inventory docstring).
+        # This test used to assert against floor Inventory and was never
+        # updated when the receive handler was corrected.
+        warehouse = Warehouse.objects.get(branch=po.branch)
+        ws, _ = WarehouseStock.objects.get_or_create(
+            product=items[0].product, warehouse=warehouse,
             defaults={'quantity_on_hand': 0, 'reorder_level': 0},
         )
-        before = inv.quantity_on_hand
+        before = ws.quantity_on_hand
 
         self.login('gerlyn').post(f'/procurement/deliveries/{po.pk}/receive/', {
             'item_id': [str(i.pk) for i in items],
@@ -148,9 +155,9 @@ class AcceptanceTests(TestCase):
         })
 
         po.refresh_from_db()
-        inv.refresh_from_db()
+        ws.refresh_from_db()
         self.assertEqual(po.receipt_flag, 'Discrepancy')
-        self.assertEqual(inv.quantity_on_hand, before + items[0].quantity_ordered - 5)
+        self.assertEqual(ws.quantity_on_hand, before + items[0].quantity_ordered - 5)
         self.assertTrue(
             StockMovement.objects.filter(
                 reference_id=po.pk, movement_type='Procurement Received'

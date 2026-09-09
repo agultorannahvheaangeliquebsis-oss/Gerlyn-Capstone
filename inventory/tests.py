@@ -121,7 +121,15 @@ class CategoryModalFlowTests(TestCase):
         response = self.client.post(
             reverse('category_add'), {'category_name': 'Canned Goods'}
         )
-        self.assertRedirects(response, reverse('category_list'))
+        # Bounced back to the list, and nothing created. Not following the
+        # redirect: since F-07 a new STAFF has no Inventory module, so the
+        # list GET itself redirects — which is not what this test is about.
+        self.assertRedirects(
+            response, reverse('category_list'), fetch_redirect_response=False
+        )
+        self.assertFalse(
+            ProductCategory.objects.filter(category_name='Canned Goods').exists()
+        )
 
 
 def _xlsx_upload(filename, header, data_rows):
