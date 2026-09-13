@@ -11,6 +11,12 @@ That made two different orders identical in the database:
 `fulfillment_type` is now an explicit, required choice, and the address is
 validated against it: Delivery must carry one, Pickup never does.
 
+The address itself is no longer read from the checkout form — there is no
+input for it. A Delivery order ships to the account's default Address (set
+at registration or in Settings), which checkout shows read-only. So a
+Delivery order is refused when the account has NO saved address, and the
+address written onto the order is the saved one, never anything in the POST.
+
 The choice also decides who may later apply the statutory PWD/Senior
 discount (F-04 — staff can only sight an ID in person, so a Delivery order
 never qualifies), which is why a blank or unrecognised value is refused
@@ -22,7 +28,7 @@ from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import Address, User
 from branches.models import Branch
 from inventory.models import Inventory, Product
 from sales.models import SalesTransaction
@@ -53,6 +59,12 @@ class CheckoutFulfillmentTypeTests(TestCase):
         session['cart'] = {str(self.product.pk): 2}
         session.save()
 
+    def save_address(self, text='12 Real St, Baliuag'):
+        """Give the shopper the one default Address a Delivery order ships to."""
+        return Address.objects.create(
+            user=self.shopper, is_default=True, text=text,
+        )
+
     def check_out(self, **payload):
         payload.setdefault('mode_of_payment', 'Cash on Delivery')
         return self.client.post(
@@ -63,41 +75,45 @@ class CheckoutFulfillmentTypeTests(TestCase):
         return [str(m) for m in get_messages(response.wsgi_request)]
 
     # ------------------------------------------------------------ delivery
-    def test_delivery_without_an_address_is_refused_and_nothing_is_saved(self):
-        response = self.check_out(
-            fulfillment_type='Delivery', delivery_address='',
-        )
+    def test_delivery_is_refused_when_the_account_has_no_saved_address(self):
+        response = self.check_out(fulfillment_type='Delivery')
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
         self.assertIn(
-            'Enter a delivery address, or choose Pickup instead — we cannot '
-            'deliver an order without one.',
+            'Add a delivery address to your account before placing a delivery '
+            'order — open Settings then Addresses. Or choose Pickup to collect '
+            'this order at the branch.',
             self.messages(response),
         )
-        # The cart survives the rejection — the shopper fixes one field and
-        # resubmits, they do not start over.
+        # The cart survives the rejection — the shopper adds an address and
+        # comes back, they do not start over.
         self.assertEqual(
             self.client.session['cart'], {str(self.product.pk): 2}
         )
 
-    def test_a_whitespace_only_address_counts_as_blank(self):
-        """'   ' is not an address. The check runs on the stripped value, so
-        spaces cannot be used to satisfy a non-blank test."""
+    def test_a_posted_address_is_ignored_the_account_has_no_saved_one(self):
+        """There is no address input on the form. Smuggling one into the POST
+        must not satisfy the check or reach the order."""
         response = self.check_out(
-            fulfillment_type='Delivery', delivery_address='    ',
+            fulfillment_type='Delivery',
+            delivery_address='99 Tamper Ave, Manila',
         )
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
         self.assertIn(
-            'Enter a delivery address, or choose Pickup instead — we cannot '
-            'deliver an order without one.',
+            'Add a delivery address to your account before placing a delivery '
+            'order — open Settings then Addresses. Or choose Pickup to collect '
+            'this order at the branch.',
             self.messages(response),
         )
 
-    def test_a_delivery_with_an_address_is_saved_as_a_delivery(self):
+    def test_a_delivery_ships_to_the_saved_default_address(self):
+        self.save_address(text='12 Real St, Baliuag')
+
         self.check_out(
             fulfillment_type='Delivery',
-            delivery_address='12 Real St, Baliuag',
+            # Ignored — the saved address is authoritative.
+            delivery_address='99 Tamper Ave, Manila',
         )
 
         sale = SalesTransaction.objects.get()
@@ -129,10 +145,12 @@ class CheckoutFulfillmentTypeTests(TestCase):
         )
         self.assertEqual(sale.delivery_address, '')
 
-    def test_a_stray_address_on_a_pickup_order_is_cleared_not_stored(self):
-        """Typed an address, then switched to Pickup. Keeping the value would
-        make the order read as a delivery on the console, the receipt and the
-        customer's own tracking page, all of which key off this field."""
+    def test_a_pickup_order_carries_no_address_even_with_one_on_the_account(self):
+        """A Pickup order never has a delivery_address — a non-blank one makes
+        it read as a delivery on the console, the receipt and the customer's
+        own tracking page. The saved account address is not copied onto it."""
+        self.save_address(text='12 Real St, Baliuag')
+
         self.check_out(
             fulfillment_type='Pickup',
             delivery_address='12 Real St, Baliuag',

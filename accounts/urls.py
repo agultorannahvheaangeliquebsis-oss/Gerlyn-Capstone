@@ -50,13 +50,12 @@ urlpatterns = [
     path('profile/addresses/<int:pk>/delete/', views.address_delete, name='address_delete'),
     path('profile/addresses/<int:pk>/set-default/', views.address_set_default, name='address_set_default'),
 
-    # --- New: Address picker data (cascading dropdowns + geocoding proxy) ---
+    # --- Address picker data: cascading Region/Province/City/Barangay
+    #     dropdowns, served from a bundled PSGC dataset (no external calls) ---
     path('geo/regions/', geo_views.geo_regions, name='geo_regions'),
     path('geo/provinces/', geo_views.geo_provinces, name='geo_provinces'),
     path('geo/cities/', geo_views.geo_cities, name='geo_cities'),
     path('geo/barangays/', geo_views.geo_barangays, name='geo_barangays'),
-    path('geo/search/', geo_views.geo_search, name='geo_search'),
-    path('geo/reverse/', geo_views.geo_reverse, name='geo_reverse'),
 
     # --- New: Notification Preferences ---
     path('profile/notification-preferences/', views.notification_preferences_view, name='notification_preferences'),

@@ -6,7 +6,6 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 {% endblock %}
 
 {% block content %}
@@ -80,19 +79,14 @@
                         data-city="{{ address.city }}"
                         data-barangay="{{ address.barangay }}"
                         data-street-detail="{{ address.street_detail }}"
-                        data-text="{{ address.text }}"
-                        data-latitude="{{ address.latitude|default_if_none:'' }}"
-                        data-longitude="{{ address.longitude|default_if_none:'' }}">
+                        data-text="{{ address.text }}">
                         {% t "Edit" %}
                       </button>
                     </div>
                   {% endif %}
                 </div>
 
-                {% if address.is_default and address.has_pin %}
-                  <div class="address-map-thumb" id="thumb-map-{{ address.pk }}"
-                    data-lat="{{ address.latitude }}" data-lng="{{ address.longitude }}"></div>
-                {% elif not address.is_default %}
+                {% if not address.is_default %}
                   <form method="post" action="{% url 'accounts:address_delete' address.pk %}" style="margin:0;"
                         data-confirm="{% t "This address will be removed from your account. Orders already placed keep the address they shipped to." %}"
                         data-confirm-title="{% t "Delete this address?" %}"
@@ -120,8 +114,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="{% static 'js/address-picker.js' %}"></script>
+<script src="{% static 'js/address-picker.js' %}?v={{ APP_VERSION }}"></script>
 <script>
 document.querySelectorAll('.js-edit-address').forEach(function (btn) {
   btn.addEventListener('click', function () {
@@ -135,26 +128,10 @@ document.querySelectorAll('.js-edit-address').forEach(function (btn) {
         city: btn.dataset.city,
         barangay: btn.dataset.barangay,
         street_detail: btn.dataset.streetDetail,
-        text: btn.dataset.text,
-        latitude: btn.dataset.latitude,
-        longitude: btn.dataset.longitude
+        text: btn.dataset.text
       }
     });
   });
-});
-
-// Small non-interactive preview map on the default address card.
-document.querySelectorAll('.address-map-thumb').forEach(function (el) {
-  var lat = parseFloat(el.dataset.lat);
-  var lng = parseFloat(el.dataset.lng);
-  if (isNaN(lat) || isNaN(lng)) return;
-  var thumb = L.map(el, {
-    zoomControl: false, dragging: false, scrollWheelZoom: false,
-    doubleClickZoom: false, boxZoom: false, keyboard: false, attributionControl: false
-  }).setView([lat, lng], 16);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(thumb);
-  L.marker([lat, lng]).addTo(thumb);
-  setTimeout(function () { thumb.invalidateSize(); }, 50);
 });
 </script>
 {% endblock %}

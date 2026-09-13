@@ -80,9 +80,10 @@ class OnlinePricingTestCase(TestCase):
         payload = {
             'mode_of_payment': 'Cash on Delivery',
             # fulfillment_type is required since F-11 — checkout refuses a
-            # POST that does not say delivery or pickup.
-            'fulfillment_type': 'Delivery',
-            'delivery_address': '12 Real St, Baliuag',
+            # POST that does not say delivery or pickup. Pickup here so these
+            # pricing tests need no saved Address (a Delivery order is refused
+            # without one); the price engine does not care which it is.
+            'fulfillment_type': 'Pickup',
         }
         payload.update(extra)
         return self.client.post(reverse('orders:checkout'), payload, follow=True)

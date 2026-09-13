@@ -35,6 +35,7 @@ There is no stock badge and no out-of-stock state at all here: both callers
 filter to in-stock products before rendering (inventory.stats.
 in_stock_product_ids), so every card that renders is a card you can buy from.
 {% endcomment %}
+{% load shop_extras %}
 <article class="pcard">
   <a class="thumb" href="{% url 'orders:product_detail' product.id %}">{% include "partials/product_thumb.html" with product=product %}</a>
   <div class="body">
@@ -60,7 +61,7 @@ in_stock_product_ids), so every card that renders is a card you can buy from.
 
     <div class="pfoot">
       <span class="price-cluster">
-        <span class="price">₱{{ product.unit_price|floatformat:2 }}</span>
+        <span class="price">₱{{ product|shop_price:request.user|floatformat:2 }}</span>
         <span class="unit">per {{ product.unit_of_measure|lower }}</span>
       </span>
       {% include "partials/_add_to_cart.html" with product=product %}

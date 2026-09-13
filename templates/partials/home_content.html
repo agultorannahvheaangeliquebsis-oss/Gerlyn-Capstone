@@ -193,9 +193,8 @@ heading changing every six seconds.
     {% comment %}
     Departments only — the same top level the header's mega-menu lists down
     its left edge. Every shelf in the store would be forty tiles here, which
-    is the catalog's filter rail with worse ergonomics; the three shelf links
-    under each tile are the sample that says what the department contains
-    without becoming the list itself.
+    is the catalog's filter rail with worse ergonomics. The tile is a way in
+    to the department; its shelves live in the mega-menu and the catalog rail.
 
     The tile carries the category's initial on a tinted square, not an SVG
     icon and no longer an emoji: categories are rows the owner types in, so
@@ -207,41 +206,10 @@ heading changing every six seconds.
     {% endcomment %}
     <div class="cat-grid">
       {% for c in nav_categories %}
-      {% comment %}
-      The card is not itself an <a> any more. The shelf links inside it are
-      links, and an anchor nested in an anchor is invalid HTML that browsers
-      recover from by splitting the outer one — so the tile stayed clickable
-      only by accident, and only in some of them.
-
-      The department's own link is the heading, which is the thing a shopper
-      would aim at anyway.
-      {% endcomment %}
-      <div class="cat">
-        <a class="cat-head" href="{% url 'orders:catalog' %}?category={{ c.id }}">
-          <span class="ring {{ c|category_tint }}" aria-hidden="true">{{ c.category_name|first|upper }}</span>
-          <span class="nm">{{ c.category_name }}</span>
-        </a>
-        {% if c.subcategories %}
-        <ul class="cat-subs">
-          {% for s in c.subcategories|slice:":3" %}
-          <li><a href="{% url 'orders:catalog' %}?category={{ s.id }}">{{ s.category_name }}</a></li>
-          {% endfor %}
-          {% comment %}
-          The overflow row counts what is left rather than saying "More", so
-          it is a fact about this department and not a decoration. Django has
-          no arithmetic filter, so the remainder is sliced and counted — on a
-          list this short that is cheaper than a template tag to do it.
-          {% endcomment %}
-          {% with rest=c.subcategories|slice:"3:" %}
-          {% if rest %}
-          <li class="cat-sub-more">
-            <a href="{% url 'orders:catalog' %}?category={{ c.id }}">+{{ rest|length }} more</a>
-          </li>
-          {% endif %}
-          {% endwith %}
-        </ul>
-        {% endif %}
-      </div>
+      <a class="cat" href="{% url 'orders:catalog' %}?category={{ c.id }}">
+        <span class="ring {{ c|category_tint }}" aria-hidden="true">{{ c.category_name|first|upper }}</span>
+        <span class="nm">{{ c.category_name }}</span>
+      </a>
       {% endfor %}
     </div>
   </div>

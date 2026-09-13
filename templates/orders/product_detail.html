@@ -84,9 +84,9 @@ can actually answer.
 
       <h1 class="pdp-title">{{ product.product_name }}</h1>
       <p class="pdp-sku">
-        SKU {{ product.sku_code }}
-        {% if product.category %}· {{ product.category.category_name }}{% endif %}
-        {% if product.units_sold %}· {{ product.units_sold }} sold{% endif %}
+        {% if product.category %}{{ product.category.category_name }}{% endif %}
+        {% if product.category and product.units_sold %}·{% endif %}
+        {% if product.units_sold %}{{ product.units_sold }} sold{% endif %}
       </p>
 
       {% comment %}
@@ -101,7 +101,14 @@ can actually answer.
       {% endcomment %}
       <div class="price-band">
         <div class="price-main">
-          <span class="price-now">₱{{ product.unit_price|floatformat:2 }}</span>
+          {% comment %}
+          shop_price, not product.unit_price — a wholesale-eligible shopper
+          bills at the tier price everywhere else in the storefront (the
+          cart and checkout both go through order_type_for + price_for), so
+          the product page showing the plain retail figure read as a
+          bait-and-switch even though the final total was always right.
+          {% endcomment %}
+          <span class="price-now">₱{{ product|shop_price:request.user|floatformat:2 }}</span>
           <span class="price-unit">per {{ product.unit_of_measure|lower }}</span>
         </div>
         {% if product.wholesale_price %}
@@ -160,11 +167,19 @@ can actually answer.
             aria-hidden and untabbable — the input beside them is already
             operable by keyboard.
             {% endcomment %}
-            <div class="qty-stepper" data-qty-stepper>
-              <button type="button" class="qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
-              <input id="quantity" type="number" name="quantity" min="1" step="1" value="1"
-                     inputmode="numeric" aria-label="Quantity">
-              <button type="button" class="qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
+            <div class="qty-line">
+              <div class="qty-stepper" data-qty-stepper>
+                <button type="button" class="qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
+                <input id="quantity" type="number" name="quantity" min="1" step="1" value="1"
+                       inputmode="numeric" aria-label="Quantity">
+                <button type="button" class="qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
+              </div>
+              {% comment %}
+              The branch-scoped count, floated beside the stepper so the
+              shopper sees the ceiling they are stepping toward without
+              scrolling back up to the stock chip.
+              {% endcomment %}
+              <span class="qty-avail">{{ product.on_hand }} {{ product.unit_of_measure|lower }} available</span>
             </div>
           </div>
 
@@ -237,38 +252,33 @@ can actually answer.
     </section>
   </div>
 
+  {% comment %}
+  Two rails, same card. `related` is products from this category; the card
+  and its Add-to-cart CTA are the shared partial the catalog and home grids
+  use, so nothing drifts between the three places it appears.
+  {% endcomment %}
   {% if related %}
   <section class="section">
-    <div class="section-head"><h2>You might also like</h2></div>
+    <div class="section-head"><h2>You may also like</h2></div>
     <div class="pgrid">
       {% for p in related %}
-      <article class="pcard">
-        <a class="thumb" href="{% url 'orders:product_detail' p.id %}">{% include "partials/product_thumb.html" with product=p %}</a>
-        <div class="body">
-          <a class="name" href="{% url 'orders:product_detail' p.id %}">{{ p.product_name }}</a>
-          <div class="pfoot">
-            <span class="price-cluster">
-              <span class="price">₱{{ p.unit_price|floatformat:2 }}</span>
-              <span class="unit">per {{ p.unit_of_measure|lower }}</span>
-            </span>
-            {% comment %}
-            Same CTA as the catalog and home cards — this slot was a second
-            "View" link, which from a product page only led to another product
-            page the shopper then had to act on all over again.
+        {% include "partials/_rail_card.html" with product=p %}
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
-            The branches used to be written out here a third time, and this
-            copy had already fallen behind the other two: its button never
-            drew the added tick. The shared partial is the whole control now.
-
-            No out-of-stock branch, for the same reason the catalog grid has
-            none: customer_views.product_detail already filters `related` to
-            in_stock_product_ids, so a card for something unavailable never
-            reaches this loop.
-            {% endcomment %}
-            {% include "partials/_add_to_cart.html" with product=p %}
-          </div>
-        </div>
-      </article>
+  {% comment %}
+  "Recently viewed" is built in customer_views.product_detail from a short
+  list of ids kept in the session, newest first, with the product on screen
+  left out of its own rail. Same in-stock gate as `related`.
+  {% endcomment %}
+  {% if recently_viewed %}
+  <section class="section">
+    <div class="section-head"><h2>Recently viewed</h2></div>
+    <div class="pgrid">
+      {% for p in recently_viewed %}
+        {% include "partials/_rail_card.html" with product=p %}
       {% endfor %}
     </div>
   </section>

@@ -161,7 +161,24 @@ def billing_create(request, transaction_id):
     existing = getattr(txn, 'billing_record', None)
 
     if existing and existing.status != BillingRecord.PaymentStatus.PENDING:
-        messages.info(request, 'A billing record already exists for this transaction.')
+        # A stale "create billing" link followed into a record that has
+        # since moved past Pending. Cancelled/Rejected are not just "already
+        # exists" — the generic message understated what actually happened
+        # (the order behind it was voided or cancelled, or the payment was
+        # specifically turned down), which reads as if nothing was wrong.
+        if existing.status == BillingRecord.PaymentStatus.CANCELLED:
+            messages.info(
+                request,
+                'This order was cancelled — its billing record is closed.'
+            )
+        elif existing.status == BillingRecord.PaymentStatus.REJECTED:
+            messages.info(
+                request,
+                'This payment was rejected. Re-open it from the billing '
+                'record if the customer is paying again.'
+            )
+        else:
+            messages.info(request, 'A billing record already exists for this transaction.')
         return redirect('billing_detail', pk=existing.pk)
 
     # This page has two front doors — the order's own detail page, and the
@@ -297,6 +314,28 @@ def billing_confirm(request, pk):
                     request,
                     f'{locked.transaction.order_number}: a {locked.status} '
                     f'payment cannot be changed to {new_status}.'
+                )
+                return redirect('billing_detail', pk=pk)
+
+            # A non-Cash method has no counter moment where handing over
+            # money and confirming it are the same event — Mark as Paid is
+            # the only record that a GCash/Card/bank payment ever happened,
+            # and once Paid it can never be undone (ALLOWED_STATUS_TRANSITIONS
+            # has no outbound edge from it). Without evidence, a bill could
+            # read "GCash · —" with no reference number and no screenshot and
+            # still be confirmed Paid on nothing but the click.
+            if (
+                new_status == BillingRecord.PaymentStatus.PAID
+                and locked.payment_method != BillingRecord.PaymentMethod.CASH
+                and not locked.reference_number
+                and not locked.proof_of_payment
+            ):
+                messages.error(
+                    request,
+                    f'{locked.transaction.order_number}: a {locked.payment_method} '
+                    f'payment needs a reference number or an uploaded proof of '
+                    f'payment before it can be marked Paid — add one from '
+                    f'"Edit payment details" first.'
                 )
                 return redirect('billing_detail', pk=pk)
 

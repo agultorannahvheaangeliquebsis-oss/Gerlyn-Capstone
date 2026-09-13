@@ -1,23 +1,17 @@
-/* Shared map-based address picker: cascading Region/Province/City/Barangay
- * selects, a debounced street search (proxied to Nominatim server-side),
- * and a Leaflet map with a draggable pin. One modal instance per page,
- * re-targeted per use via AddressPicker.open({ formAction, title, initial }).
+/* Shared address picker: a cascading Region/Province/City/Barangay set of
+ * dropdowns (served from a bundled PSGC dataset — no external calls) plus a
+ * "Full Address" line. One modal instance per page, re-targeted per use via
+ * AddressPicker.open({ formAction | onConfirm, title, initial }).
  *
- * Dragging/tapping the pin reverse-geocodes into the "Full Address" text
- * field, but that field stays a normal editable textarea — whatever text
- * is in it at submit time is what gets saved as the address, never raw
- * coordinates. Lat/lng travel alongside purely for the map thumbnail and
- * delivery accuracy.
+ * Whatever text is in the "Full Address" field at save time is what gets
+ * stored as the address. The dropdowns are a convenience for filling that
+ * line in; the server falls back to composing it from the PSGC codes if the
+ * field is left blank.
  */
 window.AddressPicker = (function () {
   var urls = window.ADDRESS_PICKER_URLS || {};
-  var DEFAULT_CENTER = [14.9557, 120.8994]; // Baliuag, Bulacan — sensible default before a pin is set
 
-  var map = null;
-  var marker = null;
   var els = {};
-  var searchDebounceTimer = null;
-  var searchAbortController = null;
   var currentOptions = {};
 
   function cacheEls() {
@@ -32,43 +26,23 @@ window.AddressPicker = (function () {
     els.city = document.getElementById('ap-city');
     els.barangay = document.getElementById('ap-barangay');
     els.street = document.getElementById('ap-street-input');
-    els.suggestions = document.getElementById('ap-suggestions');
-    els.lat = document.getElementById('ap-latitude-input');
-    els.lng = document.getElementById('ap-longitude-input');
     els.text = document.getElementById('ap-text-input');
-    els.mapDiv = document.getElementById('ap-map');
 
     els.region.addEventListener('change', onRegionChange);
     els.province.addEventListener('change', onProvinceChange);
     els.city.addEventListener('change', onCityChange);
     els.barangay.addEventListener('change', onBarangayChange);
-    els.street.addEventListener('input', onStreetInput);
 
-    document.addEventListener('click', function (e) {
-      if (!els.suggestions.hidden && e.target !== els.street && !els.suggestions.contains(e.target)) {
-        hideSuggestions();
-      }
-    });
     els.modal.addEventListener('click', function (e) {
       if (e.target === els.modal) close();
     });
   }
 
-  function fetchJSON(url, params, signal) {
+  function fetchJSON(url, params) {
     var qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    var opts = signal ? { signal: signal } : undefined;
-    return fetch(url + qs, opts)
+    return fetch(url + qs)
       .then(function (res) { return res.json(); })
-      .catch(function (err) {
-        // An aborted request (see doSearch) must stay rejected so the
-        // caller can tell "superseded by a newer request" apart from "the
-        // network actually failed" — re-throw just that case. Anything else
-        // (offline, a bad response) falls back to an empty result set
-        // instead of an unhandled rejection with the dropdown/suggestions
-        // just never populating.
-        if (err && err.name === 'AbortError') throw err;
-        return { results: [] };
-      });
+      .catch(function () { return { results: [] }; });
   }
 
   function fillSelect(selectEl, results, placeholder) {
@@ -126,101 +100,6 @@ window.AddressPicker = (function () {
     if (els.barangay.value) els.street.focus();
   }
 
-  function localityLabel() {
-    var parts = [];
-    [els.barangay, els.city, els.province].forEach(function (sel) {
-      if (sel.value && sel.selectedOptions[0]) parts.push(sel.selectedOptions[0].textContent);
-    });
-    return parts.join(', ');
-  }
-
-  function onStreetInput() {
-    clearTimeout(searchDebounceTimer);
-    var q = els.street.value.trim();
-    if (q.length < 3) { hideSuggestions(); return; }
-    searchDebounceTimer = setTimeout(function () { doSearch(q); }, 450);
-  }
-
-  function doSearch(q) {
-    // Abort the in-flight search before starting a new one — without this,
-    // an earlier keystroke's response can arrive after a later one and
-    // overwrite it with stale suggestions.
-    if (searchAbortController) searchAbortController.abort();
-    searchAbortController = new AbortController();
-    fetchJSON(urls.search, { q: q, locality: localityLabel() }, searchAbortController.signal)
-      .then(function (data) {
-        renderSuggestions(data.results || []);
-      })
-      .catch(function (err) {
-        // Superseded by a newer keystroke — the newer request's .then will
-        // update the UI; do nothing here rather than clearing suggestions
-        // that are about to be replaced anyway.
-        if (err && err.name === 'AbortError') return;
-      });
-  }
-
-  function renderSuggestions(results) {
-    if (!results.length) { hideSuggestions(); return; }
-    var html = '';
-    for (var i = 0; i < results.length; i++) {
-      html += '<div class="search-result" data-idx="' + i + '"><span class="search-result-name">' + escapeHtml(results[i].label) + '</span></div>';
-    }
-    els.suggestions.innerHTML = html;
-    els.suggestions.hidden = false;
-    var rows = els.suggestions.children;
-    for (var j = 0; j < rows.length; j++) {
-      (function (result) {
-        rows[j].addEventListener('click', function () {
-          placeMarker(parseFloat(result.lat), parseFloat(result.lon), false);
-          els.text.value = result.label;
-          hideSuggestions();
-        });
-      })(results[j]);
-    }
-  }
-
-  function hideSuggestions() {
-    els.suggestions.hidden = true;
-    els.suggestions.innerHTML = '';
-  }
-
-  function ensureMap() {
-    if (map) return;
-    map = L.map(els.mapDiv).setView(DEFAULT_CENTER, 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
-    map.on('click', function (e) { placeMarker(e.latlng.lat, e.latlng.lng, true); });
-  }
-
-  function placeMarker(lat, lng, reverseGeocode) {
-    if (!marker) {
-      marker = L.marker([lat, lng], { draggable: true }).addTo(map);
-      marker.on('dragend', function () {
-        var pos = marker.getLatLng();
-        applyLatLng(pos.lat, pos.lng);
-        reverseGeocodeTo(pos.lat, pos.lng);
-      });
-    } else {
-      marker.setLatLng([lat, lng]);
-    }
-    map.setView([lat, lng], 17);
-    applyLatLng(lat, lng);
-    if (reverseGeocode) reverseGeocodeTo(lat, lng);
-  }
-
-  function applyLatLng(lat, lng) {
-    els.lat.value = lat.toFixed(6);
-    els.lng.value = lng.toFixed(6);
-  }
-
-  function reverseGeocodeTo(lat, lng) {
-    fetchJSON(urls.reverse, { lat: lat, lon: lng }).then(function (data) {
-      if (data.label) els.text.value = data.label;
-    });
-  }
-
   function selectType(btn) {
     for (var i = 0; i < els.typeButtons.length; i++) els.typeButtons[i].classList.remove('is-selected');
     btn.classList.add('is-selected');
@@ -259,15 +138,11 @@ window.AddressPicker = (function () {
     els.street.disabled = true;
     els.street.value = '';
     els.text.value = '';
-    els.lat.value = '';
-    els.lng.value = '';
     for (var i = 0; i < els.typeButtons.length; i++) {
       els.typeButtons[i].classList.toggle('is-selected', els.typeButtons[i].dataset.type === 'HOME');
     }
     els.typeInput.value = 'HOME';
-    hideSuggestions();
-    if (marker) { map.removeLayer(marker); marker = null; }
-    if (map) map.setView(DEFAULT_CENTER, 14);
+    clearError();
   }
 
   function collectValues() {
@@ -278,17 +153,31 @@ window.AddressPicker = (function () {
       city: els.city.value,
       barangay: els.barangay.value,
       street_detail: els.street.value,
-      text: els.text.value,
-      latitude: els.lat.value,
-      longitude: els.lng.value
+      text: els.text.value
     };
   }
 
+  function showError(msg, focusEl) {
+    var box = document.getElementById('ap-error');
+    if (box) { box.textContent = msg; box.hidden = false; }
+    if (focusEl) focusEl.focus();
+  }
+
+  function clearError() {
+    var box = document.getElementById('ap-error');
+    if (box) { box.textContent = ''; box.hidden = true; }
+  }
+
   function save() {
+    // The full address line is the one thing that has to be there. The
+    // server re-checks it (address_create / address_edit / register_view)
+    // and falls back to composing it from the dropdowns when it can — this
+    // is just the message arriving before the round trip.
     if (!els.text.value.trim()) {
-      els.text.focus();
+      showError('Enter the full delivery address before saving.', els.text);
       return;
     }
+    clearError();
     if (currentOptions.onConfirm) {
       currentOptions.onConfirm(collectValues());
       close();
@@ -311,10 +200,6 @@ window.AddressPicker = (function () {
 
     regionsLoaded.then(function () {
       els.modal.classList.add('is-open');
-      setTimeout(function () {
-        ensureMap();
-        map.invalidateSize();
-      }, 30);
 
       if (options.initial) {
         var initial = options.initial;
@@ -326,11 +211,6 @@ window.AddressPicker = (function () {
 
         selectCascade(initial).then(function () {
           els.street.value = initial.street_detail || '';
-          if (initial.latitude && initial.longitude) {
-            setTimeout(function () {
-              placeMarker(parseFloat(initial.latitude), parseFloat(initial.longitude), false);
-            }, 60);
-          }
         });
       }
     });
@@ -338,7 +218,6 @@ window.AddressPicker = (function () {
 
   function close() {
     if (els.modal) els.modal.classList.remove('is-open');
-    hideSuggestions();
   }
 
   return { open: open, close: close, selectType: selectType, save: save };

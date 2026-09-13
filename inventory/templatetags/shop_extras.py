@@ -82,6 +82,25 @@ CATEGORY_TINT_COUNT = 8
 
 
 @register.filter
+def shop_price(product, user):
+    """The price this shopper actually pays for `product` online — the same
+    figure the cart and checkout bill at.
+
+    Reuses orders.customer_views.order_type_for + sales.views.price_for
+    (imported lazily to sidestep any import-order fuss between this
+    low-level app and the storefront/POS apps) rather than re-deriving the
+    wholesale-eligibility check here. The product page, catalog grid and
+    rail cards used to print product.unit_price directly, which is exactly
+    how a wholesale account saw one price while browsing and a lower one at
+    the cart — the cart already went through this pair of functions and
+    nothing else did.
+    """
+    from orders.customer_views import order_type_for
+    from sales.views import price_for
+    return price_for(product, order_type_for(user))
+
+
+@register.filter
 def category_tint(category):
     """Stable tint class (`t0`–`t7`) for a category's tile.
 

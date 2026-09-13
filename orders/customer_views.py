@@ -193,12 +193,22 @@ def _cart_items(request):
         return [], Decimal('0')
     order_type = order_type_for(request.user)
     items, total = [], Decimal('0')
+    # product_ids whose line could not be resolved to a real Inventory row at
+    # all (the product, or its row at this branch, was deleted after it was
+    # added) — as opposed to a row that exists and merely reads 0 available.
+    # Purged from the session cart below, not just skipped from `items`: a
+    # line that only vanishes from the display still sits in
+    # request.session['cart'], which checkout() reads directly and would
+    # otherwise refuse forever with "0 left" for an item the shopper can no
+    # longer even see to remove.
+    stale_ids = []
 
     for product_id, qty in cart.items():
         inv = Inventory.objects.sellable().select_related('product').filter(
             product_id=product_id, branch_id=branch_id
         ).first()
         if not inv:
+            stale_ids.append(product_id)
             continue
         unit_price = price_for(inv.product, order_type)
         subtotal = unit_price * qty
@@ -214,6 +224,12 @@ def _cart_items(request):
             'in_stock': inv.available_qty,
             'short': qty > inv.available_qty,
         })
+
+    if stale_ids:
+        for pid in stale_ids:
+            cart.pop(pid, None)
+        request.session['cart'] = cart
+
     return items, total
 
 
@@ -471,6 +487,41 @@ def product_detail(request, product_id):
             'qty': inv.available_qty if inv else 0,
         })
 
+    # "Recently viewed" rail. A short list of product ids kept in the session,
+    # most-recent-first, with this product pushed to the head on every visit.
+    # It is a browsing aid, not a security boundary, so it lives in the
+    # session like the cart does and is never persisted.
+    RECENTLY_VIEWED_MAX = 12
+    already_seen = [
+        pid for pid in request.session.get('recently_viewed', []) if pid != product.id
+    ]
+    request.session['recently_viewed'] = (
+        [product.id] + already_seen[:RECENTLY_VIEWED_MAX - 1]
+    )
+
+    # The gate every storefront listing passes through — one grouped scan of
+    # Inventory, shared here by both rails below.
+    in_stock_ids = in_stock_product_ids(branch_id)
+
+    # Built from what was seen BEFORE this visit — the product on screen has
+    # no place in its own "recently viewed" rail. Ordered newest-first, and
+    # filtered to what is still buyable: the same gate the "You may also
+    # like" rail uses, for the same reason.
+    recent_ids = already_seen[:6]
+    recent_by_id = {
+        p.id: p
+        for p in attach_storefront_counts(
+            list(
+                Product.objects.filter(id__in=recent_ids)
+                .filter(id__in=in_stock_ids)
+                .select_related('category')
+                .prefetch_related('images')
+            ),
+            branch_id=branch_id,
+        )
+    } if recent_ids else {}
+    recently_viewed = [recent_by_id[pid] for pid in recent_ids if pid in recent_by_id]
+
     return render(request, 'orders/product_detail.html', {
         'product': product,
         'branch_stock': branch_stock,
@@ -486,12 +537,13 @@ def product_detail(request, product_id):
             list(
                 Product.objects.filter(category=product.category)
                 .exclude(id=product.id)
-                .filter(id__in=in_stock_product_ids(branch_id))
+                .filter(id__in=in_stock_ids)
                 .select_related('category')
                 .prefetch_related('images')[:6]
             ),
             branch_id=branch_id,
         ),
+        'recently_viewed': recently_viewed,
         'selected_branch_id': branch_id,
         # The Branch object, not just its id: the stock chip and the disabled
         # Add to Cart button both name the branch they are talking about, and
@@ -914,6 +966,10 @@ def view_cart(request):
         'qualifies': total >= FREE_DELIVERY_OVER,
         'progress_pct': min(int((total / FREE_DELIVERY_OVER) * 100), 100) if total else 0,
         'branch': Branch.objects.filter(id=request.session.get('branch_id')).first(),
+        # The one saved address a Delivery order ships to. Shown read-only in
+        # the checkout form; the shopper changes it in Settings -> Addresses,
+        # never here. checkout() re-reads the same row.
+        'default_address': request.user.addresses.filter(is_default=True).first(),
         'payment_choices': [
             ('Cash on Delivery', 'Cash on Delivery'),
             ('Pay at Store', 'Pay at Store'),
@@ -1017,20 +1073,29 @@ def checkout(request):
         )
         return redirect('orders:cart')
 
-    delivery_address = request.POST.get('delivery_address', '').strip()
-    if (fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
-            and not delivery_address):
-        messages.error(
-            request,
-            'Enter a delivery address, or choose Pickup instead — we cannot '
-            'deliver an order without one.'
-        )
-        return redirect('orders:cart')
-    if fulfillment_type == SalesTransaction.FulfillmentType.PICKUP:
-        # Drop anything typed into the address box before switching to
-        # Pickup. A stray address on a pickup order reads as a delivery
-        # everywhere downstream — the console, the receipt, the customer's
-        # own tracking page all key off this field being non-blank.
+    # The address is NOT read from this form — there is no address input on it
+    # any more. A Delivery order ships to the address saved on the account
+    # (the default Address row), captured at registration or in
+    # Settings -> Addresses and edited only there. One authoritative,
+    # structured, map-pinned record beats a free-text box retyped — and
+    # mistyped — on every order.
+    #
+    # No saved address while Delivery is chosen: refused, not defaulted, for
+    # the same reason an unrecognised fulfillment_type is refused above —
+    # there is nothing safe to invent. Pickup never carries an address, so a
+    # missing one there is no problem.
+    if fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY:
+        saved = request.user.addresses.filter(is_default=True).first()
+        delivery_address = saved.text.strip() if saved else ''
+        if not delivery_address:
+            messages.error(
+                request,
+                'Add a delivery address to your account before placing a '
+                'delivery order — open Settings then Addresses. Or choose '
+                'Pickup to collect this order at the branch.'
+            )
+            return redirect('orders:cart')
+    else:  # Pickup — never carries an address, whatever is on the account.
         delivery_address = ''
 
     # --- PWD / Senior Citizen discount --------------------------------------
@@ -1056,28 +1121,51 @@ def checkout(request):
         # Validate availability WITHOUT deducting: an online order only leaves
         # the shelf when staff mark it Completed in the Order Console.
         planned = []
+        # Lines that don't resolve to a real Inventory row at all — the
+        # product, or its row at this branch, was deleted after it went into
+        # the cart. Distinct from a row that exists and genuinely reads 0
+        # available: that case still refuses checkout below with a normal
+        # "not enough left" message the shopper can act on. This one can
+        # never be fixed by the shopper, because _cart_items already skips it
+        # from the page they'd use to remove it — so it's purged from the
+        # session cart here instead of being allowed to block checkout
+        # forever on an item nobody can see any more.
+        stale_ids = []
         for product_id, qty in cart.items():
-            # Not get_object_or_404: no Inventory row at all for this
-            # product/branch must fall through to the same friendly
-            # "not enough left" message as a genuine shortfall, not a 404
-            # page mid-checkout.
             inv = Inventory.objects.select_for_update().sellable().select_related(
                 'product'
             ).filter(product_id=product_id, branch_id=branch_id).first()
+            if inv is None:
+                stale_ids.append(product_id)
+                continue
             # available_qty already nets out anything expired since this
             # was added to the cart — it may be less than the row's raw
             # quantity_on_hand, which still counts expired stock.
-            available = inv.available_qty if inv else 0
-            if available < qty:
-                product = inv.product if inv else Product.objects.filter(pk=product_id).first()
-                product_name = product.product_name if product else 'This item'
+            if inv.available_qty < qty:
                 messages.error(
                     request,
-                    f'Sorry — only {available} of {product_name} left.'
+                    f'Sorry — only {inv.available_qty} of {inv.product.product_name} left.'
                 )
                 transaction.set_rollback(True)
                 return redirect('orders:cart')
             planned.append((inv.product, qty))
+
+        if stale_ids:
+            for pid in stale_ids:
+                cart.pop(pid, None)
+            request.session['cart'] = cart
+            messages.error(
+                request,
+                'Some items in your cart are no longer available and were '
+                'removed. Please review your cart and try again.'
+            )
+            transaction.set_rollback(True)
+            return redirect('orders:cart')
+
+        if not planned:
+            messages.error(request, 'Your cart is empty.')
+            transaction.set_rollback(True)
+            return redirect('orders:catalog')
 
         # Same pricing engine as the counter. This used to be a raw
         # unit_price x qty sum, which meant an online order recorded no VAT
@@ -1103,6 +1191,15 @@ def checkout(request):
             fulfillment_type=fulfillment_type,
             delivery_address=delivery_address,
             order_type=order_type,
+            # Priced up front and written on the INSERT itself — the same
+            # order sales.views.transaction_add and the DRF write serializer
+            # already use. This used to create at the model's total_amount=0
+            # default and patch it a beat later, which meant billing.signals'
+            # auto-created record briefly existed at amount_due=0 (and, on a
+            # crash between the two saves, could be left there).
+            total_amount=total,
+            total_vat_amount=priced['total_vat_amount'],
+            total_discount_amount=priced['total_discount_amount'],
         )
 
         for line in priced['lines']:
@@ -1118,16 +1215,11 @@ def checkout(request):
                 discount_amount=line['discount_amount'],
             )
 
-        sale.total_amount = total
-        sale.total_vat_amount = priced['total_vat_amount']
-        sale.total_discount_amount = priced['total_discount_amount']
-        sale.save()
-
-        # billing.signals already created the record — update it, never re-create
-        # it (a second create violates the OneToOne and crashes checkout).
+        # billing.signals already created the record, at the correct
+        # amount_due now that total_amount is set at creation — only the
+        # payment details it couldn't have known belong here.
         billing = getattr(sale, 'billing_record', None)
         if billing:
-            billing.amount_due = total
             billing.payment_method = sale.mode_of_payment
             # Validated above: non-blank exactly when the method is GCash,
             # blank for every other method. Not re-read from the POST here —

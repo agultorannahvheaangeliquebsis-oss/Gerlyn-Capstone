@@ -269,4 +269,17 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     created_by=user,
                 )
 
+            # billing.signals already created the record at the right
+            # amount_due (total_amount was set on create() above, not
+            # patched in afterward). The walk-in POS and the storefront
+            # checkout both copy the real payment method onto it too; this
+            # endpoint used to skip that step entirely, so an API-created
+            # GCash or Card sale silently kept the signal's Cash default
+            # with no reference number — the billing record existed (the
+            # 1:1 guarantee held) but its contents disagreed with the sale.
+            billing = getattr(txn, 'billing_record', None)
+            if billing:
+                billing.payment_method = validated_data['modeOfPayment']
+                billing.save()
+
         return txn

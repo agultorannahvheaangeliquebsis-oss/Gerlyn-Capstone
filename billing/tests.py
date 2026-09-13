@@ -122,6 +122,14 @@ class BillingConfirmStateMachineTests(TestCase):
 
     def test_pending_to_paid_is_allowed(self):
         rec = self._record()
+        # The proof-of-payment gate (a non-Cash method needs a reference
+        # number or an uploaded proof before it can be marked Paid) is
+        # orthogonal to what this test checks — that the state machine
+        # allows Pending -> Paid at all — so satisfy it explicitly rather
+        # than depend on which Pending record seed_demo hands back first.
+        if rec.payment_method != BillingRecord.PaymentMethod.CASH and not rec.reference_number:
+            rec.reference_number = 'TEST-REF-001'
+            rec.save(update_fields=['reference_number'])
         self.login('gerlyn').post(f'/billing/{rec.pk}/confirm/', {'status': 'Paid'})
         rec.refresh_from_db()
         self.assertEqual(rec.status, 'Paid')

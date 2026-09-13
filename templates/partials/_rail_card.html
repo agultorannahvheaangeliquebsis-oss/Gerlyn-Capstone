@@ -1,0 +1,23 @@
+{% comment %}
+One card for a product rail on the detail page — the "You may also like" and
+"Recently viewed" strips. Same card the catalog and home grids draw, so the
+Add-to-cart CTA and the tick behaviour match everywhere.
+
+Expects `product` and `selected_branch_id` in context. Both rails feed this
+only products that passed the in-stock gate, so there is no out-of-stock
+state to draw here.
+{% endcomment %}
+{% load shop_extras %}
+<article class="pcard">
+  <a class="thumb" href="{% url 'orders:product_detail' product.id %}">{% include "partials/product_thumb.html" %}</a>
+  <div class="body">
+    <a class="name" href="{% url 'orders:product_detail' product.id %}">{{ product.product_name }}</a>
+    <div class="pfoot">
+      <span class="price-cluster">
+        <span class="price">₱{{ product|shop_price:request.user|floatformat:2 }}</span>
+        <span class="unit">per {{ product.unit_of_measure|lower }}</span>
+      </span>
+      {% include "partials/_add_to_cart.html" %}
+    </div>
+  </div>
+</article>

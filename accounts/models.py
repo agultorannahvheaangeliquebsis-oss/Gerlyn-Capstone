@@ -244,18 +244,20 @@ class Address(models.Model):
     is_default = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Structured location, captured by the map picker. PSGC codes rather than
-    # names — names are looked up on demand via accounts.geo, which keeps
-    # these in sync with the bundled dataset instead of freezing a copy.
+    # Structured location, filled in from the Region/Province/City/Barangay
+    # dropdowns. PSGC codes rather than names — names are looked up on demand
+    # via accounts.geo, which keeps these in sync with the bundled dataset
+    # instead of freezing a copy. `text` (above) is the source of truth for
+    # the human-readable address shown everywhere.
     region        = models.CharField(max_length=10, blank=True)
     province      = models.CharField(max_length=10, blank=True)
     city          = models.CharField(max_length=10, blank=True)
     barangay      = models.CharField(max_length=15, blank=True)
     street_detail = models.CharField(max_length=255, blank=True)
 
-    # Pin location, for the map thumbnail and precise delivery routing.
-    # `text` (above) stays the source of truth for the human-readable
-    # address shown everywhere — never the raw coordinates.
+    # Legacy pin coordinates. No longer captured — the map picker was
+    # dropped as out of scope — but kept nullable so existing rows are
+    # untouched. Nothing reads these.
     latitude  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
@@ -284,10 +286,6 @@ class Address(models.Model):
         if self.province:
             parts.append(geo.province_name(self.province))
         return ", ".join(p for p in parts if p)
-
-    @property
-    def has_pin(self):
-        return self.latitude is not None and self.longitude is not None
 
 
 class NotificationPreference(models.Model):

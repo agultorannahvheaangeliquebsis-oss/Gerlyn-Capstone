@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from core.refdata import bust_categories_cache
 from .models import (
     Product, ProductCategory, Warehouse, WarehouseStock, Inventory,
     Batch, StockTransfer, StockTransferItem, StockMovement,
@@ -72,7 +73,32 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
         denied = check_owner_or_manager(request)
         if denied:
             return denied
-        return super().destroy(request, *args, **kwargs)
+        category = self.get_object()
+        # Same two guards category_delete (the template view) applies —
+        # products are SET_NULL (would silently uncategorise the catalog)
+        # and children are PROTECT (would raise ProtectedError, a 500 on
+        # this endpoint with no guard of its own).
+        product_count = category.products.count()
+        if product_count:
+            return Response(
+                {'detail': f'Cannot delete "{category.category_name}" — '
+                           f'{product_count} product'
+                           f'{"s" if product_count != 1 else ""} still use it.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        child_count = category.children.count()
+        if child_count:
+            return Response(
+                {'detail': f'Cannot delete "{category.category_name}" — '
+                           f'{child_count} sub-categor'
+                           f'{"ies are" if child_count != 1 else "y is"} filed '
+                           f'under it. Move or delete '
+                           f'{"them" if child_count != 1 else "it"} first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        response = super().destroy(request, *args, **kwargs)
+        bust_categories_cache()
+        return response
 
 
 class ProductViewSet(viewsets.ModelViewSet):

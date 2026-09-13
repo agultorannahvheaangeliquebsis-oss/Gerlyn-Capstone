@@ -325,6 +325,20 @@ class CategoryApiParentTests(TestCase):
         self.fresh.refresh_from_db()
         self.assertIsNone(self.fresh.parent)
 
+    def test_delete_refuses_a_department_that_still_has_shelves(self):
+        """parent is PROTECT — deleting a department with shelves under it
+        must answer with a clean 400, not an unhandled ProtectedError."""
+        response = self.client.delete(f'/api/categories/{self.fresh.pk}/')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(ProductCategory.objects.filter(pk=self.fresh.pk).exists())
+
+    def test_delete_removes_a_childless_shelf(self):
+        response = self.client.delete(f'/api/categories/{self.beef.pk}/')
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(ProductCategory.objects.filter(pk=self.beef.pk).exists())
+
 
 class SeedCategoriesCommandTests(TestCase):
     """seed_categories runs against a live catalog, unlike seed_demo which

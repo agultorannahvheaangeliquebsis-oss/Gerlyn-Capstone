@@ -84,7 +84,13 @@ form, not a shared component other pages should pick up automatically.
 </div>
 
 {% if pos_errors %}
-<div class="banner banner-error">
+{% comment %}
+role="alert": every other rejected action in the app goes through the
+shared internal_base.html message banner, which carries this so a screen
+reader announces it. This is a lookalike banner built locally for the
+form's own errors and had been silent to assistive tech.
+{% endcomment %}
+<div class="banner banner-error" role="alert">
   {% for err in pos_errors %}<div>{{ err }}</div>{% endfor %}
 </div>
 {% endif %}
@@ -283,7 +289,7 @@ form, not a shared component other pages should pick up automatically.
 
   <div class="row" style="justify-content:flex-end;">
     <a href="{% url 'transaction_list' %}" class="btn">Cancel</a>
-    <button type="submit" class="btn btn-primary">Record Sale</button>
+    <button type="submit" class="btn btn-primary" id="pos-submit-btn">Record Sale</button>
   </div>
 </form>
 
@@ -606,6 +612,22 @@ function posRecalc() {
   GerlynBarcodeScanner.attach(document.getElementById('pos-scan-input'), {
     onScan: handleScan,
     cameraBtn: document.getElementById('pos-scan-camera-btn'),
+  });
+})();
+
+// Double-submit guard. Unlike the delete confirm modal elsewhere in the
+// app, Record Sale had nothing stopping a slow connection or an impatient
+// re-click from posting the same cart twice — two separate, fully valid
+// sales, with double stock deduction and a double charge. The submit event
+// only fires once the browser's own required-field validation has already
+// passed, so this never disables the button on a validation failure.
+(function () {
+  var form = document.getElementById('pos-form');
+  var btn = document.getElementById('pos-submit-btn');
+  if (!form || !btn) return;
+  form.addEventListener('submit', function () {
+    btn.disabled = true;
+    btn.textContent = 'Recording…';
   });
 })();
 </script>

@@ -3,11 +3,19 @@
  * Two panes: departments down the left, the highlighted department's shelves
  * filling the panel to the right.
  *
- * Click to open, not hover. A hover-only menu is unreachable on a touch
- * screen, and this row is the storefront's only path to a category on a
- * phone. Hover is layered on top for a mouse — moving across the department
- * list previews each pane the way the reference does — but nothing depends
- * on it: every pane is reachable by click and by keyboard alone.
+ * Opens on hover for a mouse — the reference opens as the pointer lands on
+ * "Shop", no click needed. Click still opens it too, which is what keeps the
+ * menu reachable on a touch screen (hover does not exist there) and from the
+ * keyboard (Enter/Space on the focused button fires a click). Every hover
+ * listener below is guarded to non-touch pointers so a tap's synthetic
+ * "hover" never fights the click handler.
+ *
+ * The close on mouse-out is debounced. The trigger and the panel are separate,
+ * non-overlapping elements (the panel is a sibling of the nav link row, not a
+ * child of the trigger — .shop-links is an overflow scroller and would clip
+ * it), so the instant the pointer crosses the seam between them it reads as
+ * leaving one before entering the other. A short delay absorbs that gap
+ * without making the menu feel sticky.
  *
  * Degrades to nothing. With this file absent the trigger is an inert button
  * and the panes stay `hidden`, which is why public_base.html keeps a real
@@ -19,10 +27,6 @@
   if (!menu) return;
 
   var trigger = menu.querySelector('.shop-menu-trigger');
-  /* The panel is a SIBLING of the nav link row rather than a child of the
-     trigger's wrapper — .shop-links is an overflow scroller and would clip
-     it. So "inside the menu" is two elements, not one, and every containment
-     test below has to ask both. */
   var panel = document.getElementById('shop-menu-panel');
   if (!trigger || !panel) return;
 
@@ -80,8 +84,39 @@
     return panel.classList.contains('is-open');
   }
 
+  /* ----------------------------------------------------------- hover to open
+   * Mouse only. The 160ms close delay bridges the gap between the trigger and
+   * the panel below it — see the file header. A pointer re-entering either
+   * one cancels a pending close, so sliding from "Shop" down into the panel
+   * (or back up) never flickers it shut. */
+  var closeTimer = null;
+
+  function cancelClose() {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+  }
+
+  function scheduleClose() {
+    cancelClose();
+    closeTimer = setTimeout(function () { setOpen(false); }, 160);
+  }
+
+  [menu, panel].forEach(function (root) {
+    root.addEventListener('pointerenter', function (e) {
+      if (e.pointerType === 'touch') return;
+      cancelClose();
+      setOpen(true);
+    });
+    root.addEventListener('pointerleave', function (e) {
+      if (e.pointerType === 'touch') return;
+      scheduleClose();
+    });
+  });
+
+  /* Click stays as the touch/keyboard path. On a mouse it also acts as an
+   * explicit toggle — clicking "Shop" while it is hover-open closes it. */
   trigger.addEventListener('click', function (e) {
     e.stopPropagation();
+    cancelClose();
     setOpen(!isOpen());
   });
 

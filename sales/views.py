@@ -57,6 +57,12 @@ def _person_name(user):
 # every-branch selector and skipped the posted-branch access check.
 POS_BRANCH_UNASSIGNED = object()
 
+# The only payment methods the Walk-in Sale form actually offers (see
+# _pos_context.pos_payment_choices below). Shared with transaction_add's
+# validation so the server never accepts an online-only method (Cash on
+# Delivery, Pay at Store) that a counter sale has no form control for.
+POS_PAYMENT_METHODS = ['Cash', 'GCash', 'Card']
+
 
 def _pos_user_branch(request):
     """The branch a Walk-in Sale is pinned to for this user.
@@ -117,7 +123,7 @@ def _pos_context(request):
         'pos_stock_map': _pos_stock_map(user_branch),
         'pos_payment_choices': [
             c for c in SalesTransaction.ModeOfPayment.choices
-            if c[0] in ['Cash', 'GCash', 'Card']
+            if c[0] in POS_PAYMENT_METHODS
         ],
         'pos_order_type_choices': SalesTransaction.OrderType.choices,
         # Only the two real claims — "None" is the absence of a claim, and
@@ -134,8 +140,11 @@ def _pos_context(request):
 def _transaction_list_context(request):
     transactions = (
         SalesTransaction.objects
-        .select_related('branch', 'staff', 'customer')
-        .prefetch_related('billing_record')
+        # billing_record is a OneToOneField (one query, joined) — not a
+        # prefetch_related, which is the one-to-many/many-to-many technique
+        # and issues a second query for it that a plain select_related join
+        # would have folded into the first.
+        .select_related('branch', 'staff', 'customer', 'billing_record')
         .order_by('-transaction_date')
     )
     # Server-side branch scoping (never trust a UI dropdown alone).
@@ -346,7 +355,14 @@ def transaction_set_status(request, pk, new_status):
             # _deduct_stock for the same order.
             locked_txn = SalesTransaction.objects.select_for_update().get(pk=pk)
 
-            if new_status not in _next_actions(locked_txn):
+            # Without the user, _next_actions falls back to its role-blind
+            # default set and would let a Staff request through the "void a
+            # completed sale" transition here — the check a few lines below
+            # (Owner/Branch Manager only) happens to catch that today, but
+            # the two checks can drift apart with nobody noticing, since this
+            # one — meant to be the authoritative source of "what may this
+            # role do next" — was never actually being asked the role.
+            if new_status not in _next_actions(locked_txn, request.user):
                 raise _OrderActionError(
                     f'Cannot move {locked_txn.order_number} from '
                     f'{locked_txn.order_status} to {new_status}.'
@@ -391,7 +407,18 @@ def transaction_set_status(request, pk, new_status):
                 # original timestamp made the record read "confirmed by
                 # [voider] on [original date]", a pairing that never happened,
                 # and erased the real confirmer.
-                billing = getattr(locked_txn, 'billing_record', None)
+                # A fresh, LOCKED fetch — not the possibly-stale
+                # locked_txn.billing_record relation. billing_confirm takes
+                # out its own select_for_update on this same row (D-1), so
+                # locking it here too is what actually serialises the two
+                # against each other: without it, a payment confirmed in the
+                # gap between this order-status check and this save() was
+                # silently overwritten back to Cancelled, or the reverse —
+                # either way the order and its bill could disagree about
+                # whether there is still money to collect.
+                billing = BillingRecord.objects.select_for_update().filter(
+                    transaction=locked_txn
+                ).first()
                 if billing and billing.status != BillingRecord.PaymentStatus.CANCELLED:
                     billing.status = BillingRecord.PaymentStatus.CANCELLED
                     billing.voided_by = request.user
@@ -533,6 +560,25 @@ def transaction_apply_discount(request, pk):
                 request,
                 f'{locked.order_number} already carries a '
                 f'{locked.get_discount_type_display()} discount.'
+            )
+            return redirect('transaction_detail', pk=pk)
+
+        # Re-fetch and lock the billing record too (shadowing the `billing`
+        # read before this block opened), and re-check "already paid"
+        # against THIS read. billing_confirm takes its own select_for_update
+        # on this same row (D-1); without locking it here too, a payment
+        # confirmed in the gap between the pre-block check above and this
+        # save() would be silently overwritten by billing.save() below,
+        # using this view's stale, unlocked field values.
+        billing = BillingRecord.objects.select_for_update().filter(
+            transaction=locked
+        ).first()
+        if billing and billing.status == BillingRecord.PaymentStatus.PAID:
+            messages.error(
+                request,
+                f'{locked.order_number} is already paid — the amount due '
+                f'cannot be changed. Reverse the payment first if this '
+                f'discount is owed.'
             )
             return redirect('transaction_detail', pk=pk)
 
@@ -705,8 +751,16 @@ def transaction_add(request):
     # tampered form) becomes Cash rather than being written to the column
     # verbatim, which broke the Billing report's payment breakdown and, worse,
     # slipped the amount-tendered check below (only "Cash" triggers it).
+    # Validated against POS_PAYMENT_METHODS, not the model's full choice list
+    # — SalesTransaction.ModeOfPayment also carries Cash on Delivery / Pay at
+    # Store, which exist for online checkout and have no control on this
+    # form at all. Falling back against the wider list let a tampered POST
+    # (or a bug) write an online-only method to a walk-in sale, where the
+    # receipt would say one thing and billing.signals's auto-created record
+    # would default to Cash — the two silently disagreeing about how the
+    # customer paid.
     mode_of_payment = request.POST.get('mode_of_payment') or SalesTransaction.ModeOfPayment.CASH
-    if mode_of_payment not in SalesTransaction.ModeOfPayment.values:
+    if mode_of_payment not in POS_PAYMENT_METHODS:
         mode_of_payment = SalesTransaction.ModeOfPayment.CASH
     order_type = request.POST.get('order_type') or SalesTransaction.OrderType.RETAIL
     if order_type not in SalesTransaction.OrderType.values:
@@ -722,13 +776,31 @@ def transaction_add(request):
     if mode_of_payment == SalesTransaction.ModeOfPayment.CASH and amount_tendered_raw:
         try:
             amount_tendered = Decimal(amount_tendered_raw)
+            # Decimal("NaN") and Decimal("Infinity") both parse without
+            # raising InvalidOperation — they are valid IEEE-754-style
+            # Decimal values, just not finite ones. Left unchecked, either
+            # crashes the change-due arithmetic below with a 500 instead of
+            # the plain "must be a number" validation error every other bad
+            # value in this field already gets.
+            if not amount_tendered.is_finite():
+                amount_tendered = None
         except InvalidOperation:
             amount_tendered = None
 
-    line_items = [
-        (pid, int(q)) for pid, q in zip(product_ids, quantities)
-        if pid and q and q.isdigit() and int(q) > 0
-    ]
+    line_items = []
+    # Rows with a product but a bad quantity (blank, non-digit, zero) used to
+    # be dropped here with no word to the cashier about which row vanished —
+    # the sale only complained when EVERY row failed this check. Tracked
+    # separately so a per-row error can name what was dropped, the same way
+    # the "no longer available" check just below already does per row.
+    dropped_pids = []
+    for pid, q in zip(product_ids, quantities):
+        if not pid:
+            continue
+        if q and q.isdigit() and int(q) > 0:
+            line_items.append((pid, int(q)))
+        else:
+            dropped_pids.append(pid)
 
     # --- PWD / Senior Citizen discount ------------------------------------
     # Claimed once for the sale. The ID number is not optional: the statutory
@@ -752,13 +824,35 @@ def transaction_add(request):
         # branch_id is their own pinned branch (so this passes), but a posted
         # branch id must never reach SalesTransaction.create unchecked.
         try:
-            branch_in_scope = user_can_access_branch(request.user, int(branch_id))
+            branch_id_int = int(branch_id)
         except (TypeError, ValueError):
-            branch_in_scope = False
-        if not branch_in_scope:
+            branch_id_int = None
+        # For an Owner, branch_ids_for_user returns None ("unrestricted"),
+        # so user_can_access_branch alone says yes to ANY id, real or not —
+        # "no restriction" was being read as "no need to check it exists".
+        # If the branch was deleted while the Owner still had this page open,
+        # the create() below would hit the FK constraint and 500 instead of
+        # the friendly message every other stale-input case on this form
+        # already gets (a deleted product, a bad quantity).
+        branch = Branch.objects.filter(pk=branch_id_int).first() if branch_id_int else None
+        if branch is None:
+            errors.append('That branch no longer exists. Please choose another branch.')
+        elif not user_can_access_branch(request.user, branch_id_int):
             errors.append('That branch is not one your account can record sales for.')
     if not line_items:
         errors.append('Add at least one item with a quantity.')
+    if dropped_pids:
+        names = []
+        for pid in dropped_pids:
+            try:
+                product = Product.objects.filter(pk=pid).first()
+            except (ValueError, TypeError):
+                product = None
+            names.append(product.product_name if product else f'item #{pid}')
+        errors.append(
+            f"Enter a valid quantity for {', '.join(names)} — that row "
+            f"couldn't be recorded and was dropped."
+        )
 
     # Resolve each line's product now, up here with the other input checks.
     # A product deleted between the cashier loading the form and submitting
@@ -871,7 +965,7 @@ def transaction_add(request):
                     if billing:
                         billing.amount_due = total
                         billing.payment_method = (
-                            mode_of_payment if mode_of_payment in ['Cash', 'GCash', 'Card'] else 'Cash'
+                            mode_of_payment if mode_of_payment in POS_PAYMENT_METHODS else 'Cash'
                         )
                         if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
                             billing.status = 'Paid'
@@ -880,7 +974,22 @@ def transaction_add(request):
             except _OrderActionError as e:
                 errors.append(str(e))
             else:
-                messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
+                # A claim was recorded but landed on nothing: PWD and Senior
+                # are separate statutes with separate eligibility flags, and
+                # no line on this sale carries the one that matches. Say so
+                # here too — the Order Console's after-the-fact discount flow
+                # (transaction_apply_discount) already warns for exactly this
+                # case, and a plain success message would leave the cashier
+                # not knowing the total didn't move.
+                if discount_claimed and priced['total_discount_amount'] == Decimal('0'):
+                    messages.warning(
+                        request,
+                        f'{discount_type} recorded on {txn.order_number}, but no '
+                        f'item in the sale is eligible for that discount — the '
+                        f'total is unchanged.'
+                    )
+                else:
+                    messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
                 return redirect('transaction_detail', pk=txn.pk)
 
     # Rejected. Re-render the form with the header selections re-chosen and

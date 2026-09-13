@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.test import Client, TestCase
 
-from accounts.models import User
+from accounts.models import Address, User
 from branches.models import Branch
 from core.scoping import scope_queryset
 from inventory.models import (
@@ -100,6 +100,11 @@ class AcceptanceTests(TestCase):
         inv.save()
         before = inv.quantity_on_hand
 
+        # checkout() ships a Delivery order to the account's saved default
+        # Address now — it no longer reads a typed delivery_address field —
+        # so a Delivery checkout needs one on record first.
+        Address.objects.create(user=juan, is_default=True, text='Baliuag')
+
         customer = self.login('juan')
         session = customer.session
         session['branch_id'] = branch.id
@@ -108,7 +113,6 @@ class AcceptanceTests(TestCase):
         customer.post('/shop/checkout/', {
             'mode_of_payment': 'Cash on Delivery',
             'fulfillment_type': 'Delivery',
-            'delivery_address': 'Baliuag',
         })
 
         order = SalesTransaction.objects.filter(customer=juan).order_by('-id').first()

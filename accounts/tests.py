@@ -273,7 +273,12 @@ class RegistrationVerificationEmailTests(TestCase):
             'first_name': 'New',
             'last_name': 'Customer',
             'contact_number': '09171234567',
-            'address': '',
+            # The delivery address is required (register_view refuses a blank
+            # one). It is a plain typed line; the barangay/street fields are
+            # optional extras off the dropdowns.
+            'address': '12 Real St, Poblacion, Baliuag, Bulacan',
+            'barangay': '031403001',
+            'street_detail': '12 Real St',
         }
         payload.update(overrides)
         return self.client.post(reverse('accounts:register'), payload)
@@ -308,6 +313,86 @@ class RegistrationVerificationEmailTests(TestCase):
 
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
+
+    def test_a_successful_signup_creates_the_one_default_address(self):
+        """checkout ships to the account's default Address, so registration
+        has to leave one behind."""
+        self._register()
+        user = User.objects.get(username='newcustomer')
+
+        address = user.addresses.get()
+        self.assertTrue(address.is_default)
+        self.assertEqual(address.text, '12 Real St, Poblacion, Baliuag, Bulacan')
+        self.assertEqual(address.barangay, '031403001')
+
+    def test_signup_is_refused_without_an_address(self):
+        from accounts.models import Address
+
+        response = self._register(address='')
+
+        self.assertEqual(response.status_code, 200)  # re-rendered, not redirected
+        self.assertFalse(User.objects.filter(username='newcustomer').exists())
+        self.assertEqual(Address.objects.count(), 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class SavedAddressTests(TestCase):
+    """Settings → Addresses needs the address line filled in. The server
+    composes it from the dropdowns as a fallback, but with neither there is
+    nothing to save. Same rule as registration, because checkout ships to
+    whatever is saved here."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='addr-user', password='pw', role=User.Role.CUSTOMER
+        )
+        self.client.force_login(self.user)
+
+    def _create(self, **overrides):
+        payload = {
+            'type': 'HOME',
+            'text': '9 Gil Carlos St, Baliuag, Bulacan',
+            'barangay': '031403001',
+            'street_detail': '9 Gil Carlos St',
+        }
+        payload.update(overrides)
+        return self.client.post(reverse('accounts:address_create'), payload, follow=True)
+
+    def test_a_full_address_is_saved_and_becomes_the_default(self):
+        from accounts.models import Address
+
+        self._create()
+
+        address = Address.objects.get(user=self.user)
+        self.assertTrue(address.is_default)
+        self.assertEqual(address.barangay, '031403001')
+        self.assertEqual(address.text, '9 Gil Carlos St, Baliuag, Bulacan')
+
+    def test_a_blank_address_with_no_dropdowns_is_refused(self):
+        from django.contrib.messages import get_messages
+
+        from accounts.models import Address
+
+        response = self._create(
+            text='', barangay='', street_detail='', city='', province='', region='',
+        )
+
+        self.assertEqual(Address.objects.filter(user=self.user).count(), 0)
+        self.assertTrue(any(
+            'address' in str(m).lower()
+            for m in get_messages(response.wsgi_request)
+        ))
+
+    def test_a_blank_address_line_is_composed_from_the_dropdowns(self):
+        """No text typed, but a barangay/city/province chosen — the server
+        builds the line from those rather than refusing."""
+        from accounts.models import Address
+
+        self._create(text='')
+
+        address = Address.objects.get(user=self.user)
+        self.assertTrue(address.text)
+        self.assertEqual(address.barangay, '031403001')
 
 
 class LoginLockoutCacheTests(TestCase):

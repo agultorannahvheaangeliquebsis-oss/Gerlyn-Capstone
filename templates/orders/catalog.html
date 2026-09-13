@@ -75,43 +75,6 @@ same list, one row down. See public_base.html's own comment on this block.
       <h2 class="rail-heading">Filters</h2>
 
       {% comment %}
-      What is currently narrowing the grid, as removable chips — the
-      reference's "Brand: Ajinomoto ×" block above its facets.
-
-      It earns its space because the facets below it are long: once the
-      Category tree is scrolled past, nothing on screen says why the grid is
-      showing six products, and the one ticked box that explains it is out of
-      view. Each chip's × drops exactly that one filter and keeps the rest,
-      which is the thing the "Clear filters" link at the bottom cannot do.
-
-      Real links, not JS: each href is the current filter set minus this one
-      chip, built by the view (see _chip_querystring), so the × works with
-      JavaScript off and can be middle-clicked. catalog-live.js has nothing
-      to intercept here — the rail redraws from the server on this path
-      because a removed chip changes the rail itself.
-      {% endcomment %}
-      {% if active_chips %}
-      <div class="rail-chips">
-        <div class="rail-chips-head">
-          <span class="rail-title">Filter</span>
-          <a class="rail-clear-all" href="{% url 'orders:catalog' %}?sort={{ sort }}&amp;branch=">Clear All</a>
-        </div>
-        <ul class="chip-list">
-          {% for chip in active_chips %}
-          <li class="chip">
-            <span class="chip-label">{{ chip.label }}:</span>
-            <span class="chip-value">{{ chip.value }}</span>
-            <a class="chip-x" href="?sort={{ sort }}{% if chip.remaining_qs %}&amp;{{ chip.remaining_qs }}{% endif %}"
-               aria-label="Remove {{ chip.label|lower }} filter {{ chip.value }}">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </a>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-
-      {% comment %}
       One GET form for both blocks, with real inputs — the rail used to be
       two lists of links dressed as filters.
 
@@ -165,21 +128,40 @@ same list, one row down. See public_base.html's own comment on this block.
         {% if categories %}
         <fieldset class="rail-block">
           <legend class="rail-title">Category</legend>
+          {% comment %}
+          Each department with shelves is a disclosure: the department row
+          stays put, its shelves fold away behind the chevron so the rail
+          opens as a short list of departments rather than a wall of every
+          shelf in the store. catalog-rail-collapse.js wires the .rail-disclose
+          button (rendered `hidden`, revealed only once the script runs) and
+          starts each department collapsed unless one of its boxes is ticked,
+          so an active filter is never hidden. JS off: no button, everything
+          expanded, exactly as before.
+          {% endcomment %}
           <ul class="rail-list rail-tree">
             {% for c in categories %}
             <li class="rail-dept">
-              <label class="rail-check">
-                <input type="checkbox" name="category" value="{{ c.id }}"
-                       {% if c.id|stringformat:'s' in category_filters %}checked{% endif %}>
-                <span class="rail-box" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
-                </span>
-                <span class="rail-check-text">{{ c.category_name }}</span>
-                <span class="rail-count">({{ c.stock_count }})</span>
-              </label>
+              <div class="rail-dept-row">
+                <label class="rail-check">
+                  <input type="checkbox" name="category" value="{{ c.id }}"
+                         {% if c.id|stringformat:'s' in category_filters %}checked{% endif %}>
+                  <span class="rail-box" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                  <span class="rail-check-text">{{ c.category_name }}</span>
+                  <span class="rail-count">({{ c.stock_count }})</span>
+                </label>
+                {% if c.shelves %}
+                <button type="button" class="rail-disclose" hidden
+                        aria-expanded="true" aria-controls="rail-subs-{{ c.id }}">
+                  <svg class="rail-disclose-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  <span class="sr-only">Show or hide subcategories of {{ c.category_name }}</span>
+                </button>
+                {% endif %}
+              </div>
 
               {% if c.shelves %}
-              <ul class="rail-list rail-shelves">
+              <ul class="rail-list rail-shelves" id="rail-subs-{{ c.id }}">
                 {% for s in c.shelves %}
                 <li>
                   <label class="rail-check">
@@ -201,8 +183,22 @@ same list, one row down. See public_base.html's own comment on this block.
         </fieldset>
         {% endif %}
 
-        <fieldset class="rail-block">
-          <legend class="rail-title">Branch</legend>
+        {% comment %}
+        Branch is one disclosure for the whole list — same chevron, same
+        script. It starts collapsed unless a branch is ticked, so the rail
+        lands as "Category / Branch" and opens what the shopper asks for.
+        {% endcomment %}
+        <fieldset class="rail-block" data-rail-collapsible>
+          <legend class="rail-title">
+            <span class="rail-section-head">
+              <span class="rail-section-name">Branch</span>
+              <button type="button" class="rail-disclose rail-disclose--section" hidden
+                      aria-expanded="true" aria-controls="rail-branch-body">
+                <svg class="rail-disclose-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                <span class="sr-only">Show or hide branch filters</span>
+              </button>
+            </span>
+          </legend>
           {% comment %}
           No "All branches" row: with checkboxes, all branches IS none ticked,
           and a box that unticks the others is a radio wearing a square.
@@ -216,21 +212,23 @@ same list, one row down. See public_base.html's own comment on this block.
           possibly empty, branch filter); the view drops it for not being a
           digit.
           {% endcomment %}
-          <input type="hidden" name="branch" value="">
-          <ul class="rail-list">
-            {% for b in branches %}
-            <li>
-              <label class="rail-check">
-                <input type="checkbox" name="branch" value="{{ b.id }}"
-                       {% if b.id|stringformat:'s' in branch_filters %}checked{% endif %}>
-                <span class="rail-box" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
-                </span>
-                <span class="rail-check-text">{{ b.branch_name }}</span>
-              </label>
-            </li>
-            {% endfor %}
-          </ul>
+          <div class="rail-section-body" id="rail-branch-body">
+            <input type="hidden" name="branch" value="">
+            <ul class="rail-list">
+              {% for b in branches %}
+              <li>
+                <label class="rail-check">
+                  <input type="checkbox" name="branch" value="{{ b.id }}"
+                         {% if b.id|stringformat:'s' in branch_filters %}checked{% endif %}>
+                  <span class="rail-box" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                  <span class="rail-check-text">{{ b.branch_name }}</span>
+                </label>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
         </fieldset>
 
         {% if category_filters or branch_filters or search_query %}
@@ -306,6 +304,7 @@ same list, one row down. See public_base.html's own comment on this block.
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/catalog-rail-collapse.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/catalog-live.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/catalog-view.js' %}?v={{ APP_VERSION }}"></script>
 {% endblock %}

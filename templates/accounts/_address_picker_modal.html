@@ -1,8 +1,9 @@
 {% load i18n_extra %}
-<!-- ── Shared address picker: cascading Region/Province/City/Barangay,
-     street search with suggestions, and a draggable map pin. Reused by the
-     Addresses page (add + edit) and the registration form. One instance
-     per page — openAddressPicker() re-targets it per use. ── -->
+<!-- ── Shared address picker: cascading Region/Province/City/Barangay
+     dropdowns (bundled PSGC data, no external calls) plus a typed
+     "Full Address" line. Reused by the Addresses page (add + edit) and the
+     registration form. One instance per page — openAddressPicker()
+     re-targets it per use. ── -->
 <div class="modal-overlay" id="address-picker-modal">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="address-picker-title" style="max-width:640px;">
     <div class="modal-head">
@@ -45,20 +46,21 @@
         <div class="field ap-street-field">
           <label for="ap-street-input">{% t "Street name, Building, House No." %}</label>
           <input type="text" name="street_detail" id="ap-street-input" placeholder="Select a barangay first" disabled autocomplete="off">
-          <div class="search-dropdown" id="ap-suggestions" hidden></div>
         </div>
-
-        <div id="ap-map" class="ap-map"></div>
-        <p class="gv-meta" style="margin-top:6px;">{% t "Tap or drag the pin to mark the exact spot — the address below updates to match." %}</p>
-
-        <input type="hidden" name="latitude" id="ap-latitude-input">
-        <input type="hidden" name="longitude" id="ap-longitude-input">
 
         <div class="field" style="margin-top:10px;">
           <label for="ap-text-input">{% t "Full Address" %}</label>
-          <textarea name="text" id="ap-text-input" rows="2" placeholder="Confirm or edit the full address" required></textarea>
+          <textarea name="text" id="ap-text-input" rows="2" placeholder="House no., street, barangay, city" required></textarea>
         </div>
       </div>
+
+      {% comment %}
+      The full address line is what gets saved. save() blocks on it being
+      non-empty and the server (address_create / address_edit, register_view)
+      re-checks it, composing it from the dropdowns as a fallback.
+      {% endcomment %}
+      <p class="ap-error" id="ap-error" role="alert" hidden
+         style="margin:0 20px; color:var(--danger-fg,#9A1C12); font-size:12.5px; line-height:1.45;"></p>
 
       <div class="modal-foot">
         <button type="button" class="btn btn-sm" onclick="closeAddressPicker()">{% t "Cancel" %}</button>
@@ -73,9 +75,7 @@ window.ADDRESS_PICKER_URLS = {
   regions: "{% url 'accounts:geo_regions' %}",
   provinces: "{% url 'accounts:geo_provinces' %}",
   cities: "{% url 'accounts:geo_cities' %}",
-  barangays: "{% url 'accounts:geo_barangays' %}",
-  search: "{% url 'accounts:geo_search' %}",
-  reverse: "{% url 'accounts:geo_reverse' %}"
+  barangays: "{% url 'accounts:geo_barangays' %}"
 };
 function closeAddressPicker() { AddressPicker.close(); }
 </script>

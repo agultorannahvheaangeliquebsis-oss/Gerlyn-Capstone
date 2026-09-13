@@ -295,11 +295,16 @@ white-on-white.
         {% endcomment %}
         {% if nav_categories %}
         <div class="shop-menu" id="shop-menu">
+          {% comment %}
+          No icons in the label — it reads as the plain word "Shop", the same
+          as the Home and About Us links beside it. The panel opens on hover
+          for a mouse, so a caret pointing at a disclosure the pointer has
+          already triggered was saying nothing; the burger was "Shop" said a
+          second time in three lines.
+          {% endcomment %}
           <button type="button" class="shop-menu-trigger {% if request.path == '/shop/' %}active{% endif %}"
                   aria-expanded="false" aria-haspopup="true" aria-controls="shop-menu-panel">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shop-menu-burger" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             {% t "Shop" %}
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shop-menu-caret" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
         {% else %}
@@ -534,10 +539,10 @@ by APP_VERSION or read in a stack trace by name.
 {% endcomment %}
 <script src="{% static 'js/shop-mega-menu.js' %}?v={{ APP_VERSION }}" defer></script>
 
-<script src="{% static 'js/live-search.js' %}"></script>
-<script src="{% static 'js/toast.js' %}"></script>
+<script src="{% static 'js/live-search.js' %}?v={{ APP_VERSION }}"></script>
+<script src="{% static 'js/toast.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
-<script src="{% static 'js/pwa.js' %}"></script>
+<script src="{% static 'js/pwa.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/qty-stepper.js' %}?v={{ APP_VERSION }}" defer></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}

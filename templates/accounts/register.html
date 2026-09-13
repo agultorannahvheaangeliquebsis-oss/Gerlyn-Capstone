@@ -5,7 +5,6 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 {% endblock %}
 
 {% block content %}
@@ -18,10 +17,12 @@ this one was a 480px column dropped into the storefront layout, under the
 full shop header and its "Log in" button.
 
 The reference screen this follows carries "Company (for trade buyers)" as
-its one optional field. Here that slot is the delivery address, which is
-genuinely optional the same way: register_view only creates an Address row
-`if address`, so an account without one is a supported state — the shopper
-sets it at checkout instead.
+its one optional field. That slot here is the delivery address — but it is
+NOT optional: register_view refuses the form without one, because checkout
+ships to the account's saved address and never lets one be typed in at
+checkout. Every account therefore starts with exactly one default Address
+row. The address is a plain typed line, optionally filled in from the
+Region/Province/City/Barangay dropdowns.
 {% endcomment %}
 <div class="auth-topbar">
   <div class="shop-wrap auth-topbar-inner">
@@ -174,10 +175,11 @@ sets it at checkout instead.
         </div>
 
         {% comment %}
-        The two optional details share the last row. The address is a control
-        rather than an input — a region/province/city/barangay cascade plus a
-        map pin — so it is the taller of the pair; align-items:start on the
-        row is what keeps the phone field beside it from stretching to match.
+        Last row: an optional phone beside the REQUIRED delivery address. The
+        address is a control rather than an input — it opens a modal with a
+        region/province/city/barangay cascade and a full-address line — so it
+        is the taller of the pair; align-items:start on the row is what keeps
+        the phone field beside it from stretching to match.
         {% endcomment %}
         <div class="auth-row-2">
           <div class="field auth-field">
@@ -199,20 +201,26 @@ sets it at checkout instead.
             </div>
           </div>
           {% comment %}
-          The optional slot. Not an <input> but a control that opens the shared
-          picker, because an address here is a region/province/city/barangay
-          cascade plus a map pin, and the summary line is what the picker fills
-          in. The hidden inputs beneath it are what actually POSTs.
+          Required. Not an <input> but a control that opens the shared picker,
+          because an address here is a region/province/city/barangay cascade
+          plus a full-address line, and the summary shows what the picker
+          filled in. The hidden inputs beneath it are what actually POSTs;
+          register_view refuses the form unless the address line is present.
+          This is the address every future order is delivered to — checkout
+          shows it read-only and never lets it be retyped.
           {% endcomment %}
           <div class="field auth-field auth-address">
-            <label id="address-label">Delivery address <span class="auth-optional">(optional)</span></label>
+            <label id="address-label">Delivery address</label>
             <div id="address-summary" class="auth-address-summary{% if form.address %} is-set{% endif %}"
                  role="status" aria-labelledby="address-label">
-              {% if form.address %}{{ form.address }}{% else %}No address set yet — you can add one at checkout.{% endif %}
+              {% if form.address %}{{ form.address }}{% else %}No address set yet.{% endif %}
             </div>
+            <p id="address-error" class="auth-address-error" hidden>
+              Enter your delivery address to continue.
+            </p>
             <button type="button" class="btn btn-sm auth-address-btn"
               onclick="AddressPicker.open({title: 'Set Delivery Address', onConfirm: applyRegisterAddress})">
-              Pin your address on the map
+              Set your delivery address
             </button>
 
             <input type="hidden" name="type" id="reg-address-type" value="{{ form.type|default:'HOME' }}">
@@ -222,8 +230,6 @@ sets it at checkout instead.
             <input type="hidden" name="barangay" id="reg-barangay" value="{{ form.barangay }}">
             <input type="hidden" name="street_detail" id="reg-street-detail" value="{{ form.street_detail }}">
             <input type="hidden" name="address" id="reg-address-text" value="{{ form.address }}">
-            <input type="hidden" name="latitude" id="reg-latitude" value="{{ form.latitude }}">
-            <input type="hidden" name="longitude" id="reg-longitude" value="{{ form.longitude }}">
           </div>
         </div>
 
@@ -248,8 +254,7 @@ resolves by throwing the inner one away.
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="{% static 'js/address-picker.js' %}"></script>
+<script src="{% static 'js/address-picker.js' %}?v={{ APP_VERSION }}"></script>
 <script>
 function applyRegisterAddress(data) {
   document.getElementById('reg-address-type').value = data.type;
@@ -259,14 +264,21 @@ function applyRegisterAddress(data) {
   document.getElementById('reg-barangay').value = data.barangay;
   document.getElementById('reg-street-detail').value = data.street_detail;
   document.getElementById('reg-address-text').value = data.text;
-  document.getElementById('reg-latitude').value = data.latitude;
-  document.getElementById('reg-longitude').value = data.longitude;
 
   var summary = document.getElementById('address-summary');
   summary.textContent = data.text;
   /* Solid border and full-strength ink once there is something to read —
      the dashed, muted box is the empty state, not the filled one. */
   summary.classList.add('is-set');
+  summary.classList.remove('is-error');
+  document.getElementById('address-error').hidden = true;
+}
+
+/* The address is a required control with no native validity of its own — the
+   POST is a hidden input. This is the browser-side echo of register_view's
+   own check: the address line must be set. */
+function registerAddressIsComplete() {
+  return !!document.getElementById('reg-address-text').value.trim();
 }
 
 /* Reveal toggles. Two password fields here rather than sign-in's one, so
@@ -329,10 +341,22 @@ function applyRegisterAddress(data) {
   if (!form || !btn) return;
   var label = btn.querySelector('[data-submit-label]');
 
-  form.addEventListener('submit', function () {
+  form.addEventListener('submit', function (e) {
     /* Let the browser's own required-field check fail first — otherwise an
        empty field disables the button on a submit that never leaves. */
     if (!form.checkValidity()) return;
+    /* The address has no native validity, so check it here before the button
+       locks. register_view rejects a blank one server-side too — this just
+       spares the round trip. */
+    if (!registerAddressIsComplete()) {
+      e.preventDefault();
+      var summary = document.getElementById('address-summary');
+      summary.classList.add('is-error');
+      var err = document.getElementById('address-error');
+      err.hidden = false;
+      summary.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
     btn.disabled = true;
     btn.setAttribute('aria-busy', 'true');
     if (label) label.textContent = 'Creating account…';

@@ -483,31 +483,8 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   font: 400 14px/1.4 var(--font-sans);
 }
 
-/* ── Address map picker ───────────────────────────────────────────── */
-.ap-street-field { position: relative; margin-top: 14px; }
-.ap-street-field .search-dropdown { top: calc(100% + 4px); max-height: 220px; }
-.ap-map {
-  height: 260px;
-  width: 100%;
-  border-radius: var(--r-input);
-  border: 1px solid var(--line);
-  margin-top: 14px;
-  background: var(--line-soft);
-}
-/* Leaflet's own CSS sets a low z-index baseline that can lose to our
-   modal's z-index:100 stacking context — pin the map's panes above the
-   modal body so tiles/marker/controls all actually render. */
-.ap-map .leaflet-pane, .ap-map .leaflet-top, .ap-map .leaflet-bottom { z-index: 5; }
-
-/* ── Address thumbnail map (Addresses list, default card) ─────────── */
-.address-map-thumb {
-  width: 120px; height: 90px;
-  border-radius: var(--r-input);
-  border: 1px solid var(--line);
-  flex: none;
-  overflow: hidden;
-  background: var(--line-soft);
-}
+/* ── Address picker ───────────────────────────────────────────────── */
+.ap-street-field { margin-top: 14px; }
 
 /* ── Responsive ────────────────────────────────────────────────── */
 @media (max-width: 760px) {
@@ -518,7 +495,6 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   .profile-hero-meta { justify-content: center; }
   .account-wrap { padding: 20px 16px 48px; }
   .address-card { flex-wrap: wrap; }
-  .address-map-thumb { width: 100%; height: 140px; margin-top: 10px; }
 }
 
 /* ── Account shell: tighter, squarer ────────────────────────────────────

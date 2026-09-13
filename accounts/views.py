@@ -584,11 +584,11 @@ def home_view(request):
 def _register_form_values(request):
     """What the visitor typed, so a rejected POST can re-render it filled in.
 
-    register_view rejects on four separate conditions and every one of them
-    used to `render(...)` with no context at all — the form came back blank
-    and the shopper retyped eight fields to fix one of them. The address
-    keys are here too: they are hidden inputs the map picker fills, and
-    losing them silently threw away the pin as well.
+    register_view rejects on several separate conditions and every one of
+    them used to `render(...)` with no context at all — the form came back
+    blank and the shopper retyped every field to fix one of them. The
+    address keys are here too: they are hidden inputs the picker fills from
+    the Region/Province/City/Barangay dropdowns.
 
     The two password fields are deliberately absent. A password re-rendered
     into HTML is a password in the browser's view-source and in whatever
@@ -597,7 +597,7 @@ def _register_form_values(request):
     keep = (
         'username', 'email', 'first_name', 'last_name', 'contact_number',
         'address', 'type', 'region', 'province', 'city', 'barangay',
-        'street_detail', 'latitude', 'longitude',
+        'street_detail',
     )
     return {k: request.POST.get(k, '') for k in keep}
 
@@ -615,6 +615,21 @@ def register_view(request):
         last_name = request.POST.get('last_name')
         contact_number = request.POST.get('contact_number')
         address = request.POST.get('address', '').strip()
+
+        # The delivery address is required — a typed line, optionally filled
+        # in from the Region/Province/City/Barangay dropdowns. This is the
+        # only place (with Settings -> Addresses) an address is captured:
+        # checkout shows it read-only and ships to it, so an account needs
+        # one from the start. It can be changed later in Settings.
+        picker_fields = _address_fields_from_post(request)
+        if not address:
+            messages.error(
+                request,
+                'Enter your delivery address before creating your account. '
+                'It is where every order is delivered, and you can change it '
+                'later in Settings.'
+            )
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         if password1 != password2:
             messages.error(request, 'Passwords do not match.')
@@ -654,10 +669,10 @@ def register_view(request):
         profile.address = address
         profile.save()
 
-        if address:
-            picker_fields = _address_fields_from_post(request)
-            picker_fields['text'] = address
-            Address.objects.create(user=user, is_default=True, **picker_fields)
+        # Guaranteed present (checked above) — every new account gets its one
+        # default Address, which is what checkout ships to.
+        picker_fields['text'] = address
+        Address.objects.create(user=user, is_default=True, **picker_fields)
 
         # Verification is optional here (login isn't gated on it — only
         # turning on Two-Factor Authentication is), so a send failure must
@@ -1222,22 +1237,12 @@ def addresses_view(request):
 
 
 def _address_fields_from_post(request):
-    """Pulls the map picker's fields off a POST — structured PSGC codes plus
-    the pin's coordinates and whatever text the user confirmed/edited."""
-    from decimal import Decimal, InvalidOperation
-
+    """Pulls the address picker's fields off a POST — the Region/Province/
+    City/Barangay codes off the dropdowns, an optional street line, and
+    whatever address text the user typed or confirmed."""
     addr_type = request.POST.get('type', Address.Type.HOME)
     if addr_type not in Address.Type.values:
         addr_type = Address.Type.HOME
-
-    def _decimal(name):
-        raw = request.POST.get(name, '').strip()
-        if not raw:
-            return None
-        try:
-            return Decimal(raw)
-        except InvalidOperation:
-            return None
 
     return {
         'type': addr_type,
@@ -1247,8 +1252,6 @@ def _address_fields_from_post(request):
         'barangay': request.POST.get('barangay', '').strip(),
         'street_detail': request.POST.get('street_detail', '').strip(),
         'text': request.POST.get('text', '').strip(),
-        'latitude': _decimal('latitude'),
-        'longitude': _decimal('longitude'),
     }
 
 

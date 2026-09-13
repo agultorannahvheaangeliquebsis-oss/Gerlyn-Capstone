@@ -88,6 +88,24 @@ class BillingConfirmSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 f'A {record.status} payment cannot be changed to {value}.'
             )
+
+        # Same proof gate billing_confirm enforces: a non-Cash method has no
+        # counter moment where handing over money and confirming it are the
+        # same event, so Paid needs a reference number or an uploaded proof
+        # of payment on record — otherwise this is the one irreversible
+        # status change (ALLOWED_STATUS_TRANSITIONS has no outbound edge
+        # from Paid) with zero evidence behind it.
+        if (
+            record is not None
+            and value == BillingRecord.PaymentStatus.PAID
+            and record.payment_method != BillingRecord.PaymentMethod.CASH
+            and not record.reference_number
+            and not record.proof_of_payment
+        ):
+            raise serializers.ValidationError(
+                f'A {record.payment_method} payment needs a reference number '
+                f'or an uploaded proof of payment before it can be marked Paid.'
+            )
         return value
 
     def update(self, instance, validated_data):

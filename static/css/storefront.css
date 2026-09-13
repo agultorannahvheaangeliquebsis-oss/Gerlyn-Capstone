@@ -241,12 +241,11 @@ body.shop {
 .shop-links a.active::after,
 .shop-menu-trigger.active::after { opacity: 1; }
 
-/* Click to open, not hover: a hover menu is unreachable on a touch screen,
-   and this is the storefront's only route to a category from the nav row. */
+/* Opens on hover for a mouse, on click/tap otherwise — a hover menu is
+   unreachable on a touch screen, and this is the storefront's only route to a
+   category from the nav row, so click stays as the fallback. See
+   static/js/shop-mega-menu.js. */
 .shop-menu { position: relative; flex: none; }
-.shop-menu-caret { transition: transform .18s ease; }
-.shop-menu-trigger[aria-expanded="true"] .shop-menu-caret { transform: rotate(180deg); }
-.shop-menu-burger { flex: none; }
 
 /* ------------------------------------------------------------ mega-menu
    Two panes: departments down the left, the highlighted department's
@@ -701,44 +700,20 @@ body.shop {
 /* --------------------------------------------------------- categories
    Hairline grid: each cell draws only its right and bottom edge, so shared
    borders never double up and the panel's own border closes the outside. */
-/* auto-fill, not repeat(10, 1fr): this store currently has a single category
-   and a fixed ten-column track drew nine empty hairline cells beside it.
-
-   The floor went 120px → 190px when the tiles started carrying their
-   department's shelf names underneath. At 120px a name like "Dairy, Creams &
-   Chilled" wrapped to three lines on its own; there is no width left over
-   for a list under it. Ten across became six, which is also the right number
-   for a top level — the tile row is a way in, not the whole catalog. */
-.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+/* A fixed track, not minmax(_, 1fr): the tile row is a way in to a department,
+   not the whole catalog, so it should be as wide as its tiles and no wider —
+   eight or so across the panel and then blank, rather than a handful of tiles
+   stretched edge to edge. auto-fill reflows the count down as the panel
+   narrows, so no per-breakpoint column overrides are needed. */
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, 150px); }
 .cat {
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  background: #fff; padding: 18px 16px 16px;
-  display: flex; flex-direction: column; gap: 10px;
+  background: #fff; padding: 20px 10px 18px; text-align: center;
+  text-decoration: none; color: var(--ink-900);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
   min-height: 132px; transition: box-shadow .18s ease;
 }
-.cat:hover { box-shadow: 0 4px 14px rgba(23,37,30,.10); position: relative; z-index: 1; }
-/* Left-aligned now, and a row rather than a stack: the shelf links below are
-   a list, and a centred list has no edge for the eye to run down. The ring
-   moves beside the name to buy that list its vertical space back. */
-.cat-head {
-  display: flex; align-items: center; gap: 10px;
-  text-decoration: none; color: var(--ink-900);
-}
-.cat-head:hover { color: var(--action-700); }
-.cat-head:hover .nm { text-decoration: underline; }
-
-/* Up to three shelves and a "+n more" — a sample of the department, not the
-   department. The full list is one click away in the mega-menu and in the
-   catalog's filter rail, both of which are built for a list that long. */
-.cat-subs { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
-.cat-subs a {
-  display: block; padding: 2px 0;
-  font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-500);
-  text-decoration: none;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.cat-subs a:hover { color: var(--action-700); text-decoration: underline; }
-.cat-sub-more a { color: var(--action); font-weight: 600; }
+.cat:hover { box-shadow: 0 4px 14px rgba(23,37,30,.10); color: var(--action-700); position: relative; z-index: 1; }
 /* A tinted rounded square carrying the category's initial, not a green
    circle with an emoji. Categories are rows the owner types in, so there is
    no fixed icon set to draw from — an initial always exists, and the tint is
@@ -749,14 +724,14 @@ body.shop {
    read aloud, "R, Rice & Grains" is noise. */
 .cat .ring {
   flex: none;
-  width: 40px; height: 40px; border-radius: 8px;
+  width: 56px; height: 56px; border-radius: 8px;
   background: var(--green-50); color: var(--action-700);
   display: flex; align-items: center; justify-content: center;
-  font: 700 17px/1 var(--font-sans);
+  font: 700 22px/1 var(--font-sans);
   transition: transform .18s ease;
 }
-.cat-head:hover .ring { transform: translateY(-2px); }
-.cat .nm { font: 600 13.5px/1.3 var(--font-sans); min-width: 0; }
+.cat:hover .ring { transform: translateY(-2px); }
+.cat .nm { font: 400 13px/1.3 var(--font-sans); }
 
 /* Eight tints, assigned by category id. Each pairs a pale ground with its
    own darker ink: every combination below clears 4.5:1, so the initial is
@@ -1251,9 +1226,6 @@ body.shop {
 }
 
 @media (max-width: 1100px) {
-  /* Four, not six. The tiles carry three shelf links each now, so a
-     1/6th column here is narrower than the names it has to print. */
-  .cat-grid { grid-template-columns: repeat(4, 1fr); }
   /* The three header columns stop having room to breathe before anything
      else does; the search keeps its width by taking it from the gaps. */
   .shop-nav { gap: 18px; }
@@ -1340,9 +1312,8 @@ body.shop {
      It is not lost: the catalog's filter rail carries the same choice. */
   .shop-status { display: none; }
 
-  /* Two. Three columns of a tile that now holds a name and three shelf
-     links is 110px each on a 360px phone, which ellipsises every one of
-     them into uselessness. */
+  /* Two, filling the row: at 360px the 150px fixed track drops to a lone
+     column, and a single stack of tiles reads as something having broken. */
   .cat-grid { grid-template-columns: repeat(2, 1fr); }
   /* Three, not four. The row is five tiles since "Get the App" came out
      of it, and a four-column grid leaves the fifth alone on its own row.
@@ -1845,6 +1816,15 @@ body.shop-auth {
   border-style: solid; border-color: var(--line);
   color: var(--ink-900);
 }
+/* The address is required but has no native validity bubble, so a rejected
+   submit marks the summary box itself and shows the note under it. */
+.auth-address-summary.is-error {
+  border-style: solid; border-color: var(--danger-dot);
+}
+.auth-address-error {
+  margin: 6px 0 0;
+  font: 400 12.5px/1.45 var(--font-sans); color: var(--danger-fg);
+}
 .auth-address-btn { margin-top: 8px; align-self: flex-start; }
 
 /* ----------------------------------------------------------- responsive
@@ -2140,6 +2120,12 @@ body.shop-auth {
   font: 700 13px/1.2 var(--font-sans); color: var(--ink-900);
   margin-bottom: 8px;
 }
+/* Whatever follows the legend has to clear the float above. The block right
+   under it is a flex container now — a .rail-dept-row in the Category tree,
+   a .rail-check once Branch is open — and a flex box establishes its own
+   formatting context, so rather than overlapping the 100%-wide float like a
+   plain block would it gets pushed beside it, off the right edge of the rail. */
+.rail-title + * { clear: left; }
 .rail-list { list-style: none; margin: 0; padding: 0; }
 .rail-item {
   display: flex; align-items: center;
@@ -2231,12 +2217,47 @@ body.shop-auth {
   margin: 0 0 6px 9px; padding-left: 11px;
   border-left: 1px solid var(--line-soft);
 }
-.rail-dept > .rail-check .rail-check-text { font-weight: 600; }
+.rail-dept-row > .rail-check .rail-check-text { font-weight: 600; }
 .rail-shelves .rail-check { min-height: 30px; padding-top: 5px; padding-bottom: 5px; }
 .rail-shelves .rail-check-text { font-size: 13px; }
 /* The box on a shelf is a size down from its department's — a second, quieter
    signal of the nesting for anyone reading the shapes rather than the indent. */
 .rail-shelves .rail-box { width: 16px; height: 16px; }
+
+/* ---------------------------------------------------- rail: disclosures
+   A department's shelves and the whole Branch list fold away behind a
+   chevron so the rail opens short. The button is rendered `hidden` and
+   revealed by catalog-rail-collapse.js — with the script blocked there is
+   no toggle and every list stays open, so nothing is unreachable. */
+.rail-dept-row { display: flex; align-items: center; }
+.rail-dept-row > .rail-check { flex: 1 1 auto; min-width: 0; }
+.rail-disclose {
+  flex: none; margin-left: 2px;
+  width: 30px; height: 30px; padding: 0;
+  display: inline-grid; place-items: center;
+  background: none; border: 0; border-radius: 4px;
+  color: var(--ink-400); cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.rail-disclose:hover { background: var(--green-50); color: var(--action-700); }
+.rail-disclose:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* Chevron points down while the section is closed ("open me"), and flips up
+   once it is open. aria-expanded is the source of truth, set by the script. */
+.rail-disclose-chev {
+  width: 15px; height: 15px;
+  transition: transform .15s ease;
+}
+.rail-disclose[aria-expanded="true"] .rail-disclose-chev { transform: rotate(180deg); }
+
+/* Branch: the toggle sits in the <legend>. The legend keeps its float/width
+   layout hack (see .rail-title) and a flex row inside it — .rail-section-head
+   — carries the name on the left and the chevron hard right. */
+.rail-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%;
+}
+.rail-disclose--section { margin: -4px -4px -4px 0; }
+.rail-section-body[hidden] { display: none; }
 
 /* The live count. Pushed to the right edge so the numbers form their own
    column and can be compared down the list, and tabular figures so they
@@ -2248,55 +2269,6 @@ body.shop-auth {
   font-variant-numeric: tabular-nums;
 }
 .rail-check input:checked ~ .rail-count { color: var(--action-700); font-weight: 600; }
-
-/* --------------------------------------------------------- active chips
-   What is narrowing the grid, above the facets that set it. */
-.rail-chips { padding: 12px 0 14px; border-bottom: 1px solid var(--line-soft); }
-.rail-chips-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  margin-bottom: 8px;
-}
-/* .rail-title is a floated <legend> inside the form; here it is a plain span
-   in a flex row, so the float has to come back off or it drops out of the
-   row and takes the Clear All link with it. */
-.rail-chips .rail-title { float: none; width: auto; margin: 0; }
-.rail-clear-all {
-  font: 600 12.5px/1 var(--font-sans); color: var(--action);
-  text-decoration: none; white-space: nowrap;
-}
-.rail-clear-all:hover { color: var(--action-700); text-decoration: underline; }
-.chip-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-/* Label above value, not beside it. The rail is 216px wide and a value like
-   "Canned Goods > Sardines & Fish" wraps to three lines there — set beside a
-   one-word label, that leaves "Category:" floating against a three-line
-   block with nothing lining up. Stacked, the label is a caption over its
-   value and the row keeps a single baseline whatever the value's length. */
-.chip {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: 'label x' 'value x';
-  align-items: center; column-gap: 4px;
-  padding: 6px 4px 7px 9px; border-radius: 4px;
-  background: var(--green-50);
-  font: 400 12.5px/1.35 var(--font-sans); color: var(--ink-700);
-}
-.chip-label {
-  grid-area: label; color: var(--ink-500);
-  font-size: 11px; letter-spacing: .02em;
-}
-.chip-value { grid-area: value; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-/* 28px, not the 24px the glyph needs: this is the one control in the rail
-   that destroys a filter, and a 24px target is under the 2.2 SC 2.5.8
-   minimum. margin-left:auto pins it to the chip's right edge so every × in
-   the stack is in the same place. */
-.chip-x {
-  grid-area: x; align-self: center;
-  width: 28px; height: 28px; border-radius: 4px;
-  display: inline-grid; place-items: center;
-  color: var(--ink-500); text-decoration: none;
-  transition: background .12s ease, color .12s ease;
-}
-.chip-x:hover { background: var(--green-100); color: var(--danger-cta); }
-.chip-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 .rail-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; }
 .rail-clear {
@@ -2609,11 +2581,17 @@ body.shop-auth {
   font: 700 10.5px/1.4 var(--font-sans); letter-spacing: .05em;
 }
 
-.buy-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+/* Stacked, not side by side: Quantity on its own row, then the CTAs beneath
+   it, left-aligned. align-items:flex-start keeps .buy-actions only as wide as
+   its buttons so Add to Cart sits hard against the left edge. */
+.buy-row { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
 .qty-field label {
   display: block; margin-bottom: 6px;
   font: 600 12.5px/1 var(--font-sans); color: var(--ink-700);
 }
+/* The stepper and its "N available" note share one baseline row. */
+.qty-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.qty-avail { font: 400 13px/1.4 var(--font-sans); color: var(--ink-500); }
 .qty-stepper {
   display: inline-flex; align-items: stretch;
   border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
@@ -2811,6 +2789,13 @@ body.shop-cart .qty-stepper { margin-top: 6px; }
 .cart-summary form.stack { gap: 10px; margin-top: 14px; }
 .cart-summary .field { gap: 4px; }
 .cart-summary .banner { margin-top: 2px; padding: 8px 12px; font-size: 12.5px; line-height: 1.4; }
+/* The saved delivery address, shown read-only in the checkout form — a
+   framed block so it reads as a fixed fact, not a field awaiting input. */
+.checkout-saved-address {
+  margin: 0 0 4px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--green-50);
+  font: 500 13px/1.45 var(--font-sans); color: var(--ink-900);
+}
 /* Place Order and Continue shopping are one pair; the .stack gap held them
    as far apart as the unrelated fields above. */
 .cart-summary form.stack > .btn + .btn { margin-top: -4px; }

@@ -25,7 +25,7 @@ from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import Address, User
 from billing.models import BillingRecord
 from branches.models import Branch
 from inventory.models import Inventory, Product
@@ -59,6 +59,12 @@ class DiscountFixtureMixin:
         )
         self.shopper = User.objects.create_user(
             username='vd-shopper', password='pw', role=User.Role.CUSTOMER
+        )
+        # A Delivery checkout ships to the account's default Address and is
+        # refused without one — every checkout in this file that chooses
+        # Delivery relies on this being here.
+        Address.objects.create(
+            user=self.shopper, is_default=True, text='12 Real St, Baliuag',
         )
 
     def messages(self, response):
