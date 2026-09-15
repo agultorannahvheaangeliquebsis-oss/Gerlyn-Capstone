@@ -391,6 +391,7 @@ def user_form(request, pk=None):
         errors.append("You can't change your own role.")
 
     if not errors:
+        role_changed_from = None
         if target is None:
             target = User.objects.create_user(
                 username=username, email=request.POST.get('email', ''),
@@ -398,6 +399,8 @@ def user_form(request, pk=None):
                 first_name=first_name, last_name=last_name,
             )
         else:
+            if target.role != role:
+                role_changed_from = target.role
             target.username = username
             target.email = request.POST.get('email', '')
             target.first_name = first_name
@@ -452,6 +455,22 @@ def user_form(request, pk=None):
         if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
             target.allowed_modules = submitted_modules
             target.save(update_fields=['allowed_modules'])
+
+        if role_changed_from is not None:
+            from core.notifications import CATEGORY_SYSTEM, PRIORITY_HIGH, notify
+
+            notify(
+                CATEGORY_SYSTEM, PRIORITY_HIGH,
+                f'Role changed — {username}',
+                f'{username} was moved from {role_changed_from} to {role} '
+                f'by {request.user.username}.',
+                branch=(
+                    getattr(getattr(target, 'manager_profile', None), 'branch', None)
+                    or getattr(getattr(target, 'staff_profile', None), 'branch', None)
+                ),
+                action_url=reverse('accounts:user_list'),
+                action_label='View Users',
+            )
 
         messages.success(request, f'User "{username}" saved.')
         return redirect('accounts:user_list')

@@ -33,6 +33,14 @@ def create_user_profile(sender, instance, created, **kwargs):
         # save() so this doesn't re-trigger this same post_save signal.
         User.objects.filter(pk=instance.pk).update(allowed_modules=DEFAULT_STAFF_MODULES)
 
+        from core.notifications import CATEGORY_STAFF, PRIORITY_LOW, notify
+
+        notify(
+            CATEGORY_STAFF, PRIORITY_LOW,
+            f'New staff account — {instance.username}',
+            f'A Staff account for {instance.username} was added.',
+        )
+
     elif role == User.Role.SUPPLIER and not hasattr(instance, 'supplier_profile'):
         SupplierProfile.objects.create(user=instance, supplier_name=instance.username)
 

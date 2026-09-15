@@ -1788,6 +1788,52 @@ input::placeholder { color: var(--ink-500); }
 }
 .skip-link:focus { top: var(--s4); }
 
+/* ------------------------------------------------- Owner Notification Center
+   Topbar bell (internal_base.html) + the feed on core/notification_center.html.
+   Priority maps onto the existing 4-tint semantic palette rather than adding
+   new colors: Critical->danger, High->warn, Medium->info, Low->neutral — the
+   same mapping alerts_center.html already uses for Critical/High/Moderate,
+   extended by one tier. */
+.topbar-bell {
+  position: relative; flex: none; display: inline-flex; align-items: center;
+  justify-content: center; width: 38px; height: 38px; border-radius: var(--r-pill);
+  color: var(--ink-600); text-decoration: none;
+}
+.topbar-bell:hover { background: var(--line-soft); color: var(--ink-900); }
+.topbar-bell--active { color: var(--action-700); background: var(--ok-bg); }
+.topbar-bell svg { width: 18px; height: 18px; }
+.topbar-bell .nav-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px;
+  padding: 0 4px; font: 700 10px/16px system-ui, sans-serif;
+}
+
+.notif-feed { display: flex; flex-direction: column; gap: var(--s3); }
+
+.notif-card {
+  position: relative; display: flex; gap: var(--s3); padding: var(--s4);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-card);
+  border-left: 4px solid var(--line);
+}
+.notif-card.priority-critical { border-left-color: var(--danger-dot); }
+.notif-card.priority-high     { border-left-color: var(--warn-dot); }
+.notif-card.priority-medium   { border-left-color: var(--info-dot); }
+.notif-card.priority-low      { border-left-color: var(--ink-400); }
+.notif-card.notif-card--unread { background: var(--line-soft); }
+
+.notif-card-body { flex: 1; min-width: 0; }
+.notif-card-top {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s3); flex-wrap: wrap;
+}
+.notif-card-cat {
+  font: 600 11px/1.3 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink-400);
+}
+.notif-card-time { font: 400 12px/1.3 system-ui, sans-serif; color: var(--ink-400); white-space: nowrap; }
+.notif-card-msg { margin: 4px 0 0; font: 400 14.5px/1.5 system-ui, sans-serif; color: var(--ink-900); }
+.notif-card-actions { display: flex; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+
 /* ------------------------------------------------------- reduced motion
    Honours the OS "reduce motion" setting. Everything animated here is
    decorative easing (sidebar width, tree disclosure, content margin) — none

@@ -334,6 +334,32 @@ class SupplierProfile(models.Model):
     
     
 class Notification(models.Model):
+    """
+    One notification, one row, one recipient — a customer's order update and
+    an Owner's "PO delayed" alert are the same model. Fan-out to several
+    recipients (e.g. the Owner + a Branch Manager) means several rows, not a
+    many-to-many: each reads/resolves independently.
+
+    `category`/`priority`/`branch`/`action_*`/`requires_action` back the
+    internal Owner Notification Center (core.notifications.notify(), see
+    core/views.py:notification_center_view). They're blank/default on a
+    plain customer notification (order updates etc., created directly with
+    Notification.objects.create() as before this feature) — that's what
+    keeps this one model serving both audiences without a second table.
+    """
+
+    class Category(models.TextChoices):
+        STAFF = 'staff', 'Staff'
+        PROCUREMENT = 'procurement', 'Procurement & Inventory'
+        SALES = 'sales', 'Sales & Financial'
+        SYSTEM = 'system', 'System & Security'
+
+    class Priority(models.TextChoices):
+        CRITICAL = 'critical', 'Critical'
+        HIGH = 'high', 'High'
+        MEDIUM = 'medium', 'Medium'
+        LOW = 'low', 'Low'
+
     user = models.ForeignKey(
         User, on_delete=models.CASCADE,
         related_name='notifications'
@@ -343,8 +369,42 @@ class Notification(models.Model):
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # --- Owner Notification Center fields ------------------------------
+    category = models.CharField(
+        max_length=20, choices=Category.choices, blank=True, default='',
+        help_text="Blank for a plain customer notification (order updates, "
+                  "etc). Set for anything raised by core.notifications.notify()."
+    )
+    priority = models.CharField(
+        max_length=10, choices=Priority.choices, default=Priority.LOW,
+    )
+    branch = models.ForeignKey(
+        'branches.Branch', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='notifications',
+    )
+    action_url = models.CharField(max_length=255, blank=True)
+    action_label = models.CharField(max_length=40, blank=True)
+    requires_action = models.BooleanField(
+        default=False,
+        help_text="High/Critical items that stay pinned as unresolved until "
+                  "acted on, rather than clearing on read alone.",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'category', '-created_at']),
+        ]
 
     def __str__(self):
         return f"Notification for {self.user.username}: {self.title}"
+
+    @property
+    def is_resolved(self):
+        return not self.requires_action or self.resolved_at is not None
+
+    def resolve(self):
+        self.is_read = True
+        self.resolved_at = timezone.now()
+        self.save(update_fields=['is_read', 'resolved_at'])

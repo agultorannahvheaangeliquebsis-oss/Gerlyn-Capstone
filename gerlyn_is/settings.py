@@ -209,6 +209,7 @@ TEMPLATES = [
                 'core.context_processors.alerts',
                 'core.context_processors.app_version',
                 'core.context_processors.customer_nav',
+                'core.context_processors.internal_notifications',
                 'core.context_processors.module_access',
                 'core.context_processors.nav_branches',
                 'core.context_processors.nav_categories',

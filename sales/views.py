@@ -268,6 +268,19 @@ def transaction_set_status(request, pk, new_status):
                     billing.status = BillingRecord.PaymentStatus.CANCELLED
                     billing.confirmed_by = request.user
                     billing.save()
+
+                from core.notifications import CATEGORY_SALES, PRIORITY_MEDIUM, notify
+
+                notify(
+                    CATEGORY_SALES, PRIORITY_MEDIUM,
+                    f'Order {locked_txn.order_number} cancelled',
+                    f'{locked_txn.order_number} ({locked_txn.branch.branch_name}, '
+                    f'₱{locked_txn.total_amount}) was cancelled by '
+                    f'{request.user.username}.',
+                    branch=locked_txn.branch,
+                    action_url=reverse('transaction_detail', kwargs={'pk': locked_txn.pk}),
+                    action_label='View Order',
+                )
     except _OrderActionError as e:
         messages.error(request, str(e))
         return redirect('transaction_detail', pk=pk)

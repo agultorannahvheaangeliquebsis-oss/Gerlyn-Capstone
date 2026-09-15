@@ -5,7 +5,8 @@ from django.views.static import serve
 
 from core.views import (
     about_view, db_latency_check, download_view, health_check,
-    internal_settings_view, service_worker_view,
+    internal_settings_view, notification_center_view, notification_mark_all_read,
+    notification_mark_read, notification_resolve, service_worker_view,
 )
 
 urlpatterns = [
@@ -22,6 +23,10 @@ urlpatterns = [
     path('about/', about_view, name='about'),
     path('download/', download_view, name='download'),
     path('internal/settings/', internal_settings_view, name='internal_settings'),
+    path('internal/notifications/', notification_center_view, name='notification_center'),
+    path('internal/notifications/<int:pk>/read/', notification_mark_read, name='notification_mark_read'),
+    path('internal/notifications/<int:pk>/resolve/', notification_resolve, name='notification_resolve'),
+    path('internal/notifications/read-all/', notification_mark_all_read, name='notification_mark_all_read'),
     path('', include('accounts.urls', namespace='accounts')),
     path('inventory/', include('inventory.urls')),
     path('branches/', include('branches.urls')),
