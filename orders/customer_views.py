@@ -573,6 +573,11 @@ def product_detail(request, product_id):
         # Add to Cart button both name the branch they are talking about, and
         # `branches` above is the whole list, not the chosen one.
         'selected_branch': next((b for b in branches if b.pk == branch_id), None),
+        # Gates the BULK badge — wholesale_price only actually applies to
+        # this shopper's checkout total when their account is wholesale-
+        # eligible (order_type_for). Showing it to everyone advertised a
+        # price a retail account can never get.
+        'is_wholesale': order_type_for(request.user) == SalesTransaction.OrderType.WHOLESALE,
     })
 
 

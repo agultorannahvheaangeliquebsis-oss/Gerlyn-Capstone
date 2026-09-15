@@ -155,6 +155,7 @@ every panel in the app to fix one column.
         <div class="field">
           <label for="fulfillment_type">How would you like this order?</label>
           <select id="fulfillment_type" name="fulfillment_type" required>
+            <option value="" selected disabled>Choose one…</option>
             <option value="Delivery">Deliver to my address</option>
             <option value="Pickup">I'll pick it up at the branch</option>
           </select>
@@ -313,6 +314,25 @@ Delivery, independent of anything this script does.
 
     paymentSelect.addEventListener('change', sync);
     fulfillmentSelect.addEventListener('change', sync);
+    sync();
+  })();
+
+  {% comment %}
+  Same pattern as the delivery-address toggle above, keyed off
+  mode_of_payment instead of fulfillment_type: show the GCash reference
+  field only when GCash is selected, so it doesn't sit open and typeable
+  for Cash on Delivery or Pay at Store.
+  {% endcomment %}
+  (function () {
+    var select = document.getElementById('mode_of_payment');
+    var field = document.getElementById('gcash_reference_field');
+    if (!select || !field) return;
+
+    function sync() {
+      field.style.display = select.value === 'GCash' ? '' : 'none';
+    }
+
+    select.addEventListener('change', sync);
     sync();
   })();
 </script>

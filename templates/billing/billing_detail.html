@@ -16,6 +16,7 @@
 </div>
 
 {% if record.status == "Pending" %}
+{% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' or request.user.role == 'STAFF' %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div class="grow">
@@ -25,13 +26,25 @@
         seen the cash or checked the reference number.
       </p>
     </div>
-    <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
-      {% csrf_token %}
-      <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
-      <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
-    </form>
+    <div class="row">
+      <form method="POST" action="{% url 'billing_confirm' record.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="status" value="Rejected">
+        <button type="submit" class="btn btn-danger">Reject</button>
+      </form>
+      <form method="POST" action="{% url 'billing_confirm' record.pk %}"
+            data-confirm="Marking {{ record.transaction.order_number }} as Paid is permanent and cannot be undone."
+            data-confirm-title="Mark this bill Paid?"
+            data-confirm-ok="Mark as Paid"
+            data-confirm-dismiss="Not yet">
+        {% csrf_token %}
+        <input type="hidden" name="status" value="Paid">
+        <button type="submit" class="btn btn-primary">Mark as Paid</button>
+      </form>
+    </div>
   </div>
 </div>
+{% endif %}
 {% elif record.status == "Rejected" %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
