@@ -474,6 +474,19 @@ def procurement_update_status(request, pk):
 
         messages.success(request, f'{proc.po_number} is now {new_status}.')
 
+        if new_status == Procurement.Status.CANCELLED:
+            from core.notifications import CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify
+
+            notify(
+                CATEGORY_PROCUREMENT, PRIORITY_HIGH,
+                f'{proc.po_number} cancelled',
+                f'{proc.po_number} to {proc.supplier} was cancelled by '
+                f'{request.user.username}.',
+                branch=proc.branch,
+                action_url=reverse('procurement_detail', kwargs={'pk': proc.pk}),
+                action_label='View PO',
+            )
+
     return redirect('procurement_detail', pk=pk)
 
 
@@ -806,6 +819,18 @@ def delivery_receive(request, pk):
                 request,
                 f'{proc.po_number} received with a discrepancy — '
                 f'delivered quantities differ from what was ordered.'
+            )
+            from core.notifications import CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify
+
+            notify(
+                CATEGORY_PROCUREMENT, PRIORITY_HIGH,
+                f'{proc.po_number} received with a discrepancy',
+                f'{proc.po_number} from {proc.supplier} ({proc.branch.branch_name}) '
+                f'was received with delivered quantities that differ from what '
+                f'was ordered.',
+                branch=proc.branch,
+                action_url=reverse('procurement_detail', kwargs={'pk': proc.pk}),
+                action_label='View PO',
             )
         else:
             messages.success(

@@ -3,6 +3,7 @@ from django.db import models
 from django.db.models import F
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.urls import reverse
 from branches.models import Branch
 
 
@@ -388,8 +389,55 @@ class Inventory(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        # Fetched BEFORE super().save() so the Owner Notification Center
+        # trigger below fires once, on the transition, not on every save of
+        # a row that's already below reorder — see low_stock_alerts() in
+        # inventory/alerts.py for the read-time version of this same
+        # threshold, which this deliberately doesn't duplicate.
+        previous = None
+        if self.pk:
+            previous = Inventory.objects.filter(pk=self.pk).values_list(
+                'quantity_on_hand', 'reorder_level'
+            ).first()
+
         self.restock = self.quantity_on_hand <= self.reorder_level
         super().save(*args, **kwargs)
+
+        if previous is not None:
+            prev_qty, prev_reorder = previous
+            was_out = prev_qty == 0
+            was_low = prev_qty <= prev_reorder
+            now_out = self.quantity_on_hand == 0
+            now_low = self.quantity_on_hand <= self.reorder_level
+            if now_out and not was_out:
+                self._notify_stock_crossing(critical=True)
+            elif now_low and not was_low:
+                self._notify_stock_crossing(critical=False)
+
+    def _notify_stock_crossing(self, critical):
+        from core.notifications import (
+            CATEGORY_PROCUREMENT, PRIORITY_CRITICAL, PRIORITY_MEDIUM, notify,
+        )
+
+        if critical:
+            title = f"{self.product.product_name} is out of stock"
+            message = (
+                f"{self.branch.branch_name} has 0 units of "
+                f"{self.product.product_name} on the floor."
+            )
+            priority = PRIORITY_CRITICAL
+        else:
+            title = f"{self.product.product_name} is low on stock"
+            message = (
+                f"{self.branch.branch_name}: {self.quantity_on_hand} units left, "
+                f"at or below the reorder level of {self.reorder_level}."
+            )
+            priority = PRIORITY_MEDIUM
+
+        notify(
+            CATEGORY_PROCUREMENT, priority, title, message, branch=self.branch,
+            action_url=reverse('inventory_list'), action_label='View Floor Stock',
+        )
 
     def __str__(self):
         return f"{self.product.product_name} - {self.branch.branch_name} (Floor)"

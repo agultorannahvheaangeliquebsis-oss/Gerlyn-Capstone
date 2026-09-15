@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
@@ -311,3 +311,82 @@ def hero_draft_discard(request):
 
     messages.success(request, "Discarded the unpublished home-page changes.")
     return _hero_return(request)
+
+
+# =============================================================================
+# OWNER NOTIFICATION CENTER
+# =============================================================================
+# Cross-department feed of everything core.notifications.notify() has raised
+# for this user — see that module for what raises these and
+# templates/core/notification_center.html for the panel/filter UI. Reuses
+# accounts.models.Notification (the same model the customer-facing inbox at
+# accounts:notifications already uses) rather than a second table; `category`
+# blank is what keeps that plain customer inbox from showing up here.
+
+@role_required(*INTERNAL_ROLES)
+def notification_center_view(request):
+    from accounts.models import Notification
+
+    notifications = request.user.notifications.exclude(category='').select_related('branch')
+
+    counts = {
+        'staff': notifications.filter(category=Notification.Category.STAFF).count(),
+        'procurement': notifications.filter(category=Notification.Category.PROCUREMENT).count(),
+        'sales': notifications.filter(category=Notification.Category.SALES).count(),
+        'system': notifications.filter(category=Notification.Category.SYSTEM).count(),
+    }
+
+    return render(request, 'core/notification_center.html', {
+        # A feed, not a table — capped rather than paginated, matching the
+        # rest of the app (see feedback-gerlyn-conventions: no pagination
+        # anywhere yet at current data volume).
+        'notifications': notifications[:200],
+        'total_count': notifications.count(),
+        'unread_count': notifications.filter(is_read=False).count(),
+        'needs_action_count': notifications.filter(
+            requires_action=True, resolved_at__isnull=True
+        ).count(),
+        'counts': counts,
+        'active_page': 'notifications',
+    })
+
+
+@require_POST
+@role_required(*INTERNAL_ROLES)
+def notification_mark_read(request, pk):
+    notification = get_object_or_404(request.user.notifications, pk=pk)
+    if not notification.is_read:
+        notification.is_read = True
+        notification.save(update_fields=['is_read'])
+    return redirect('notification_center')
+
+
+@require_POST
+@role_required(*INTERNAL_ROLES)
+def notification_resolve(request, pk):
+    """Marks the alert acted-on — the action button, distinct from just
+    opening/reading it. The topbar badge
+    (core.context_processors.internal_notifications) only counts unresolved
+    High/Critical items, not raw unread count, so opening a card doesn't
+    silently clear it — only this does."""
+    notification = get_object_or_404(request.user.notifications, pk=pk)
+    if not notification.resolved_at:
+        notification.resolve()
+        messages.success(request, 'Marked as resolved.')
+    return redirect('notification_center')
+
+
+@require_POST
+@role_required(*INTERNAL_ROLES)
+def notification_mark_all_read(request):
+    updated = request.user.notifications.exclude(category='').filter(
+        is_read=False
+    ).update(is_read=True)
+    if updated:
+        messages.success(
+            request,
+            f'Marked {updated} notification{"" if updated == 1 else "s"} as read.',
+        )
+    else:
+        messages.info(request, 'You have no unread notifications.')
+    return redirect('notification_center')

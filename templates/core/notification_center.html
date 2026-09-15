@@ -1,0 +1,109 @@
+{% extends 'internal_base.html' %}
+{% load static %}
+{% block title %}Notifications{% endblock %}
+{% block page_subtitle %}Notifications{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Owner Notification Center</h1>
+    <p class="gv-meta">Staff, Procurement &amp; Inventory, Sales &amp; Financial, and System &amp; Security — everything raised for your account, ranked by priority.</p>
+  </div>
+  {% if unread_count %}
+  <form method="post" action="{% url 'notification_mark_all_read' %}" style="margin:0;">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-sm">Mark all as read</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="kpi-row compact">
+  <div class="kpi-card{% if unread_count %} warn{% endif %}">
+    <span class="label">Unread</span>
+    <span class="value">{{ unread_count }}</span>
+  </div>
+  <div class="kpi-card{% if needs_action_count %} danger{% endif %}">
+    <span class="label">Needs Action</span>
+    <span class="value">{{ needs_action_count }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Total</span>
+    <span class="value">{{ total_count }}</span>
+  </div>
+</div>
+
+<div class="filter-tabs">
+  <button type="button" class="filter-tab active" data-cat="all" onclick="filterNotifCat('all', this)">
+    All <span class="count count-neutral">{{ total_count }}</span>
+  </button>
+  <button type="button" class="filter-tab" data-cat="staff" onclick="filterNotifCat('staff', this)">
+    Staff <span class="count count-neutral">{{ counts.staff }}</span>
+  </button>
+  <button type="button" class="filter-tab" data-cat="procurement" onclick="filterNotifCat('procurement', this)">
+    Procurement &amp; Inventory <span class="count count-neutral">{{ counts.procurement }}</span>
+  </button>
+  <button type="button" class="filter-tab" data-cat="sales" onclick="filterNotifCat('sales', this)">
+    Sales &amp; Financial <span class="count count-neutral">{{ counts.sales }}</span>
+  </button>
+  <button type="button" class="filter-tab" data-cat="system" onclick="filterNotifCat('system', this)">
+    System &amp; Security <span class="count count-neutral">{{ counts.system }}</span>
+  </button>
+</div>
+
+<div class="notif-feed" id="notifFeed">
+  {% for n in notifications %}
+  <div class="notif-card priority-{{ n.priority }}{% if not n.is_read %} notif-card--unread{% endif %}" data-cat="{{ n.category }}">
+    <div class="notif-card-body">
+      <div class="notif-card-top">
+        <span class="notif-card-cat">{{ n.get_category_display }}{% if n.branch %} · {{ n.branch.branch_name }}{% endif %}</span>
+        <span class="notif-card-time">{{ n.created_at|date:"M d, Y \a\t g:i A" }}</span>
+      </div>
+      <div class="notif-card-top" style="margin-top:2px;">
+        <strong>{{ n.title }}</strong>
+        <span class="pill pill-{% if n.priority == 'critical' %}danger{% elif n.priority == 'high' %}warn{% elif n.priority == 'medium' %}info{% else %}neutral{% endif %}">
+          {{ n.get_priority_display }}
+        </span>
+      </div>
+      <p class="notif-card-msg">{{ n.message }}</p>
+      <div class="notif-card-actions">
+        {% if n.action_url %}
+        <a class="btn btn-sm btn-primary" href="{{ n.action_url }}">{{ n.action_label|default:"View" }}</a>
+        {% endif %}
+        {% if n.requires_action and not n.resolved_at %}
+        <form method="post" action="{% url 'notification_resolve' n.pk %}" style="margin:0;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm">Resolve</button>
+        </form>
+        {% elif not n.is_read %}
+        <form method="post" action="{% url 'notification_mark_read' n.pk %}" style="margin:0;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-quiet">Dismiss</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="empty">
+    <span class="glyph" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    </span>
+    <h3>Nothing to review</h3>
+    <p>Staff, Procurement, Sales, and System events will appear here as they happen.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function filterNotifCat(cat, btn) {
+    document.querySelectorAll('#notifFeed .notif-card').forEach(function (card) {
+      card.classList.toggle('hidden', cat !== 'all' && card.dataset.cat !== cat);
+    });
+    document.querySelectorAll('.filter-tabs .filter-tab').forEach(function (tab) {
+      tab.classList.toggle('active', tab === btn);
+    });
+  }
+</script>
+{% endblock %}

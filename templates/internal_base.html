@@ -244,6 +244,19 @@ DOM — it is off-screen until focused (see .skip-link).
         </span>
         {% endblock %}
         {% comment %}
+        Cross-department feed (Staff/Procurement/Sales/System) distinct from
+        the inventory-only Alerts Center in the sidebar — see
+        core.notifications and core/views.py:notification_center_view. The
+        badge counts unresolved High/Critical items specifically (see
+        core.context_processors.internal_notifications), not raw unread, so
+        it reads as "things still waiting on you."
+        {% endcomment %}
+        <a class="topbar-bell{% if active_page == 'notifications' %} topbar-bell--active{% endif %}"
+           href="{% url 'notification_center' %}" title="Notifications" aria-label="Notifications">
+          <i data-lucide="bell"></i>
+          {% if owner_notification_count %}<span class="nav-badge">{{ owner_notification_count }}</span>{% endif %}
+        </a>
+        {% comment %}
           The account control, at every width. It was a <details> panel whose
           first row was My Profile; it is now that link directly, because that
           row is what the menu was being opened for.

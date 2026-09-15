@@ -321,6 +321,42 @@ def alerts(request):
     return {"alert_count": count}
 
 
+def internal_notifications(request):
+    """
+    Expose `owner_notification_count` for the topbar bell badge — see
+    templates/internal_base.html and core.views.notification_center_view.
+
+    Counts unresolved High/Critical items specifically (Notification.
+    is_resolved), not raw unread count — matching the Notification Center's
+    own "read ≠ resolved" rule: opening a card marks it read, only its
+    action button resolves it, so the badge stays a count of what's still
+    waiting on the Owner/Manager rather than emptying the moment they glance
+    at the list. Same fail-safe, cached-count shape as alerts() above.
+    """
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return {}
+    if getattr(user, "role", None) not in INTERNAL_ROLES:
+        return {}
+
+    from django.core.cache import cache
+
+    cache_key = f"owner_notification_count:{user.id}"
+    count = cache.get(cache_key)
+    if count is not None:
+        return {"owner_notification_count": count}
+
+    try:
+        count = user.notifications.filter(
+            requires_action=True, resolved_at__isnull=True
+        ).count()
+    except Exception:
+        return {}
+
+    cache.set(cache_key, count, ALERT_COUNT_CACHE_SECONDS)
+    return {"owner_notification_count": count}
+
+
 def nav_selected_branch(request):
     """
     Expose `nav_selected_branch` for the storefront nav bar's status line.

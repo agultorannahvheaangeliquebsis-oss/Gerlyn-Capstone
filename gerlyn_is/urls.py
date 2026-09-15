@@ -7,6 +7,8 @@ from core.views import (
     about_view, download_view, healthz, hero_draft_apply,
     hero_draft_discard, hero_slide_delete, hero_slide_save,
     internal_settings_view, service_worker_view, store_settings_update,
+    notification_center_view, notification_mark_all_read,
+    notification_mark_read, notification_resolve,
 )
 
 urlpatterns = [
@@ -25,6 +27,10 @@ urlpatterns = [
     path('internal/settings/hero/delete/', hero_slide_delete, name='hero_slide_delete'),
     path('internal/settings/hero/apply/', hero_draft_apply, name='hero_draft_apply'),
     path('internal/settings/hero/discard/', hero_draft_discard, name='hero_draft_discard'),
+    path('internal/notifications/', notification_center_view, name='notification_center'),
+    path('internal/notifications/<int:pk>/read/', notification_mark_read, name='notification_mark_read'),
+    path('internal/notifications/<int:pk>/resolve/', notification_resolve, name='notification_resolve'),
+    path('internal/notifications/read-all/', notification_mark_all_read, name='notification_mark_all_read'),
     path('', include('accounts.urls', namespace='accounts')),
     path('inventory/', include('inventory.urls')),
     path('branches/', include('branches.urls')),

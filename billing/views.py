@@ -421,4 +421,18 @@ def billing_confirm(request, pk):
         verb = 're-opened' if new_status == BillingRecord.PaymentStatus.PENDING else f'marked as {new_status}'
         messages.success(request, f'{record.transaction.order_number} payment {verb}.')
 
+        if new_status == BillingRecord.PaymentStatus.REJECTED:
+            from core.notifications import CATEGORY_SALES, PRIORITY_HIGH, notify
+
+            txn = record.transaction
+            notify(
+                CATEGORY_SALES, PRIORITY_HIGH,
+                f'Payment rejected — {txn.order_number}',
+                f'Payment for {txn.order_number} ({txn.branch.branch_name}, '
+                f'₱{txn.total_amount}) was rejected by {request.user.username}.',
+                branch=txn.branch,
+                action_url=reverse('billing_detail', kwargs={'pk': record.pk}),
+                action_label='View Billing Record',
+            )
+
     return redirect('billing_detail', pk=pk)
