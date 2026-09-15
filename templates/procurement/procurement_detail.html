@@ -18,10 +18,16 @@
   Available at every status: a cancelled or draft PO still gets printed for
   the paper file, and the document itself says which it is.
   {% endcomment %}
-  <a class="btn btn-primary" href="{% url 'procurement_print' procurement.pk %}">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
-    Print PO
-  </a>
+  <div class="row" style="gap:var(--s2);">
+    <a class="btn" href="{% url 'procurement_print' procurement.pk %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
+      Print PO
+    </a>
+    <a class="btn btn-primary" href="{% url 'procurement_pdf' procurement.pk %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      Download PDF
+    </a>
+  </div>
 </div>
 
 {% if procurement.status != "Received" and procurement.status != "Cancelled" %}

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{ procurement.po_number }}</title>
+<style>
+  {% comment %}
+  Rendered by xhtml2pdf (reportlab under the hood), not a browser — it only
+  understands a CSS2.1-ish subset. No flexbox, no grid, no CSS custom
+  properties. Layout is done with tables, same as an email newsletter would
+  be. This is deliberately a separate template from po_print.html (the
+  browser print-to-PDF version): that one relies on gerlyn.css and flex/grid
+  for the on-screen + Ctrl+P path, this one is the actual downloadable-file
+  path and has to render standalone with none of that.
+  {% endcomment %}
+  @page {
+    size: A4;
+    margin: 18mm 16mm 16mm 16mm;
+    @frame footer_frame {
+      -pdf-frame-content: footer_content;
+      bottom: 8mm; left: 16mm; right: 16mm; height: 12mm;
+    }
+  }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #111111; }
+  table { border-collapse: collapse; width: 100%; }
+  .store-name { font-size: 15pt; font-weight: bold; }
+  .store-sub { font-size: 8.5pt; color: #555555; }
+  .doc-title { font-size: 17pt; font-weight: bold; text-align: right; letter-spacing: 1px; }
+  .doc-meta { font-size: 8.5pt; text-align: right; color: #333333; line-height: 1.5; }
+  .doc-meta strong { font-size: 9.5pt; }
+  .letterhead-table td { border-bottom: 2px solid #111111; padding-bottom: 10px; vertical-align: top; }
+
+  .void-banner {
+    border: 1px dashed #aa0000; color: #aa0000; font-size: 9pt;
+    font-weight: bold; padding: 6px 9px; margin: 10px 0;
+  }
+  .mismatch-banner {
+    border: 1px solid #b8860b; background-color: #fff8e6; color: #6b5000;
+    font-size: 8.5pt; padding: 6px 9px; margin: 10px 0;
+  }
+
+  .parties-table { margin: 14px 0; }
+  .parties-table td { width: 50%; border: 1px solid #bbbbbb; padding: 8px 10px; vertical-align: top; }
+  .party-label {
+    font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase;
+    color: #555555; font-weight: bold;
+  }
+  .party-name { font-weight: bold; font-size: 10.5pt; margin-top: 3px; }
+  .party-line { font-size: 9pt; line-height: 1.5; }
+
+  .terms-table { border: 1px solid #bbbbbb; margin-bottom: 14px; }
+  .terms-table td { padding: 7px 10px; border-right: 1px solid #bbbbbb; width: 33%; }
+  .terms-table td.last { border-right: 0; }
+  .term-key {
+    font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase;
+    color: #555555; font-weight: bold;
+  }
+  .term-val { font-size: 10pt; font-weight: bold; margin-top: 2px; }
+
+  .items-table th {
+    text-align: left; font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase;
+    padding: 6px 7px; border-bottom: 2px solid #111111; border-top: 1px solid #111111;
+    background-color: #f2f2f2;
+  }
+  .items-table td { padding: 6px 7px; border-bottom: 1px solid #dddddd; font-size: 9pt; }
+  .items-table .num { text-align: right; }
+  .items-table .sku { font-size: 7.5pt; color: #666666; }
+  .items-table .total-row td {
+    border-bottom: 0; border-top: 2px solid #111111;
+    padding-top: 9px; font-weight: bold; font-size: 10.5pt;
+  }
+
+  .sign-table { margin-top: 34px; }
+  .sign-table td { width: 33%; padding-right: 18px; vertical-align: bottom; }
+  .sign-rule { border-bottom: 1px solid #111111; height: 34px; }
+  .sign-who { font-size: 9.5pt; font-weight: bold; margin-top: 5px; }
+  .sign-role {
+    font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase; color: #555555;
+  }
+
+  #footer_content { font-size: 7.5pt; color: #777777; border-top: 1px solid #dddddd; padding-top: 5px; }
+</style>
+</head>
+<body>
+
+<div id="footer_content">
+  Goods are accepted only after receipt validation at the delivering branch. Quantities short-delivered are recorded against this order.
+  &nbsp;&mdash;&nbsp; Printed {{ printed_on|date:"d M Y" }} by {{ printed_by }}
+</div>
+
+{% if procurement.status == 'Cancelled' %}
+<div class="void-banner">This purchase order was CANCELLED and is not valid for delivery.</div>
+{% elif procurement.status == 'Draft' %}
+<div class="void-banner">DRAFT &mdash; not yet placed with the supplier.</div>
+{% endif %}
+
+<table class="letterhead-table">
+  <tr>
+    <td style="width:55%;">
+      <div class="store-name">Gerlyn Variety Store</div>
+      <div class="store-sub">{{ procurement.branch.branch_name }}</div>
+      <div class="store-sub">{{ procurement.branch.location }}</div>
+    </td>
+    <td style="width:45%;">
+      <div class="doc-title">PURCHASE ORDER</div>
+      <div class="doc-meta">
+        <strong>{{ procurement.po_number }}</strong><br/>
+        Order date: {{ procurement.order_date|date:"d M Y" }}
+      </div>
+    </td>
+  </tr>
+</table>
+
+{% if totals_disagree %}
+<div class="mismatch-banner">
+  The stored order total (PHP {{ procurement.total_cost|floatformat:2 }}) does not match the
+  sum of the line items (PHP {{ line_sum|floatformat:2 }}). Check the order before sending this to the supplier.
+</div>
+{% endif %}
+
+<table class="parties-table">
+  <tr>
+    <td>
+      <div class="party-label">Supplier</div>
+      {% if procurement.supplier %}
+        <div class="party-name">{{ supplier_profile.supplier_name|default:procurement.supplier.username }}</div>
+        {% if supplier_profile.contact_person %}<div class="party-line">Attn: {{ supplier_profile.contact_person }}</div>{% endif %}
+        {% if supplier_profile.contact_number %}<div class="party-line">{{ supplier_profile.contact_number }}</div>{% endif %}
+        {% if procurement.supplier.email %}<div class="party-line">{{ procurement.supplier.email }}</div>{% endif %}
+        {% if supplier_profile.address %}<div class="party-line">{{ supplier_profile.address }}</div>{% endif %}
+      {% else %}
+        <div class="party-name">&mdash;</div>
+        <div class="party-line">No supplier assigned to this order.</div>
+      {% endif %}
+    </td>
+    <td>
+      <div class="party-label">Deliver To</div>
+      <div class="party-name">Gerlyn Variety Store &mdash; {{ procurement.branch.branch_name }}</div>
+      <div class="party-line">{{ procurement.branch.location }}</div>
+    </td>
+  </tr>
+</table>
+
+<table class="terms-table">
+  <tr>
+    <td>
+      <div class="term-key">Target Delivery Date</div>
+      <div class="term-val">{{ procurement.delivery_date|date:"d M Y"|default:"To be confirmed" }}</div>
+    </td>
+    <td>
+      <div class="term-key">Prepared By</div>
+      <div class="term-val">{{ prepared_by_name|default:"&mdash;" }}</div>
+    </td>
+    <td class="last">
+      <div class="term-key">Status</div>
+      <div class="term-val">{{ procurement.status }}</div>
+    </td>
+  </tr>
+</table>
+
+<table class="items-table">
+  <thead>
+    <tr>
+      <th style="width:6%;">#</th>
+      <th style="width:36%;">Item Description</th>
+      <th class="num" style="width:12%;">Unit</th>
+      <th class="num" style="width:12%;">Qty</th>
+      <th class="num" style="width:16%;">Unit Cost</th>
+      <th class="num" style="width:18%;">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td class="num">{{ forloop.counter }}</td>
+      <td>
+        <strong>{{ item.product.product_name|default:"(product removed)" }}</strong>
+        {% if item.product.sku_code %}<div class="sku">{{ item.product.sku_code }}</div>{% endif %}
+      </td>
+      <td class="num">{{ item.product.unit_of_measure|default:"&mdash;" }}</td>
+      <td class="num">{{ item.quantity_ordered }}</td>
+      <td class="num">PHP {{ item.cost_price|floatformat:2 }}</td>
+      <td class="num">PHP {{ item.line_total|floatformat:2 }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6" style="padding:16px 7px; text-align:center; color:#666666;">
+      This purchase order has no line items.
+    </td></tr>
+    {% endfor %}
+    <tr class="total-row">
+      <td colspan="5" class="num">TOTAL COST</td>
+      <td class="num">PHP {{ procurement.total_cost|floatformat:2 }}</td>
+    </tr>
+  </tbody>
+</table>
+
+<table class="sign-table">
+  <tr>
+    <td>
+      <div class="sign-rule"></div>
+      <div class="sign-who">{{ prepared_by_name|default:"&nbsp;" }}</div>
+      <div class="sign-role">Prepared By</div>
+    </td>
+    <td>
+      <div class="sign-rule"></div>
+      <div class="sign-who">{{ authorized_by_name|default:"&nbsp;" }}</div>
+      <div class="sign-role">Authorized By &mdash; Owner</div>
+    </td>
+    <td>
+      <div class="sign-rule"></div>
+      <div class="sign-who">{{ supplier_signatory|default:"&nbsp;" }}</div>
+      <div class="sign-role">Received / Acknowledged By &mdash; Supplier</div>
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

@@ -6,6 +6,8 @@ django-cloudinary-storage==0.3.0
 djangorestframework==3.17.1
 gunicorn==23.0.0
 pillow==12.2.0
+sentry-sdk==2.42.1
 sqlparse==0.5.5
 tzdata==2026.2
 whitenoise==6.7.0
+xhtml2pdf==0.2.19
