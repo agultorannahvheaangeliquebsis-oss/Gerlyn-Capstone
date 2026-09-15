@@ -22,6 +22,7 @@ from django.utils import timezone
 from accounts.models import (
     BranchManagerProfile,
     CustomerProfile,
+    Notification,
     OwnerProfile,
     StaffProfile,
     SupplierProfile,
@@ -107,6 +108,16 @@ class Command(BaseCommand):
         Product.objects.all().delete()
         ProductCategory.objects.all().delete()
         Branch.objects.all().delete()
+        # Owner Notification Center rows (core.notifications.notify()) aren't
+        # demo/master data, but they reference the demo Users/Branches this
+        # reset is about to delete out from under them, and re-seeding itself
+        # raises a few (e.g. accounts.signals.create_user_profile notifies on
+        # every new Staff account) — so a reset that skipped this left old
+        # notifications pointing at deleted branches, piling up further with
+        # every re-seed. Deleted before the User delete below rather than
+        # relying on the FK's CASCADE, so admin's own notifications (excluded
+        # from that delete) are cleared too.
+        Notification.objects.all().delete()
         # keep no demo users lingering
         User.objects.exclude(is_superuser=True, username="admin").delete()
 
@@ -119,7 +130,7 @@ class Command(BaseCommand):
             for m in (
                 SalesItem, BillingRecord, SalesTransaction, ProcurementItem,
                 Batch, Procurement, Inventory, WarehouseStock, Warehouse,
-                Product, ProductCategory, Branch,
+                Product, ProductCategory, Branch, Notification,
             )
         ]
         with connection.cursor() as cur:
