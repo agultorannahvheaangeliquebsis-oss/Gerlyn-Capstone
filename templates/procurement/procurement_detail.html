@@ -24,11 +24,17 @@
   base_template, so the ?modal=1 fetch gets the bare document and its own
   Print button calls window.print() from inside the overlay.
   {% endcomment %}
-  <a class="btn btn-primary" data-detail-modal="Purchase Order"
-     href="{% url 'procurement_print' procurement.pk %}">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
-    Print PO
-  </a>
+  <div class="row" style="gap:var(--s2);">
+    <a class="btn" data-detail-modal="Purchase Order"
+       href="{% url 'procurement_print' procurement.pk %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
+      Print PO
+    </a>
+    <a class="btn btn-primary" href="{% url 'procurement_pdf' procurement.pk %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      Download PDF
+    </a>
+  </div>
 </div>
 
 {% if procurement.status == "Draft" %}

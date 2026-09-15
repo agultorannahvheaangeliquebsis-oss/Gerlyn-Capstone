@@ -3,18 +3,23 @@
 #   SECTION 1 — original Django template views (untouched, kept for reference)
 #   SECTION 2 — new DRF API views (what React calls)
 
+import io
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 
 from django.db.models import Q
+
+from xhtml2pdf import pisa
 
 from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, SUPPLIER, role_required
@@ -140,27 +145,10 @@ def procurement_detail(request, pk):
     })
 
 
-@login_required(login_url='accounts:login')
-def procurement_print(request, pk):
-    """The printable purchase order handed to (or emailed to) the supplier.
-
-    Read-only and server-rendered, so the browser's own print-to-PDF does the
-    output — the same approach the Reports pages already take, and it keeps a
-    PDF library out of the dependency list.
-    """
-    proc = get_object_or_404(
-        Procurement.objects.select_related(
-            'branch', 'supplier', 'supplier__supplier_profile',
-            'owner', 'owner__owner_profile',
-            'created_by',
-        ),
-        pk=pk,
-    )
-
-    if not _can_read_procurement(request.user, proc):
-        messages.error(request, 'That purchase order is not available to you.')
-        return redirect('procurement_list')
-
+def _procurement_document_context(proc, request):
+    """Everything the printable PO / downloadable PDF need, in one place so
+    the two output paths (po_print.html via the browser, po_pdf.html via
+    xhtml2pdf) can never drift apart on what a purchase order document says."""
     items = proc.items.select_related('product').all()
 
     # total_cost is the stored figure and stays authoritative on the document.
@@ -171,7 +159,7 @@ def procurement_print(request, pk):
 
     supplier_profile = getattr(proc.supplier, 'supplier_profile', None)
 
-    return render(request, 'procurement/po_print.html', {
+    return {
         'procurement': proc,
         'items': items,
         'line_sum': line_sum,
@@ -190,7 +178,75 @@ def procurement_print(request, pk):
         ),
         'printed_on': timezone.localdate(),
         'printed_by': _person_name(request.user),
-    })
+    }
+
+
+def _get_procurement_for_document(request, pk):
+    """Shared fetch + access check for procurement_print and procurement_pdf.
+    Returns (proc, None) on success or (None, redirect_response) if the
+    caller should bail out immediately."""
+    proc = get_object_or_404(
+        Procurement.objects.select_related(
+            'branch', 'supplier', 'supplier__supplier_profile',
+            'owner', 'owner__owner_profile',
+            'created_by',
+        ),
+        pk=pk,
+    )
+    if not _can_read_procurement(request.user, proc):
+        messages.error(request, 'That purchase order is not available to you.')
+        return None, redirect('procurement_list')
+    return proc, None
+
+
+@login_required(login_url='accounts:login')
+def procurement_print(request, pk):
+    """The printable purchase order handed to (or emailed to) the supplier.
+
+    Read-only and server-rendered — the browser's own print-to-PDF (or the
+    "Download PDF" button next to it, see procurement_pdf) does the output.
+    """
+    proc, bail = _get_procurement_for_document(request, pk)
+    if bail:
+        return bail
+
+    return render(request, 'procurement/po_print.html',
+                  _procurement_document_context(proc, request))
+
+
+@login_required(login_url='accounts:login')
+def procurement_pdf(request, pk):
+    """Generate an actual .pdf file for this purchase order and send it as a
+    download, rather than relying on the user's browser print dialog.
+
+    Uses xhtml2pdf (pure-Python, no system libraries like GTK/Cairo needed —
+    unlike WeasyPrint, which is what would normally be reached for here but
+    doesn't install cleanly on Windows or a typical Railway build). Its CSS
+    support is a CSS2.1-ish subset with no flexbox/grid, so it renders its
+    own standalone template (po_pdf.html) rather than po_print.html, which
+    depends on gerlyn.css and flex/grid for the on-screen view.
+    """
+    proc, bail = _get_procurement_for_document(request, pk)
+    if bail:
+        return bail
+
+    html = render_to_string(
+        'procurement/po_pdf.html', _procurement_document_context(proc, request)
+    )
+
+    buffer = io.BytesIO()
+    result = pisa.CreatePDF(src=html, dest=buffer)
+    if result.err:
+        messages.error(
+            request,
+            'Could not generate the PDF for this purchase order. Try the Print '
+            'option instead, or contact support.'
+        )
+        return redirect('procurement_detail', pk=pk)
+
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{proc.po_number}.pdf"'
+    return response
 
 
 def _procurement_form_context(user):
