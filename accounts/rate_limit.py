@@ -47,8 +47,9 @@ def _notify_lockout(identifier):
         return  # only internal accounts (Owner/Manager/Staff) are this center's concern
 
     # No required_module: a lockout is a security event about an account,
-    # not a section of the app — stays Owner/Manager oversight regardless of
-    # what modules the locked-out account (Staff or otherwise) has.
+    # not a section of the app — reaches the Owner only, not even that
+    # account's own Branch Manager, regardless of what modules the
+    # locked-out account has.
     notify(
         CATEGORY_SYSTEM, PRIORITY_MEDIUM,
         f'Login lockout — {user.username}',
