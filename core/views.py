@@ -13,6 +13,16 @@ from .changelog import visible_changelog
 from .version import APP_VERSION
 
 
+def healthz(request):
+    """Railway's deploy health check (railway.json healthcheckPath). Cheap
+    and unauthenticated on purpose — this confirms the gunicorn process
+    came up and can serve a request at all, not that the DB is reachable
+    (that's db_latency_check, which is Owner-gated and does real queries).
+    A DB check here would make a MySQL hiccup look like a bad deploy and
+    trigger a restart-policy loop for the wrong reason."""
+    return JsonResponse({'status': 'ok'})
+
+
 def service_worker_view(request):
     """Serves the service worker at /sw.js (root path, not /static/js/) so
     its default scope covers the whole site instead of just /static/js/."""

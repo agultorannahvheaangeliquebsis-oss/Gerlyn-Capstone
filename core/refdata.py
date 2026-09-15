@@ -1,18 +1,26 @@
-"""Short-TTL cache for small, rarely-changing reference data — branches,
-categories, the product catalog — that nearly every internal list/filter
-view re-queries on every single request just to populate a dropdown.
+"""Cache for small, rarely-changing reference data — branches, categories,
+the product catalog — that nearly every internal list/filter view
+re-queries on every single request just to populate a dropdown.
 
 Exists because of what the Railway DB latency investigation found: each
 query here is cheap by row count (a handful of branches, a couple dozen
 products) but not by round-trip cost, and this exact shape
 (Branch.objects.all() / ProductCategory.objects.all()) is duplicated
-across a dozen+ views. A short cache window trades a few seconds of
-staleness on data that only ever changes via an explicit admin action,
-for cutting one full DB round trip off nearly every internal page.
+across a dozen+ views. Caching it trades a little staleness for cutting
+one full DB round trip off nearly every internal page.
+
+The TTL is a safety net, not the invalidation mechanism — every write path
+(branches/views.py, inventory/views.py, the categories API) already calls
+bust_branches_cache()/bust_categories_cache() on the same request that
+changes the data, so a real edit is never actually stale. That makes the
+TTL free to set long: measured locally, a cold DatabaseCache miss here
+costs 5 queries (SELECT, DELETE, COUNT, re-check SELECT, INSERT) against 1
+for a hit, so a short TTL mostly bought more frequent expensive misses,
+not fresher data.
 """
 from django.core.cache import cache
 
-REFDATA_CACHE_SECONDS = 60
+REFDATA_CACHE_SECONDS = 600
 
 
 def cached_branches():

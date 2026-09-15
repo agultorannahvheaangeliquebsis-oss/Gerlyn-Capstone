@@ -4,13 +4,16 @@ from django.conf import settings
 from django.views.static import serve
 
 from core.views import (
-    about_view, db_latency_check, download_view, hero_draft_apply,
+    about_view, db_latency_check, download_view, healthz, hero_draft_apply,
     hero_draft_discard, hero_slide_delete, hero_slide_save,
     internal_settings_view, service_worker_view, store_settings_update,
 )
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Railway's deploy health check (railway.json healthcheckPath) — see
+    # core.views.healthz for why it deliberately does no DB query.
+    path('healthz/', healthz, name='healthz'),
     # Served at the site root (not /static/js/) so the service worker's
     # default scope covers the whole app instead of just /static/js/.
     path('sw.js', service_worker_view, name='service_worker'),
@@ -68,3 +71,11 @@ urlpatterns += [
         serve, {'document_root': settings.MEDIA_ROOT},
     ),
 ]
+
+# Local-only SQL/query panel — settings.py only installs the app and its
+# middleware when DEBUG is on, so this import is safe even though
+# debug_toolbar isn't a production dependency in spirit (it stays out of
+# urlpatterns entirely when DEBUG=False).
+if settings.DEBUG:
+    import debug_toolbar
+    urlpatterns += [path('__debug__/', include(debug_toolbar.urls))]

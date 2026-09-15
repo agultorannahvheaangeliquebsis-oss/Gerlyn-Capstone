@@ -81,6 +81,13 @@ INSTALLED_APPS = [
     "rest_framework",
 ]
 
+# Query-count / SQL panel for finding N+1s during local development only —
+# gated on DEBUG at every layer (app, middleware, urls.py) so it can never
+# activate in production even though it stays in requirements.txt.
+if DEBUG:
+    INSTALLED_APPS += ['debug_toolbar']
+    INTERNAL_IPS = ['127.0.0.1']
+
 AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
@@ -107,6 +114,9 @@ MIDDLEWARE = [
     # from serving a cached authenticated page after logout or session expiry.
     'accounts.middleware.NoCacheForAuthenticatedMiddleware',
 ]
+
+if DEBUG:
+    MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
 
 # Trust the deployed origin for POSTs (set once the app has a real URL),
 # e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
@@ -224,6 +234,24 @@ CACHES = {
     }
 }
 
+# Redis, once available, is strictly better than DatabaseCache: same
+# cross-worker sharing (fixing the login-lockout bypass above), but a hit
+# AND a miss both cost one round trip — DatabaseCache's miss path costs 5
+# queries (a failed SELECT, a DELETE, a COUNT for culling, a re-check
+# SELECT, then the INSERT), which matters most on core.refdata's short-TTL
+# lookups that miss on every expiry. Purely additive: with no REDIS_URL set
+# (local dev, or before the Railway Redis plugin is added), CACHES stays
+# exactly as above — nothing about DatabaseCache's behavior changes.
+REDIS_URL = os.environ.get('REDIS_URL')
+if REDIS_URL:
+    CACHES['default'] = {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+    }
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
@@ -329,3 +357,25 @@ DEFAULT_FROM_EMAIL  = os.environ.get('EMAIL_HOST_USER', 'noreply@gerlynstore.com
 # Avatar upload validation
 AVATAR_MAX_MB        = 2
 AVATAR_ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp'}
+
+# --- Error tracking ----------------------------------------------------------
+# Without this, a production 500 is only visible in Railway's log stream,
+# after the fact, if someone happens to be looking. With SENTRY_DSN set,
+# every unhandled exception ships to Sentry with the request that triggered
+# it. No DSN (local dev, or before a Sentry project exists) -> no-op, same
+# as USE_CLOUDINARY/REDIS_URL above.
+SENTRY_DSN = os.environ.get('SENTRY_DSN')
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration()],
+        # Error tracking only, not performance tracing — a single-store app
+        # at this traffic level gets nothing from sampled trace data that
+        # the four Railway Metrics tiles (Section 01) don't already cover,
+        # and it's one more thing to explain during a defense.
+        traces_sample_rate=0.0,
+        environment='production' if not DEBUG else 'development',
+    )
