@@ -459,6 +459,9 @@ def user_form(request, pk=None):
         if role_changed_from is not None:
             from core.notifications import CATEGORY_SYSTEM, PRIORITY_HIGH, notify
 
+            # No required_module: User Management is Owner-only, full stop
+            # (see core/module_permissions.py) — never extended to Staff
+            # regardless of any module grant.
             notify(
                 CATEGORY_SYSTEM, PRIORITY_HIGH,
                 f'Role changed — {username}',

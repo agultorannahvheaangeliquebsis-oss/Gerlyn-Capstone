@@ -364,6 +364,7 @@ def procurement_update_status(request, pk):
         messages.success(request, f'{proc.po_number} is now {new_status}.')
 
         if new_status == Procurement.Status.CANCELLED:
+            from core.module_permissions import PROCUREMENT
             from core.notifications import CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify
 
             notify(
@@ -374,6 +375,7 @@ def procurement_update_status(request, pk):
                 branch=proc.branch,
                 action_url=reverse('procurement_detail', kwargs={'pk': proc.pk}),
                 action_label='View PO',
+                required_module=PROCUREMENT,
             )
 
     return redirect('procurement_detail', pk=pk)
@@ -546,6 +548,7 @@ def delivery_receive(request, pk):
                 f'{proc.po_number} received with a discrepancy — '
                 f'delivered quantities differ from what was ordered.'
             )
+            from core.module_permissions import DELIVERIES
             from core.notifications import CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify
 
             notify(
@@ -557,6 +560,7 @@ def delivery_receive(request, pk):
                 branch=proc.branch,
                 action_url=reverse('procurement_detail', kwargs={'pk': proc.pk}),
                 action_label='View PO',
+                required_module=DELIVERIES,
             )
         else:
             messages.success(

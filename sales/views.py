@@ -269,6 +269,7 @@ def transaction_set_status(request, pk, new_status):
                     billing.confirmed_by = request.user
                     billing.save()
 
+                from core.module_permissions import SALES_POS
                 from core.notifications import CATEGORY_SALES, PRIORITY_MEDIUM, notify
 
                 notify(
@@ -280,6 +281,7 @@ def transaction_set_status(request, pk, new_status):
                     branch=locked_txn.branch,
                     action_url=reverse('transaction_detail', kwargs={'pk': locked_txn.pk}),
                     action_label='View Order',
+                    required_module=SALES_POS,
                 )
     except _OrderActionError as e:
         messages.error(request, str(e))
