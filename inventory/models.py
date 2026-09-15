@@ -415,6 +415,7 @@ class Inventory(models.Model):
                 self._notify_stock_crossing(critical=False)
 
     def _notify_stock_crossing(self, critical):
+        from core.module_permissions import FLOOR_STOCK
         from core.notifications import (
             CATEGORY_PROCUREMENT, PRIORITY_CRITICAL, PRIORITY_MEDIUM, notify,
         )
@@ -437,6 +438,7 @@ class Inventory(models.Model):
         notify(
             CATEGORY_PROCUREMENT, priority, title, message, branch=self.branch,
             action_url=reverse('inventory_list'), action_label='View Floor Stock',
+            required_module=FLOOR_STOCK,
         )
 
     def __str__(self):

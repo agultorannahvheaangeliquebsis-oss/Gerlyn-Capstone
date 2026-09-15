@@ -2,6 +2,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.urls import reverse
 
+from core.module_permissions import SALES_POS
 from core.notifications import CATEGORY_SALES, LARGE_ORDER_THRESHOLD, PRIORITY_HIGH, notify
 
 from .models import SalesTransaction
@@ -36,4 +37,5 @@ def notify_large_order(sender, instance, created, update_fields, **kwargs):
         branch=instance.branch,
         action_url=reverse('transaction_detail', kwargs={'pk': instance.pk}),
         action_label='View Order',
+        required_module=SALES_POS,
     )

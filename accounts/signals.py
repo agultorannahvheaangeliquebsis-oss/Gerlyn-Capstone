@@ -35,6 +35,9 @@ def create_user_profile(sender, instance, created, **kwargs):
 
         from core.notifications import CATEGORY_STAFF, PRIORITY_LOW, notify
 
+        # No required_module: a new hire's own roster entry is Administration-
+        # tier (same as the role-change/lockout triggers), not a section of
+        # the app a colleague's module grants would apply to.
         notify(
             CATEGORY_STAFF, PRIORITY_LOW,
             f'New staff account — {instance.username}',

@@ -422,6 +422,7 @@ def billing_confirm(request, pk):
         messages.success(request, f'{record.transaction.order_number} payment {verb}.')
 
         if new_status == BillingRecord.PaymentStatus.REJECTED:
+            from core.module_permissions import BILLING as BILLING_MODULE
             from core.notifications import CATEGORY_SALES, PRIORITY_HIGH, notify
 
             txn = record.transaction
@@ -433,6 +434,7 @@ def billing_confirm(request, pk):
                 branch=txn.branch,
                 action_url=reverse('billing_detail', kwargs={'pk': record.pk}),
                 action_label='View Billing Record',
+                required_module=BILLING_MODULE,
             )
 
     return redirect('billing_detail', pk=pk)
