@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="view-transition" content="same-origin">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}Internal System{% endblock %} — Gerlyn Variety Store</title>
   <link rel="manifest" href="{% static 'manifest.json' %}">
   <meta name="theme-color" content="#1E7A4F">
@@ -25,6 +26,7 @@
   of the page, which runs before any deferred script does. See modal.js.
   {% endcomment %}
   <script src="{% static 'js/modal.js' %}?v={{ APP_VERSION }}"></script>
+  <script src="{% static 'js/notification-tray.js' %}?v={{ APP_VERSION }}" defer></script>
   {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -250,12 +252,51 @@ DOM — it is off-screen until focused (see .skip-link).
         badge counts unresolved High/Critical items specifically (see
         core.context_processors.internal_notifications), not raw unread, so
         it reads as "things still waiting on you."
+
+        A floating glass tray, not a page: static/js/notification-tray.js
+        intercepts this click and opens #notifTray in place, fetching its
+        content from this same href with X-Requested-With so
+        notification_center_view returns a JSON fragment instead of a full
+        page (see core/views.py:_is_xhr). The href itself is the no-JS/
+        fetch-failure fallback — if the script hasn't run yet or the fetch
+        rejects, this is a normal link to the full page.
         {% endcomment %}
-        <a class="topbar-bell{% if active_page == 'notifications' %} topbar-bell--active{% endif %}"
-           href="{% url 'notification_center' %}" title="Notifications" aria-label="Notifications">
-          <i data-lucide="bell"></i>
-          {% if owner_notification_count %}<span class="nav-badge">{{ owner_notification_count }}</span>{% endif %}
-        </a>
+        <div class="notif-tray-anchor">
+          <a class="topbar-bell{% if active_page == 'notifications' %} topbar-bell--active{% endif %}"
+             href="{% url 'notification_center' %}" id="notifBell"
+             aria-haspopup="true" aria-expanded="false" title="Notifications" aria-label="Notifications">
+            <i data-lucide="bell"></i>
+            {% if owner_notification_count %}<span class="nav-badge" id="notifBadge">{{ owner_notification_count }}</span>{% endif %}
+          </a>
+          <div class="notif-tray" id="notifTray" role="dialog" aria-label="Notifications" aria-hidden="true">
+            <div class="notif-tray-head">
+              <h2>Notifications</h2>
+              <button type="button" class="notif-tray-markread" id="notifMarkAll"
+                      data-url="{% url 'notification_mark_all_read' %}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
+                Mark all read
+              </button>
+            </div>
+            <div class="notif-tray-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input type="text" id="notifSearch" placeholder="Search notifications…" aria-label="Search notifications">
+            </div>
+            <div class="notif-tray-pills" id="notifPills">
+              <button type="button" class="notif-pill active" data-filter="all">All</button>
+              <button type="button" class="notif-pill" data-filter="critical">Critical</button>
+              <button type="button" class="notif-pill" data-filter="high">High</button>
+              <button type="button" class="notif-pill" data-filter="staff">Staff</button>
+              <button type="button" class="notif-pill" data-filter="procurement">Procurement</button>
+              <button type="button" class="notif-pill" data-filter="sales">Sales</button>
+              <button type="button" class="notif-pill" data-filter="system">System</button>
+            </div>
+            <div class="notif-tray-list" id="notifList">
+              <div class="tray-empty">Loading…</div>
+            </div>
+            <div class="notif-tray-foot"><a href="{% url 'notification_center' %}">See full list →</a></div>
+          </div>
+          <div class="notif-tray-scrim" id="notifScrim"></div>
+        </div>
         {% comment %}
           The account control, at every width. It was a <details> panel whose
           first row was My Profile; it is now that link directly, because that

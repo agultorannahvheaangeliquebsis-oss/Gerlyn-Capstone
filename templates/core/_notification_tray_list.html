@@ -1,0 +1,95 @@
+{% comment %}
+Shared by the floating tray (fetched as a JSON fragment by
+static/js/notification-tray.js) and the full page at
+core/notification_center.html (included directly, server-rendered — the
+tray's no-JS fallback). One card markup, one set of action endpoints,
+so the two surfaces can't drift out of sync with each other.
+
+Context: main_notifications (individual cards, already priority-ordered),
+low_group_items (None, or up to 12 Low-priority Notification objects to
+show inside the collapsed group row), low_group_count (total Low count,
+for the row's own label), low_group_more (how many beyond the 12 shown).
+{% endcomment %}
+{% load static %}
+
+<div class="tray-list-inner">
+  {% for n in main_notifications %}
+  <div class="tray-ncard p-{{ n.priority }}{% if n.is_read %} is-read{% endif %}"
+       id="notif-{{ n.pk }}" data-cat="{{ n.category }} {{ n.priority }}">
+    <span class="tray-ncard-dot"></span>
+    <div class="tray-ncard-body">
+      <div class="tray-ncard-top">
+        <span class="tray-ncard-cat">{{ n.get_category_display }}{% if n.branch %} · {{ n.branch.branch_name }}{% endif %}</span>
+        <span class="tray-ncard-time">{{ n.created_at|timesince }} ago</span>
+      </div>
+      <div class="tray-ncard-title">{{ n.title }}</div>
+      <div class="tray-ncard-msg">{{ n.message }}</div>
+      <div class="tray-ncard-actions">
+        {% if n.action_url %}
+        <a class="tray-tbtn primary" href="{{ n.action_url }}">{{ n.action_label|default:"View" }}</a>
+        {% endif %}
+        {% comment %}
+        Real forms, not JS-only buttons: static/js/notification-tray.js
+        intercepts the submit (event delegation on `document`, so it covers
+        both this partial's uses — the tray's dynamically-fetched content
+        and the full page's server-rendered one — with one listener) and
+        posts via fetch instead. Without JS, or if the fetch rejects, this
+        is a normal POST + redirect back to the full page, same as before
+        the tray existed.
+        {% endcomment %}
+        {% if n.requires_action and not n.resolved_at %}
+        <form method="post" action="{% url 'notification_resolve' n.pk %}" class="tray-resolve-form">
+          {% csrf_token %}
+          <button type="submit" class="tray-tbtn">Resolve</button>
+        </form>
+        {% elif not n.is_read %}
+        <form method="post" action="{% url 'notification_mark_read' n.pk %}" class="tray-read-form">
+          {% csrf_token %}
+          <button type="submit" class="tray-tbtn ghost">Dismiss</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% empty %}
+    {% if not low_group_items %}
+    <div class="tray-empty">Nothing to review — Staff, Procurement, Sales, and System events will appear here as they happen.</div>
+    {% endif %}
+  {% endfor %}
+
+  {% if low_group_items %}
+  <div class="tray-ncard tray-ncard-group p-low" data-cat="staff procurement sales system low" id="notifGroupRow">
+    <span class="tray-ncard-dot"></span>
+    <div class="tray-ncard-body">
+      <div class="tray-ncard-top"><span class="tray-ncard-cat">Low priority</span><span class="tray-ncard-time">today</span></div>
+      <div class="tray-ncard-title">
+        <svg class="tray-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+        {{ low_group_count }} low-priority update{{ low_group_count|pluralize }}
+      </div>
+      <div class="tray-ncard-msg">Tap to review — none of these need action.</div>
+    </div>
+  </div>
+  <div class="tray-group-children" id="notifGroupChildren">
+    <div class="tray-group-children-inner">
+      {% for n in low_group_items %}
+      <div class="tray-group-item">
+        <span>{{ n.title }}</span>
+        <span class="tray-ncard-time">{{ n.created_at|timesince }} ago</span>
+      </div>
+      {% endfor %}
+      {% if low_group_more %}
+      <div class="tray-group-item tray-group-more">+ {{ low_group_more }} more</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% comment %}
+  Distinct from the {% empty %} message above (which means "you have no
+  notifications at all"): this one means "your search/filter matched none
+  of the ones you do have." Always rendered, hidden by default, so
+  notification-tray.js's applyFilters() has something to toggle regardless
+  of which case applies.
+  {% endcomment %}
+  <div class="tray-filter-empty" hidden>No notifications match that search.</div>
+</div>

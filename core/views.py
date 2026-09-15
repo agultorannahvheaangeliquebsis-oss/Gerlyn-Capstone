@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.template.loader import render_to_string
 from django.views.decorators.http import require_POST
 
 from core.permissions import INTERNAL_ROLES, OWNER, role_required
@@ -317,36 +318,86 @@ def hero_draft_discard(request):
 # OWNER NOTIFICATION CENTER
 # =============================================================================
 # Cross-department feed of everything core.notifications.notify() has raised
-# for this user — see that module for what raises these and
-# templates/core/notification_center.html for the panel/filter UI. Reuses
+# for this user — see that module for what raises these. Reuses
 # accounts.models.Notification (the same model the customer-facing inbox at
 # accounts:notifications already uses) rather than a second table; `category`
 # blank is what keeps that plain customer inbox from showing up here.
+#
+# Two surfaces share one partial (templates/core/_notification_tray_list.html):
+# a floating tray popover off the topbar bell (internal_base.html + static/js/
+# notification-tray.js), fetched as a JSON fragment, and the plain full page
+# below — the tray's no-JS fallback and its "see everything" link target, not
+# a second implementation. `_is_xhr` matches the X-Requested-With convention
+# static/js/toast.js and orders/customer_views.py already use for this.
+
+def _is_xhr(request):
+    return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
+def _notification_counts(notifications_qs):
+    return {
+        'total_count': notifications_qs.count(),
+        'unread_count': notifications_qs.filter(is_read=False).count(),
+        'needs_action_count': notifications_qs.filter(
+            requires_action=True, resolved_at__isnull=True
+        ).count(),
+    }
+
+
+def _tray_context(user):
+    """Shared by the tray fragment and the full page: everything non-Low
+    priority renders as its own card (escalations stay individually visible —
+    see the v2 design spec's "group what would repeat" principle); Low
+    priority items collapse into one expandable group row when there's more
+    than one, so a run of low-stakes events (e.g. several new-staff-account
+    notices) can't push a Critical item below the fold."""
+    from accounts.models import Notification
+
+    notifications = user.notifications.exclude(category='').select_related('branch')
+    low_qs = notifications.filter(priority=Notification.Priority.LOW)
+    low_count = low_qs.count()
+
+    if low_count > 1:
+        main_notifications = list(notifications.exclude(priority=Notification.Priority.LOW)[:200])
+        low_group_items = list(low_qs[:12])
+        low_group_more = max(low_count - len(low_group_items), 0)
+    else:
+        # 0 or 1 Low item: no group needed, it shows as an ordinary card in
+        # its natural chronological position among the rest.
+        main_notifications = list(notifications[:200])
+        low_group_items = None
+        low_group_more = 0
+
+    return {
+        'main_notifications': main_notifications,
+        'low_group_items': low_group_items,
+        'low_group_count': low_count,
+        'low_group_more': low_group_more,
+    }, notifications
+
 
 @role_required(*INTERNAL_ROLES)
 def notification_center_view(request):
+    tray_ctx, notifications = _tray_context(request.user)
+    counts = _notification_counts(notifications)
+
+    if _is_xhr(request):
+        list_html = render_to_string(
+            'core/_notification_tray_list.html', tray_ctx, request=request
+        )
+        return JsonResponse({'list_html': list_html, **counts})
+
     from accounts.models import Notification
 
-    notifications = request.user.notifications.exclude(category='').select_related('branch')
-
-    counts = {
-        'staff': notifications.filter(category=Notification.Category.STAFF).count(),
-        'procurement': notifications.filter(category=Notification.Category.PROCUREMENT).count(),
-        'sales': notifications.filter(category=Notification.Category.SALES).count(),
-        'system': notifications.filter(category=Notification.Category.SYSTEM).count(),
-    }
-
     return render(request, 'core/notification_center.html', {
-        # A feed, not a table — capped rather than paginated, matching the
-        # rest of the app (see feedback-gerlyn-conventions: no pagination
-        # anywhere yet at current data volume).
-        'notifications': notifications[:200],
-        'total_count': notifications.count(),
-        'unread_count': notifications.filter(is_read=False).count(),
-        'needs_action_count': notifications.filter(
-            requires_action=True, resolved_at__isnull=True
-        ).count(),
-        'counts': counts,
+        **tray_ctx,
+        **counts,
+        'counts': {
+            'staff': notifications.filter(category=Notification.Category.STAFF).count(),
+            'procurement': notifications.filter(category=Notification.Category.PROCUREMENT).count(),
+            'sales': notifications.filter(category=Notification.Category.SALES).count(),
+            'system': notifications.filter(category=Notification.Category.SYSTEM).count(),
+        },
         'active_page': 'notifications',
     })
 
@@ -358,6 +409,8 @@ def notification_mark_read(request, pk):
     if not notification.is_read:
         notification.is_read = True
         notification.save(update_fields=['is_read'])
+    if _is_xhr(request):
+        return JsonResponse(_notification_counts(request.user.notifications.exclude(category='')))
     return redirect('notification_center')
 
 
@@ -372,7 +425,10 @@ def notification_resolve(request, pk):
     notification = get_object_or_404(request.user.notifications, pk=pk)
     if not notification.resolved_at:
         notification.resolve()
-        messages.success(request, 'Marked as resolved.')
+        if not _is_xhr(request):
+            messages.success(request, 'Marked as resolved.')
+    if _is_xhr(request):
+        return JsonResponse(_notification_counts(request.user.notifications.exclude(category='')))
     return redirect('notification_center')
 
 
@@ -382,6 +438,8 @@ def notification_mark_all_read(request):
     updated = request.user.notifications.exclude(category='').filter(
         is_read=False
     ).update(is_read=True)
+    if _is_xhr(request):
+        return JsonResponse(_notification_counts(request.user.notifications.exclude(category='')))
     if updated:
         messages.success(
             request,
