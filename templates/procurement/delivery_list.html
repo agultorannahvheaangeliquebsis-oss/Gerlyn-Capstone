@@ -190,7 +190,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
 
 {% block extra_js %}
 {% if receive_procurement %}
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/vendor/html5-qrcode.min.js' %}"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script>
 (function () {

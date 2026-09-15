@@ -328,7 +328,7 @@ above, for the same reason: no HTML-attribute quoting to fight with.
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/vendor/html5-qrcode.min.js' %}"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script src="{% static 'js/qty-stepper.js' %}"></script>
 <script>
@@ -354,8 +354,19 @@ function posPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionD
 function posRound2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
 function posUpdateItemCount() {
-  var n = posRows.children.length;
-  document.getElementById('pos-item-count').textContent = n + (n === 1 ? ' item' : ' items');
+  // posRows.children.length counts every row in the form, including a
+  // freshly-added one with no product picked yet — only a row whose
+  // .js-product actually has a value is a real item.
+  var products = 0, units = 0;
+  posRows.querySelectorAll('.item-row').forEach(function (row) {
+    var opt = row.querySelector('.js-product').selectedOptions[0];
+    if (!opt || !opt.value) return;
+    products++;
+    units += parseInt(row.querySelector('.js-qty').value || 0, 10) || 0;
+  });
+  document.getElementById('pos-item-count').textContent = products === 0
+    ? '0 items'
+    : products + (products === 1 ? ' product' : ' products') + ' · ' + units + (units === 1 ? ' unit' : ' units');
 }
 
 // VAT and discount rates, mirroring sales/pricing.py. This preview and the

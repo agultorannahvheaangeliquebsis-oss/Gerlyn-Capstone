@@ -32,10 +32,10 @@
         <tr><td class="gv-meta">Status</td><td style="text-align:right;">{% include "partials/_order_status_pill.html" with status=sale.order_status %}</td></tr>
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
-        {% if sale.delivery_address %}
+        {% if sale.fulfillment_type == 'Delivery' %}
         <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ sale.delivery_address }}</td></tr>
         {% else %}
-        <tr><td class="gv-meta">Collection</td><td style="text-align:right;">Pick up in store</td></tr>
+        <tr><td class="gv-meta">Collection</td><td style="text-align:right;">Pick up at {{ sale.branch.branch_name }}</td></tr>
         {% endif %}
         <tr><td class="gv-meta">Placed</td><td style="text-align:right;">{{ sale.transaction_date|date:"F d, Y — g:i A" }}</td></tr>
       </tbody>

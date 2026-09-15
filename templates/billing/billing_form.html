@@ -28,7 +28,7 @@
 <div class="card card-pad" style="max-width:640px;">
   <div class="row-between mb-6" style="border-bottom:1px solid var(--line); padding-bottom:16px;">
     <span class="gv-label">Amount due</span>
-    <span class="gv-metric" style="color:var(--action);">₱{{ transaction.total_amount|floatformat:2 }}</span>
+    <span class="gv-metric" style="color:var(--action);">₱{% if record %}{{ record.amount_due|floatformat:2 }}{% else %}{{ transaction.total_amount|floatformat:2 }}{% endif %}</span>
   </div>
 
   <form method="POST" enctype="multipart/form-data" class="stack">

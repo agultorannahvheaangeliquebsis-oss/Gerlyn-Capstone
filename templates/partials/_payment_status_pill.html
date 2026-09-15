@@ -1,0 +1,32 @@
+{% load i18n_extra %}
+{% comment %}
+The payment-status pill, one file for every surface that shows one — Order
+Console, Billing, My Orders, Track Order — so the same billing record cannot
+read as "Not yet paid" on one screen and just quietly "Pending" (or worse,
+show as if paid) on another. Before this, Track Order already ran the full
+four-state ladder (Paid / Rejected / Cancelled / not yet paid) while My
+Orders only ever checked for Paid and called everything else "Not yet
+paid" — a Rejected or Cancelled bill read to a customer exactly like a
+perfectly normal unpaid one.
+
+Same four states and colours everywhere (pill-ok / pill-danger /
+pill-neutral / pill-warn). Only the WORDING for the "Cancelled" and
+"unpaid" states differs by audience, the same split _order_status_pill.html
+already draws between customer language and staff's own terms:
+  - Staff pages (Order Console, Billing) keep the internal terms already
+    used across those tables — "Voided" (BillingRecord.CANCELLED — the
+    order behind it fell through, not that a submitted payment was turned
+    down) and "Pending".
+  - Customer pages (My Orders, Track Order) get "Cancelled" and "Not yet
+    paid" in the shopper's own words, and go through {% t %} like the rest
+    of those pages.
+Pass `customer=True` for the customer wording; omit it (or pass False) for
+the staff wording.
+
+Include with `status=`, e.g.
+{% include "partials/_payment_status_pill.html" with status=billing.status customer=True %}
+{% endcomment %}
+{% if status == 'Paid' %}<span class="pill pill-ok">{% if customer %}{% t "Paid" %}{% else %}Paid{% endif %}</span>
+{% elif status == 'Rejected' %}<span class="pill pill-danger">{% if customer %}{% t "Rejected" %}{% else %}Rejected{% endif %}</span>
+{% elif status == 'Cancelled' %}<span class="pill pill-neutral">{% if customer %}{% t "Cancelled" %}{% else %}Voided{% endif %}</span>
+{% else %}<span class="pill pill-warn">{% if customer %}{% t "Not yet paid" %}{% else %}Pending{% endif %}</span>{% endif %}

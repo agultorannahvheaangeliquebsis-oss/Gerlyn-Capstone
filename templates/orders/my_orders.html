@@ -61,11 +61,7 @@ the header lands.
             <div class="order-row-meta">
               {{ o.transaction_date|date:"F d, Y" }} · {{ o.branch.branch_name }}
               · {{ o.mode_of_payment }}
-              {% if o.billing_record.status == 'Paid' %}
-                · <span style="color:var(--ok-fg); font-weight:600;">{% t "Paid" %}</span>
-              {% else %}
-                · <span style="color:var(--warn-fg); font-weight:600;">{% t "Not yet paid" %}</span>
-              {% endif %}
+              · {% include "partials/_payment_status_pill.html" with status=o.billing_record.status customer=True %}
             </div>
           </div>
           <div class="order-row-side">

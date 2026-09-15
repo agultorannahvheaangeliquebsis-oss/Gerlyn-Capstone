@@ -64,7 +64,7 @@
             {% if s.name == 'Pending' %}Placed
             {% elif s.name == 'Approved' %}Confirmed
             {% elif s.name == 'Preparing' %}Packing
-            {% else %}Ready{% endif %}
+            {% else %}Handed over{% endif %}
           </span>
         </div>
         {% endfor %}
@@ -80,14 +80,11 @@
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
         <tr><td class="gv-meta">Payment status</td><td style="text-align:right;">
-          {% if billing.status == 'Paid' %}<span class="pill pill-ok">Paid</span>
-          {% elif billing.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
-          {% elif billing.status == 'Cancelled' %}<span class="pill pill-neutral">Cancelled</span>
-          {% else %}<span class="pill pill-warn">Not yet paid</span>{% endif %}</td></tr>
-        {% if sale.delivery_address %}
+          {% include "partials/_payment_status_pill.html" with status=billing.status customer=True %}</td></tr>
+        {% if sale.fulfillment_type == 'Delivery' %}
         <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ sale.delivery_address }}</td></tr>
         {% else %}
-        <tr><td class="gv-meta">Collection</td><td style="text-align:right;">Pick up in store</td></tr>
+        <tr><td class="gv-meta">Collection</td><td style="text-align:right;">Pick up at {{ sale.branch.branch_name }}</td></tr>
         {% endif %}
       </tbody>
     </table>

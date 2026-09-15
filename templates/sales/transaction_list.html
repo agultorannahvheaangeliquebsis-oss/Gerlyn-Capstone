@@ -112,7 +112,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
         <td data-label="Payment" class="gv-meta">{{ t.mode_of_payment }}</td>
         <td data-label="Pay Status">
-          {% include "partials/_billing_status_pill.html" with status=t.billing_record.status %}
+          {% include "partials/_payment_status_pill.html" with status=t.billing_record.status %}
         </td>
         <td data-label="Order Status">
           {% include "partials/_order_status_pill_staff.html" with status=t.order_status %}

@@ -29,6 +29,13 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
   <input type="hidden" name="status" value="{{ status_filter }}">
 </form>
 
+<div class="kpi-row compact">
+  <div class="kpi-card{% if outstanding %} danger{% endif %}">
+    <span class="label">Outstanding</span>
+    <span class="value">₱{{ outstanding|floatformat:2 }}</span>
+  </div>
+</div>
+
 <div class="filter-tabs">
   {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger, Cancelled neutral. #}
   {% comment %}
@@ -69,7 +76,7 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
         <td data-label="Method">{{ r.payment_method }}</td>
         <td data-label="Reference" class="sku">{{ r.reference_number|default:"—" }}</td>
         <td data-label="Status">
-          {% include "partials/_billing_status_pill.html" with status=r.status %}
+          {% include "partials/_payment_status_pill.html" with status=r.status %}
         </td>
         <td data-label="Action">
           <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'billing_detail' r.pk %}"

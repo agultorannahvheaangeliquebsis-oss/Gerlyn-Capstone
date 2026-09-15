@@ -273,7 +273,7 @@ this form is forged, so hiding the control is convenience, not the guard.
         {% endcomment %}
         {% if transaction.discount_applied_by or transaction.discount_applied_at %}
         <tr><td class="gv-meta">Discount applied by</td><td style="text-align:right;">
-          {{ transaction.discount_applied_by.username|default:"—" }}
+          {% if transaction.discount_applied_by %}{{ transaction.discount_applied_by.get_full_name|default:transaction.discount_applied_by.username }}{% else %}—{% endif %}
           {% if transaction.discount_applied_at %}
           <div class="gv-meta">{{ transaction.discount_applied_at|date:"j M Y, g:i a" }}</div>
           {% endif %}</td></tr>
@@ -300,7 +300,7 @@ this form is forged, so hiding the control is convenience, not the guard.
     <div class="row-between mb-4">
       <h3>Payment Status</h3>
       {% if billing %}
-        {% include "partials/_billing_status_pill.html" with status=billing.status %}
+        {% include "partials/_payment_status_pill.html" with status=billing.status %}
       {% endif %}
     </div>
     {% if billing %}

@@ -7,7 +7,7 @@
   <div>
     <a class="back-link" href="{% url 'billing_list' %}">Billing Records</a>
     <h1 class="mt-2">Billing for {{ record.transaction.order_number }}
-      {% include "partials/_billing_status_pill.html" with status=record.status %}
+      {% include "partials/_payment_status_pill.html" with status=record.status %}
     </h1>
   </div>
   <div class="row" style="gap:var(--s2);">
@@ -70,10 +70,10 @@
         <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ record.payment_method }}</td></tr>
         <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ record.reference_number|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date recorded</td><td style="text-align:right;">{{ record.date_recorded|date:"Y-m-d H:i" }}</td></tr>
-        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ record.confirmed_by.username|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{% if record.confirmed_by %}{{ record.confirmed_by.get_full_name|default:record.confirmed_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Date confirmed</td><td style="text-align:right;">{{ record.date_confirmed|date:"Y-m-d H:i"|default:"—" }}</td></tr>
         {% if record.status == "Cancelled" %}
-        <tr><td class="gv-meta">Cancelled by</td><td style="text-align:right;">{{ record.voided_by.username|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Cancelled by</td><td style="text-align:right;">{% if record.voided_by %}{{ record.voided_by.get_full_name|default:record.voided_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Date cancelled</td><td style="text-align:right;">{{ record.date_voided|date:"Y-m-d H:i"|default:"—" }}</td></tr>
         {% endif %}
       </tbody>

@@ -1414,12 +1414,17 @@ def track_order(request, transaction_id):
     )
 
     cancelled = sale.order_status == 'Cancelled'
+    completed = sale.order_status == 'Completed'
     current = 0 if cancelled else STATUS_STEPS.index(sale.order_status)
     steps = [
         {
             'name': name,
-            'done': (not cancelled) and i < current,
-            'current': (not cancelled) and i == current,
+            # A Completed order has finished its last step, not started it —
+            # the loop's own `current` index still points at it, so a
+            # Completed order needs that step marked done too, not just
+            # everything before it.
+            'done': (not cancelled) and (i < current or (completed and i == current)),
+            'current': (not cancelled) and (i == current) and not completed,
         }
         for i, name in enumerate(STATUS_STEPS)
     ]

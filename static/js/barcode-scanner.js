@@ -9,10 +9,12 @@
 // manual entry) is complete."
 //
 // In-app camera scanning uses html5-qrcode (https://github.com/mebjas/html5-qrcode,
-// MIT licensed, loaded via <script> in internal_base.html — see that file
-// for the CDN tag) rather than the browser's native BarcodeDetector API,
-// specifically because BarcodeDetector has no support on iOS Safari, and
-// this needs to work on Android and iOS alike.
+// MIT licensed, vendored at static/js/vendor/html5-qrcode.min.js and loaded
+// via a <script> tag on each scan-enabled page — never a CDN, so scanning
+// degrades to "not supported" instead of breaking the whole page offline)
+// rather than the browser's native BarcodeDetector API, specifically
+// because BarcodeDetector has no support on iOS Safari, and this needs to
+// work on Android and iOS alike.
 window.GerlynBarcodeScanner = (function () {
   function supportsCamera() {
     return typeof Html5Qrcode !== 'undefined'
