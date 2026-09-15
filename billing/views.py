@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.http import FileResponse, Http404
@@ -11,22 +13,52 @@ from .api_views import user_can_access_billing_record
 from sales.models import SalesTransaction
 from accounts.models import User
 from branches.models import Branch
-from core.scoping import branch_for_user, user_can_access_branch
+from core.scoping import branch_for_user, scope_queryset, user_can_access_branch
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER, role_required
+
+
+def _validate_proof_of_payment(file):
+    """Same real-image check as accounts._validate_avatar — BillingRecord's
+    proof_of_payment is a model ImageField, but that only validates through
+    Django's form/serializer layer (billing/serializers.py's DRF ImageField
+    does this correctly). billing_create assigns the uploaded file directly,
+    which skips it entirely, so a renamed .html or .svg saves and serves
+    with its own content-type — the actual vulnerability, independent of
+    the /media/ access-control fix (F-06) already in billing_proof."""
+    from PIL import Image
+    max_bytes = settings.PROOF_OF_PAYMENT_MAX_MB * 1024 * 1024
+    if file.size > max_bytes:
+        raise ValidationError(f"File must be under {settings.PROOF_OF_PAYMENT_MAX_MB} MB.")
+    try:
+        file.seek(0)
+        img = Image.open(file)
+        img.verify()
+        file.seek(0)
+        if img.format.lower() not in ('jpeg', 'png', 'webp'):
+            raise ValidationError("Only JPEG, PNG, and WEBP images are allowed.")
+    except ValidationError:
+        raise
+    except Exception:
+        raise ValidationError("The uploaded file is not a valid image.")
+    finally:
+        file.seek(0)
 
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER)
 def billing_list(request):
     records = BillingRecord.objects.select_related('transaction', 'transaction__branch').all()
 
-    # Branch managers/staff only see their own branch's billing records
-    if request.user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-        try:
-            branch = request.user.manager_profile.branch if request.user.role == User.Role.BRANCH_MANAGER \
-                else request.user.staff_profile.branch
-            records = records.filter(transaction__branch=branch)
-        except Exception:
-            records = records.none()
+    # Owner sees everything; Branch Manager/Staff only their own branch's
+    # records. scope_queryset already encodes both — Owner via
+    # branch_ids_for_user returning None (unfiltered), Manager/Staff via
+    # their profile's one branch id, empty (so .none()) if the profile or
+    # its branch is somehow missing. That replaces a bare `except Exception:
+    # records = records.none()` here, which caught real bugs in this lookup
+    # the same silent way it caught a genuinely missing profile — the same
+    # shape of mistake behind the earlier branch-scoping leaks, even though
+    # this particular except happened to fail closed rather than open.
+    if request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        records = scope_queryset(records, request.user, 'transaction__branch')
 
     # Customers only see their own billing records
     elif request.user.role == User.Role.CUSTOMER:
@@ -222,10 +254,20 @@ def billing_create(request, transaction_id):
         # payment_method feeds a NOT NULL column. A POST that omits the field
         # (the <select> stripped out, a scripted request) used to reach the
         # model save and surface as an IntegrityError 500. Re-render the form
-        # with the error instead — nothing is persisted.
-        if not payment_method:
-            messages.error(request, 'Choose a payment method to record this payment.')
+        # with the error instead — nothing is persisted. Beyond "present", it
+        # must also be one of the real choices — otherwise a tampered POST
+        # (or a typo'd value like "Paid") saves a payment method the counter
+        # can't act on, exactly like an unpaid order reading "Paid".
+        if not payment_method or payment_method not in BillingRecord.PaymentMethod.values:
+            messages.error(request, 'Choose a valid payment method to record this payment.')
             return render(request, 'billing/billing_form.html', form_context)
+
+        if proof_of_payment:
+            try:
+                _validate_proof_of_payment(proof_of_payment)
+            except ValidationError as e:
+                messages.error(request, e.message)
+                return render(request, 'billing/billing_form.html', form_context)
 
         if existing:
             # Update the auto-created record with the actual payment details

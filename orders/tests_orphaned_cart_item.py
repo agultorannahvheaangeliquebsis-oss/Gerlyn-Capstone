@@ -58,10 +58,23 @@ class OrphanedCartItemTests(TestCase):
             str(self.good_product.pk): 1,
             str(self.gone_product.pk): 2,
         }
+        session['checkout_token'] = 'test-checkout-token'
         session.save()
 
     def messages(self, response):
         return [str(m) for m in get_messages(response.wsgi_request)]
+
+    def _checkout(self, **payload):
+        # Read fresh each call, not hardcoded: checkout()'s double-submit
+        # guard rotates the session token on every pass through it, and
+        # these tests deliberately POST twice in a row expecting the second
+        # to actually reach the order-creation logic — a stale token would
+        # make that second POST look like a replay and bounce it away
+        # before it ever got there.
+        payload.setdefault('checkout_token', self.client.session.get('checkout_token', ''))
+        payload.setdefault('mode_of_payment', 'Cash on Delivery')
+        payload.setdefault('fulfillment_type', 'Pickup')
+        return self.client.post(reverse('orders:checkout'), payload, follow=True)
 
     def test_cart_page_drops_the_orphaned_line_from_the_session(self):
         response = self.client.get(reverse('orders:cart'))
@@ -75,11 +88,7 @@ class OrphanedCartItemTests(TestCase):
         """The old bug: checkout refused the entire order forever over a
         line the shopper could not even see to remove. Now it purges that
         line and places the order for what is actually left."""
-        response = self.client.post(
-            reverse('orders:checkout'),
-            {'mode_of_payment': 'Cash on Delivery', 'fulfillment_type': 'Pickup'},
-            follow=True,
-        )
+        response = self._checkout()
 
         self.assertEqual(SalesTransaction.objects.count(), 0, (
             'the first POST purges the stale line and bounces back to the '
@@ -90,11 +99,7 @@ class OrphanedCartItemTests(TestCase):
         )
 
         # Second attempt: the cart is now clean, so checkout goes through.
-        response = self.client.post(
-            reverse('orders:checkout'),
-            {'mode_of_payment': 'Cash on Delivery', 'fulfillment_type': 'Pickup'},
-            follow=True,
-        )
+        response = self._checkout()
 
         self.assertEqual(SalesTransaction.objects.count(), 1)
         sale = SalesTransaction.objects.get()
@@ -106,16 +111,8 @@ class OrphanedCartItemTests(TestCase):
         """Before the fix, this exact sequence looped forever: the stale
         line reappeared under the same session key on every attempt because
         nothing ever removed it from request.session['cart']."""
-        first = self.client.post(
-            reverse('orders:checkout'),
-            {'mode_of_payment': 'Cash on Delivery', 'fulfillment_type': 'Pickup'},
-            follow=True,
-        )
+        first = self._checkout()
         self.assertNotIn(str(self.gone_product.pk), self.client.session['cart'])
 
-        second = self.client.post(
-            reverse('orders:checkout'),
-            {'mode_of_payment': 'Cash on Delivery', 'fulfillment_type': 'Pickup'},
-            follow=True,
-        )
+        second = self._checkout()
         self.assertEqual(SalesTransaction.objects.count(), 1)

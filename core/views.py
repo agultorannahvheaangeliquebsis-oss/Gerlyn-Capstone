@@ -1,7 +1,4 @@
-import time
-
 from django.contrib import messages
-from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -16,8 +13,7 @@ from .version import APP_VERSION
 def healthz(request):
     """Railway's deploy health check (railway.json healthcheckPath). Cheap
     and unauthenticated on purpose — this confirms the gunicorn process
-    came up and can serve a request at all, not that the DB is reachable
-    (that's db_latency_check, which is Owner-gated and does real queries).
+    came up and can serve a request at all, not that the DB is reachable.
     A DB check here would make a MySQL hiccup look like a bad deploy and
     trigger a restart-policy loop for the wrong reason."""
     return JsonResponse({'status': 'ok'})
@@ -61,41 +57,6 @@ def download_view(request):
         context['active_page'] = 'download'
         return render(request, 'download_internal.html', context)
     return render(request, 'download.html', context)
-
-
-@role_required(OWNER)
-def db_latency_check(request):
-    """TEMPORARY diagnostic — remove once the Railway slow-page-load
-    investigation is closed. Isolates raw MySQL round-trip time from
-    everything else a normal page load pays for (gunicorn queueing,
-    template rendering, session/alert queries), by timing N bare
-    `SELECT 1` round trips on a connection Django already holds open
-    (CONN_MAX_AGE=60 in settings.py) — the same connection reuse a real
-    request gets. If each round trip below is fast (a few ms) but real
-    pages are still slow, the bottleneck is elsewhere. If each one is
-    itself hundreds of ms, that confirms it's the DB connection/network
-    path, not query complexity or app code.
-    """
-    connect_start = time.perf_counter()
-    with connection.cursor():
-        pass  # forces a connection open if one wasn't already
-    connect_ms = (time.perf_counter() - connect_start) * 1000
-
-    round_trip_ms = []
-    for _ in range(5):
-        start = time.perf_counter()
-        with connection.cursor() as cursor:
-            cursor.execute('SELECT 1')
-            cursor.fetchone()
-        round_trip_ms.append(round((time.perf_counter() - start) * 1000, 1))
-
-    return JsonResponse({
-        'first_connection_ms': round(connect_ms, 1),
-        'select_1_round_trips_ms': round_trip_ms,
-        'db_host': connection.settings_dict.get('HOST'),
-        'db_port': connection.settings_dict.get('PORT'),
-        'conn_max_age': connection.settings_dict.get('CONN_MAX_AGE'),
-    })
 
 
 @role_required(*INTERNAL_ROLES)

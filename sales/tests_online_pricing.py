@@ -21,6 +21,7 @@ is_wholesale_eligible, set by the Owner or a Branch Manager — and never from
 the request. These tests hold that line, and check the online figures against
 what the walk-in POS produces for the same cart.
 """
+import uuid
 from decimal import Decimal
 
 from django.test import TestCase
@@ -74,6 +75,15 @@ class OnlinePricingTestCase(TestCase):
         session = self.client.session
         session['branch_id'] = self.branch.pk
         session['cart'] = {str(self.product.pk): quantity}
+        # checkout()'s double-submit guard consumes a token's cache entry
+        # permanently (a 5-minute TTL) the moment it is used, so reusing the
+        # same literal string across the two shop_as()/check_out() rounds
+        # some tests here make would make the SECOND round look like a
+        # replay of the first, however far apart or genuinely distinct they
+        # are — a fresh value each call is what a fresh cart-page load
+        # would actually hand out.
+        self._checkout_token = uuid.uuid4().hex
+        session['checkout_token'] = self._checkout_token
         session.save()
 
     def check_out(self, **extra):
@@ -84,6 +94,7 @@ class OnlinePricingTestCase(TestCase):
             # pricing tests need no saved Address (a Delivery order is refused
             # without one); the price engine does not care which it is.
             'fulfillment_type': 'Pickup',
+            'checkout_token': self._checkout_token,
         }
         payload.update(extra)
         return self.client.post(reverse('orders:checkout'), payload, follow=True)

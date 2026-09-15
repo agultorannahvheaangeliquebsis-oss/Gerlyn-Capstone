@@ -57,6 +57,11 @@ class CheckoutFulfillmentTypeTests(TestCase):
         session = self.client.session
         session['branch_id'] = self.branch.pk
         session['cart'] = {str(self.product.pk): 2}
+        # checkout()'s double-submit guard matches this against the POST's
+        # own checkout_token — a real browser always has one because it came
+        # from rendering the cart page first, which these tests skip by
+        # writing the session directly.
+        session['checkout_token'] = 'test-checkout-token'
         session.save()
 
     def save_address(self, text='12 Real St, Baliuag'):
@@ -67,6 +72,7 @@ class CheckoutFulfillmentTypeTests(TestCase):
 
     def check_out(self, **payload):
         payload.setdefault('mode_of_payment', 'Cash on Delivery')
+        payload.setdefault('checkout_token', 'test-checkout-token')
         return self.client.post(
             reverse('orders:checkout'), payload, follow=True
         )

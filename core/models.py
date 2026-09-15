@@ -141,7 +141,10 @@ class StoreSetting(TimeStampedModel):
     def save(self, *args, **kwargs):
         self.pk = self.SINGLETON_ID
         super().save(*args, **kwargs)
-        cache.delete(self._CACHE_KEY)
+        try:
+            cache.delete(self._CACHE_KEY)
+        except Exception:
+            pass  # see load()'s comment — a cache outage must not block a save
 
     def delete(self, *args, **kwargs):
         # Singleton — there is nothing sensible to delete to.
@@ -150,11 +153,27 @@ class StoreSetting(TimeStampedModel):
     @classmethod
     def load(cls):
         """The one settings row, creating it with defaults on first access.
-        Cached for _CACHE_SECONDS; save() busts the cache."""
-        obj = cache.get(cls._CACHE_KEY)
+        Cached for _CACHE_SECONDS; save() busts the cache.
+
+        Reached from core.context_processors.store_settings, which runs on
+        EVERY page — an unhandled cache backend error here (Redis
+        unreachable, a bad REDIS_URL, a network blip) doesn't degrade one
+        feature, it 500s the entire site. Unlike a scoping check masking a
+        real bug by fail-open/fail-closed, a cache is optional by design —
+        the DB row is the actual source of truth either way — so treating
+        any cache failure the same as a cache MISS is the correct behavior,
+        not a hidden bug.
+        """
+        try:
+            obj = cache.get(cls._CACHE_KEY)
+        except Exception:
+            obj = None
         if obj is None:
             obj, _ = cls.objects.get_or_create(pk=cls.SINGLETON_ID)
-            cache.set(cls._CACHE_KEY, obj, cls._CACHE_SECONDS)
+            try:
+                cache.set(cls._CACHE_KEY, obj, cls._CACHE_SECONDS)
+            except Exception:
+                pass
         return obj
 
 

@@ -242,7 +242,19 @@ CACHES = {
 # lookups that miss on every expiry. Purely additive: with no REDIS_URL set
 # (local dev, or before the Railway Redis plugin is added), CACHES stays
 # exactly as above — nothing about DatabaseCache's behavior changes.
+#
+# Railway's Redis plugin variable reference can resolve to a bare hostname
+# (e.g. "redis.railway.internal") rather than a full "redis://host:port"
+# URL, depending on which of the plugin's exposed variables gets pasted in.
+# redis-py's parse_url() raises ValueError on anything without a scheme —
+# on EVERY request, since this cache backs a context processor that renders
+# on every page — so this normalizes a bare host/host:port into a real URL
+# instead of taking the whole site down over a Railway Variables typo.
 REDIS_URL = os.environ.get('REDIS_URL')
+if REDIS_URL and '://' not in REDIS_URL:
+    REDIS_URL = f'redis://{REDIS_URL}'
+    if not REDIS_URL.rsplit('/', 1)[-1].isdigit():
+        REDIS_URL += ':6379/0' if REDIS_URL.count(':') < 2 else '/0'
 if REDIS_URL:
     CACHES['default'] = {
         'BACKEND': 'django_redis.cache.RedisCache',
@@ -260,6 +272,20 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+
+    # No /api/ endpoint limited how often it could be called — login has its
+    # own dedicated 5-attempt lockout (accounts.rate_limit) independent of
+    # this, but everything else (including the AllowAny endpoints:
+    # LoginView, RegisterCustomerView, VerifyTwoFactorView) had nothing.
+    # These are a general backstop, not tuned per-endpoint.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/hour",
+        "user": "1000/hour",
+    },
 }
 
 # Password validation
@@ -357,6 +383,10 @@ DEFAULT_FROM_EMAIL  = os.environ.get('EMAIL_HOST_USER', 'noreply@gerlynstore.com
 # Avatar upload validation
 AVATAR_MAX_MB        = 2
 AVATAR_ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp'}
+
+# GCash payment-proof upload validation — a phone screenshot/photo runs
+# larger than an avatar, so this gets its own, more generous cap.
+PROOF_OF_PAYMENT_MAX_MB = 5
 
 # --- Error tracking ----------------------------------------------------------
 # Without this, a production 500 is only visible in Railway's log stream,

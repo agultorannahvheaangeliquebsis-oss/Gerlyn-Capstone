@@ -12,6 +12,9 @@ from django.core.cache import cache
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 300  # 5 minutes
 
+REGISTER_MAX_ATTEMPTS = 5
+REGISTER_WINDOW_SECONDS = 60 * 60  # 1 hour
+
 
 def _key(identifier):
     return f'login_attempts:{identifier.strip().lower()}'
@@ -35,3 +38,35 @@ def clear_failed_logins(identifier):
     if not identifier:
         return
     cache.delete(_key(identifier))
+
+
+def get_client_ip(request):
+    """Best-effort real client IP behind Railway's proxy. REMOTE_ADDR alone
+    would always read as the proxy's own address in production, making any
+    limit keyed on it useless — X-Forwarded-For's first entry is the
+    original client. Local dev has no proxy in front of it, so this falls
+    straight back to REMOTE_ADDR there."""
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '')
+
+
+def is_rate_limited(bucket, identifier, max_attempts, window_seconds):
+    """Generic cache-backed limit: at most max_attempts calls per identifier
+    within window_seconds, shared by any caller that needs one (sign-up,
+    the address lookup). Returns True if this call should be refused.
+
+    Once blocked, further calls do NOT push the window back out — only
+    calls that were actually allowed count towards it — so a script that
+    keeps hammering past the limit still has the block expire on schedule
+    instead of resetting the clock on every attempt.
+    """
+    if not identifier:
+        return False
+    key = f'ratelimit:{bucket}:{identifier}'
+    attempts = cache.get(key, 0)
+    if attempts >= max_attempts:
+        return True
+    cache.set(key, attempts + 1, window_seconds)
+    return False

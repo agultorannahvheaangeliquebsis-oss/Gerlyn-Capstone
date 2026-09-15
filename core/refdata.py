@@ -24,12 +24,25 @@ REFDATA_CACHE_SECONDS = 600
 
 
 def cached_branches():
-    branches = cache.get('refdata:branches')
+    # A cache backend failure here (Redis unreachable, misconfigured) must
+    # degrade to "cache miss", not an unhandled exception — this is a pure
+    # performance cache called from nearly every internal page, so letting
+    # a Redis hiccup propagate up would turn "a bit slower" into "the whole
+    # admin side is down". The DB row is the real source of truth either
+    # way; unlike the login-lockout/OTP caches, there is no security
+    # property being enforced here that a silent fallback would weaken.
+    try:
+        branches = cache.get('refdata:branches')
+    except Exception:
+        branches = None
     if branches is None:
         from branches.models import Branch
 
         branches = list(Branch.objects.all())
-        cache.set('refdata:branches', branches, REFDATA_CACHE_SECONDS)
+        try:
+            cache.set('refdata:branches', branches, REFDATA_CACHE_SECONDS)
+        except Exception:
+            pass
     return branches
 
 
@@ -49,7 +62,12 @@ def cached_categories():
     first in MySQL, which puts the departments that have no shelves at the
     top rather than scattered through.
     """
-    categories = cache.get('refdata:categories')
+    # See cached_branches()'s comment — same fallback-to-DB-on-any-cache-
+    # error reasoning.
+    try:
+        categories = cache.get('refdata:categories')
+    except Exception:
+        categories = None
     if categories is None:
         from inventory.models import ProductCategory
 
@@ -57,17 +75,26 @@ def cached_categories():
             ProductCategory.objects.select_related('parent')
             .order_by('parent__category_name', 'category_name')
         )
-        cache.set('refdata:categories', categories, REFDATA_CACHE_SECONDS)
+        try:
+            cache.set('refdata:categories', categories, REFDATA_CACHE_SECONDS)
+        except Exception:
+            pass
     return categories
 
 
 def bust_branches_cache():
     """Call after any Branch create/update/delete so the next read is fresh
     instead of serving a stale list for up to REFDATA_CACHE_SECONDS."""
-    cache.delete('refdata:branches')
+    try:
+        cache.delete('refdata:branches')
+    except Exception:
+        pass
 
 
 def bust_categories_cache():
     """Call after any ProductCategory create/update/delete — same reasoning
     as bust_branches_cache()."""
-    cache.delete('refdata:categories')
+    try:
+        cache.delete('refdata:categories')
+    except Exception:
+        pass

@@ -80,6 +80,7 @@ class CheckoutIgnoresDiscountClaimTests(DiscountFixtureMixin, TestCase):
         session = self.client.session
         session['branch_id'] = self.branch.pk
         session['cart'] = {str(self.product.pk): 2}
+        session['checkout_token'] = 'test-checkout-token'
         session.save()
 
     def check_out(self, **extra):
@@ -87,6 +88,7 @@ class CheckoutIgnoresDiscountClaimTests(DiscountFixtureMixin, TestCase):
             'mode_of_payment': 'Cash on Delivery',
             'fulfillment_type': 'Delivery',
             'delivery_address': '12 Real St, Baliuag',
+            'checkout_token': 'test-checkout-token',
         }
         payload.update(extra)
         return self.client.post(

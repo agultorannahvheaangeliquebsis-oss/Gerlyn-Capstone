@@ -124,6 +124,29 @@ def send_verification_email(user, request):
     )
 
 
+def send_login_otp(user, code, request):
+    """
+    Sends the login-time one-time code — the actual second authentication
+    factor. Distinct from send_password_change_verification above, which
+    only confirms a password change by email and never gated login itself.
+    """
+    send_mail(
+        subject="Your Gerlyn Variety Store login code",
+        message=(
+            f"Hi {user.get_full_name() or user.username},\n\n"
+            f"Your login code is: {code}\n\n"
+            f"Enter it on the sign-in screen to finish logging in. It expires "
+            f"in 10 minutes and can only be used once.\n\n"
+            f"If you didn't try to log in, you can ignore this email — your "
+            f"account is still safe.\n\n"
+            f"— Gerlyn Variety Store"
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+
 def send_password_change_verification(user, request):
     """
     Sends a confirmation link the user must click before their password

@@ -4,13 +4,21 @@ from django.contrib.auth import authenticate, login, logout, password_validation
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
     CustomerProfile, SupplierProfile, Notification,
 )
-from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
+from .rate_limit import (
+    REGISTER_MAX_ATTEMPTS, REGISTER_WINDOW_SECONDS,
+    clear_failed_logins, get_client_ip, is_login_locked_out,
+    is_rate_limited, register_failed_login,
+)
+from .two_factor import (
+    cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
+)
 from core.module_permissions import ALL_MODULE_CODES, MODULE_REGISTRY
 
 
@@ -67,6 +75,19 @@ def login_view(request):
 
             if user is not None:
                 clear_failed_logins(username)
+
+                if user.two_factor_enabled:
+                    # The password was correct, but login() does not happen
+                    # yet — only the session's pending-user pointer is set,
+                    # so the account is not actually signed in until the
+                    # emailed code is verified too. next survives here in
+                    # the session rather than a hidden field on the code
+                    # form, since there is no reason to expose it there.
+                    start_login_otp(user, request)
+                    request.session['pending_2fa_user_id'] = user.pk
+                    request.session['pending_2fa_next'] = safe_next(request) or ''
+                    return redirect('accounts:login_verify')
+
                 login(request, user)
                 # Back to whatever they were doing. A shopper who hit "Log in
                 # to buy" on a product card was one click from ordering it;
@@ -90,6 +111,47 @@ def login_view(request):
         # attempt — otherwise a typo in the password quietly costs the shopper
         # their place.
         'next': safe_next(request) or '',
+    })
+
+
+def login_verify_view(request):
+    """Step 2 of login when Two-Factor Authentication is enabled: the emailed
+    6-digit code. Reached only via login_view setting pending_2fa_user_id in
+    the session — there is deliberately no way to land here without having
+    already passed the password check for that specific account."""
+    pending_user_id = request.session.get('pending_2fa_user_id')
+    if not pending_user_id:
+        return redirect('accounts:login')
+
+    user = User.objects.filter(pk=pending_user_id).first()
+    if user is None or not user.two_factor_enabled:
+        request.session.pop('pending_2fa_user_id', None)
+        request.session.pop('pending_2fa_next', None)
+        return redirect('accounts:login')
+
+    error = None
+
+    if request.method == 'POST':
+        if 'resend' in request.POST:
+            start_login_otp(user, request)
+            messages.info(request, f'A new code was sent to {user.email}.')
+        elif is_login_otp_locked_out(user):
+            request.session.pop('pending_2fa_user_id', None)
+            request.session.pop('pending_2fa_next', None)
+            cancel_login_otp(user)
+            messages.error(request, 'Too many incorrect codes. Please log in again.')
+            return redirect('accounts:login')
+        elif verify_login_otp(user, request.POST.get('code', '')):
+            next_url = request.session.pop('pending_2fa_next', '')
+            request.session.pop('pending_2fa_user_id', None)
+            login(request, user)
+            return redirect(next_url) if next_url else _post_login_redirect(request, user)
+        else:
+            error = 'Incorrect code. Please try again.'
+
+    return render(request, 'accounts/login_verify.html', {
+        'error': error,
+        'email': user.email,
     })
 
 
@@ -607,14 +669,51 @@ def register_view(request):
         return redirect_by_role(request, request.user)
 
     if request.method == 'POST':
-        username = request.POST.get('username')
-        email = request.POST.get('email')
+        # A scripted flood of sign-ups (or of anything below that's cheap to
+        # trigger repeatedly, like the username/email uniqueness checks) has
+        # no cost to an attacker otherwise — sign-up had no rate limit at
+        # all before this. Keyed by IP, not username, since the whole point
+        # is to catch it before any of the per-field checks below even run.
+        if is_rate_limited('register', get_client_ip(request), REGISTER_MAX_ATTEMPTS, REGISTER_WINDOW_SECONDS):
+            messages.error(
+                request,
+                'Too many sign-up attempts from this connection. Please try again in a while.'
+            )
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+
+        username = (request.POST.get('username') or '').strip()
+        email = (request.POST.get('email') or '').strip()
         password1 = request.POST.get('password1')
         password2 = request.POST.get('password2')
         first_name = request.POST.get('first_name')
         last_name = request.POST.get('last_name')
         contact_number = request.POST.get('contact_number')
         address = request.POST.get('address', '').strip()
+
+        # Neither field was checked before create_user() reached the DB
+        # layer raw — an empty username hit a NOT NULL constraint, and one
+        # over the column's 150-char limit hit MySQL's own length error.
+        # Both surfaced as a bare 500 instead of a message on the form.
+        if not username or len(username) > 150:
+            messages.error(request, 'Username must be between 1 and 150 characters.')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+
+        try:
+            User.username_validator(username)
+        except ValidationError as e:
+            for error in e.messages:
+                messages.error(request, error)
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+
+        if not email:
+            messages.error(request, 'Enter your email address.')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+
+        try:
+            validate_email(email)
+        except ValidationError:
+            messages.error(request, 'Enter a valid email address.')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         # The delivery address is required — a typed line, optionally filled
         # in from the Region/Province/City/Barangay dropdowns. This is the

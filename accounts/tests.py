@@ -4,6 +4,9 @@ two things the move did change (the GET route and the error path), plus the
 writes themselves, so a regression in either shows up here rather than in a
 browser.
 """
+import re
+
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.test import TestCase
@@ -16,7 +19,16 @@ from accounts.rate_limit import (
     is_login_locked_out,
     register_failed_login,
 )
+from accounts.two_factor import OTP_MAX_ATTEMPTS
 from branches.models import Branch
+
+
+def _latest_otp():
+    """Pulls the 6-digit code out of the most recently sent email — the code
+    is random, generated fresh per test, so tests read it back rather than
+    hardcoding a value."""
+    body = mail.outbox[-1].body
+    return re.search(r'login code is: (\d{6})', body).group(1)
 
 
 class UserModalFlowTests(TestCase):
@@ -336,6 +348,65 @@ class RegistrationVerificationEmailTests(TestCase):
         self.assertEqual(len(mail.outbox), 0)
 
 
+class RegisterInputValidationTests(TestCase):
+    """register_view used to pass username/email straight to create_user()
+    with no format or length check — an empty username hit a NOT NULL
+    constraint and an over-length one hit MySQL's own column-length error,
+    both surfacing as a bare 500 instead of a message on the form."""
+
+    def _register(self, **overrides):
+        payload = {
+            'username': 'newcustomer',
+            'email': 'newcustomer@example.com',
+            'password1': 'Str0ngPass!2026',
+            'password2': 'Str0ngPass!2026',
+            'first_name': 'New',
+            'last_name': 'Customer',
+            'contact_number': '09171234567',
+            'address': '12 Real St, Poblacion, Baliuag, Bulacan',
+        }
+        payload.update(overrides)
+        return self.client.post(reverse('accounts:register'), payload)
+
+    def test_an_empty_username_is_rejected_not_crashed(self):
+        response = self._register(username='')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(email='newcustomer@example.com').exists())
+
+    def test_a_username_over_150_characters_is_rejected_not_crashed(self):
+        response = self._register(username='x' * 200)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(email='newcustomer@example.com').exists())
+
+    def test_a_malformed_email_is_rejected(self):
+        response = self._register(email='not-an-email')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(username='newcustomer').exists())
+
+    def test_a_valid_submission_still_succeeds(self):
+        """Regression guard — the new checks must not block a normal signup."""
+        response = self._register()
+        self.assertRedirects(response, reverse('accounts:customer_dashboard'))
+        self.assertTrue(User.objects.filter(username='newcustomer').exists())
+
+    def test_sixth_attempt_from_the_same_ip_within_the_window_is_refused(self):
+        from accounts.rate_limit import REGISTER_MAX_ATTEMPTS
+
+        for i in range(REGISTER_MAX_ATTEMPTS):
+            self._register(username=f'flooduser{i}', email=f'flood{i}@example.com')
+            # Each successful signup logs the test client in; register_view's
+            # own "already authenticated" redirect would otherwise short-circuit
+            # every attempt after the first, never reaching the rate limit at
+            # all — logging back out between attempts is what actually
+            # simulates 6 separate anonymous visitors sharing one IP.
+            self.client.logout()
+
+        response = self._register(username='oneMoreUser', email='onemore@example.com')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(username='oneMoreUser').exists())
+        self.assertContains(response, 'Too many sign-up attempts')
+
+
 class SavedAddressTests(TestCase):
     """Settings → Addresses needs the address line filled in. The server
     composes it from the dropdowns as a fallback, but with neither there is
@@ -481,3 +552,168 @@ class LoginLockoutCacheTests(TestCase):
             api_url, {'username': 'cashier', 'password': 'Right-Pass-2026'}
         )
         self.assertEqual(response.status_code, 429)
+
+
+class TwoFactorLoginTests(TestCase):
+    """Turning on Two-Factor Authentication used to change nothing about
+    login — both the template login and the API's LoginView still let a
+    correct password straight in. This is the actual second factor: a
+    password success emails a 6-digit code and holds the session unauthenticated
+    until that code is entered too."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='secure_owner', password='Right-Pass-2026',
+            email='owner@example.com', role=User.Role.OWNER,
+            two_factor_enabled=True,
+        )
+
+    # ── Template login flow ────────────────────────────────
+
+    def test_correct_password_does_not_log_in_when_2fa_is_on(self):
+        response = self.client.post(reverse('accounts:login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        self.assertRedirects(response, reverse('accounts:login_verify'))
+        self.assertNotIn('_auth_user_id', self.client.session)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['owner@example.com'])
+
+    def test_correct_code_completes_the_login(self):
+        self.client.post(reverse('accounts:login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        code = _latest_otp()
+        response = self.client.post(reverse('accounts:login_verify'), {'code': code})
+        self.assertRedirects(response, reverse('accounts:owner_dashboard'))
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_wrong_code_does_not_log_in(self):
+        self.client.post(reverse('accounts:login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        real_code = _latest_otp()
+        wrong_code = '000000' if real_code != '000000' else '111111'
+        response = self.client.post(reverse('accounts:login_verify'), {'code': wrong_code})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Incorrect code')
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_code_is_single_use(self):
+        self.client.post(reverse('accounts:login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        code = _latest_otp()
+        self.client.post(reverse('accounts:login_verify'), {'code': code})
+        self.client.get(reverse('accounts:logout'))
+
+        # Logging in again starts a fresh pending state; replaying the old
+        # code against it must fail even though it was correct once.
+        self.client.post(reverse('accounts:login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        response = self.client.post(reverse('accounts:login_verify'), {'code': code})
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_too_many_wrong_codes_locks_out_and_requires_a_fresh_login(self):
+        self.client.post(reverse('accounts:login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        real_code = _latest_otp()
+        wrong_code = '000000' if real_code != '000000' else '111111'
+        for _ in range(OTP_MAX_ATTEMPTS):
+            self.client.post(reverse('accounts:login_verify'), {'code': wrong_code})
+
+        response = self.client.post(reverse('accounts:login_verify'), {'code': real_code})
+        self.assertRedirects(response, reverse('accounts:login'))
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_resend_sends_a_new_code_and_invalidates_the_old_one(self):
+        self.client.post(reverse('accounts:login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        first_code = _latest_otp()
+        self.client.post(reverse('accounts:login_verify'), {'resend': '1'})
+        self.assertEqual(len(mail.outbox), 2)
+        second_code = _latest_otp()
+
+        # The old code no longer works once a resend issued a new one.
+        stale = self.client.post(reverse('accounts:login_verify'), {'code': first_code})
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+        fresh = self.client.post(reverse('accounts:login_verify'), {'code': second_code})
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_login_without_2fa_is_unaffected(self):
+        User.objects.create_user(
+            username='plain_staff', password='Right-Pass-2026', role=User.Role.STAFF,
+        )
+        response = self.client.post(reverse('accounts:login'), {
+            'username': 'plain_staff', 'password': 'Right-Pass-2026',
+        })
+        self.assertIn('_auth_user_id', self.client.session)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_verify_page_is_unreachable_without_a_pending_login(self):
+        response = self.client.get(reverse('accounts:login_verify'))
+        self.assertRedirects(response, reverse('accounts:login'))
+
+    # ── API login flow ─────────────────────────────────────
+
+    def test_api_login_requires_verification_when_2fa_is_on(self):
+        response = self.client.post(reverse('api-login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['two_factor_required'])
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_api_verify_completes_the_login(self):
+        self.client.post(reverse('api-login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        code = _latest_otp()
+        response = self.client.post(reverse('api-verify-2fa'), {'code': code})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_api_verify_rejects_a_wrong_code(self):
+        self.client.post(reverse('api-login'), {
+            'username': 'secure_owner', 'password': 'Right-Pass-2026',
+        })
+        real_code = _latest_otp()
+        wrong_code = '000000' if real_code != '000000' else '111111'
+        response = self.client.post(reverse('api-verify-2fa'), {'code': wrong_code})
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_api_verify_without_a_pending_login_is_rejected(self):
+        response = self.client.post(reverse('api-verify-2fa'), {'code': '123456'})
+        self.assertEqual(response.status_code, 400)
+
+
+class ApiThrottlingTests(TestCase):
+    """No /api/ endpoint limited how often it could be called — this proves
+    DEFAULT_THROTTLE_CLASSES/RATES in REST_FRAMEWORK actually engage, using
+    an artificially tiny rate so the test doesn't need 100+ requests to
+    prove it.
+
+    SimpleRateThrottle.THROTTLE_RATES is set from api_settings once at
+    import time, not re-read per request — @override_settings on
+    REST_FRAMEWORK does not reach it, so the rate is patched directly on the
+    class both AnonRateThrottle and UserRateThrottle inherit it from.
+    """
+
+    def test_repeated_anonymous_requests_are_throttled(self):
+        from unittest.mock import patch
+
+        from rest_framework.throttling import SimpleRateThrottle
+
+        url = reverse('api-login')
+        with patch.object(SimpleRateThrottle, 'THROTTLE_RATES', {'anon': '2/min', 'user': '2/min'}):
+            for _ in range(2):
+                response = self.client.post(url, {'username': 'nobody', 'password': 'wrong'})
+                self.assertNotEqual(response.status_code, 429)
+
+            response = self.client.post(url, {'username': 'nobody', 'password': 'wrong'})
+            self.assertEqual(response.status_code, 429)

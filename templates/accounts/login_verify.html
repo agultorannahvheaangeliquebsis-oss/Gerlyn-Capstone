@@ -1,0 +1,75 @@
+{% extends "public_base.html" %}
+{% load static %}
+{% block title %}Enter Your Code — Gerlyn Variety Store{% endblock %}
+{% block body_class %}shop shop-auth{% endblock %}
+
+{% block content %}
+{% comment %}
+Step 2 of login when Two-Factor Authentication is on — same auth-band/
+auth-card shell as login.html, one field instead of two, plus a Resend
+link. Reached only via login_view's redirect (accounts.views.login_verify_view
+bounces anyone without a pending_2fa_user_id straight back to /login/), so
+this never needs its own "how did I get here" handling.
+{% endcomment %}
+<div class="auth-topbar">
+  <div class="shop-wrap auth-topbar-inner">
+    <a class="auth-topbar-brand" href="{% url 'orders:catalog' %}">
+      <img src="{% static 'img/logo.jpg' %}" alt="">
+      <span><strong>Gerlyn</strong> Variety Store</span>
+    </a>
+  </div>
+</div>
+
+<div class="auth-band">
+  <div class="shop-wrap auth-band-inner">
+    <div class="auth-hero">
+      <img class="auth-hero-mark" src="{% static 'img/logo.png' %}" alt="">
+      <p class="auth-hero-name">Gerlyn Variety Store</p>
+      <p class="auth-hero-tag">
+        Groceries, household goods and bulk supplies<br>
+        for Baliuag, Bulacan.
+      </p>
+    </div>
+
+    <div class="auth-card">
+      <h1 class="auth-title">Enter Your Code</h1>
+      <p class="gv-meta" style="margin-top:-8px;">
+        We sent a 6-digit code to <strong>{{ email }}</strong>. It expires in 10 minutes.
+      </p>
+
+      <form method="POST">
+        {% csrf_token %}
+        <div class="field auth-field auth-field--float">
+          <div class="auth-input-wrap">
+            <span class="auth-field-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </span>
+            <input id="code" type="text" name="code" placeholder=" "
+                   inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code"
+                   maxlength="6" required autofocus
+                   {% if error %}class="is-invalid" aria-invalid="true" aria-describedby="otp-error"{% endif %}>
+            <label for="code">6-digit code</label>
+          </div>
+        </div>
+
+        {% if error %}<p class="field-error" id="otp-error" role="alert">{{ error }}</p>{% endif %}
+
+        <button type="submit" class="btn btn-primary auth-submit">Verify &amp; Log In</button>
+      </form>
+
+      <form method="POST" style="margin-top:12px;">
+        {% csrf_token %}
+        <button type="submit" name="resend" value="1" class="btn" style="width:100%;">
+          Resend code
+        </button>
+      </form>
+
+      <p class="auth-alt">
+        Wrong account? <a href="{% url 'accounts:login' %}">Back to log in</a>
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

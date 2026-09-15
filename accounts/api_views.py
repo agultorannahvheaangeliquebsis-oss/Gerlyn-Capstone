@@ -7,6 +7,9 @@ from django.shortcuts import get_object_or_404
 from .serializers import UserSerializer, UserAdminSerializer, UserCreateSerializer, UserUpdateSerializer
 from .models import User
 from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
+from .two_factor import (
+    cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
+)
 
 
 class LoginView(APIView):
@@ -15,6 +18,12 @@ class LoginView(APIView):
     Body: { "username": "...", "password": "..." }
     Returns: user data JSON + sets session cookie
     React uses roleCode to decide which dashboard to render.
+
+    When the account has Two-Factor Authentication on, a correct password
+    does not log the session in yet — it returns two_factor_required: true
+    instead, the same gap this closes on the template login flow
+    (accounts.views.login_view). The caller must then POST the emailed code
+    to VerifyTwoFactorView below before a session actually exists.
     """
     permission_classes = [AllowAny]
 
@@ -44,6 +53,69 @@ class LoginView(APIView):
             )
 
         clear_failed_logins(username)
+
+        if user.two_factor_enabled:
+            start_login_otp(user, request)
+            request.session['pending_2fa_user_id'] = user.pk
+            return Response({
+                'two_factor_required': True,
+                'detail': f'A login code was sent to {user.email}.',
+            }, status=status.HTTP_200_OK)
+
+        login(request, user)
+        serializer = UserSerializer(user)
+        return Response({
+            'user': serializer.data,
+            'detail': 'Login successful.',
+        }, status=status.HTTP_200_OK)
+
+
+class VerifyTwoFactorView(APIView):
+    """
+    POST /api/auth/verify-2fa/
+    Body: { "code": "123456" } or { "resend": true }
+    Completes a login LoginView started when two_factor_enabled is on —
+    the session's pending_2fa_user_id (set by that call) is the only way
+    this endpoint knows which account is mid-login, so it can't be used to
+    probe or complete anyone else's login.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        pending_user_id = request.session.get('pending_2fa_user_id')
+        if not pending_user_id:
+            return Response(
+                {'detail': 'No login is pending verification.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = User.objects.filter(pk=pending_user_id).first()
+        if user is None or not user.two_factor_enabled:
+            request.session.pop('pending_2fa_user_id', None)
+            return Response(
+                {'detail': 'No login is pending verification.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if request.data.get('resend'):
+            start_login_otp(user, request)
+            return Response(
+                {'detail': f'A new code was sent to {user.email}.'},
+                status=status.HTTP_200_OK
+            )
+
+        if is_login_otp_locked_out(user):
+            request.session.pop('pending_2fa_user_id', None)
+            cancel_login_otp(user)
+            return Response(
+                {'detail': 'Too many incorrect codes. Please log in again.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
+        if not verify_login_otp(user, request.data.get('code', '')):
+            return Response({'detail': 'Incorrect code.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        request.session.pop('pending_2fa_user_id', None)
         login(request, user)
         serializer = UserSerializer(user)
         return Response({

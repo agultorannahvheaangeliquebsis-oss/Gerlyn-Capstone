@@ -1,8 +1,10 @@
+import uuid
 from decimal import Decimal
 from functools import wraps
 from urllib.parse import quote
 
 from django.contrib import messages
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse, QueryDict
@@ -958,9 +960,15 @@ def view_cart(request):
 
     items, total = _cart_items(request)
     remaining = max(FREE_DELIVERY_OVER - total, Decimal('0'))
+    # One-time checkout token — see checkout()'s own comment for what this
+    # actually guards against. setdefault so a plain reload of the cart page
+    # (no checkout attempt in between) doesn't rotate it out from under a
+    # form the shopper already has open in another tab.
+    request.session.setdefault('checkout_token', uuid.uuid4().hex)
     return render(request, 'orders/cart.html', {
         'items': items,
         'total': total,
+        'checkout_token': request.session['checkout_token'],
         'free_delivery_over': FREE_DELIVERY_OVER,
         'remaining_for_free': remaining,
         'qualifies': total >= FREE_DELIVERY_OVER,
@@ -1003,6 +1011,37 @@ def checkout(request):
         # word looks like a checkout page that failed to load.
         messages.info(request, 'Review your order below, then press Place Order.')
         return redirect('orders:cart')
+
+    # Double-submit guard. The button disables itself on click (cart.html),
+    # but that alone does nothing against a slow connection where the first
+    # response hasn't come back yet when the shopper taps again, or a
+    # replayed/retried POST — either way, two requests can reach this view
+    # for the one "Place Order" click.
+    #
+    # cache.add() is the actual guard: it is one atomic "set only if absent"
+    # operation, so of two requests racing on the same token, only one can
+    # ever win it, however close together they arrive — a session read/write
+    # alone cannot promise that (both could read the token as still valid
+    # before either request saves back an updated session). The session
+    # token itself is a second, narrower check: whether this request even
+    # belongs to the cart page currently in the session, so a bookmarked or
+    # cached stale form can't submit an order for a cart that no longer
+    # matches what is displayed.
+    submitted_token = request.POST.get('checkout_token', '')
+    session_token = request.session.get('checkout_token', '')
+    if (
+        not session_token
+        or submitted_token != session_token
+        or not cache.add(f'checkout_token_used:{submitted_token}', True, 300)
+    ):
+        messages.info(request, "This order may already be on its way — check My Orders.")
+        return redirect('orders:my_orders')
+
+    # Rotate now, not after the order is created — this is what stops a
+    # THIRD, slower-arriving copy of the same double-tap (which read the old
+    # token before this request saved a new one) from creating a second
+    # order once this one succeeds.
+    request.session['checkout_token'] = uuid.uuid4().hex
 
     # --- price tier ---------------------------------------------------------
     # Same derivation the cart preview used, from the same function, so the

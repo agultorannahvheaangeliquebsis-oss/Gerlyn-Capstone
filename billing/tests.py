@@ -948,7 +948,7 @@ class BillingCreateValidationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'billing/billing_form.html')
         self.assertIn(
-            'Choose a payment method to record this payment.',
+            'Choose a valid payment method to record this payment.',
             [str(m) for m in get_messages(response.wsgi_request)],
         )
         record.refresh_from_db()
@@ -982,4 +982,78 @@ class BillingCreateValidationTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.payment_method, 'GCash')
         self.assertEqual(record.reference_number, 'GC-9')
+
+    def test_an_unrecognized_payment_method_is_rejected(self):
+        """A value outside BillingRecord.PaymentMethod (a tampered POST, or
+        a typo like "Paid") used to save verbatim — a payment method the
+        counter can't act on, same class of bug as an unpaid order reading
+        "Paid"."""
+        txn = self._pending_txn()
+        record = txn.billing_record
+        original_method = record.payment_method
+
+        response = self._client().post(
+            f'/billing/create/{txn.pk}/',
+            {'payment_method': 'Paid', 'reference_number': 'GC-3'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'billing/billing_form.html')
+        record.refresh_from_db()
+        self.assertEqual(record.payment_method, original_method)
+        self.assertEqual(record.reference_number, '')
+
+    def test_a_non_image_proof_of_payment_is_rejected(self):
+        """proof_of_payment used to be assigned straight from request.FILES
+        with no validation — an HTML file (or anything else) saved and
+        served back as-is."""
+        txn = self._pending_txn()
+        record = txn.billing_record
+
+        response = self._client().post(
+            f'/billing/create/{txn.pk}/',
+            {
+                'payment_method': 'GCash',
+                'reference_number': 'GC-4',
+                'proof_of_payment': ContentFile(
+                    b'<html><body><script>alert(1)</script></body></html>',
+                    name='receipt.html',
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'billing/billing_form.html')
+        record.refresh_from_db()
+        self.assertFalse(record.proof_of_payment)
+        self.assertEqual(record.reference_number, '')
+
+    def test_a_real_image_proof_of_payment_still_saves(self):
+        # _PNG_BYTES is a hand-crafted, technically-malformed PNG (bad IDAT
+        # checksum) — fine for the byte-identity comparisons above, but the
+        # new Pillow-based check correctly rejects it, so a genuinely valid
+        # image is built here instead to prove a real upload still works.
+        import io
+
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new('RGB', (2, 2), color='white').save(buf, format='PNG')
+        valid_png_bytes = buf.getvalue()
+
+        txn = self._pending_txn()
+        record = txn.billing_record
+
+        response = self._client().post(
+            f'/billing/create/{txn.pk}/',
+            {
+                'payment_method': 'GCash',
+                'reference_number': 'GC-5',
+                'proof_of_payment': ContentFile(valid_png_bytes, name='receipt.png'),
+            },
+        )
+
+        self.assertRedirects(response, f'/billing/{record.pk}/')
+        record.refresh_from_db()
+        self.assertTrue(record.proof_of_payment)
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)

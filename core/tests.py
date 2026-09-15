@@ -109,10 +109,12 @@ class AcceptanceTests(TestCase):
         session = customer.session
         session['branch_id'] = branch.id
         session['cart'] = {str(inv.product_id): 2}
+        session['checkout_token'] = 'test-checkout-token'
         session.save()
         customer.post('/shop/checkout/', {
             'mode_of_payment': 'Cash on Delivery',
             'fulfillment_type': 'Delivery',
+            'checkout_token': 'test-checkout-token',
         })
 
         order = SalesTransaction.objects.filter(customer=juan).order_by('-id').first()

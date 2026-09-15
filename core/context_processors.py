@@ -295,7 +295,15 @@ def alerts(request):
     from django.core.cache import cache
 
     cache_key = f"alert_count:{user.id}"
-    count = cache.get(cache_key)
+    # A cache backend error (Redis unreachable) must fail the same way a
+    # miss does — this is the badge count, not the alert data itself, so
+    # falling through to the real query below is the fail-safe path this
+    # function's docstring already promises; only the ".get() worked, cache
+    # is fine" branch was missing its own guard.
+    try:
+        count = cache.get(cache_key)
+    except Exception:
+        count = None
     if count is not None:
         return {"alert_count": count}
 
@@ -306,7 +314,10 @@ def alerts(request):
     except Exception:
         return {}
 
-    cache.set(cache_key, count, ALERT_COUNT_CACHE_SECONDS)
+    try:
+        cache.set(cache_key, count, ALERT_COUNT_CACHE_SECONDS)
+    except Exception:
+        pass
     return {"alert_count": count}
 
 

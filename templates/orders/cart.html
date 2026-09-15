@@ -126,8 +126,17 @@ every panel in the app to fix one column.
         confirm delivery with you, or you can collect it yourself.</p>
       {% endif %}
 
-      <form method="POST" action="{% url 'orders:checkout' %}" class="stack">
+      <form method="POST" action="{% url 'orders:checkout' %}" class="stack" id="checkout-form">
         {% csrf_token %}
+        {% comment %}
+        One-time token, paired with the atomic cache.add() guard in
+        customer_views.checkout — a double-tap or a slow-connection retry
+        sends this same value twice, and only the first request to reach the
+        server can ever consume it. The Place Order button disabling itself
+        below is the fast, visible half of this guard; this hidden field is
+        the half that actually holds under a race.
+        {% endcomment %}
+        <input type="hidden" name="checkout_token" value="{{ checkout_token }}">
         <div class="field">
           <label for="mode_of_payment">Payment method</label>
           <select id="mode_of_payment" name="mode_of_payment">
@@ -193,7 +202,9 @@ every panel in the app to fix one column.
           We record your payment method — payment itself happens on delivery or in store.
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width:100%;">Place Order</button>
+        <button type="submit" class="btn btn-primary" style="width:100%;" id="place-order-submit">
+          <span data-submit-label>Place Order</span>
+        </button>
         <a href="{% url 'orders:catalog' %}" class="btn" style="width:100%;">Continue shopping</a>
       </form>
     </div>
@@ -245,6 +256,34 @@ own saved address, refusing a Delivery order that has none.
 
     select.addEventListener('change', sync);
     sync();
+  })();
+</script>
+{% comment %}
+The visible half of the double-submit guard — customer_views.checkout's
+cache.add() on checkout_token is what actually holds under a race; this
+just stops the obvious case (an impatient second tap) from ever sending a
+second request at all. Same pattern as login.html's submit button.
+{% endcomment %}
+<script>
+  (function () {
+    var form = document.getElementById('checkout-form');
+    var btn = document.getElementById('place-order-submit');
+    if (!form || !btn) return;
+    var label = btn.querySelector('[data-submit-label]');
+
+    form.addEventListener('submit', function () {
+      if (!form.checkValidity()) return;
+      btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
+      if (label) label.textContent = 'Placing order…';
+    });
+
+    window.addEventListener('pageshow', function (e) {
+      if (!e.persisted) return;
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      if (label) label.textContent = 'Place Order';
+    });
   })();
 </script>
 {% endblock %}

@@ -4,7 +4,7 @@ from django.conf import settings
 from django.views.static import serve
 
 from core.views import (
-    about_view, db_latency_check, download_view, healthz, hero_draft_apply,
+    about_view, download_view, healthz, hero_draft_apply,
     hero_draft_discard, hero_slide_delete, hero_slide_save,
     internal_settings_view, service_worker_view, store_settings_update,
 )
@@ -17,9 +17,6 @@ urlpatterns = [
     # Served at the site root (not /static/js/) so the service worker's
     # default scope covers the whole app instead of just /static/js/.
     path('sw.js', service_worker_view, name='service_worker'),
-    # TEMPORARY — Railway slow-page-load investigation. Owner-only. Remove
-    # once resolved (see core/views.py:db_latency_check docstring).
-    path('__diag/db/', db_latency_check, name='db_latency_check'),
     path('about/', about_view, name='about'),
     path('download/', download_view, name='download'),
     path('internal/settings/', internal_settings_view, name='internal_settings'),

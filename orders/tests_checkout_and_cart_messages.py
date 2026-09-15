@@ -58,6 +58,10 @@ class StorefrontShopperTestCase(TestCase):
         session = self.client.session
         session['branch_id'] = self.branch.pk
         session['cart'] = {str(self.product.pk): 2}
+        # Matched against the POST's own checkout_token by checkout()'s
+        # double-submit guard — real traffic always has one from rendering
+        # the cart page first, which writing the session directly skips.
+        session['checkout_token'] = 'test-checkout-token'
         session.save()
 
 
@@ -69,6 +73,7 @@ class GCashReferenceTests(StorefrontShopperTestCase):
 
     def check_out(self, **payload):
         payload.setdefault('fulfillment_type', 'Pickup')
+        payload.setdefault('checkout_token', 'test-checkout-token')
         return self.client.post(reverse('orders:checkout'), payload, follow=True)
 
     def test_gcash_with_no_reference_is_refused_and_nothing_is_saved(self):
