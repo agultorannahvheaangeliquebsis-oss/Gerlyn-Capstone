@@ -4,12 +4,15 @@ from django.conf import settings
 from django.views.static import serve
 
 from core.views import (
-    about_view, db_latency_check, download_view, internal_settings_view,
-    service_worker_view,
+    about_view, db_latency_check, download_view, health_check,
+    internal_settings_view, service_worker_view,
 )
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Railway's healthcheckPath (railway.json) — must stay unauthenticated
+    # and dependency-free, see health_check's docstring.
+    path('healthz/', health_check, name='health_check'),
     # Served at the site root (not /static/js/) so the service worker's
     # default scope covers the whole app instead of just /static/js/.
     path('sw.js', service_worker_view, name='service_worker'),

@@ -10,6 +10,17 @@ from .changelog import visible_changelog
 from .version import APP_VERSION
 
 
+def health_check(request):
+    """Unauthenticated liveness probe for Railway's healthcheckPath
+    (railway.json). Deliberately does not touch the database: migrate
+    already ran before gunicorn starts (see railway.json startCommand), so a
+    DB check here would only add a way for a transient MySQL blip to fail a
+    deploy's health check and trigger an unnecessary restart. It exists to
+    confirm the WSGI process itself is up and serving.
+    """
+    return JsonResponse({'status': 'ok'})
+
+
 def service_worker_view(request):
     """Serves the service worker at /sw.js (root path, not /static/js/) so
     its default scope covers the whole site instead of just /static/js/."""

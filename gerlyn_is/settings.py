@@ -56,6 +56,23 @@ if not DEBUG and SECRET_KEY.startswith('django-insecure'):
         'SECRET_KEY. Set DJANGO_SECRET_KEY in your .env file.'
     )
 
+# --- Error tracking ----------------------------------------------------------
+# Opt-in: no-ops entirely until SENTRY_DSN is set, so this stays a no-op for
+# local dev and for anyone who hasn't created a (free-tier) Sentry project
+# yet. Without this, a production 500 is only visible by someone happening to
+# read Railway's log stream after the fact.
+SENTRY_DSN = os.environ.get('SENTRY_DSN', '')
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration()],
+        send_default_pii=False,
+        environment='production' if not DEBUG else 'development',
+    )
+
 
 # Application definition
 
