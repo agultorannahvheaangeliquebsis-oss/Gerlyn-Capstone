@@ -541,8 +541,9 @@ def user_form(request, pk=None):
             from core.notifications import CATEGORY_SYSTEM, PRIORITY_HIGH, notify
 
             # No required_module: User Management is Owner-only, full stop
-            # (see core/module_permissions.py) — never extended to Staff
-            # regardless of any module grant.
+            # (see core/module_permissions.py) — this reaches the Owner only,
+            # not even the target's own Branch Manager, regardless of any
+            # module grant.
             notify(
                 CATEGORY_SYSTEM, PRIORITY_HIGH,
                 f'Role changed — {username}',

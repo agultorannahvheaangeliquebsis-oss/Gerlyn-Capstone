@@ -8,20 +8,23 @@ rows by hand — one place to get recipients and required fields right.
 Recipients, by role:
   Owner           — always, every trigger, every branch (they oversee all of
                     them, same as core.scoping.branch_ids_for_user's None).
-  Branch Manager  — `branch`'s Manager, on every trigger for that branch.
-                    A Manager already sees everything about their own branch
-                    elsewhere in this app (core.scoping), so no extra gate.
-  Staff           — `branch`'s Staff, but ONLY when the call site passes
-                    `required_module`, and only the Staff who actually have
-                    that module enabled (core.module_permissions). This
-                    mirrors the module system's own rule: Staff visibility is
-                    opt-in per section, granted per employee by the Owner —
-                    never a role-wide default. Triggers with no
-                    `required_module` (role changes, login lockouts, new
-                    staff accounts) are Administration-tier and stay
-                    Owner/Manager-only, matching module_permissions.py's own
-                    "Branch Management and User Management... stay
-                    Owner-only, full stop."
+  Branch Manager,
+  Staff           — `branch`'s Manager and Staff, but ONLY when the call
+                    site passes `required_module`, and only the ones who
+                    actually have that module enabled
+                    (core.module_permissions.user_can_access_module — which
+                    already treats Manager and Staff identically; "Only
+                    STAFF and BRANCH_MANAGER are subject to this [gating]").
+                    Triggers with no `required_module` (role changes, login
+                    lockouts, new staff accounts) are Administration-tier
+                    and reach the Owner ONLY — not even the branch's own
+                    Manager — matching module_permissions.py's own "Branch
+                    Management and User Management... stay Owner-only, full
+                    stop." A Manager's default module grant is every module
+                    (core.module_permissions.default_allowed_modules), so in
+                    practice an unrestricted Manager still sees everything
+                    module-tied about their branch; this only bites once the
+                    Owner has actually narrowed a specific Manager's access.
 
 Deferred imports throughout (matching core/context_processors.py's existing
 pattern): core is imported early via INSTALLED_APPS/context processors, so
@@ -51,31 +54,27 @@ LARGE_ORDER_THRESHOLD = Decimal('5000.00')
 
 
 def _recipients(branch=None, required_module=None):
-    """Owner accounts, plus `branch`'s Branch Manager, plus — only when
-    `required_module` is given — that branch's Staff who have that module
-    enabled. See the module docstring for the reasoning."""
+    """Owner accounts, plus — only when `required_module` is given —
+    `branch`'s Manager and Staff who have that module enabled. See the
+    module docstring for the reasoning."""
+    from django.db.models import Q
+
     from accounts.models import User
     from core.module_permissions import user_can_access_module
     from core.permissions import BRANCH_MANAGER, OWNER, STAFF
 
     users = list(User.objects.filter(role=OWNER, is_active=True))
-    if branch is None:
+    if branch is None or not required_module:
         return users
 
-    users += list(
-        User.objects.filter(
-            role=BRANCH_MANAGER, is_active=True,
-            manager_profile__branch=branch,
-        )
+    branch_users = User.objects.filter(
+        role__in=(BRANCH_MANAGER, STAFF), is_active=True,
+    ).filter(
+        Q(manager_profile__branch=branch) | Q(staff_profile__branch=branch)
     )
-
-    if required_module:
-        staff = User.objects.filter(
-            role=STAFF, is_active=True, staff_profile__branch=branch,
-        )
-        users += [
-            u for u in staff if user_can_access_module(u, required_module)
-        ]
+    users += [
+        u for u in branch_users if user_can_access_module(u, required_module)
+    ]
 
     return users
 
@@ -88,10 +87,10 @@ def notify(category, priority, title, message, branch=None,
 
     `required_module` is one of core.module_permissions' codes (e.g.
     PROCUREMENT, SALES_POS, BILLING, FLOOR_STOCK, DELIVERIES) — pass it when
-    the event is something a Staff member with that module could plausibly
-    act on, so it also reaches branch Staff who have it enabled. Leave it
-    unset for Administration/security-tier events, which stay Owner/Manager
-    only regardless of any Staff account's module grants.
+    the event is something a Manager or Staff member with that module could
+    plausibly act on, so it also reaches whichever of the branch's Manager/
+    Staff have it enabled. Leave it unset for Administration/security-tier
+    events, which reach the Owner only — not even the branch's Manager.
 
     requires_action is derived from priority (Critical/High), not passed in
     — keeps every call site from having to repeat that policy decision.
