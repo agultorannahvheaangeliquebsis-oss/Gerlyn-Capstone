@@ -768,6 +768,17 @@ def select_branch(request):
             return redirect('orders:select_branch')
         _start_shopping_at(request, branch)
         return redirect('orders:catalog')
+    if request.session.get('cart') and request.session.get('branch_id'):
+        # S-9 — _start_shopping_at only announces the clearing after the
+        # fact, on the page the shopper lands on next. Arriving here with a
+        # branch already set and a cart already in it — the nav's "Change"
+        # link, a card's "Choose a branch" button — deserves the same
+        # warning up front, before a choice that cannot be undone.
+        messages.info(
+            request,
+            'Choosing a branch here will clear your cart — stock and '
+            'prices are set per branch.'
+        )
     return render(request, 'orders/select_branch.html', {'branches': branches})
 
 
