@@ -39,12 +39,18 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
 
 <div class="filter-tabs">
   {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger, Voided neutral. #}
-  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}">All</a>
-  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Pending">Pending</a>
-  <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Paid">Paid</a>
-  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Rejected">Rejected</a>
+  {% comment %}
+  O-3 — filter_qs (from the view) replaces the hand-built q=...&branch=...
+  each tab used to carry, which silently dropped an unrecognised filter and
+  broke on a search term containing "&" — same fix as the Order Console's
+  tabs.
+  {% endcomment %}
+  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?{{ filter_qs }}">All</a>
+  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?{{ filter_qs }}&status=Pending">Pending</a>
+  <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?{{ filter_qs }}&status=Paid">Paid</a>
+  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?{{ filter_qs }}&status=Rejected">Rejected</a>
   {# status=Cancelled is the void trail: the order behind the bill was cancelled or a completed sale was voided. #}
-  <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?q={{ search_query }}&branch={{ branch_filter }}&status=Cancelled">Cancelled</a>
+  <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled</a>
 </div>
 
 <div class="card table-wrap">

@@ -14,7 +14,9 @@ from accounts.models import User
 
 # Branch scoping lives in core.scoping so the API and the template views can
 # never drift apart — this is security-critical logic, it gets ONE definition.
-from core.scoping import branch_for_user as get_user_branch, user_can_access_branch  # noqa: E402
+from core.scoping import (  # noqa: E402
+    branch_for_user as get_user_branch, scope_queryset, user_can_access_branch,
+)
 
 
 def _can_access_transaction(user, txn):
@@ -40,8 +42,10 @@ class SalesTransactionListCreateAPIView(APIView):
         ).prefetch_related('items__product').all()
 
         if request.user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-            user_branch = get_user_branch(request.user)
-            qs = qs.filter(branch=user_branch) if user_branch else qs.none()
+            # X-4 — the shared, fail-closed helper, not a fourth hand-rolled
+            # copy of this same branch check (Order Console, billing_list
+            # and the billing API's own scoping are the other three).
+            qs = scope_queryset(qs, request.user, 'branch')
         elif request.user.role == User.Role.CUSTOMER:
             qs = qs.filter(customer=request.user)
         elif request.user.role == User.Role.SUPPLIER:

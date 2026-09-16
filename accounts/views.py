@@ -640,7 +640,7 @@ def home_view(request):
             Product.objects.select_related('category')
             .filter(id__in=in_stock_product_ids())
             .prefetch_related('images')[:12]
-        )
+        ),
     )
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()

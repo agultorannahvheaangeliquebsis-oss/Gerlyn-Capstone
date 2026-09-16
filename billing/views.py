@@ -14,8 +14,9 @@ from .api_views import user_can_access_billing_record
 from sales.models import SalesTransaction
 from accounts.models import User
 from branches.models import Branch
+from core.querystrings import list_filter_querystring
 from core.scoping import branch_for_user, scope_queryset, user_can_access_branch
-from core.permissions import OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER, role_required
+from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 
 
 def _payment_methods_for_channel(transaction_type):
@@ -95,29 +96,34 @@ def payment_proof_download(request, pk):
     )
 
 
-@role_required(OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER)
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def billing_list(request):
+    """The staff Billing section. Internal roles only.
+
+    X-1 — this used to also allow CUSTOMER and SUPPLIER, which dropped a
+    shopper straight into the back-office shell with a table of billing
+    records and, from there, a Pending record's live "Mark as Paid / Reject"
+    card on billing_detail (POSTing it was already refused by
+    billing_confirm's own role check, but the controls were drawn and
+    clickable — the refusal should never have been the only guard). A
+    customer already has the same information, scoped to just their own
+    order and with no staff controls anywhere on it, on their own Track
+    Order page (orders.customer_views.track_order) — nothing is lost by
+    closing this door. billing_detail, billing_create and billing_proof
+    below get the same restriction, for the same reason.
+    """
     records = BillingRecord.objects.select_related('transaction', 'transaction__branch').all()
 
-    # Owner sees everything; Branch Manager/Staff only their own branch's
-    # records. scope_queryset already encodes both — Owner via
-    # branch_ids_for_user returning None (unfiltered), Manager/Staff via
-    # their profile's one branch id, empty (so .none()) if the profile or
-    # its branch is somehow missing. That replaces a bare `except Exception:
-    # records = records.none()` here, which caught real bugs in this lookup
-    # the same silent way it caught a genuinely missing profile — the same
-    # shape of mistake behind the earlier branch-scoping leaks, even though
-    # this particular except happened to fail closed rather than open.
-    if request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-        records = scope_queryset(records, request.user, 'transaction__branch')
-
-    # Customers only see their own billing records
-    elif request.user.role == User.Role.CUSTOMER:
-        records = records.filter(transaction__customer=request.user)
-
-    # Suppliers have no business in the store's billing at all.
-    elif request.user.role == User.Role.SUPPLIER:
-        records = records.none()
+    # X-1 removed CUSTOMER/SUPPLIER access to this view entirely (role_required
+    # above), so every caller who reaches here is OWNER/BRANCH_MANAGER/STAFF.
+    # X-4 — the shared, fail-closed scoping helper (core.scoping), not a
+    # fourth hand-rolled copy of "which branch may this user see". The old
+    # try/except here caught a missing profile and fell back to .none() —
+    # correct, but its own reimplementation of exactly what
+    # branch_ids_for_user already guarantees for an unassigned Manager/Staff
+    # account, and a `filter(branch=None)` mistake anywhere near this shape
+    # would have matched every branch-deleted order instead of none of them.
+    records = scope_queryset(records, request.user, 'transaction__branch')
 
     search_query = request.GET.get('q', '')
     if search_query:
@@ -171,31 +177,35 @@ def billing_list(request):
         # Delivery and the Order Console.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
+        # O-3 — one urlencoded filter string for the status tabs, the same
+        # fix and the same reasoning as sales.views._list_filter_querystring
+        # (the Order Console's own copy of this problem): each tab used to
+        # be a hand-built query string that silently broke on a search term
+        # containing "&" or "#". Every status tab appends its own
+        # &status=... to this.
+        'filter_qs': list_filter_querystring(q=search_query, branch=branch_filter),
     })
 
 
-@login_required(login_url='accounts:login')
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def billing_detail(request, pk):
     record = get_object_or_404(
         BillingRecord.objects.select_related('transaction', 'transaction__branch'),
         pk=pk,
     )
 
-    # The list is scoped, so the detail must be too — otherwise another branch's
-    # billing record is readable just by changing the URL.
-    if request.user.role == User.Role.CUSTOMER:
-        allowed = record.transaction.customer_id == request.user.id
-    else:
-        allowed = user_can_access_branch(request.user, record.transaction.branch_id)
-
-    if not allowed:
+    # The list is scoped, so the detail must be too — otherwise another
+    # branch's billing record is readable just by changing the URL. X-1: no
+    # CUSTOMER branch any more — role_required above already turned that
+    # role away.
+    if not user_can_access_branch(request.user, record.transaction.branch_id):
         messages.error(request, 'That billing record is not available to you.')
         return redirect('billing_list')
 
     return render(request, 'billing/billing_detail.html', {'record': record})
 
 
-@login_required(login_url='accounts:login')
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def billing_proof(request, pk):
     """Stream a billing record's GCash payment proof, gated by the same
     scoping as the rest of billing.
@@ -208,6 +218,10 @@ def billing_proof(request, pk):
     longer serves payment_proofs/ (see gerlyn_is/urls.py), and callers who
     can't reach the record itself get a 404 that doesn't confirm it exists —
     the same helper and convention BillingRecordDetailAPIView already uses.
+
+    X-1: internal roles only, same as the rest of this module — a customer's
+    own proof of payment is not shown back to them anywhere in this system,
+    and this endpoint never needs to.
     """
     record = get_object_or_404(
         BillingRecord.objects.select_related('transaction'), pk=pk
@@ -222,19 +236,16 @@ def billing_proof(request, pk):
     return FileResponse(record.proof_of_payment.open('rb'))
 
 
-@login_required(login_url='accounts:login')
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def billing_create(request, transaction_id):
     txn = get_object_or_404(SalesTransaction, pk=transaction_id)
 
-    # Same scoping rule as billing_detail — otherwise anyone logged in could
-    # create or edit the payment record for someone else's transaction just
-    # by guessing the transaction id in the URL.
-    if request.user.role == User.Role.CUSTOMER:
-        allowed = txn.customer_id == request.user.id
-    else:
-        allowed = user_can_access_branch(request.user, txn.branch_id)
-
-    if not allowed:
+    # Same scoping rule as billing_detail — otherwise any internal account
+    # could create or edit the payment record for another branch's
+    # transaction just by guessing the transaction id in the URL. X-1: no
+    # CUSTOMER branch any more — role_required above already turned that
+    # role away.
+    if not user_can_access_branch(request.user, txn.branch_id):
         messages.error(request, 'That transaction is not available to you.')
         return redirect('billing_list')
 
@@ -300,7 +311,7 @@ def billing_create(request, transaction_id):
 
     if request.method == 'POST':
         payment_method = request.POST.get('payment_method')
-        reference_number = request.POST.get('reference_number', '')
+        reference_number = request.POST.get('reference_number', '').strip()
         proof_of_payment = request.FILES.get('proof_of_payment')
 
         # payment_method feeds a NOT NULL column. A POST that omits the field
@@ -325,6 +336,27 @@ def billing_create(request, transaction_id):
                 messages.error(request, e.message)
                 return render(request, 'billing/billing_form.html', form_context)
 
+        # X-2 — with no payment gateway integrated, the reference number IS
+        # the record of a GCash or bank transfer; the same rule
+        # orders.customer_views.checkout already enforces for GCash at
+        # checkout. Required for those two methods, cleared for every other
+        # one — a reference typed before switching methods must not ride
+        # along onto a record that has no reference by definition.
+        REFERENCE_REQUIRED_METHODS = {
+            BillingRecord.PaymentMethod.GCASH,
+            BillingRecord.PaymentMethod.BANK_TRANSFER,
+        }
+        if payment_method in REFERENCE_REQUIRED_METHODS:
+            if not reference_number:
+                messages.error(
+                    request,
+                    f'Enter the {payment_method} reference number — we cannot '
+                    f'match the payment to this order without it.'
+                )
+                return render(request, 'billing/billing_form.html', form_context)
+        else:
+            reference_number = ''
+
         if existing:
             # Update the auto-created record with the actual payment details
             existing.payment_method = payment_method
@@ -343,6 +375,22 @@ def billing_create(request, transaction_id):
                 proof_of_payment=proof_of_payment,
                 status=BillingRecord.PaymentStatus.PENDING,
             )
+
+        # X-2 — keep the sale's own mode_of_payment in step with what was
+        # just recorded on its bill. This form only ever touched the
+        # BillingRecord, so the Order Console could go on showing a payment
+        # method the bill itself had already moved past. Bank Transfer has
+        # no equivalent SalesTransaction.ModeOfPayment value (it is a
+        # billing-only method, recorded for wholesale/office accounts that
+        # settle by transfer rather than at the counter), so there is
+        # nothing to sync in that one case — the sale keeps whatever method
+        # it already had.
+        if (
+            payment_method in SalesTransaction.ModeOfPayment.values
+            and txn.mode_of_payment != payment_method
+        ):
+            txn.mode_of_payment = payment_method
+            txn.save(update_fields=['mode_of_payment'])
 
         messages.success(request, 'Billing record saved.')
         return redirect('billing_detail', pk=record.pk)

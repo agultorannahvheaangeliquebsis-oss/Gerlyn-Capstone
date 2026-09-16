@@ -156,7 +156,7 @@ def _safe_referer(request):
 
 
 def _cart_items(request):
-    """Resolve the session cart into rows + total. Skips stale entries.
+    """Resolve the session cart into rows + total. Drops stale entries.
 
     Priced at the tier each line's own quantity earns — the same one checkout()
     will use — so the figures here are what they will actually be billed. The
@@ -166,6 +166,19 @@ def _cart_items(request):
     claimed here at all: it is granted by staff, against a sighted ID, after
     the order exists. Showing it on the cart would promise a price the order
     is not entitled to and may never get.
+
+    Returns (items, total, dropped_names). S-1 — a line that can no longer be
+    priced at all (delisted, the branch stopped carrying it, its last lot
+    expired since it was added) used to just vanish from this list with no
+    trace, while staying in request.session['cart'] — so the cart page's
+    total quietly shrank, the header badge (which counts the raw session
+    cart) kept the old number, and checkout met the same line for the first
+    time, rejecting a product the shopper could no longer even see on the
+    page in front of them. It is popped out of the session HERE, the one
+    place every caller of this helper shares, so the page, the badge and
+    checkout can never disagree about what happened to it again. A line that
+    still exists but is merely short (`short` below) is NOT dropped — that is
+    a normal, visible state the cart page already shows a warning for.
     """
     branch_id = request.session.get('branch_id')
     cart = request.session.get('cart', {})
@@ -174,26 +187,30 @@ def _cart_items(request):
     # belt-and-braces guard for any future caller: it keeps this helper from
     # quietly returning an empty cart that disagrees with the header badge.
     if not branch_id:
-        return [], Decimal('0')
-    items, total = [], Decimal('0')
-    # product_ids whose line could not be resolved to a real Inventory row at
-    # all (the product, or its row at this branch, was deleted after it was
-    # added) — as opposed to a row that exists and merely reads 0 available.
-    # Purged from the session cart below, not just skipped from `items`: a
-    # line that only vanishes from the display still sits in
-    # request.session['cart'], which checkout() reads directly and would
-    # otherwise refuse forever with "0 left" for an item the shopper can no
-    # longer even see to remove.
-    stale_ids = []
+        return [], Decimal('0'), []
+    items, total, dropped = [], Decimal('0'), []
+    changed = False
 
-    for product_id, qty in cart.items():
+    for product_id, qty in list(cart.items()):
         inv = Inventory.objects.sellable().select_related('product').prefetch_related(
             'product__price_tiers'
         ).filter(
             product_id=product_id, branch_id=branch_id
         ).first()
         if not inv:
-            stale_ids.append(product_id)
+            # product_id could not be resolved to a real Inventory row at all
+            # (the product, or its row at this branch, was deleted after it
+            # was added) — as opposed to a row that exists and merely reads 0
+            # available. Purged from the session cart below, not just
+            # skipped from `items`: a line that only vanishes from the
+            # display still sits in request.session['cart'], which
+            # checkout() reads directly and would otherwise refuse forever
+            # with "0 left" for an item the shopper can no longer even see
+            # to remove.
+            product = Product.objects.filter(pk=product_id).first()
+            dropped.append(product.product_name if product else 'An item')
+            cart.pop(product_id, None)
+            changed = True
             continue
         unit_price = inv.product.price_at(qty)
         subtotal = unit_price * qty
@@ -214,12 +231,9 @@ def _cart_items(request):
             'stock_status': stock_status(inv.available_qty, inv.reorder_level),
         })
 
-    if stale_ids:
-        for pid in stale_ids:
-            cart.pop(pid, None)
+    if changed:
         request.session['cart'] = cart
-
-    return items, total
+    return items, total, dropped
 
 
 # ─────────────────────────────────────────────
@@ -392,11 +406,17 @@ def product_catalog(request):
         # list into a query string by hand — which it cannot do correctly now
         # that there can be several of them.
         'filter_qs': _filter_querystring(search_query, category_filters, branch_filters),
-        # The unfiltered figure behind "N of M items". Counted from Product
-        # rather than from the grid so it does not move when a category or a
-        # branch is picked — "12 of 12" and "3 of 12" are the two readings
-        # that make the pair worth printing at all.
-        'total_count': Product.objects.count(),
+        # The unfiltered figure behind "N of M items". S-6 — this used to be
+        # Product.objects.count(), every row in the product master including
+        # ones no branch has ever stocked and ones out everywhere, so a shop
+        # with twelve buyable things read "12 of 340" and looked like the
+        # filters had hidden 96% of the store. Counted the same way the grid
+        # itself is populated — distinct products with sellable stock
+        # somewhere — so it does not move when a category or a branch is
+        # picked, and "12 of 12" / "3 of 12" are both honest readings.
+        'total_count': Inventory.objects.sellable().filter(
+            available_qty__gt=0
+        ).values('product_id').distinct().count(),
         'sort_options': [
             {'value': value, 'label': option['label']}
             for value, option in SORT_OPTIONS.items()
@@ -748,6 +768,17 @@ def select_branch(request):
             return redirect('orders:select_branch')
         _start_shopping_at(request, branch)
         return redirect('orders:catalog')
+    if request.session.get('cart') and request.session.get('branch_id'):
+        # S-9 — _start_shopping_at only announces the clearing after the
+        # fact, on the page the shopper lands on next. Arriving here with a
+        # branch already set and a cart already in it — the nav's "Change"
+        # link, a card's "Choose a branch" button — deserves the same
+        # warning up front, before a choice that cannot be undone.
+        messages.info(
+            request,
+            'Choosing a branch here will clear your cart — stock and '
+            'prices are set per branch.'
+        )
     return render(request, 'orders/select_branch.html', {'branches': branches})
 
 
@@ -945,6 +976,12 @@ def remove_from_cart(request, product_id):
     if cart.pop(str(product_id), None) is not None:
         request.session['cart'] = cart
         messages.info(request, 'Removed from your cart.')
+    else:
+        # S-9 — a second tab, a stale page, a double-click: the line was
+        # already gone. This used to reload the cart in silence, which reads
+        # exactly like the Remove button not working — the one thing every
+        # other exit on this page already says something about.
+        messages.info(request, 'That item was already removed from your cart.')
     return redirect('orders:cart')
 
 
@@ -959,7 +996,15 @@ def view_cart(request):
         messages.error(request, PICK_BRANCH_TO_CHECK_OUT)
         return redirect('orders:select_branch')
 
-    items, total = _cart_items(request)
+    items, total, dropped_items = _cart_items(request)
+    if dropped_items:
+        # S-1 — say what happened rather than leaving the shopper to notice
+        # the total is smaller than they remember.
+        messages.info(
+            request,
+            f'{", ".join(dropped_items)} — no longer available at this '
+            f'branch, so removed from your cart.'
+        )
     remaining = max(FREE_DELIVERY_OVER - total, Decimal('0'))
     # One-time checkout token — see checkout()'s own comment for what this
     # actually guards against. setdefault so a plain reload of the cart page
@@ -1043,6 +1088,28 @@ def checkout(request):
     # token before this request saved a new one) from creating a second
     # order once this one succeeds.
     request.session['checkout_token'] = uuid.uuid4().hex
+
+    # S-1 — resolve the cart through the same helper the cart page itself
+    # renders from, and let it prune any line that can no longer be priced at
+    # all (delisted, out at this branch, its last lot expired) BEFORE the rest
+    # of checkout ever looks at the raw session cart below. Without this, a
+    # line the cart page had already stopped showing (view_cart calls the
+    # same helper) was still sitting in request.session['cart'], and checkout
+    # met it here for the first time — rejecting a product the shopper could
+    # no longer even see, for a total that didn't match what was on screen.
+    _, _, dropped_items = _cart_items(request)
+    if dropped_items:
+        messages.error(
+            request,
+            f'{", ".join(dropped_items)} — no longer available at this '
+            f'branch, removed from your cart. Please review your order.'
+        )
+        return redirect('orders:cart')
+    cart = request.session.get('cart', {})
+    if not cart:
+        messages.error(request, 'Your cart is empty.')
+        return redirect('orders:catalog')
+
 
     # --- payment method --------------------------------------------------------
     # Validated against the model's choices, the same fall-back-to-default

@@ -32,18 +32,25 @@ class BillingRecord(models.Model):
     # Paid -> Rejected -> Paid indefinitely, each pass silently overwriting
     # confirmed_by / date_confirmed with no history.
     #
-    #   Pending  -> Paid | Rejected
-    #   Rejected -> Pending          (re-open for another payment attempt)
-    #   Paid     -> (terminal here)
+    #   Pending  -> Paid | Rejected | Cancelled
+    #   Rejected -> Pending | Cancelled     (re-open for another payment attempt)
+    #   Paid     -> Cancelled               (terminal to confirm/reject either way)
     #   Cancelled-> (terminal here)
     #
-    # CANCELLED is reached only by the order itself being cancelled or voided
-    # (sales.views.transaction_set_status writes it straight onto the model),
-    # never through the confirm form, so it has no outbound entry.
+    # B-1 — CANCELLED is reachable from every state, but ONLY the order's own
+    # cancellation may actually take that route: sales.views.transaction_set_
+    # status is the one caller that ever passes CANCELLED here (through
+    # can_transition_to, same as every other caller of this map, rather than
+    # writing the status straight onto the field). billing_confirm and
+    # BillingConfirmSerializer never offer CANCELLED as a choice a human can
+    # pick — their own `offered`/ChoiceField sets stop at Paid/Rejected/
+    # Pending — so adding it here does not open a new control anywhere; it
+    # closes the gap where this map claimed Paid was terminal while a
+    # completely different module quietly moved it anyway.
     ALLOWED_STATUS_TRANSITIONS = {
-        PaymentStatus.PENDING: {PaymentStatus.PAID, PaymentStatus.REJECTED},
-        PaymentStatus.REJECTED: {PaymentStatus.PENDING},
-        PaymentStatus.PAID: set(),
+        PaymentStatus.PENDING: {PaymentStatus.PAID, PaymentStatus.REJECTED, PaymentStatus.CANCELLED},
+        PaymentStatus.REJECTED: {PaymentStatus.PENDING, PaymentStatus.CANCELLED},
+        PaymentStatus.PAID: {PaymentStatus.CANCELLED},
         PaymentStatus.CANCELLED: set(),
     }
 

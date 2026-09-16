@@ -18,7 +18,7 @@ from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, u
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
-from .models import SalesItem, SalesTransaction
+from .models import SalesItem, SalesItemBatchConsumption, SalesTransaction
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
@@ -26,10 +26,12 @@ def _person_name(user):
     """A person's display name, or '' when there is nobody — mirrors
     procurement.views._person_name.
 
-    Used by the printed receipt, where the cashier (txn.staff) is only set
-    for a Staff account: a sale the Owner or a Branch Manager rang up has no
-    staff, and a chained `{{ x.get_full_name|default:x.username }}` raises
-    when x is null because a filter argument is resolved strictly.
+    Used by the printed receipt for the cashier. X-3: the receipt reads
+    txn.recorded_by now, not txn.staff — staff is only ever set for a Staff
+    account, so a sale the Owner or a Branch Manager rang up left "Served
+    by" blank even though someone plainly served it. A chained
+    `{{ x.get_full_name|default:x.username }}` raises when x is null because
+    a filter argument is resolved strictly, hence this helper either way.
     """
     if user is None:
         return ''
@@ -100,6 +102,31 @@ def _pos_stock_map(user_branch):
     return stock_map
 
 
+def _pos_products_for(user_branch):
+    """The products offered on the Walk-in Sale row dropdown.
+
+    P-2 — for a Staff/Branch Manager (a fixed, known branch) this is scoped
+    to products that branch actually carries an Inventory row for, so a
+    cashier can no longer ring up something the branch has never stocked —
+    previously the dropdown listed every product in the system, the stock
+    line simply stayed hidden for one with no Inventory row at all (reading
+    as "nothing to worry about" rather than "not carried here"), and the
+    sale only failed on submit. This also incidentally shrinks the page for
+    the common case (P-4) — one branch's assortment instead of the whole
+    catalogue embedded in every row's <select>.
+
+    For the Owner, who has not chosen a branch yet at render time (#pos-branch
+    is a client-side control), the list stays unfiltered — there is no single
+    branch to filter to. posUpdateStockLine in the page's own JS covers that
+    case instead, showing "Not carried at this branch" for any product with
+    no entry in pos_stock_map for whichever branch is currently selected.
+    """
+    products = Product.objects.select_related('category')
+    if user_branch:
+        products = products.filter(inventory_records__branch_id=user_branch.id).distinct()
+    return products
+
+
 def _pos_context(request):
     """Everything the Walk-in Sale page needs. Prefixed pos_* to distinguish
     it from unrelated fields elsewhere (e.g. the Order Console's own
@@ -109,10 +136,11 @@ def _pos_context(request):
     # Tiers travel to the page as JSON per product so the row JS can show the
     # price the cashier is about to charge as the quantity is typed. It is a
     # preview only — transaction_add re-resolves every line server-side.
+    # P-2 — scoped through _pos_products_for first, same as the branch-carried
+    # filter below: a cashier should not even see a product their branch has
+    # never stocked, tier preview or not.
     pos_products = list(
-        Product.objects.select_related('category')
-        .prefetch_related('price_tiers')
-        .all()
+        _pos_products_for(user_branch).prefetch_related('price_tiers')
     )
     for product in pos_products:
         product.tiers_json = json.dumps([
@@ -146,7 +174,7 @@ def _transaction_list_context(request):
         # prefetch_related, which is the one-to-many/many-to-many technique
         # and issues a second query for it that a plain select_related join
         # would have folded into the first.
-        .select_related('branch', 'staff', 'customer', 'billing_record')
+        .select_related('branch', 'staff', 'recorded_by', 'customer', 'billing_record')
         .order_by('-transaction_date')
     )
     # Server-side branch scoping (never trust a UI dropdown alone).
@@ -189,6 +217,8 @@ def _transaction_list_context(request):
     can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
     branches = Branch.objects.all() if show_branch_filter else []
 
+    over_committed_ids, over_committed_count = _over_committed_order_ids(request.user)
+
     context = {
         'transactions': transactions,
         'counts': counts,
@@ -204,6 +234,8 @@ def _transaction_list_context(request):
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': branch_for_user(request.user),
         'can_pos': can_pos,
+        'over_committed_ids': over_committed_ids,
+        'over_committed_count': over_committed_count,
         # Every active filter except `status` — the status tabs below build
         # their href off this (O-3), so adding a new filter to the toolbar
         # (fulfillment, here) can't quietly fall out of the tab links. Same
@@ -217,6 +249,66 @@ def _transaction_list_context(request):
         ),
     }
     return context
+
+
+# S-11 — over-committed orders. An open order (Pending/Approved/Preparing)
+# is "over-committed" when, added to every other open order for the same
+# branch/product, it asks for more than the branch's current floor stock —
+# i.e. the branch has promised more of that item than it can actually pull.
+# Reporting only, per the audit's own scope call for this finding: nothing
+# here reserves or holds stock, so a completed transfer or a cancelled order
+# elsewhere can clear the flag before Preparing without any code path having
+# to release a hold.
+_OPEN_ORDER_STATUSES = [
+    SalesTransaction.OrderStatus.PENDING,
+    SalesTransaction.OrderStatus.APPROVED,
+    SalesTransaction.OrderStatus.PREPARING,
+]
+
+
+def _over_committed_order_ids(user):
+    open_orders = scope_queryset(
+        SalesTransaction.objects.filter(order_status__in=_OPEN_ORDER_STATUSES),
+        user,
+    )
+
+    committed = (
+        SalesItem.objects
+        .filter(transaction__in=open_orders)
+        .values('transaction__branch_id', 'product_id')
+        .annotate(committed_qty=dj_models.Sum('quantity_sold'))
+    )
+    if not committed:
+        return set(), 0
+
+    available = {
+        (row['branch_id'], row['product_id']): row['available']
+        for row in (
+            Inventory.objects.sellable()
+            .values('branch_id', 'product_id')
+            .annotate(available=dj_models.Sum('available_qty'))
+        )
+    }
+
+    over_committed_keys = {
+        (row['transaction__branch_id'], row['product_id'])
+        for row in committed
+        if row['committed_qty'] > available.get((row['transaction__branch_id'], row['product_id']), 0)
+    }
+    if not over_committed_keys:
+        return set(), 0
+
+    key_filter = dj_models.Q()
+    for branch_id, product_id in over_committed_keys:
+        key_filter |= dj_models.Q(transaction__branch_id=branch_id, product_id=product_id)
+
+    order_ids = set(
+        SalesItem.objects
+        .filter(transaction__in=open_orders)
+        .filter(key_filter)
+        .values_list('transaction_id', flat=True)
+    )
+    return order_ids, len(order_ids)
 
 
 def _order_filter_querystring(search_query, channel_filter, branch_filter, fulfillment_filter):
@@ -248,8 +340,20 @@ def transaction_list(request):
 
 @login_required(login_url='accounts:login')
 def transaction_detail(request, pk):
+    # O-7 — this is the Order Console's own detail page, not a general
+    # "view my order" page: a Customer or Supplier following a stale link
+    # here has no branch at all, so the branch check below always refused
+    # them with "That order belongs to another branch" (untrue — they have
+    # none) and then bounced them into transaction_list, which refused them
+    # a SECOND time with "Access denied." One accurate message, and sent
+    # to somewhere that is actually theirs — a Customer has their own
+    # My Orders / Track Order pages for exactly this.
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, "That page is part of the internal Order Console — it isn't available to your account.")
+        return redirect('accounts:home')
+
     txn = get_object_or_404(
-        SalesTransaction.objects.select_related('branch', 'staff', 'customer'), pk=pk
+        SalesTransaction.objects.select_related('branch', 'staff', 'recorded_by', 'customer'), pk=pk
     )
     if not user_can_access_branch(request.user, txn.branch_id):
         messages.error(request, 'That order belongs to another branch.')
@@ -292,8 +396,16 @@ def transaction_receipt(request, pk):
     order reads, exposed on every page by
     core.context_processors.store_settings.
     """
+    # O-7 — same accurate refusal as transaction_detail above, for the same
+    # reason: this is an internal document, not something a Customer or
+    # Supplier following a stale link should be told belongs to "another
+    # branch" when they have none at all.
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, "That page is part of the internal Order Console — it isn't available to your account.")
+        return redirect('accounts:home')
+
     txn = get_object_or_404(
-        SalesTransaction.objects.select_related('branch', 'staff', 'customer'), pk=pk
+        SalesTransaction.objects.select_related('branch', 'staff', 'recorded_by', 'customer'), pk=pk
     )
     if not user_can_access_branch(request.user, txn.branch_id):
         messages.error(request, 'That order belongs to another branch.')
@@ -319,7 +431,7 @@ def transaction_receipt(request, pk):
         'line_sum': line_sum,
         'totals_disagree': line_sum != txn.total_amount,
         'gross_subtotal': gross_subtotal,
-        'served_by_name': _person_name(txn.staff),
+        'served_by_name': _person_name(txn.recorded_by),
         'printed_on': timezone.localdate(),
         'printed_by': _person_name(request.user),
     })
@@ -447,7 +559,13 @@ def transaction_set_status(request, pk, new_status):
                 billing = BillingRecord.objects.select_for_update().filter(
                     transaction=locked_txn
                 ).first()
-                if billing and billing.status != BillingRecord.PaymentStatus.CANCELLED:
+                # B-1 — route through the same transition map billing_confirm
+                # and its API twin enforce, instead of writing the status
+                # straight onto the field. ALLOWED_STATUS_TRANSITIONS now
+                # names CANCELLED as reachable from every state precisely so
+                # this call is not bypassing the rule the map documents —
+                # this is the one caller allowed to actually take that route.
+                if billing and billing.can_transition_to(BillingRecord.PaymentStatus.CANCELLED):
                     billing.status = BillingRecord.PaymentStatus.CANCELLED
                     billing.voided_by = request.user
                     billing.date_voided = timezone.now()
@@ -711,7 +829,16 @@ def _deduct_stock(txn, user):
         # docstring), so this should always find enough to consume — the
         # available_qty check above already confirmed non-expired batches
         # cover this sale.
-        Batch.consume_fefo(item.product, txn.branch, Batch.Location.FLOOR, item.quantity_sold)
+        consumed = Batch.consume_fefo(item.product, txn.branch, Batch.Location.FLOOR, item.quantity_sold)
+        # O-1 — record exactly which batch(es) this line drew from and how
+        # much from each, straight off what consume_fefo already computed.
+        # _reverse_stock reads this back to credit the SAME batches if the
+        # sale is later voided, instead of only reversing the aggregate
+        # Inventory row and leaving the batch-level FEFO breakdown short.
+        SalesItemBatchConsumption.objects.bulk_create([
+            SalesItemBatchConsumption(sales_item=item, batch=batch, quantity_taken=taken)
+            for batch, taken in consumed
+        ])
         StockMovement.objects.create(
             inventory=inv,
             location_type=StockMovement.LocationType.FLOOR,
@@ -732,11 +859,19 @@ def _reverse_stock(txn, user):
     deleted since the sale, get_or_create it rather than losing the
     reversal (mirrors how a fresh receiving credits a possibly-new row).
 
-    Deliberately does NOT restore the batches Batch.consume_fefo drew down
-    at sale time — nothing records which specific batch(es) supplied a given
-    sale, so there's no correct batch to credit back. The aggregate
-    Inventory row (source of truth for quantity_on_hand) is fully reversed
-    either way; only the batch-level expiry breakdown is left as-is."""
+    O-1 — the aggregate Inventory row (source of truth for quantity_on_hand)
+    is always fully reversed, exactly as before. What used to be lost is the
+    batch-level FEFO breakdown: _deduct_stock now records, on each
+    SalesItemBatchConsumption, exactly which batch(es) a line drew from and
+    how much — this reads that back and credits those SAME batches, so the
+    aggregate and the batch ledger agree again after a void instead of
+    drifting apart forever. Two cases fall back to a fresh no-expiry batch,
+    tagged as a void reversal so the missing expiry data reads as honestly
+    unknown rather than invented: a sale recorded before this tracking
+    existed (no consumption rows at all), and a consumption row whose batch
+    was itself deleted since (SET_NULL leaves quantity_taken behind with no
+    batch to credit).
+    """
     for item in txn.items.select_related('product').all():
         inv, _ = Inventory.objects.select_for_update().get_or_create(
             product=item.product, branch=txn.branch,
@@ -756,6 +891,49 @@ def _reverse_stock(txn, user):
             notes=f'Voided order {txn.order_number} — stock reversal',
             created_by=user,
         )
+        _reverse_batches(item, txn, user)
+
+
+def _reverse_batches(item, txn, user):
+    """The batch-level half of _reverse_stock — credits back exactly the
+    batch(es) item.batch_consumptions says the original sale drew from.
+    Split out from _reverse_stock so the aggregate Inventory reversal above
+    (which must always happen) can never be skipped by a batch-side problem.
+    """
+    consumptions = list(item.batch_consumptions.select_for_update().select_related('batch'))
+
+    if not consumptions:
+        # Legacy sale, recorded before SalesItemBatchConsumption existed —
+        # there is nothing to look up. Same honest fallback as the missing-
+        # batch case below: one fresh, no-expiry batch for the full quantity.
+        _create_void_reversal_batch(item.product, txn, item.quantity_sold)
+        return
+
+    for consumption in consumptions:
+        if consumption.batch is not None:
+            batch = Batch.objects.select_for_update().get(pk=consumption.batch_id)
+            batch.quantity += consumption.quantity_taken
+            batch.save(update_fields=['quantity'])
+        else:
+            # The batch this consumption pointed at has since been deleted
+            # (SET_NULL) — there is no specific lot left to credit, so the
+            # quantity goes into a fresh, clearly-labelled one instead of
+            # being silently lost.
+            _create_void_reversal_batch(item.product, txn, consumption.quantity_taken)
+
+
+def _create_void_reversal_batch(product, txn, quantity):
+    """One fresh Floor batch, no expiry date, created to hold quantity that
+    _reverse_batches could not credit back to a real batch. No-expiry reads
+    as honestly unknown (Batch.expiry_date's own docstring: FEFO always
+    treats it as expiring last, never first) rather than guessing a date the
+    void has no way to know.
+    """
+    Batch.objects.create(
+        product=product, branch=txn.branch, location=Batch.Location.FLOOR,
+        quantity=quantity, received_date=timezone.localdate(), expiry_date=None,
+        notes=f'Void reversal for {txn.order_number} — original batch unknown.',
+    )
 
 
 # ─────────────────────────────────────────────
@@ -971,6 +1149,11 @@ def transaction_add(request):
                     txn = SalesTransaction.objects.create(
                         branch_id=branch_id,
                         staff=request.user if request.user.role == STAFF else None,
+                        # X-3 — whoever actually rang this up, regardless of
+                        # role. `staff` above stays STAFF-only (its own
+                        # limit_choices_to), so an Owner or Branch Manager
+                        # sale otherwise recorded nobody at all.
+                        recorded_by=request.user,
                         transaction_type=SalesTransaction.TransactionType.PHYSICAL,
                         mode_of_payment=mode_of_payment,
                         order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done

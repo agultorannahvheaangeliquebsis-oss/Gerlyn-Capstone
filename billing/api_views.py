@@ -20,7 +20,7 @@ from core.permissions import HasModuleAccess
 
 # Branch scoping lives in core.scoping so the API and the template views can
 # never drift apart — this is security-critical logic, it gets ONE definition.
-from core.scoping import branch_for_user as get_user_branch  # noqa: E402
+from core.scoping import scope_queryset, user_can_access_branch  # noqa: E402
 
 
 def user_can_access_billing_record(user, record):
@@ -31,12 +31,16 @@ def user_can_access_billing_record(user, record):
     any authenticated user could view or pay toward any billing record just
     by guessing its pk — harmless while only internal staff had accounts,
     but a real hole once customers can self-register.
+
+    X-4 — the Manager/Staff branch used to re-derive "is this account's
+    branch the record's branch" by hand; user_can_access_branch is the one
+    definition of that exact question (core.scoping), shared with every
+    other branch-gated view and API in the app.
     """
     if user.role == User.Role.OWNER:
         return True
     if user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-        user_branch = get_user_branch(user)
-        return user_branch is not None and record.transaction.branch_id == user_branch.id
+        return user_can_access_branch(user, record.transaction.branch_id)
     if user.role == User.Role.CUSTOMER:
         return record.transaction.customer_id == user.id
     return False
@@ -50,8 +54,10 @@ class BillingRecordListAPIView(APIView):
         qs = BillingRecord.objects.select_related('transaction', 'transaction__branch').all()
 
         if request.user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-            user_branch = get_user_branch(request.user)
-            qs = qs.filter(transaction__branch=user_branch) if user_branch else qs.none()
+            # X-4 — the shared, fail-closed helper, not a third hand-rolled
+            # copy of this same branch check (billing_list and this file's
+            # own user_can_access_billing_record above are the other two).
+            qs = scope_queryset(qs, request.user, 'transaction__branch')
         elif request.user.role == User.Role.CUSTOMER:
             qs = qs.filter(transaction__customer=request.user)
         elif request.user.role == User.Role.SUPPLIER:

@@ -72,6 +72,10 @@ form, not a shared component other pages should pick up automatically.
 
 .pos-tender-row { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 16px; }
 .pos-tender-row .field { max-width: 220px; }
+
+/* P-2 — a row asking for more than the branch has on the shelf. */
+.pos-item-row.pos-row-over .pos-qty-stepper { border-color: var(--danger-fg); }
+.pos-item-row.pos-row-over .js-qty { background: var(--danger-bg); color: var(--danger-fg); }
 </style>
 {% endblock %}
 
@@ -278,6 +282,17 @@ form's own errors and had been silent to assistive tech.
     </div>
   </div>
 
+  {% comment %}
+  P-2 — set by posRecalc() whenever a row asks for more than the branch's
+  own stock map says is on the shelf, or for a product it doesn't carry at
+  all. The server (sales.views._deduct_stock) is still the final check —
+  this can't see a concurrent sale draining the same stock between page
+  load and submit — but a cashier should not be able to press Record Sale
+  on a total the counter already knows is wrong.
+  {% endcomment %}
+  <p class="gv-meta" id="pos-over-note" style="color:var(--danger-fg); text-align:right;" hidden>
+    One or more items exceed what this branch has on the shelf — adjust the quantity before recording the sale.
+  </p>
   <div class="row" style="justify-content:flex-end;">
     <a href="{% url 'transaction_list' %}" class="btn">Cancel</a>
     <button type="submit" class="btn btn-primary" id="pos-submit-btn">Record Sale</button>
@@ -352,6 +367,14 @@ function posCurrentBranchId() {
   return sel ? sel.value : '';
 }
 
+// Reads pos_stock_map for a product/branch pair — null means no Inventory
+// row exists at all, i.e. this branch has never carried it (P-2), which is
+// a different fact from an Inventory row that reads zero.
+function posAvailableInfo(productId, branchId) {
+  if (!productId || !branchId) return null;
+  return (POS_STOCK_MAP[productId] && POS_STOCK_MAP[productId][branchId]) || null;
+}
+
 // Same tiering as inventory.alerts.stock_status() and the same colors as the
 // Floor Stock list's Status column (ok for In Stock, warn for Low Stock,
 // danger for Critical/No Stock) — one definition of "low stock", one look
@@ -362,10 +385,21 @@ function posUpdateStockLine(row) {
   if (!line) return;
   var productId = row.querySelector('.js-product').value;
   var branchId = posCurrentBranchId();
-  var info = (productId && branchId && POS_STOCK_MAP[productId]) ? POS_STOCK_MAP[productId][branchId] : null;
+
+  if (!productId || !branchId) {
+    line.hidden = true;
+    return;
+  }
+  var info = posAvailableInfo(productId, branchId);
 
   if (!info) {
-    line.hidden = true;
+    // P-2 — no Inventory row at all for this product at this branch. This
+    // used to just hide the line, which read as "nothing to worry about"
+    // instead of "this branch has never carried it" — the sale still
+    // priced the row and only failed once Record Sale was pressed.
+    line.style.color = 'var(--danger-fg)';
+    line.textContent = '• Not carried at this branch';
+    line.hidden = false;
     return;
   }
   var color = info.status === 'In Stock' ? 'var(--ok-fg)'
@@ -458,6 +492,10 @@ function posRecalc() {
 
   var total = 0, gross = 0, vatTotal = 0, discountTotal = 0, exemptTotal = 0;
   var skipped = 0;
+  // P-2 — set when any row asks for more than the branch's own stock map
+  // says is on the shelf (or carries the product at all). Read after the
+  // loop below to gate Record Sale.
+  var overStock = false;
 
   // Quantities are totalled per product before any tier is read, mirroring
   // transaction_add: ringing an item up on two rows must earn the same break
@@ -474,7 +512,7 @@ function posRecalc() {
   posRows.querySelectorAll('.item-row').forEach(function (row) {
     posUpdateStockLine(row);
     var opt = row.querySelector('.js-product').selectedOptions[0];
-    if (!opt || !opt.value) return;
+    if (!opt || !opt.value) { row.classList.remove('pos-row-over'); return; }
     var retail = parseFloat(opt.dataset.retail || 0);
     var price = posTierPrice(opt, qtyByProduct[opt.value] || 0);
 
@@ -494,8 +532,21 @@ function posRecalc() {
       bulkTag.remove();
     }
 
-    var qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
+    var qtyInput = row.querySelector('.js-qty');
+    var qty = parseInt(qtyInput.value || 0, 10);
     if (qty < 0) qty = 0;
+
+    // P-2 — cap the stepper at what's actually on the shelf and flag the
+    // row when the cashier has typed past it. A product with no Inventory
+    // row at all (posAvailableInfo returns null) has zero available here,
+    // so any quantity above 0 reads as over-stock too.
+    var info = posAvailableInfo(opt.value, posCurrentBranchId());
+    var available = info ? info.qty : 0;
+    qtyInput.max = available;
+    var isOver = qty > available;
+    row.classList.toggle('pos-row-over', isOver);
+    if (isOver) overStock = true;
+
     var line = posPriceLine(opt, price, qty, discountType);
 
     // Say WHY a line didn't drop when a discount is on — otherwise the total
@@ -545,6 +596,15 @@ function posRecalc() {
   posUpdateItemCount();
   posSyncTenderVisibility();
   posUpdateTender(total);
+
+  // P-2 — the server is still the final check (sales.views._deduct_stock
+  // re-verifies under a row lock, catching anything that changed since the
+  // page loaded), but a cashier should not be able to press Record Sale on
+  // a total the counter already knows exceeds the shelf.
+  var submitBtn = document.getElementById('pos-submit-btn');
+  if (submitBtn) submitBtn.disabled = overStock;
+  var overNote = document.getElementById('pos-over-note');
+  if (overNote) overNote.hidden = !overStock;
 }
 
 // Discount toggle: reveals the ID fields and switches the type select between

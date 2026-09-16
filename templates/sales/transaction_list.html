@@ -19,6 +19,20 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
   {% endif %}
 </div>
 
+{% comment %}
+S-11 — over-committed orders. Reporting only: an open order (Pending/
+Approved/Preparing) is flagged when its branch has promised more of one of
+its items, across every other open order, than the branch's floor stock can
+actually cover. Nothing here reserves stock, so this is a count to look
+into, not a hard stop.
+{% endcomment %}
+<div class="kpi-row compact mb-6">
+  <div class="kpi-card{% if over_committed_count %} warn{% endif %}">
+    <span class="label">Over-committed Orders</span>
+    <span class="value">{{ over_committed_count }}</span>
+  </div>
+</div>
+
 <form method="GET" class="toolbar toolbar-search" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
   <div class="search-field">
     <button type="submit" class="search-btn" title="Search" aria-label="Search orders">
@@ -126,6 +140,9 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
           {% elif t.order_status == "Preparing" %}<span class="pill pill-warn">Preparing</span>
           {% elif t.order_status == "Approved" %}<span class="pill pill-info">Approved</span>
           {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}
+          {% if t.pk in over_committed_ids %}
+          <span class="pill pill-warn" title="One or more items on this order are promised beyond the branch's current floor stock.">Over-committed</span>
+          {% endif %}
         </td>
         <td data-label="Action">
           <span class="row-actions">

@@ -1,15 +1,21 @@
 import io
+from datetime import date
 from decimal import Decimal
 from io import StringIO
 
 import openpyxl
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import User
-from inventory.models import Product, ProductCategory, ProductImportMappingTemplate
+from branches.models import Branch
+from inventory.alerts import batch_inventory_mismatches
+from inventory.models import (
+    Batch, Inventory, Product, ProductCategory, ProductImportMappingTemplate,
+    Warehouse, WarehouseStock,
+)
 
 
 class CategoryModalFlowTests(TestCase):
@@ -791,3 +797,93 @@ class ProductPriceTierFormTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._ladder(product), [(10, 36)])
+
+
+class BatchInventoryReconciliationTests(TestCase):
+    """O-1 — batch_inventory_mismatches (and the management command that
+    surfaces it) flags a row only when it HAS batches that disagree with its
+    own aggregate; a row with no batches at all predates batch tracking and
+    is not a mismatch (see the Batch model's own docstring)."""
+
+    def setUp(self):
+        self.branch = Branch.objects.create(branch_name='Tarcan', location='Baliuag')
+        self.product = Product.objects.create(
+            sku_code='SKU-REC', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=Decimal('100.00'),
+        )
+
+    def _floor_batch(self, quantity):
+        return Batch.objects.create(
+            product=self.product, branch=self.branch,
+            location=Batch.Location.FLOOR,
+            quantity=quantity, received_date=date.today(),
+        )
+
+    def test_agreeing_floor_row_is_not_flagged(self):
+        Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=20,
+        )
+        self._floor_batch(20)
+
+        self.assertEqual(batch_inventory_mismatches(), [])
+
+    def test_disagreeing_floor_row_is_flagged(self):
+        Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=20,
+        )
+        self._floor_batch(15)
+
+        mismatches = batch_inventory_mismatches()
+
+        self.assertEqual(len(mismatches), 1)
+        row = mismatches[0]
+        self.assertEqual(row['location'], 'Floor')
+        self.assertEqual(row['product'], self.product)
+        self.assertEqual(row['quantity_on_hand'], 20)
+        self.assertEqual(row['batch_total'], 15)
+        self.assertEqual(row['difference'], 5)
+
+    def test_a_row_with_no_batches_at_all_is_not_flagged(self):
+        Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=20,
+        )
+
+        self.assertEqual(batch_inventory_mismatches(), [])
+
+    def test_disagreeing_warehouse_row_is_flagged(self):
+        # branches.signals auto-creates one Warehouse per Branch on save.
+        warehouse = Warehouse.objects.get(branch=self.branch)
+        WarehouseStock.objects.create(
+            warehouse=warehouse, product=self.product, quantity_on_hand=50,
+        )
+        Batch.objects.create(
+            product=self.product, branch=self.branch,
+            location=Batch.Location.WAREHOUSE,
+            quantity=40, received_date=date.today(),
+        )
+
+        mismatches = batch_inventory_mismatches()
+
+        self.assertEqual(len(mismatches), 1)
+        self.assertEqual(mismatches[0]['location'], 'Warehouse')
+        self.assertEqual(mismatches[0]['difference'], 10)
+
+    def test_command_succeeds_when_nothing_is_wrong(self):
+        Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=20,
+        )
+        self._floor_batch(20)
+
+        out = StringIO()
+        call_command('check_batch_reconciliation', stdout=out)
+
+        self.assertIn('No batch/inventory mismatches found', out.getvalue())
+
+    def test_command_exits_with_an_error_when_something_disagrees(self):
+        Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=20,
+        )
+        self._floor_batch(15)
+
+        with self.assertRaises(CommandError):
+            call_command('check_batch_reconciliation', stdout=StringIO())
