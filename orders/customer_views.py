@@ -16,6 +16,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
 from core.context_processors import storefront_categories, storefront_category_ids
+from inventory.alerts import stock_status
 from inventory.models import Inventory, Product, ProductCategory
 from inventory.stats import (
     attach_storefront_counts, in_stock_product_ids, units_sold_by_product,
@@ -225,6 +226,10 @@ def _cart_items(request):
             'subtotal': subtotal,
             'in_stock': inv.available_qty,
             'short': qty > inv.available_qty,
+            # Same tiering the Floor/Warehouse Stock lists use (S-4) — no
+            # more hardcoded "<= 10" in the template disagreeing with what
+            # Inventory's own reorder_level says is actually low.
+            'stock_status': stock_status(inv.available_qty, inv.reorder_level),
         })
 
     if stale_ids:
