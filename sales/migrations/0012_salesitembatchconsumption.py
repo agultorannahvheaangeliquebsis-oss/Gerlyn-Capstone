@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('inventory', '0019_stockmovement_stockmove_created_idx_and_more'),
-        ('sales', '0010_salestransaction_sales_txn_branch_date_idx'),
+        ('sales', '0011_remove_salestransaction_order_type'),
     ]
 
     operations = [
