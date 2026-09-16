@@ -57,7 +57,15 @@ class LoginView(APIView):
         clear_failed_logins(username)
 
         if user.two_factor_enabled:
-            start_login_otp(user, request)
+            if not start_login_otp(user, request):
+                # The cache the code lives in is unreachable — nothing was
+                # emailed, so telling the caller a code is pending would be
+                # a screen that can never succeed. The password is not
+                # consumed; the caller can just retry.
+                return Response(
+                    {'detail': 'Could not start email verification right now. Please try again in a moment.'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
             request.session['pending_2fa_user_id'] = user.pk
             return Response({
                 'two_factor_required': True,
@@ -100,10 +108,14 @@ class VerifyTwoFactorView(APIView):
             )
 
         if request.data.get('resend'):
-            start_login_otp(user, request)
+            if start_login_otp(user, request):
+                return Response(
+                    {'detail': f'A new code was sent to {user.email}.'},
+                    status=status.HTTP_200_OK
+                )
             return Response(
-                {'detail': f'A new code was sent to {user.email}.'},
-                status=status.HTTP_200_OK
+                {'detail': "Couldn't resend right now. Please try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
         if is_login_otp_locked_out(user):

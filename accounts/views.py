@@ -83,7 +83,17 @@ def login_view(request):
                     # emailed code is verified too. next survives here in
                     # the session rather than a hidden field on the code
                     # form, since there is no reason to expose it there.
-                    start_login_otp(user, request)
+                    if not start_login_otp(user, request):
+                        # The cache the code itself lives in is unreachable —
+                        # nothing was emailed, so sending them to a code
+                        # screen that can never succeed would be worse than
+                        # this. The password stays unconsumed; they can
+                        # simply try again.
+                        error = 'Could not start email verification right now. Please try again in a moment.'
+                        return render(request, 'accounts/login.html', {
+                            'error': error, 'username': username,
+                            'next': safe_next(request) or '',
+                        })
                     request.session['pending_2fa_user_id'] = user.pk
                     request.session['pending_2fa_next'] = safe_next(request) or ''
                     return redirect('accounts:login_verify')
@@ -133,8 +143,10 @@ def login_verify_view(request):
 
     if request.method == 'POST':
         if 'resend' in request.POST:
-            start_login_otp(user, request)
-            messages.info(request, f'A new code was sent to {user.email}.')
+            if start_login_otp(user, request):
+                messages.info(request, f'A new code was sent to {user.email}.')
+            else:
+                messages.error(request, "Couldn't resend right now. Please try again shortly.")
         elif is_login_otp_locked_out(user):
             request.session.pop('pending_2fa_user_id', None)
             request.session.pop('pending_2fa_next', None)

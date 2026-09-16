@@ -21,17 +21,31 @@ def _key(identifier):
 
 
 def is_login_locked_out(identifier):
+    # A cache backend error (Redis unreachable) must fail OPEN here, not
+    # crash the login page — the password check right after this is the
+    # real authentication boundary and is unaffected (it's the DB), so
+    # "the lockout counter is temporarily unavailable" degrading to "no
+    # lockout applied" is a real but acceptable weakening. A total login
+    # outage — nobody, including the Owner, able to sign in at all — is
+    # strictly worse than that, and is what an unhandled exception here
+    # caused in production.
     if not identifier:
         return False
-    return cache.get(_key(identifier), 0) >= LOGIN_MAX_ATTEMPTS
+    try:
+        return cache.get(_key(identifier), 0) >= LOGIN_MAX_ATTEMPTS
+    except Exception:
+        return False
 
 
 def register_failed_login(identifier):
     if not identifier:
         return
     key = _key(identifier)
-    attempts = cache.get(key, 0) + 1
-    cache.set(key, attempts, LOGIN_LOCKOUT_SECONDS)
+    try:
+        attempts = cache.get(key, 0) + 1
+        cache.set(key, attempts, LOGIN_LOCKOUT_SECONDS)
+    except Exception:
+        return  # counter didn't increment; nothing else to do safely
 
     # Owner Notification Center trigger — fires exactly once, on the attempt
     # that crosses the threshold, not on every subsequent guess while the
@@ -68,7 +82,10 @@ def _notify_lockout(identifier):
 def clear_failed_logins(identifier):
     if not identifier:
         return
-    cache.delete(_key(identifier))
+    try:
+        cache.delete(_key(identifier))
+    except Exception:
+        pass
 
 
 def get_client_ip(request):
@@ -96,8 +113,11 @@ def is_rate_limited(bucket, identifier, max_attempts, window_seconds):
     if not identifier:
         return False
     key = f'ratelimit:{bucket}:{identifier}'
-    attempts = cache.get(key, 0)
-    if attempts >= max_attempts:
-        return True
-    cache.set(key, attempts + 1, window_seconds)
+    try:
+        attempts = cache.get(key, 0)
+        if attempts >= max_attempts:
+            return True
+        cache.set(key, attempts + 1, window_seconds)
+    except Exception:
+        return False  # same fail-open reasoning as is_login_locked_out above
     return False

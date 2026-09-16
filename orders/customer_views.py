@@ -1088,11 +1088,18 @@ def checkout(request):
     # matches what is displayed.
     submitted_token = request.POST.get('checkout_token', '')
     session_token = request.session.get('checkout_token', '')
-    if (
-        not session_token
-        or submitted_token != session_token
-        or not cache.add(f'checkout_token_used:{submitted_token}', True, 300)
-    ):
+    try:
+        # A cache backend error here must fail OPEN (let checkout proceed),
+        # not crash the page — this token only stops a duplicate order when
+        # stock is plentiful enough for both to independently succeed; the
+        # real anti-oversell guard is the select_for_update() lock in the
+        # atomic block below, which doesn't depend on the cache at all. A
+        # rare double-submit slipping through during a Redis outage is a
+        # far smaller problem than nobody being able to check out at all.
+        token_already_used = not cache.add(f'checkout_token_used:{submitted_token}', True, 300)
+    except Exception:
+        token_already_used = False
+    if not session_token or submitted_token != session_token or token_already_used:
         messages.info(request, "This order may already be on its way — check My Orders.")
         return redirect('orders:my_orders')
 
