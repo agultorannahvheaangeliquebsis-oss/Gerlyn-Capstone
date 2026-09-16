@@ -45,6 +45,11 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       <option value="Retail" {% if type_filter == "Retail" %}selected{% endif %}>Retail only</option>
       <option value="Wholesale" {% if type_filter == "Wholesale" %}selected{% endif %}>Wholesale only</option>
     </select>
+    <select name="fulfillment" onchange="this.form.submit()" aria-label="Filter by fulfilment">
+      <option value="">Delivery &amp; Pickup</option>
+      <option value="Delivery" {% if fulfillment_filter == "Delivery" %}selected{% endif %}>Delivery only</option>
+      <option value="Pickup" {% if fulfillment_filter == "Pickup" %}selected{% endif %}>Pickup only</option>
+    </select>
   </div>
   <input type="hidden" name="status" value="{{ status_filter }}">
 </form>
@@ -57,22 +62,28 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
   different states — an unstarted order (neutral) and an unpaid bill (warn) —
   and each badge follows the column it actually filters.
 
+  href builds off filter_qs (O-3) — every other active filter (search,
+  channel, branch, type, fulfillment) rides along with the status switch
+  instead of being silently dropped, which is what happened to `type` before
+  the toolbar's filters and this tab-link builder were separate lists that
+  could drift apart.
+
   Use this tag and not the hash form for anything spanning lines: Django's hash
   comment is single-line only, so a multi-line one is not a comment at all and
   printed verbatim between the tabs.
   {% endcomment %}
   <a class="filter-tab {% if not status_filter %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}">All</a>
+     href="?{{ filter_qs }}">All</a>
   <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Pending">Pending</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Pending">Pending</a>
   <a class="filter-tab {% if status_filter == 'Approved' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Approved">Approved</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Approved">Approved</a>
   <a class="filter-tab {% if status_filter == 'Preparing' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Preparing">Preparing</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Preparing">Preparing</a>
   <a class="filter-tab {% if status_filter == 'Completed' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Completed">Completed</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Completed">Completed</a>
   <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}"
-     href="?q={{ search_query }}&channel={{ channel_filter }}&branch={{ branch_filter }}&status=Cancelled">Cancelled</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Cancelled">Cancelled</a>
 </div>
 
 <div class="card table-wrap">
@@ -84,6 +95,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <th>Customer</th>
         <th>Branch</th>
         <th>Type</th>
+        <th>Fulfilment</th>
         <th class="num">Total</th>
         <th>Payment</th>
         <th>Pay Status</th>
@@ -105,6 +117,10 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <td data-label="Type">
           {% if t.order_type == "Wholesale" %}<span class="tag">Wholesale</span>
           {% else %}<span class="tag">Retail</span>{% endif %}
+        </td>
+        <td data-label="Fulfilment">
+          {% if t.fulfillment_type == "Delivery" %}<span class="tag">Delivery</span>
+          {% else %}<span class="tag">Pickup</span>{% endif %}
         </td>
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
         <td data-label="Payment" class="gv-meta">{{ t.mode_of_payment }}</td>
@@ -130,7 +146,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       </tr>
       {% empty %}
       <tr>
-        <td colspan="10">
+        <td colspan="11">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
             <h3>No orders here</h3>
@@ -142,7 +158,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="transaction-no-matches" hidden>
-        <td colspan="10">
+        <td colspan="11">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No orders match</h3>

@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
 from django.db import transaction
+from django.http import QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
@@ -155,6 +156,7 @@ def _transaction_list_context(request):
     channel_filter = request.GET.get('channel', '')
     branch_filter = request.GET.get('branch', '')
     type_filter = request.GET.get('type', '')
+    fulfillment_filter = request.GET.get('fulfillment', '')
 
     if search_query:
         transactions = transactions.filter(
@@ -169,6 +171,8 @@ def _transaction_list_context(request):
         transactions = transactions.filter(branch_id=branch_filter)
     if type_filter:
         transactions = transactions.filter(order_type=type_filter)
+    if fulfillment_filter:
+        transactions = transactions.filter(fulfillment_type=fulfillment_filter)
 
     # Counts per tab are computed BEFORE the status filter is applied.
     base = transactions
@@ -195,6 +199,7 @@ def _transaction_list_context(request):
         'channel_filter': channel_filter,
         'branch_filter': branch_filter,
         'type_filter': type_filter,
+        'fulfillment_filter': fulfillment_filter,
         'branches': branches,
         # The topbar branch chip renders this — same pattern as Floor Stock,
         # Warehouse Stock, Product Master List, Stock Adjustments and
@@ -202,8 +207,33 @@ def _transaction_list_context(request):
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': branch_for_user(request.user),
         'can_pos': can_pos,
+        # Every active filter except `status` — the status tabs below build
+        # their href off this (O-3), so adding a new filter to the toolbar
+        # (fulfillment, here) can't quietly fall out of the tab links the
+        # way `type` had until now. Same pattern as orders.customer_views'
+        # _filter_querystring for the storefront catalog rail.
+        'filter_qs': _order_filter_querystring(
+            search_query, channel_filter, branch_filter, type_filter, fulfillment_filter
+        ),
     }
     return context
+
+
+def _order_filter_querystring(search_query, channel_filter, branch_filter, type_filter, fulfillment_filter):
+    """`q`, `channel`, `branch`, `type` and `fulfillment`, urlencoded, without
+    `status` — the Order Console's status tabs append their own `status=`."""
+    params = QueryDict(mutable=True)
+    if search_query:
+        params['q'] = search_query
+    if channel_filter:
+        params['channel'] = channel_filter
+    if branch_filter:
+        params['branch'] = branch_filter
+    if type_filter:
+        params['type'] = type_filter
+    if fulfillment_filter:
+        params['fulfillment'] = fulfillment_filter
+    return params.urlencode()
 
 
 @login_required(login_url='accounts:login')
