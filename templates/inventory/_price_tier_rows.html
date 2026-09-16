@@ -1,0 +1,57 @@
+{% comment %}
+The bulk-price ladder, shared by the Add and Edit Product modals.
+
+Parameters:
+  which   "add" or "edit"; every element id is built from it
+  rows    [{"min_quantity": ..., "unit_price": ...}, ...] to open with — the
+          stored tiers on Edit, the posted rows on a redisplay, [] on a fresh
+          Add. The page JS pads the ladder out to three rows either way.
+
+Each row is one price break: buy at least this many, pay this much per unit.
+Rows post as parallel tier_min_quantity / tier_price lists — the same shape
+the PO modal's line items use — and inventory.views._parse_price_tiers
+validates the ladder as a whole. A completely blank row is ignored, so the
+spare rows are safe to leave empty.
+
+The rows are built by tierAddRow() in product_list.html, never rendered here,
+so a fresh Add, an Edit and a rejected save all go through one path. They are
+seeded from json_script rather than value="{{ }}" on purpose: the JSON carries
+a plain "1650.00", where template output would localise it to "1,650.00" and
+the number input would silently blank it — the trap the PO modal documents.
+
+The grid is inline and fixed at three columns rather than .grid-2, which
+stacks on a phone and would split each row's quantity from its price.
+{% endcomment %}
+<div class="field">
+  <label>Bulk Prices</label>
+  <span class="gv-meta" style="display:block; margin-bottom:8px;">
+    A lower price per unit once a customer buys enough — e.g. ₱48 each for 10 or more.
+    Each break must be cheaper than the one before it. Leave the rows empty if this
+    product has no bulk pricing.
+  </span>
+
+  <div class="gv-meta" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) 40px; gap:8px; margin-bottom:4px;">
+    <span>Buy at least</span>
+    <span>Price per unit</span>
+    <span></span>
+  </div>
+  <div id="{{ which }}-tier-rows"></div>
+
+  <template id="{{ which }}-tier-row-template">
+    <div class="js-tier-row" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) 40px; gap:8px; align-items:center; margin-bottom:8px;">
+      <input type="number" name="tier_min_quantity" class="js-tier-qty" min="2" step="1"
+             inputmode="numeric" placeholder="e.g. 10" aria-label="Buy at least this many">
+      <div class="price-input">
+        <span class="price-currency">₱</span>
+        <input type="number" name="tier_price" class="js-tier-price" min="0.01" step="0.01"
+               placeholder="0.00" aria-label="Price per unit at this quantity">
+      </div>
+      {# The quiet button, not the danger one — same call as the PO modal's line Remove: dropping an unsaved row is routine, not destructive. #}
+      <button type="button" class="btn btn-quiet btn-sm" onclick="tierRemoveRow(this)" aria-label="Remove this bulk price">&times;</button>
+    </div>
+  </template>
+
+  <button type="button" class="btn btn-sm" onclick="tierAddRow('{{ which }}')">+ Add bulk price</button>
+
+  {% with data_id=which|add:"-tier-rows-data" %}{{ rows|json_script:data_id }}{% endwith %}
+</div>

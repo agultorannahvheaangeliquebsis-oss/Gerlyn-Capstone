@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
-    Product, ProductCategory, Inventory, Warehouse, WarehouseStock,
-    Batch, StockTransfer, StockTransferItem, StockMovement,
+    Product, ProductCategory, ProductPriceTier, Inventory, Warehouse,
+    WarehouseStock, Batch, StockTransfer, StockTransferItem, StockMovement,
 )
 
 
@@ -47,10 +47,21 @@ def _model_fields(instance):
     }
 
 
+class ProductPriceTierSerializer(serializers.ModelSerializer):
+    minQuantity = serializers.IntegerField(source='min_quantity')
+    unitPrice = serializers.DecimalField(
+        source='unit_price', max_digits=10, decimal_places=2
+    )
+
+    class Meta:
+        model = ProductPriceTier
+        fields = ['minQuantity', 'unitPrice']
+
+
 class ProductSerializer(serializers.ModelSerializer):
     # ── Field name translations (Django → React camelCase) ──────────────────
-    # React expects: sku, name, unit, retailPrice, wholesalePrice, category (string)
-    # Django stores: sku_code, product_name, unit_of_measure, unit_price, wholesale_price, category (FK)
+    # React expects: sku, name, unit, retailPrice, priceTiers, category (string)
+    # Django stores: sku_code, product_name, unit_of_measure, unit_price, price_tiers (FK), category (FK)
 
     sku = serializers.CharField(source='sku_code')
     name = serializers.CharField(source='product_name')
@@ -58,9 +69,10 @@ class ProductSerializer(serializers.ModelSerializer):
     retailPrice = serializers.DecimalField(
         source='unit_price', max_digits=10, decimal_places=2
     )
-    wholesalePrice = serializers.DecimalField(
-        source='wholesale_price', max_digits=10, decimal_places=2,
-        allow_null=True, required=False
+    # The bulk ladder, ascending. Read-only: tiers are authored in the product
+    # form, and a client that could write them could reprice the catalogue.
+    priceTiers = ProductPriceTierSerializer(
+        source='price_tiers', many=True, read_only=True
     )
 
     # ── Nested / computed fields ──────────────────────────────────────────────
@@ -86,7 +98,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'category',
             'unit',
             'retailPrice',
-            'wholesalePrice',
+            'priceTiers',
             'availability',
             'stockAtBranch',
         ]
@@ -128,10 +140,6 @@ class ProductWriteSerializer(serializers.ModelSerializer):
     retailPrice = serializers.DecimalField(
         source='unit_price', max_digits=10, decimal_places=2
     )
-    wholesalePrice = serializers.DecimalField(
-        source='wholesale_price', max_digits=10, decimal_places=2,
-        allow_null=True, required=False
-    )
     categoryId = serializers.PrimaryKeyRelatedField(
         source='category', queryset=ProductCategory.objects.all()
     )
@@ -144,7 +152,6 @@ class ProductWriteSerializer(serializers.ModelSerializer):
             'categoryId',
             'unit',
             'retailPrice',
-            'wholesalePrice',
             'description',
         ]
 

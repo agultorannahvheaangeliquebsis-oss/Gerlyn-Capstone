@@ -231,7 +231,7 @@ input[type=search] within the form — all three survive the restructure.
         <th>Category</th>
         <th>Unit</th>
         <th class="num">Retail Price</th>
-        <th class="num">Wholesale Price</th>
+        <th class="num">Bulk Prices</th>
         <th>Availability</th>
         {% if can_edit %}<th class="end">Actions</th>{% endif %}
       </tr>
@@ -255,7 +255,9 @@ input[type=search] within the form — all three survive the restructure.
         <td data-label="Category"><span class="tag">{{ row.product.category.category_name|default:"—" }}</span></td>
         <td data-label="Unit">{{ row.product.unit_of_measure }}</td>
         <td data-label="Retail" class="num">₱{{ row.product.unit_price|floatformat:2 }}</td>
-        <td data-label="Wholesale" class="num">{% if row.product.wholesale_price %}₱{{ row.product.wholesale_price|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td data-label="Bulk Prices" class="num">
+          {% for tier in row.product.price_tiers.all %}<span class="gv-meta" style="display:block;">{{ tier.min_quantity }}+ · ₱{{ tier.unit_price|floatformat:2 }}</span>{% empty %}—{% endfor %}
+        </td>
         <td data-label="Availability" class="gv-meta">{{ row.availability }}</td>
         {% if can_edit %}
         <td data-label="Actions">
@@ -385,24 +387,16 @@ input[type=search] within the form — all three survive the restructure.
         </div>
       </div>
 
-      <div class="grid-2">
-        <div class="field">
-          <label for="add-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
-          <div class="price-input">
-            <span class="price-currency">₱</span>
-            <input id="add-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
-                   value="{{ add_form_data.unit_price|default:'' }}" required>
-          </div>
-        </div>
-        <div class="field">
-          <label for="add-wholesale-price">Wholesale Price (₱)</label>
-          <div class="price-input">
-            <span class="price-currency">₱</span>
-            <input id="add-wholesale-price" type="number" step="0.01" min="0" name="wholesale_price" placeholder="0.00"
-                   value="{{ add_form_data.wholesale_price|default:'' }}">
-          </div>
+      <div class="field">
+        <label for="add-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
+        <div class="price-input">
+          <span class="price-currency">₱</span>
+          <input id="add-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
+                 value="{{ add_form_data.unit_price|default:'' }}" required>
         </div>
       </div>
+
+      {% include "inventory/_price_tier_rows.html" with which="add" rows=add_tier_rows %}
 
       {% include "inventory/_tax_fields.html" with which="add" is_vat_exempt=add_form_data.is_vat_exempt is_pwd_eligible=add_form_data.is_pwd_eligible is_senior_eligible=add_form_data.is_senior_eligible %}
 
@@ -506,24 +500,16 @@ input[type=search] within the form — all three survive the restructure.
         </div>
       </div>
 
-      <div class="grid-2">
-        <div class="field">
-          <label for="edit-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
-          <div class="price-input">
-            <span class="price-currency">₱</span>
-            <input id="edit-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
-                   value="{{ edit_values.unit_price|unlocalize }}" required>
-          </div>
-        </div>
-        <div class="field">
-          <label for="edit-wholesale-price">Wholesale Price (₱)</label>
-          <div class="price-input">
-            <span class="price-currency">₱</span>
-            <input id="edit-wholesale-price" type="number" step="0.01" min="0" name="wholesale_price" placeholder="0.00"
-                   value="{{ edit_values.wholesale_price|unlocalize|default:'' }}">
-          </div>
+      <div class="field">
+        <label for="edit-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
+        <div class="price-input">
+          <span class="price-currency">₱</span>
+          <input id="edit-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
+                 value="{{ edit_values.unit_price|unlocalize }}" required>
         </div>
       </div>
+
+      {% include "inventory/_price_tier_rows.html" with which="edit" rows=edit_values.price_tiers %}
 
       {% include "inventory/_tax_fields.html" with which="edit" is_vat_exempt=edit_values.is_vat_exempt is_pwd_eligible=edit_values.is_pwd_eligible is_senior_eligible=edit_values.is_senior_eligible %}
 
@@ -605,6 +591,33 @@ input[type=search] within the form — all three survive the restructure.
 {% endblock %}
 
 {% block extra_js %}
+<script>
+// Global, not scoped: the tier rows are cloned with inline onclick handlers,
+// which resolve against window. tier-prefixed so nothing else collides.
+function tierAddRow(which, minQuantity, unitPrice) {
+  var rows = document.getElementById(which + '-tier-rows');
+  var tpl = document.getElementById(which + '-tier-row-template');
+  if (!rows || !tpl) return;
+  rows.appendChild(tpl.content.cloneNode(true));
+  var row = rows.lastElementChild;
+  if (minQuantity !== undefined && minQuantity !== null) row.querySelector('.js-tier-qty').value = minQuantity;
+  if (unitPrice !== undefined && unitPrice !== null) row.querySelector('.js-tier-price').value = unitPrice;
+}
+function tierRemoveRow(btn) {
+  btn.closest('.js-tier-row').remove();
+}
+// Open each ladder with what the server sent back — the stored tiers on Edit,
+// the posted rows after a rejected save — then pad to three rows, so every
+// product shows room for a three-step ladder without hunting for a button.
+['add', 'edit'].forEach(function (which) {
+  var dataEl = document.getElementById(which + '-tier-rows-data');
+  if (!dataEl) return;
+  var saved = JSON.parse(dataEl.textContent) || [];
+  if (!Array.isArray(saved)) saved = [];
+  saved.forEach(function (tier) { tierAddRow(which, tier.min_quantity, tier.unit_price); });
+  for (var i = saved.length; i < 3; i++) tierAddRow(which);
+});
+</script>
 <script>
 (function () {
   // initModal comes from static/js/modal.js — Add Category uses the same one.

@@ -20,7 +20,6 @@ from inventory.stats import (
 )
 from sales.models import SalesItem, SalesTransaction
 from sales.pricing import price_cart
-from sales.views import price_for
 
 # Cap on how many rows the live-search dropdown shows at once.
 SEARCH_SUGGESTION_LIMIT = 8
@@ -153,31 +152,13 @@ def _safe_referer(request):
     return None
 
 
-def order_type_for(user):
-    """The price tier this shopper buys at online.
-
-    Read from the account and never from a request parameter: a shopper who
-    could name their own tier would be choosing their own prices. Wholesale is
-    a standing property of the account that only the Owner or a Branch Manager
-    sets (CustomerProfile.is_wholesale_eligible); everyone else — including a
-    guest with no profile at all — is Retail.
-
-    One function rather than the check written out at each call site, because
-    the cart preview and the sale that gets written have to agree. When the
-    preview priced itself off unit_price directly, a wholesale customer read
-    retail figures on the cart page and then got wholesale totals at checkout.
-    """
-    profile = getattr(user, 'customer_profile', None)
-    if profile and profile.is_wholesale_eligible:
-        return SalesTransaction.OrderType.WHOLESALE
-    return SalesTransaction.OrderType.RETAIL
-
-
 def _cart_items(request):
     """Resolve the session cart into rows + total. Skips stale entries.
 
-    Priced at the shopper's own tier — the same one checkout() will use — so
-    the figures here are what they will actually be billed. The PWD/Senior
+    Priced at the tier each line's own quantity earns — the same one checkout()
+    will use — so the figures here are what they will actually be billed. The
+    session cart holds one entry per product, so the quantity read here is
+    already the shopper's whole commitment to that item. The PWD/Senior
     discount is deliberately NOT previewed, and since F-04 it cannot be
     claimed here at all: it is granted by staff, against a sighted ID, after
     the order exists. Showing it on the cart would promise a price the order
@@ -191,7 +172,6 @@ def _cart_items(request):
     # quietly returning an empty cart that disagrees with the header badge.
     if not branch_id:
         return [], Decimal('0')
-    order_type = order_type_for(request.user)
     items, total = [], Decimal('0')
     # product_ids whose line could not be resolved to a real Inventory row at
     # all (the product, or its row at this branch, was deleted after it was
@@ -204,13 +184,15 @@ def _cart_items(request):
     stale_ids = []
 
     for product_id, qty in cart.items():
-        inv = Inventory.objects.sellable().select_related('product').filter(
+        inv = Inventory.objects.sellable().select_related('product').prefetch_related(
+            'product__price_tiers'
+        ).filter(
             product_id=product_id, branch_id=branch_id
         ).first()
         if not inv:
             stale_ids.append(product_id)
             continue
-        unit_price = price_for(inv.product, order_type)
+        unit_price = inv.product.price_at(qty)
         subtotal = unit_price * qty
         total += subtotal
         items.append({
@@ -522,9 +504,23 @@ def product_detail(request, product_id):
     } if recent_ids else {}
     recently_viewed = [recent_by_id[pid] for pid in recent_ids if pid in recent_by_id]
 
+    # Whether the buy-more-save-more ladder gets a working quantity input to
+    # sync against. The same conditions that reach the live Add to Cart form
+    # further down the template (logged in, a Customer account, a branch
+    # chosen, stock at it) — computed once here instead of repeated in the
+    # template so the ladder and the form can never end up disagreeing about
+    # which case they are in.
+    can_buy = bool(
+        request.user.is_authenticated
+        and request.user.role == 'CUSTOMER'
+        and branch_id
+        and product.on_hand > 0
+    )
+
     return render(request, 'orders/product_detail.html', {
         'product': product,
         'branch_stock': branch_stock,
+        'can_buy': can_buy,
         # attach_storefront_counts so the related cards can offer the same
         # Add-to-cart CTA as the catalog and home grids instead of a "View"
         # link back into another product page. Scoped to the chosen branch
@@ -1004,16 +1000,9 @@ def checkout(request):
         messages.info(request, 'Review your order below, then press Place Order.')
         return redirect('orders:cart')
 
-    # --- price tier ---------------------------------------------------------
-    # Same derivation the cart preview used, from the same function, so the
-    # figures the shopper just read cannot disagree with what they are billed.
-    # Never read from the POST — there is no order_type input on this form and
-    # there must not be one.
-    order_type = order_type_for(request.user)
-
     # --- payment method --------------------------------------------------------
     # Validated against the model's choices, the same fall-back-to-default
-    # shape order_type uses at the counter: an unrecognised value — a
+    # shape discount_type uses at the counter: an unrecognised value — a
     # tampered form, a client bug — becomes the online default (Cash on
     # Delivery) rather than being written to the column and the billing
     # record verbatim, which broke the Billing report's payment breakdown.
@@ -1062,7 +1051,7 @@ def checkout(request):
     # that anyone was ever meant to deliver it.
     #
     # So the choice is now explicit and required, and the address is validated
-    # against it. Unlike mode_of_payment and order_type above, an unrecognised
+    # against it. Unlike mode_of_payment above, an unrecognised
     # value must NOT fall back to a default: silently picking one would either
     # promise a delivery nobody asked for or strand a customer waiting at home
     # for an order marked pickup. There is no safe guess, so this refuses.
@@ -1176,7 +1165,7 @@ def checkout(request):
         # No discount_type is passed — not None-by-omission but None on
         # purpose: customer checkout never discounts (F-04).
         priced = price_cart(
-            [(product, qty, price_for(product, order_type)) for product, qty in planned],
+            [(product, qty, product.price_at(qty)) for product, qty in planned],
             discount_type=None,
         )
         total = priced['total_amount']
@@ -1190,7 +1179,6 @@ def checkout(request):
             mode_of_payment=mode_of_payment,
             fulfillment_type=fulfillment_type,
             delivery_address=delivery_address,
-            order_type=order_type,
             # Priced up front and written on the INSERT itself — the same
             # order sales.views.transaction_add and the DRF write serializer
             # already use. This used to create at the model's total_amount=0

@@ -380,55 +380,81 @@ class AcceptanceTests(TestCase):
         client.force_login(juan)
         self.assertEqual(client.get(f'/shop/orders/{foreign.pk}/').status_code, 404)
 
-    # --- wholesale pricing --------------------------------------------------
-    # Chapter 1 describes Gerlyn as a "retail and wholesale business".
+    # --- bulk tier pricing --------------------------------------------------
+    # Chapter 1 describes Gerlyn as a "retail and wholesale business". The
+    # wholesale half is priced by quantity: each product carries bulk tiers,
+    # and a line is charged the deepest tier its quantity reaches.
 
-    def test_retail_sale_uses_retail_price(self):
-        product = Product.objects.get(sku_code='SKU-005')   # 48 retail / 41 wholesale
+    def _tier_sku_005(self):
+        """SKU-005 at ₱48 retail with a single break: 10 or more at ₱41.
+
+        Set explicitly rather than read off seed_demo, so these tests pin the
+        pricing rule and not whatever ladder the demo data happens to carry.
+        """
+        product = Product.objects.get(sku_code='SKU-005')
+        product.price_tiers.all().delete()
+        product.price_tiers.create(min_quantity=10, unit_price=41)
+        return product
+
+    def test_a_quantity_below_the_first_tier_pays_retail(self):
+        product = self._tier_sku_005()
         self.login('ana').post('/sales/add/', {
-            'mode_of_payment': 'Cash', 'order_type': 'Retail',
-            'product_id': [str(product.pk)], 'quantity': ['10'],
+            'mode_of_payment': 'Cash',
+            'product_id': [str(product.pk)], 'quantity': ['9'],
             'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
-        self.assertEqual(tx.order_type, 'Retail')
         self.assertEqual(tx.items.first().unit_price, product.unit_price)
 
-    def test_wholesale_sale_uses_wholesale_price(self):
-        product = Product.objects.get(sku_code='SKU-005')
+    def test_reaching_a_tier_pays_the_tier_price(self):
+        product = self._tier_sku_005()
         self.login('ana').post('/sales/add/', {
-            'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
+            'mode_of_payment': 'Cash',
             'product_id': [str(product.pk)], 'quantity': ['10'],
             'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
-        self.assertEqual(tx.order_type, 'Wholesale')
-        self.assertEqual(tx.items.first().unit_price, product.wholesale_price)
-        self.assertEqual(tx.total_amount, product.wholesale_price * 10)
+        self.assertEqual(tx.items.first().unit_price, 41)
+        self.assertEqual(tx.total_amount, 410)
 
-    def test_wholesale_falls_back_to_retail_when_no_wholesale_price(self):
-        """Never sell at ₱0 just because a product has no wholesale price."""
+    def test_a_product_with_no_tiers_always_pays_retail(self):
+        """Never sell at ₱0 just because a product has no bulk price."""
         product = Product.objects.get(sku_code='SKU-005')
-        Product.objects.filter(pk=product.pk).update(wholesale_price=None)
-        product.refresh_from_db()
+        product.price_tiers.all().delete()
 
         self.login('ana').post('/sales/add/', {
-            'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
-            'product_id': [str(product.pk)], 'quantity': ['2'],
+            'mode_of_payment': 'Cash',
+            'product_id': [str(product.pk)], 'quantity': ['10'],
             'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
-        self.assertEqual(tx.total_amount, product.unit_price * 2)
+        self.assertEqual(tx.total_amount, product.unit_price * 10)
 
-    def test_invalid_order_type_falls_back_to_retail(self):
-        product = Product.objects.get(sku_code='SKU-005')
+    def test_two_rows_of_one_product_earn_the_same_break_as_one_row(self):
+        """5 + 5 on two rows is a 10-unit sale. Pricing rows one at a time
+        would charge retail for what a single row of 10 bills at bulk."""
+        product = self._tier_sku_005()
         self.login('ana').post('/sales/add/', {
-            'mode_of_payment': 'Cash', 'order_type': 'Free',
+            'mode_of_payment': 'Cash',
+            'product_id': [str(product.pk), str(product.pk)],
+            'quantity': ['5', '5'],
+            'amount_tendered': '10000',
+        })
+        tx = SalesTransaction.objects.order_by('-id').first()
+        self.assertEqual([item.unit_price for item in tx.items.all()], [41, 41])
+        self.assertEqual(tx.total_amount, 410)
+
+    def test_a_posted_order_type_cannot_buy_a_tier_price(self):
+        """The Retail/Wholesale toggle is gone. A cached form or a tampered POST
+        still sending one must not reach a bulk price below its quantity."""
+        product = self._tier_sku_005()
+        self.login('ana').post('/sales/add/', {
+            'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
             'product_id': [str(product.pk)], 'quantity': ['1'],
             'amount_tendered': '10000',
         })
         tx = SalesTransaction.objects.order_by('-id').first()
-        self.assertEqual(tx.order_type, 'Retail')
+        self.assertEqual(tx.items.first().unit_price, product.unit_price)
 
     def test_price_over_1000_survives_an_edit(self):
         """

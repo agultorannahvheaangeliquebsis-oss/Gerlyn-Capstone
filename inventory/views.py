@@ -16,7 +16,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation as DecimalException
 
 from .models import (
-    ProductCategory, Product, ProductImage, Inventory,
+    ProductCategory, Product, ProductImage, ProductPriceTier, Inventory,
     Warehouse, WarehouseStock, Batch,
     StockTransfer, StockTransferItem, StockMovement,
     ProductImportMappingTemplate,
@@ -57,7 +57,7 @@ get_user_branch = branch_for_user
 def _product_list_context(request):
     products = (
         Product.objects.select_related('category')
-        .prefetch_related('inventory_records__branch', 'images')
+        .prefetch_related('inventory_records__branch', 'images', 'price_tiers')
         .all()
     )
     categories = cached_categories()
@@ -116,7 +116,97 @@ def _product_list_context(request):
         'next_sku': Product.next_sku_code(),
         'branches': branches,
         'add_selected_branches': None,  # None = fresh modal, default all branches checked
+        'add_tier_rows': [],  # empty = fresh modal; the page JS opens three blank rows
     }
+
+
+def _posted_tier_rows(form_data):
+    """The bulk-price rows exactly as they were typed, for redisplaying a form
+    that failed validation. Parallel getlists, the same shape the PO modal's
+    line items use."""
+    if form_data is None:
+        return []
+    quantities = form_data.getlist('tier_min_quantity')
+    prices = form_data.getlist('tier_price')
+    rows = [
+        {'min_quantity': q.strip(), 'unit_price': p.strip()}
+        for q, p in zip(quantities, prices)
+    ]
+    return [r for r in rows if r['min_quantity'] or r['unit_price']]
+
+
+def _parse_price_tiers(form_data, retail_price):
+    """Validate the posted bulk-price ladder into [(min_quantity, price), ...].
+
+    Returns (tiers, errors). Blank rows are dropped rather than refused — the
+    form always renders spare rows, and an untouched one is not a mistake.
+
+    The rules exist because a bad ladder silently mis-bills rather than
+    crashing: a tier at or above retail charges MORE for buying more, a tier
+    at quantity 1 quietly replaces the retail price outright, and a ladder
+    whose prices do not fall as quantities rise means a customer is punished
+    for crossing a threshold. Each is caught here, where it can still be
+    explained, rather than at the register.
+    """
+    errors = []
+    tiers = []
+    seen_quantities = set()
+
+    for index, row in enumerate(_posted_tier_rows(form_data), start=1):
+        raw_quantity = row['min_quantity']
+        raw_price = row['unit_price']
+
+        if not raw_quantity or not raw_price:
+            errors.append(
+                f'Bulk price {index}: fill in both the quantity and the price, '
+                f'or clear the row.'
+            )
+            continue
+        if not raw_quantity.isdigit() or int(raw_quantity) < 2:
+            errors.append(
+                f'Bulk price {index}: the quantity must be a whole number of 2 '
+                f'or more — a break at 1 would just replace the retail price.'
+            )
+            continue
+        try:
+            price = Decimal(raw_price)
+        except DecimalException:
+            errors.append(f'Bulk price {index}: "{raw_price}" is not a valid price.')
+            continue
+        if price <= 0:
+            errors.append(f'Bulk price {index}: the price must be more than ₱0.')
+            continue
+
+        quantity = int(raw_quantity)
+        if quantity in seen_quantities:
+            errors.append(
+                f'Bulk price {index}: there is already a break at {quantity} — '
+                f'each quantity can only have one price.'
+            )
+            continue
+        seen_quantities.add(quantity)
+
+        if retail_price is not None and price >= retail_price:
+            errors.append(
+                f'Bulk price {index}: ₱{price} is not below the retail price of '
+                f'₱{retail_price}, so buying {quantity} would cost more per unit, '
+                f'not less.'
+            )
+            continue
+
+        tiers.append((quantity, price))
+
+    tiers.sort()
+    for (lower_qty, lower_price), (higher_qty, higher_price) in zip(tiers, tiers[1:]):
+        if higher_price >= lower_price:
+            errors.append(
+                f'The price at {higher_qty}+ (₱{higher_price}) must be lower than '
+                f'the price at {lower_qty}+ (₱{lower_price}) — buying more should '
+                f'never cost more per unit.'
+            )
+            break
+
+    return tiers, errors
 
 
 def _edit_modal_values(product, form_data=None):
@@ -134,8 +224,17 @@ def _edit_modal_values(product, form_data=None):
         'category_id': pick('category', str(product.category_id or '')),
         'unit_of_measure': pick('unit_of_measure', product.unit_of_measure),
         'unit_price': pick('unit_price', product.unit_price),
-        'wholesale_price': pick('wholesale_price', product.wholesale_price),
         'description': pick('description', product.description),
+        # Not pick()-able: the ladder is a list of rows, and a redisplay has
+        # to show exactly the rows that were posted — including ones the user
+        # cleared, which a fall-back to the stored tiers would resurrect.
+        'price_tiers': (
+            _posted_tier_rows(form_data) if form_data is not None
+            else [
+                {'min_quantity': tier.min_quantity, 'unit_price': tier.unit_price}
+                for tier in product.price_tiers.all()
+            ]
+        ),
         # Checkboxes can't use pick(): an unticked box posts nothing, which
         # pick() would read as "not supplied" and fall back to the stored
         # True — making the box impossible to turn off. On a redisplay the
@@ -208,7 +307,10 @@ def barcode_lookup(request):
         'category_id': product.category_id,
         'unit_of_measure': product.unit_of_measure,
         'unit_price': str(product.unit_price),
-        'wholesale_price': str(product.wholesale_price) if product.wholesale_price else '',
+        'price_tiers': [
+            {'min_quantity': tier.min_quantity, 'unit_price': str(tier.unit_price)}
+            for tier in product.price_tiers.all()
+        ],
         'edit_url': reverse('product_edit', args=[product.id]),
     })
 
@@ -228,7 +330,6 @@ def product_add(request):
     product_name = request.POST.get('product_name', '').strip()
     barcode = request.POST.get('barcode', '').strip() or None
     unit_price = request.POST.get('unit_price', '').strip()
-    wholesale_price = request.POST.get('wholesale_price', '').strip()
     description = request.POST.get('description', '').strip()
     branch_ids = request.POST.getlist('branches')
 
@@ -239,6 +340,16 @@ def product_add(request):
         errors.append('Retail price is required.')
     if barcode and Product.objects.filter(barcode__iexact=barcode).exists():
         errors.append(f'Barcode "{barcode}" is already assigned to another product.')
+
+    # Tiers are validated against the retail price, so they can only be checked
+    # once it parses. A bad retail price is already reported above; skipping the
+    # comparison here avoids stacking a confusing second complaint on top of it.
+    try:
+        retail_for_tiers = Decimal(unit_price) if unit_price else None
+    except DecimalException:
+        retail_for_tiers = None
+    price_tiers, tier_errors = _parse_price_tiers(request.POST, retail_for_tiers)
+    errors.extend(tier_errors)
 
     images = request.FILES.getlist('images')
 
@@ -252,7 +363,6 @@ def product_add(request):
                     product_name=product_name,
                     unit_of_measure=request.POST.get('unit_of_measure'),
                     unit_price=unit_price,
-                    wholesale_price=wholesale_price or None,
                     description=description,
                     # Tax/discount flags. All three boxes start unticked, so
                     # an absent value simply means "not ticked" — a product is
@@ -261,6 +371,12 @@ def product_add(request):
                     is_pwd_eligible=bool(request.POST.get('is_pwd_eligible')),
                     is_senior_eligible=bool(request.POST.get('is_senior_eligible')),
                 )
+                ProductPriceTier.objects.bulk_create([
+                    ProductPriceTier(
+                        product=product, min_quantity=quantity, unit_price=price
+                    )
+                    for quantity, price in price_tiers
+                ])
                 # request.FILES.getlist() returns EVERY file sent under name="images".
                 for index, image_file in enumerate(images):
                     ProductImage.objects.create(
@@ -292,6 +408,7 @@ def product_add(request):
         'add_errors': errors,
         'add_form_data': request.POST,
         'add_selected_branches': branch_ids,
+        'add_tier_rows': _posted_tier_rows(request.POST),
     })
     return render(request, 'inventory/product_list.html', context)
 
@@ -313,7 +430,6 @@ def product_edit(request, pk):
     product_name = request.POST.get('product_name', '').strip()
     barcode = request.POST.get('barcode', '').strip() or None
     unit_price = request.POST.get('unit_price', '').strip()
-    wholesale_price = request.POST.get('wholesale_price', '').strip()
     description = request.POST.get('description', '').strip()
 
     errors = []
@@ -326,6 +442,13 @@ def product_edit(request, pk):
     if barcode and Product.objects.filter(barcode__iexact=barcode).exclude(pk=product.pk).exists():
         errors.append(f'Barcode "{barcode}" is already assigned to another product.')
 
+    try:
+        retail_for_tiers = Decimal(unit_price) if unit_price else None
+    except DecimalException:
+        retail_for_tiers = None
+    price_tiers, tier_errors = _parse_price_tiers(request.POST, retail_for_tiers)
+    errors.extend(tier_errors)
+
     if not errors:
         try:
             with transaction.atomic():
@@ -336,12 +459,23 @@ def product_edit(request, pk):
                 product.barcode = barcode
                 product.unit_of_measure = request.POST.get('unit_of_measure')
                 product.unit_price = unit_price
-                product.wholesale_price = wholesale_price or None
                 product.description = description
                 product.is_vat_exempt = bool(request.POST.get('is_vat_exempt'))
                 product.is_pwd_eligible = bool(request.POST.get('is_pwd_eligible'))
                 product.is_senior_eligible = bool(request.POST.get('is_senior_eligible'))
                 product.save()
+
+                # The posted rows ARE the ladder — replaced wholesale rather
+                # than diffed, so a row the user cleared actually disappears.
+                # Sales already hold their own frozen unit_price, so rewriting
+                # tiers never reprices a sale that has already happened.
+                product.price_tiers.all().delete()
+                ProductPriceTier.objects.bulk_create([
+                    ProductPriceTier(
+                        product=product, min_quantity=quantity, unit_price=price
+                    )
+                    for quantity, price in price_tiers
+                ])
 
                 # 1. Delete images the user ticked for removal (file + row).
                 delete_ids = request.POST.getlist('delete_images')
@@ -425,12 +559,24 @@ _MAPPABLE_FIELDS = [
     ('category', 'Category', False),
     ('unit_of_measure', 'Unit of Measure', False),
     ('unit_price', 'Retail Price', True),
-    ('wholesale_price', 'Wholesale Price', False),
+    # A spreadsheet column cannot hold a variable-length ladder, so the import
+    # carries a fixed three rungs — the depth a supplier price list actually
+    # prints. Products needing a fourth get it in the product form; import
+    # never deletes tiers it has no column for.
+    ('tier1_min_quantity', 'Bulk Qty 1', False),
+    ('tier1_price', 'Bulk Price 1', False),
+    ('tier2_min_quantity', 'Bulk Qty 2', False),
+    ('tier2_price', 'Bulk Price 2', False),
+    ('tier3_min_quantity', 'Bulk Qty 3', False),
+    ('tier3_price', 'Bulk Price 3', False),
     ('description', 'Description', False),
     ('is_vat_exempt', 'VAT Exempt', False),
     ('is_pwd_eligible', 'PWD Eligible', False),
     ('is_senior_eligible', 'Senior Eligible', False),
 ]
+
+# How many bulk rungs the spreadsheet carries — see _MAPPABLE_FIELDS.
+_IMPORT_TIER_SLOTS = 3
 
 _IMPORT_TMP_DIR = os.path.join(settings.BASE_DIR, 'tmp_uploads', 'product_imports')
 
@@ -490,7 +636,12 @@ def _guess_mapping(headers):
         'category': ['category', 'categoryname', 'cat'],
         'unit_of_measure': ['unitofmeasure', 'unit', 'uom', 'units'],
         'unit_price': ['retailprice', 'unitprice', 'price', 'srp'],
-        'wholesale_price': ['wholesaleprice', 'wholesale'],
+        'tier1_min_quantity': ['bulkqty1', 'bulkquantity1', 'wholesaleqty', 'bulkqty'],
+        'tier1_price': ['bulkprice1', 'wholesaleprice', 'wholesale', 'bulkprice'],
+        'tier2_min_quantity': ['bulkqty2', 'bulkquantity2'],
+        'tier2_price': ['bulkprice2'],
+        'tier3_min_quantity': ['bulkqty3', 'bulkquantity3'],
+        'tier3_price': ['bulkprice3'],
         'description': ['description', 'desc', 'notes'],
         'is_vat_exempt': ['vatexempt', 'vat'],
         'is_pwd_eligible': ['pwdeligible', 'pwd'],
@@ -510,7 +661,7 @@ def _parse_import_rows(path, mapping):
     text}), and return one dict per non-blank data row:
 
         row_number, product_name, barcode, category_name, unit_of_measure,
-        unit_price, wholesale_price, description, is_vat_exempt,
+        unit_price, price_tiers, description, is_vat_exempt,
         is_pwd_eligible, is_senior_eligible, action, errors, existing_id
 
     `action` is 'error' (skip on commit), 'update' (barcode matched an
@@ -564,15 +715,48 @@ def _parse_import_rows(path, mapping):
             except DecimalException:
                 errors.append(f'Retail Price "{unit_price_raw}" is not a number.')
 
-        wholesale_raw = cell(raw_row, 'wholesale_price')
-        wholesale_price = None
-        if wholesale_raw not in (None, ''):
+        # Bulk rungs. Same rules the product form applies (see
+        # _parse_price_tiers) so a sheet cannot write a ladder the form would
+        # have refused: both cells or neither, quantity 2+, price below retail
+        # and falling as quantity rises.
+        price_tiers = []
+        seen_tier_quantities = set()
+        for slot in range(1, _IMPORT_TIER_SLOTS + 1):
+            quantity_raw = cell(raw_row, f'tier{slot}_min_quantity')
+            price_raw = cell(raw_row, f'tier{slot}_price')
+            if quantity_raw in (None, '') and price_raw in (None, ''):
+                continue
+            if quantity_raw in (None, '') or price_raw in (None, ''):
+                errors.append(f'Bulk Qty {slot} and Bulk Price {slot} must both be filled in.')
+                continue
             try:
-                wholesale_price = Decimal(str(wholesale_raw))
-                if wholesale_price < 0:
-                    errors.append('Wholesale Price cannot be negative.')
-            except DecimalException:
-                errors.append(f'Wholesale Price "{wholesale_raw}" is not a number.')
+                tier_quantity = int(str(quantity_raw).strip())
+                tier_price = Decimal(str(price_raw))
+            except (ValueError, TypeError, DecimalException):
+                errors.append(f'Bulk Qty {slot}/Bulk Price {slot} must be numbers.')
+                continue
+            if tier_quantity < 2:
+                errors.append(f'Bulk Qty {slot} must be 2 or more.')
+                continue
+            if tier_price <= 0:
+                errors.append(f'Bulk Price {slot} must be more than 0.')
+                continue
+            if tier_quantity in seen_tier_quantities:
+                errors.append(f'Bulk Qty {slot} repeats a quantity already priced on this row.')
+                continue
+            if unit_price is not None and tier_price >= unit_price:
+                errors.append(f'Bulk Price {slot} must be below the Retail Price.')
+                continue
+            seen_tier_quantities.add(tier_quantity)
+            price_tiers.append((tier_quantity, tier_price))
+
+        price_tiers.sort()
+        for (lower_qty, lower_price), (higher_qty, higher_price) in zip(price_tiers, price_tiers[1:]):
+            if higher_price >= lower_price:
+                errors.append(
+                    f'The price at {higher_qty}+ must be lower than the price at {lower_qty}+.'
+                )
+                break
 
         barcode_raw = cell(raw_row, 'barcode')
         barcode = str(barcode_raw).strip() if barcode_raw not in (None, '') else ''
@@ -601,7 +785,7 @@ def _parse_import_rows(path, mapping):
             'category_name': str(cell(raw_row, 'category') or '').strip(),
             'unit_of_measure': unit_of_measure,
             'unit_price': unit_price,
-            'wholesale_price': wholesale_price,
+            'price_tiers': price_tiers,
             'description': str(cell(raw_row, 'description') or '').strip(),
             'is_vat_exempt': _parse_bool_cell(cell(raw_row, 'is_vat_exempt')),
             'is_pwd_eligible': _parse_bool_cell(cell(raw_row, 'is_pwd_eligible')),
@@ -634,7 +818,16 @@ def product_export_xlsx(request):
     for c in ws[1]:
         c.font = openpyxl.styles.Font(bold=True)
 
-    for p in Product.objects.select_related('category').order_by('product_name'):
+    for p in Product.objects.select_related('category').prefetch_related(
+        'price_tiers'
+    ).order_by('product_name'):
+        # Padded to the fixed slot count so every row lines up under the same
+        # headers; a product with deeper tiers than the sheet carries exports
+        # its first three and keeps the rest (import never deletes unmapped ones).
+        tier_cells = []
+        for tier in list(p.price_tiers.all())[:_IMPORT_TIER_SLOTS]:
+            tier_cells.extend([tier.min_quantity, float(tier.unit_price)])
+        tier_cells.extend([''] * (_IMPORT_TIER_SLOTS * 2 - len(tier_cells)))
         ws.append([
             p.sku_code,
             p.product_name,
@@ -642,7 +835,7 @@ def product_export_xlsx(request):
             p.category.category_name if p.category else '',
             p.unit_of_measure,
             float(p.unit_price),
-            float(p.wholesale_price) if p.wholesale_price is not None else '',
+            *tier_cells,
             p.description,
             'Yes' if p.is_vat_exempt else 'No',
             'Yes' if p.is_pwd_eligible else 'No',
@@ -832,12 +1025,25 @@ def product_import_preview(request):
                 product.category = category
                 product.unit_of_measure = row['unit_of_measure']
                 product.unit_price = row['unit_price']
-                product.wholesale_price = row['wholesale_price']
                 product.description = row['description']
                 product.is_vat_exempt = row['is_vat_exempt']
                 product.is_pwd_eligible = row['is_pwd_eligible']
                 product.is_senior_eligible = row['is_senior_eligible']
                 product.save()
+
+                # A row that priced any bulk rung replaces the whole ladder; a
+                # row that priced none leaves it alone. Silence in a sheet that
+                # simply has no bulk columns must not wipe tiers the Owner set
+                # in the product form — clearing a ladder is done there, where
+                # it is a visible act rather than an omission.
+                if row['price_tiers']:
+                    product.price_tiers.all().delete()
+                    ProductPriceTier.objects.bulk_create([
+                        ProductPriceTier(
+                            product=product, min_quantity=quantity, unit_price=price
+                        )
+                        for quantity, price in row['price_tiers']
+                    ])
 
         if any_new_category:
             bust_categories_cache()

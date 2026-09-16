@@ -1,4 +1,6 @@
 """Small presentation helpers for the storefront."""
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
 from django import template
 from django.utils.safestring import mark_safe
 
@@ -82,22 +84,25 @@ CATEGORY_TINT_COUNT = 8
 
 
 @register.filter
-def shop_price(product, user):
-    """The price this shopper actually pays for `product` online — the same
-    figure the cart and checkout bill at.
+def percent_off(tier_price, retail_price):
+    """Whole-number % a bulk tier undercuts the retail price by, for the
+    product page's buy-more-save-more ladder.
 
-    Reuses orders.customer_views.order_type_for + sales.views.price_for
-    (imported lazily to sidestep any import-order fuss between this
-    low-level app and the storefront/POS apps) rather than re-deriving the
-    wholesale-eligibility check here. The product page, catalog grid and
-    rail cards used to print product.unit_price directly, which is exactly
-    how a wholesale account saw one price while browsing and a lower one at
-    the cart — the cart already went through this pair of functions and
-    nothing else did.
+    Computed here rather than stored on ProductPriceTier: it is retail vs.
+    this one tier, always derived, and storing it would let the two drift
+    apart the moment either price changed. Never negative — a tier priced at
+    or above retail (a data-entry slip, not a real deal) reads as 0% rather
+    than a negative discount, which would be a stranger number on the page
+    than no badge at all.
     """
-    from orders.customer_views import order_type_for
-    from sales.views import price_for
-    return price_for(product, order_type_for(user))
+    try:
+        retail = Decimal(retail_price)
+        tier = Decimal(tier_price)
+    except (InvalidOperation, TypeError):
+        return 0
+    if retail <= 0 or tier >= retail:
+        return 0
+    return int(((retail - tier) / retail * 100).to_integral_value(rounding=ROUND_HALF_UP))
 
 
 @register.filter

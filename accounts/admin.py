@@ -16,18 +16,7 @@ class CustomUserAdmin(UserAdmin):
 
 
 class CustomerProfileAdmin(admin.ModelAdmin):
-    """Where wholesale eligibility gets set, for now.
-
-    Accounts > Manage Users is Owner-only but explicitly excludes CUSTOMER
-    rows (accounts.views._user_list_context) and its form can only assign
-    internal roles, so there is no in-app page that shows a specific customer
-    account to set this on. Until one exists, this is the toggle: listed and
-    editable straight from the changelist so it does not need a round trip
-    through a detail page.
-    """
-    list_display = ('__str__', 'user', 'contact_number', 'is_wholesale_eligible')
-    list_editable = ('is_wholesale_eligible',)
-    list_filter = ('is_wholesale_eligible',)
+    list_display = ('__str__', 'user', 'contact_number')
     search_fields = ('first_name', 'last_name', 'user__username', 'contact_number')
 
 

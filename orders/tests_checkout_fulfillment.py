@@ -164,7 +164,7 @@ class CheckoutFulfillmentTypeTests(TestCase):
 
     # ------------------------------------------------- missing / tampered
     def test_a_missing_fulfillment_type_is_refused_not_defaulted(self):
-        """Unlike mode_of_payment and order_type, this has no safe default:
+        """Unlike mode_of_payment, this has no safe default:
         guessing Delivery promises a delivery nobody asked for, and guessing
         Pickup strands a customer waiting at home. So it refuses."""
         response = self.check_out(delivery_address='12 Real St, Baliuag')

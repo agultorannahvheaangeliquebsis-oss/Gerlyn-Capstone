@@ -442,9 +442,11 @@ class ProductImportExportTests(TestCase):
     downloads the catalog, import is upload -> map columns -> preview ->
     confirm, matching existing products by barcode."""
 
+    # 'Bulk Qty 1' is blank in every row these tests upload, so none of them
+    # carries a ladder; the rung columns get their own test below.
     HEADER = [
         'Item Name', 'Barcode', 'Cat', 'UOM', 'SRP',
-        'Wholesale', 'Notes', 'VAT', 'PWD', 'Senior',
+        'Bulk Qty 1', 'Notes', 'VAT', 'PWD', 'Senior',
     ]
     MAPPING = {
         'map_product_name': 'Item Name',
@@ -452,7 +454,7 @@ class ProductImportExportTests(TestCase):
         'map_category': 'Cat',
         'map_unit_of_measure': 'UOM',
         'map_unit_price': 'SRP',
-        'map_wholesale_price': 'Wholesale',
+        'map_tier1_min_quantity': 'Bulk Qty 1',
         'map_description': 'Notes',
         'map_is_vat_exempt': 'VAT',
         'map_is_pwd_eligible': 'PWD',
@@ -475,11 +477,12 @@ class ProductImportExportTests(TestCase):
 
     def test_export_returns_an_xlsx_with_a_row_per_product(self):
         category = ProductCategory.objects.create(category_name='Snacks')
-        Product.objects.create(
+        product = Product.objects.create(
             sku_code='SKU-EXPORT-1', product_name='Chippy', barcode='EXPORT001',
             category=category, unit_of_measure=Product.UnitOfMeasure.PIECE,
-            unit_price=15, wholesale_price=12,
+            unit_price=15,
         )
+        product.price_tiers.create(min_quantity=24, unit_price=12)
         response = self.client.get(reverse('product_export_xlsx'))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -493,6 +496,12 @@ class ProductImportExportTests(TestCase):
         data_row = next(r for r in rows[1:] if r[1] == 'Chippy')
         self.assertEqual(data_row[2], 'EXPORT001')
         self.assertEqual(data_row[3], 'Snacks')
+        # The ladder exports into the fixed rung columns; unused rungs are blank,
+        # so every row still lines up under the same headers.
+        headers = list(rows[0])
+        self.assertEqual(data_row[headers.index('Bulk Qty 1')], 24)
+        self.assertEqual(data_row[headers.index('Bulk Price 1')], 12)
+        self.assertIn(data_row[headers.index('Bulk Qty 2')], (None, ''))
 
     def test_export_denied_for_staff(self):
         staff = User.objects.create_user(
@@ -563,6 +572,63 @@ class ProductImportExportTests(TestCase):
         self.assertFalse(Product.objects.filter(barcode='BADPRICE1').exists())
         self.assertFalse(Product.objects.filter(barcode='BADUOM1').exists())
 
+    def test_import_writes_a_bulk_ladder_and_refuses_a_bad_one(self):
+        """The rung column-pairs are held to the same rules as the product
+        form. A row with no rungs updates a product without wiping the ladder
+        it already has — blank bulk columns are not an instruction to clear."""
+        keeper = Product.objects.create(
+            sku_code='SKU-KEEP-1', product_name='Keeper', barcode='KEEPTIERS',
+            unit_of_measure=Product.UnitOfMeasure.PIECE, unit_price=50,
+        )
+        keeper.price_tiers.create(min_quantity=10, unit_price=45)
+
+        header = [
+            'Item Name', 'Barcode', 'SRP',
+            'Bulk Qty 1', 'Bulk Price 1', 'Bulk Qty 2', 'Bulk Price 2',
+        ]
+        rows = [
+            ['Laddered', 'LADDER1', '50', '12', '45', '24', '40'],
+            ['Above Retail', 'ABOVE1', '50', '12', '55', '', ''],
+            ['Rising', 'RISING1', '50', '12', '40', '24', '45'],
+            ['Half Row', 'HALF1', '50', '12', '', '', ''],
+            ['Keeper Renamed', 'KEEPTIERS', '60', '', '', '', ''],
+        ]
+        self.client.post(
+            reverse('product_import_upload'),
+            {'file': _xlsx_upload('tiers.xlsx', header, rows)},
+        )
+        self.client.post(reverse('product_import_map'), {
+            'map_product_name': 'Item Name',
+            'map_barcode': 'Barcode',
+            'map_unit_price': 'SRP',
+            'map_tier1_min_quantity': 'Bulk Qty 1',
+            'map_tier1_price': 'Bulk Price 1',
+            'map_tier2_min_quantity': 'Bulk Qty 2',
+            'map_tier2_price': 'Bulk Price 2',
+        })
+
+        preview = self.client.get(reverse('product_import_preview'))
+        self.assertEqual(preview.context['counts'], {
+            'total': 5, 'create': 1, 'update': 1, 'error': 3,
+        })
+
+        self.client.post(reverse('product_import_preview'))
+
+        laddered = Product.objects.get(barcode='LADDER1')
+        self.assertEqual(
+            list(laddered.price_tiers.values_list('min_quantity', 'unit_price')),
+            [(12, 45), (24, 40)],
+        )
+        for barcode in ('ABOVE1', 'RISING1', 'HALF1'):
+            self.assertFalse(Product.objects.filter(barcode=barcode).exists(), barcode)
+
+        keeper.refresh_from_db()
+        self.assertEqual(keeper.unit_price, 60)
+        self.assertEqual(
+            list(keeper.price_tiers.values_list('min_quantity', 'unit_price')),
+            [(10, 45)],
+        )
+
     # ── Saved mapping templates ─────────────────────────────
 
     def test_saved_private_template_is_hidden_from_other_users(self):
@@ -613,3 +679,115 @@ class ProductImportExportTests(TestCase):
         response = self.client.get(reverse('product_import_preview'))
         self.assertRedirects(response, reverse('product_import_upload'))
         self.assertFalse(ProductCategory.objects.exists())
+
+
+class ProductPriceTierFormTests(TestCase):
+    """The bulk-price ladder on the Add/Edit Product modals, validated as a
+    whole by inventory.views._parse_price_tiers. A bad ladder mis-bills
+    quietly rather than crashing, so it is refused here, where it can still be
+    explained, and nothing is saved."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(self.owner)
+
+    def _add(self, quantities, prices, unit_price='54'):
+        return self.client.post(reverse('product_add'), {
+            'product_name': 'Rice (per kg)',
+            'unit_of_measure': Product.UnitOfMeasure.KILO,
+            'unit_price': unit_price,
+            'tier_min_quantity': quantities,
+            'tier_price': prices,
+        })
+
+    @staticmethod
+    def _ladder(product):
+        return list(product.price_tiers.values_list('min_quantity', 'unit_price'))
+
+    def _assert_refused(self, response, fragment):
+        self.assertEqual(response.status_code, 200)
+        errors = response.context['add_errors']
+        self.assertTrue(any(fragment in e for e in errors), errors)
+        self.assertFalse(Product.objects.filter(product_name='Rice (per kg)').exists())
+
+    def test_add_saves_a_three_step_ladder(self):
+        response = self._add(['10', '25', '50'], ['48', '46', '45'])
+        self.assertRedirects(response, reverse('product_list'))
+        product = Product.objects.get(product_name='Rice (per kg)')
+        self.assertEqual(self._ladder(product), [(10, 48), (25, 46), (50, 45)])
+
+    def test_rows_are_stored_in_quantity_order_whatever_order_they_were_typed(self):
+        self._add(['50', '10'], ['45', '48'])
+        product = Product.objects.get(product_name='Rice (per kg)')
+        self.assertEqual(self._ladder(product), [(10, 48), (50, 45)])
+
+    def test_blank_spare_rows_are_ignored(self):
+        response = self._add(['10', '', ''], ['48', '', ''])
+        self.assertRedirects(response, reverse('product_list'))
+        product = Product.objects.get(product_name='Rice (per kg)')
+        self.assertEqual(self._ladder(product), [(10, 48)])
+
+    def test_a_tier_at_or_above_retail_is_refused(self):
+        self._assert_refused(self._add(['10'], ['54']), 'not below the retail price')
+
+    def test_prices_must_fall_as_quantities_rise(self):
+        self._assert_refused(
+            self._add(['10', '50'], ['46', '48']), 'must be lower than the price at 10+'
+        )
+
+    def test_a_break_at_quantity_one_is_refused(self):
+        self._assert_refused(self._add(['1'], ['50']), '2 or more')
+
+    def test_a_half_filled_row_is_refused(self):
+        self._assert_refused(self._add(['10'], ['']), 'fill in both')
+
+    def test_a_duplicate_quantity_is_refused(self):
+        self._assert_refused(
+            self._add(['10', '10'], ['48', '47']), 'already a break at 10'
+        )
+
+    def test_a_refused_save_hands_the_typed_rows_back(self):
+        response = self._add(['10', '50'], ['46', '48'])
+        self.assertEqual(response.context['add_tier_rows'], [
+            {'min_quantity': '10', 'unit_price': '46'},
+            {'min_quantity': '50', 'unit_price': '48'},
+        ])
+
+    def test_edit_replaces_the_ladder_and_a_cleared_row_disappears(self):
+        product = Product.objects.create(
+            sku_code='SKU-T1', product_name='Sugar', unit_price=60,
+            unit_of_measure=Product.UnitOfMeasure.KILO,
+        )
+        product.price_tiers.create(min_quantity=10, unit_price=55)
+        product.price_tiers.create(min_quantity=50, unit_price=52)
+
+        response = self.client.post(reverse('product_edit', args=[product.pk]), {
+            'product_name': 'Sugar',
+            'unit_of_measure': Product.UnitOfMeasure.KILO,
+            'unit_price': '60',
+            'tier_min_quantity': ['10', ''],
+            'tier_price': ['54', ''],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._ladder(product), [(10, 54)])
+
+    def test_a_refused_edit_leaves_the_stored_ladder_untouched(self):
+        product = Product.objects.create(
+            sku_code='SKU-T2', product_name='Flour', unit_price=40,
+            unit_of_measure=Product.UnitOfMeasure.KILO,
+        )
+        product.price_tiers.create(min_quantity=10, unit_price=36)
+
+        response = self.client.post(reverse('product_edit', args=[product.pk]), {
+            'product_name': 'Flour',
+            'unit_of_measure': Product.UnitOfMeasure.KILO,
+            'unit_price': '40',
+            'tier_min_quantity': ['10'],
+            'tier_price': ['45'],
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._ladder(product), [(10, 36)])

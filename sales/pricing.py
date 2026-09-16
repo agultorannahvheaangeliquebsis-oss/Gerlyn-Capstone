@@ -76,9 +76,9 @@ def vat_exclusive(vat_inclusive_price):
 def price_line(product, quantity, unit_price=None, discount_type=None):
     """Work out what one cart line actually costs.
 
-    `unit_price` overrides the product's own price — the caller passes
-    wholesale_price for a wholesale order, so the tier decision stays in the
-    caller and the tax decision stays here.
+    `unit_price` overrides the product's own price — the caller passes the
+    bulk tier price the line's quantity earned (Product.price_at), so the tier
+    decision stays in the caller and the tax decision stays here.
 
     `discount_type` is the transaction-level claim ('PWD', 'Senior', or
     None/'None' for no claim). Whether it reaches THIS line is decided here,

@@ -40,11 +40,6 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       <option value="Online" {% if channel_filter == "Online" %}selected{% endif %}>Online</option>
       <option value="Physical" {% if channel_filter == "Physical" %}selected{% endif %}>In-Store</option>
     </select>
-    <select name="type" onchange="this.form.submit()" aria-label="Filter by order type">
-      <option value="">Retail &amp; Wholesale</option>
-      <option value="Retail" {% if type_filter == "Retail" %}selected{% endif %}>Retail only</option>
-      <option value="Wholesale" {% if type_filter == "Wholesale" %}selected{% endif %}>Wholesale only</option>
-    </select>
   </div>
   <input type="hidden" name="status" value="{{ status_filter }}">
 </form>
@@ -83,7 +78,6 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <th>Date / Time</th>
         <th>Customer</th>
         <th>Branch</th>
-        <th>Type</th>
         <th class="num">Total</th>
         <th>Payment</th>
         <th>Pay Status</th>
@@ -102,10 +96,6 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
           {% else %}Walk-in{% endif %}
         </td>
         <td data-label="Branch">{{ t.branch.branch_name }}</td>
-        <td data-label="Type">
-          {% if t.order_type == "Wholesale" %}<span class="tag">Wholesale</span>
-          {% else %}<span class="tag">Retail</span>{% endif %}
-        </td>
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
         <td data-label="Payment" class="gv-meta">{{ t.mode_of_payment }}</td>
         <td data-label="Pay Status">
@@ -130,7 +120,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       </tr>
       {% empty %}
       <tr>
-        <td colspan="10">
+        <td colspan="9">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
             <h3>No orders here</h3>
@@ -142,7 +132,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="transaction-no-matches" hidden>
-        <td colspan="10">
+        <td colspan="9">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No orders match</h3>

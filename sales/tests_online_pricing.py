@@ -6,20 +6,22 @@ pricing wrong, in opposite directions.
 
 checkout() summed unit_price x qty by hand and wrote that as the total. No
 VAT was ever broken out (total_vat_amount was 0 on every online order ever
-placed) and a wholesale customer could not be billed at wholesale.
+placed).
 
 (It briefly grew a PWD/Senior claim here too. F-04 took it back out — the
 discount is granted by staff against an ID they have seen, in the Order
 Console; see sales/tests_verified_discount.py.)
 
 The API had the reverse problem: it ran the real pricing engine, but took
-the caller's word for orderType. Any authenticated customer could post
-orderType=Wholesale and be billed at wholesale_price.
+the caller's word for the price tier. Any authenticated customer could post
+orderType=Wholesale and be billed at the wholesale price.
 
-Both now resolve the tier from the account — CustomerProfile.
-is_wholesale_eligible, set by the Owner or a Branch Manager — and never from
-the request. These tests hold that line, and check the online figures against
-what the walk-in POS produces for the same cart.
+There is no longer a tier to ask for. Bulk pricing is a property of the
+product and the quantity bought — Product.price_at walks the product's
+ProductPriceTier ladder — so every path, counter included, reaches the same
+price for the same cart and nothing in a request can move it. These tests
+hold that line, and check the online figures against what the walk-in POS
+produces for the same cart.
 """
 from decimal import Decimal
 
@@ -32,8 +34,13 @@ from inventory.models import Inventory, Product, StockMovement
 from sales.models import SalesTransaction
 
 
+# The fixture's single bulk break. Below it a line pays retail; at or above it,
+# the tier price.
+BULK_QUANTITY = 10
+
+
 class OnlinePricingTestCase(TestCase):
-    """A branch, a VAT-inclusive product with a wholesale price, and stock."""
+    """A branch, a VAT-inclusive product with one bulk tier, and stock."""
 
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -46,27 +53,27 @@ class OnlinePricingTestCase(TestCase):
         # prices the counter against, so the two surfaces can be compared
         # directly. 2 x ₱112.00 = ₱224.00 with ₱24.00 of VAT inside it;
         # with a Senior/PWD claim it becomes 2 x ₱80.00 = ₱160.00, VAT-exempt.
+        #
+        # The bulk tier is 10 or more at ₱89.60, which keeps the VAT exact:
+        # 10 x ₱89.60 = ₱896.00 with ₱96.00 of VAT inside it.
         self.product = Product.objects.create(
             sku_code='SKU-001', product_name='Rice (Sack)',
             unit_of_measure='Sack', unit_price=Decimal('112.00'),
-            wholesale_price=Decimal('89.60'),
             is_vat_exempt=False, is_pwd_eligible=True, is_senior_eligible=True,
+        )
+        self.product.price_tiers.create(
+            min_quantity=BULK_QUANTITY, unit_price=Decimal('89.60')
         )
         Inventory.objects.create(
             product=self.product, branch=self.branch,
             quantity_on_hand=50, reorder_level=5,
         )
 
-    def customer(self, username='shopper', wholesale=False):
+    def customer(self, username='shopper'):
         """A CUSTOMER account. accounts.signals auto-creates the profile."""
-        user = User.objects.create_user(
+        return User.objects.create_user(
             username=username, password='pw', role=User.Role.CUSTOMER
         )
-        if wholesale:
-            profile = user.customer_profile
-            profile.is_wholesale_eligible = True
-            profile.save()
-        return user
 
     def shop_as(self, user, quantity=2):
         """Log in and put `quantity` of the product in the session cart."""
@@ -88,6 +95,18 @@ class OnlinePricingTestCase(TestCase):
         payload.update(extra)
         return self.client.post(reverse('orders:checkout'), payload, follow=True)
 
+    def walk_in(self, quantity):
+        """Ring the same product up at the counter and return the sale."""
+        self.client.force_login(self.owner)
+        self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'amount_tendered': '5000',
+            'product_id': [str(self.product.pk)], 'quantity': [str(quantity)],
+        })
+        return SalesTransaction.objects.filter(
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL
+        ).latest('pk')
+
 
 class OnlineCheckoutPricingTests(OnlinePricingTestCase):
 
@@ -97,7 +116,6 @@ class OnlineCheckoutPricingTests(OnlinePricingTestCase):
         self.check_out()
 
         sale = SalesTransaction.objects.get()
-        self.assertEqual(sale.order_type, SalesTransaction.OrderType.RETAIL)
         self.assertEqual(sale.total_amount, Decimal('224.00'))
         # The whole point of B-2: this used to be 0.00 on every online order.
         self.assertEqual(sale.total_vat_amount, Decimal('24.00'))
@@ -115,13 +133,7 @@ class OnlineCheckoutPricingTests(OnlinePricingTestCase):
         self.check_out()
         online = SalesTransaction.objects.get()
 
-        self.client.force_login(self.owner)
-        self.client.post(reverse('transaction_add'), {
-            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail', 'amount_tendered': '500',
-            'product_id': [str(self.product.pk)], 'quantity': ['2'],
-        })
-        walk_in = SalesTransaction.objects.exclude(pk=online.pk).get()
+        walk_in = self.walk_in(quantity=2)
 
         self.assertEqual(online.total_amount, walk_in.total_amount)
         self.assertEqual(online.total_vat_amount, walk_in.total_vat_amount)
@@ -129,53 +141,41 @@ class OnlineCheckoutPricingTests(OnlinePricingTestCase):
             online.items.get().unit_price, walk_in.items.get().unit_price
         )
 
-    def test_an_eligible_customer_is_billed_at_the_wholesale_price(self):
-        self.shop_as(self.customer(wholesale=True))
+    def test_a_bulk_quantity_is_billed_at_the_tier_price(self):
+        self.shop_as(self.customer(), quantity=BULK_QUANTITY)
 
         self.check_out()
 
         sale = SalesTransaction.objects.get()
-        self.assertEqual(sale.order_type, SalesTransaction.OrderType.WHOLESALE)
-        self.assertEqual(sale.total_amount, Decimal('179.20'))   # 2 x ₱89.60
-        self.assertEqual(sale.total_vat_amount, Decimal('19.20'))
+        self.assertEqual(sale.total_amount, Decimal('896.00'))   # 10 x ₱89.60
+        self.assertEqual(sale.total_vat_amount, Decimal('96.00'))
         self.assertEqual(sale.items.get().unit_price, Decimal('89.60'))
 
-    def test_an_ineligible_customer_gets_retail_even_if_wholesale_is_posted(self):
-        """There is no order_type input on this form, and posting one anyway
-        changes nothing — the tier comes from the account."""
-        customer = self.customer()
-        self.assertFalse(customer.customer_profile.is_wholesale_eligible)
-        self.shop_as(customer)
+    def test_an_online_bulk_total_matches_the_walk_in_total_for_the_same_cart(self):
+        """The tier is read by the same rule on both surfaces, so a bulk cart
+        cannot be cheaper at the counter than online, or the other way round."""
+        self.shop_as(self.customer(), quantity=BULK_QUANTITY)
+        self.check_out()
+        online = SalesTransaction.objects.get()
+
+        walk_in = self.walk_in(quantity=BULK_QUANTITY)
+
+        self.assertEqual(online.total_amount, walk_in.total_amount)
+        self.assertEqual(online.total_vat_amount, walk_in.total_vat_amount)
+        self.assertEqual(
+            online.items.get().unit_price, walk_in.items.get().unit_price
+        )
+
+    def test_posting_a_wholesale_order_type_changes_nothing(self):
+        """The Retail/Wholesale tier used to be a field. A stale client still
+        posting one must not reach a bulk price its quantity has not earned."""
+        self.shop_as(self.customer(), quantity=2)
 
         self.check_out(order_type='Wholesale')
 
         sale = SalesTransaction.objects.get()
-        self.assertEqual(sale.order_type, SalesTransaction.OrderType.RETAIL)
         self.assertEqual(sale.total_amount, Decimal('224.00'))
-
-    def test_the_eligibility_flag_is_what_drives_the_tier(self):
-        """Same customer, same cart, twice — the only thing that changes is
-        the flag, so the Retail result above cannot be an accident of there
-        being no input to submit."""
-        customer = self.customer()
-
-        self.shop_as(customer)
-        self.check_out()
-        retail = SalesTransaction.objects.latest('pk')
-
-        profile = customer.customer_profile
-        profile.is_wholesale_eligible = True
-        profile.save()
-
-        self.shop_as(customer)
-        self.check_out()
-        wholesale = SalesTransaction.objects.latest('pk')
-
-        self.assertNotEqual(retail.pk, wholesale.pk)
-        self.assertEqual(retail.order_type, SalesTransaction.OrderType.RETAIL)
-        self.assertEqual(retail.total_amount, Decimal('224.00'))
-        self.assertEqual(wholesale.order_type, SalesTransaction.OrderType.WHOLESALE)
-        self.assertEqual(wholesale.total_amount, Decimal('179.20'))
+        self.assertEqual(sale.items.get().unit_price, Decimal('112.00'))
 
     def test_billing_now_receives_the_vat_correct_total(self):
         self.shop_as(self.customer())
@@ -206,53 +206,70 @@ class OnlineCheckoutPricingTests(OnlinePricingTestCase):
 # against the same ₱112.00 fixture and the same expected ₱160.00.
 
 
-class SalesApiOrderTypeTests(OnlinePricingTestCase):
-    """B-5: POST /api/sales/ honoured a client-submitted orderType outright."""
+class SalesApiPricingTests(OnlinePricingTestCase):
+    """B-5: POST /api/sales/ honoured a client-submitted orderType outright.
+    The field is gone; the price comes from the quantity ordered."""
 
-    def post_sale(self, user, **extra):
+    def post_sale(self, user, items=None, **extra):
         self.client.force_login(user)
         payload = {
             'branchId': self.branch.pk,
             'transactionType': SalesTransaction.TransactionType.ONLINE,
             'modeOfPayment': 'Cash on Delivery',
             'deliveryAddress': '12 Real St, Baliuag',
-            'items': [{'productId': self.product.pk, 'quantity': 2}],
+            'items': items or [{'productId': self.product.pk, 'quantity': 2}],
         }
         payload.update(extra)
         return self.client.post(
             '/api/sales/', payload, content_type='application/json'
         )
 
-    def test_an_ineligible_customer_asking_for_wholesale_is_priced_at_retail(self):
+    def test_a_quantity_below_the_tier_is_priced_at_retail(self):
+        response = self.post_sale(self.customer())
+
+        self.assertEqual(response.status_code, 201)
+        sale = SalesTransaction.objects.get()
+        self.assertEqual(sale.total_amount, Decimal('224.00'))
+        self.assertEqual(sale.items.get().unit_price, Decimal('112.00'))
+
+    def test_a_quantity_at_the_tier_is_priced_at_the_tier(self):
+        response = self.post_sale(
+            self.customer(),
+            items=[{'productId': self.product.pk, 'quantity': BULK_QUANTITY}],
+        )
+
+        self.assertEqual(response.status_code, 201)
+        sale = SalesTransaction.objects.get()
+        self.assertEqual(sale.total_amount, Decimal('896.00'))
+        self.assertEqual(sale.items.get().unit_price, Decimal('89.60'))
+
+    def test_asking_for_wholesale_over_the_wire_changes_nothing(self):
         response = self.post_sale(self.customer(), orderType='Wholesale')
 
         self.assertEqual(response.status_code, 201)
         sale = SalesTransaction.objects.get()
-        self.assertEqual(sale.order_type, SalesTransaction.OrderType.RETAIL)
         self.assertEqual(sale.total_amount, Decimal('224.00'))
         self.assertEqual(sale.items.get().unit_price, Decimal('112.00'))
 
-    def test_an_eligible_customer_asking_for_wholesale_gets_it(self):
-        """The flag makes wholesale legitimately reachable — the fix is a
-        gate, not a blanket refusal."""
+    def test_splitting_one_product_across_two_items_still_earns_the_break(self):
+        """5 + 5 of the same product is a 10-unit purchase. Pricing each item
+        on its own would let a client dodge the tier — or a store under-apply
+        it — just by how the payload happened to be shaped."""
         response = self.post_sale(
-            self.customer(wholesale=True), orderType='Wholesale'
+            self.customer(),
+            items=[
+                {'productId': self.product.pk, 'quantity': 5},
+                {'productId': self.product.pk, 'quantity': 5},
+            ],
         )
 
         self.assertEqual(response.status_code, 201)
         sale = SalesTransaction.objects.get()
-        self.assertEqual(sale.order_type, SalesTransaction.OrderType.WHOLESALE)
-        self.assertEqual(sale.total_amount, Decimal('179.20'))
-        self.assertEqual(sale.items.get().unit_price, Decimal('89.60'))
-
-    def test_a_customer_who_asks_for_nothing_still_gets_retail(self):
-        response = self.post_sale(self.customer())
-
-        self.assertEqual(response.status_code, 201)
         self.assertEqual(
-            SalesTransaction.objects.get().order_type,
-            SalesTransaction.OrderType.RETAIL,
+            sorted(item.unit_price for item in sale.items.all()),
+            [Decimal('89.60'), Decimal('89.60')],
         )
+        self.assertEqual(sale.total_amount, Decimal('896.00'))
 
     def test_the_discount_refusal_next_to_it_is_unchanged(self):
         """No discount is ever granted on an assertion over the wire, whatever
@@ -364,26 +381,27 @@ class SalesApiOnlineStockDeductionTests(OnlinePricingTestCase):
 
 class CartPreviewPricingTests(OnlinePricingTestCase):
     """B-6: the cart page priced every line off product.unit_price, so a
-    wholesale customer read retail figures while browsing and then got
-    wholesale totals at checkout."""
+    shopper due a lower price read one figure on the cart and was billed
+    another at checkout. The cart now prices each line at the tier its
+    quantity earns, the same way checkout does."""
 
     def cart_page(self, user, quantity=2):
         self.shop_as(user, quantity=quantity)
         return self.client.get(reverse('orders:cart'))
 
-    def test_an_eligible_customer_sees_wholesale_figures(self):
-        response = self.cart_page(self.customer(wholesale=True))
+    def test_a_bulk_quantity_shows_the_tier_figures(self):
+        response = self.cart_page(self.customer(), quantity=BULK_QUANTITY)
 
         row = response.context['items'][0]
         self.assertEqual(row['unit_price'], Decimal('89.60'))
-        self.assertEqual(row['subtotal'], Decimal('179.20'))
-        self.assertEqual(response.context['total'], Decimal('179.20'))
+        self.assertEqual(row['subtotal'], Decimal('896.00'))
+        self.assertEqual(response.context['total'], Decimal('896.00'))
         # The rendered "each" figure, not just the context — the template used
         # to read product.unit_price back off the product and undo the tier.
         self.assertContains(response, '89.60')
         self.assertNotContains(response, '112.00')
 
-    def test_an_ineligible_customer_still_sees_retail(self):
+    def test_a_quantity_below_the_tier_still_shows_retail(self):
         response = self.cart_page(self.customer())
 
         row = response.context['items'][0]
@@ -394,19 +412,19 @@ class CartPreviewPricingTests(OnlinePricingTestCase):
 
     def test_the_free_delivery_meter_reads_off_the_corrected_total(self):
         """The meter is computed from `total`, so it has to move with the
-        tier rather than being left on the retail figure."""
-        retail = self.cart_page(self.customer('a'), quantity=4)
-        wholesale = self.cart_page(self.customer('b', wholesale=True), quantity=4)
+        tier rather than being left on the retail figure.
 
-        self.assertEqual(retail.context['total'], Decimal('448.00'))
-        self.assertEqual(wholesale.context['total'], Decimal('358.40'))
-        # ₱448.00 clears the ₱500 bar by less than the retail figure suggests.
+        A shallower break at 4 units is added so the tier lands below the
+        ₱500 free-delivery bar: retail would read 4 x ₱112.00 = ₱448.00
+        (₱52.00 to go), the tier reads 4 x ₱100.00 = ₱400.00 (₱100.00 to go).
+        """
+        self.product.price_tiers.create(min_quantity=4, unit_price=Decimal('100.00'))
+
+        response = self.cart_page(self.customer(), quantity=4)
+
+        self.assertEqual(response.context['total'], Decimal('400.00'))
         self.assertEqual(
-            wholesale.context['remaining_for_free'], Decimal('141.60')
-        )
-        self.assertGreater(
-            wholesale.context['remaining_for_free'],
-            retail.context['remaining_for_free'],
+            response.context['remaining_for_free'], Decimal('100.00')
         )
 
     def test_the_cart_total_equals_what_checkout_charges(self):
@@ -415,17 +433,15 @@ class CartPreviewPricingTests(OnlinePricingTestCase):
         actually agree instead of coincidentally matching a literal.
 
         Pre-discount on purpose: no PWD/Senior claim is made here because the
-        cart page cannot know about one — it is typed at checkout.
+        cart page cannot know about one — it is granted after the order exists.
         """
-        for wholesale in (False, True):
-            with self.subTest(wholesale=wholesale):
-                customer = self.customer(
-                    f'shopper{int(wholesale)}', wholesale=wholesale
-                )
+        for quantity in (2, BULK_QUANTITY):
+            with self.subTest(quantity=quantity):
+                customer = self.customer(f'shopper{quantity}')
 
-                previewed = self.cart_page(customer).context['total']
+                previewed = self.cart_page(customer, quantity=quantity).context['total']
 
-                self.shop_as(customer)
+                self.shop_as(customer, quantity=quantity)
                 self.check_out()
                 sale = SalesTransaction.objects.latest('pk')
 
@@ -434,35 +450,38 @@ class CartPreviewPricingTests(OnlinePricingTestCase):
                     previewed, sale.billing_record.amount_due
                 )
 
-    def test_both_call_sites_derive_the_tier_from_one_function(self):
-        """The eligibility check exists once. Flipping the flag has to move
-        the cart preview and the written order together."""
-        from orders.customer_views import order_type_for
-
+    def test_editing_the_ladder_moves_the_cart_and_checkout_together(self):
+        """Both call sites read the product's tiers through Product.price_at,
+        so a price change in the product form has to reach the preview and
+        the written order at the same moment — neither can hold a stale copy."""
         customer = self.customer()
         self.assertEqual(
-            order_type_for(customer), SalesTransaction.OrderType.RETAIL
+            self.cart_page(customer, quantity=BULK_QUANTITY).context['total'],
+            Decimal('896.00'),
         )
-        self.assertEqual(self.cart_page(customer).context['total'], Decimal('224.00'))
 
-        profile = customer.customer_profile
-        profile.is_wholesale_eligible = True
-        profile.save()
-        customer.refresh_from_db()
+        self.product.price_tiers.filter(min_quantity=BULK_QUANTITY).update(
+            unit_price=Decimal('80.00')
+        )
 
         self.assertEqual(
-            order_type_for(customer), SalesTransaction.OrderType.WHOLESALE
+            self.cart_page(customer, quantity=BULK_QUANTITY).context['total'],
+            Decimal('800.00'),
         )
-        self.assertEqual(self.cart_page(customer).context['total'], Decimal('179.20'))
+        self.shop_as(customer, quantity=BULK_QUANTITY)
+        self.check_out()
+        self.assertEqual(
+            SalesTransaction.objects.latest('pk').total_amount, Decimal('800.00')
+        )
 
 
 class OnlineCheckoutPaymentMethodTests(OnlinePricingTestCase):
     """F-05 — checkout() wrote request.POST['mode_of_payment'] onto the sale
     and the billing record with no check against ModeOfPayment.choices, while
-    discount_type right beside it (and order_type at the counter) fall back to
-    a safe default on an unrecognised value. A tampered form could stamp
-    'FREE MONEY' onto both rows and break the Billing report's payment
-    breakdown. Same fix: fall back to the online default (Cash on Delivery).
+    discount_type right beside it falls back to a safe default on an
+    unrecognised value. A tampered form could stamp 'FREE MONEY' onto both
+    rows and break the Billing report's payment breakdown. Same fix: fall
+    back to the online default (Cash on Delivery).
     """
 
     def test_a_bogus_payment_method_falls_back_to_the_online_default(self):
