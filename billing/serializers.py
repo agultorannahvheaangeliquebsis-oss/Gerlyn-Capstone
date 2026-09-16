@@ -3,6 +3,16 @@
 from django.urls import reverse
 from rest_framework import serializers
 from .models import BillingRecord
+from sales.models import SalesTransaction
+
+# X-2 — the reference number is the only record of a GCash or bank transfer
+# with no payment gateway integrated; same rule billing.views.billing_create
+# enforces on the web form and orders.customer_views.checkout enforces for
+# GCash at checkout.
+REFERENCE_REQUIRED_METHODS = {
+    BillingRecord.PaymentMethod.GCASH,
+    BillingRecord.PaymentMethod.BANK_TRANSFER,
+}
 
 
 class BillingRecordSerializer(serializers.ModelSerializer):
@@ -51,12 +61,35 @@ class BillingPaymentSerializer(serializers.Serializer):
     referenceNumber = serializers.CharField(required=False, allow_blank=True)
     proofOfPayment = serializers.ImageField(required=False)
 
+    def validate(self, data):
+        # X-2 — required for GCash/Bank Transfer, cleared for everything
+        # else, the same rule billing_create enforces on the web form.
+        method = data.get('paymentMethod')
+        reference = data.get('referenceNumber', '').strip()
+        if method in REFERENCE_REQUIRED_METHODS and not reference:
+            raise serializers.ValidationError(
+                {'referenceNumber': f'Enter the {method} reference number — we '
+                                     f'cannot match the payment to this order without it.'}
+            )
+        data['referenceNumber'] = reference if method in REFERENCE_REQUIRED_METHODS else ''
+        return data
+
     def update(self, instance, validated_data):
         instance.payment_method = validated_data['paymentMethod']
         instance.reference_number = validated_data.get('referenceNumber', '')
         if validated_data.get('proofOfPayment'):
             instance.proof_of_payment = validated_data['proofOfPayment']
         instance.save()
+
+        # X-2 — keep the sale's own mode_of_payment in step with the bill.
+        # Bank Transfer has no SalesTransaction.ModeOfPayment equivalent, so
+        # there is nothing to sync in that one case.
+        method = validated_data['paymentMethod']
+        txn = instance.transaction
+        if method in SalesTransaction.ModeOfPayment.values and txn.mode_of_payment != method:
+            txn.mode_of_payment = method
+            txn.save(update_fields=['mode_of_payment'])
+
         return instance
 
 

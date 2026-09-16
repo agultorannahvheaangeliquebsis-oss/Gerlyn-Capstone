@@ -133,8 +133,15 @@ this form is forged, so hiding the control is convenience, not the guard.
         <tr><td class="gv-meta">Customer</td><td style="text-align:right;">
           {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
           {% else %}Walk-in{% endif %}</td></tr>
+        {% comment %}
+        X-3 — recorded_by, not staff: staff is STAFF-role-only by its own
+        limit_choices_to, so a sale the Owner or a Branch Manager rang up
+        always had staff=None and showed "—" here even though someone
+        plainly rang it up. recorded_by is written on every walk-in/API
+        creation path regardless of role.
+        {% endcomment %}
         <tr><td class="gv-meta">Recorded by</td><td style="text-align:right;">
-          {% if transaction.staff %}{{ transaction.staff.username }}{% else %}—{% endif %}</td></tr>
+          {% if transaction.recorded_by %}{{ transaction.recorded_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ transaction.mode_of_payment }}</td></tr>
         {% comment %}
         Shown for every online order, not only the ones with an address:
