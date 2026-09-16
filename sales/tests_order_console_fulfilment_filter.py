@@ -55,17 +55,19 @@ class OrderConsoleFulfilmentTests(TestCase):
         self.assertIn(self.pickup_txn, transactions)
         self.assertNotIn(self.delivery_txn, transactions)
 
-    def test_status_tab_preserves_the_type_and_fulfilment_filters(self):
+    def test_status_tab_preserves_the_fulfilment_filter(self):
         # Before O-3, the tabs were hand-built with only q/channel/branch, so
-        # switching status here would have silently dropped both `type` and
-        # `fulfillment` from every tab's href.
+        # switching status here would have silently dropped `fulfillment`
+        # from every tab's href. (This test used to also carry a `type`
+        # filter alongside it — SalesTransaction.order_type is gone along
+        # with retail/wholesale pricing, replaced by per-line quantity
+        # tiers, so there is no longer a `type` filter for a tab to drop.)
         response = self.client.get(reverse('transaction_list'), {
-            'type': 'Wholesale', 'fulfillment': 'Delivery',
+            'fulfillment': 'Delivery',
         })
-        self.assertContains(response, 'type=Wholesale')
         self.assertContains(response, 'fulfillment=Delivery')
         # And specifically on a status tab link, not just anywhere on the page.
         self.assertContains(
             response,
-            'href="?type=Wholesale&amp;fulfillment=Delivery&amp;status=Pending"'
+            'href="?fulfillment=Delivery&amp;status=Pending"'
         )
