@@ -82,6 +82,28 @@ class SalesTransaction(models.Model):
         limit_choices_to={'role': 'CUSTOMER'},
         related_name='purchases'
     )
+    # X-3 — `staff` above only ever holds a STAFF account (see
+    # limit_choices_to), so a walk-in sale rung up by the Owner or a Branch
+    # Manager wrote staff=None, exactly like a sale with no operator at all.
+    # The Order Console showed "Recorded by —", the printed receipt's
+    # "Served by" line was blank, and is_self_confirmation (A-1) could never
+    # fire for an Owner/Manager sale because there was no actor on the
+    # record to compare against. `staff` is left exactly as-is — nothing
+    # downstream that reads it (the wholesale-price limit_choices_to, the
+    # Staff Sales report) should start seeing Owner/Manager rows — and this
+    # is the actual operator, any internal role, written on every creation
+    # path: the POS (transaction_add), online checkout (nulled there — an
+    # online order has no staff-side operator, the customer places it) and
+    # the API write path.
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
+        related_name='recorded_transactions',
+        help_text="Whoever operated the till for this sale — Owner, Branch "
+                  "Manager or Staff. Null for an online order (the customer "
+                  "placed it themselves) and for a walk-in sale recorded "
+                  "before this field existed."
+    )
     # Indexed: every range-scoped surface in the back office filters on this
     # column — the Dashboard's daily series and its previous-window
     # comparison, the Reports Sales tab's KPIs, trend panel and donut, and
@@ -308,3 +330,44 @@ class SalesItem(models.Model):
 
     def __str__(self):
         return f"{self.product.product_name} x{self.quantity_sold}"
+
+
+class SalesItemBatchConsumption(models.Model):
+    """Which Batch(es) a SalesItem's quantity was actually drawn from, and
+    how much from each.
+
+    O-1 — voiding a completed sale used to reverse only the aggregate
+    Inventory row (quantity_on_hand), because nothing recorded which
+    specific batch(es) a sale had drawn down, so there was no correct batch
+    to credit back. From that moment the aggregate figure and the
+    batch-level FEFO breakdown disagreed permanently, and every sale after
+    it drew against a batch pool that was quietly short.
+
+    This is written once, at deduction time (sales.views._deduct_stock and
+    the matching SalesTransactionWriteSerializer.create path), directly from
+    the (batch, quantity_taken) pairs inventory.models.Batch.consume_fefo
+    already returns — no new arithmetic, just keeping the answer it already
+    computes. It is read once, at void time (sales.views._reverse_stock), to
+    credit exactly those batches back. Never edited after creation.
+
+    One SalesItem can span several rows here: consume_fefo drains the
+    nearest-expiry batch first and moves on to the next one if it doesn't
+    cover the whole line.
+    """
+    sales_item = models.ForeignKey(
+        SalesItem, on_delete=models.CASCADE, related_name='batch_consumptions'
+    )
+    # SET_NULL, not CASCADE: a Batch row being deleted for some unrelated
+    # reason must not erase the fact that this sale drew quantity_taken units
+    # from somewhere — _reverse_stock falls back to a fresh no-expiry batch
+    # for that portion when batch is null, rather than silently dropping it.
+    batch = models.ForeignKey(
+        'inventory.Batch', on_delete=models.SET_NULL, null=True,
+        related_name='sales_consumptions',
+    )
+    quantity_taken = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Sales item batch consumption"
+        verbose_name_plural = "Sales item batch consumptions"

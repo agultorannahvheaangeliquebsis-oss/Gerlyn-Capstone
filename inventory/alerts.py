@@ -56,7 +56,7 @@ Only batches with an expiry_date set are ever considered.
 """
 from datetime import timedelta
 
-from django.db.models import F
+from django.db.models import F, Sum
 from django.utils import timezone
 
 from .models import Batch, Inventory, WarehouseStock
@@ -250,6 +250,78 @@ def expiry_alerts(branch_ids=None):
     for rows in tiers.values():
         rows.sort(key=lambda r: r["expiry_date"])
     return tiers
+
+
+def batch_inventory_mismatches(branch_ids=None):
+    """
+    O-1 — flag every Inventory/WarehouseStock row whose own quantity_on_hand
+    disagrees with the sum of its own-location Batches. The two are meant to
+    always agree (see the Batch model's docstring): every write path that
+    changes one now creates or consumes a matching Batch, so a mismatch
+    means some write path didn't — or a void's batch credit fell back to a
+    fresh no-expiry batch (sales.views._reverse_batches) that then nudged
+    the aggregate and the batch ledger apart.
+
+    A row with NO batches at all is not flagged — same exception
+    InventoryQuerySet.sellable() documents: it predates batch tracking, or
+    was written by something that bypasses it, and there is nothing to
+    reconcile against. Only a row that HAS at least one batch, and whose
+    batches don't sum to the aggregate, is a real disagreement.
+
+    Returns a list of dicts, Floor (Inventory) rows first then Warehouse
+    (WarehouseStock) rows, each naming the record, the product/branch, and
+    the two disagreeing numbers.
+    """
+    mismatches = []
+
+    floor_sums = {
+        (row['product_id'], row['branch_id']): row['total']
+        for row in Batch.objects.filter(location=Batch.Location.FLOOR)
+        .values('product_id', 'branch_id')
+        .annotate(total=Sum('quantity'))
+    }
+    floor_qs = Inventory.objects.select_related('product', 'branch')
+    if branch_ids is not None:
+        floor_qs = floor_qs.filter(branch_id__in=branch_ids)
+    for inv in floor_qs:
+        batch_total = floor_sums.get((inv.product_id, inv.branch_id))
+        if batch_total is None or batch_total == inv.quantity_on_hand:
+            continue
+        mismatches.append({
+            'location': 'Floor',
+            'record': inv,
+            'product': inv.product,
+            'branch': inv.branch,
+            'quantity_on_hand': inv.quantity_on_hand,
+            'batch_total': batch_total,
+            'difference': inv.quantity_on_hand - batch_total,
+        })
+
+    warehouse_sums = {
+        (row['product_id'], row['branch_id']): row['total']
+        for row in Batch.objects.filter(location=Batch.Location.WAREHOUSE)
+        .values('product_id', 'branch_id')
+        .annotate(total=Sum('quantity'))
+    }
+    warehouse_qs = WarehouseStock.objects.select_related('product', 'warehouse', 'warehouse__branch')
+    if branch_ids is not None:
+        warehouse_qs = warehouse_qs.filter(warehouse__branch_id__in=branch_ids)
+    for ws in warehouse_qs:
+        branch_id = ws.warehouse.branch_id
+        batch_total = warehouse_sums.get((ws.product_id, branch_id))
+        if batch_total is None or batch_total == ws.quantity_on_hand:
+            continue
+        mismatches.append({
+            'location': 'Warehouse',
+            'record': ws,
+            'product': ws.product,
+            'branch': ws.warehouse.branch,
+            'quantity_on_hand': ws.quantity_on_hand,
+            'batch_total': batch_total,
+            'difference': ws.quantity_on_hand - batch_total,
+        })
+
+    return mismatches
 
 
 def alert_summary(branch_ids=None):

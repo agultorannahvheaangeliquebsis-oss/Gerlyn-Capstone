@@ -3,7 +3,7 @@
 from rest_framework import serializers
 from django.db import transaction
 
-from .models import SalesTransaction, SalesItem
+from .models import SalesTransaction, SalesItem, SalesItemBatchConsumption
 from .pricing import price_cart
 from core.scoping import user_can_access_branch
 from inventory.models import Product, Inventory, Batch, StockMovement
@@ -180,9 +180,19 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             priced = price_cart(cart_lines, discount_type=None)
             total = priced['total_amount']
 
+            # X-3 — whoever actually authenticated to create this sale,
+            # regardless of role, mirroring sales.views.transaction_add.
+            # Null for a Customer (an online order has no staff-side
+            # operator) or a Supplier (has no business creating sales at
+            # all — permission-checked in the view before this is reached).
+            recorded_by = user if user.role in (
+                user.Role.OWNER, user.Role.BRANCH_MANAGER, user.Role.STAFF
+            ) else None
+
             txn = SalesTransaction.objects.create(
                 branch_id=branch_id,
                 staff=user if user.role == user.Role.STAFF else None,
+                recorded_by=recorded_by,
                 customer=user if user.role == user.Role.CUSTOMER else None,
                 transaction_type=validated_data['transactionType'],
                 mode_of_payment=validated_data['modeOfPayment'],
@@ -225,7 +235,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
 
             for line, inv in zip(priced['lines'], inventories):
                 product, qty = line['product'], line['quantity']
-                SalesItem.objects.create(
+                item = SalesItem.objects.create(
                     transaction=txn,
                     product=product,
                     quantity_sold=qty,
@@ -240,7 +250,15 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 inv.save()
                 # FEFO: drain the nearest-expiry floor batches for this
                 # product/branch — mirrors sales/views.py:_deduct_stock.
-                Batch.consume_fefo(product, inv.branch, Batch.Location.FLOOR, qty)
+                consumed = Batch.consume_fefo(product, inv.branch, Batch.Location.FLOOR, qty)
+                # O-1 — same batch-consumption record sales.views._deduct_stock
+                # writes, so a Physical sale created through this endpoint can
+                # be voided and reversed against the SAME batches later too,
+                # not just the aggregate Inventory row.
+                SalesItemBatchConsumption.objects.bulk_create([
+                    SalesItemBatchConsumption(sales_item=item, batch=batch, quantity_taken=taken)
+                    for batch, taken in consumed
+                ])
                 # ...and so does the audit row. Stock that moves without a
                 # StockMovement is stock nobody can trace: the Stock Movement
                 # log, and every report reading it, silently missed every sale
