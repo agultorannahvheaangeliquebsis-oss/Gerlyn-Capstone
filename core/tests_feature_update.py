@@ -502,7 +502,6 @@ class FeatureUpdateTests(TestCase):
             'product_id': [str(product.pk)],
             'quantity': [str(quantity)],
             'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             # Cash sales require it (sales.views.transaction_add) — a flat,
             # generously large amount so it always covers whatever this
             # call's real total comes out to, since these tests care about

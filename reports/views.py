@@ -50,7 +50,7 @@ def _scoped_querysets(user, override_branch_id=None):
     """
     sales_qs = SalesTransaction.objects.all()
     procurement_qs = Procurement.objects.all()
-    inventory_qs = Inventory.objects.select_related('product', 'branch').all()
+    inventory_qs = Inventory.objects.select_related('product', 'branch').prefetch_related('product__price_tiers').all()
     warehouse_qs = WarehouseStock.objects.select_related('product', 'warehouse__branch').all()
 
     effective_branch = get_user_branch(user)
@@ -1162,7 +1162,7 @@ def operational_dashboard(request):
     # branch), a Manager/Staff's own single branch otherwise.
     always_branch_ids = branch_ids_for_user(request.user)
     always_sales_qs = SalesTransaction.objects.all()
-    always_inventory_qs = Inventory.objects.select_related('product', 'branch').all()
+    always_inventory_qs = Inventory.objects.select_related('product', 'branch').prefetch_related('product__price_tiers').all()
     always_branches = Branch.objects.all()
     if always_branch_ids is not None:
         always_sales_qs = always_sales_qs.filter(branch_id__in=always_branch_ids)
@@ -1764,10 +1764,16 @@ def _top_products(sales_qs):
 
 
 def _inventory_unit_cost(inv):
-    """Cost basis for one unit — wholesale price where known, else retail."""
+    """Cost basis for one unit — the deepest bulk tier where one exists, else retail.
+
+    The lowest price the store is willing to sell a unit at is the nearest
+    stand-in for what it cost, which is the same approximation the old flat
+    wholesale_price provided here. Callers list() a queryset that has
+    prefetched product__price_tiers, so this costs no query per row.
+    """
     if not inv.product:
         return 0
-    return inv.product.wholesale_price or inv.product.unit_price or 0
+    return inv.product.bulk_floor_price or 0
 
 
 def _inventory_branch_summary(records):
@@ -2140,7 +2146,7 @@ def inventory_report(request):
     branch_ids = branch_ids_for_user(request.user)
     show_branch_filter = branch_ids is None  # Owner only
 
-    inventory_qs = Inventory.objects.select_related('product', 'branch').all()
+    inventory_qs = Inventory.objects.select_related('product', 'branch').prefetch_related('product__price_tiers').all()
     if branch_ids is not None:
         inventory_qs = inventory_qs.filter(branch_id__in=branch_ids)
 

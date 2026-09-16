@@ -1,5 +1,5 @@
 {% extends "public_base.html" %}
-{% load shop_extras %}
+{% load static shop_extras %}
 {% block title %}{{ product.product_name }} — Gerlyn Variety Store{% endblock %}
 
 {% comment %}
@@ -91,33 +91,25 @@ can actually answer.
 
       {% comment %}
       The price sits in its own tinted band so the biggest number on the page
-      stops reading as part of the SKU line above it.
-
-      The bulk figure is a SECOND price, not a struck-through "was" price:
-      Product.wholesale_price is what the same unit costs on a sack/box/case
-      order, so it is badged BULK and set beside the retail one. Striking the
-      retail price through — the way the reference marks a discount — would
-      claim a markdown the store has not made.
+      stops reading as part of the SKU line above it. Just the retail figure
+      here now — the tier ladder below is where the bulk prices live, because
+      a shopper can act on a ladder (pick a row, or type the quantity it
+      needs) and could only read a flat "BULK ₱X on N+" line.
       {% endcomment %}
       <div class="price-band">
         <div class="price-main">
-          {% comment %}
-          shop_price, not product.unit_price — a wholesale-eligible shopper
-          bills at the tier price everywhere else in the storefront (the
-          cart and checkout both go through order_type_for + price_for), so
-          the product page showing the plain retail figure read as a
-          bait-and-switch even though the final total was always right.
-          {% endcomment %}
-          <span class="price-now">₱{{ product|shop_price:request.user|floatformat:2 }}</span>
+          <span class="price-now">₱{{ product.unit_price|floatformat:2 }}</span>
           <span class="price-unit">per {{ product.unit_of_measure|lower }}</span>
         </div>
-        {% if product.wholesale_price %}
-          <p class="price-bulk">
-            <span class="bulk-badge">BULK</span>
-            ₱{{ product.wholesale_price|floatformat:2 }} per {{ product.unit_of_measure|lower }} on sack, box or case orders
-          </p>
-        {% endif %}
       </div>
+
+      {% comment %}
+      One ladder, two renderings — see partials/_tier_ladder.html. Sits
+      outside the buy-eligibility chain below so a guest or a staff viewer
+      still sees the deal (as plain rows); `can_buy` only decides whether
+      clicking a row does anything.
+      {% endcomment %}
+      {% include "partials/_tier_ladder.html" with product=product interactive=can_buy %}
 
       {% if not request.user.is_authenticated %}
         <a class="btn btn-primary" href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in to buy</a>
@@ -134,12 +126,12 @@ can actually answer.
         <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
       {% elif product.on_hand == 0 %}
         {% comment %}
-        Out of stock AT THE CHOSEN BRANCH. Naming it matters: the panel below
-        may well show the product on another branch's shelf, and without the
-        branch named the disabled button reads as "the store has none".
+        No repeat of "out of stock at <branch>" here — the .pdp-chips row
+        above already says it, and Available At (further down the same page)
+        already lists every other branch, so a second button and a "see
+        below" pointer were saying both of those a second time and telling
+        the shopper nothing the two panels hadn't already.
         {% endcomment %}
-        <button class="btn" disabled>Out of stock at {{ selected_branch.branch_name|default:"this branch" }}</button>
-        <p class="pdp-note">It may be on another branch's shelf — see Available at, below.</p>
       {% else %}
         {% comment %}
         One <form>, two submits, differing only in where the shopper lands:
@@ -284,4 +276,8 @@ can actually answer.
   </section>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/pdp-tier-ladder.js' %}?v={{ APP_VERSION }}" defer></script>
 {% endblock %}

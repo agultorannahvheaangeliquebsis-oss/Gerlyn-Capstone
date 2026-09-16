@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import ProductCategory, Product, ProductImage, Inventory, StockMovement
+from .models import (
+    ProductCategory, Product, ProductImage, ProductPriceTier,
+    Inventory, StockMovement,
+)
 
 
 @admin.register(ProductCategory)
@@ -14,15 +17,26 @@ class ProductImageInline(admin.TabularInline):
     fields = ('image', 'alt_text', 'is_primary')
 
 
+class ProductPriceTierInline(admin.TabularInline):
+    model = ProductPriceTier
+    extra = 3
+    fields = ('min_quantity', 'unit_price')
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
         'product_name', 'sku_code', 'category',
-        'unit_of_measure', 'unit_price', 'wholesale_price'
+        'unit_of_measure', 'unit_price', 'bulk_tiers'
     )
     search_fields = ('product_name', 'sku_code')
     list_filter = ('category', 'unit_of_measure')
-    inlines = [ProductImageInline]
+    inlines = [ProductImageInline, ProductPriceTierInline]
+
+    @admin.display(description='Bulk tiers')
+    def bulk_tiers(self, obj):
+        tiers = obj.price_tiers.all()
+        return ', '.join(f'{t.min_quantity}+ @ {t.unit_price}' for t in tiers) or '—'
 
 
 @admin.register(Inventory)

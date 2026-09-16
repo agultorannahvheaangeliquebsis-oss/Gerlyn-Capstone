@@ -278,28 +278,30 @@ class Command(BaseCommand):
         return cats
 
     def _products(self, cats):
-        # (sku, name, category, unit, retail, wholesale)
+        # (sku, name, category, unit, retail, [(buy at least, price per unit), ...])
+        # Bulk breaks sit at a plausible case/box size for each item. SKU-001
+        # and SKU-007 carry a full three-step ladder so the demo shows one.
         # NOTE: unit strings (Can/Pack/Bottle/Box) are stored for demo fidelity;
         # extend Product.UnitOfMeasure choices on Day 2 (Inventory) so forms accept them.
         specs = [
-            ("SKU-001", "Century Tuna Flakes in Oil 155g", "Canned Goods", "Can", 32, 27),
-            ("SKU-002", "555 Sardines in Tomato Sauce 155g", "Canned Goods", "Can", 26, 22),
-            ("SKU-003", "Mega Sardines in Tomato Sauce 155g", "Canned Goods", "Can", 24, 20),
-            ("SKU-004", "Lucky Me Pancit Canton Original 80g", "Noodles & Pasta", "Pack", 15, 12),
-            ("SKU-005", "Argentina Vienna Sausage 230g", "Canned Goods", "Can", 48, 41),
-            ("SKU-006", "Purefoods Corned Beef 210g", "Canned Goods", "Can", 58, 50),
-            ("SKU-007", "Bear Brand Powdered Milk 300g", "Dairy & Milk", "Pack", 85, 74),
-            ("SKU-008", "Nescafe 3-in-1 Original 28g x10", "Beverages", "Box", 95, 83),
-            ("SKU-009", "Del Monte Tomato Sauce 250g", "Condiments", "Pack", 28, 23),
-            ("SKU-010", "Pampers Diapers Medium 28s", "Baby & Personal Care", "Pack", 345, 308),
-            ("SKU-011", "Silver Swan Soy Sauce 1L", "Condiments", "Bottle", 42, 36),
-            ("SKU-012", "CDO Karne Norte 150g", "Canned Goods", "Can", 38, 32),
-            ("SKU-013", "Knorr Sinigang Mix 40g", "Condiments", "Pack", 12, 9),
-            ("SKU-014", "UFC Banana Ketchup 320g", "Condiments", "Bottle", 35, 29),
-            ("SKU-015", "Milo Activ-Go 400g", "Beverages", "Pack", 155, 130),
+            ("SKU-001", "Century Tuna Flakes in Oil 155g", "Canned Goods", "Can", 32, [(12, 29), (24, 27), (48, 25)]),
+            ("SKU-002", "555 Sardines in Tomato Sauce 155g", "Canned Goods", "Can", 26, [(12, 22)]),
+            ("SKU-003", "Mega Sardines in Tomato Sauce 155g", "Canned Goods", "Can", 24, [(12, 20)]),
+            ("SKU-004", "Lucky Me Pancit Canton Original 80g", "Noodles & Pasta", "Pack", 15, [(24, 12)]),
+            ("SKU-005", "Argentina Vienna Sausage 230g", "Canned Goods", "Can", 48, [(12, 41)]),
+            ("SKU-006", "Purefoods Corned Beef 210g", "Canned Goods", "Can", 58, [(12, 50)]),
+            ("SKU-007", "Bear Brand Powdered Milk 300g", "Dairy & Milk", "Pack", 85, [(6, 80), (12, 74), (24, 70)]),
+            ("SKU-008", "Nescafe 3-in-1 Original 28g x10", "Beverages", "Box", 95, [(6, 83)]),
+            ("SKU-009", "Del Monte Tomato Sauce 250g", "Condiments", "Pack", 28, [(12, 23)]),
+            ("SKU-010", "Pampers Diapers Medium 28s", "Baby & Personal Care", "Pack", 345, [(4, 308)]),
+            ("SKU-011", "Silver Swan Soy Sauce 1L", "Condiments", "Bottle", 42, [(12, 36)]),
+            ("SKU-012", "CDO Karne Norte 150g", "Canned Goods", "Can", 38, [(12, 32)]),
+            ("SKU-013", "Knorr Sinigang Mix 40g", "Condiments", "Pack", 12, [(24, 9)]),
+            ("SKU-014", "UFC Banana Ketchup 320g", "Condiments", "Bottle", 35, [(12, 29)]),
+            ("SKU-015", "Milo Activ-Go 400g", "Beverages", "Pack", 155, [(6, 130)]),
         ]
         products = {}
-        for sku, name, cat, unit, retail, wholesale in specs:
+        for sku, name, cat, unit, retail, tiers in specs:
             p, _ = Product.objects.get_or_create(
                 sku_code=sku,
                 defaults={
@@ -307,9 +309,14 @@ class Command(BaseCommand):
                     "category": cats[cat],
                     "unit_of_measure": unit,
                     "unit_price": D(retail),
-                    "wholesale_price": D(wholesale),
                 },
             )
+            # get_or_create per rung keeps a re-seed idempotent — no duplicate
+            # breaks, and no clobbering a price someone has since edited.
+            for min_quantity, price in tiers:
+                p.price_tiers.get_or_create(
+                    min_quantity=min_quantity, defaults={"unit_price": D(price)},
+                )
             products[sku] = p
         return products
 
@@ -460,34 +467,38 @@ class Command(BaseCommand):
         # Dates are RELATIVE to today (days_ago), not fixed. Otherwise the demo
         # rots: "today's sales" reads ₱0 and the trend chart renders empty the
         # moment you seed on a later date than the one hard-coded here.
-        # (days_ago, customer|None, branch, channel, mop, order_type, pay_status, order_status, total, [(sku,qty,price)])
+        # (days_ago, customer|None, branch, channel, mop, pay_status, order_status, total, [(sku,qty,price)])
+        #
+        # Item prices are what each sale was frozen at when it was rung up —
+        # SalesItem.unit_price is history, not a live lookup — so they are not
+        # expected to match today's bulk ladder above.
         orders = [
-            (0, None, T, "Physical", "Cash", "Retail", "Paid", "Completed", 310,
+            (0, None, T, "Physical", "Cash", "Paid", "Completed", 310,
              [("SKU-001", 5, 32), ("SKU-004", 10, 15)]),
-            (0, "Juan dela Cruz", T, "Online", "Cash on Delivery", "Retail", "Pending", "Approved", 334,
+            (0, "Juan dela Cruz", T, "Online", "Cash on Delivery", "Pending", "Approved", 334,
              [("SKU-005", 5, 48), ("SKU-013", 8, 12)]),
-            (0, None, M, "Physical", "Cash", "Wholesale", "Paid", "Completed", 1104,
+            (0, None, M, "Physical", "Cash", "Paid", "Completed", 1104,
              [("SKU-007", 12, 74), ("SKU-011", 2, 36)]),
-            (1, "Maria Santos", M, "Online", "Pay at Store", "Retail", "Pending", "Preparing", 435,
+            (1, "Maria Santos", M, "Online", "Pay at Store", "Pending", "Preparing", 435,
              [("SKU-004", 15, 15), ("SKU-003", 9, 24)]),
-            (1, None, G, "Physical", "Cash", "Retail", "Paid", "Completed", 120,
+            (1, None, G, "Physical", "Cash", "Paid", "Completed", 120,
              [("SKU-013", 10, 12)]),
-            (2, "Pedro Ramos", T, "Online", "Cash on Delivery", "Retail", "Pending", "Pending", 200,
+            (2, "Pedro Ramos", T, "Online", "Cash on Delivery", "Pending", "Pending", 200,
              [("SKU-001", 5, 32), ("SKU-013", 3, 12)]),
-            (3, None, T, "Physical", "Cash", "Retail", "Paid", "Completed", 407,
+            (3, None, T, "Physical", "Cash", "Paid", "Completed", 407,
              [("SKU-006", 5, 58), ("SKU-011", 3, 42)]),
-            (5, "Ana Villanueva", T, "Online", "GCash", "Retail", "Paid", "Completed", 775,
+            (5, "Ana Villanueva", T, "Online", "GCash", "Paid", "Completed", 775,
              [("SKU-010", 2, 345), ("SKU-008", 1, 95)]),
-            (7, "Juan dela Cruz", M, "Online", "Cash on Delivery", "Retail", "Paid", "Completed", 294,
+            (7, "Juan dela Cruz", M, "Online", "Cash on Delivery", "Paid", "Completed", 294,
              [("SKU-004", 12, 15), ("SKU-013", 9, 12)]),
-            (9, None, M, "Physical", "Cash", "Wholesale", "Paid", "Completed", 1992,
+            (9, None, M, "Physical", "Cash", "Paid", "Completed", 1992,
              [("SKU-010", 5, 308), ("SKU-007", 3, 74)]),
-            (11, None, G, "Physical", "Cash", "Retail", "Paid", "Completed", 645,
+            (11, None, G, "Physical", "Cash", "Paid", "Completed", 645,
              [("SKU-008", 3, 95), ("SKU-002", 6, 26)]),
-            (13, None, T, "Physical", "Cash", "Wholesale", "Paid", "Completed", 1230,
+            (13, None, T, "Physical", "Cash", "Paid", "Completed", 1230,
              [("SKU-005", 30, 41)]),
         ]
-        for days_ago, cust, branch_name, channel, mop, otype, pay_status, order_status, total, items in orders:
+        for days_ago, cust, branch_name, channel, mop, pay_status, order_status, total, items in orders:
             odate = (today - dt.timedelta(days=days_ago)).isoformat()
             branch = branches[branch_name]
             tx = Tx.objects.create(
@@ -497,7 +508,6 @@ class Command(BaseCommand):
                 total_amount=D(total),
                 transaction_type=channel,
                 mode_of_payment=mop,
-                order_type=otype,
                 order_status=order_status,
                 delivery_address="Baliuag, Bulacan" if channel == "Online" else "",
             )

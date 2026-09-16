@@ -131,7 +131,7 @@ account reaching a control it can't use.
             {% endcomment %}
             <select name="product_id" class="js-product" onchange="poRecalc()">
               {% for p in products %}
-                <option value="{{ p.id }}" data-cost="{{ p.wholesale_price|default:p.unit_price|unlocalize }}">{{ p.product_name }}</option>
+                <option value="{{ p.id }}" data-cost="{{ p.bulk_floor_price|unlocalize }}">{{ p.product_name }}</option>
               {% endfor %}
             </select>
           </div>

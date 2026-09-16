@@ -104,12 +104,7 @@ class Product(models.Model):
     )
     unit_price = models.DecimalField(
         max_digits=10, decimal_places=2,
-        help_text="Retail price"
-    )
-    wholesale_price = models.DecimalField(
-        max_digits=10, decimal_places=2,
-        null=True, blank=True,
-        help_text="Price for bulk/wholesale orders"
+        help_text="Retail price — what one unit costs below the first bulk tier"
     )
     description = models.TextField(blank=True)
 
@@ -142,6 +137,34 @@ class Product(models.Model):
     def __str__(self):
         return f"{self.product_name} ({self.sku_code})"
 
+    def price_at(self, quantity):
+        """Unit price for buying `quantity` of this product in one go.
+
+        Walks the bulk tiers and takes the deepest one the quantity reaches,
+        falling back to retail when it reaches none. Iterates the prefetched
+        list rather than filtering, so a cart loop that has already called
+        prefetch_related('price_tiers') costs no extra queries.
+        """
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            return self.unit_price
+        best = None
+        for tier in self.price_tiers.all():  # Meta.ordering: min_quantity ascending
+            if quantity >= tier.min_quantity:
+                best = tier
+        return best.unit_price if best else self.unit_price
+
+    @property
+    def bulk_floor_price(self):
+        """The cheapest per-unit price this product can reach, retail if untiered.
+
+        Used as the cost-basis proxy for inventory valuation and as the PO
+        cost prefill — both of which used to read the old flat wholesale_price.
+        """
+        tiers = list(self.price_tiers.all())
+        return min((t.unit_price for t in tiers), default=self.unit_price)
+
     @classmethod
     def next_sku_code(cls):
         """Next SKU-### in sequence, based on the highest existing numeric suffix."""
@@ -152,6 +175,54 @@ class Product(models.Model):
             if suffix.isdigit():
                 max_num = max(max_num, int(suffix))
         return f'{prefix}{max_num + 1:03d}'
+
+
+class ProductPriceTier(models.Model):
+    """One bulk-price break for a product: buy `min_quantity` or more, pay `unit_price`.
+
+    This is tiered unit pricing as a grocery actually runs it — a second (and
+    third, and fourth) real price per SKU, not a percentage off retail. ₱54/kg
+    up to 9kg, ₱48/kg from 10kg, ₱45/kg from a full sack. The tier is a
+    property of the product and the quantity bought, so it is public and
+    applies to whoever hits the quantity: there is no per-account wholesale
+    price and nothing for a cashier to choose at the register.
+
+    Tiers start at 2 because a tier at quantity 1 would simply be the retail
+    price under another name, and prices must fall as quantities rise, which
+    the product form enforces across the whole ladder — the database can only
+    police one row at a time.
+    """
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE,
+        related_name='price_tiers'
+    )
+    min_quantity = models.PositiveIntegerField(
+        help_text="Buy this many or more to get the tier price"
+    )
+    unit_price = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Price per unit once the quantity is reached"
+    )
+
+    class Meta:
+        ordering = ['min_quantity']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product', 'min_quantity'],
+                name='unique_price_tier_quantity_per_product'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(min_quantity__gte=2),
+                name='price_tier_min_quantity_above_one'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(unit_price__gt=0),
+                name='price_tier_price_positive'
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product.product_name}: {self.min_quantity}+ @ {self.unit_price}"
 
 
 class ProductImage(models.Model):

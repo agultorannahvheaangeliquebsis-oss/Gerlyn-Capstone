@@ -33,7 +33,7 @@ class WalkInSaleFormTests(TestCase):
         )
         self.product = Product.objects.create(
             sku_code='SKU-001', product_name='Rice (Sack)',
-            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+            unit_of_measure='Sack', unit_price=100,
         )
         Inventory.objects.create(
             product=self.product, branch=self.branch,
@@ -57,7 +57,6 @@ class WalkInSaleFormTests(TestCase):
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk,
             'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)],
             'quantity': ['3'],
             'amount_tendered': '300',
@@ -80,7 +79,6 @@ class WalkInSaleFormTests(TestCase):
         maker/checker rule only touches the methods that clear later."""
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
             'amount_tendered': '200',
         })
@@ -102,7 +100,6 @@ class WalkInSaleFormTests(TestCase):
         self.client.force_login(staff)
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
         })
         txn = SalesTransaction.objects.get()
@@ -112,37 +109,29 @@ class WalkInSaleFormTests(TestCase):
         self.assertIsNone(billing.confirmed_by)
         self.assertEqual(billing.payment_method, 'GCash')
 
-    def test_wholesale_still_bills_at_the_wholesale_price(self):
+    def test_a_bulk_quantity_bills_at_the_tier_price(self):
+        """The counter prices a line from the product's bulk ladder — there is
+        no order-type choice left for the cashier to make, or to get wrong."""
+        self.product.price_tiers.create(min_quantity=10, unit_price=80)
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Wholesale', 'wholesale_buyer_name': 'Aling Nena',
-            'product_id': [str(self.product.pk)], 'quantity': ['2'],
-            'amount_tendered': '160',
+            'product_id': [str(self.product.pk)], 'quantity': ['10'],
+            'amount_tendered': '800',
         })
         txn = SalesTransaction.objects.get()
-        self.assertEqual(txn.order_type, 'Wholesale')
-        self.assertEqual(txn.total_amount, 160)
-        # P-3 audit trail: the buyer's name and who rang it up are recorded.
-        self.assertEqual(txn.wholesale_buyer_name, 'Aling Nena')
-        self.assertEqual(txn.wholesale_recorded_by, self.owner)
+        self.assertEqual(txn.items.get().unit_price, 80)
+        self.assertEqual(txn.total_amount, 800)
 
-    def test_wholesale_without_a_buyer_name_reopens_the_form(self):
-        response = self.client.post(reverse('transaction_add'), {
-            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Wholesale',
-            'product_id': [str(self.product.pk)], 'quantity': ['2'],
-            'amount_tendered': '160',
-        })
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            "Enter the buyer's name for a Wholesale sale — required for the audit trail.",
-            response.context['pos_errors'],
-        )
-        self.assertFalse(SalesTransaction.objects.exists())
+    def test_the_page_carries_each_products_tiers_for_the_live_preview(self):
+        """posRecalc reads the ladder off the option's data-tiers, so the
+        cashier sees the bulk price before the sale is recorded, not after."""
+        self.product.price_tiers.create(min_quantity=10, unit_price=80)
+        response = self.client.get(reverse('transaction_add'))
+        self.assertContains(response, 'data-tiers="[[10, 80.0]]"')
 
     def test_no_branch_reopens_the_form_and_keeps_the_basket(self):
         response = self.client.post(reverse('transaction_add'), {
-            'branch': '', 'mode_of_payment': 'GCash', 'order_type': 'Retail',
+            'branch': '', 'mode_of_payment': 'GCash',
             'product_id': [str(self.product.pk)], 'quantity': ['4'],
         })
         self.assertEqual(response.status_code, 200)
@@ -163,7 +152,7 @@ class WalkInSaleFormTests(TestCase):
     def test_an_empty_basket_is_refused_without_recording_anything(self):
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail', 'product_id': [''], 'quantity': ['1'],
+            'product_id': [''], 'quantity': ['1'],
         })
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'sales/transaction_form.html')
@@ -177,7 +166,6 @@ class WalkInSaleFormTests(TestCase):
         still returns, or the cashier cannot see which line was wrong."""
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['0'],
         })
         self.assertEqual(response.status_code, 200)
@@ -195,7 +183,6 @@ class WalkInSaleFormTests(TestCase):
         ghost_id = self.product.pk + 9999
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(ghost_id)], 'quantity': ['1'],
             'amount_tendered': '100',
         })
@@ -227,7 +214,7 @@ class WalkInSaleFormTests(TestCase):
         # A posted branch is ignored for staff — their own branch wins.
         other = Branch.objects.create(branch_name='Makinabang', owner=self.owner)
         self.client.post(reverse('transaction_add'), {
-            'branch': other.pk, 'mode_of_payment': 'Cash', 'order_type': 'Retail',
+            'branch': other.pk, 'mode_of_payment': 'Cash',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100',
         })
@@ -245,7 +232,6 @@ class WalkInSaleFormTests(TestCase):
         )
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
         })
         self.assertFalse(SalesTransaction.objects.exists())
@@ -270,7 +256,7 @@ class SalesAPIModulePermissionTests(TestCase):
         )
         cls.product = Product.objects.create(
             sku_code='F7S-1', product_name='Rice (Sack)',
-            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+            unit_of_measure='Sack', unit_price=100,
         )
         Inventory.objects.create(
             product=cls.product, branch=cls.branch,
@@ -327,7 +313,7 @@ class SalesAPIModulePermissionTests(TestCase):
 class WalkInSalePaymentMethodValidationTests(TestCase):
     """F-05 — transaction_add read mode_of_payment straight from POST and wrote
     it to the column with no check against ModeOfPayment.choices, while
-    order_type and discount_type right beside it were both validated. A junk
+    discount_type right beside it was validated. A junk
     value was persisted verbatim (breaking the Billing report's payment
     breakdown) AND slipped the amount-tendered guard, since only the literal
     'Cash' triggers it — so a sale could be booked with a garbage method, no
@@ -346,7 +332,7 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         )
         self.product = Product.objects.create(
             sku_code='SKU-001', product_name='Rice (Sack)',
-            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+            unit_of_measure='Sack', unit_price=100,
         )
         Inventory.objects.create(
             product=self.product, branch=self.branch,
@@ -358,7 +344,6 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         payload = {
             'branch': self.branch.pk,
             'mode_of_payment': 'NOT A METHOD',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)],
             'quantity': ['3'],
         }
@@ -402,7 +387,6 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         self.client.force_login(staff)
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
         })
         txn = SalesTransaction.objects.get()
@@ -571,7 +555,7 @@ class WalkInSaleBranchGuardTests(TestCase):
         )
         self.product = Product.objects.create(
             sku_code='SKU-001', product_name='Rice (Sack)',
-            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+            unit_of_measure='Sack', unit_price=100,
         )
         Inventory.objects.create(
             product=self.product, branch=self.branch,
@@ -621,7 +605,6 @@ class WalkInSaleBranchGuardTests(TestCase):
         self.client.force_login(self._branchless_staff())
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
             'amount_tendered': '200',
         }, follow=True)
@@ -640,7 +623,6 @@ class WalkInSaleBranchGuardTests(TestCase):
         self.client.force_login(staff)
         self.client.post(reverse('transaction_add'), {
             'branch': self.other_branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100',
         })
@@ -656,7 +638,6 @@ class WalkInSaleBranchGuardTests(TestCase):
         self.client.force_login(self.owner)
         self.client.post(reverse('transaction_add'), {
             'branch': self.other_branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100',
         })
@@ -685,7 +666,7 @@ class VoidPreservesConfirmationTrailTests(TestCase):
         )
         self.product = Product.objects.create(
             sku_code='SKU-001', product_name='Rice (Sack)',
-            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+            unit_of_measure='Sack', unit_price=100,
         )
         Inventory.objects.create(
             product=self.product, branch=self.branch,
@@ -699,7 +680,6 @@ class VoidPreservesConfirmationTrailTests(TestCase):
         self.client.force_login(self.owner)
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
-            'order_type': 'Retail',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
         })
         txn = SalesTransaction.objects.get()

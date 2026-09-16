@@ -137,18 +137,6 @@ this form is forged, so hiding the control is convenience, not the guard.
           {% if transaction.staff %}{{ transaction.staff.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ transaction.mode_of_payment }}</td></tr>
         {% comment %}
-        Wholesale audit trail (P-3): no customer lookup for a Wholesale sale,
-        so the buyer's name and the staff member who chose the tier are what
-        stand in for it here.
-        {% endcomment %}
-        {% if transaction.order_type == 'Wholesale' %}
-        <tr><td class="gv-meta">Wholesale buyer</td><td style="text-align:right;">
-          {{ transaction.wholesale_buyer_name|default:"—" }}
-          {% if transaction.wholesale_recorded_by %}
-          <div class="gv-meta">recorded by {{ transaction.wholesale_recorded_by.username }}</div>
-          {% endif %}</td></tr>
-        {% endif %}
-        {% comment %}
         Shown for every online order, not only the ones with an address:
         "Pickup" is now a recorded fact rather than the absence of one, and
         it is what decides whether the discount form above appears (F-11).

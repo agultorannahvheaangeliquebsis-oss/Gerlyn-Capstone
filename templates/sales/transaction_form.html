@@ -125,28 +125,6 @@ form's own errors and had been silent to assistive tech.
           {% endfor %}
         </select>
       </div>
-      <div class="field">
-        <label for="pos-order-type">Order Type</label>
-        <select id="pos-order-type" name="order_type" onchange="posRecalc()">
-          {% for value, label in pos_order_type_choices %}
-            <option value="{{ value }}" {% if pos_form_data.order_type == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <span class="gv-meta" id="pos-type-hint">Retail prices apply.</span>
-      </div>
-    </div>
-
-    {% comment %}
-    Wholesale audit trail (P-3). No customer lookup — a Wholesale sale is
-    still a walk-in — but the buyer's name is required so the sale is not
-    just a lower price with nobody to point to.
-    {% endcomment %}
-    <div class="field mt-4" id="pos-wholesale-fields" hidden>
-      <label for="pos-wholesale-buyer">Buyer Name</label>
-      <input type="text" id="pos-wholesale-buyer" name="wholesale_buyer_name"
-             placeholder="Full name of the wholesale buyer"
-             value="{{ pos_form_data.wholesale_buyer_name|default:'' }}">
-      <span class="gv-meta">Required for Wholesale — recorded for the audit trail.</span>
     </div>
 
     {% comment %}
@@ -226,8 +204,8 @@ form's own errors and had been silent to assistive tech.
               <option value="{{ p.id }}"
                       data-sku="{{ p.sku_code|lower }}"
                       data-retail="{{ p.unit_price }}"
-                      data-wholesale="{{ p.wholesale_price|default_if_none:p.unit_price }}"
-                      data-has-wholesale="{% if p.wholesale_price %}1{% else %}0{% endif %}"
+                      {# [[min_quantity, price], ...] ascending — posRecalc walks it against the row's quantity. #}
+                      data-tiers="{{ p.tiers_json }}"
                       {# The cart preview needs every flag to mirror sales.pricing exactly. #}
                       data-vat-exempt="{% if p.is_vat_exempt %}1{% else %}0{% endif %}"
                       data-pwd-eligible="{% if p.is_pwd_eligible %}1{% else %}0{% endif %}"
@@ -456,25 +434,65 @@ function posUpdateTender(total) {
   }
 }
 
+// The deepest bulk tier `qty` reaches, else retail. Mirrors
+// inventory.models.Product.price_at — the tiers arrive ascending, so the last
+// one the quantity clears wins.
+function posTierPrice(opt, qty) {
+  var price = parseFloat(opt.dataset.retail || 0);
+  var tiers;
+  try {
+    tiers = JSON.parse(opt.dataset.tiers || '[]');
+  } catch (e) {
+    tiers = [];
+  }
+  tiers.forEach(function (tier) {
+    if (qty >= tier[0]) price = tier[1];
+  });
+  return price;
+}
+
 function posRecalc() {
-  // Wholesale orders bill at the wholesale price — show that to the cashier
-  // BEFORE the sale is recorded, not after.
-  var wholesale = document.getElementById('pos-order-type').value === 'Wholesale';
   var discountSelect = document.getElementById('pos-discount-type');
   var discountType = discountSelect ? discountSelect.value : 'None';
   var discountClaimed = discountType !== 'None';
 
   var total = 0, gross = 0, vatTotal = 0, discountTotal = 0, exemptTotal = 0;
-  var missing = 0, skipped = 0;
+  var skipped = 0;
+
+  // Quantities are totalled per product before any tier is read, mirroring
+  // transaction_add: ringing an item up on two rows must earn the same break
+  // as ringing it up once, or the preview would disagree with the receipt.
+  var qtyByProduct = {};
+  posRows.querySelectorAll('.item-row').forEach(function (row) {
+    var opt = row.querySelector('.js-product').selectedOptions[0];
+    if (!opt || !opt.value) return;
+    var rowQty = parseInt(row.querySelector('.js-qty').value || 0, 10);
+    if (rowQty < 0) rowQty = 0;
+    qtyByProduct[opt.value] = (qtyByProduct[opt.value] || 0) + rowQty;
+  });
 
   posRows.querySelectorAll('.item-row').forEach(function (row) {
     posUpdateStockLine(row);
     var opt = row.querySelector('.js-product').selectedOptions[0];
     if (!opt || !opt.value) return;
-    var price = parseFloat(
-      (wholesale ? opt.dataset.wholesale : opt.dataset.retail) || 0
-    );
-    if (wholesale && opt.dataset.hasWholesale === '0') missing++;
+    var retail = parseFloat(opt.dataset.retail || 0);
+    var price = posTierPrice(opt, qtyByProduct[opt.value] || 0);
+
+    // Say WHY the unit price dropped below the shelf price, so a bulk break
+    // does not read as a glitch to the cashier.
+    var bulkTag = row.querySelector('.js-bulk-tag');
+    if (price < retail) {
+      if (!bulkTag) {
+        bulkTag = document.createElement('span');
+        bulkTag.className = 'js-bulk-tag gv-meta';
+        bulkTag.style.color = 'var(--ok-fg)';
+        bulkTag.style.display = 'block';
+        row.querySelector('.js-product').parentNode.appendChild(bulkTag);
+      }
+      bulkTag.textContent = 'Bulk price — ' + qtyByProduct[opt.value] + ' or more';
+    } else if (bulkTag) {
+      bulkTag.remove();
+    }
 
     var qty = parseInt(row.querySelector('.js-qty').value || 0, 10);
     if (qty < 0) qty = 0;
@@ -527,21 +545,6 @@ function posRecalc() {
   posUpdateItemCount();
   posSyncTenderVisibility();
   posUpdateTender(total);
-
-  var wholesaleFields = document.getElementById('pos-wholesale-fields');
-  if (wholesaleFields) wholesaleFields.hidden = !wholesale;
-
-  var hint = document.getElementById('pos-type-hint');
-  if (!wholesale) {
-    hint.textContent = 'Retail prices apply.';
-    hint.style.color = '';
-  } else if (missing) {
-    hint.textContent = 'Wholesale prices apply — ' + missing + ' item(s) have no wholesale price, so they stay at retail.';
-    hint.style.color = 'var(--warn-fg)';
-  } else {
-    hint.textContent = 'Wholesale prices apply.';
-    hint.style.color = 'var(--ok-fg)';
-  }
 }
 
 // Discount toggle: reveals the ID fields and switches the type select between

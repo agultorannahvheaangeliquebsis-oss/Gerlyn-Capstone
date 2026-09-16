@@ -1,7 +1,6 @@
 # sales/models.py
 # Changes from original:
 #   - Added order_number (auto-generated)
-#   - Added order_type (Retail / Wholesale) — separate from transaction_type
 #   - Added order_status (lifecycle: Pending → Approved → Preparing → Completed → Cancelled)
 #   - Added delivery_address (for Online orders)
 #   - All original fields untouched
@@ -49,10 +48,6 @@ class SalesTransaction(models.Model):
         # gateway is integrated (see Chapter 1, Limitation 1).
         COD = 'Cash on Delivery', 'Cash on Delivery'
         PAY_AT_STORE = 'Pay at Store', 'Pay at Store'
-
-    class OrderType(models.TextChoices):        # <-- new: pricing tier
-        RETAIL = 'Retail', 'Retail'
-        WHOLESALE = 'Wholesale', 'Wholesale'
 
     class OrderStatus(models.TextChoices):      # <-- new: lifecycle
         PENDING = 'Pending', 'Pending'
@@ -112,11 +107,6 @@ class SalesTransaction(models.Model):
         max_length=20, unique=True, blank=True,
         help_text="Auto-generated e.g. ORD-2026-001"
     )
-    order_type = models.CharField(
-        max_length=10, choices=OrderType.choices,
-        default=OrderType.RETAIL,
-        help_text="Retail uses unit_price; Wholesale uses wholesale_price"
-    )
     order_status = models.CharField(
         max_length=10, choices=OrderStatus.choices,
         default=OrderStatus.PENDING,
@@ -134,25 +124,6 @@ class SalesTransaction(models.Model):
                   "carries a delivery_address; 'Pickup' never does. A walk-in "
                   "(Physical) sale is handed over at the counter, so it is "
                   "Pickup."
-    )
-
-    # --- wholesale audit trail (P-3) ----------------------------------------
-    # Wholesale has no customer lookup — a walk-in buying by the sack is not
-    # asked to have an account — so without this, a Wholesale sale carried no
-    # record of who it was for or who at the counter chose to bill it at the
-    # lower tier. Same maker-named-and-dated shape as discount_applied_by
-    # above, for the same reason: a price break with nobody's name against it
-    # is exactly what an audit asks about.
-    wholesale_buyer_name = models.CharField(
-        max_length=150, blank=True,
-        help_text="Required when Order Type is Wholesale. Free text — not a "
-                  "customer account lookup, just who the sale was for."
-    )
-    wholesale_recorded_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True,
-        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
-        related_name='wholesale_orders_recorded',
-        help_text="Staff member who selected Wholesale and rang up the sale."
     )
 
     # --- statutory discount (PWD / Senior Citizen) --------------------------

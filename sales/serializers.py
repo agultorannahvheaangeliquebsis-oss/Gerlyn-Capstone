@@ -42,7 +42,6 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     totalAmount = serializers.DecimalField(source='total_amount', max_digits=12, decimal_places=2, read_only=True)
     transactionType = serializers.CharField(source='transaction_type', read_only=True)
     modeOfPayment = serializers.CharField(source='mode_of_payment', read_only=True)
-    orderType = serializers.CharField(source='order_type', read_only=True)
     orderStatus = serializers.CharField(source='order_status', read_only=True)
     deliveryAddress = serializers.CharField(source='delivery_address', read_only=True)
     items = SalesItemSerializer(many=True, read_only=True)
@@ -52,7 +51,7 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'orderNumber', 'branch', 'staff', 'customer',
             'transactionDate', 'totalAmount', 'transactionType', 'modeOfPayment',
-            'orderType', 'orderStatus', 'deliveryAddress', 'items',
+            'orderStatus', 'deliveryAddress', 'items',
         ]
 
     def get_staff(self, obj):
@@ -74,10 +73,9 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
 
 # =============================================================================
 # SALES TRANSACTION (WRITE)
-# Handles POST /api/sales/ — mirrors sales/views.py:transaction_add, plus
-# picking unit_price vs wholesale_price based on orderType (the field the
-# model added specifically for this: "Retail uses unit_price; Wholesale
-# uses wholesale_price").
+# Handles POST /api/sales/ — mirrors sales/views.py:transaction_add, including
+# resolving each line's price from the quantity ordered against the product's
+# bulk tiers.
 # =============================================================================
 
 class SalesItemWriteSerializer(serializers.Serializer):
@@ -89,9 +87,6 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
     branchId = serializers.IntegerField(required=False)
     transactionType = serializers.ChoiceField(choices=SalesTransaction.TransactionType.choices)
     modeOfPayment = serializers.ChoiceField(choices=SalesTransaction.ModeOfPayment.choices)
-    orderType = serializers.ChoiceField(
-        choices=SalesTransaction.OrderType.choices, default=SalesTransaction.OrderType.RETAIL
-    )
     deliveryAddress = serializers.CharField(required=False, allow_blank=True)
     items = SalesItemWriteSerializer(many=True, min_length=1)
 
@@ -129,23 +124,19 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 {'branchId': 'You do not have access to that branch.'}
             )
 
-        # A client asking for WHOLESALE is a request, not a decision. The tier
-        # is resolved from the account: only a customer the Owner or a Branch
-        # Manager has marked wholesale-eligible actually gets wholesale
-        # prices, and anyone else is priced at RETAIL no matter what the
-        # payload said. Until this check existed, any authenticated CUSTOMER
-        # could post orderType=Wholesale and be billed at wholesale_price.
+        # The price tier is never taken from the payload — there is no field
+        # for it. It is derived below from the quantity actually ordered, the
+        # same rule the counter and the storefront apply, so a client cannot
+        # ask to be billed at a bulk rate it has not bought its way into.
         #
-        # This is the same refusal the PWD/Senior claim already gets a few
-        # lines down: an unverified assertion over the wire does not move
-        # money.
-        order_type = validated_data['orderType']
-        if order_type == SalesTransaction.OrderType.WHOLESALE:
-            profile = getattr(user, 'customer_profile', None)
-            if user.role == user.Role.CUSTOMER and not (
-                profile and profile.is_wholesale_eligible
-            ):
-                order_type = SalesTransaction.OrderType.RETAIL
+        # Quantities are totalled per product first: a payload that splits one
+        # product across two item entries must earn the same break as one that
+        # sends it as a single line.
+        qty_by_product = {}
+        for item in items_data:
+            qty_by_product[item['productId']] = (
+                qty_by_product.get(item['productId'], 0) + item['quantity']
+            )
 
         with transaction.atomic():
             # Lock stock and validate availability before writing anything, so
@@ -161,13 +152,11 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             cart_lines = []
             inventories = []
             for item in items_data:
-                product = Product.objects.get(id=item['productId'])
-                qty = item['quantity']
-                unit_price = (
-                    product.wholesale_price
-                    if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price
-                    else product.unit_price
+                product = Product.objects.prefetch_related('price_tiers').get(
+                    id=item['productId']
                 )
+                qty = item['quantity']
+                unit_price = product.price_at(qty_by_product[item['productId']])
                 # available_qty nets out anything past its expiry_date — a
                 # POS or online sale must never draw down expired stock.
                 inv = Inventory.objects.select_for_update().sellable().filter(
@@ -197,7 +186,6 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 customer=user if user.role == user.Role.CUSTOMER else None,
                 transaction_type=validated_data['transactionType'],
                 mode_of_payment=validated_data['modeOfPayment'],
-                order_type=order_type,
                 # This endpoint's validate() already refuses an Online order
                 # with a blank deliveryAddress, so an Online sale here is
                 # always a Delivery and a Physical one is always handed over
