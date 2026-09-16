@@ -48,7 +48,9 @@ REPORTS = 'reports'
 MODULE_REGISTRY = {
     PRODUCTS: (
         'Product Master List',
-        ['product_list', 'product_detail', 'category_list'],
+        ['product_list', 'product_detail', 'category_list',
+         'api-product-list', 'api-product-detail',
+         'api-category-list', 'api-category-detail'],
     ),
     FLOOR_STOCK: (
         'Floor Stock',
@@ -69,10 +71,11 @@ MODULE_REGISTRY = {
         ['transfer_list', 'transfer_detail', 'transfer_confirm_receipt',
          'transfer_flag_discrepancy',
          # API (inventory/api_urls.py) — list/detail mirror transfer_list/
-         # transfer_detail; acknowledge mirrors transfer_confirm_receipt
-         # (already gated above). approve/release stay role-gated only, the
-         # same as transfer_approve/transfer_complete (see the note below).
+         # transfer_detail; acknowledge mirrors transfer_confirm_receipt.
+         # The approval/release endpoints are gated too so revoking the
+         # module closes both its page and API write surface.
          'api-stock-transfer-list', 'api-stock-transfer-detail',
+         'api-stock-transfer-approve', 'api-stock-transfer-release',
          'api-stock-transfer-acknowledge'],
     ),
     ALERTS: (
@@ -95,7 +98,8 @@ MODULE_REGISTRY = {
     ),
     BILLING: (
         'Billing',
-        ['billing_list', 'billing_detail', 'billing_proof', 'billing_create',
+        ['billing_list', 'billing_detail', 'billing_proof',
+         'payment_proof_download', 'billing_create',
          'billing_confirm',
          # API (billing/api_urls.py) — pay mirrors billing_create; confirm
          # mirrors billing_confirm (the endpoint F-02 branch-scoped).
@@ -106,9 +110,8 @@ MODULE_REGISTRY = {
         'Procurement / Purchase Orders',
         ['procurement_list', 'procurement_detail', 'supplier_list',
          # API (procurement/api_urls.py) — suppliers mirrors supplier_list.
-         # update_status stays role-gated only (see the note below).
          'api-procurement-list', 'api-procurement-detail',
-         'api-procurement-suppliers'],
+         'api-procurement-status', 'api-procurement-suppliers'],
     ),
     DELIVERIES: (
         'Deliveries',
@@ -138,9 +141,6 @@ MODULE_REGISTRY = {
 #     public, guests included) — a module gate would block the very reads
 #     that are meant to be open. Their writes stay Owner/Manager role-gated,
 #     matching product_add / category_form.
-#   - api-procurement-status, api-stock-transfer-approve, api-stock-transfer-
-#     release: approval/management writes, already locked to Owner/Manager in
-#     the view — the API mirror of procurement_update_status / transfer_*.
 #   - api-batch-* and api-stock-movements: read-only expiry/audit views that
 #     span more than one section (batches surface under Alerts and both stock
 #     sections; stock-movements logs floor + warehouse together), so there is

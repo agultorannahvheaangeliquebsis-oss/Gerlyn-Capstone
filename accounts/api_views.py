@@ -2,7 +2,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, password_validation
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from .serializers import UserSerializer, UserAdminSerializer, UserCreateSerializer, UserUpdateSerializer
 from .models import User
@@ -197,15 +199,27 @@ class RegisterCustomerView(APIView):
             )
 
         # Create user — signal will auto-create CustomerProfile
-        user = User.objects.create_user(
+        candidate = User(
             username=username,
             email=email,
-            password=password,
             role=User.Role.CUSTOMER,
         )
-
-        # Update the auto-created profile with the submitted data
         try:
+            password_validation.validate_password(password, user=candidate)
+        except DjangoValidationError as exc:
+            return Response(
+                {'password': exc.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Keep account and signal-created profile updates all-or-nothing.
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                role=User.Role.CUSTOMER,
+            )
             profile = user.customer_profile
             name_parts = full_name.strip().split(' ', 1)
             profile.first_name = name_parts[0] if name_parts else ''
@@ -213,8 +227,6 @@ class RegisterCustomerView(APIView):
             profile.contact_number = contact_number
             profile.address = address
             profile.save()
-        except Exception:
-            pass
 
         # Log them in immediately after registration
         login(request, user)

@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
+from billing.views import payment_proof_download
 
 from core.views import (
     about_view, download_view, healthz, hero_draft_apply,
@@ -65,10 +66,15 @@ urlpatterns = [
 # F-06: payment_proofs/ is deliberately EXCLUDED here. Those files are the
 # billing audit trail's evidence (customer name, reference number, amount) and
 # django.views.static.serve does no authentication — anyone with the path could
-# read them. They are now reachable only through billing.views.billing_proof,
-# which applies the same branch/customer scoping as the billing views. Everything
-# else under MEDIA_ROOT (product images, avatars) stays public as before.
+# read them. They are now reachable only through authorization-checked billing
+# views, which apply the same branch/customer scoping as the billing pages.
+# Everything else under MEDIA_ROOT (product images, avatars) stays public.
 urlpatterns += [
+    path(
+        'billing/<int:pk>/payment-proof/',
+        payment_proof_download,
+        name='payment_proof_download',
+    ),
     re_path(
         r'^media/(?!payment_proofs/)(?P<path>.*)$',
         serve, {'document_root': settings.MEDIA_ROOT},

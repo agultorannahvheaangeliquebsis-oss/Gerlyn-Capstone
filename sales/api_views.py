@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from core.permissions import HasModuleAccess
 from django.shortcuts import get_object_or_404
 
 from .models import SalesTransaction
@@ -31,7 +32,7 @@ class SalesTransactionListCreateAPIView(APIView):
     GET  /api/sales/   → list, scoped like transaction_list
     POST /api/sales/   → create, mirrors transaction_add
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         qs = SalesTransaction.objects.select_related(
@@ -72,7 +73,7 @@ class SalesTransactionListCreateAPIView(APIView):
 
 class SalesTransactionDetailAPIView(APIView):
     """GET /api/sales/<pk>/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request, pk):
         txn = get_object_or_404(

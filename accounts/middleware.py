@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.contrib import messages
+from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
@@ -59,6 +60,11 @@ class ModulePermissionMiddleware:
             return None
 
         if not user_can_access_module(user, module_code):
+            if request.path.startswith('/api/'):
+                return JsonResponse(
+                    {'detail': 'You do not have access to this module.'},
+                    status=403,
+                )
             messages.error(
                 request,
                 "You don't have access to that section. Ask your Owner or "

@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -38,7 +39,7 @@ from core.scoping import (  # noqa: E402
     scope_queryset,
     user_can_access_branch,
 )
-from core.permissions import INTERNAL_ROLES  # OWNER, BRANCH_MANAGER, STAFF
+from core.permissions import HasModuleAccess, INTERNAL_ROLES  # OWNER, BRANCH_MANAGER, STAFF
 
 
 class ProductCategoryViewSet(viewsets.ModelViewSet):
@@ -49,12 +50,12 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
     """
     queryset = ProductCategory.objects.all().order_by('category_name')
     serializer_class = ProductCategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get_permissions(self):
         """Categories are public read (storefront filter dropdown); writes stay gated."""
         if self.action in ['list', 'retrieve']:
-            return [AllowAny()]
+            return [AllowAny(), HasModuleAccess()]
         return super().get_permissions()
 
     def create(self, request, *args, **kwargs):
@@ -111,14 +112,14 @@ class ProductViewSet(viewsets.ModelViewSet):
     PATCH  /api/products/<id>/     → partial update (Owner/Manager only)
     DELETE /api/products/<id>/     → delete (Owner/Manager only)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
     filter_backends = [filters.SearchFilter]
     search_fields = ['product_name', 'sku_code']
 
     def get_permissions(self):
         """Products are public read (storefront catalog); writes stay gated."""
         if self.action in ['list', 'retrieve']:
-            return [AllowAny()]
+            return [AllowAny(), HasModuleAccess()]
         return super().get_permissions()
 
     def get_queryset(self):
@@ -216,9 +217,27 @@ class WarehouseViewSet(viewsets.ModelViewSet):
     GET → list/retrieve (any authenticated user)
     POST/PUT/PATCH/DELETE → Owner/Branch Manager only
     """
-    queryset = Warehouse.objects.select_related('branch').all()
     serializer_class = WarehouseSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def get_queryset(self):
+        if self.request.user.role not in INTERNAL_ROLES:
+            return Warehouse.objects.none()
+        qs = Warehouse.objects.select_related('branch').all()
+        return scope_queryset(qs, self.request.user, 'branch')
+
+    def _check_branch(self, serializer):
+        branch = serializer.validated_data.get('branch')
+        if branch and not user_can_access_branch(self.request.user, branch.id):
+            raise PermissionDenied('You do not have access to that branch.')
+
+    def perform_create(self, serializer):
+        self._check_branch(serializer)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._check_branch(serializer)
+        serializer.save()
 
     def create(self, request, *args, **kwargs):
         denied = check_owner_or_manager(request)
@@ -246,7 +265,7 @@ class WarehouseStockViewSet(viewsets.ModelViewSet):
     are scoped to their own branch's warehouse.
     """
     serializer_class = WarehouseStockSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get_queryset(self):
         if self.request.user.role not in INTERNAL_ROLES:
@@ -290,7 +309,7 @@ class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
     or a released StockTransfer, never directly. Mirrors inventory_list.
     """
     serializer_class = InventorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get_queryset(self):
         if self.request.user.role not in INTERNAL_ROLES:
@@ -308,7 +327,7 @@ class BatchViewSet(viewsets.ReadOnlyModelViewSet):
     Batch.Meta.ordering). Supports ?status=Expired|Expiring Soon|Fresh.
     """
     serializer_class = BatchSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get_queryset(self):
         if self.request.user.role not in INTERNAL_ROLES:
@@ -331,7 +350,7 @@ class StockMovementListAPIView(APIView):
     GET /api/stock-movements/?product=<id>&branch=<id>
     Read-only audit log.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         if request.user.role not in INTERNAL_ROLES:
@@ -379,7 +398,7 @@ class StockTransferListCreateAPIView(APIView):
     GET  /api/stock-transfers/   → list, scoped like transfer_list
     POST /api/stock-transfers/   → create, mirrors transfer_create
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         if request.user.role not in INTERNAL_ROLES:
@@ -427,7 +446,7 @@ class StockTransferListCreateAPIView(APIView):
 
 class StockTransferDetailAPIView(APIView):
     """GET /api/stock-transfers/<pk>/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request, pk):
         transfer = get_object_or_404(
@@ -452,7 +471,7 @@ class StockTransferApproveAPIView(APIView):
          | { "action": "reject" }
     Mirrors transfer_approve exactly, including the warehouse-stock check.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def patch(self, request, pk):
         if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
@@ -527,7 +546,7 @@ class StockTransferReleaseAPIView(APIView):
     Mirrors transfer_complete: deducts warehouse stock, credits floor
     inventory at the destination branch, logs both StockMovements.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def patch(self, request, pk):
         if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
@@ -656,7 +675,7 @@ class StockTransferAcknowledgeAPIView(APIView):
     sum of approved quantities, status becomes Acknowledged; otherwise it
     becomes Discrepancy and flagReason is required.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def patch(self, request, pk):
         if request.user.role not in [User.Role.STAFF, User.Role.BRANCH_MANAGER]:

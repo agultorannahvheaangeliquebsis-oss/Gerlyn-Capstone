@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from core.permissions import HasModuleAccess
 from django.db.models import Sum, Count, F
 from django.utils import timezone
 from datetime import timedelta
@@ -40,7 +41,7 @@ def check_report_access(request):
 
 class DashboardSummaryAPIView(APIView):
     """GET /api/reports/dashboard-summary/ — mirrors reports_dashboard."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         denied = check_report_access(request)
@@ -105,7 +106,7 @@ class DashboardSummaryAPIView(APIView):
 
 class SalesReportAPIView(APIView):
     """GET /api/reports/sales-report/ — mirrors sales_report."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         denied = check_report_access(request)
@@ -121,7 +122,7 @@ class SalesReportAPIView(APIView):
 
 class InventoryReportAPIView(APIView):
     """GET /api/reports/inventory-report/ — mirrors inventory_report."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         denied = check_report_access(request)
@@ -139,7 +140,7 @@ class InventoryReportAPIView(APIView):
 
 class ProcurementReportAPIView(APIView):
     """GET /api/reports/procurement-report/ — mirrors procurement_report."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         denied = check_report_access(request)

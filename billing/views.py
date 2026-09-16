@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_GET
 from .models import BillingRecord
 from .api_views import user_can_access_billing_record
 from sales.models import SalesTransaction
@@ -62,6 +63,36 @@ def _validate_proof_of_payment(file):
         raise ValidationError("The uploaded file is not a valid image.")
     finally:
         file.seek(0)
+
+
+@login_required(login_url='accounts:login')
+@require_GET
+def payment_proof_download(request, pk):
+    """Stream a payment proof only to users allowed to see its billing row."""
+    from .api_views import user_can_access_billing_record
+
+    record = get_object_or_404(
+        BillingRecord.objects.select_related(
+            'transaction', 'transaction__branch'
+        ),
+        pk=pk,
+    )
+    if not user_can_access_billing_record(request.user, record):
+        raise Http404
+    if not record.proof_of_payment:
+        raise Http404
+
+    try:
+        proof = record.proof_of_payment.open('rb')
+    except (FileNotFoundError, OSError):
+        raise Http404
+
+    return FileResponse(
+        proof,
+        content_type='application/octet-stream',
+        as_attachment=False,
+        filename=record.proof_of_payment.name.rsplit('/', 1)[-1],
+    )
 
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER)

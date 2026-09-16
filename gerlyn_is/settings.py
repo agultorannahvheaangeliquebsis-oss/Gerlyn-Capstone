@@ -70,6 +70,7 @@ if SENTRY_DSN:
         dsn=SENTRY_DSN,
         integrations=[DjangoIntegration()],
         send_default_pii=False,
+        traces_sample_rate=0.0,
         environment='production' if not DEBUG else 'development',
     )
 
@@ -289,6 +290,7 @@ REST_FRAMEWORK = {
 
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
+        "core.permissions.HasModuleAccess",
     ],
 
     # No /api/ endpoint limited how often it could be called — login has its
@@ -371,9 +373,10 @@ MEDIA_ROOT = BASE_DIR / 'media'
 #   * Local dev / no credentials  -> FileSystemStorage above (MEDIA_ROOT). The
 #     /media/ route in gerlyn_is/urls.py serves it. Nothing extra to install.
 #   * Production with Cloudinary  -> set CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET
-#     and uploads (product images, GCash proofs) go to Cloudinary's CDN. This
-#     survives redeploys on ephemeral hosts (Railway/Render) and scales the
-#     media serving off the app server. `image.url` returns the CDN link.
+#     and public product/avatar uploads go to Cloudinary's CDN. Payment proofs
+#     deliberately use billing.storage.PaymentProofStorage instead, so they
+#     cannot inherit a public CDN URL. Mount MEDIA_ROOT on persistent private
+#     storage in production.
 USE_CLOUDINARY = bool(os.environ.get('CLOUDINARY_CLOUD_NAME'))
 if USE_CLOUDINARY:
     INSTALLED_APPS += ['cloudinary', 'cloudinary_storage']
@@ -401,29 +404,6 @@ DEFAULT_FROM_EMAIL  = os.environ.get('EMAIL_HOST_USER', 'noreply@gerlynstore.com
 # Avatar upload validation
 AVATAR_MAX_MB        = 2
 AVATAR_ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp'}
-
 # GCash payment-proof upload validation — a phone screenshot/photo runs
 # larger than an avatar, so this gets its own, more generous cap.
 PROOF_OF_PAYMENT_MAX_MB = 5
-
-# --- Error tracking ----------------------------------------------------------
-# Without this, a production 500 is only visible in Railway's log stream,
-# after the fact, if someone happens to be looking. With SENTRY_DSN set,
-# every unhandled exception ships to Sentry with the request that triggered
-# it. No DSN (local dev, or before a Sentry project exists) -> no-op, same
-# as USE_CLOUDINARY/REDIS_URL above.
-SENTRY_DSN = os.environ.get('SENTRY_DSN')
-if SENTRY_DSN:
-    import sentry_sdk
-    from sentry_sdk.integrations.django import DjangoIntegration
-
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[DjangoIntegration()],
-        # Error tracking only, not performance tracing — a single-store app
-        # at this traffic level gets nothing from sampled trace data that
-        # the four Railway Metrics tiles (Section 01) don't already cover,
-        # and it's one more thing to explain during a defense.
-        traces_sample_rate=0.0,
-        environment='production' if not DEBUG else 'development',
-    )
