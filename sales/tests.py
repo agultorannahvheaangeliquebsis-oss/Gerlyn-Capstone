@@ -115,13 +115,30 @@ class WalkInSaleFormTests(TestCase):
     def test_wholesale_still_bills_at_the_wholesale_price(self):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
-            'order_type': 'Wholesale',
+            'order_type': 'Wholesale', 'wholesale_buyer_name': 'Aling Nena',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
             'amount_tendered': '160',
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.order_type, 'Wholesale')
         self.assertEqual(txn.total_amount, 160)
+        # P-3 audit trail: the buyer's name and who rang it up are recorded.
+        self.assertEqual(txn.wholesale_buyer_name, 'Aling Nena')
+        self.assertEqual(txn.wholesale_recorded_by, self.owner)
+
+    def test_wholesale_without_a_buyer_name_reopens_the_form(self):
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'order_type': 'Wholesale',
+            'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            'amount_tendered': '160',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "Enter the buyer's name for a Wholesale sale — required for the audit trail.",
+            response.context['pos_errors'],
+        )
+        self.assertFalse(SalesTransaction.objects.exists())
 
     def test_no_branch_reopens_the_form_and_keeps_the_basket(self):
         response = self.client.post(reverse('transaction_add'), {

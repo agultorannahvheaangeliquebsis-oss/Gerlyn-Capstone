@@ -136,6 +136,25 @@ class SalesTransaction(models.Model):
                   "Pickup."
     )
 
+    # --- wholesale audit trail (P-3) ----------------------------------------
+    # Wholesale has no customer lookup — a walk-in buying by the sack is not
+    # asked to have an account — so without this, a Wholesale sale carried no
+    # record of who it was for or who at the counter chose to bill it at the
+    # lower tier. Same maker-named-and-dated shape as discount_applied_by
+    # above, for the same reason: a price break with nobody's name against it
+    # is exactly what an audit asks about.
+    wholesale_buyer_name = models.CharField(
+        max_length=150, blank=True,
+        help_text="Required when Order Type is Wholesale. Free text — not a "
+                  "customer account lookup, just who the sale was for."
+    )
+    wholesale_recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
+        related_name='wholesale_orders_recorded',
+        help_text="Staff member who selected Wholesale and rang up the sale."
+    )
+
     # --- statutory discount (PWD / Senior Citizen) --------------------------
     # Claimed once per transaction, not per line: the discount belongs to a
     # cardholder, and one sale has one cardholder. Which LINES it actually

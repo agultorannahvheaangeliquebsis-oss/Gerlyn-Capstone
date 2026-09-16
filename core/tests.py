@@ -400,6 +400,7 @@ class AcceptanceTests(TestCase):
         product = Product.objects.get(sku_code='SKU-005')
         self.login('ana').post('/sales/add/', {
             'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
+            'wholesale_buyer_name': 'Aling Nena',
             'product_id': [str(product.pk)], 'quantity': ['10'],
             'amount_tendered': '10000',
         })
@@ -416,6 +417,7 @@ class AcceptanceTests(TestCase):
 
         self.login('ana').post('/sales/add/', {
             'mode_of_payment': 'Cash', 'order_type': 'Wholesale',
+            'wholesale_buyer_name': 'Aling Nena',
             'product_id': [str(product.pk)], 'quantity': ['2'],
             'amount_tendered': '10000',
         })

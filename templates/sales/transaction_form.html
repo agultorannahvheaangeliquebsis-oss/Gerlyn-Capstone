@@ -137,6 +137,19 @@ form's own errors and had been silent to assistive tech.
     </div>
 
     {% comment %}
+    Wholesale audit trail (P-3). No customer lookup — a Wholesale sale is
+    still a walk-in — but the buyer's name is required so the sale is not
+    just a lower price with nobody to point to.
+    {% endcomment %}
+    <div class="field mt-4" id="pos-wholesale-fields" hidden>
+      <label for="pos-wholesale-buyer">Buyer Name</label>
+      <input type="text" id="pos-wholesale-buyer" name="wholesale_buyer_name"
+             placeholder="Full name of the wholesale buyer"
+             value="{{ pos_form_data.wholesale_buyer_name|default:'' }}">
+      <span class="gv-meta">Required for Wholesale — recorded for the audit trail.</span>
+    </div>
+
+    {% comment %}
     PWD / Senior Citizen discount. Claimed once for the whole sale, because
     the card belongs to one person — which LINES it reaches is decided per
     product by the eligibility flag matching the claim (is_pwd_eligible or
@@ -514,6 +527,9 @@ function posRecalc() {
   posUpdateItemCount();
   posSyncTenderVisibility();
   posUpdateTender(total);
+
+  var wholesaleFields = document.getElementById('pos-wholesale-fields');
+  if (wholesaleFields) wholesaleFields.hidden = !wholesale;
 
   var hint = document.getElementById('pos-type-hint');
   if (!wholesale) {

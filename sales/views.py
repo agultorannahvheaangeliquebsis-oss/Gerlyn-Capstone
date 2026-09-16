@@ -187,6 +187,8 @@ def _transaction_list_context(request):
     can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
     branches = Branch.objects.all() if show_branch_filter else []
 
+    over_committed_ids, over_committed_count = _over_committed_order_ids(request.user)
+
     context = {
         'transactions': transactions,
         'counts': counts,
@@ -202,8 +204,70 @@ def _transaction_list_context(request):
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': branch_for_user(request.user),
         'can_pos': can_pos,
+        'over_committed_ids': over_committed_ids,
+        'over_committed_count': over_committed_count,
     }
     return context
+
+
+# S-11 — over-committed orders. An open order (Pending/Approved/Preparing)
+# is "over-committed" when, added to every other open order for the same
+# branch/product, it asks for more than the branch's current floor stock —
+# i.e. the branch has promised more of that item than it can actually pull.
+# Reporting only, per the audit's own scope call for this finding: nothing
+# here reserves or holds stock, so a completed transfer or a cancelled order
+# elsewhere can clear the flag before Preparing without any code path having
+# to release a hold.
+_OPEN_ORDER_STATUSES = [
+    SalesTransaction.OrderStatus.PENDING,
+    SalesTransaction.OrderStatus.APPROVED,
+    SalesTransaction.OrderStatus.PREPARING,
+]
+
+
+def _over_committed_order_ids(user):
+    open_orders = scope_queryset(
+        SalesTransaction.objects.filter(order_status__in=_OPEN_ORDER_STATUSES),
+        user,
+    )
+
+    committed = (
+        SalesItem.objects
+        .filter(transaction__in=open_orders)
+        .values('transaction__branch_id', 'product_id')
+        .annotate(committed_qty=dj_models.Sum('quantity_sold'))
+    )
+    if not committed:
+        return set(), 0
+
+    available = {
+        (row['branch_id'], row['product_id']): row['available']
+        for row in (
+            Inventory.objects.sellable()
+            .values('branch_id', 'product_id')
+            .annotate(available=dj_models.Sum('available_qty'))
+        )
+    }
+
+    over_committed_keys = {
+        (row['transaction__branch_id'], row['product_id'])
+        for row in committed
+        if row['committed_qty'] > available.get((row['transaction__branch_id'], row['product_id']), 0)
+    }
+    if not over_committed_keys:
+        return set(), 0
+
+    key_filter = dj_models.Q()
+    for branch_id, product_id in over_committed_keys:
+        key_filter |= dj_models.Q(transaction__branch_id=branch_id, product_id=product_id)
+
+    order_ids = set(
+        SalesItem.objects
+        .filter(transaction__in=open_orders)
+        .filter(key_filter)
+        .values_list('transaction_id', flat=True)
+    )
+    return order_ids, len(order_ids)
 
 
 @login_required(login_url='accounts:login')
@@ -813,6 +877,12 @@ def transaction_add(request):
     discount_id_number = request.POST.get('discount_id_number', '').strip() if discount_claimed else ''
     discount_holder_name = request.POST.get('discount_holder_name', '').strip() if discount_claimed else ''
 
+    # --- Wholesale buyer name (P-3 audit trail) -----------------------------
+    # No customer lookup for Wholesale — this is free text, not an account —
+    # only who at the counter picked the lower tier and for whom.
+    is_wholesale_sale = order_type == SalesTransaction.OrderType.WHOLESALE
+    wholesale_buyer_name = request.POST.get('wholesale_buyer_name', '').strip() if is_wholesale_sale else ''
+
     # The same two checks, collected instead of redirected. A redirect threw
     # away every item row the cashier had already rung up.
     errors = []
@@ -878,6 +948,10 @@ def transaction_add(request):
         )
     if discount_claimed and not discount_holder_name:
         errors.append(f'Enter the name on the {discount_type} ID.')
+    if is_wholesale_sale and not wholesale_buyer_name:
+        errors.append(
+            'Enter the buyer\'s name for a Wholesale sale — required for the audit trail.'
+        )
     if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
         if not amount_tendered_raw:
             errors.append('Enter the amount tendered for this cash sale.')
@@ -924,6 +998,8 @@ def transaction_add(request):
                         mode_of_payment=mode_of_payment,
                         order_type=order_type,
                         order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
+                        wholesale_buyer_name=wholesale_buyer_name,
+                        wholesale_recorded_by=request.user if is_wholesale_sale else None,
                         total_amount=total,
                         discount_type=discount_type,
                         discount_id_number=discount_id_number,
