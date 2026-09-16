@@ -269,7 +269,7 @@ CACHES = {
 # on EVERY request, since this cache backs a context processor that renders
 # on every page — so this normalizes a bare host/host:port into a real URL
 # instead of taking the whole site down over a Railway Variables typo.
-REDIS_URL = os.environ.get('REDIS_URL')
+REDIS_URL = os.environ.get('REDIS_URL', '').strip()
 if REDIS_URL and '://' not in REDIS_URL:
     REDIS_URL = f'redis://{REDIS_URL}'
     if not REDIS_URL.rsplit('/', 1)[-1].isdigit():
@@ -280,6 +280,21 @@ if REDIS_URL:
         'LOCATION': REDIS_URL,
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # Keep credentials in LOCATION. django-redis delegates this URL to
+            # redis-py's ConnectionPool.from_url(), which parses (and URL-
+            # decodes) both ``redis://:password@...`` and
+            # ``redis://username:password@...`` correctly.
+            #
+            # redis-py 8 defaults new connections to RESP3. Some managed Redis
+            # endpoints/proxies reject its initial ``HELLO 3 AUTH ...`` even
+            # though a normal AUTH command is accepted, producing:
+            # "HELLO must be called with the client already authenticated".
+            # Forcing RESP2 makes redis-py authenticate with AUTH first and
+            # avoids HELLO entirely. CONNECTION_POOL_KWARGS is intentional:
+            # these values are passed to every connection created by the pool.
+            'CONNECTION_POOL_KWARGS': {
+                'protocol': 2,
+            },
         },
     }
 
