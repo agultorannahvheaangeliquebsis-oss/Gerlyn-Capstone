@@ -125,13 +125,24 @@
     try { localStorage.setItem(COLLAPSE_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0'); } catch (e) {}
   }
 
-  /* The bottom-nav "More" menu: close it when the user taps/clicks anywhere
-     outside, since <details> only closes natively on re-toggle. The header
-     avatar used to be handled here too; it is a plain link to My Profile now
-     and has nothing to close. */
+  /* The bottom-nav "More" menu and the topbar's branch-switch dropdown
+     (partials/_branch_switch.html, used across every module with a branch
+     filter): close either when the user taps/clicks anywhere outside, since
+     <details> only closes natively on re-toggle. The header avatar used to
+     be handled here too; it is a plain link to My Profile now and has
+     nothing to close. */
+  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open]';
   document.addEventListener('click', function (e) {
-    document.querySelectorAll('.more-menu[open]').forEach(function (d) {
+    document.querySelectorAll(AUTOCLOSE_SEL).forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;
+    });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll(AUTOCLOSE_SEL).forEach(function (d) {
+      d.open = false;
+      var s = d.querySelector('summary');
+      if (s && d.contains(document.activeElement)) s.focus();
     });
   });
 

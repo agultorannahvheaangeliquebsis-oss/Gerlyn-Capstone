@@ -4,15 +4,14 @@
 
 {% comment %}
 Two rows: the buying panel (photo + price + quantity + CTA), then the two
-panels underneath — the description the owner typed, and where the product
-is actually on a shelf.
+panels underneath — Product Details (the description the owner typed, plus
+a compact spec list) and where the product is actually on a shelf.
 
 The design reference for this page pairs the description with a
-Specifications table and a downloadable spec sheet. Neither is drawn here:
-Product has no attribute columns to fill a spec table with, and there is no
-document model behind a spec-sheet PDF. Branch availability takes that
-second slot instead — a real question a shopper has, and one this system
-can actually answer.
+Specifications table and a downloadable spec sheet. The spec sheet PDF is
+not drawn here — there is no document model behind one — but the spec list
+is: Brand and Size have no column on Product, so those two rows print an
+honest placeholder rather than being left out.
 {% endcomment %}
 
 {% block content %}
@@ -55,33 +54,6 @@ can actually answer.
 
     <!-- ───────────────────────── buy panel ───────────────────────── -->
     <div class="pdp-info">
-      {% comment %}
-      Category is NOT repeated here. It sits in .pdp-sku below, in the
-      SKU · category · sold line, and once both were plain text the chips row
-      was simply saying it a second time three lines higher with nothing to
-      tell the two apart. The row is the stock answer and nothing else.
-      {% endcomment %}
-      <div class="pdp-chips">
-        {% comment %}
-        product.on_hand is scoped to the chosen branch when there is one
-        (customer_views.product_detail) — this chip and the Add to Cart
-        button below it have to agree, and the cart only ever accepts stock
-        from that branch. So the chip is labelled with the branch it is
-        counting, and falls back to the whole store before one is picked.
-        The "Available at" panel further down is the per-branch breakdown.
-        {% endcomment %}
-        {% if product.on_hand == 0 %}
-          <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
-        {% elif product.on_hand <= 10 %}
-          <span class="stock-status stock-status--low"><span class="dot" aria-hidden="true"></span>Only {{ product.on_hand }} left</span>
-        {% else %}
-          <span class="stock-status stock-status--ok"><span class="dot" aria-hidden="true"></span>In stock</span>
-        {% endif %}
-        <span class="pdp-stock-where">
-          {% if selected_branch %}at {{ selected_branch.branch_name }}{% else %}across all branches{% endif %}
-        </span>
-      </div>
-
       <h1 class="pdp-title">{{ product.product_name }}</h1>
       <p class="pdp-sku">
         {% if product.category %}{{ product.category.category_name }}{% endif %}
@@ -162,16 +134,26 @@ can actually answer.
             <div class="qty-line">
               <div class="qty-stepper" data-qty-stepper>
                 <button type="button" class="qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
-                <input id="quantity" type="number" name="quantity" min="1" step="1" value="1"
+                <input id="quantity" type="number" name="quantity" min="1" max="{{ product.on_hand }}" step="1" value="1"
                        inputmode="numeric" aria-label="Quantity">
                 <button type="button" class="qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
               </div>
-              {% comment %}
-              The branch-scoped count, floated beside the stepper so the
-              shopper sees the ceiling they are stepping toward without
-              scrolling back up to the stock chip.
-              {% endcomment %}
-              <span class="qty-avail">{{ product.on_hand }} {{ product.unit_of_measure|lower }} available</span>
+              <div class="qty-meta">
+                {% comment %}
+                Set by pdp-tier-ladder.js the moment a bulk row is picked —
+                the row's threshold becomes the input's floor, so this line
+                and the stepper's own min-attribute clamp agree with each
+                other. Hidden by default: at the base "1" tier there is no
+                minimum worth stating.
+                {% endcomment %}
+                <p class="qty-min-hint" data-qty-min-hint hidden>Minimum quantity: <span data-qty-min-n></span></p>
+                {% comment %}
+                The branch-scoped count, so the shopper sees the ceiling they
+                are stepping toward without scrolling back up to the stock
+                chip.
+                {% endcomment %}
+                <span class="qty-avail">{{ product.on_hand }} {{ product.unit_of_measure|lower }} available</span>
+              </div>
             </div>
           </div>
 
@@ -209,7 +191,7 @@ can actually answer.
   <!-- ─────────────────── description + availability ─────────────────── -->
   <div class="pdp-panels">
     <section class="pdp-panel">
-      <h2>Product description</h2>
+      <h2>Product Details</h2>
       {% if product.description %}
         <p class="pdp-desc">{{ product.description|linebreaksbr }}</p>
       {% else %}
@@ -220,6 +202,18 @@ can actually answer.
         {% endcomment %}
         <p class="pdp-desc pdp-desc--empty">No description has been added for this product yet.</p>
       {% endif %}
+      {% comment %}
+      Brand and Size have no column on Product to read from — the app has
+      never carried either — so they print as an honest placeholder rather
+      than being left out, which would look like the row was forgotten.
+      Category and Unit are real fields and always have a value.
+      {% endcomment %}
+      <dl class="pdp-specs">
+        <div class="pdp-spec-row"><dt>Brand</dt><dd>Not specified</dd></div>
+        <div class="pdp-spec-row"><dt>Category</dt><dd>{{ product.category.category_name|default:"Uncategorized" }}</dd></div>
+        <div class="pdp-spec-row"><dt>Size</dt><dd>Not specified</dd></div>
+        <div class="pdp-spec-row"><dt>Unit</dt><dd>1 {{ product.unit_of_measure|lower }}</dd></div>
+      </dl>
     </section>
 
     <section class="pdp-panel">
@@ -227,7 +221,10 @@ can actually answer.
       <ul class="avail-list">
         {% for bs in branch_stock %}
         <li>
-          <span class="avail-branch">{{ bs.branch.branch_name }}</span>
+          <span class="avail-branch">
+            {{ bs.branch.branch_name }}
+            {% if selected_branch and bs.branch == selected_branch %}<span class="avail-you">Your branch</span>{% endif %}
+          </span>
           {% if not bs.available %}
             <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
           {% elif bs.qty <= 10 %}

@@ -158,6 +158,17 @@ every panel in the app to fix one column.
           </select>
         </div>
         {% comment %}
+        Pay at Store only makes sense when someone from the store hands the
+        order over in person — a Delivery order never puts a rider back at
+        the counter to collect it. Flagged here, client-side, the moment
+        both fields point that way; checkout() carries the same rule so a
+        tampered or JS-less submit cannot slip it through.
+        {% endcomment %}
+        <div class="banner banner-warning" id="payment_delivery_conflict" style="display:none;">
+          Pay at Store isn't available for delivery orders — switch to Cash
+          on Delivery or GCash, or choose pickup at the branch instead.
+        </div>
+        {% comment %}
         Read-only on purpose. A Delivery order ships to the address saved on
         the account — there is no field to type one in here. It is set in
         Settings → Addresses and nowhere else, so the one structured,
@@ -189,11 +200,12 @@ every panel in the app to fix one column.
         "if paying by GCash" undersold this: checkout now refuses a GCash
         order with no reference, because with no gateway integrated the
         reference is the only record of the transfer. Anything typed here is
-        discarded for the other methods, so the wording says which rule
-        applies. Not a `required` attribute — it is conditional on the
-        select above, and the server is the guard either way.
+        discarded for the other methods, so asking for it when a different
+        method is selected only invites a reference that gets thrown away —
+        the field is hidden (and un-required) until GCash is actually
+        chosen. The server is still the real guard either way.
         {% endcomment %}
-        <div class="field">
+        <div class="field" id="gcash_reference_field" style="display:none;">
           <label for="reference_number">GCash reference <span class="gv-meta">— required when paying by GCash</span></label>
           <input id="reference_number" type="text" name="reference_number" placeholder="e.g. GC-2026-0001">
         </div>
@@ -234,27 +246,53 @@ every panel in the app to fix one column.
 
 {% block extra_js %}
 {% comment %}
-Reveal the saved-address block only for a Delivery order. It is display
-only — no input, nothing to validate here. The server is the guard:
-orders.customer_views.checkout re-checks the choice and reads the account's
-own saved address, refusing a Delivery order that has none.
+Reveal the saved-address block only for a Delivery order, the GCash
+reference only when GCash is the chosen method, and flag the one
+combination that can't be fulfilled — Pay at Store on a Delivery order —
+the moment both selects land on it. All display-only: the server is the
+real guard in every case. orders.customer_views.checkout re-checks the
+fulfillment choice and reads the account's own saved address, refuses a
+GCash order with a blank reference, and refuses Pay at Store paired with
+Delivery, independent of anything this script does.
 {% endcomment %}
 <script>
   (function () {
-    var select = document.getElementById('fulfillment_type');
-    var field = document.getElementById('delivery_address_field');
-    if (!select || !field) return;
+    var paymentSelect = document.getElementById('mode_of_payment');
+    var fulfillmentSelect = document.getElementById('fulfillment_type');
+    var addressField = document.getElementById('delivery_address_field');
+    var gcashField = document.getElementById('gcash_reference_field');
+    var gcashInput = document.getElementById('reference_number');
+    var conflictBanner = document.getElementById('payment_delivery_conflict');
+    if (!paymentSelect || !fulfillmentSelect) return;
 
     function sync() {
+      var isDelivery = fulfillmentSelect.value === 'Delivery';
+      var isGCash = paymentSelect.value === 'GCash';
+      var isPayAtStoreDelivery = paymentSelect.value === 'Pay at Store' && isDelivery;
+
       // style.display, not el.hidden: gerlyn.css sets `.field { display:
       // flex }`, and an author rule outranks the UA stylesheet's
       // `[hidden] { display: none }`, so the block would stay visible. The
       // shared .field component is used across the whole app and must not
       // be edited to suit this one page.
-      field.style.display = select.value === 'Delivery' ? '' : 'none';
+      if (addressField) addressField.style.display = isDelivery ? '' : 'none';
+
+      if (gcashField) gcashField.style.display = isGCash ? '' : 'none';
+      if (gcashInput) gcashInput.required = isGCash;
+
+      if (conflictBanner) conflictBanner.style.display = isPayAtStoreDelivery ? '' : 'none';
+      // Native validation, not a disabled submit button — a disabled button
+      // fights the double-submit guard's own pageshow handler (which
+      // unconditionally re-enables it from bfcache) and gives no message.
+      // setCustomValidity blocks the actual submit and shows the browser's
+      // own bubble pointing at the field that needs to change.
+      paymentSelect.setCustomValidity(
+        isPayAtStoreDelivery ? 'Pay at Store isn’t available for delivery orders.' : ''
+      );
     }
 
-    select.addEventListener('change', sync);
+    paymentSelect.addEventListener('change', sync);
+    fulfillmentSelect.addEventListener('change', sync);
     sync();
   })();
 </script>

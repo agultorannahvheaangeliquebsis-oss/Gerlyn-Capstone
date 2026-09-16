@@ -5,6 +5,7 @@
 chip has to track whichever branch the toolbar is actually narrowed to, not
 sit frozen on "All Branches" once an Owner picks one.{% endcomment %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -21,29 +22,11 @@ reports/reports_home.html for why it belongs to the page, not the toolbar.
 {% include "reports/_tabs.html" with active="procurement" %}
 
 {% comment %}
-Toolbar: branch + export, the same shape on all four tabs. The bare from/to
-date pair is replaced by the §2e range control above, which adds presets on
-top of the same custom range.
-
-One plain <form> again now that the range control has left the row; the hidden
-range inputs stay, so changing branch never silently resets the range.
+Toolbar: export, the same shape on all four tabs. The branch filter now lives
+in the topbar switcher (partials/_branch_switch.html) — see branch_chip
+above.
 {% endcomment %}
 <form method="GET" class="toolbar-card no-print">
-  <div class="toolbar-filters">
-    {% if show_branch_filter %}
-    <input type="hidden" name="range" value="{{ active_range }}">
-    {% if active_range == 'custom' %}
-      <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
-      <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
-    {% endif %}
-    <select name="branch" onchange="this.form.submit()">
-      <option value="">All Branches</option>
-      {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-      {% endfor %}
-    </select>
-    {% endif %}
-  </div>
   <div class="toolbar-actions">
     <a class="btn" href="{% url 'export_csv' 'procurement' %}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>

@@ -184,6 +184,10 @@ def billing_list(request):
         # containing "&" or "#". Every status tab appends its own
         # &status=... to this.
         'filter_qs': list_filter_querystring(q=search_query, branch=branch_filter),
+        # Every other active filter, for the topbar branch switcher
+        # (partials/_branch_switch.html) to carry along — same idea as
+        # _daterange.html's daterange_carry.
+        'branch_switch_carry': [('q', search_query), ('status', status_filter)],
     })
 
 

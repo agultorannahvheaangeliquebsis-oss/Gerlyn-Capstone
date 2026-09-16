@@ -513,6 +513,21 @@ def _delta_tint(delta):
     return ''
 
 
+def _range_carry(active_range, range_start, range_end):
+    """(name, value) pairs for the §2e range control, for the topbar branch
+    switcher (partials/_branch_switch.html) to carry along — the reverse of
+    _daterange.html's own daterange_carry, which carries branch INTO a range
+    change. `date_from`/`date_to` only matter for a 'custom' range; any other
+    preset is fully named by `range` alone."""
+    carry = [('range', active_range)]
+    if active_range == 'custom':
+        carry += [
+            ('date_from', range_start.strftime('%Y-%m-%d') if range_start else ''),
+            ('date_to', range_end.strftime('%Y-%m-%d') if range_end else ''),
+        ]
+    return carry
+
+
 def _kpi_delta(current, previous, compare_label, prev_window_empty):
     """A delta pill carrying the card tint it implies, or None (see _delta_pill)."""
     delta = _delta_pill(current, previous, compare_label, prev_window_empty)
@@ -1288,6 +1303,14 @@ def operational_dashboard(request):
         'show_branch_selector': show_branch_selector,
         'branch_filter': branch_filter,
         'branches': Branch.objects.all() if show_branch_selector else [],
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Reports, etc.
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
+        # The reverse of daterange_carry, for the topbar branch switcher
+        # (partials/_branch_switch.html): the range must survive a branch
+        # change too, or picking a branch would silently reset it to Last 30
+        # days.
+        'branch_switch_carry': _range_carry(active_range, range_start, range_end),
 
         # --- Inventory summary + Top Products (reactive) ---
         'total_products_floor': total_products_floor,
@@ -1491,6 +1514,11 @@ def reports_dashboard(request):
         # Branch must survive a range change, or picking a preset would
         # silently widen the report back to every branch (DESIGN.md §2e).
         'daterange_carry': [('branch', branch_filter)],
+        # The reverse of daterange_carry, for the topbar branch switcher
+        # (partials/_branch_switch.html): the range must survive a branch
+        # change too, or picking a branch would silently reset it to Last 30
+        # days.
+        'branch_switch_carry': _range_carry(active_range, range_start, range_end),
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
         'active_page': 'reports',
@@ -2109,6 +2137,10 @@ def billing_report(request):
         'range_end': range_end,
         'active_range': active_range,
         'daterange_carry': [('branch', branch_filter)],
+        # The reverse of daterange_carry, for the topbar branch switcher
+        # (partials/_branch_switch.html): the range must survive a branch
+        # change too.
+        'branch_switch_carry': _range_carry(active_range, range_start, range_end),
         'completed_count': len(completed_records),
         'total_revenue': total_revenue,
         'collected': collected,
@@ -2176,6 +2208,9 @@ def inventory_report(request):
         # The topbar branch chip renders this — see reports_dashboard's
         # identical comment.
         'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
+        # No other filter on this tab, so nothing else to carry — see
+        # reports_dashboard's identical comment for the ones that do.
+        'branch_switch_carry': [],
         'total_value': total_value,
         'total_units': total_units,
         'low_critical_count': low_critical_count,
@@ -2281,6 +2316,10 @@ def procurement_report(request):
         'range_end': range_end,
         'active_range': active_range,
         'daterange_carry': [('branch', branch_filter)],
+        # The reverse of daterange_carry, for the topbar branch switcher
+        # (partials/_branch_switch.html): the range must survive a branch
+        # change too.
+        'branch_switch_carry': _range_carry(active_range, range_start, range_end),
         'total_pos': len(records),
         'active_value': active_value,
         'received_value': received_value,

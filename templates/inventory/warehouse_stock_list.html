@@ -8,6 +8,7 @@ Owner's branch_filter wins first since it is the more specific, deliberate
 choice; a Manager/Staff's own warehouse.branch is the fallback for when
 there's no toolbar selector to pick from at all.{% endcomment %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif warehouse %}{{ warehouse.branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" with user_branch=warehouse.branch %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -120,18 +121,11 @@ inventory.alerts.stock_status().
     <input type="search" name="q" placeholder="Search product or SKU…" value="{{ search_query }}" autocomplete="off" aria-label="Search warehouse stock by product name or SKU">
   </div>
   <div class="search-filters">
-    {% if branches %}
     {% comment %}
-    Owner only — a Manager/Staff account is already pinned to its own single
-    warehouse above, so this selector would do nothing for them.
+    The branch filter now lives in the topbar switcher (partials/
+    _branch_switch.html) — see branch_chip above. Owner only in practice — a
+    Manager/Staff account is already pinned to its own single warehouse.
     {% endcomment %}
-    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
-      <option value="">All Branches</option>
-      {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-      {% endfor %}
-    </select>
-    {% endif %}
     <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
       <option value="">All Categories</option>
       {% for c in categories %}

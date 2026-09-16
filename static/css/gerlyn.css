@@ -255,6 +255,13 @@ input[type=tel], select, textarea {
 }
 textarea { padding: 10px 14px; min-height: 80px; resize: vertical; max-width: 100%; }
 input::placeholder { color: var(--ink-500); }
+/* Firefox's UA stylesheet puts a green glow on any input with a constraint
+   (min/max/step/required/pattern) the moment its value validates, and a red
+   one when it doesn't — a halo we never styled, so it renders as a stray
+   colored box wherever a constrained field shows up (quantity steppers,
+   price mins, required text fields), not just on the one page someone
+   happens to notice it on. */
+input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { font: 600 14px/1.2 var(--font-sans); color: var(--ink-700); }
 
@@ -1079,14 +1086,11 @@ input::placeholder { color: var(--ink-500); }
    actually said where you were sat under it in 12.5px grey. The section line
    is the only line now and takes the title's weight. */
 .topbar-section { font: 600 15px/1.2 var(--font-sans); color: var(--ink-900); }
-/* Static, not a control. This says what the page is scoped to; it has never
-   been clickable. It used to be a green tinted 999px pill with a map pin —
-   the app's button shape — sitting a few inches above the Dashboard's real
-   branch <select>, which is a plain bordered box at 400 weight. The one you
-   could not click looked pressable and the one you could looked inert.
-   Stripped to text on the bar's own background, with the pin kept as a
-   quiet marker and dropped to --ink-500 so it stops reading as an icon
-   button.
+/* Base look for the topbar's branch label. Plain text on the bar's own
+   background, with the pin kept as a quiet marker and dropped to --ink-500 so
+   it stops reading as an icon button — used bare (a Manager/Staff account
+   already pinned to one branch, nothing to switch) and as the base for
+   .branch-chip--menu below (an Owner account, with a real switcher).
 
    height stays 38px. The topbar's 62px band is measured off this element and
    has to keep lining up with the sidebar header's — see the .sidebar note
@@ -1100,29 +1104,40 @@ input::placeholder { color: var(--ink-500); }
 }
 .branch-chip svg { color: var(--ink-500); }
 
-/* The Dashboard's real branch selector — the other half of the same problem.
-   It carries the same weight and the same hover as the .daterange-trigger
-   standing next to it, because those two are the controls on that head and
-   the eye should find both. A bare <select> inherits 400 with no cursor and
-   no hover, which is what let a label out-signal it. */
-.branch-select {
-  cursor: pointer;
-  font-weight: 600;
-  min-width: 190px;
-  /* The native arrow sat far off the right edge in a chunky Windows-blue
-     wedge that matched nothing else on the head. Own chevron instead —
-     the same SVG data-URI, 16px size and --ink-400 non-text stroke as
-     .daterange-trigger beside it, so the two controls on this head carry
-     one caret rather than a drawn wedge next to a text glyph. */
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 36px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A968F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  background-size: 16px;
+/* Top-bar branch switcher (DESIGN.md) — every module with a branch filter
+   shares this one component (partials/_branch_switch.html), rolled out from
+   Floor Stock, the first page to have it. .branch-chip stays the shared
+   static label for an account with nothing to switch; --menu turns it into a
+   real control (pointer, hover wash, caret) so it doesn't read as inert.
+   Panel and rows follow .more-menu-panel in the bottom nav. Native
+   <details>, closed on outside-click/Escape by the shared handler in
+   sidebar.js — same pattern as the bottom nav's More menu. */
+.branch-switch { position: relative; }
+.branch-chip--menu {
+  list-style: none; cursor: pointer;
+  padding: 0 10px; border-radius: var(--r-pill);
+  transition: background .12s ease;
 }
-.branch-select:hover { border-color: var(--brand); }
+.branch-chip--menu::-webkit-details-marker { display: none; }
+.branch-chip--menu:hover,
+.branch-switch[open] .branch-chip--menu { background: var(--line-soft); color: var(--ink-900); }
+.branch-switch-caret { color: var(--ink-500); transition: transform .12s ease; }
+.branch-switch[open] .branch-switch-caret { transform: rotate(180deg); }
+.branch-switch-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+  min-width: 220px; max-height: 60vh; overflow-y: auto; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+  display: flex; flex-direction: column;
+}
+.branch-switch-item {
+  display: flex; align-items: center; min-height: 40px;
+  padding: 0 12px; border-radius: var(--r-input);
+  font: 500 13.5px/1.3 var(--font-sans);
+  color: var(--ink-700); text-decoration: none;
+}
+.branch-switch-item:hover { background: var(--line-soft); color: var(--ink-900); }
+.branch-switch-item.is-current { color: var(--action-700); font-weight: 700; }
 /* Header avatar: a link straight to My Profile, not a menu. It was a
    <details> panel listing the signed-in name, My Profile, the owner's
    Administration links and Logout; every one of those rows exists in the
@@ -1854,7 +1869,13 @@ input::placeholder { color: var(--ink-500); }
 }
 .toolbar-card .toolbar-filters { display: flex; gap: var(--s2); flex-wrap: wrap; margin: 0; }
 .toolbar-card .toolbar-filters select { min-width: 160px; width: auto; }
-.toolbar-card .toolbar-actions { display: flex; gap: var(--s2); }
+/* margin-left: auto, not just justify-content: space-between on the parent —
+   the branch filter that used to sit in .toolbar-filters moved to the topbar
+   switcher (partials/_branch_switch.html), so a tab with no other toolbar
+   filter (Inventory) renders this as the card's only child. space-between
+   alone would then pack it flush left; the auto margin keeps it pinned right
+   whether or not a sibling .toolbar-filters is present. */
+.toolbar-card .toolbar-actions { display: flex; gap: var(--s2); margin-left: auto; }
 
 /* The Reports KPI rail is the shared .kpi-row / .kpi-card up in the cards
    section — the Dashboard rail's card, not a second one. */

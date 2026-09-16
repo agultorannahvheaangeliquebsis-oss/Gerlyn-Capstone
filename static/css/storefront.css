@@ -2474,11 +2474,12 @@ body.shop-auth {
 .pdp {
   display: grid; grid-template-columns: minmax(260px, 400px) minmax(0, 1fr);
   gap: 26px; align-items: start;
-  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
   padding: 22px; margin-bottom: 18px;
 }
 .pdp-frame {
-  aspect-ratio: 1 / 1; border-radius: 4px; overflow: hidden; background: #fff;
+  aspect-ratio: 1 / 1; border-radius: var(--r-card); overflow: hidden; background: #fff;
   border: 1px solid var(--line-soft);
   display: flex; align-items: center; justify-content: center;
 }
@@ -2548,7 +2549,7 @@ body.shop-auth {
 /* Tinted with the price's own hue, not the old warm one: a green figure in a
    peach box read as two different claims in one panel. */
 .price-band {
-  background: var(--green-50); border: 1px solid var(--green-300); border-radius: 4px;
+  background: var(--green-50); border: 1px solid var(--green-300); border-radius: var(--r-card);
   padding: 16px 18px; margin-bottom: 18px;
 }
 .price-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
@@ -2568,8 +2569,8 @@ body.shop-auth {
 }
 .tier-row {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; margin-bottom: 8px;
-  border: 1px solid var(--line); border-radius: 4px;
+  padding: 12px 14px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
   font: 400 14px/1.3 var(--font-sans); color: var(--ink-900);
 }
 .tier-row:last-child { margin-bottom: 0; }
@@ -2578,11 +2579,20 @@ body.shop-auth {
    click, so it must not look clickable. */
 .tier-row--pick {
   cursor: pointer;
-  transition: border-color .12s ease, background-color .12s ease;
+  transition: border-color .12s ease, background-color .12s ease, box-shadow .12s ease;
 }
 .tier-row--pick:hover { border-color: var(--green-300); background: var(--green-50); }
-.tier-row--pick.is-selected { border-color: var(--action); background: var(--green-50); }
-.tier-row input[type="radio"] { flex: none; margin: 0; accent-color: var(--action); }
+/* A second, inset ring on top of the border (same trick as .sb-highlight in
+   gerlyn.css) rather than a thicker border — a thicker border shifts the
+   row's padding and every row would have to be re-measured to match. */
+.tier-row--pick.is-selected {
+  border-color: var(--action); background: var(--green-50);
+  box-shadow: 0 0 0 1px var(--action) inset;
+}
+.tier-row input[type="radio"] {
+  flex: none; margin: 0; accent-color: var(--action);
+  width: 17px; height: 17px;
+}
 .tier-row-main {
   display: flex; flex: 1; align-items: baseline; flex-wrap: wrap; gap: 10px;
 }
@@ -2597,20 +2607,30 @@ body.shop-auth {
   font: 700 11.5px/1.4 var(--font-sans);
 }
 
-/* Stacked, not side by side: Quantity on its own row, then the CTAs beneath
-   it, left-aligned. align-items:flex-start keeps .buy-actions only as wide as
-   its buttons so Add to Cart sits hard against the left edge. */
-.buy-row { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+/* Stacked, not side by side: Quantity, then the CTAs. .buy-actions opts
+   back out with align-self so Add to Cart still sits hard against the left
+   edge instead of stretching into a full-width button row. */
+.buy-row { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
 .qty-field label {
-  display: block; margin-bottom: 6px;
+  display: block; margin-bottom: 8px;
   font: 600 12.5px/1 var(--font-sans); color: var(--ink-700);
 }
 /* The stepper and its "N available" note share one baseline row. */
 .qty-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.qty-avail { font: 400 13px/1.4 var(--font-sans); color: var(--ink-500); }
+/* min-width: 0 lets this item shrink for the wrap below instead of forcing
+   .qty-line wider than the card; the nowrap on its children is what makes
+   that wrap trigger as a whole line instead of flexbox first squeezing each
+   line down to its longest word (that squeeze is what was cutting the
+   "available" note down to just "20"). */
+.qty-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.qty-avail { font: 400 13px/1.4 var(--font-sans); color: var(--ink-500); white-space: nowrap; }
+/* Shown only while the input's floor is above 1 (pdp-tier-ladder.js) — the
+   bulk row set that floor, so the number here always matches [min] on the
+   input beside it rather than a value of its own to drift out of sync. */
+.qty-min-hint { margin: 0; font: 600 12.5px/1.4 var(--font-sans); color: var(--action-700); white-space: nowrap; }
 .qty-stepper {
-  display: inline-flex; align-items: stretch;
-  border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
+  display: inline-flex; align-items: stretch; gap: 0;
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
   background: #fff;
 }
 .qty-btn {
@@ -2631,7 +2651,11 @@ body.shop-auth {
 .qty-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .qty-stepper input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 
-.buy-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.buy-actions { display: flex; flex-wrap: wrap; gap: 12px; align-self: flex-start; }
+/* Both CTAs get a touch more horizontal room than the app's default .btn
+   padding gives — this is the page's one purchase decision, so the pair
+   reads with a bit more weight than a toolbar button does. */
+.buy-actions .btn { padding-inline: 22px; }
 /* The product page's own Add to Cart. Its LOOK is .btn .btn-outline now
    (gerlyn.css) rather than a private copy of one — the card grid and this
    page were drawing the same control out of two unrelated rule sets, and
@@ -2676,7 +2700,8 @@ body.shop-auth {
   gap: 16px; margin-bottom: 8px;
 }
 .pdp-panel {
-  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
   padding: 20px;
 }
 .pdp-panel h2 {
@@ -2686,16 +2711,36 @@ body.shop-auth {
 }
 .pdp-desc {
   font: 400 14.5px/1.65 var(--font-sans); color: var(--ink-700);
-  margin: 0;
+  margin: 0 0 14px;
 }
+.pdp-desc:last-child { margin-bottom: 0; }
 .pdp-desc--empty { color: var(--ink-500); font-style: italic; }
+/* Brand/Category/Size/Unit — a fixed-label column against a value column,
+   not a card per row: the label weight alone is what separates it from
+   .pdp-desc above it. */
+.pdp-specs { margin: 0; }
+.pdp-spec-row {
+  display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line-soft);
+  font: 400 13.5px/1.4 var(--font-sans);
+}
+.pdp-specs .pdp-spec-row:first-child { border-top: 0; }
+.pdp-spec-row dt { flex: none; width: 88px; color: var(--ink-500); }
+.pdp-spec-row dd { margin: 0; color: var(--ink-900); font-weight: 500; }
 .avail-list { list-style: none; margin: 0; padding: 0; }
 .avail-list li {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 11px 0; border-top: 1px solid var(--line-soft);
+  padding: 12px 0; border-top: 1px solid var(--line-soft);
 }
 .avail-list li:first-child { border-top: 0; }
-.avail-branch { font: 500 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
+.avail-branch { display: flex; align-items: center; gap: 8px; font: 500 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
+/* Flags the branch this page is already scoped to (selected_branch) — the
+   shopper picked it once at /select-branch and every price/qty/stock number
+   above is already counting that shelf, but nothing in this list said so. */
+.avail-you {
+  flex: none; padding: 2px 8px; border-radius: var(--r-card);
+  border: 1px solid var(--green-300); background: var(--green-50);
+  color: var(--action-700); font: 600 11px/1.6 var(--font-sans);
+}
 .avail-note {
   font: 400 12.5px/1.5 var(--font-sans); color: var(--ink-500);
   margin: 14px 0 0;
@@ -2705,8 +2750,7 @@ body.shop-auth {
   .pdp { grid-template-columns: 1fr; padding: 16px; }
   .pdp-title { font-size: 22px; }
   .price-now { font-size: 27px; }
-  .buy-row { flex-direction: column; align-items: stretch; }
-  .buy-actions { flex-direction: column; }
+  .buy-actions { flex-direction: column; align-self: stretch; }
   .buy-actions .btn { width: 100%; justify-content: center; }
 }
 

@@ -663,6 +663,10 @@ def delivery_list(request):
         # Warehouse Stock, Product Master List and Stock Adjustments.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
+        # Every other active filter, for the topbar branch switcher
+        # (partials/_branch_switch.html) to carry along — same idea as
+        # _daterange.html's daterange_carry.
+        'branch_switch_carry': [('q', search_query)],
         'receive_procurement': receive_procurement,
         'receive_items': receive_items,
         'addable_products': addable_products,

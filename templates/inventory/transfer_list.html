@@ -5,6 +5,14 @@
 List: the topbar chip has to track whichever branch the toolbar is actually
 narrowed to, not sit frozen on "All Branches".{% endcomment %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% comment %}
+The topbar switcher (partials/_branch_switch.html) replaces the old toolbar
+branch select. Owner only — a Manager/Staff account is already pinned to its
+own branch's slips, so it would do nothing for them. Narrows both views: the
+Withdrawal Slips list (by source branch) and the Movement Log (by either side
+of the movement) — see transfer_list's movement_branch_ids.
+{% endcomment %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -148,20 +156,6 @@ across the full width leave the default block padding as empty card.
       <option value="slips">Withdrawal Slips</option>
       <option value="log">Movement Log</option>
     </select>
-    {% if branches %}
-    {% comment %}
-    Owner only — a Manager/Staff account is already pinned to its own branch's
-    slips above, so this selector would do nothing for them. Narrows both
-    views: the Withdrawal Slips list (by source branch) and the Movement Log
-    (by either side of the movement) — see transfer_list's movement_branch_ids.
-    {% endcomment %}
-    <select name="branch" onchange="this.form.submit()" aria-label="Filter by branch">
-      <option value="">All Branches</option>
-      {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
-      {% endfor %}
-    </select>
-    {% endif %}
   </div>
 </form>
 

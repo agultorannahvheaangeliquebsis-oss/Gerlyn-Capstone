@@ -111,11 +111,20 @@ def _product_list_context(request):
         # Branches" over a list that is no longer all branches. str() because
         # branch_filter is still the raw (validated-digits) GET string.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        # Every other active filter, for the topbar branch switcher to carry
+        # along — same idea as _daterange.html's daterange_carry.
+        'branch_switch_carry': [('q', search_query), ('category', category_filter)],
         'total_count': Product.objects.count(),
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
         'unit_choices': Product.UnitOfMeasure.choices,
         'next_sku': Product.next_sku_code(),
         'branches': branches,
+        # `branches` above is unrestricted — the Availability column and the
+        # Add Product modal's per-branch checkboxes need every branch
+        # regardless of role. The topbar switcher must not, or a Manager/
+        # Staff account (show_branch_filter False) would get a live control
+        # with nothing for it to do.
+        'switch_branches': branches if show_branch_filter else [],
         'add_selected_branches': None,  # None = fresh modal, default all branches checked
         'add_tier_rows': [],  # empty = fresh modal; the page JS opens three blank rows
     }
@@ -1537,6 +1546,12 @@ def _inventory_list_context(request):
         # appear in the table.
         'show_branch_column': can_pick_branch and not branch_filter,
         'table_colspan': 7 + int(can_pick_branch and not branch_filter) + int(can_adjust),
+        # Every other active filter, for the topbar branch switcher
+        # (partials/_branch_switch.html) to carry along — same idea as
+        # _daterange.html's daterange_carry.
+        'branch_switch_carry': [
+            ('q', search_query), ('category', category_filter), ('status', status_filter),
+        ],
         'can_adjust': can_adjust,
         'adjust_products': Product.objects.order_by('product_name'),
     }
@@ -1825,6 +1840,9 @@ def _warehouse_stock_list_context(request):
         'branches': cached_branches() if not user_branch else [],
         'branch_filter': branch_filter,
         'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
+        # Every other active filter, for the topbar branch switcher to carry
+        # along — same idea as _daterange.html's daterange_carry.
+        'branch_switch_carry': [('q', search_query), ('category', category_filter)],
         # Distinct products, not len(rows) — rows is now one-per-batch, so a
         # product with two lots would otherwise count itself twice.
         'total_products': len(matching),
@@ -2081,6 +2099,12 @@ def _transfer_list_context(request):
         # Warehouse Stock and Product Master List's filter_branch.
         'filter_branch': next((b for b in cached_branches() if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
+        # Every other active filter, for the topbar branch switcher to carry
+        # along — same idea as _daterange.html's daterange_carry.
+        'branch_switch_carry': [
+            ('q', search_query), ('status', status_filter), ('purpose', purpose_filter),
+            ('date_from', date_from), ('date_to', date_to),
+        ],
         'status_choices': StockTransfer.Status.choices,
         'purpose_choices': StockTransfer.Purpose.choices,
         'total_released_this_month': total_released_this_month,

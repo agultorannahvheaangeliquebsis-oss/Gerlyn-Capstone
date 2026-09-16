@@ -384,6 +384,10 @@ def _user_list_context(request):
         # The topbar branch chip renders this — same pattern as Floor Stock,
         # Product Master List, Stock Adjustments, etc.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        # Every other active filter, for the topbar branch switcher
+        # (partials/_branch_switch.html) to carry along — same idea as
+        # _daterange.html's daterange_carry.
+        'branch_switch_carry': [('q', search_query), ('role', role_filter)],
         # The toolbar filters on every role a row can have; the Add/Edit modal
         # may only ASSIGN an internal one. Two different lists on purpose —
         # user_form has always validated against INTERNAL_ROLE_CHOICES.

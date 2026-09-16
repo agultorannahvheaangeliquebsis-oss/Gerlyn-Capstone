@@ -1,0 +1,41 @@
+{% comment %}
+Shared top-bar branch-switch dropdown (DESIGN.md) — every module with a
+branch filter includes this in its {% block branch_chip %}. Rolled out from
+Floor Stock (inventory/inventory_list.html), the first page to have it.
+
+Context expected:
+  branches             queryset/list of Branch offered as choices; empty
+                        hides the switcher and falls back to a plain label
+  branch_filter         the current ?branch= value as a string, '' if none
+  filter_branch          the Branch object matching branch_filter, or None —
+                        this is what names the pill once a branch is picked
+  user_branch           the account's own pinned branch (Manager/Staff),
+                        shown as plain text when `branches` is empty
+  branch_switch_carry   list of (name, value) pairs for the page's OTHER
+                        filters, so switching branch never drops the
+                        search/status/range already set — same idea as
+                        _daterange.html's daterange_carry, in reverse.
+                        Optional: an unset value renders as no extra params.
+{% endcomment %}
+{% if branches %}
+<details class="branch-switch" id="branch-switch">
+  <summary class="branch-chip branch-chip--menu">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+    <span>{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}</span>
+    <svg class="branch-switch-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+  </summary>
+  <div class="branch-switch-panel" role="menu">
+    <a role="menuitem" class="branch-switch-item{% if not branch_filter %} is-current{% endif %}"
+       href="?{% for name, value in branch_switch_carry %}{% if value %}{{ name }}={{ value|urlencode }}&amp;{% endif %}{% endfor %}">All Branches</a>
+    {% for b in branches %}
+    <a role="menuitem" class="branch-switch-item{% if branch_filter == b.id|stringformat:'s' %} is-current{% endif %}"
+       href="?branch={{ b.id }}{% for name, value in branch_switch_carry %}{% if value %}&amp;{{ name }}={{ value|urlencode }}{% endif %}{% endfor %}">{{ b.branch_name }}</a>
+    {% endfor %}
+  </div>
+</details>
+{% else %}
+<span class="branch-chip">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+  {% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}
+</span>
+{% endif %}

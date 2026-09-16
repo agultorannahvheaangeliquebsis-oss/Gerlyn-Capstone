@@ -247,6 +247,13 @@ def _transaction_list_context(request):
         'filter_qs': _order_filter_querystring(
             search_query, channel_filter, branch_filter, fulfillment_filter
         ),
+        # Every other active filter, for the topbar branch switcher
+        # (partials/_branch_switch.html) to carry along — same idea as
+        # _daterange.html's daterange_carry.
+        'branch_switch_carry': [
+            ('q', search_query), ('status', status_filter),
+            ('channel', channel_filter), ('fulfillment', fulfillment_filter),
+        ],
     }
     return context
 

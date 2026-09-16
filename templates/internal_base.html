@@ -234,10 +234,11 @@ DOM — it is off-screen until focused (see .skip-link).
       <div class="topbar-section">{% block page_subtitle %}{% endblock %}</div>
       <div class="row">
         {% comment %}
-        Default is the static scope label — .branch-chip in gerlyn.css is
-        deliberately not a control. A page that needs a real branch switcher on
-        the bar overrides the whole branch_chip block (Floor Stock does);
-        every other page just keeps filling branch_scope as before.
+        Default is the static scope label, for a page with nothing to switch
+        (Walk-in Sale, whose branch is pinned to the till). Every page with a
+        branch filter overrides the whole branch_chip block instead, with
+        {% include "partials/_branch_switch.html" %} — see that partial for
+        the context it expects.
         {% endcomment %}
         {% block branch_chip %}
         <span class="branch-chip">

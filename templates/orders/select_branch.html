@@ -28,7 +28,22 @@
       <div class="empty"><h3>No branches available</h3></div>
       {% endfor %}
     </div>
+    {% if cart_preview and cart_preview.items %}
+    <div class="banner banner-info">
+      <p class="mb-0">
+        Picking a different branch will clear your cart
+        {% if cart_preview.branch_name %} at {{ cart_preview.branch_name }}{% endif %} —
+        stock and prices are set per branch. You'll lose:
+      </p>
+      <ul class="mb-0" style="padding-left:20px;">
+        {% for item in cart_preview.items %}
+        <li>{{ item.product.product_name }} &times;{{ item.quantity }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
     <div class="banner banner-info">Changing branch empties your cart, since stock is per branch.</div>
+    {% endif %}
     <button type="submit" class="btn btn-primary">Shop this branch</button>
   </form>
 </div>

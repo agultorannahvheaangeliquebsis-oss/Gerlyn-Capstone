@@ -4,6 +4,16 @@
 {% block page_subtitle %}Inventory{% endblock %}
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% elif active_branch %}{{ active_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
+{% comment %}
+Top-bar branch switcher — turns the static scope chip into a menu of every
+branch, for the Owner only. Manager/Staff are branch-pinned server-side, so
+`branches` is empty for them and they keep the plain label. Each item just
+sets ?branch=; branch_switch_carry (the q/category/status filters) rides
+along so switching branch keeps the rest of the toolbar. Shared component —
+see partials/_branch_switch.html.
+{% endcomment %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
+
 {% block extra_css %}
 <style>
   .modal-overlay {
@@ -48,37 +58,6 @@
     padding: var(--s4) var(--s6);
     border-top: 1px solid var(--line);
   }
-
-  /* Top-bar branch switcher — this page only. .branch-chip stays the shared
-     static label on every other page; --menu turns it into a real control
-     (pointer, hover wash, caret) so it doesn't read as inert. Panel and rows
-     follow .more-menu-panel in the bottom nav. */
-  .branch-switch { position: relative; }
-  .branch-chip--menu {
-    list-style: none; cursor: pointer;
-    padding: 0 10px; border-radius: var(--r-pill);
-    transition: background .12s ease;
-  }
-  .branch-chip--menu::-webkit-details-marker { display: none; }
-  .branch-chip--menu:hover,
-  .branch-switch[open] .branch-chip--menu { background: var(--line-soft); color: var(--ink-900); }
-  .branch-switch-caret { color: var(--ink-500); transition: transform .12s ease; }
-  .branch-switch[open] .branch-switch-caret { transform: rotate(180deg); }
-  .branch-switch-panel {
-    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
-    min-width: 220px; max-height: 60vh; overflow-y: auto; padding: 6px;
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--r-card); box-shadow: var(--shadow-hero);
-    display: flex; flex-direction: column;
-  }
-  .branch-switch-item {
-    display: flex; align-items: center; min-height: 40px;
-    padding: 0 12px; border-radius: var(--r-input);
-    font: 500 13.5px/1.3 var(--font-sans);
-    color: var(--ink-700); text-decoration: none;
-  }
-  .branch-switch-item:hover { background: var(--line-soft); color: var(--ink-900); }
-  .branch-switch-item.is-current { color: var(--action-700); font-weight: 700; }
 </style>
 {% endblock %}
 
@@ -442,25 +421,8 @@ across the full width leave the default block padding as empty card.
 {% endblock %}
 
 {% block extra_js %}
-<script>
-// Top-bar branch switcher: close the native <details> on an outside click or
-// Escape — <details> only toggles on its own summary otherwise. Mirrors the
-// bottom nav's .more-menu handler in sidebar.js.
-(function () {
-  var sw = document.getElementById('branch-switch');
-  if (!sw) return;
-  document.addEventListener('click', function (e) {
-    if (sw.open && !sw.contains(e.target)) sw.open = false;
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && sw.open) {
-      sw.open = false;
-      var s = sw.querySelector('summary');
-      if (s) s.focus();
-    }
-  });
-})();
-</script>
+{% comment %}Top-bar branch switcher's outside-click/Escape close now lives in
+sidebar.js, shared by every page that includes partials/_branch_switch.html.{% endcomment %}
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script>

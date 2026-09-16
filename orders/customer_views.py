@@ -768,18 +768,31 @@ def select_branch(request):
             return redirect('orders:select_branch')
         _start_shopping_at(request, branch)
         return redirect('orders:catalog')
+    cart_preview = None
     if request.session.get('cart') and request.session.get('branch_id'):
         # S-9 — _start_shopping_at only announces the clearing after the
         # fact, on the page the shopper lands on next. Arriving here with a
         # branch already set and a cart already in it — the nav's "Change"
         # link, a card's "Choose a branch" button — deserves the same
-        # warning up front, before a choice that cannot be undone.
+        # warning up front, before a choice that cannot be undone. Naming
+        # the actual items (not just "your cart") is what turns that warning
+        # into something the shopper can act on — decide it's fine to lose
+        # these three, or back out and check out first.
+        current_branch = Branch.objects.filter(pk=request.session['branch_id']).first()
+        items, _total, _dropped = _cart_items(request)
+        cart_preview = {
+            'branch_name': current_branch.branch_name if current_branch else None,
+            'items': items,
+        }
         messages.info(
             request,
             'Choosing a branch here will clear your cart — stock and '
             'prices are set per branch.'
         )
-    return render(request, 'orders/select_branch.html', {'branches': branches})
+    return render(request, 'orders/select_branch.html', {
+        'branches': branches,
+        'cart_preview': cart_preview,
+    })
 
 
 # ─────────────────────────────────────────────
@@ -1170,6 +1183,21 @@ def checkout(request):
     if fulfillment_type not in SalesTransaction.FulfillmentType.values:
         messages.error(
             request, 'Choose whether this order is for delivery or for pickup.'
+        )
+        return redirect('orders:cart')
+
+    # Pay at Store means exactly that — settled in person at the counter,
+    # which a Delivery order never puts anyone at. cart.html already flags
+    # this combination and blocks the submit client-side; this is the same
+    # rule enforced server-side, for a tampered form or a JS-less client.
+    if (
+        fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
+        and mode_of_payment == SalesTransaction.ModeOfPayment.PAY_AT_STORE
+    ):
+        messages.error(
+            request,
+            'Pay at Store isn’t available for delivery orders — choose '
+            'Cash on Delivery or GCash, or switch to pickup at the branch.'
         )
         return redirect('orders:cart')
 

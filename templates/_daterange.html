@@ -33,8 +33,8 @@ That matches the existing component rather than introducing a new behaviour.
       {% elif active_range == 'custom' %}{{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}
       {% else %}Last 30 days{% endif %}
     </span>
-    {# Caret is drawn by .daterange-trigger's background-image — the same SVG #}
-    {# chevron .branch-select uses — so it is not a child element here. #}
+    {# Caret is drawn by .daterange-trigger's background-image, so it is not #}
+    {# a child element here. #}
   </summary>
 
   <form method="get" class="daterange-panel">
