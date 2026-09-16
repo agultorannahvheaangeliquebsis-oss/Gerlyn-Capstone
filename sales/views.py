@@ -216,6 +216,8 @@ def _transaction_list_context(request):
     can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
     branches = Branch.objects.all() if show_branch_filter else []
 
+    over_committed_ids, over_committed_count = _over_committed_order_ids(request.user)
+
     context = {
         'transactions': transactions,
         'counts': counts,
@@ -231,6 +233,8 @@ def _transaction_list_context(request):
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': branch_for_user(request.user),
         'can_pos': can_pos,
+        'over_committed_ids': over_committed_ids,
+        'over_committed_count': over_committed_count,
         # Every active filter except `status` — the status tabs below build
         # their href off this (O-3), so adding a new filter to the toolbar
         # (fulfillment, here) can't quietly fall out of the tab links. Same
@@ -244,6 +248,66 @@ def _transaction_list_context(request):
         ),
     }
     return context
+
+
+# S-11 — over-committed orders. An open order (Pending/Approved/Preparing)
+# is "over-committed" when, added to every other open order for the same
+# branch/product, it asks for more than the branch's current floor stock —
+# i.e. the branch has promised more of that item than it can actually pull.
+# Reporting only, per the audit's own scope call for this finding: nothing
+# here reserves or holds stock, so a completed transfer or a cancelled order
+# elsewhere can clear the flag before Preparing without any code path having
+# to release a hold.
+_OPEN_ORDER_STATUSES = [
+    SalesTransaction.OrderStatus.PENDING,
+    SalesTransaction.OrderStatus.APPROVED,
+    SalesTransaction.OrderStatus.PREPARING,
+]
+
+
+def _over_committed_order_ids(user):
+    open_orders = scope_queryset(
+        SalesTransaction.objects.filter(order_status__in=_OPEN_ORDER_STATUSES),
+        user,
+    )
+
+    committed = (
+        SalesItem.objects
+        .filter(transaction__in=open_orders)
+        .values('transaction__branch_id', 'product_id')
+        .annotate(committed_qty=dj_models.Sum('quantity_sold'))
+    )
+    if not committed:
+        return set(), 0
+
+    available = {
+        (row['branch_id'], row['product_id']): row['available']
+        for row in (
+            Inventory.objects.sellable()
+            .values('branch_id', 'product_id')
+            .annotate(available=dj_models.Sum('available_qty'))
+        )
+    }
+
+    over_committed_keys = {
+        (row['transaction__branch_id'], row['product_id'])
+        for row in committed
+        if row['committed_qty'] > available.get((row['transaction__branch_id'], row['product_id']), 0)
+    }
+    if not over_committed_keys:
+        return set(), 0
+
+    key_filter = dj_models.Q()
+    for branch_id, product_id in over_committed_keys:
+        key_filter |= dj_models.Q(transaction__branch_id=branch_id, product_id=product_id)
+
+    order_ids = set(
+        SalesItem.objects
+        .filter(transaction__in=open_orders)
+        .filter(key_filter)
+        .values_list('transaction_id', flat=True)
+    )
+    return order_ids, len(order_ids)
 
 
 def _order_filter_querystring(search_query, channel_filter, branch_filter, fulfillment_filter):
