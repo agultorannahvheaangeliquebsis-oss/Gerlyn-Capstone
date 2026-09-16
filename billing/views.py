@@ -17,6 +17,26 @@ from core.scoping import branch_for_user, scope_queryset, user_can_access_branch
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER, role_required
 
 
+def _payment_methods_for_channel(transaction_type):
+    """Which BillingRecord.PaymentMethod choices make sense for this
+    transaction's channel (B-3) — billing_create used to offer, and accept,
+    all six choices regardless of channel: a Physical (walk-in) sale could
+    be "settled" as Cash on Delivery, and an Online order as a counter Cash
+    or Card swipe, neither of which the counter can act on.
+
+    GCash and Bank Transfer are remote settlements that make sense either
+    way, so both channels keep them. Cash and Card are a counter
+    transaction only a Physical sale has; Cash on Delivery and Pay at Store
+    only ever describe an Online order.
+    """
+    common = [BillingRecord.PaymentMethod.GCASH, BillingRecord.PaymentMethod.BANK_TRANSFER]
+    if transaction_type == SalesTransaction.TransactionType.ONLINE:
+        return common + [
+            BillingRecord.PaymentMethod.COD, BillingRecord.PaymentMethod.PAY_AT_STORE,
+        ]
+    return common + [BillingRecord.PaymentMethod.CASH, BillingRecord.PaymentMethod.CARD]
+
+
 def _validate_proof_of_payment(file):
     """Same real-image check as accounts._validate_avatar — BillingRecord's
     proof_of_payment is a model ImageField, but that only validates through
@@ -239,10 +259,11 @@ def billing_create(request, transaction_id):
             (txn.order_number, reverse('transaction_detail', args=[txn.pk])),
         ]
 
+    allowed_payment_methods = _payment_methods_for_channel(txn.transaction_type)
     form_context = {
         'transaction': txn,
         'record': existing,  # Pass to template so it can pre-fill payment_method if desired
-        'payment_choices': BillingRecord.PaymentMethod.choices,
+        'payment_choices': [(m.value, m.label) for m in allowed_payment_methods],
         'breadcrumb': trail,
     }
 
@@ -257,8 +278,12 @@ def billing_create(request, transaction_id):
         # with the error instead — nothing is persisted. Beyond "present", it
         # must also be one of the real choices — otherwise a tampered POST
         # (or a typo'd value like "Paid") saves a payment method the counter
-        # can't act on, exactly like an unpaid order reading "Paid".
-        if not payment_method or payment_method not in BillingRecord.PaymentMethod.values:
+        # can't act on, exactly like an unpaid order reading "Paid". And
+        # since B-3, "real" means valid for THIS transaction's channel — the
+        # dropdown only ever offers those, but the check has to hold even
+        # against a POST that bypasses it (e.g. Cash on Delivery for a
+        # walk-in sale that was already paid at the counter).
+        if not payment_method or payment_method not in {m.value for m in allowed_payment_methods}:
             messages.error(request, 'Choose a valid payment method to record this payment.')
             return render(request, 'billing/billing_form.html', form_context)
 
