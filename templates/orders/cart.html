@@ -48,7 +48,7 @@ every panel in the app to fix one column.
           {% if it.short %}
             <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Only {{ it.in_stock }} left</span>
             <span class="gv-meta">please reduce the quantity</span>
-          {% elif it.in_stock <= 10 %}
+          {% elif it.stock_status == 'Critical' or it.stock_status == 'Low Stock' %}
             <span class="stock-status stock-status--low"><span class="dot" aria-hidden="true"></span>Only {{ it.in_stock }} left</span>
           {% endif %}
 
