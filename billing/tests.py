@@ -689,9 +689,8 @@ class BillingAPIModulePermissionTests(TestCase):
             content_type='application/json',
         )
 
-        # Same refusal the template view already gave this account: a
-        # redirect away, nothing written.
-        self.assertEqual(response.status_code, 302)
+        # APIs return an explicit authorization error; nothing is written.
+        self.assertEqual(response.status_code, 403)
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
         self.assertIsNone(record.confirmed_by)
@@ -707,14 +706,14 @@ class BillingAPIModulePermissionTests(TestCase):
             f'/billing/{record.pk}/confirm/', {'status': 'Paid'}
         )
 
-        self.assertEqual(api_resp.status_code, 302)
+        self.assertEqual(api_resp.status_code, 403)
         self.assertEqual(web_resp.status_code, 302)
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
 
     def test_staff_without_billing_module_is_refused_the_api_list(self):
         response = self._client(self.staff_without).get('/api/billing/')
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
 
     def test_staff_with_billing_module_still_reaches_the_api(self):
         """The gate must not over-block: a Staff the Owner granted Billing to

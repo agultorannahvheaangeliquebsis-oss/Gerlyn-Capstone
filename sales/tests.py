@@ -285,7 +285,7 @@ class SalesAPIModulePermissionTests(TestCase):
 
     def test_staff_without_sales_module_is_refused_the_api_list(self):
         response = self._client(self.staff_without).get('/api/sales/')
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
 
     def test_staff_without_sales_module_is_refused_the_api_detail(self):
         txn = SalesTransaction.objects.create(
@@ -293,12 +293,12 @@ class SalesAPIModulePermissionTests(TestCase):
             mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
         )
         response = self._client(self.staff_without).get(f'/api/sales/{txn.pk}/')
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
 
     def test_api_and_web_agree_for_a_module_revoked_staff(self):
         api_resp = self._client(self.staff_without).get('/api/sales/')
         web_resp = self._client(self.staff_without).get(reverse('transaction_list'))
-        self.assertEqual(api_resp.status_code, 302)
+        self.assertEqual(api_resp.status_code, 403)
         self.assertEqual(web_resp.status_code, 302)
 
     def test_staff_with_sales_module_still_reaches_the_api_list(self):

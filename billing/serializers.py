@@ -36,7 +36,7 @@ class BillingRecordSerializer(serializers.ModelSerializer):
     def get_proofOfPayment(self, obj):
         if not obj.proof_of_payment:
             return None
-        url = reverse('payment_proof_download', kwargs={'pk': obj.pk})
+        url = reverse('billing_proof', kwargs={'pk': obj.pk})
         request = self.context.get('request')
         return request.build_absolute_uri(url) if request else url
 
