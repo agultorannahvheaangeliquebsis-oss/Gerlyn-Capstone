@@ -93,6 +93,26 @@
     </table>
   </div>
 
+  {% comment %}
+  S-10 — the page named the branch but gave no way to actually reach it if
+  something about the order needs sorting out. Deliberately just contact
+  info, not a self-serve cancel button: whether an order can still be
+  changed depends on state the shopper isn't shown here (has staff started
+  preparing it, is it past the point of no return), so "cancel" stays a
+  staff-side action reached through the branch, not a button on this page.
+  {% endcomment %}
+  <div class="card card-pad mt-4">
+    <h3 class="mb-4">Questions about this order?</h3>
+    <p class="gv-meta mb-4">For changes or cancellations, contact the branch handling it directly.</p>
+    <div class="row-between wrap">
+      <div>
+        <div style="font-weight:600;">{{ sale.branch.branch_name }}</div>
+        {% if sale.branch.location %}<div class="gv-meta">{{ sale.branch.location }}</div>{% endif %}
+      </div>
+      <a class="btn" href="{% url 'about' %}#branches">All branches</a>
+    </div>
+  </div>
+
   <div class="card mt-4 table-wrap">
     <table class="gv-table">
       <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Subtotal</th></tr></thead>
