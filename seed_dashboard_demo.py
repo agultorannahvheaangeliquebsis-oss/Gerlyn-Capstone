@@ -88,7 +88,6 @@ for days_ago in range(20, -1, -1):
             total_amount=total,          # complete before the signal sees it
             transaction_type=channel,
             mode_of_payment=payment,
-            order_type='Retail',
             order_status='Completed',
         )
         txn.save()  # auto_now_add sets transaction_date = now(); fixed below
@@ -151,7 +150,7 @@ for days_ago in range(14, -1, -1):
         qty = random.randint(5, 20)
         # Decimal('0.7'), not 0.7 — prices are Decimal and `Decimal * float`
         # raises TypeError, which aborted this script before it finished.
-        cost = (product.wholesale_price or product.unit_price) * Decimal('0.7')
+        cost = product.bulk_floor_price * Decimal('0.7')
         ProcurementItem.objects.create(
             procurement=proc, product=product,
             quantity_ordered=qty, quantity_received=qty, cost_price=cost,

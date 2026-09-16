@@ -1,7 +1,6 @@
 # sales/models.py
 # Changes from original:
 #   - Added order_number (auto-generated)
-#   - Added order_type (Retail / Wholesale) — separate from transaction_type
 #   - Added order_status (lifecycle: Pending → Approved → Preparing → Completed → Cancelled)
 #   - Added delivery_address (for Online orders)
 #   - All original fields untouched
@@ -49,10 +48,6 @@ class SalesTransaction(models.Model):
         # gateway is integrated (see Chapter 1, Limitation 1).
         COD = 'Cash on Delivery', 'Cash on Delivery'
         PAY_AT_STORE = 'Pay at Store', 'Pay at Store'
-
-    class OrderType(models.TextChoices):        # <-- new: pricing tier
-        RETAIL = 'Retail', 'Retail'
-        WHOLESALE = 'Wholesale', 'Wholesale'
 
     class OrderStatus(models.TextChoices):      # <-- new: lifecycle
         PENDING = 'Pending', 'Pending'
@@ -111,11 +106,6 @@ class SalesTransaction(models.Model):
     order_number = models.CharField(
         max_length=20, unique=True, blank=True,
         help_text="Auto-generated e.g. ORD-2026-001"
-    )
-    order_type = models.CharField(
-        max_length=10, choices=OrderType.choices,
-        default=OrderType.RETAIL,
-        help_text="Retail uses unit_price; Wholesale uses wholesale_price"
     )
     order_status = models.CharField(
         max_length=10, choices=OrderStatus.choices,

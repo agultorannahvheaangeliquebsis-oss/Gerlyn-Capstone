@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -18,19 +19,6 @@ from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesTransaction
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
-
-
-def price_for(product, order_type):
-    """
-    The price to charge for a product on this kind of order.
-
-    Chapter 1 describes Gerlyn as a retail AND wholesale business, so a
-    Wholesale order bills at `wholesale_price`. Not every product has one —
-    those fall back to the retail price rather than being sold at ₱0.
-    """
-    if order_type == SalesTransaction.OrderType.WHOLESALE and product.wholesale_price:
-        return product.wholesale_price
-    return product.unit_price
 
 
 def _person_name(user):
@@ -117,8 +105,21 @@ def _pos_context(request):
     `branches` for its filter toolbar — a different list answering a
     different question)."""
     user_branch = _pos_user_branch(request)
+    # Tiers travel to the page as JSON per product so the row JS can show the
+    # price the cashier is about to charge as the quantity is typed. It is a
+    # preview only — transaction_add re-resolves every line server-side.
+    pos_products = list(
+        Product.objects.select_related('category')
+        .prefetch_related('price_tiers')
+        .all()
+    )
+    for product in pos_products:
+        product.tiers_json = json.dumps([
+            [tier.min_quantity, float(tier.unit_price)]
+            for tier in product.price_tiers.all()
+        ])
     return {
-        'pos_products': Product.objects.select_related('category').all(),
+        'pos_products': pos_products,
         'pos_branches': Branch.objects.all() if not user_branch else [],
         'pos_user_branch': user_branch,
         'pos_stock_map': _pos_stock_map(user_branch),
@@ -126,7 +127,6 @@ def _pos_context(request):
             c for c in SalesTransaction.ModeOfPayment.choices
             if c[0] in POS_PAYMENT_METHODS
         ],
-        'pos_order_type_choices': SalesTransaction.OrderType.choices,
         # Only the two real claims — "None" is the absence of a claim, and
         # rendering it as a third radio invites picking it as if it were one.
         'pos_discount_choices': [
@@ -155,7 +155,6 @@ def _transaction_list_context(request):
     status_filter = request.GET.get('status', '')
     channel_filter = request.GET.get('channel', '')
     branch_filter = request.GET.get('branch', '')
-    type_filter = request.GET.get('type', '')
     fulfillment_filter = request.GET.get('fulfillment', '')
 
     if search_query:
@@ -169,8 +168,6 @@ def _transaction_list_context(request):
         transactions = transactions.filter(transaction_type=channel_filter)
     if branch_filter:
         transactions = transactions.filter(branch_id=branch_filter)
-    if type_filter:
-        transactions = transactions.filter(order_type=type_filter)
     if fulfillment_filter:
         transactions = transactions.filter(fulfillment_type=fulfillment_filter)
 
@@ -198,7 +195,6 @@ def _transaction_list_context(request):
         'status_filter': status_filter,
         'channel_filter': channel_filter,
         'branch_filter': branch_filter,
-        'type_filter': type_filter,
         'fulfillment_filter': fulfillment_filter,
         'branches': branches,
         # The topbar branch chip renders this — same pattern as Floor Stock,
@@ -209,18 +205,21 @@ def _transaction_list_context(request):
         'can_pos': can_pos,
         # Every active filter except `status` — the status tabs below build
         # their href off this (O-3), so adding a new filter to the toolbar
-        # (fulfillment, here) can't quietly fall out of the tab links the
-        # way `type` had until now. Same pattern as orders.customer_views'
-        # _filter_querystring for the storefront catalog rail.
+        # (fulfillment, here) can't quietly fall out of the tab links. Same
+        # pattern as orders.customer_views' _filter_querystring for the
+        # storefront catalog rail. `type` (Retail/Wholesale) is gone along
+        # with SalesTransaction.order_type — a quantity tier is a per-line
+        # fact now, not a per-sale one, so there is no single type left for a
+        # sale to be filtered by.
         'filter_qs': _order_filter_querystring(
-            search_query, channel_filter, branch_filter, type_filter, fulfillment_filter
+            search_query, channel_filter, branch_filter, fulfillment_filter
         ),
     }
     return context
 
 
-def _order_filter_querystring(search_query, channel_filter, branch_filter, type_filter, fulfillment_filter):
-    """`q`, `channel`, `branch`, `type` and `fulfillment`, urlencoded, without
+def _order_filter_querystring(search_query, channel_filter, branch_filter, fulfillment_filter):
+    """`q`, `channel`, `branch` and `fulfillment`, urlencoded, without
     `status` — the Order Console's status tabs append their own `status=`."""
     params = QueryDict(mutable=True)
     if search_query:
@@ -229,8 +228,6 @@ def _order_filter_querystring(search_query, channel_filter, branch_filter, type_
         params['channel'] = channel_filter
     if branch_filter:
         params['branch'] = branch_filter
-    if type_filter:
-        params['type'] = type_filter
     if fulfillment_filter:
         params['fulfillment'] = fulfillment_filter
     return params.urlencode()
@@ -777,7 +774,7 @@ def transaction_add(request):
     # (the Owner, who chooses one on the form).
     branch_id = user_branch.id if user_branch else request.POST.get('branch')
     # Validated against the model's choices, same fall-back-to-default shape as
-    # order_type and discount_type below — an unrecognised value (a typo, a
+    # discount_type below — an unrecognised value (a typo, a
     # tampered form) becomes Cash rather than being written to the column
     # verbatim, which broke the Billing report's payment breakdown and, worse,
     # slipped the amount-tendered check below (only "Cash" triggers it).
@@ -792,9 +789,6 @@ def transaction_add(request):
     mode_of_payment = request.POST.get('mode_of_payment') or SalesTransaction.ModeOfPayment.CASH
     if mode_of_payment not in POS_PAYMENT_METHODS:
         mode_of_payment = SalesTransaction.ModeOfPayment.CASH
-    order_type = request.POST.get('order_type') or SalesTransaction.OrderType.RETAIL
-    if order_type not in SalesTransaction.OrderType.values:
-        order_type = SalesTransaction.OrderType.RETAIL
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity')
 
@@ -921,13 +915,24 @@ def transaction_add(request):
         # amount_due=0 BillingRecord) and patching both afterward.
         #
         # sales.pricing owns the VAT and PWD/Senior arithmetic; this only
-        # decides the price TIER (retail vs wholesale) and hands the lines
-        # over. Keeping the two apart is what stops a discounted wholesale
-        # line from being computed off the retail price by accident.
+        # decides the price TIER and hands the lines over. Keeping the two
+        # apart is what stops a discounted bulk line from being computed off
+        # the retail price by accident.
+        #
+        # Quantity is totalled per product before the tier is read, so ringing
+        # the same item up on two rows earns the same break as ringing it up
+        # once — otherwise 5 + 5 would pay retail where a single 10 pays bulk.
+        qty_by_product = {}
+        for product_id, qty in line_items:
+            key = str(product_id)
+            qty_by_product[key] = qty_by_product.get(key, 0) + qty
+
         cart_lines = []
         for product_id, qty in line_items:
             product = products_by_id[str(product_id)]
-            cart_lines.append((product, qty, price_for(product, order_type)))
+            cart_lines.append(
+                (product, qty, product.price_at(qty_by_product[str(product_id)]))
+            )
 
         priced = price_cart(cart_lines, discount_type=discount_type)
         total = priced['total_amount']
@@ -952,7 +957,6 @@ def transaction_add(request):
                         staff=request.user if request.user.role == STAFF else None,
                         transaction_type=SalesTransaction.TransactionType.PHYSICAL,
                         mode_of_payment=mode_of_payment,
-                        order_type=order_type,
                         order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
                         total_amount=total,
                         discount_type=discount_type,

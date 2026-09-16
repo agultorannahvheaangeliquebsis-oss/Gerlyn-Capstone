@@ -2557,30 +2557,44 @@ body.shop-auth {
   font-variant-numeric: tabular-nums; color: var(--price-fg);
 }
 .price-unit { font: 400 14px/1 var(--font-sans); color: var(--ink-500); }
-.price-bulk {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
-  margin: 12px 0 0;
-  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-700);
+
+/* Buy-more-save-more ladder (partials/_tier_ladder.html). Same border/radius
+   language as the rest of the page (.avail-list, .qty-stepper) rather than a
+   card-style redesign — this is a new component, not a new look for the
+   page. */
+.tier-ladder-label {
+  font: 600 12.5px/1 var(--font-sans); color: var(--ink-700);
+  margin: 0 0 8px;
 }
-/* Was #FDE68A on #78350F — an amber pair belonging to no token in the
-   system, and near enough to --warn-bg/--warn-fg that it read as a warning
-   on a price. BULK is a product flag, not a status: it says a cheaper unit
-   price exists at volume, which is good news or no news, never a problem.
-
-   So it goes onto the brand tokens rather than the status ones, the same
-   family .about-badge uses for the other non-status mark on the
-   storefront. Deliberately NOT --warn-*: the moment this is amber it
-   is claiming a state it does not have.
-
-   Inverted against those two, though: this badge lives inside .price-band,
-   which is itself --green-50, so a --green-50 fill here disappears into its
-   own ground. It takes the surface as its fill and the brand as its edge —
-   the same palette, read the other way up. */
-.bulk-badge {
-  padding: 3px 8px; border-radius: 3px; flex: none;
-  background: var(--surface); color: var(--action-700);
-  border: 1px solid var(--green-300);
-  font: 700 10.5px/1.4 var(--font-sans); letter-spacing: .05em;
+.tier-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: 4px;
+  font: 400 14px/1.3 var(--font-sans); color: var(--ink-900);
+}
+.tier-row:last-child { margin-bottom: 0; }
+/* Only the interactive rendering gets the pointer/hover/selected treatment —
+   the plain (non-buyable) rendering has no radio and nothing happens on
+   click, so it must not look clickable. */
+.tier-row--pick {
+  cursor: pointer;
+  transition: border-color .12s ease, background-color .12s ease;
+}
+.tier-row--pick:hover { border-color: var(--green-300); background: var(--green-50); }
+.tier-row--pick.is-selected { border-color: var(--action); background: var(--green-50); }
+.tier-row input[type="radio"] { flex: none; margin: 0; accent-color: var(--action); }
+.tier-row-main {
+  display: flex; flex: 1; align-items: baseline; flex-wrap: wrap; gap: 10px;
+}
+.tier-row-qty { font-weight: 600; }
+.tier-row-price { font-size: 13px; color: var(--ink-500); }
+/* Same brand-token badge .bulk-badge used to be, not --warn-*: a lower price
+   at volume is good news, never a warning, so it does not borrow the status
+   palette. */
+.tier-row-pct {
+  flex: none; padding: 3px 8px; border-radius: 3px;
+  background: var(--ok-bg); color: var(--ok-fg);
+  font: 700 11.5px/1.4 var(--font-sans);
 }
 
 /* Stacked, not side by side: Quantity on its own row, then the CTAs beneath

@@ -188,7 +188,6 @@ let it print too, so nobody is handed a receipt with a broken figure.
     <div><span class="k">Receipt No.</span><span class="v">{{ transaction.order_number }}</span></div>
     <div><span class="k">Date</span><span class="v">{{ transaction.transaction_date|date:"d M Y, g:i A" }}</span></div>
     <div><span class="k">Channel</span><span class="v">{% if transaction.transaction_type == "Online" %}Online{% else %}In-Store{% endif %}</span></div>
-    <div><span class="k">Price type</span><span class="v">{{ transaction.get_order_type_display }}</span></div>
     <div><span class="k">Customer</span><span class="v">{% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}{% else %}Walk-in{% endif %}</span></div>
     <div><span class="k">Served by</span><span class="v">{{ served_by_name|default:"—" }}</span></div>
     <div><span class="k">Payment</span><span class="v">{{ transaction.mode_of_payment }}{% if billing.reference_number %} · {{ billing.reference_number }}{% endif %}</span></div>

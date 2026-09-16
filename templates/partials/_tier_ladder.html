@@ -1,0 +1,47 @@
+{% load shop_extras %}
+{% comment %}
+Buy-more-save-more ladder. Params:
+  product      required
+  interactive  True only when a live quantity input exists on the page to
+               sync a row click into (product_detail's `can_buy`) — a guest,
+               a staff account, no branch chosen yet, or the product out of
+               stock all render the exact same numbers as plain rows instead,
+               because there is no working input to hand a click to.
+
+Every row is a REAL price the cart and checkout will actually charge —
+Product.price_at(quantity) is the one place that price is decided, and these
+rows only ever print prices that came from a ProductPriceTier row, never a
+number invented for display.
+
+Nothing renders at all when the product carries no tiers: a ladder with only
+its own retail price on it is not a ladder, and an empty "Buy more, save
+more" label above a single row would be advertising a deal that isn't there.
+{% endcomment %}
+{% if product.price_tiers.all %}
+<div class="tier-ladder{% if interactive %} tier-ladder--pick{% endif %}"{% if interactive %} data-tier-ladder{% endif %}>
+  <p class="tier-ladder-label">Buy more, save more</p>
+
+  <label class="tier-row{% if interactive %} tier-row--pick is-selected{% endif %}"
+         {% if interactive %}data-tier-row data-tier-qty="1"{% endif %}>
+    {% if interactive %}<input type="radio" name="tier_pick" value="1" checked>{% endif %}
+    <span class="tier-row-main">
+      <span class="tier-row-qty">1 {{ product.unit_of_measure|lower }}</span>
+      <span class="tier-row-price">₱{{ product.unit_price|floatformat:2 }} each</span>
+    </span>
+  </label>
+
+  {% for tier in product.price_tiers.all %}
+    {% with pct=tier.unit_price|percent_off:product.unit_price %}
+    <label class="tier-row{% if interactive %} tier-row--pick{% endif %}"
+           {% if interactive %}data-tier-row data-tier-qty="{{ tier.min_quantity }}"{% endif %}>
+      {% if interactive %}<input type="radio" name="tier_pick" value="{{ tier.min_quantity }}">{% endif %}
+      <span class="tier-row-main">
+        <span class="tier-row-qty">{{ tier.min_quantity }}+ {{ product.unit_of_measure|lower }}</span>
+        <span class="tier-row-price">₱{{ tier.unit_price|floatformat:2 }} each</span>
+      </span>
+      {% if pct > 0 %}<span class="tier-row-pct">{{ pct }}% off</span>{% endif %}
+    </label>
+    {% endwith %}
+  {% endfor %}
+</div>
+{% endif %}
