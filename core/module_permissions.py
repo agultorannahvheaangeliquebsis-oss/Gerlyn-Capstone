@@ -39,20 +39,28 @@ REPORTS = 'reports'
 MODULE_REGISTRY = {
     PRODUCTS: (
         'Product Master List',
-        ['product_list', 'product_detail', 'category_list'],
+        ['product_list', 'product_detail', 'category_list',
+         'api-product-list', 'api-product-detail',
+         'api-category-list', 'api-category-detail'],
     ),
     FLOOR_STOCK: (
         'Floor Stock',
-        ['inventory_list', 'inventory_edit', 'stock_adjustment_add'],
+        ['inventory_list', 'inventory_edit', 'stock_adjustment_add',
+         'api-inventory-list', 'api-inventory-detail',
+         'api-batch-list', 'api-batch-detail', 'api-stock-movements'],
     ),
     WAREHOUSE_STOCK: (
         'Warehouse Stock',
-        ['warehouse_stock_list', 'warehouse_stock_edit', 'warehouse_stock_request'],
+        ['warehouse_stock_list', 'warehouse_stock_edit', 'warehouse_stock_request',
+         'api-warehouse-list', 'api-warehouse-detail',
+         'api-warehouse-stock-list', 'api-warehouse-stock-detail'],
     ),
     WITHDRAWALS: (
         'Stock Withdrawals',
         ['transfer_list', 'transfer_detail', 'transfer_confirm_receipt',
-         'transfer_flag_discrepancy'],
+         'transfer_flag_discrepancy', 'api-stock-transfer-list',
+         'api-stock-transfer-detail', 'api-stock-transfer-approve',
+         'api-stock-transfer-release', 'api-stock-transfer-acknowledge'],
     ),
     ALERTS: (
         'Alerts Center',
@@ -61,15 +69,19 @@ MODULE_REGISTRY = {
     SALES_POS: (
         'Sales / Order Console',
         ['transaction_list', 'transaction_add', 'transaction_detail',
-         'transaction_set_status'],
+         'transaction_set_status', 'api-sales-list', 'api-sales-detail'],
     ),
     BILLING: (
         'Billing',
-        ['billing_list', 'billing_detail', 'billing_create', 'billing_confirm'],
+        ['billing_list', 'billing_detail', 'billing_create', 'billing_confirm',
+         'payment_proof_download', 'api-billing-list', 'api-billing-detail',
+         'api-billing-pay', 'api-billing-confirm'],
     ),
     PROCUREMENT: (
         'Procurement / Purchase Orders',
-        ['procurement_list', 'procurement_detail', 'supplier_list'],
+        ['procurement_list', 'procurement_detail', 'supplier_list',
+         'api-procurement-list', 'api-procurement-detail',
+         'api-procurement-status', 'api-procurement-suppliers'],
     ),
     DELIVERIES: (
         'Deliveries',
@@ -78,7 +90,9 @@ MODULE_REGISTRY = {
     REPORTS: (
         'Reports Dashboard',
         ['reports_dashboard', 'sales_report', 'inventory_report',
-         'procurement_report', 'billing_report'],
+         'procurement_report', 'billing_report', 'api-reports-dashboard',
+         'api-reports-sales', 'api-reports-inventory',
+         'api-reports-procurement'],
     ),
 }
 

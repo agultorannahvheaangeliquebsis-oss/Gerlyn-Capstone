@@ -258,6 +258,7 @@ REST_FRAMEWORK = {
 
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
+        "core.permissions.HasModuleAccess",
     ],
 }
 
@@ -326,9 +327,10 @@ MEDIA_ROOT = BASE_DIR / 'media'
 #   * Local dev / no credentials  -> FileSystemStorage above (MEDIA_ROOT). The
 #     /media/ route in gerlyn_is/urls.py serves it. Nothing extra to install.
 #   * Production with Cloudinary  -> set CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET
-#     and uploads (product images, GCash proofs) go to Cloudinary's CDN. This
-#     survives redeploys on ephemeral hosts (Railway/Render) and scales the
-#     media serving off the app server. `image.url` returns the CDN link.
+#     and public product/avatar uploads go to Cloudinary's CDN. Payment proofs
+#     deliberately use billing.storage.PaymentProofStorage instead, so they
+#     cannot inherit a public CDN URL. Mount MEDIA_ROOT on persistent private
+#     storage in production.
 USE_CLOUDINARY = bool(os.environ.get('CLOUDINARY_CLOUD_NAME'))
 if USE_CLOUDINARY:
     INSTALLED_APPS += ['cloudinary', 'cloudinary_storage']

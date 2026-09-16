@@ -1,6 +1,10 @@
 from django.db import models
 from sales.models import SalesTransaction
 from accounts.models import User
+from .storage import PaymentProofStorage
+
+
+payment_proof_storage = PaymentProofStorage()
 
 
 class BillingRecord(models.Model):
@@ -36,7 +40,8 @@ class BillingRecord(models.Model):
         help_text="GCash/bank reference number, if applicable"
     )
     proof_of_payment = models.ImageField(
-        upload_to='payment_proofs/', null=True, blank=True,
+        upload_to='payment_proofs/', storage=payment_proof_storage,
+        null=True, blank=True,
         help_text="Optional uploaded screenshot/photo of payment"
     )
     status = models.CharField(

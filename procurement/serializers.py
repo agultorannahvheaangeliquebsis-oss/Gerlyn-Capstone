@@ -8,6 +8,7 @@ from .models import Procurement, ProcurementItem
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
 from branches.models import Branch
+from core.scoping import user_can_access_branch
 
 
 # =============================================================================
@@ -173,6 +174,11 @@ class ProcurementWriteSerializer(serializers.Serializer):
     def validate_branchId(self, value):
         if not Branch.objects.filter(id=value).exists():
             raise serializers.ValidationError("Branch not found.")
+        request = self.context.get('request')
+        if not request or not user_can_access_branch(request.user, value):
+            raise serializers.ValidationError(
+                "You do not have access to this branch."
+            )
         return value
 
     def validate_supplierId(self, value):

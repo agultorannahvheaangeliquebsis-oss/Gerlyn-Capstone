@@ -57,7 +57,7 @@
   <div class="card card-pad">
     <h3 class="mb-4">Proof of Payment</h3>
     {% if record.proof_of_payment %}
-      <img src="{{ record.proof_of_payment.url }}" alt="Proof of payment"
+      <img src="{% url 'payment_proof_download' record.pk %}" alt="Proof of payment"
            style="max-width:100%; border-radius:var(--r-card); border:1px solid var(--line);">
     {% else %}
       <div class="empty">

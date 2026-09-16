@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
+from billing.views import payment_proof_download
 
 from core.views import (
     about_view, db_latency_check, download_view, health_check,
@@ -58,7 +59,22 @@ urlpatterns = [
 # NOTE: hosts like Railway have an EPHEMERAL filesystem — uploads are wiped on
 # every redeploy unless MEDIA_ROOT is on a mounted volume. See ROADMAP.md.
 urlpatterns += [
+    path(
+        'billing/<int:pk>/payment-proof/',
+        payment_proof_download,
+        name='payment_proof_download',
+    ),
+    # Product images and avatars are intentionally public. Payment proofs are
+    # not covered by either route and must go through the authorized view
+    # above.
     re_path(
-        r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}
+        r'^media/products/(?P<path>.*)$',
+        serve,
+        {'document_root': settings.MEDIA_ROOT / 'products'},
+    ),
+    re_path(
+        r'^media/avatars/(?P<path>.*)$',
+        serve,
+        {'document_root': settings.MEDIA_ROOT / 'avatars'},
     ),
 ]

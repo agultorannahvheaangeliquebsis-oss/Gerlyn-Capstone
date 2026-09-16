@@ -21,7 +21,9 @@ from django.db.models import Q
 from xhtml2pdf import pisa
 
 from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
-from core.permissions import OWNER, BRANCH_MANAGER, STAFF, SUPPLIER, role_required
+from core.permissions import (
+    BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
+)
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -1135,7 +1137,7 @@ class ProcurementListCreateAPIView(APIView):
     GET  /api/procurement/        -> list all POs (filtered by role)
     POST /api/procurement/        -> create a new PO
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get_queryset(self, user):
         qs = Procurement.objects.select_related(
@@ -1146,12 +1148,13 @@ class ProcurementListCreateAPIView(APIView):
         ).prefetch_related('items__product').order_by('-id')
 
         # Role-based filtering — mirrors the original template view logic
+        if user.role == User.Role.OWNER:
+            return qs
         if user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
             return scope_queryset(qs, user)
-        elif user.role == User.Role.SUPPLIER:
+        if user.role == User.Role.SUPPLIER:
             return qs.filter(supplier=user)
-        # OWNER sees all
-        return qs
+        return qs.none()
 
     def get(self, request):
         procurements = self.get_queryset(request.user)
@@ -1183,7 +1186,7 @@ class ProcurementDetailAPIView(APIView):
     GET   /api/procurement/<pk>/   -> retrieve single PO
     DELETE /api/procurement/<pk>/  -> cancel a Draft PO only
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get_object(self, pk):
         return get_object_or_404(
@@ -1251,7 +1254,7 @@ class ProcurementStatusUpdateAPIView(APIView):
           Inventory (floor stock) directly, matching delivery_receive
         - Auto-creates a Batch record per item for FEFO expiry tracking
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     # Valid role -> allowed transitions map
     ALLOWED_TRANSITIONS = {
@@ -1310,9 +1313,17 @@ class SupplierListAPIView(APIView):
     `suppliers = User.objects.filter(role=User.Role.SUPPLIER)` queryset
     the template view (procurement_add) already uses.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
+        if request.user.role not in [
+            User.Role.OWNER,
+            User.Role.BRANCH_MANAGER,
+        ]:
+            return Response(
+                {'detail': 'Permission denied.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         suppliers = User.objects.filter(
             role=User.Role.SUPPLIER
         ).select_related('supplier_profile')

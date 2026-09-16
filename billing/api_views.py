@@ -14,6 +14,7 @@ from .serializers import (
     BillingConfirmSerializer,
 )
 from accounts.models import User
+from core.permissions import HasModuleAccess
 
 
 # Branch scoping lives in core.scoping so the API and the template views can
@@ -42,7 +43,7 @@ def user_can_access_billing_record(user, record):
 
 class BillingRecordListAPIView(APIView):
     """GET /api/billing/ — scoped like billing_list."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
         qs = BillingRecord.objects.select_related('transaction', 'transaction__branch').all()
@@ -62,7 +63,7 @@ class BillingRecordListAPIView(APIView):
 
 class BillingRecordDetailAPIView(APIView):
     """GET /api/billing/<pk>/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request, pk):
         record = get_object_or_404(
@@ -78,7 +79,7 @@ class BillingPaymentAPIView(APIView):
     PATCH /api/billing/<pk>/pay/ — mirrors billing_create: fills in payment
     method/reference/proof on the auto-created Pending record.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
     parser_classes = [MultiPartParser, FormParser]
 
     def patch(self, request, pk):
@@ -101,7 +102,7 @@ class BillingPaymentAPIView(APIView):
 
 class BillingConfirmAPIView(APIView):
     """PATCH /api/billing/<pk>/confirm/ — mirrors billing_confirm."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def patch(self, request, pk):
         if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:

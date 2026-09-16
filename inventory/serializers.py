@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from branches.models import Branch
 from .models import (
     Product, ProductCategory, Inventory, Warehouse, WarehouseStock,
     Batch, StockTransfer, StockTransferItem, StockMovement,
@@ -120,7 +121,9 @@ class ProductWriteSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 class WarehouseSerializer(serializers.ModelSerializer):
-    branchId = serializers.PrimaryKeyRelatedField(source='branch', read_only=True)
+    branchId = serializers.PrimaryKeyRelatedField(
+        source='branch', queryset=Branch.objects.all()
+    )
     branchName = serializers.CharField(source='branch.branch_name', read_only=True)
 
     class Meta:
