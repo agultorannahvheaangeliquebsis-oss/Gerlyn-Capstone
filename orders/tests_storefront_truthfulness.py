@@ -80,9 +80,15 @@ class ProductDetailStockIsBranchScopedTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['product'].on_hand, 0)
-        # And the panel names the branch rather than implying the whole store
-        # is out, since the breakdown below shows Makinabang holding 40.
-        self.assertContains(response, 'Out of stock at Tarcan')
+        # And the chip names the branch rather than implying the whole store
+        # is out, since the breakdown below shows Makinabang holding 40. Two
+        # assertions, not one 'Out of stock at Tarcan' string: the chip and
+        # its branch caption are separate elements (.stock-status and
+        # .pdp-stock-where) since the redundant second "Out of stock at
+        # Tarcan" button beneath them was removed as a duplicate of this
+        # same chip.
+        self.assertContains(response, 'Out of stock')
+        self.assertContains(response, 'at Tarcan')
 
     def test_stock_is_the_branch_figure_when_the_chosen_branch_has_some(self):
         self._shop_at(self.elsewhere)

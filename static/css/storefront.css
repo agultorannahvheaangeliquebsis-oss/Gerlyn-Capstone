@@ -2171,10 +2171,12 @@ body.shop-auth {
   position: relative; display: flex; align-items: center; gap: 10px;
   padding: 7px 8px; border-radius: 3px; cursor: pointer;
   font: 400 13.5px/1.35 var(--font-sans); color: var(--ink-700);
-  transition: background .12s ease, color .12s ease;
   min-height: 34px;
 }
-.rail-check:hover { background: var(--green-50); color: var(--action-700); }
+/* No row-wide tint on hover — the row's own background stays put. Only the
+   drawn box (the "icon" a shopper is actually pointing at) recolours, via
+   .rail-check:hover .rail-box below. */
+.rail-check:hover .rail-box { border-color: var(--action); }
 .rail-check input {
   position: absolute; inset: 0; width: 100%; height: 100%;
   margin: 0; opacity: 0; cursor: pointer;
@@ -2237,9 +2239,9 @@ body.shop-auth {
   display: inline-grid; place-items: center;
   background: none; border: 0; border-radius: 4px;
   color: var(--ink-400); cursor: pointer;
-  transition: background .12s ease, color .12s ease;
+  transition: color .12s ease;
 }
-.rail-disclose:hover { background: var(--green-50); color: var(--action-700); }
+.rail-disclose:hover { color: var(--action-700); }
 .rail-disclose:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 /* Chevron points down while the section is closed ("open me"), and flips up
    once it is open. aria-expanded is the source of truth, set by the script. */

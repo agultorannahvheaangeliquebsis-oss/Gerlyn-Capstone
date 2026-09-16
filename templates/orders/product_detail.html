@@ -134,12 +134,12 @@ can actually answer.
         <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
       {% elif product.on_hand == 0 %}
         {% comment %}
-        Out of stock AT THE CHOSEN BRANCH. Naming it matters: the panel below
-        may well show the product on another branch's shelf, and without the
-        branch named the disabled button reads as "the store has none".
+        No repeat of "out of stock at <branch>" here — the .pdp-chips row
+        above already says it, and Available At (further down the same page)
+        already lists every other branch, so a second button and a "see
+        below" pointer were saying both of those a second time and telling
+        the shopper nothing the two panels hadn't already.
         {% endcomment %}
-        <button class="btn" disabled>Out of stock at {{ selected_branch.branch_name|default:"this branch" }}</button>
-        <p class="pdp-note">It may be on another branch's shelf — see Available at, below.</p>
       {% else %}
         {% comment %}
         One <form>, two submits, differing only in where the shopper lands:
