@@ -177,6 +177,103 @@ class CatalogFilteringTests(CategoryTreeTestCase):
             {'Fresh Beef': 1, 'Fresh Chicken': 1},
         )
 
+    def test_rail_counts_follow_one_and_multiple_branch_filters(self):
+        other = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        Inventory.objects.create(
+            product=self.sirloin, branch=other,
+            quantity_on_hand=4, reorder_level=1,
+        )
+        other_rice = Product.objects.create(
+            sku_code='SKU-RICE-OTHER', product_name='Jasmine Rice',
+            category=self.rice_dept, unit_of_measure='Piece',
+            unit_price=Decimal('90.00'),
+        )
+        Inventory.objects.create(
+            product=other_rice, branch=other,
+            quantity_on_hand=7, reorder_level=1,
+        )
+
+        other_only = self.client.get(
+            reverse('orders:catalog'), {'branch': other.pk}
+        )
+        other_counts = {
+            category.category_name: category.stock_count
+            for category in other_only.context['categories']
+        }
+        self.assertEqual(other_counts, {'Fresh': 1, 'Rice & Grains': 1})
+
+        combined = self.client.get(reverse('orders:catalog'), {
+            'branch': [self.branch.pk, other.pk],
+        })
+        combined_counts = {
+            category.category_name: category.stock_count
+            for category in combined.context['categories']
+        }
+        self.assertEqual(combined_counts, {'Fresh': 2, 'Rice & Grains': 2})
+        self.assertEqual(len(combined.context['rows']), 4)
+
+        primary_only = self.client.get(
+            reverse('orders:catalog'), {'branch': self.branch.pk}
+        )
+        primary_counts = {
+            category.category_name: category.stock_count
+            for category in primary_only.context['categories']
+        }
+        self.assertEqual(primary_counts, {'Fresh': 2, 'Rice & Grains': 1})
+
+    def test_category_selection_does_not_narrow_category_facet_counts(self):
+        response = self.client.get(reverse('orders:catalog'), {
+            'branch': self.branch.pk,
+            'category': self.beef.pk,
+        })
+
+        counts = {
+            category.category_name: category.stock_count
+            for category in response.context['categories']
+        }
+        self.assertEqual(counts, {'Fresh': 2, 'Rice & Grains': 1})
+
+    def test_live_response_contains_branch_filtered_category_facet(self):
+        other = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        Inventory.objects.create(
+            product=self.sirloin, branch=other,
+            quantity_on_hand=4, reorder_level=1,
+        )
+
+        response = self.client.get(
+            reverse('orders:catalog'), {'branch': other.pk},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        payload = response.json()
+        self.assertIn('category_html', payload)
+        self.assertIn('Fresh Beef', payload['category_html'])
+        self.assertNotIn('Fresh Chicken', payload['category_html'])
+        self.assertIn('(1)', payload['category_html'])
+
+    def test_selected_zero_count_category_survives_live_facet_refresh(self):
+        other = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        Inventory.objects.create(
+            product=self.sirloin, branch=other,
+            quantity_on_hand=4, reorder_level=1,
+        )
+
+        response = self.client.get(reverse('orders:catalog'), {
+            'branch': other.pk,
+            'category': self.chicken.pk,
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        category_html = response.json()['category_html']
+        self.assertIn('Fresh Chicken', category_html)
+        self.assertIn('(0)', category_html)
+        self.assertIn('checked', category_html)
+
     def test_a_department_counts_its_own_products_and_its_shelves(self):
         self._stock('SKU-LOOSE', 'Rice 5kg', self.rice_dept, '280.00')
         shelf = ProductCategory.objects.create(
@@ -281,8 +378,8 @@ class CatalogFilteringTests(CategoryTreeTestCase):
 
         self.assertEqual(response.context['active_chips'], [])
 
-    def test_live_search_still_answers_json(self):
-        """The rail is not rebuilt on the XHR path — it must not 500 either."""
+    def test_live_search_answers_all_live_regions_as_json(self):
+        """XHR returns the grid, summary, and recalculated category facet."""
         response = self.client.get(
             reverse('orders:catalog'), {'q': 'Sirloin'},
             HTTP_X_REQUESTED_WITH='XMLHttpRequest',
@@ -290,6 +387,7 @@ class CatalogFilteringTests(CategoryTreeTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('grid_html', response.json())
+        self.assertIn('category_html', response.json())
 
 
 class CategoryDepthTests(TestCase):

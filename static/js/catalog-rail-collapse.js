@@ -28,9 +28,11 @@
     region.hidden = !expand;
   }
 
-  function wire(button) {
+  function wire(button, openRegions) {
+    if (button.dataset.railDisclosureWired === 'true') return;
     var region = document.getElementById(button.getAttribute('aria-controls'));
     if (!region) return;
+    button.dataset.railDisclosureWired = 'true';
 
     // Anything ticked decides the starting state — an active filter is never
     // folded away. Shelves live inside the region; a department's own box
@@ -40,11 +42,21 @@
     var hasActive = !!region.querySelector('input[type="checkbox"]:checked')
       || !!(row && row.querySelector('input[type="checkbox"]:checked'));
 
+    var wasOpen = openRegions && openRegions.has(button.getAttribute('aria-controls'));
     button.hidden = false;
-    setOpen(button, region, hasActive);
+    setOpen(button, region, hasActive || wasOpen);
 
     button.addEventListener('click', function () { setOpen(button, region); });
   }
 
-  rail.querySelectorAll('.rail-disclose').forEach(wire);
+  function wireAll(openRegions) {
+    rail.querySelectorAll('.rail-disclose').forEach(function (button) {
+      wire(button, openRegions);
+    });
+  }
+
+  wireAll();
+  rail.addEventListener('catalog:facet-updated', function (event) {
+    wireAll(new Set((event.detail && event.detail.openRegions) || []));
+  });
 })();

@@ -15,13 +15,15 @@
   const filterForm = document.querySelector('form[data-catalog-live-filters]');
   const summary = document.getElementById('result-summary');
   const grid = document.getElementById('pgrid');
-  if ((!searchForm && !filterForm) || !summary || !grid) return;
+  const categoryFacet = document.getElementById('category-facet');
+  if ((!searchForm && !filterForm) || !summary || !grid || !categoryFacet) return;
 
   const searchInput = searchForm ? searchForm.querySelector('input[type="search"]') : null;
 
   const DEBOUNCE_MS = 250;
   let debounceTimer = null;
   let abortController = null;
+  let requestVersion = 0;
 
   // Sort has no control in either form (it's a row of plain links). Its
   // href carries filter_qs — the rail's state at the time the SERVER last
@@ -87,10 +89,12 @@
   function load(url) {
     if (abortController) abortController.abort();
     abortController = new AbortController();
+    const thisRequest = ++requestVersion;
     url = url || targetUrl();
 
     fetch(url, {
       signal: abortController.signal,
+      cache: 'no-store',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
     })
       .then(function (res) {
@@ -98,8 +102,17 @@
         return res.json();
       })
       .then(function (data) {
+        if (thisRequest !== requestVersion) return;
+        const openRegions = Array.from(
+          filterForm.querySelectorAll('.rail-disclose[aria-expanded="true"]')
+        ).map(function (button) { return button.getAttribute('aria-controls'); });
+
+        categoryFacet.innerHTML = data.category_html;
         summary.innerHTML = data.summary_html;
         grid.innerHTML = data.grid_html;
+        filterForm.dispatchEvent(new CustomEvent('catalog:facet-updated', {
+          detail: { openRegions: openRegions },
+        }));
         history.replaceState(null, '', url);
       })
       .catch(function (err) {
@@ -125,9 +138,8 @@
   if (filterForm) {
     // Every checkbox in the rail — ticking one IS "Apply" now; there is no
     // button left to press.
-    const checkboxes = filterForm.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(function (box) {
-      box.addEventListener('change', function () { load(); });
+    filterForm.addEventListener('change', function (event) {
+      if (event.target.matches('input[type="checkbox"]')) load();
     });
 
     // Clear filters is a plain link to a fresh (filter-less) URL for
@@ -137,15 +149,17 @@
     // Un-ticking every box (and emptying the search field, which the
     // link's own URL already drops) before the fetch is what makes the
     // rail's own state match what Clear just asked for.
-    const clearLink = filterForm.querySelector('.rail-clear');
-    if (clearLink) {
-      clearLink.addEventListener('click', function (e) {
-        e.preventDefault();
-        checkboxes.forEach(function (box) { box.checked = false; });
+    filterForm.addEventListener('click', function (event) {
+      const clearLink = event.target.closest('.rail-clear');
+      if (clearLink && filterForm.contains(clearLink)) {
+        event.preventDefault();
+        filterForm.querySelectorAll('input[type="checkbox"]').forEach(function (box) {
+          box.checked = false;
+        });
         if (searchInput) searchInput.value = '';
         load(clearLink.getAttribute('href'));
-      });
-    }
+      }
+    });
   }
 
   // Sort pills: live too, and built from the rail's CURRENT state (see
