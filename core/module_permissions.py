@@ -55,6 +55,9 @@ MODULE_REGISTRY = {
     FLOOR_STOCK: (
         'Floor Stock',
         ['inventory_list', 'inventory_edit', 'stock_adjustment_add',
+         'opening_stock_import', 'opening_stock_confirm', 'opening_stock_cancel',
+         'opening_stock_template', 'opening_stock_import_history',
+         'opening_stock_import_detail', 'opening_stock_import_reverse',
          # API (inventory/api_urls.py) — read-only, mirrors inventory_list.
          'api-inventory-list', 'api-inventory-detail'],
     ),

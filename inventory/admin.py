@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     ProductCategory, Product, ProductImage, ProductPriceTier,
-    Inventory, StockMovement,
+    Inventory, StockMovement, OpeningStockImport, OpeningStockImportRow,
 )
 
 
@@ -63,6 +63,35 @@ class StockMovementAdmin(admin.ModelAdmin):
         'quantity_before', 'quantity_after', 'reference_id',
         'notes', 'created_by', 'created_at'
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class OpeningStockImportRowInline(admin.TabularInline):
+    model = OpeningStockImportRow
+    extra = 0
+    can_delete = False
+    readonly_fields = (
+        'row_number', 'product', 'branch', 'quantity', 'external_lot_code',
+        'received_date', 'expiry_date', 'previous_quantity',
+        'resulting_quantity', 'reversed_quantity', 'consumed_quantity',
+    )
+
+
+@admin.register(OpeningStockImport)
+class OpeningStockImportAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'original_filename', 'as_of_date', 'row_count',
+        'total_quantity', 'status', 'uploaded_by', 'confirmed_at',
+    )
+    list_filter = ('status', 'as_of_date')
+    search_fields = ('original_filename', 'raw_sha256', 'canonical_sha256')
+    readonly_fields = [field.name for field in OpeningStockImport._meta.fields]
+    inlines = [OpeningStockImportRowInline]
 
     def has_add_permission(self, request):
         return False

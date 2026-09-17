@@ -537,6 +537,16 @@ class Batch(models.Model):
                   "ahead of stock that IS known to be expiring soon."
     )
     notes = models.TextField(blank=True)
+    external_lot_code = models.CharField(
+        max_length=100, blank=True,
+        help_text="Manufacturer/supplier lot code printed on the product. "
+                  "Separate from batch_number, which is the system's own ID."
+    )
+    opening_import_row = models.ForeignKey(
+        'OpeningStockImportRow', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='batches',
+        help_text="Opening-stock row that created this lot, when applicable."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -796,6 +806,8 @@ class StockMovement(models.Model):
         MANUAL_IN = 'Manual In', 'Manual Stock In'
         MANUAL_OUT = 'Manual Out', 'Manual Stock Out'
         ADJUSTMENT = 'Adjustment', 'Stock Adjustment'
+        OPENING_BALANCE = 'Opening Balance', 'Opening Balance'
+        OPENING_BALANCE_REVERSAL = 'Opening Reversal', 'Opening Balance Reversal'
 
     class LocationType(models.TextChoices):
         WAREHOUSE = 'Warehouse', 'Warehouse'
@@ -832,6 +844,11 @@ class StockMovement(models.Model):
         'accounts.User', on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='stock_movements'
+    )
+    opening_import_row = models.ForeignKey(
+        'OpeningStockImportRow', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='movements',
+        help_text="Opening-stock row that caused this movement, when applicable."
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -903,3 +920,97 @@ class ProductImportMappingTemplate(models.Model):
         # free to call their own template "Supplier A" without colliding.
         unique_together = ('created_by', 'name')
         ordering = ['name']
+
+
+class OpeningStockImport(models.Model):
+    """One confirmed opening-inventory spreadsheet.
+
+    The unique committed fingerprint is the database-level idempotency guard:
+    a double-click, retry, or repeat upload of the same normalized contents
+    cannot credit stock twice. It remains populated after reversal so history
+    cannot be silently replayed.
+    """
+
+    class Status(models.TextChoices):
+        COMMITTED = 'Committed', 'Committed'
+        REVERSED = 'Reversed', 'Reversed'
+
+    original_filename = models.CharField(max_length=255)
+    raw_sha256 = models.CharField(max_length=64, db_index=True)
+    canonical_sha256 = models.CharField(max_length=64)
+    committed_fingerprint = models.CharField(
+        max_length=64, unique=True,
+        help_text="Canonical normalized-file hash; retained after reversal."
+    )
+    as_of_date = models.DateField()
+    status = models.CharField(
+        max_length=15, choices=Status.choices, default=Status.COMMITTED,
+    )
+    row_count = models.PositiveIntegerField(default=0)
+    product_count = models.PositiveIntegerField(default=0)
+    branch_count = models.PositiveIntegerField(default=0)
+    total_quantity = models.PositiveBigIntegerField(default=0)
+    warning_count = models.PositiveIntegerField(default=0)
+    warnings_acknowledged = models.BooleanField(default=False)
+    uploaded_by = models.ForeignKey(
+        'accounts.User', on_delete=models.SET_NULL, null=True,
+        related_name='opening_stock_imports',
+    )
+    confirmed_at = models.DateTimeField(auto_now_add=True)
+    reversed_by = models.ForeignKey(
+        'accounts.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reversed_opening_stock_imports',
+    )
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversal_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-confirmed_at']
+        indexes = [
+            models.Index(fields=['-confirmed_at'], name='openstock_confirmed_idx'),
+        ]
+
+    def __str__(self):
+        return f"Opening stock #{self.pk} - {self.original_filename}"
+
+
+class OpeningStockImportRow(models.Model):
+    """Immutable row-level evidence for an opening-stock import."""
+
+    import_batch = models.ForeignKey(
+        OpeningStockImport, on_delete=models.PROTECT, related_name='rows',
+    )
+    row_number = models.PositiveIntegerField()
+    normalized_hash = models.CharField(max_length=64)
+    product = models.ForeignKey(
+        Product, on_delete=models.SET_NULL, null=True,
+        related_name='opening_stock_rows',
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, null=True,
+        related_name='opening_stock_rows',
+    )
+    product_name_snapshot = models.CharField(max_length=150)
+    barcode_snapshot = models.CharField(max_length=64)
+    branch_name_snapshot = models.CharField(max_length=100)
+    quantity = models.PositiveIntegerField()
+    external_lot_code = models.CharField(max_length=100, blank=True)
+    received_date = models.DateField()
+    expiry_date = models.DateField(null=True, blank=True)
+    previous_quantity = models.PositiveIntegerField()
+    resulting_quantity = models.PositiveIntegerField()
+    warnings = models.JSONField(default=list, blank=True)
+    reversed_quantity = models.PositiveIntegerField(default=0)
+    consumed_quantity = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['row_number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['import_batch', 'row_number'],
+                name='unique_opening_import_row_number',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.import_batch_id} row {self.row_number}: {self.barcode_snapshot}"
