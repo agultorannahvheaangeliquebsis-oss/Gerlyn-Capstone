@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 
 from django.conf import settings
@@ -599,6 +600,11 @@ _IMPORT_TMP_DIR = os.path.join(settings.BASE_DIR, 'tmp_uploads', 'product_import
 # ("Yes"/"No"), so an exported file round-trips through Import unchanged.
 _TRUTHY_CELL_VALUES = {'yes', 'y', 'true', '1', 'x'}
 
+_PLAIN_NUMBER_RE = re.compile(r'^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$')
+_COMMA_NUMBER_RE = re.compile(
+    r'^[+-]?(?:\d{1,3}(?:,\d{3})+)(?:\.\d*)?$'
+)
+
 
 def _clear_import_session(request):
     """Drop the in-progress import's session state and delete its temp file,
@@ -620,6 +626,68 @@ def _parse_bool_cell(value):
     if value is None:
         return False
     return str(value).strip().lower() in _TRUTHY_CELL_VALUES
+
+
+def _normalize_empty_cell(value):
+    """Return None for every representation of an empty spreadsheet cell."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+def _parse_decimal_cell(value, *, allow_currency=False):
+    """Convert an Excel number or a conventional numeric string to Decimal.
+
+    Commas are accepted only as thousands separators, rather than silently
+    turning a malformed value such as ``12,34`` into a different number.
+    """
+    value = _normalize_empty_cell(value)
+    if value is None or isinstance(value, bool):
+        raise ValueError('not a populated number')
+
+    if isinstance(value, Decimal):
+        number = value
+    elif isinstance(value, (int, float)):
+        number = Decimal(str(value))
+    else:
+        text = str(value).strip()
+        if allow_currency and text.startswith('₱'):
+            text = text[1:].strip()
+        pattern = _COMMA_NUMBER_RE if ',' in text else _PLAIN_NUMBER_RE
+        if not pattern.fullmatch(text):
+            raise ValueError('not a number')
+        number = Decimal(text.replace(',', ''))
+
+    if not number.is_finite():
+        raise ValueError('not a finite number')
+    return number
+
+
+def _normalize_barcode_cell(value):
+    """Keep barcodes as identifiers while dropping an Excel-added .0."""
+    value = _normalize_empty_cell(value)
+    if value is None:
+        return ''
+
+    if not isinstance(value, bool) and isinstance(value, (int, float, Decimal)):
+        try:
+            number = Decimal(str(value))
+        except DecimalException:
+            return str(value).strip()
+        if number.is_finite():
+            formatted = format(number, 'f')
+            return (
+                formatted.split('.')[0]
+                if number == number.to_integral_value()
+                else formatted
+            )
+
+    text = str(value).strip()
+    whole_number_with_decimal = re.fullmatch(r'([+-]?\d+)\.0+', text)
+    return whole_number_with_decimal.group(1) if whole_number_with_decimal else text
 
 
 def _match_unit_of_measure(value):
@@ -717,16 +785,16 @@ def _parse_import_rows(path, mapping):
         if not product_name:
             errors.append('Product Name is required.')
 
-        unit_price_raw = cell(raw_row, 'unit_price')
+        unit_price_raw = _normalize_empty_cell(cell(raw_row, 'unit_price'))
         unit_price = None
-        if unit_price_raw in (None, ''):
+        if unit_price_raw is None:
             errors.append('Retail Price is required.')
         else:
             try:
-                unit_price = Decimal(str(unit_price_raw))
+                unit_price = _parse_decimal_cell(unit_price_raw, allow_currency=True)
                 if unit_price < 0:
                     errors.append('Retail Price cannot be negative.')
-            except DecimalException:
+            except (ValueError, TypeError, DecimalException):
                 errors.append(f'Retail Price "{unit_price_raw}" is not a number.')
 
         # Bulk rungs. Same rules the product form applies (see
@@ -736,18 +804,43 @@ def _parse_import_rows(path, mapping):
         price_tiers = []
         seen_tier_quantities = set()
         for slot in range(1, _IMPORT_TIER_SLOTS + 1):
-            quantity_raw = cell(raw_row, f'tier{slot}_min_quantity')
-            price_raw = cell(raw_row, f'tier{slot}_price')
-            if quantity_raw in (None, '') and price_raw in (None, ''):
+            quantity_raw = _normalize_empty_cell(
+                cell(raw_row, f'tier{slot}_min_quantity')
+            )
+            price_raw = _normalize_empty_cell(cell(raw_row, f'tier{slot}_price'))
+            quantity_supplied = quantity_raw is not None
+            price_supplied = price_raw is not None
+
+            if not quantity_supplied and not price_supplied:
                 continue
-            if quantity_raw in (None, '') or price_raw in (None, ''):
-                errors.append(f'Bulk Qty {slot} and Bulk Price {slot} must both be filled in.')
-                continue
-            try:
-                tier_quantity = int(str(quantity_raw).strip())
-                tier_price = Decimal(str(price_raw))
-            except (ValueError, TypeError, DecimalException):
-                errors.append(f'Bulk Qty {slot}/Bulk Price {slot} must be numbers.')
+
+            tier_quantity = None
+            tier_price = None
+            if quantity_supplied:
+                try:
+                    parsed_quantity = _parse_decimal_cell(quantity_raw)
+                    if parsed_quantity != parsed_quantity.to_integral_value():
+                        errors.append(f'Bulk Qty {slot} must be a whole number.')
+                    else:
+                        tier_quantity = int(parsed_quantity)
+                except (ValueError, TypeError, DecimalException):
+                    errors.append(f'Bulk Qty {slot} must be a number.')
+            if price_supplied:
+                try:
+                    tier_price = _parse_decimal_cell(price_raw, allow_currency=True)
+                except (ValueError, TypeError, DecimalException):
+                    errors.append(f'Bulk Price {slot} must be a number.')
+
+            if quantity_supplied and not price_supplied:
+                errors.append(
+                    f'Bulk Price {slot} is required when Bulk Qty {slot} is provided.'
+                )
+            elif price_supplied and not quantity_supplied:
+                errors.append(
+                    f'Bulk Qty {slot} is required when Bulk Price {slot} is provided.'
+                )
+
+            if tier_quantity is None or tier_price is None:
                 continue
             if tier_quantity < 2:
                 errors.append(f'Bulk Qty {slot} must be 2 or more.')
@@ -772,16 +865,15 @@ def _parse_import_rows(path, mapping):
                 )
                 break
 
-        barcode_raw = cell(raw_row, 'barcode')
-        barcode = str(barcode_raw).strip() if barcode_raw not in (None, '') else ''
+        barcode = _normalize_barcode_cell(cell(raw_row, 'barcode'))
         if barcode:
             if barcode in seen_barcodes:
                 errors.append(f'Duplicate barcode in this file (also row {seen_barcodes[barcode]}).')
             else:
                 seen_barcodes[barcode] = row_number
 
-        uom_raw = cell(raw_row, 'unit_of_measure')
-        if uom_raw in (None, ''):
+        uom_raw = _normalize_empty_cell(cell(raw_row, 'unit_of_measure'))
+        if uom_raw is None:
             unit_of_measure = Product.UnitOfMeasure.PIECE
         else:
             unit_of_measure = _match_unit_of_measure(uom_raw)
