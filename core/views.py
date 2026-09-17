@@ -344,16 +344,22 @@ def _notification_counts(notifications_qs):
     }
 
 
-def _tray_context(user):
+def _tray_context(user, branch_filter=''):
     """Shared by the tray fragment and the full page: everything non-Low
     priority renders as its own card (escalations stay individually visible —
     see the v2 design spec's "group what would repeat" principle); Low
     priority items collapse into one expandable group row when there's more
     than one, so a run of low-stakes events (e.g. several new-staff-account
-    notices) can't push a Critical item below the fold."""
+    notices) can't push a Critical item below the fold.
+
+    `branch_filter` (a Branch pk as a string, '' for none) is Owner-only —
+    the tray fragment never passes one, only the full page's topbar
+    switcher does. See notification_center_view."""
     from accounts.models import Notification
 
     notifications = user.notifications.exclude(category='').select_related('branch')
+    if branch_filter:
+        notifications = notifications.filter(branch_id=branch_filter)
     low_qs = notifications.filter(priority=Notification.Priority.LOW)
     low_count = low_qs.count()
 
@@ -378,26 +384,68 @@ def _tray_context(user):
 
 @role_required(*INTERNAL_ROLES)
 def notification_center_view(request):
-    tray_ctx, notifications = _tray_context(request.user)
-    counts = _notification_counts(notifications)
-
     if _is_xhr(request):
+        # The tray popover always shows everything — it has no branch chip
+        # of its own, so it never reads ?branch=.
+        tray_ctx, notifications = _tray_context(request.user)
+        counts = _notification_counts(notifications)
         list_html = render_to_string(
             'core/_notification_tray_list.html', tray_ctx, request=request
         )
         return JsonResponse({'list_html': list_html, **counts})
 
     from accounts.models import Notification
+    from branches.models import Branch
+    from core.scoping import branch_for_user
+
+    # Owner-only branch filter — Manager/Staff only ever receive
+    # notifications for their own branch (see core/notifications.py's fan-out
+    # rules), so a selector would do nothing for them. Same pattern as
+    # procurement's delivery_list / Floor Stock / Warehouse Stock.
+    user_branch = branch_for_user(request.user)
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+
+    tray_ctx, notifications = _tray_context(request.user, branch_filter)
+    counts = _notification_counts(notifications)
+
+    def _cat_counts(category):
+        # total + needs_action per category, so the full page's tabs can tint
+        # a count danger the same way the KPI cards do (see
+        # feedback-kpi-card-status-tint) instead of every tab reading neutral
+        # regardless of what's actually sitting in it.
+        cat_qs = notifications.filter(category=category)
+        return {
+            'total': cat_qs.count(),
+            'needs_action': cat_qs.filter(
+                requires_action=True, resolved_at__isnull=True
+            ).count(),
+        }
+
+    branches = Branch.objects.all() if not user_branch else []
 
     return render(request, 'core/notification_center.html', {
         **tray_ctx,
         **counts,
+        # Table rows for the full page — unlike main_notifications (from
+        # tray_ctx), Low priority items aren't split into a collapsed group
+        # here: a table row is already compact enough that the grouping
+        # tray cards needed to avoid pushing a Critical item below the fold
+        # doesn't buy anything on this page.
+        'all_notifications': list(notifications[:200]),
         'counts': {
-            'staff': notifications.filter(category=Notification.Category.STAFF).count(),
-            'procurement': notifications.filter(category=Notification.Category.PROCUREMENT).count(),
-            'sales': notifications.filter(category=Notification.Category.SALES).count(),
-            'system': notifications.filter(category=Notification.Category.SYSTEM).count(),
+            'staff': _cat_counts(Notification.Category.STAFF),
+            'procurement': _cat_counts(Notification.Category.PROCUREMENT),
+            'sales': _cat_counts(Notification.Category.SALES),
+            'system': _cat_counts(Notification.Category.SYSTEM),
         },
+        'branches': branches,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this (partials/_branch_switch.html).
+        'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
+        'branch_switch_carry': [],
         'active_page': 'notifications',
     })
 

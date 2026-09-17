@@ -1,11 +1,14 @@
 """Branch Management — Owner-only administration of store branches."""
 from django.contrib import messages
+from django.contrib.auth import password_validation
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User
+from core.module_permissions import ALL_MODULE_CODES
 from core.refdata import bust_branches_cache
 from inventory.models import Inventory, Warehouse
 
@@ -21,7 +24,7 @@ def _branch_list_context():
     # One query for every branch's manager instead of one query per branch.
     manager_by_branch_id = {}
     for m in BranchManagerProfile.objects.filter(branch__in=branches):
-        manager_by_branch_id.setdefault(m.branch_id, m.manager_name)
+        manager_by_branch_id.setdefault(m.branch_id, m)
 
     rows = []
     for b in branches:
@@ -49,7 +52,37 @@ def branch_list(request):
         if branch:
             context.update({'show_edit_modal': True, 'edit_branch': branch})
 
+    assign_pk = request.GET.get('assign')
+    if assign_pk:
+        branch = Branch.objects.filter(pk=assign_pk).first()
+        if branch:
+            context.update(_assign_manager_context(branch))
+
     return render(request, 'branches/branch_list.html', context)
+
+
+def _assign_manager_context(branch, form_data=None):
+    current = BranchManagerProfile.objects.filter(branch=branch).first()
+    available = BranchManagerProfile.objects.filter(branch__isnull=True).exclude(
+        pk=current.pk if current else None
+    ).order_by('manager_name')
+    # What the <select> should show pre-picked: the just-submitted (and
+    # rejected) choice, else today's actual manager, else "— Unassign —".
+    # Computed here rather than in the template so a branch with no current
+    # manager doesn't stringify None into the literal text "None".
+    if form_data is not None:
+        default_choice = form_data.get('manager_choice', '')
+    elif current:
+        default_choice = str(current.user_id)
+    else:
+        default_choice = ''
+    return {
+        'show_assign_modal': True,
+        'assign_branch': branch,
+        'assign_current_manager': current,
+        'assign_available_managers': available,
+        'assign_default_choice': default_choice,
+    }
 
 
 @login_required(login_url='accounts:login')
@@ -139,3 +172,100 @@ def branch_delete(request, pk):
     # the row's Delete button). A direct GET here — bookmark, back button —
     # just goes to the list.
     return redirect('branch_list')
+
+
+@login_required(login_url='accounts:login')
+def branch_assign_manager(request, pk):
+    """Assign, change, or clear a branch's manager from a modal on the branch
+    list — pick an unassigned Branch Manager account, or create a new one
+    inline, without leaving this page."""
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage branches.')
+        return redirect('accounts:home')
+
+    branch = get_object_or_404(Branch, pk=pk)
+
+    if request.method != 'POST':
+        return redirect(f"{reverse('branch_list')}?assign={pk}")
+
+    choice = request.POST.get('manager_choice', '')
+    current = BranchManagerProfile.objects.filter(branch=branch).first()
+    errors = []
+
+    if choice == '':
+        if current:
+            current.branch = None
+            current.save(update_fields=['branch'])
+        messages.success(request, f'Manager unassigned from "{branch.branch_name}".')
+        bust_branches_cache()
+        return redirect('branch_list')
+
+    elif choice == '__new__':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        username = request.POST.get('username', '').strip()
+        password = request.POST.get('password', '').strip()
+        contact_number = request.POST.get('contact_number', '').strip()
+
+        if not username:
+            errors.append('Username is required for a new manager.')
+        elif User.objects.filter(username=username).exists():
+            errors.append(f'Username "{username}" is already taken.')
+        if not password:
+            errors.append('Password is required for a new manager.')
+        else:
+            try:
+                password_validation.validate_password(password)
+            except ValidationError as e:
+                errors.extend(e.messages)
+        if not contact_number:
+            errors.append('Contact number is required for a new manager.')
+
+        if not errors:
+            target = User.objects.create_user(
+                username=username, password=password, role=User.Role.BRANCH_MANAGER,
+                first_name=first_name, last_name=last_name,
+            )
+            # Same default as a freshly-opened Add User modal: the Owner is
+            # setting this account up from scratch, so it starts with every
+            # module rather than an empty grant that would lock them out.
+            target.allowed_modules = ALL_MODULE_CODES
+            target.save(update_fields=['allowed_modules'])
+
+            if current:
+                current.branch = None
+                current.save(update_fields=['branch'])
+
+            profile, _ = BranchManagerProfile.objects.get_or_create(user=target)
+            profile.manager_name = f'{first_name} {last_name}'.strip() or username
+            profile.contact_number = contact_number
+            profile.branch = branch
+            profile.save()
+
+            messages.success(request, f'"{profile.manager_name}" assigned as manager of "{branch.branch_name}".')
+            bust_branches_cache()
+            return redirect('branch_list')
+
+    else:
+        target_profile = (
+            BranchManagerProfile.objects.filter(user_id=choice).first()
+            if choice.isdigit() else None
+        )
+        if not target_profile:
+            errors.append('Selected manager could not be found.')
+        elif target_profile.branch_id not in (None, branch.pk):
+            errors.append(f'"{target_profile.manager_name}" is already assigned to another branch.')
+        else:
+            if current and current.pk != target_profile.pk:
+                current.branch = None
+                current.save(update_fields=['branch'])
+            target_profile.branch = branch
+            target_profile.save(update_fields=['branch'])
+            messages.success(request, f'"{target_profile.manager_name}" assigned as manager of "{branch.branch_name}".')
+            bust_branches_cache()
+            return redirect('branch_list')
+
+    context = _branch_list_context()
+    context.update(_assign_manager_context(branch, form_data=request.POST))
+    context.update({'assign_errors': errors, 'assign_form_data': request.POST})
+    return render(request, 'branches/branch_list.html', context)

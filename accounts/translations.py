@@ -38,6 +38,7 @@ TRANSLATIONS = {
         'Language': 'Wika',
         'Help Center': 'Sentro ng Tulong',
         'About': 'Tungkol Sa',
+        'More': 'Higit Pa',
 
         # ── Settings hub — shared header ─────────────────────────────
         'Manage your profile, addresses, and preferences': 'Pamahalaan ang iyong profile, mga address, at mga kagustuhan',

@@ -7,4 +7,5 @@ urlpatterns = [
     path('add/', views.branch_form, name='branch_add'),
     path('<int:pk>/edit/', views.branch_form, name='branch_edit'),
     path('<int:pk>/delete/', views.branch_delete, name='branch_delete'),
+    path('<int:pk>/assign-manager/', views.branch_assign_manager, name='branch_assign_manager'),
 ]

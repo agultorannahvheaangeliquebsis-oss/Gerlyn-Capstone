@@ -529,9 +529,9 @@ class ProductImportExportTests(TestCase):
 
     def test_upload_then_map_guesses_columns_from_headers(self):
         response = self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
-        self.assertRedirects(response, reverse('product_import_map'))
-        map_response = self.client.get(reverse('product_import_map'))
-        fields_by_key = {f['key']: f for f in map_response.context['fields']}
+        self.assertRedirects(response, f"{reverse('product_list')}?import=map")
+        map_response = self.client.get(response.url)
+        fields_by_key = {f['key']: f for f in map_response.context['import_fields']}
         self.assertEqual(fields_by_key['product_name']['selected'], 'Item Name')
         self.assertEqual(fields_by_key['unit_price']['selected'], 'SRP')
 
@@ -554,11 +554,11 @@ class ProductImportExportTests(TestCase):
         self._upload(rows)
         self.client.post(reverse('product_import_map'), self.MAPPING)
 
-        preview = self.client.get(reverse('product_import_preview'))
-        self.assertEqual(preview.context['counts'], {
+        preview = self.client.get(reverse('product_import_preview'), follow=True)
+        self.assertEqual(preview.context['import_counts'], {
             'total': 6, 'create': 2, 'update': 1, 'error': 3,
         })
-        created_action = next(r for r in preview.context['rows'] if r['barcode'] == 'NEWBAR001')
+        created_action = next(r for r in preview.context['import_rows'] if r['barcode'] == 'NEWBAR001')
         self.assertEqual(created_action['action'], 'create')
 
         commit = self.client.post(reverse('product_import_preview'))
@@ -613,8 +613,8 @@ class ProductImportExportTests(TestCase):
             'map_tier2_price': 'Bulk Price 2',
         })
 
-        preview = self.client.get(reverse('product_import_preview'))
-        self.assertEqual(preview.context['counts'], {
+        preview = self.client.get(reverse('product_import_preview'), follow=True)
+        self.assertEqual(preview.context['import_counts'], {
             'total': 5, 'create': 1, 'update': 1, 'error': 3,
         })
 
@@ -653,8 +653,8 @@ class ProductImportExportTests(TestCase):
         )
         self.client.force_login(other)
         self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
-        map_response = self.client.get(reverse('product_import_map'))
-        names = [t.name for t in map_response.context['templates']]
+        map_response = self.client.get(reverse('product_import_map'), follow=True)
+        names = [t.name for t in map_response.context['import_templates']]
         self.assertNotIn('My Private Mapping', names)
 
     def test_saved_shared_template_is_visible_to_other_users(self):
@@ -668,8 +668,8 @@ class ProductImportExportTests(TestCase):
         )
         self.client.force_login(other)
         self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
-        map_response = self.client.get(reverse('product_import_map'))
-        names = [t.name for t in map_response.context['templates']]
+        map_response = self.client.get(reverse('product_import_map'), follow=True)
+        names = [t.name for t in map_response.context['import_templates']]
         self.assertIn('Team Mapping', names)
 
     # ── Cancel ──────────────────────────────────────────────
@@ -683,7 +683,9 @@ class ProductImportExportTests(TestCase):
 
     def test_preview_without_an_uploaded_file_redirects_to_upload(self):
         response = self.client.get(reverse('product_import_preview'))
-        self.assertRedirects(response, reverse('product_import_upload'))
+        self.assertRedirects(
+            response, reverse('product_import_upload'), fetch_redirect_response=False
+        )
         self.assertFalse(ProductCategory.objects.exists())
 
 

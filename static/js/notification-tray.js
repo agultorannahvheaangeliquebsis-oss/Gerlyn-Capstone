@@ -1,17 +1,29 @@
 /*
- * notification-tray.js — the Owner Notification Center's floating tray.
+ * notification-tray.js — the floating notification tray.
  *
  * Progressive enhancement over a plain link: #notifBell's href already goes
- * to the full /internal/notifications/ page (core/views.py:notification_
- * center_view). This script intercepts the click and opens #notifTray in
- * place instead, fetching the same URL with X-Requested-With so the view
- * returns a JSON fragment (list_html + counts) rather than a full page —
- * same convention static/js/toast.js and orders/customer_views.py's live
- * catalog search already use. If the fetch fails, the click falls through
- * to the normal link.
+ * to a full notifications page (core/views.py:notification_center_view for
+ * the internal Owner/Manager/Staff tray, procurement/views.py:
+ * supplier_notifications for the supplier portal's own). This script
+ * intercepts the click and opens #notifTray in place instead, fetching the
+ * same URL with X-Requested-With so the view returns a JSON fragment
+ * (list_html + counts) rather than a full page — same convention
+ * static/js/toast.js and orders/customer_views.py's live catalog search
+ * already use. If the fetch fails, the click falls through to the normal
+ * link.
  *
- * Runs on every internal page (internal_base.html loads it unconditionally),
- * so it re-initializes fresh on each server-rendered navigation rather than
+ * Shared by two different DOM shapes: internal_base.html's tray has
+ * category-pills/mark-all, the supplier portal's is just bell+list+dismiss —
+ * every optional element below is null-checked so either can omit pieces it
+ * has no use for.
+ *
+ * Search lives only on the full page (core/notification_center.html) now —
+ * the tray is a quick glance, not a place to type. See that page's own
+ * inline script for its search+category filtering.
+ *
+ * Runs on every page that includes it (internal_base.html loads it
+ * unconditionally; templates/procurement/supplier_portal.html does too), so
+ * it re-initializes fresh on each server-rendered navigation rather than
  * persisting tray state across pages — this is a multi-page app, not an SPA.
  */
 (function () {
@@ -21,7 +33,6 @@
 
   var list = document.getElementById('notifList');
   var badge = document.getElementById('notifBadge');
-  var search = document.getElementById('notifSearch');
   var pills = document.getElementById('notifPills');
   var markAllBtn = document.getElementById('notifMarkAll');
   var scrim = document.getElementById('notifScrim');
@@ -56,15 +67,11 @@
   }
 
   function applyFilters() {
-    var term = (search.value || '').trim().toLowerCase();
     var cards = list.querySelectorAll('.tray-ncard');
     var visible = 0;
     cards.forEach(function (card) {
       var cat = card.dataset.cat || '';
-      var matchesPill = activeFilter === 'all' || cat.indexOf(activeFilter) !== -1;
-      var hay = card.textContent.toLowerCase();
-      var matchesTerm = !term || hay.indexOf(term) !== -1;
-      var show = matchesPill && matchesTerm;
+      var show = activeFilter === 'all' || cat.indexOf(activeFilter) !== -1;
       card.hidden = !show;
       if (card.classList.contains('tray-ncard-group')) {
         var children = card.nextElementSibling;
@@ -112,10 +119,11 @@
         list.innerHTML = data.list_html;
         loaded = true;
         activeFilter = 'all';
-        pills.querySelectorAll('.notif-pill').forEach(function (p) {
-          p.classList.toggle('active', p.dataset.filter === 'all');
-        });
-        search.value = '';
+        if (pills) {
+          pills.querySelectorAll('.filter-tab').forEach(function (p) {
+            p.classList.toggle('active', p.dataset.filter === 'all');
+          });
+        }
         applyFilters();
         setBadge(data.needs_action_count);
       })
@@ -143,15 +151,16 @@
     scrim.addEventListener('click', closeTray);
   }
 
-  search.addEventListener('input', applyFilters);
-  pills.addEventListener('click', function (e) {
-    var pill = e.target.closest('.notif-pill');
-    if (!pill) return;
-    pills.querySelectorAll('.notif-pill').forEach(function (p) { p.classList.remove('active'); });
-    pill.classList.add('active');
-    activeFilter = pill.dataset.filter;
-    applyFilters();
-  });
+  if (pills) {
+    pills.addEventListener('click', function (e) {
+      var pill = e.target.closest('.filter-tab');
+      if (!pill) return;
+      pills.querySelectorAll('.filter-tab').forEach(function (p) { p.classList.remove('active'); });
+      pill.classList.add('active');
+      activeFilter = pill.dataset.filter;
+      applyFilters();
+    });
+  }
 
   // Grouped Low-priority row: expand/collapse, no fetch (children are
   // already server-rendered alongside the row — see
@@ -215,18 +224,20 @@
       });
   });
 
-  markAllBtn.addEventListener('click', function () {
-    fetch(markAllBtn.dataset.url, {
-      method: 'POST',
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRFToken': csrfToken,
-      },
-    })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        list.querySelectorAll('.tray-ncard').forEach(function (c) { c.classList.add('is-read'); });
-        setBadge(data.needs_action_count);
-      });
-  });
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', function () {
+      fetch(markAllBtn.dataset.url, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': csrfToken,
+        },
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          list.querySelectorAll('.tray-ncard').forEach(function (c) { c.classList.add('is-read'); });
+          setBadge(data.needs_action_count);
+        });
+    });
+  }
 })();

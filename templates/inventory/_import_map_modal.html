@@ -1,0 +1,103 @@
+{% comment %}
+Step 2 of the Import Products wizard. Context comes from
+_import_map_fields_context() in views.py, computed either by product_list
+(?import=map, a fresh GET) or by product_import_map itself when it redisplays
+a rejected submit — same shape either way:
+  import_headers    the uploaded sheet's column names
+  import_fields     [{key, label, required, selected}, ...], one per system field
+  import_templates  saved mapping templates this user may load
+{% endcomment %}
+<div class="modal-overlay{% if show_import_map_modal %} is-open{% endif %}" id="import-map-modal" data-autoopen="{% if show_import_map_modal %}1{% else %}0{% endif %}">
+  <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="import-map-title">
+    <div class="modal-head">
+      <h2 id="import-map-title">Import Products</h2>
+      <button type="button" class="modal-close" id="close-import-map-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <p class="gv-meta" style="margin-top:0;">
+        Step 2 of 3 — map columns · <a href="{% url 'product_import_upload' %}">Upload a different file</a>
+      </p>
+
+      {% if import_templates %}
+      <form method="GET" action="{% url 'product_list' %}">
+        <input type="hidden" name="import" value="map">
+        <div class="field" style="margin-bottom:0;">
+          <label for="load-template">Load a saved mapping</label>
+          <select id="load-template" name="template" onchange="this.form.submit()">
+            <option value="">— Choose a template —</option>
+            {% for t in import_templates %}
+              <option value="{{ t.pk }}" {% if request.GET.template == t.pk|stringformat:"s" %}selected{% endif %}>
+                {{ t.name }}{% if t.is_shared %} (Shared){% endif %}{% if t.created_by_id != request.user.id %} — saved by {{ t.created_by.get_full_name|default:t.created_by.username }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </form>
+      {% endif %}
+
+      <form method="POST" action="{% url 'product_import_map' %}" id="import-map-form">
+        {% csrf_token %}
+        <div class="table-wrap">
+          <table class="gv-table">
+            <thead>
+              <tr><th>System Field</th><th>Spreadsheet Column</th></tr>
+            </thead>
+            <tbody>
+              {% for f in import_fields %}
+              <tr>
+                <td data-label="System Field" class="strong">
+                  {{ f.label }}{% if f.required %} <span style="color:var(--danger-dot);">*</span>{% endif %}
+                </td>
+                <td data-label="Spreadsheet Column">
+                  <select name="map_{{ f.key }}" {% if f.required %}required{% endif %}>
+                    <option value="">{% if f.required %}— Choose a column —{% else %}— Not mapped —{% endif %}</option>
+                    {% for h in import_headers %}
+                      <option value="{{ h }}" {% if f.selected == h %}selected{% endif %}>{{ h }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="field" style="margin-top:var(--s4);">
+          <label for="save-template-name">Save this mapping as a template (optional)</label>
+          <input type="text" id="save-template-name" name="save_template_name"
+                 placeholder="e.g. Supplier ABC price list" maxlength="100">
+          <p class="gv-meta" style="margin:4px 0 0;">Leave blank to import without saving a template.</p>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label class="row" style="gap:8px; align-items:flex-start; margin-bottom:8px;">
+            <input type="radio" name="template_visibility" value="private" style="margin-top:3px;" checked>
+            <span>
+              <strong>Private</strong>
+              <span class="gv-meta" style="display:block;">Only you can see and reuse this template.</span>
+            </span>
+          </label>
+          <label class="row" style="gap:8px; align-items:flex-start;">
+            <input type="radio" name="template_visibility" value="shared" style="margin-top:3px;">
+            <span>
+              <strong>Shared</strong>
+              <span class="gv-meta" style="display:block;">Any Owner or Branch Manager can see and reuse this template.</span>
+            </span>
+          </label>
+        </div>
+      </form>
+
+      <form method="POST" action="{% url 'product_import_cancel' %}" id="import-map-cancel-form">{% csrf_token %}</form>
+    </div>
+
+    <div class="modal-foot">
+      <button type="submit" form="import-map-cancel-form" class="btn">Cancel Import</button>
+      <button type="submit" form="import-map-form" class="btn btn-primary">Continue to Preview</button>
+    </div>
+  </div>
+</div>

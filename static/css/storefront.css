@@ -404,6 +404,10 @@ body.shop {
   flex: none; width: 36px; min-width: 36px; min-height: 36px; padding: 0;
   border-radius: 3px;
   display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border-color: transparent; color: var(--ink-700);
+}
+.search-box .search-submit:hover {
+  background: transparent; border-color: transparent; color: var(--ink-900);
 }
 .search-box .search-submit svg { flex: none; }
 .search-dropdown {
@@ -429,8 +433,9 @@ body.shop {
    different objects: the cart a filled white square, the account a bordered
    pill with a caret, and there was no bell at all. On a coloured band a white
    plate is a second surface the eye has to resolve before it can find the
-   glyph, so nothing sits behind these now; the tint on hover is the only
-   plate any of them gets.
+   glyph, so nothing sits behind these — at rest or on hover. The glyphs sit
+   at 92% white and brighten to full white on hover instead, the same
+   no-plate convention .shop-quick a uses on this header.
 
    44px is the floor, not the icon size — the glyph inside is 21px and the
    rest is the tap target WCAG 2.2 SC 2.5.8 asks for. */
@@ -439,12 +444,13 @@ body.shop {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-width: 44px; min-height: 44px; padding: 0 6px;
   border: 0; border-radius: var(--r-input);
-  background: none; color: #fff; text-decoration: none;
+  background: none; color: rgba(255,255,255,.92); text-decoration: none;
   font: 600 14px/1 var(--font-sans);
-  transition: background .12s ease;
+  transition: color .12s ease;
 }
-.shop-icon-btn:hover { background: rgba(255,255,255,.16); color: #fff; }
-.shop-icon-btn svg { flex: none; }
+.shop-icon-btn:hover { background: none; color: #fff; }
+.shop-icon-btn svg { flex: none; transition: transform .15s ease; }
+.shop-icon-btn:hover svg { transform: translateY(-1px); }
 /* The name beside the account glyph. It is what a shopper clicks to reach
    their orders, so it keeps its label where the other two do not — and it
    truncates rather than pushing the cart off the band on a long username. */
@@ -478,6 +484,24 @@ body.shop {
   /* The badge is a label on the link, never a second target inside it. */
   pointer-events: none;
 }
+/* static/js/notification-tray.js creates a plain .nav-badge (gerlyn.css)
+   the first time the count goes from 0 to positive with the tray already on
+   the page — the bell had no badge to update because {% if
+   notification_count %} rendered none at page load. Same shape/position as
+   .shop-icon-badge above so that badge doesn't suddenly look like a
+   different component, plus the pulse keyframes .topbar-bell's tray already
+   defines for the same script's setBadge(). */
+.shop-icon-btn .nav-badge {
+  position: absolute; top: 2px; right: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 3px; margin: 0;
+  border-radius: var(--r-pill); background: #B45309; color: #fff;
+  font: 700 10px/1 var(--font-sans);
+  border: 2px solid var(--action);
+  pointer-events: none;
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1);
+}
+.shop-icon-btn .nav-badge.pulse { animation: notifBadgePulse .26s ease-in-out; }
 
 .shop-main { min-height: 60vh; }
 
@@ -648,6 +672,7 @@ body.shop {
    the state on its own. */
 @media (prefers-reduced-motion: reduce) {
   .svc:hover .svc-ic { transform: none; }
+  .shop-icon-btn:hover svg { transform: none; }
 }
 
 /* ------------------------------------------------------------ sections */
@@ -1144,20 +1169,19 @@ body.shop {
 /* The number between − and +.
  *
  * It used to be `min-width: 32px; text-align: center` and nothing else — an
- * inline span. That was written for the stepper defined a few lines above it
- * (30px buttons, 4px gap), but a SECOND .qty-stepper further down this file
- * (the product page's joined pill) wins on source order and sets
- * `align-items: stretch`. So this span became a stretched flex item 44px tall
- * with its text sitting on the first line box: the digit rode at the top of
- * the control while the two buttons beside it were centred. Centring it in
- * its own box is what puts the number back on the same line as the signs.
- *
- * The side rules match .qty-stepper input's, so the cart's stepper and the
- * product page's are the same object with the same three cells. */
+ * inline span, sized for this stepper's own 30px buttons and 4px gap. But it
+ * shared its name with the product page's joined-pill stepper further down
+ * this file, which won on source order and imposed `align-items: stretch`
+ * here too: this span became a stretched flex item 44px tall with its text
+ * sitting on the first line box, so the digit rode at the top of the control
+ * while the two buttons beside it were centred. Centring it in its own box
+ * fixed the symptom; the product page's stepper has since been renamed to
+ * .qty-stepper-pdp/.qty-btn-pdp so the two controls no longer share rules at
+ * all, but this span is left self-centring rather than relying on the
+ * parent's `align-items: center` alone. */
 .qty-value {
   display: flex; align-items: center; justify-content: center;
   min-width: 46px; min-height: 44px; padding: 0 6px;
-  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
   font: 600 15px/1 var(--font-sans); color: var(--ink-900);
 }
 .cart-line-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
@@ -2535,34 +2559,54 @@ body.shop-auth {
 .stock-status--low  .dot { background: var(--warn-dot); }
 .stock-status--out  .dot { background: var(--danger-dot); }
 
+/* Content measure for the whole buy panel — capped independently of the
+   grid track (minmax(0, 1fr), which can stretch past 700px on a wide
+   viewport) so the tier rows and the qty/actions row keep a readable line
+   length instead of the CTA pair drifting far right of the qty stepper with
+   a gulf of empty card between them. */
+.pdp-info { max-width: 640px; }
+
+/* Type scale for the panel, loosest at the top: the product name is the one
+   thing on this card meant to read as "biggest and boldest" — everything
+   below it (price, tier rows, meta) steps down from there rather than the
+   price competing with or beating it. */
 .pdp-title {
-  font: 700 27px/1.25 var(--font-sans); color: var(--ink-900);
+  font: 800 28px/1.25 var(--font-sans); color: var(--ink-900);
   margin-bottom: 6px;
 }
 .pdp-sku {
-  font: 400 13.5px/1.5 var(--font-sans); color: var(--ink-500);
-  margin-bottom: 16px;
+  font: 400 13px/1.5 var(--font-sans); color: var(--ink-500);
+  margin-bottom: 20px;
 }
 
 /* The price in its own tinted band — what stops the biggest number on the
    page from reading as a continuation of the SKU line above it. */
 /* Tinted with the price's own hue, not the old warm one: a green figure in a
-   peach box read as two different claims in one panel. */
+   peach box read as two different claims in one panel. Sized under the
+   title (not above it) so the two never compete for "biggest text on the
+   card" — this is the second stop in the scale, not the first. */
 .price-band {
-  background: var(--green-50); border: 1px solid var(--green-300); border-radius: var(--r-card);
-  padding: 16px 18px; margin-bottom: 18px;
+  padding: 16px 18px; margin-bottom: 22px;
 }
 .price-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
 .price-now {
-  font: 700 32px/1 var(--font-sans);
+  font: 700 26px/1 var(--font-sans);
   font-variant-numeric: tabular-nums; color: var(--price-fg);
 }
-.price-unit { font: 400 14px/1 var(--font-sans); color: var(--ink-500); }
+.price-unit { font: 500 13px/1 var(--font-sans); color: var(--ink-500); }
 
 /* Buy-more-save-more ladder (partials/_tier_ladder.html). Same border/radius
    language as the rest of the page (.avail-list, .qty-stepper) rather than a
    card-style redesign — this is a new component, not a new look for the
    page. */
+/* Every branch below the ladder (login link, staff note, "choose a branch",
+   out-of-stock line, or the live buy form) is a sibling with no margin of
+   its own, so the ladder needs to be the one holding this section apart
+   from whichever of those actually renders. */
+/* No fixed height and no row-count assumption here on purpose — a bundle
+   ladder with 2 rows or 6 rows is still just block children stacking in
+   normal flow, so the card grows with it instead of clipping or overlapping. */
+.tier-ladder { margin-bottom: 18px; }
 .tier-ladder-label {
   font: 600 12.5px/1 var(--font-sans); color: var(--ink-700);
   margin: 0 0 8px;
@@ -2596,7 +2640,7 @@ body.shop-auth {
 .tier-row-main {
   display: flex; flex: 1; align-items: baseline; flex-wrap: wrap; gap: 10px;
 }
-.tier-row-qty { font-weight: 600; }
+.tier-row-qty { font: 600 15px/1.3 var(--font-sans); }
 .tier-row-price { font-size: 13px; color: var(--ink-500); }
 /* Same brand-token badge .bulk-badge used to be, not --warn-*: a lower price
    at volume is good news, never a warning, so it does not borrow the status
@@ -2607,10 +2651,15 @@ body.shop-auth {
   font: 700 11.5px/1.4 var(--font-sans);
 }
 
-/* Stacked, not side by side: Quantity, then the CTAs. .buy-actions opts
-   back out with align-self so Add to Cart still sits hard against the left
-   edge instead of stretching into a full-width button row. */
-.buy-row { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
+/* Side by side, not stacked: Quantity on the left, the CTAs on the right,
+   sharing one row so the buy panel doesn't cost two line-heights of height.
+   align-items: flex-end lines the buttons up with the bottom of the qty
+   field (its label sits above the stepper, the buttons have no label of
+   their own); flex-wrap lets the CTAs drop to their own line if the qty
+   field's meta text pushes the row too wide before the 760px breakpoint
+   forces the stacked layout below. */
+.buy-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.qty-field { flex: 1 1 auto; min-width: 0; }
 .qty-field label {
   display: block; margin-bottom: 8px;
   font: 600 12.5px/1 var(--font-sans); color: var(--ink-700);
@@ -2628,30 +2677,63 @@ body.shop-auth {
    bulk row set that floor, so the number here always matches [min] on the
    input beside it rather than a value of its own to drift out of sync. */
 .qty-min-hint { margin: 0; font: 600 12.5px/1.4 var(--font-sans); color: var(--action-700); white-space: nowrap; }
-.qty-stepper {
-  display: inline-flex; align-items: stretch; gap: 0;
-  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+/* The product page's own stepper — named "-pdp" (rather than reusing
+   .qty-stepper/.qty-btn) so it never collides with the cart's same-named,
+   differently-shaped control (separate 30px round buttons + a .qty-value
+   span) further up this file. They used to share one name and only won on
+   source order, which is how the cart's rules leaked into this one. */
+.qty-stepper-pdp {
+  display: inline-flex; align-items: stretch;
+  height: 44px;
+  /* Matches the Add to Cart button's corner (--r-input, gerlyn.css) rather
+     than the softer 10px this used to carry — the two sat side by side in
+     .buy-actions reading as different design languages. */
+  border: 1px solid var(--line); border-radius: var(--r-input); overflow: hidden;
   background: #fff;
 }
-.qty-btn {
-  width: 40px; min-height: 44px; padding: 0; cursor: pointer;
-  border: 0; background: #fff; color: var(--ink-900);
+.qty-btn-pdp {
+  flex: 0 0 46px; width: 46px; padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--ink-700);
   font: 400 19px/1 var(--font-sans);
 }
-.qty-btn:hover { background: var(--green-50); color: var(--action-700); }
-.qty-stepper input {
-  width: 58px; min-height: 44px; text-align: center;
+.qty-btn-pdp:hover { background: rgba(0, 0, 0, .06); color: var(--action-700); }
+/* The middle cell — same 46px share as the two buttons so the row reads as
+   three equal sections. Thin dividers live here (not on the buttons) so
+   there is exactly one line at each seam instead of two adjacent borders
+   doubling up; border-box (global) keeps them inside the 46px width rather
+   than adding to it, so the input can never bleed over the buttons on
+   either side. */
+.qty-stepper-pdp input {
+  flex: 0 0 46px; width: 46px; height: 100%; padding: 0;
+  text-align: center;
   border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
   font: 600 15px/1 var(--font-sans); color: var(--ink-900);
-  background: #fff;
+  background: transparent;
 }
 /* The native spinners duplicate the two buttons either side of them and
    shrink the hit area of both. */
-.qty-stepper input::-webkit-outer-spin-button,
-.qty-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.qty-stepper input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+.qty-stepper-pdp input::-webkit-outer-spin-button,
+.qty-stepper-pdp input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qty-stepper-pdp input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+/* The global a11y ring (gerlyn.css) draws its 3px outline + 2px offset
+   around whichever element focuses. Landing that on the bare input reads as
+   two green vertical bars either side of the number: the input's own
+   top/bottom outline gets clipped by this container's overflow:hidden
+   (its height already matches the row), but the left/right outline pokes
+   out past the middle cell over the buttons, which are inside the clip
+   region and stay visible. Moving the ring to the container via
+   :focus-within keeps the same keyboard-focus signal (one ring around the
+   whole control) without a green slice landing mid-row. */
+.qty-stepper-pdp input:focus-visible { outline: none; }
+.qty-stepper-pdp:focus-within {
+  outline: 3px solid var(--brand); outline-offset: 2px; border-radius: var(--r-input);
+}
 
-.buy-actions { display: flex; flex-wrap: wrap; gap: 12px; align-self: flex-start; }
+/* No align-self override here: .buy-row's own align-items: flex-end is what
+   bottom-aligns this row with .qty-field, putting the buttons level with the
+   qty-stepper's 44px row instead of floating up near the "Quantity" label. */
+.buy-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 /* Both CTAs get a touch more horizontal room than the app's default .btn
    padding gives — this is the page's one purchase decision, so the pair
    reads with a bit more weight than a toolbar button does. */
@@ -2748,8 +2830,10 @@ body.shop-auth {
 
 @media (max-width: 760px) {
   .pdp { grid-template-columns: 1fr; padding: 16px; }
-  .pdp-title { font-size: 22px; }
-  .price-now { font-size: 27px; }
+  .pdp-info { max-width: none; }
+  .pdp-title { font-size: 23px; }
+  .price-now { font-size: 22px; }
+  .buy-row { flex-direction: column; align-items: stretch; }
   .buy-actions { flex-direction: column; align-self: stretch; }
   .buy-actions .btn { width: 100%; justify-content: center; }
 }

@@ -1,0 +1,91 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>Notifications — Supplier Portal</title>
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
+  <style>
+    /* The tray's no-JS/fetch-failure fallback and its "see full list" link
+       target — same relationship supplier_portal.html's tray has to this
+       page as core/notification_center.html has to the internal tray. Same
+       .portal-* shell as supplier_portal.html, standalone for the same
+       reason that page is: none of the internal sidebar screens are a
+       supplier's to open. */
+    .portal-wrap { width: 100%; max-width: 720px; margin: 0 auto; padding: 0 24px; box-sizing: border-box; }
+    .portal-header { width: 100%; background: #1E7A4F; color: #fff; border-bottom: none; padding: 14px 0; }
+    .portal-header .portal-wrap { max-width: none; }
+    .portal-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .portal-header .brand-mark { width: 38px; height: 38px; border-radius: 9px; }
+    .portal-header .brand-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
+    .portal-header .brand-sub { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
+    .portal-header .btn {
+      background: transparent; border: 1px solid rgba(255,255,255,.35);
+      color: #fff; border-radius: 7px;
+    }
+    .portal-header .btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+    @media (max-width: 640px) { .portal-wrap { padding: 0 16px; } }
+
+    /* The tray card markup (.tray-ncard etc.) is designed for the floating
+       popover's fixed-height scroll area — plain card styling here instead,
+       since this page's whole job is being the unconstrained "see
+       everything" surface. .notif-page-list (gerlyn.css) already turns off
+       the tray's hover-to-reveal actions for this reason. */
+    #notifFeed { border: 1px solid #E3E8E4; border-radius: 10px; background: #fff; overflow: hidden; }
+    #notifFeed .tray-list-inner { padding: 4px; }
+  </style>
+</head>
+<body>
+
+<header class="portal-header">
+  <div class="portal-wrap portal-nav">
+    <span class="row" style="gap:10px;">
+      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="Gerlyn Variety Store"></span>
+      <span>
+        <span class="brand-name">Gerlyn Variety Store</span><br>
+        <span class="brand-sub">Supplier Portal</span>
+      </span>
+    </span>
+    <span class="row" style="gap:12px;">
+      <a class="btn" href="{% url 'supplier_portal' %}">Back to orders</a>
+      <a class="btn" href="{% url 'accounts:logout' %}">Logout</a>
+    </span>
+  </div>
+</header>
+
+<main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="page-head">
+    <div>
+      <h1>Notifications</h1>
+      <p class="gv-meta mb-0">Updates on the orders Gerlyn Variety Store has placed with you.</p>
+    </div>
+    {% if unread_count %}
+    {% comment %}
+      A real form, not the JS-only #notifMarkAll button the floating tray
+      uses (static/js/notification-tray.js) — this page has no #notifBell/
+      #notifTray for that script to attach to, so it early-returns here.
+      Same plain POST + redirect core/notification_center.html's own full
+      page falls back to.
+    {% endcomment %}
+    <form method="post" action="{% url 'supplier_notification_mark_all_read' %}" style="margin:0;">
+      {% csrf_token %}
+      <button type="submit" class="btn">Mark all read</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="notif-page-list mt-4" id="notifFeed">
+    {% include "procurement/_supplier_notification_tray_list.html" %}
+  </div>
+</main>
+
+</body>
+</html>

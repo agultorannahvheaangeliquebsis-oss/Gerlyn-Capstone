@@ -43,6 +43,20 @@
 }
 .account-nav-link.active svg { color: #fff; }
 
+/* ── Sidebar section labels ────────────────────────────────────── */
+/* Small caps labels replace the old <details> groups: grouping now reads
+   from whitespace and a muted heading rather than nesting, so every row
+   stays one click away and the rail never needs open/closed state. Smaller
+   and lighter than the links so it reads as a heading, not another row. */
+.account-nav-label {
+  padding: 10px 14px 4px;
+  font: 700 11px/1.3 var(--font-sans);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.account-nav-label:first-child { padding-top: 6px; }
+
 /* ── Profile hero card ─────────────────────────────────────────── */
 /* Flat --action-700, not the 135deg --action -> --action-700 wash it was.
    The gradient carried no information — the hero means the same thing at
@@ -94,11 +108,13 @@
   font: 700 22px/1.2 var(--font-sans);
   color: #fff;
   margin: 0 0 4px;
+  overflow-wrap: anywhere;
 }
 .profile-hero-email {
   font: 400 14px/1 var(--font-sans);
   color: rgba(255,255,255,.8);
   margin: 0 0 10px;
+  overflow-wrap: anywhere;
 }
 .profile-hero-meta {
   display: flex;
@@ -123,17 +139,22 @@
 }
 
 /* ── Stats row ─────────────────────────────────────────────────── */
+/* Flex, not a fixed 2-column grid: the row currently renders a single stat
+   (Loyalty Points is commented out below), and a 1fr-1fr grid left that one
+   stat stranded in the left half with a dead, bordered-off column beside it.
+   Flex lets the row hold 1, 2, or more stats and always end where its
+   content ends. */
 .profile-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   border-top: 1px solid var(--line);
-  border-radius: 0;
 }
 .profile-stat {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
+  flex: 0 0 auto;
 }
 .profile-stat + .profile-stat {
   border-left: 1px solid var(--line);
@@ -204,9 +225,26 @@
    The person glyph was doing duty for both Full Name and Username, which is
    the tell — an icon that stands for two different things stands for
    neither, and the four labels were legible without any of them. */
-.info-field .val {
+.info-field .val,
+.info-subsection .val {
   font: 500 15px/1.4 var(--font-sans);
   color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+
+/* ── Personal Information: Delivery Address subsection ────────────
+   Sits a step below the card title (16px) and a step above the field
+   labels (12px uppercase) so it reads as a grouped subsection of Personal
+   Information rather than just another field in the grid. */
+.info-subsection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-soft);
+}
+.info-subsection-title {
+  font: 650 13.5px/1.2 var(--font-sans);
+  color: var(--ink-700);
+  margin: 0 0 8px;
 }
 /* .verified-badge / .unverified-badge are gone. Whether an email is verified
    is a binary status on a record, which is what .pill is for, and these two
@@ -440,6 +478,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   font: 400 14px/1.4 var(--font-sans);
   color: var(--ink-600);
   margin-top: 3px;
+  overflow-wrap: anywhere;
 }
 .address-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .address-set-default-link {
@@ -495,6 +534,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
   .profile-hero-meta { justify-content: center; }
   .account-wrap { padding: 20px 16px 48px; }
   .address-card { flex-wrap: wrap; }
+  .profile-sections { gap: 18px; }
 }
 
 /* ── Account shell: tighter, squarer ────────────────────────────────────
@@ -517,13 +557,21 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .account-grid { gap: 16px; }
 .account-wrap .stack { gap: 12px; }
 
+/* A dedicated class for the Profile page's major sections (hero, personal
+   info, addresses, security) instead of overriding .stack above — that
+   utility is shared by every account page, and only Profile's top-level
+   sections need a gap wide enough to read as separate sections rather than
+   related lines. */
+.profile-sections { display: flex; flex-direction: column; gap: 24px; }
+
 .account-sidebar { padding: 5px; }
 .account-nav-link { min-height: 38px; padding: 0 11px; font-size: 14px; gap: 9px; }
 .account-nav-link svg { width: 16px; height: 16px; }
+.account-nav-label { padding-left: 11px; padding-right: 11px; }
 
 /* Replaces the inline `<div style="height:1px; background:…">` the rail used
-   to carry between its two halves — it now has two of them, and a divider is
-   not something a template should be redrawing by hand each time. */
+   to carry before Logout — a divider is not something a template should be
+   redrawing by hand each time. */
 .account-nav-sep { height: 1px; background: var(--line-soft); margin: 5px 6px; }
 
 /* Unread count on the Notifications row. Sits at the end of the row rather

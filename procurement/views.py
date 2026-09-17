@@ -22,6 +22,7 @@ from django.db.models import Q
 from xhtml2pdf import pisa
 
 from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
+from core.querystrings import list_filter_querystring
 from core.permissions import (
     BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
 )
@@ -41,7 +42,7 @@ from .serializers import (
     ProcurementStatusSerializer,
 )
 from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
-from accounts.models import User
+from accounts.models import Notification, User
 
 
 # =============================================================================
@@ -53,6 +54,8 @@ def _procurement_list_context(request):
     """Everything procurement_list.html needs, in one place so procurement_add's
     error re-render (the Create PO modal reopened with what was typed) cannot
     drift from the initial GET."""
+    from branches.models import Branch
+
     procurements = Procurement.objects.select_related('branch', 'supplier', 'owner').all()
 
     if request.user.role == User.Role.SUPPLIER:
@@ -61,6 +64,16 @@ def _procurement_list_context(request):
     else:
         # Owner = all branches; manager/staff = their own branch only.
         procurements = scope_queryset(procurements, request.user)
+
+    # Owner-only branch filter — Manager/Staff are already pinned to their
+    # own branch's orders (and Supplier to their own orders) above, so a
+    # selector would do nothing for them.
+    show_branch_filter = request.user.role == User.Role.OWNER
+    branch_filter = request.GET.get('branch', '') if show_branch_filter else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+    if branch_filter:
+        procurements = procurements.filter(branch_id=branch_filter)
 
     procurements = procurements.order_by('-order_date')
 
@@ -81,6 +94,8 @@ def _procurement_list_context(request):
     # Staff would only get rejected from now that they can reach the page.
     can_create = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
 
+    switch_branches = Branch.objects.all() if show_branch_filter else []
+
     context = {
         'procurements': procurements,
         'counts': counts,
@@ -94,6 +109,22 @@ def _procurement_list_context(request):
         'po_errors': None,
         'po_form_data': None,
         'po_restore_rows': None,
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock, Product Master List, Billing and Receive Delivery.
+        'filter_branch': next((b for b in switch_branches if str(b.id) == branch_filter), None),
+        'user_branch': branch_for_user(request.user),
+        # `branches` is reserved for the Create PO modal's own branch picker
+        # (see _procurement_form_context below) — the topbar switcher gets
+        # its own key so the two can never collide.
+        'switch_branches': switch_branches,
+        # O-3 — one urlencoded filter string for the status tabs, same fix
+        # as Billing/the Order Console: a tab's href used to be hand-built
+        # and silently dropped the branch filter on every click.
+        'filter_qs': list_filter_querystring(branch=branch_filter),
+        # Every other active filter, for the topbar branch switcher
+        # (partials/_branch_switch.html) to carry along.
+        'branch_switch_carry': [('status', status_filter)],
     }
     if can_create:
         # suppliers/products/branches/user_branch, plus the (more correct,
@@ -478,7 +509,9 @@ def procurement_update_status(request, pk):
 
         if new_status == Procurement.Status.CANCELLED:
             from core.module_permissions import PROCUREMENT
-            from core.notifications import CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify
+            from core.notifications import (
+                CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify, notify_supplier,
+            )
 
             notify(
                 CATEGORY_PROCUREMENT, PRIORITY_HIGH,
@@ -490,6 +523,21 @@ def procurement_update_status(request, pk):
                 action_label='View PO',
                 required_module=PROCUREMENT,
             )
+
+            # Only if the supplier had already seen this order (i.e. it was
+            # Ordered, not still an internal Draft) — `proc` was fetched
+            # before the transaction above and still holds the pre-change
+            # status, so this reflects what the supplier's portal showed
+            # them a moment ago.
+            if proc.status == Procurement.Status.ORDERED:
+                notify_supplier(
+                    proc.supplier, PRIORITY_HIGH,
+                    f'{proc.po_number} cancelled',
+                    f'Gerlyn Variety Store cancelled {proc.po_number}. No '
+                    f'delivery is needed for this order.',
+                    action_url=reverse('supplier_portal'),
+                    action_label='View order',
+                )
 
     return redirect('procurement_detail', pk=pk)
 
@@ -547,6 +595,21 @@ def procurement_approve(request, pk):
         request,
         f'{proc.po_number} approved and is now Ordered.'
     )
+
+    from core.notifications import PRIORITY_MEDIUM, notify_supplier
+
+    # This approval is the moment the order first becomes real to the
+    # supplier — supplier_portal excludes Draft POs entirely, so before now
+    # they had no way to know this order existed.
+    notify_supplier(
+        proc.supplier, PRIORITY_MEDIUM,
+        f'New purchase order: {proc.po_number}',
+        f'Gerlyn Variety Store placed {proc.po_number} with you for '
+        f'delivery to {proc.branch.branch_name}.',
+        action_url=reverse('supplier_portal'),
+        action_label='View order',
+    )
+
     return redirect('procurement_detail', pk=pk)
 
 
@@ -829,7 +892,9 @@ def delivery_receive(request, pk):
                 f'delivered quantities differ from what was ordered.'
             )
             from core.module_permissions import DELIVERIES
-            from core.notifications import CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify
+            from core.notifications import (
+                CATEGORY_PROCUREMENT, PRIORITY_HIGH, notify, notify_supplier,
+            )
 
             notify(
                 CATEGORY_PROCUREMENT, PRIORITY_HIGH,
@@ -842,12 +907,31 @@ def delivery_receive(request, pk):
                 action_label='View PO',
                 required_module=DELIVERIES,
             )
+            notify_supplier(
+                proc.supplier, PRIORITY_HIGH,
+                f'{proc.po_number} — delivery discrepancy',
+                f'{proc.branch.branch_name} recorded different quantities '
+                f'from what was ordered on {proc.po_number}. Please check '
+                f'this delivery with them.',
+                action_url=reverse('supplier_portal'),
+                action_label='View order',
+            )
         else:
             messages.success(
                 request,
                 f'{proc.po_number} received in full. Warehouse stock updated — '
                 f'create a Withdrawal Slip to move it onto the floor.',
                 extra_tags='sheet',
+            )
+            from core.notifications import PRIORITY_LOW, notify_supplier
+
+            notify_supplier(
+                proc.supplier, PRIORITY_LOW,
+                f'{proc.po_number} delivered & received',
+                f'{proc.branch.branch_name} confirmed receipt of {proc.po_number} '
+                f'in full.',
+                action_url=reverse('supplier_portal'),
+                action_label='View order',
             )
         return redirect('procurement_detail', pk=pk)
 
@@ -1058,6 +1142,7 @@ def supplier_portal(request):
         'overdue': overdue,
         'today': today,
         'profile': getattr(request.user, 'supplier_profile', None),
+        'notif_unread_count': request.user.notifications.filter(is_read=False).count(),
     })
 
 
@@ -1087,6 +1172,108 @@ def supplier_set_delivery_date(request, pk):
         )
 
     return redirect('supplier_portal')
+
+
+# =============================================================================
+# SUPPLIER NOTIFICATIONS
+# The supplier's own bell/tray, off supplier_portal.html's header — the same
+# static/js/notification-tray.js the internal Owner Notification Center uses
+# (core/views.py, templates/internal_base.html), pointed at these endpoints
+# instead. Deliberately NOT core.views.notification_center_view's own
+# endpoints: those are @role_required(*INTERNAL_ROLES) — Owner/Manager/Staff
+# only — and render the internal-chrome full page, neither of which a
+# Supplier should ever land on. Every query below is scoped to
+# request.user.notifications, so one supplier can never see another
+# supplier's (or the store's own internal) notifications regardless of what
+# gets requested — role separation here is "this endpoint only exists for
+# SUPPLIER", not "the query trusts the caller".
+# =============================================================================
+
+def _is_xhr(request):
+    return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
+def _supplier_notification_counts(notifications_qs):
+    # notification-tray.js always badges off `needs_action_count` (see its
+    # own comments) — that matches the Owner tray's "unresolved Critical/
+    # High" semantics, but notify_supplier() never sets requires_action, so
+    # that count would always read 0 here. Reusing the key for unread_count
+    # instead gives the supplier's bell the plain "you have unread
+    # notifications" badge that actually fits a read-only inbox.
+    unread_count = notifications_qs.filter(is_read=False).count()
+    return {
+        'total_count': notifications_qs.count(),
+        'unread_count': unread_count,
+        'needs_action_count': unread_count,
+    }
+
+
+@login_required(login_url='accounts:login')
+def supplier_notifications(request):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    notifications = request.user.notifications.filter(
+        category=Notification.Category.PROCUREMENT
+    ).order_by('-created_at')[:200]
+    counts = _supplier_notification_counts(request.user.notifications.filter(
+        category=Notification.Category.PROCUREMENT
+    ))
+
+    if _is_xhr(request):
+        list_html = render_to_string(
+            'procurement/_supplier_notification_tray_list.html',
+            {'notifications': notifications}, request=request,
+        )
+        return JsonResponse({'list_html': list_html, **counts})
+
+    return render(request, 'procurement/supplier_notifications.html', {
+        'notifications': notifications,
+        **counts,
+    })
+
+
+@require_POST
+@login_required(login_url='accounts:login')
+def supplier_notification_mark_read(request, pk):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    notification = get_object_or_404(request.user.notifications, pk=pk)
+    if not notification.is_read:
+        notification.is_read = True
+        notification.save(update_fields=['is_read'])
+    if _is_xhr(request):
+        return JsonResponse(_supplier_notification_counts(
+            request.user.notifications.filter(category=Notification.Category.PROCUREMENT)
+        ))
+    return redirect('supplier_notifications')
+
+
+@require_POST
+@login_required(login_url='accounts:login')
+def supplier_notification_mark_all_read(request):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    updated = request.user.notifications.filter(
+        category=Notification.Category.PROCUREMENT, is_read=False
+    ).update(is_read=True)
+    if _is_xhr(request):
+        return JsonResponse(_supplier_notification_counts(
+            request.user.notifications.filter(category=Notification.Category.PROCUREMENT)
+        ))
+    if updated:
+        messages.success(
+            request,
+            f'Marked {updated} notification{"" if updated == 1 else "s"} as read.',
+        )
+    else:
+        messages.info(request, 'You have no unread notifications.')
+    return redirect('supplier_notifications')
 
 
 # =============================================================================

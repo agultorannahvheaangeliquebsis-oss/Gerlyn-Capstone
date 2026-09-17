@@ -1,0 +1,106 @@
+{% comment %}
+Step 3 of the Import Products wizard. Context is import_rows/import_counts/
+import_truncated from _import_modal_context() (views.py) — GET just previews;
+this modal's own form POST (to product_import_preview) commits it, re-reading
+the same _parse_import_rows() output so what was previewed is exactly what
+gets applied.
+{% endcomment %}
+<div class="modal-overlay{% if show_import_preview_modal %} is-open{% endif %}" id="import-preview-modal" data-autoopen="{% if show_import_preview_modal %}1{% else %}0{% endif %}">
+  <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="import-preview-title">
+    <div class="modal-head">
+      <h2 id="import-preview-title">Import Products</h2>
+      <button type="button" class="modal-close" id="close-import-preview-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <p class="gv-meta" style="margin-top:0;">
+        Step 3 of 3 — review before confirming · <a href="{% url 'product_import_map' %}">Back to column mapping</a>
+      </p>
+
+      <div class="kpi-row compact">
+        <div class="kpi-card">
+          <span class="label">Rows Found</span>
+          <span class="value">{{ import_counts.total }}</span>
+        </div>
+        <div class="kpi-card">
+          <span class="label">New Products</span>
+          <span class="value">{{ import_counts.create }}</span>
+        </div>
+        <div class="kpi-card">
+          <span class="label">Updating Existing</span>
+          <span class="value">{{ import_counts.update }}</span>
+        </div>
+        <div class="kpi-card{% if import_counts.error %} danger{% endif %}">
+          <span class="label">Skipped (Errors)</span>
+          <span class="value">{{ import_counts.error }}</span>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="gv-table">
+          <thead>
+            <tr>
+              <th>Row</th>
+              <th>Product</th>
+              <th>Barcode</th>
+              <th>Category</th>
+              <th class="num">Retail Price</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in import_rows %}
+            <tr>
+              <td data-label="Row" class="gv-meta">{{ row.row_number }}</td>
+              <td data-label="Product" class="strong">{{ row.product_name|default:"—" }}</td>
+              <td data-label="Barcode" class="sku">{{ row.barcode|default:"—" }}</td>
+              <td data-label="Category">{{ row.category_name|default:"—" }}</td>
+              <td data-label="Retail Price" class="num">{% if row.unit_price %}₱{{ row.unit_price|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td data-label="Action">
+                {% if row.action == 'error' %}
+                  <span class="pill pill-danger">Skipped</span>
+                  <div class="gv-meta">{{ row.errors|join:" " }}</div>
+                {% elif row.action == 'update' %}
+                  <span class="pill pill-info">Update existing</span>
+                {% else %}
+                  <span class="pill pill-ok">New product</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6">
+                <div class="empty">
+                  <span class="glyph">□</span>
+                  <h3>No rows found</h3>
+                  <p>The sheet has no data below its header row.</p>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if import_truncated %}
+        <div class="card-pad" style="border-top:1px solid var(--line);">
+          <p class="gv-meta mb-0">Showing the first 200 of {{ import_counts.total }} rows — every row is still included in the counts above and will be processed on confirm.</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <form method="POST" action="{% url 'product_import_preview' %}" id="import-preview-form">{% csrf_token %}</form>
+      <form method="POST" action="{% url 'product_import_cancel' %}" id="import-preview-cancel-form">{% csrf_token %}</form>
+    </div>
+
+    <div class="modal-foot">
+      <button type="submit" form="import-preview-cancel-form" class="btn">Cancel Import</button>
+      <button type="submit" form="import-preview-form" class="btn btn-primary" {% if not import_counts.create and not import_counts.update %}disabled{% endif %}>
+        Confirm Import
+      </button>
+    </div>
+  </div>
+</div>

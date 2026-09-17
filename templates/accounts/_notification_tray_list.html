@@ -1,0 +1,51 @@
+{% comment %}
+The storefront bell's floating tray — fetched as a JSON fragment by
+static/js/notification-tray.js (the same script the internal Owner tray
+uses; see templates/core/_notification_tray_list.html and
+core/views.py:notification_center_view for that sibling). Markup reuses the
+same .tray-ncard/.notif-tray component from gerlyn.css rather than a
+storefront-only copy of it.
+
+Only the top 8 (accounts/views.py:notifications_view) — a quick glance at
+what's most recent, not the whole inbox. "See all" in the tray footer goes
+to the full page for everything older.
+
+A plain customer notification has no category/branch/priority-escalation
+story the way an internal one does (see accounts/models.py:Notification's
+docstring — those fields are blank/default here), so this card is simpler
+than the internal one: title, message, when, and — the two things a shopper
+actually needs from a glance — whether it's new, and somewhere to go if the
+notification points at something (action_url, e.g. an order).
+{% endcomment %}
+{% load static %}
+
+<div class="tray-list-inner">
+  {% for n in notifications %}
+  <div class="tray-ncard p-{{ n.priority }}{% if n.is_read %} is-read{% endif %}" id="notif-{{ n.pk }}">
+    <span class="tray-ncard-dot"></span>
+    <div class="tray-ncard-body">
+      <div class="tray-ncard-top">
+        <span class="tray-ncard-cat">{% if not n.is_read %}New{% endif %}</span>
+        <span class="tray-ncard-time">{{ n.created_at|timesince }} ago</span>
+      </div>
+      <div class="tray-ncard-title">{{ n.title }}</div>
+      <div class="tray-ncard-msg">{{ n.message }}</div>
+      {% if n.action_url or not n.is_read %}
+      <div class="tray-ncard-actions">
+        {% if n.action_url %}
+        <a class="tray-tbtn primary" href="{{ n.action_url }}">{{ n.action_label|default:"View" }}</a>
+        {% endif %}
+        {% if not n.is_read %}
+        <form method="post" action="{% url 'accounts:mark_notification_read' n.pk %}" class="tray-read-form">
+          {% csrf_token %}
+          <button type="submit" class="tray-tbtn ghost">Dismiss</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% empty %}
+  <div class="tray-empty">No notifications yet. Updates about your orders will appear here.</div>
+  {% endfor %}
+</div>

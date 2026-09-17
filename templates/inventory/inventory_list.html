@@ -5,14 +5,14 @@
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% elif active_branch %}{{ active_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% comment %}
-Top-bar branch switcher — turns the static scope chip into a menu of every
-branch, for the Owner only. Manager/Staff are branch-pinned server-side, so
-`branches` is empty for them and they keep the plain label. Each item just
-sets ?branch=; branch_switch_carry (the q/category/status filters) rides
-along so switching branch keeps the rest of the toolbar. Shared component —
-see partials/_branch_switch.html.
+Top-bar chip — read-only here (readonly=True) since the .scopebar tabs
+below are the branch switcher for this page; a second, independent dropdown
+in the topbar that did the same thing was confusing. The chip still tracks
+whichever branch tab is active, because that's a full navigation and
+filter_branch is recomputed server-side. Shared component — see
+partials/_branch_switch.html.
 {% endcomment %}
-{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" with readonly=True %}{% endblock %}
 
 {% block extra_css %}
 <style>

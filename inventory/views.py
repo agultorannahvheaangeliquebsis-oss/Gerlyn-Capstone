@@ -284,6 +284,10 @@ def product_list(request):
                 'edit_values': _edit_modal_values(product),
             })
 
+    import_step = request.GET.get('import')
+    if import_step and context['can_edit']:
+        context.update(_import_modal_context(request, import_step))
+
     return render(request, 'inventory/product_list.html', context)
 
 
@@ -864,49 +868,127 @@ def product_export_xlsx(request):
     return response
 
 
+def _import_map_fields_context(request, headers, current_mapping):
+    """Shared by product_list (?import=map, a fresh GET) and
+    product_import_map's own rejected-submit redisplay — same modal, same
+    shape of context either way."""
+    templates = ProductImportMappingTemplate.objects.filter(
+        models.Q(created_by=request.user) | models.Q(is_shared=True)
+    ).select_related('created_by')
+    fields = [
+        {'key': key, 'label': label, 'required': required, 'selected': current_mapping.get(key, '')}
+        for key, label, required in _MAPPABLE_FIELDS
+    ]
+    return {
+        'show_import_map_modal': True,
+        'import_headers': headers,
+        'import_fields': fields,
+        'import_templates': templates,
+    }
+
+
+def _import_modal_context(request, step):
+    """Which Import Products modal (if any) product_list should open,
+    driven by ?import=upload|map|preview — the wizard now lives entirely in
+    modals on top of the product list, so a redirect here is what used to be
+    a full page render of product_import_upload/map/preview.html."""
+    if step == 'upload':
+        return {'show_import_upload_modal': True}
+
+    state = request.session.get('product_import')
+    if not state:
+        messages.error(request, 'Upload a file to start an import.')
+        return {}
+
+    if step == 'map':
+        headers = state['headers']
+        template_id = request.GET.get('template')
+        if template_id:
+            templates = ProductImportMappingTemplate.objects.filter(
+                models.Q(created_by=request.user) | models.Q(is_shared=True)
+            )
+            tmpl = templates.filter(pk=template_id).first()
+            current_mapping = tmpl.mapping if tmpl else {}
+        else:
+            current_mapping = state.get('mapping') or _guess_mapping(headers)
+        return _import_map_fields_context(request, headers, current_mapping)
+
+    if step == 'preview':
+        if not state.get('mapping'):
+            messages.error(request, 'Map the columns first.')
+            return {}
+        path = state['path']
+        if not os.path.exists(path):
+            _clear_import_session(request)
+            messages.error(request, 'Your uploaded file is no longer available — please upload it again.')
+            return {}
+        rows = _parse_import_rows(path, state['mapping'])
+        counts = {
+            'total': len(rows),
+            'create': sum(1 for r in rows if r['action'] == 'create'),
+            'update': sum(1 for r in rows if r['action'] == 'update'),
+            'error': sum(1 for r in rows if r['action'] == 'error'),
+        }
+        return {
+            'show_import_preview_modal': True,
+            'import_rows': rows[:200],
+            'import_counts': counts,
+            'import_truncated': len(rows) > 200,
+        }
+
+    return {}
+
+
 @login_required(login_url='accounts:login')
 def product_import_upload(request):
     """Step 1: upload the .xlsx file and read its header row. The file is
     saved to a private temp directory (never under MEDIA_ROOT — it's a
     working file for this wizard, not a record the app keeps); only its
-    path and headers go into the session."""
+    path and headers go into the session.
+
+    The wizard lives in a modal on the product list now, so a GET here
+    (bookmark, back button) just sends whoever lands here there with a flag
+    so the page JS opens the modal on load — same as product_add/_edit."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to import products.')
         return redirect('product_list')
 
-    if request.method == 'POST':
-        upload = request.FILES.get('file')
-        if not upload or not upload.name.lower().endswith('.xlsx'):
-            messages.error(request, 'Choose a .xlsx file to import.')
-            return render(request, 'inventory/product_import_upload.html')
+    if request.method != 'POST':
+        return redirect(f"{reverse('product_list')}?import=upload")
 
-        _clear_import_session(request)  # drop any abandoned previous upload
+    def fail(message):
+        messages.error(request, message)
+        context = _product_list_context(request)
+        context['show_import_upload_modal'] = True
+        return render(request, 'inventory/product_list.html', context)
 
-        os.makedirs(_IMPORT_TMP_DIR, exist_ok=True)
-        tmp_path = os.path.join(_IMPORT_TMP_DIR, f'{uuid.uuid4().hex}.xlsx')
-        with open(tmp_path, 'wb') as f:
-            for chunk in upload.chunks():
-                f.write(chunk)
+    upload = request.FILES.get('file')
+    if not upload or not upload.name.lower().endswith('.xlsx'):
+        return fail('Choose a .xlsx file to import.')
 
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
-            header_row = next(wb.active.iter_rows(values_only=True), None)
-        except Exception:
-            os.remove(tmp_path)
-            messages.error(request, 'Could not read that file — make sure it is a valid .xlsx spreadsheet.')
-            return render(request, 'inventory/product_import_upload.html')
+    _clear_import_session(request)  # drop any abandoned previous upload
 
-        headers = [str(h).strip() for h in (header_row or []) if h is not None and str(h).strip()]
-        if not headers:
-            os.remove(tmp_path)
-            messages.error(request, 'The first row of the sheet must contain column headers.')
-            return render(request, 'inventory/product_import_upload.html')
+    os.makedirs(_IMPORT_TMP_DIR, exist_ok=True)
+    tmp_path = os.path.join(_IMPORT_TMP_DIR, f'{uuid.uuid4().hex}.xlsx')
+    with open(tmp_path, 'wb') as f:
+        for chunk in upload.chunks():
+            f.write(chunk)
 
-        request.session['product_import'] = {'path': tmp_path, 'headers': headers, 'mapping': None}
-        return redirect('product_import_map')
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
+        header_row = next(wb.active.iter_rows(values_only=True), None)
+    except Exception:
+        os.remove(tmp_path)
+        return fail('Could not read that file — make sure it is a valid .xlsx spreadsheet.')
 
-    return render(request, 'inventory/product_import_upload.html')
+    headers = [str(h).strip() for h in (header_row or []) if h is not None and str(h).strip()]
+    if not headers:
+        os.remove(tmp_path)
+        return fail('The first row of the sheet must contain column headers.')
+
+    request.session['product_import'] = {'path': tmp_path, 'headers': headers, 'mapping': None}
+    return redirect(f"{reverse('product_list')}?import=map")
 
 
 @login_required(login_url='accounts:login')
@@ -914,7 +996,11 @@ def product_import_map(request):
     """Step 2: map each uploaded column to a system field, optionally
     starting from a saved template (?template=<id>, a plain GET so loading
     one is just a link/select — never a state change) and optionally saving
-    the mapping just built under a new name before moving on."""
+    the mapping just built under a new name before moving on.
+
+    GET only ever reaches here from a bookmark/back button now — the modal
+    reads through product_list's ?import=map instead — so it just forwards
+    there, template param and all."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to import products.')
         return redirect('product_list')
@@ -924,69 +1010,54 @@ def product_import_map(request):
         messages.error(request, 'Upload a file to start an import.')
         return redirect('product_import_upload')
 
+    if request.method != 'POST':
+        query = urlencode({'import': 'map', **({'template': request.GET['template']} if request.GET.get('template') else {})})
+        return redirect(f"{reverse('product_list')}?{query}")
+
     headers = state['headers']
-    templates = ProductImportMappingTemplate.objects.filter(
-        models.Q(created_by=request.user) | models.Q(is_shared=True)
-    ).select_related('created_by')
+    mapping = {}
+    for field_key, _label, _required in _MAPPABLE_FIELDS:
+        chosen = request.POST.get(f'map_{field_key}', '')
+        if chosen and chosen in headers:
+            mapping[field_key] = chosen
 
-    if request.method == 'POST':
-        mapping = {}
-        for field_key, _label, _required in _MAPPABLE_FIELDS:
-            chosen = request.POST.get(f'map_{field_key}', '')
-            if chosen and chosen in headers:
-                mapping[field_key] = chosen
-
-        errors = [
-            f'Map a column to "{label}" — it is required.'
-            for field_key, label, required in _MAPPABLE_FIELDS
-            if required and field_key not in mapping
-        ]
-
-        if errors:
-            for e in errors:
-                messages.error(request, e)
-            current_mapping = mapping  # keep what they picked instead of losing it
-        else:
-            save_name = request.POST.get('save_template_name', '').strip()
-            if save_name:
-                ProductImportMappingTemplate.objects.update_or_create(
-                    created_by=request.user, name=save_name,
-                    defaults={
-                        'mapping': mapping,
-                        'is_shared': request.POST.get('template_visibility') == 'shared',
-                    },
-                )
-                messages.success(request, f'Saved mapping template "{save_name}".')
-
-            state['mapping'] = mapping
-            request.session['product_import'] = state
-            request.session.modified = True
-            return redirect('product_import_preview')
-    else:
-        template_id = request.GET.get('template')
-        if template_id:
-            tmpl = templates.filter(pk=template_id).first()
-            current_mapping = tmpl.mapping if tmpl else {}
-        else:
-            current_mapping = state.get('mapping') or _guess_mapping(headers)
-
-    fields = [
-        {'key': key, 'label': label, 'required': required, 'selected': current_mapping.get(key, '')}
-        for key, label, required in _MAPPABLE_FIELDS
+    errors = [
+        f'Map a column to "{label}" — it is required.'
+        for field_key, label, required in _MAPPABLE_FIELDS
+        if required and field_key not in mapping
     ]
-    return render(request, 'inventory/product_import_map.html', {
-        'headers': headers,
-        'fields': fields,
-        'templates': templates,
-    })
+
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        context = _product_list_context(request)
+        context.update(_import_map_fields_context(request, headers, mapping))
+        return render(request, 'inventory/product_list.html', context)
+
+    save_name = request.POST.get('save_template_name', '').strip()
+    if save_name:
+        ProductImportMappingTemplate.objects.update_or_create(
+            created_by=request.user, name=save_name,
+            defaults={
+                'mapping': mapping,
+                'is_shared': request.POST.get('template_visibility') == 'shared',
+            },
+        )
+        messages.success(request, f'Saved mapping template "{save_name}".')
+
+    state['mapping'] = mapping
+    request.session['product_import'] = state
+    request.session.modified = True
+    return redirect(f"{reverse('product_list')}?import=preview")
 
 
 @login_required(login_url='accounts:login')
 def product_import_preview(request):
-    """Step 3: GET shows what the mapped file resolves to (counts + a
-    sample of interpreted rows) without writing anything; POST commits it —
-    both read the same _parse_import_rows() output, so what was previewed
-    is exactly what gets applied."""
+    """Step 3: POST commits the mapped file — reading the same
+    _parse_import_rows() output the preview modal was just shown (computed
+    by _import_modal_context via product_list's ?import=preview), so what
+    was previewed is exactly what gets applied. A GET here (bookmark, back
+    button) just forwards to that modal instead of redoing its work."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to import products.')
         return redirect('product_list')
@@ -1002,81 +1073,70 @@ def product_import_preview(request):
         messages.error(request, 'Your uploaded file is no longer available — please upload it again.')
         return redirect('product_import_upload')
 
+    if request.method != 'POST':
+        return redirect(f"{reverse('product_list')}?import=preview")
+
     rows = _parse_import_rows(path, state['mapping'])
+    created = updated = skipped = 0
+    any_new_category = False
+    with transaction.atomic():
+        for row in rows:
+            if row['action'] == 'error':
+                skipped += 1
+                continue
 
-    if request.method == 'POST':
-        created = updated = skipped = 0
-        any_new_category = False
-        with transaction.atomic():
-            for row in rows:
-                if row['action'] == 'error':
-                    skipped += 1
-                    continue
+            category = None
+            if row['category_name']:
+                category = ProductCategory.objects.filter(
+                    category_name__iexact=row['category_name']
+                ).first()
+                if category is None:
+                    category = ProductCategory.objects.create(category_name=row['category_name'])
+                    any_new_category = True
 
-                category = None
-                if row['category_name']:
-                    category = ProductCategory.objects.filter(
-                        category_name__iexact=row['category_name']
-                    ).first()
-                    if category is None:
-                        category = ProductCategory.objects.create(category_name=row['category_name'])
-                        any_new_category = True
+            if row['action'] == 'update':
+                product = Product.objects.get(pk=row['existing_id'])
+                updated += 1
+            else:
+                product = Product(sku_code=Product.next_sku_code())
+                created += 1
 
-                if row['action'] == 'update':
-                    product = Product.objects.get(pk=row['existing_id'])
-                    updated += 1
-                else:
-                    product = Product(sku_code=Product.next_sku_code())
-                    created += 1
+            product.product_name = row['product_name']
+            if row['barcode']:
+                product.barcode = row['barcode']
+            product.category = category
+            product.unit_of_measure = row['unit_of_measure']
+            product.unit_price = row['unit_price']
+            product.description = row['description']
+            product.is_vat_exempt = row['is_vat_exempt']
+            product.is_pwd_eligible = row['is_pwd_eligible']
+            product.is_senior_eligible = row['is_senior_eligible']
+            product.save()
 
-                product.product_name = row['product_name']
-                if row['barcode']:
-                    product.barcode = row['barcode']
-                product.category = category
-                product.unit_of_measure = row['unit_of_measure']
-                product.unit_price = row['unit_price']
-                product.description = row['description']
-                product.is_vat_exempt = row['is_vat_exempt']
-                product.is_pwd_eligible = row['is_pwd_eligible']
-                product.is_senior_eligible = row['is_senior_eligible']
-                product.save()
+            # A row that priced any bulk rung replaces the whole ladder; a
+            # row that priced none leaves it alone. Silence in a sheet that
+            # simply has no bulk columns must not wipe tiers the Owner set
+            # in the product form — clearing a ladder is done there, where
+            # it is a visible act rather than an omission.
+            if row['price_tiers']:
+                product.price_tiers.all().delete()
+                ProductPriceTier.objects.bulk_create([
+                    ProductPriceTier(
+                        product=product, min_quantity=quantity, unit_price=price
+                    )
+                    for quantity, price in row['price_tiers']
+                ])
 
-                # A row that priced any bulk rung replaces the whole ladder; a
-                # row that priced none leaves it alone. Silence in a sheet that
-                # simply has no bulk columns must not wipe tiers the Owner set
-                # in the product form — clearing a ladder is done there, where
-                # it is a visible act rather than an omission.
-                if row['price_tiers']:
-                    product.price_tiers.all().delete()
-                    ProductPriceTier.objects.bulk_create([
-                        ProductPriceTier(
-                            product=product, min_quantity=quantity, unit_price=price
-                        )
-                        for quantity, price in row['price_tiers']
-                    ])
+    if any_new_category:
+        bust_categories_cache()
 
-        if any_new_category:
-            bust_categories_cache()
-
-        _clear_import_session(request)
-        messages.success(
-            request,
-            f'Import complete — {created} product{"s" if created != 1 else ""} added, '
-            f'{updated} updated, {skipped} skipped due to errors.'
-        )
-        return redirect('product_list')
-
-    counts = {
-        'total': len(rows),
-        'create': sum(1 for r in rows if r['action'] == 'create'),
-        'update': sum(1 for r in rows if r['action'] == 'update'),
-        'error': sum(1 for r in rows if r['action'] == 'error'),
-    }
-    return render(request, 'inventory/product_import_preview.html', {
-        'rows': rows[:200],
-        'counts': counts,
-        'truncated': len(rows) > 200,
-    })
+    _clear_import_session(request)
+    messages.success(
+        request,
+        f'Import complete — {created} product{"s" if created != 1 else ""} added, '
+        f'{updated} updated, {skipped} skipped due to errors.'
+    )
+    return redirect('product_list')
 
 
 @login_required(login_url='accounts:login')
@@ -1289,7 +1349,15 @@ def category_delete(request, pk):
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
 def alerts_center(request):
-    branch_ids = branch_ids_for_user(request.user)  # None = all branches
+    # Owner-only branch filter — Manager/Staff are already pinned to their
+    # own branch's alerts, so a selector would do nothing for them. Same
+    # pattern as Stock Withdrawals (transfer_list).
+    user_branch = get_user_branch(request.user)
+    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
+
+    branch_ids = [int(branch_filter)] if branch_filter else branch_ids_for_user(request.user)
     summary = alert_summary(branch_ids)
 
     return render(request, 'inventory/alerts_center.html', {
@@ -1305,6 +1373,15 @@ def alerts_center(request):
         'expiry_expired': summary['expiry_expired'],
         'expiry_soon': summary['expiry_soon'],
         'expiry_approaching': summary['expiry_approaching'],
+        'branches': cached_branches() if not user_branch else [],
+        'branch_filter': branch_filter,
+        # The topbar branch chip renders this — same pattern as Floor Stock,
+        # Warehouse Stock and Stock Withdrawals' filter_branch.
+        'filter_branch': next((b for b in cached_branches() if str(b.id) == branch_filter), None),
+        'user_branch': user_branch,
+        # No other filters live on this page (the tabs are client-side panel
+        # toggles, not query params), so nothing else needs to ride along.
+        'branch_switch_carry': [],
     })
 
 

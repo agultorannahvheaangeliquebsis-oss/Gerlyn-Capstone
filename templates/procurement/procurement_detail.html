@@ -88,7 +88,7 @@
     off to the Deliveries screen, which already has its own review step;
     stopping for either would tax the common path to guard the rare one.
     {% endcomment %}
-    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="row wrap"
+    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="row"
           data-confirm="{{ procurement.po_number }} will be closed as cancelled. Stock already received is not affected."
           data-confirm-title="Cancel this purchase order?"
           data-confirm-variant="warn"
@@ -96,7 +96,7 @@
           data-confirm-dismiss="Keep PO"
           data-confirm-when="status=Cancelled">
       {% csrf_token %}
-      <select name="status" style="min-width:170px;">
+      <select name="status" style="min-width:170px; flex:1;">
         {% comment %}
         Ordered is offered only on a PO that is already past Draft. On a draft
         it is the approval step, which lives in the Approve card above and is

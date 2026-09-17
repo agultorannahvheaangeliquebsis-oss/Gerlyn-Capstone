@@ -20,20 +20,6 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
   {% endif %}
 </div>
 
-{% comment %}
-S-11 — over-committed orders. Reporting only: an open order (Pending/
-Approved/Preparing) is flagged when its branch has promised more of one of
-its items, across every other open order, than the branch's floor stock can
-actually cover. Nothing here reserves stock, so this is a count to look
-into, not a hard stop.
-{% endcomment %}
-<div class="kpi-row compact mb-6">
-  <div class="kpi-card{% if over_committed_count %} warn{% endif %}">
-    <span class="label">Over-committed Orders</span>
-    <span class="value">{{ over_committed_count }}</span>
-  </div>
-</div>
-
 <form method="GET" class="toolbar toolbar-search" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
   <div class="search-field">
     <button type="submit" class="search-btn" title="Search" aria-label="Search orders">
@@ -79,17 +65,17 @@ into, not a hard stop.
   printed verbatim between the tabs.
   {% endcomment %}
   <a class="filter-tab {% if not status_filter %}active{% endif %}"
-     href="?{{ filter_qs }}">All</a>
+     href="?{{ filter_qs }}">All <span class="count">{{ counts.all }}</span></a>
   <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}"
-     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Pending">Pending</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Pending">Pending <span class="count count-neutral">{{ counts.pending }}</span></a>
   <a class="filter-tab {% if status_filter == 'Approved' %}active{% endif %}"
-     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Approved">Approved</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Approved">Approved <span class="count count-info">{{ counts.approved }}</span></a>
   <a class="filter-tab {% if status_filter == 'Preparing' %}active{% endif %}"
-     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Preparing">Preparing</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Preparing">Preparing <span class="count count-warn">{{ counts.preparing }}</span></a>
   <a class="filter-tab {% if status_filter == 'Completed' %}active{% endif %}"
-     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Completed">Completed</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Completed">Completed <span class="count count-ok">{{ counts.completed }}</span></a>
   <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}"
-     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Cancelled">Cancelled</a>
+     href="?{% if filter_qs %}{{ filter_qs }}&amp;{% endif %}status=Cancelled">Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
 </div>
 
 <div class="card table-wrap">

@@ -181,7 +181,7 @@ every panel in the app to fix one column.
           {% if default_address.text %}
             <p class="checkout-saved-address">{{ default_address.text }}</p>
             <p class="gv-meta mb-0">Saved to your account —
-              <a href="{% url 'accounts:addresses' %}">change it in Settings</a>.</p>
+              <a href="{% url 'accounts:profile' %}#addresses">change it in Settings</a>.</p>
           {% else %}
             {% comment %}
             One child, not three: .banner is display:flex, so bare text nodes
@@ -191,7 +191,7 @@ every panel in the app to fix one column.
             {% endcomment %}
             <div class="banner banner-warning">
               <span>You have no saved delivery address.
-                <a href="{% url 'accounts:addresses' %}">Add one in Settings</a>
+                <a href="{% url 'accounts:profile' %}#addresses">Add one in Settings</a>
                 to have this order delivered, or choose “I'll pick it up at the branch” above.</span>
             </div>
           {% endif %}

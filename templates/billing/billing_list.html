@@ -37,12 +37,12 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
   broke on a search term containing "&" — same fix as the Order Console's
   tabs.
   {% endcomment %}
-  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?{{ filter_qs }}">All</a>
-  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?{{ filter_qs }}&status=Pending">Pending</a>
-  <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?{{ filter_qs }}&status=Paid">Paid</a>
-  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?{{ filter_qs }}&status=Rejected">Rejected</a>
+  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?{{ filter_qs }}">All <span class="count">{{ counts.all }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?{{ filter_qs }}&status=Pending">Pending <span class="count count-warn">{{ counts.pending }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?{{ filter_qs }}&status=Paid">Paid <span class="count count-ok">{{ counts.paid }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?{{ filter_qs }}&status=Rejected">Rejected <span class="count count-danger">{{ counts.rejected }}</span></a>
   {# status=Cancelled is the void trail: the order behind the bill was cancelled or a completed sale was voided. #}
-  <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled</a>
+  <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled <span class="count count-neutral">{{ counts.cancelled }}</span></a>
 </div>
 
 <div class="card table-wrap">

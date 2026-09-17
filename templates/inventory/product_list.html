@@ -424,6 +424,10 @@ input[type=search] within the form — all three survive the restructure.
     </div>
   </div>
 </div>
+
+{% include "inventory/_import_upload_modal.html" %}
+{% include "inventory/_import_map_modal.html" %}
+{% include "inventory/_import_preview_modal.html" %}
 {% endif %}
 
 {% if can_edit and edit_product %}
@@ -633,6 +637,15 @@ function tierRemoveRow(btn) {
     fileInputId: 'edit-images',
     filenameId: 'edit-dropzone-filename',
   });
+
+  // Import Products: three steps, each its own overlay (upload/map/preview),
+  // server-opened via show_import_*_modal — see _import_modal_context() in
+  // views.py. The X/Escape/overlay-click here only hide the dialog, same as
+  // navigating away used to on the old pages; "Cancel Import" is the real,
+  // POSTed action that drops the upload and session state.
+  initModal({ modalId: 'import-upload-modal', closerIds: ['close-import-upload-modal', 'cancel-import-upload-modal'] });
+  initModal({ modalId: 'import-map-modal', closerIds: ['close-import-map-modal'] });
+  initModal({ modalId: 'import-preview-modal', closerIds: ['close-import-preview-modal'] });
 
   // Availability: "All Branches" is a UI-only master checkbox (not
   // submitted) that mirrors and drives the per-branch checkboxes.
