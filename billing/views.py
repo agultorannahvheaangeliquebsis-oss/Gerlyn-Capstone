@@ -239,7 +239,9 @@ def billing_proof(request, pk):
         raise Http404
     # FileResponse streams the file and sets Content-Type/Content-Length from
     # the storage backend, so this works the same whether the file is on the
-    # local disk or Cloudinary.
+    # local disk or Cloudinary. Cache-Control is handled project-wide by
+    # accounts.middleware.NoCacheForAuthenticatedMiddleware for every
+    # authenticated response, this one included — nothing extra needed here.
     return FileResponse(record.proof_of_payment.open('rb'))
 
 

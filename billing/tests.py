@@ -839,6 +839,19 @@ class PaymentProofAuthGateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(b''.join(response.streaming_content), _PNG_BYTES)
 
+    def test_the_response_is_never_cached(self):
+        """The auth check above only covers this one request — without
+        no-store/no-cache, the browser (or a shared proxy) could keep its
+        own copy of the image on disk, readable later with no auth check
+        at all. Enforced project-wide by
+        accounts.middleware.NoCacheForAuthenticatedMiddleware for every
+        authenticated response, not anything billing-specific."""
+        response = self._client(self.owner).get(self._proof_url())
+
+        self.assertEqual(
+            response['Cache-Control'], 'no-store, no-cache, must-revalidate, private'
+        )
+
     # -- the new view: refused -----------------------------------------------
 
     def test_other_branch_staff_gets_404_not_the_file(self):
@@ -848,6 +861,34 @@ class PaymentProofAuthGateTests(TestCase):
 
     def test_unauthenticated_request_is_redirected_to_login(self):
         response = Client().get(self._proof_url())
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login', response['Location'])
+
+    # -- the other proof endpoint (payment_proof_download) ---------------------
+    # Same underlying file, reached by a second, older URL
+    # (/billing/<pk>/payment-proof/) that a few templates still link to
+    # directly (e.g. "download" links) instead of going through billing_proof.
+    # Same auth gate, same caching risk.
+
+    def _download_url(self, pk=None):
+        return f'/billing/{pk or self.record.pk}/payment-proof/'
+
+    def test_download_endpoint_is_also_never_cached(self):
+        response = self._client(self.owner).get(self._download_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Cache-Control'], 'no-store, no-cache, must-revalidate, private'
+        )
+
+    def test_download_endpoint_refuses_another_branch(self):
+        response = self._client(self.staff2).get(self._download_url())
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_download_endpoint_requires_login(self):
+        response = Client().get(self._download_url())
 
         self.assertEqual(response.status_code, 302)
         self.assertIn('/login', response['Location'])
