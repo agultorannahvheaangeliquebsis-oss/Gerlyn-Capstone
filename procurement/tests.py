@@ -271,7 +271,11 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
         resp = self._post(po, Procurement.Status.CANCELLED)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.CANCELLED)
-        self.assertRedirects(resp, reverse('procurement_detail', args=[po.pk]))
+        # Cancelling lands on the list (filtered to Cancelled), not the PO's
+        # own detail page — see procurement_update_status.
+        self.assertRedirects(
+            resp, f"{reverse('procurement_list')}?status={Procurement.Status.CANCELLED}"
+        )
 
     # -- Branch Manager: a foreign branch is refused BEFORE the C-3 guard --
 
