@@ -417,6 +417,122 @@ class ProductImportExportTests(TestCase):
 
     # ── Saved mapping templates ─────────────────────────────
 
+    def test_import_normalizes_optional_numbers_prices_and_barcodes(self):
+        """Blank optional tiers stay valid and populated Excel values are
+        normalized identically for preview and commit."""
+        header = [
+            'Item Name', 'Barcode', 'SRP',
+            'Bulk Qty 1', 'Bulk Price 1', 'Bulk Qty 2', 'Bulk Price 2',
+            'Bulk Qty 3', 'Bulk Price 3',
+        ]
+        rows = [
+            [
+                'Coffee Mate 5g x 48s', 4800361000826.0, 95.00,
+                None, None, '', '', '   ', '   ',
+            ],
+            ['Numeric Pair', 'NUMERICPAIR', 100, 12, 90, None, None, None, None],
+            ['String Pair', 'STRINGPAIR', '₱1,095.00', '12', '90.00', '', '', '', ''],
+            ['Leading Zero', '00123.0', '95.00', '', '', None, None, '', ''],
+        ]
+        self.client.post(
+            reverse('product_import_upload'),
+            {'file': _xlsx_upload('normalized.xlsx', header, rows)},
+        )
+        self.client.post(reverse('product_import_map'), {
+            'map_product_name': 'Item Name',
+            'map_barcode': 'Barcode',
+            'map_unit_price': 'SRP',
+            'map_tier1_min_quantity': 'Bulk Qty 1',
+            'map_tier1_price': 'Bulk Price 1',
+            'map_tier2_min_quantity': 'Bulk Qty 2',
+            'map_tier2_price': 'Bulk Price 2',
+            'map_tier3_min_quantity': 'Bulk Qty 3',
+            'map_tier3_price': 'Bulk Price 3',
+        })
+
+        preview = self.client.get(reverse('product_import_preview'), follow=True)
+        self.assertEqual(preview.context['import_counts'], {
+            'total': 4, 'create': 4, 'update': 0, 'error': 0,
+        })
+        preview_rows = {
+            row['product_name']: row for row in preview.context['import_rows']
+        }
+        coffee = preview_rows['Coffee Mate 5g x 48s']
+        self.assertEqual(coffee['barcode'], '4800361000826')
+        self.assertEqual(coffee['unit_price'], Decimal('95.00'))
+        self.assertEqual(coffee['price_tiers'], [])
+        self.assertEqual(
+            preview_rows['Numeric Pair']['price_tiers'],
+            [(12, Decimal('90'))],
+        )
+        self.assertEqual(
+            preview_rows['String Pair']['price_tiers'],
+            [(12, Decimal('90.00'))],
+        )
+        self.assertEqual(preview_rows['Leading Zero']['barcode'], '00123')
+
+        self.client.post(reverse('product_import_preview'))
+        coffee = Product.objects.get(barcode='4800361000826')
+        self.assertEqual(coffee.unit_price, Decimal('95.00'))
+        self.assertFalse(coffee.price_tiers.exists())
+        self.assertTrue(Product.objects.filter(barcode='00123').exists())
+        self.assertEqual(
+            list(
+                Product.objects.get(barcode='STRINGPAIR').price_tiers.values_list(
+                    'min_quantity', 'unit_price'
+                )
+            ),
+            [(12, Decimal('90.00'))],
+        )
+
+    def test_import_reports_the_exact_bulk_field_error(self):
+        """Invalid and half-filled pairs identify the field that needs work."""
+        header = [
+            'Item Name', 'Barcode', 'SRP', 'Bulk Qty 1', 'Bulk Price 1',
+        ]
+        rows = [
+            ['Bad Qty', 'BADQTY', 100, 'abc', 90],
+            ['Bad Price', 'BADPRICE', 100, 12, 'abc'],
+            ['Missing Price', 'MISSPRICE', 100, 12, '   '],
+            ['Missing Qty', 'MISSQTY', 100, '', 90],
+            ['', 'NONAME', 100, '', ''],
+            ['No Retail', 'NOPRICE', ' ', '', ''],
+        ]
+        self.client.post(
+            reverse('product_import_upload'),
+            {'file': _xlsx_upload('invalid-numbers.xlsx', header, rows)},
+        )
+        self.client.post(reverse('product_import_map'), {
+            'map_product_name': 'Item Name',
+            'map_barcode': 'Barcode',
+            'map_unit_price': 'SRP',
+            'map_tier1_min_quantity': 'Bulk Qty 1',
+            'map_tier1_price': 'Bulk Price 1',
+        })
+
+        preview = self.client.get(reverse('product_import_preview'), follow=True)
+        self.assertEqual(preview.context['import_counts']['error'], 6)
+        preview_rows = {row['barcode']: row for row in preview.context['import_rows']}
+        self.assertEqual(preview_rows['BADQTY']['errors'], [
+            'Bulk Qty 1 must be a number.',
+        ])
+        self.assertEqual(preview_rows['BADPRICE']['errors'], [
+            'Bulk Price 1 must be a number.',
+        ])
+        self.assertEqual(preview_rows['MISSPRICE']['errors'], [
+            'Bulk Price 1 is required when Bulk Qty 1 is provided.',
+        ])
+        self.assertEqual(preview_rows['MISSQTY']['errors'], [
+            'Bulk Qty 1 is required when Bulk Price 1 is provided.',
+        ])
+        self.assertIn('Product Name is required.', preview_rows['NONAME']['errors'])
+        self.assertIn('Retail Price is required.', preview_rows['NOPRICE']['errors'])
+
+        self.client.post(reverse('product_import_preview'))
+        self.assertFalse(Product.objects.filter(
+            barcode__in=['BADQTY', 'BADPRICE', 'MISSPRICE', 'MISSQTY', 'NONAME', 'NOPRICE']
+        ).exists())
+
     def test_saved_private_template_is_hidden_from_other_users(self):
         self._upload([['Widget', '', '', '', '10', '', '', '', '', '']])
         payload = dict(self.MAPPING, save_template_name='My Private Mapping',

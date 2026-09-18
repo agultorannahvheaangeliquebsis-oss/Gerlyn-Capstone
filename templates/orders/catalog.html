@@ -109,10 +109,11 @@ same list, one row down. See public_base.html's own comment on this block.
 
         The count beside each row is live: sellable stock, narrowed by the
         branches and search term in play, so a row saying (6) puts six
-        products in the grid. Rows with nothing behind them are not drawn at
-        all — see _category_rail in orders.customer_views — so there is no
-        such thing as a (0) here to click and be disappointed by.
+        products in the grid. Unselected rows with nothing behind them are
+        hidden; a selected row can remain at (0) so a branch change does not
+        silently discard the shopper's active category filter.
         {% endcomment %}
+        <div id="category-facet">
         {% if categories %}
         <fieldset class="rail-block">
           <legend class="rail-title">Category</legend>
@@ -133,6 +134,7 @@ same list, one row down. See public_base.html's own comment on this block.
           </ul>
         </fieldset>
         {% endif %}
+        </div>
 
         {% comment %}
         Branch is one disclosure for the whole list — same chevron, same

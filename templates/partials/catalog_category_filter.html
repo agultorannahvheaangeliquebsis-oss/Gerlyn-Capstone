@@ -1,0 +1,25 @@
+{% comment %}
+Live Category facet for the Shop rail. Counts come from _category_rail and
+therefore use the same branch/search-filtered Inventory source as the grid,
+without applying the currently selected category filter to the counts.
+{% endcomment %}
+{% if categories %}
+<fieldset class="rail-block">
+  <legend class="rail-title">Category</legend>
+  <ul class="rail-list">
+    {% for c in categories %}
+    <li>
+      <label class="rail-check">
+        <input type="checkbox" name="category" value="{{ c.id }}"
+               {% if c.id|stringformat:'s' in category_filters %}checked{% endif %}>
+        <span class="rail-box" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
+        </span>
+        <span class="rail-check-text">{{ c.category_name }}</span>
+        <span class="rail-count">({{ c.stock_count }})</span>
+      </label>
+    </li>
+    {% endfor %}
+  </ul>
+</fieldset>
+{% endif %}

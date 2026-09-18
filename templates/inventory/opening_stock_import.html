@@ -1,0 +1,118 @@
+{% extends "internal_base.html" %}
+{% block title %}Import Opening Stock{% endblock %}
+{% block page_subtitle %}Inventory Migration{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'inventory_list' %}">Floor Stock</a>
+    <h1>Import Opening Stock</h1>
+    <p class="gv-meta mb-0">Load inventory that already existed at the branches before this system went live.</p>
+  </div>
+  <div class="row" style="gap:8px;">
+    <a class="btn" href="{% url 'opening_stock_template' %}">Download Template</a>
+    <a class="btn" href="{% url 'opening_stock_import_history' %}">Import History</a>
+  </div>
+</div>
+
+{% if not preview_rows %}
+<div class="card" style="max-width:760px;">
+  <div class="card-pad">
+    <h2 style="margin-top:0;">1. Upload spreadsheet</h2>
+    <p class="gv-meta">Required columns: <b>Barcode</b>, <b>Branch</b>, and <b>Opening Qty</b>. Optional columns: Lot/Batch, Expiry Date, and Received Date.</p>
+    <p class="gv-meta">Products must already exist in Product Master. Branch names must exactly identify one existing branch. Preview does not modify inventory.</p>
+    <form method="POST" enctype="multipart/form-data" class="stack">{% csrf_token %}
+      <div class="field">
+        <label for="opening-file">Excel file (.xlsx)</label>
+        <input id="opening-file" type="file" name="file" accept=".xlsx" required>
+      </div>
+      <div class="field">
+        <label for="opening-as-of">Inventory as-of date</label>
+        <input id="opening-as-of" type="date" name="as_of_date" value="{{ as_of_date|date:'Y-m-d'|default:as_of_date }}" required>
+      </div>
+      <div><button class="btn btn-primary" type="submit">Parse and Validate</button></div>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="kpi-row compact">
+  <div class="kpi-card"><span class="label">Rows</span><span class="value">{{ preview_summary.total }}</span></div>
+  <div class="kpi-card"><span class="label">Valid</span><span class="value">{{ preview_summary.valid }}</span></div>
+  <div class="kpi-card{% if preview_summary.warning %} warn{% endif %}"><span class="label">Warnings</span><span class="value">{{ preview_summary.warning }}</span></div>
+  <div class="kpi-card{% if preview_summary.invalid %} danger{% endif %}"><span class="label">Invalid</span><span class="value">{{ preview_summary.invalid }}</span></div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-pad row" style="gap:24px; flex-wrap:wrap;">
+    <span><b>{{ preview_summary.products }}</b> products</span>
+    <span><b>{{ preview_summary.branches }}</b> branches</span>
+    <span><b>{{ preview_summary.quantity }}</b> total units</span>
+    <span class="gv-meta">File: {{ opening_state.filename }}</span>
+    <span class="gv-meta">Fingerprint: <span class="sku">{{ preview_summary.canonical_sha256|slice:':16' }}…</span></span>
+  </div>
+</div>
+
+{% if preview_summary.duplicate_import %}
+<div class="alert alert-danger">
+  These normalized rows were already committed as
+  <a href="{% url 'opening_stock_import_detail' preview_summary.duplicate_import.pk %}">import #{{ preview_summary.duplicate_import.pk }}</a>.
+  Confirmation is blocked.
+</div>
+{% endif %}
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Row</th><th>Product / Barcode</th><th>Branch</th><th class="num">Qty</th>
+        <th>Lot</th><th>Expiry</th><th class="num">Current → Result</th><th>Validation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in preview_rows|slice:':500' %}
+      <tr>
+        <td class="gv-meta">{{ row.row_number }}</td>
+        <td><span class="strong">{{ row.product.product_name|default:'Unknown product' }}</span><br><span class="sku">{{ row.barcode|default:'—' }}</span></td>
+        <td>{{ row.branch.branch_name|default:row.branch_name }}</td>
+        <td class="num strong">{{ row.quantity|default:'—' }}</td>
+        <td>{{ row.lot_code|default:'—' }}</td>
+        <td>{{ row.expiry_date|date:'Y-m-d'|default:'—' }}</td>
+        <td class="num">{{ row.current_quantity }} → {{ row.resulting_quantity|default:'—' }}</td>
+        <td>
+          {% if row.status == 'invalid' %}<span class="pill pill-danger">Invalid</span>
+          {% elif row.status == 'warning' %}<span class="pill pill-warn">Warning</span>
+          {% else %}<span class="pill pill-ok">Valid</span>{% endif %}
+          {% for error in row.errors %}<div class="gv-meta" style="color:var(--danger);">{{ error }}</div>{% endfor %}
+          {% for warning in row.warnings %}<div class="gv-meta">{{ warning }}</div>{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if preview_summary.total > 500 %}<div class="card-pad gv-meta">Showing the first 500 rows. All {{ preview_summary.total }} rows are validated and included in confirmation.</div>{% endif %}
+</div>
+
+<div class="card mt-4">
+  <div class="card-pad">
+    <h2 style="margin-top:0;">2. Confirm import</h2>
+    <p class="gv-meta">Confirmation is atomic: either every row creates its Floor Stock batch and Opening Balance movement, or nothing is written.</p>
+    <form method="POST" action="{% url 'opening_stock_confirm' %}" id="opening-confirm-form">{% csrf_token %}
+      {% if preview_summary.warning %}
+      <label class="row" style="gap:8px; align-items:flex-start;">
+        <input type="checkbox" name="acknowledge_warnings" value="1" required>
+        <span>I reviewed the warning rows and want to import them.</span>
+      </label>
+      {% endif %}
+    </form>
+    <form method="POST" action="{% url 'opening_stock_cancel' %}" id="opening-cancel-form">{% csrf_token %}</form>
+    <div class="row" style="gap:8px; margin-top:16px;">
+      <button class="btn" type="submit" form="opening-cancel-form">Cancel</button>
+      <button class="btn btn-primary" type="submit" form="opening-confirm-form"
+        {% if preview_summary.invalid or preview_summary.duplicate_import or not preview_summary.total %}disabled{% endif %}>
+        Confirm Opening Balance
+      </button>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

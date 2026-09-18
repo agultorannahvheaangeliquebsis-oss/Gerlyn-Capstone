@@ -1,10 +1,9 @@
 // Collapsible sections in the Products catalog's Filters rail.
 //
-// Two shapes, one behaviour:
-//   * every Category department that has shelves folds them away behind a
-//     chevron, so the rail opens as a short list of departments instead of
-//     every shelf in the store;
-//   * the whole Branch list folds the same way.
+// Currently just the Branch list, folded behind a chevron so the rail opens
+// short rather than as a full list of every branch in the store. Generic
+// over any `.rail-disclose` button/region pair, so a future section (a long
+// Category list, say) gets the same behaviour for free.
 //
 // A section starts collapsed UNLESS one of its own boxes is ticked — an
 // active filter is never hidden from the shopper who set it. Ticking a box
@@ -28,23 +27,31 @@
     region.hidden = !expand;
   }
 
-  function wire(button) {
+  function wire(button, openRegions) {
+    if (button.dataset.railDisclosureWired === 'true') return;
     var region = document.getElementById(button.getAttribute('aria-controls'));
     if (!region) return;
+    button.dataset.railDisclosureWired = 'true';
 
     // Anything ticked decides the starting state — an active filter is never
-    // folded away. Shelves live inside the region; a department's own box
-    // lives in the row beside the button, not inside the region, so check
-    // both places.
-    var row = button.closest('.rail-dept-row');
-    var hasActive = !!region.querySelector('input[type="checkbox"]:checked')
-      || !!(row && row.querySelector('input[type="checkbox"]:checked'));
+    // folded away.
+    var hasActive = !!region.querySelector('input[type="checkbox"]:checked');
 
+    var wasOpen = openRegions && openRegions.has(button.getAttribute('aria-controls'));
     button.hidden = false;
-    setOpen(button, region, hasActive);
+    setOpen(button, region, hasActive || wasOpen);
 
     button.addEventListener('click', function () { setOpen(button, region); });
   }
 
-  rail.querySelectorAll('.rail-disclose').forEach(wire);
+  function wireAll(openRegions) {
+    rail.querySelectorAll('.rail-disclose').forEach(function (button) {
+      wire(button, openRegions);
+    });
+  }
+
+  wireAll();
+  rail.addEventListener('catalog:facet-updated', function (event) {
+    wireAll(new Set((event.detail && event.detail.openRegions) || []));
+  });
 })();

@@ -4,7 +4,10 @@ Covers the behaviour categories actually buy, not the markup:
 
   * only categories with something in them are drawn at all;
   * the storefront hides its category UI below two pickable categories;
-  * the rail's counts are the grid's counts;
+  * the rail's counts are the grid's counts, and are not narrowed by the
+    category filter itself;
+  * a ticked category stays visible at (0) through a live facet refresh
+    instead of silently vanishing;
   * the removable chips drop exactly one filter and keep the rest.
 """
 from decimal import Decimal
@@ -186,12 +189,64 @@ class CatalogFilteringTests(CategoryRailTestCase):
 
         self.assertEqual(response.context['active_chips'], [])
 
-    def test_live_search_still_answers_json(self):
-        """The rail is not rebuilt on the XHR path — it must not 500 either."""
+    def test_live_search_answers_all_live_regions_as_json(self):
+        """XHR returns the grid, summary, and recalculated category facet."""
         response = self.client.get(
             reverse('orders:catalog'), {'q': 'Sirloin'},
             HTTP_X_REQUESTED_WITH='XMLHttpRequest',
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('grid_html', response.json())
+        payload = response.json()
+        self.assertIn('grid_html', payload)
+        self.assertIn('category_html', payload)
+
+    def test_live_response_contains_branch_filtered_category_facet(self):
+        other = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        Inventory.objects.create(
+            product=self.sirloin, branch=other,
+            quantity_on_hand=4, reorder_level=1,
+        )
+
+        response = self.client.get(
+            reverse('orders:catalog'), {'branch': other.pk},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+
+        payload = response.json()
+        self.assertIn('Fresh Beef', payload['category_html'])
+        self.assertNotIn('Fresh Chicken', payload['category_html'])
+        self.assertIn('(1)', payload['category_html'])
+
+    def test_selected_zero_count_category_survives_live_facet_refresh(self):
+        other = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        Inventory.objects.create(
+            product=self.sirloin, branch=other,
+            quantity_on_hand=4, reorder_level=1,
+        )
+
+        response = self.client.get(reverse('orders:catalog'), {
+            'branch': other.pk,
+            'category': self.chicken.pk,
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        category_html = response.json()['category_html']
+        self.assertIn('Fresh Chicken', category_html)
+        self.assertIn('(0)', category_html)
+        self.assertIn('checked', category_html)
+
+    def test_category_selection_does_not_narrow_category_facet_counts(self):
+        response = self.client.get(reverse('orders:catalog'), {
+            'branch': self.branch.pk,
+            'category': self.beef.pk,
+        })
+
+        counts = {
+            category.category_name: category.stock_count
+            for category in response.context['categories']
+        }
+        self.assertEqual(counts, {'Fresh Beef': 1, 'Fresh Chicken': 1, 'Rice & Grains': 1})

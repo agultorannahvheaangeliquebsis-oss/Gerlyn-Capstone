@@ -1,5 +1,7 @@
 import os
+import re
 import uuid
+import hashlib
 
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
@@ -19,7 +21,14 @@ from .models import (
     ProductCategory, Product, ProductImage, ProductPriceTier, Inventory,
     Warehouse, WarehouseStock, Batch,
     StockTransfer, StockTransferItem, StockMovement,
-    ProductImportMappingTemplate,
+    ProductImportMappingTemplate, OpeningStockImport,
+)
+from .services import (
+    OpeningStockDuplicateError, OpeningStockValidationError,
+    canonical_opening_fingerprint, commit_opening_stock_import,
+    credit_floor_stock, opening_preview_summary,
+    parse_opening_stock_workbook, reverse_opening_stock_import,
+    validate_opening_stock_rows,
 )
 from .alerts import alert_summary, stock_status
 from accounts.models import User
@@ -598,6 +607,11 @@ _IMPORT_TMP_DIR = os.path.join(settings.BASE_DIR, 'tmp_uploads', 'product_import
 # ("Yes"/"No"), so an exported file round-trips through Import unchanged.
 _TRUTHY_CELL_VALUES = {'yes', 'y', 'true', '1', 'x'}
 
+_PLAIN_NUMBER_RE = re.compile(r'^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$')
+_COMMA_NUMBER_RE = re.compile(
+    r'^[+-]?(?:\d{1,3}(?:,\d{3})+)(?:\.\d*)?$'
+)
+
 
 def _clear_import_session(request):
     """Drop the in-progress import's session state and delete its temp file,
@@ -619,6 +633,68 @@ def _parse_bool_cell(value):
     if value is None:
         return False
     return str(value).strip().lower() in _TRUTHY_CELL_VALUES
+
+
+def _normalize_empty_cell(value):
+    """Return None for every representation of an empty spreadsheet cell."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+def _parse_decimal_cell(value, *, allow_currency=False):
+    """Convert an Excel number or a conventional numeric string to Decimal.
+
+    Commas are accepted only as thousands separators, rather than silently
+    turning a malformed value such as ``12,34`` into a different number.
+    """
+    value = _normalize_empty_cell(value)
+    if value is None or isinstance(value, bool):
+        raise ValueError('not a populated number')
+
+    if isinstance(value, Decimal):
+        number = value
+    elif isinstance(value, (int, float)):
+        number = Decimal(str(value))
+    else:
+        text = str(value).strip()
+        if allow_currency and text.startswith('₱'):
+            text = text[1:].strip()
+        pattern = _COMMA_NUMBER_RE if ',' in text else _PLAIN_NUMBER_RE
+        if not pattern.fullmatch(text):
+            raise ValueError('not a number')
+        number = Decimal(text.replace(',', ''))
+
+    if not number.is_finite():
+        raise ValueError('not a finite number')
+    return number
+
+
+def _normalize_barcode_cell(value):
+    """Keep barcodes as identifiers while dropping an Excel-added .0."""
+    value = _normalize_empty_cell(value)
+    if value is None:
+        return ''
+
+    if not isinstance(value, bool) and isinstance(value, (int, float, Decimal)):
+        try:
+            number = Decimal(str(value))
+        except DecimalException:
+            return str(value).strip()
+        if number.is_finite():
+            formatted = format(number, 'f')
+            return (
+                formatted.split('.')[0]
+                if number == number.to_integral_value()
+                else formatted
+            )
+
+    text = str(value).strip()
+    whole_number_with_decimal = re.fullmatch(r'([+-]?\d+)\.0+', text)
+    return whole_number_with_decimal.group(1) if whole_number_with_decimal else text
 
 
 def _match_unit_of_measure(value):
@@ -716,16 +792,16 @@ def _parse_import_rows(path, mapping):
         if not product_name:
             errors.append('Product Name is required.')
 
-        unit_price_raw = cell(raw_row, 'unit_price')
+        unit_price_raw = _normalize_empty_cell(cell(raw_row, 'unit_price'))
         unit_price = None
-        if unit_price_raw in (None, ''):
+        if unit_price_raw is None:
             errors.append('Retail Price is required.')
         else:
             try:
-                unit_price = Decimal(str(unit_price_raw))
+                unit_price = _parse_decimal_cell(unit_price_raw, allow_currency=True)
                 if unit_price < 0:
                     errors.append('Retail Price cannot be negative.')
-            except DecimalException:
+            except (ValueError, TypeError, DecimalException):
                 errors.append(f'Retail Price "{unit_price_raw}" is not a number.')
 
         # Bulk rungs. Same rules the product form applies (see
@@ -735,18 +811,43 @@ def _parse_import_rows(path, mapping):
         price_tiers = []
         seen_tier_quantities = set()
         for slot in range(1, _IMPORT_TIER_SLOTS + 1):
-            quantity_raw = cell(raw_row, f'tier{slot}_min_quantity')
-            price_raw = cell(raw_row, f'tier{slot}_price')
-            if quantity_raw in (None, '') and price_raw in (None, ''):
+            quantity_raw = _normalize_empty_cell(
+                cell(raw_row, f'tier{slot}_min_quantity')
+            )
+            price_raw = _normalize_empty_cell(cell(raw_row, f'tier{slot}_price'))
+            quantity_supplied = quantity_raw is not None
+            price_supplied = price_raw is not None
+
+            if not quantity_supplied and not price_supplied:
                 continue
-            if quantity_raw in (None, '') or price_raw in (None, ''):
-                errors.append(f'Bulk Qty {slot} and Bulk Price {slot} must both be filled in.')
-                continue
-            try:
-                tier_quantity = int(str(quantity_raw).strip())
-                tier_price = Decimal(str(price_raw))
-            except (ValueError, TypeError, DecimalException):
-                errors.append(f'Bulk Qty {slot}/Bulk Price {slot} must be numbers.')
+
+            tier_quantity = None
+            tier_price = None
+            if quantity_supplied:
+                try:
+                    parsed_quantity = _parse_decimal_cell(quantity_raw)
+                    if parsed_quantity != parsed_quantity.to_integral_value():
+                        errors.append(f'Bulk Qty {slot} must be a whole number.')
+                    else:
+                        tier_quantity = int(parsed_quantity)
+                except (ValueError, TypeError, DecimalException):
+                    errors.append(f'Bulk Qty {slot} must be a number.')
+            if price_supplied:
+                try:
+                    tier_price = _parse_decimal_cell(price_raw, allow_currency=True)
+                except (ValueError, TypeError, DecimalException):
+                    errors.append(f'Bulk Price {slot} must be a number.')
+
+            if quantity_supplied and not price_supplied:
+                errors.append(
+                    f'Bulk Price {slot} is required when Bulk Qty {slot} is provided.'
+                )
+            elif price_supplied and not quantity_supplied:
+                errors.append(
+                    f'Bulk Qty {slot} is required when Bulk Price {slot} is provided.'
+                )
+
+            if tier_quantity is None or tier_price is None:
                 continue
             if tier_quantity < 2:
                 errors.append(f'Bulk Qty {slot} must be 2 or more.')
@@ -771,16 +872,15 @@ def _parse_import_rows(path, mapping):
                 )
                 break
 
-        barcode_raw = cell(raw_row, 'barcode')
-        barcode = str(barcode_raw).strip() if barcode_raw not in (None, '') else ''
+        barcode = _normalize_barcode_cell(cell(raw_row, 'barcode'))
         if barcode:
             if barcode in seen_barcodes:
                 errors.append(f'Duplicate barcode in this file (also row {seen_barcodes[barcode]}).')
             else:
                 seen_barcodes[barcode] = row_number
 
-        uom_raw = cell(raw_row, 'unit_of_measure')
-        if uom_raw in (None, ''):
+        uom_raw = _normalize_empty_cell(cell(raw_row, 'unit_of_measure'))
+        if uom_raw is None:
             unit_of_measure = Product.UnitOfMeasure.PIECE
         else:
             unit_of_measure = _match_unit_of_measure(uom_raw)
@@ -1621,12 +1721,12 @@ def inventory_edit(request, pk):
 
 @login_required(login_url='accounts:login')
 def stock_adjustment_add(request):
-    """Direct floor-stock correction — bumps Inventory.quantity_on_hand
-    without going through the normal Warehouse -> StockTransfer chain, so
-    it's restricted to Owner/Branch Manager and exists for corrections,
-    spot-counts, and initial seeding, not as a substitute for withdrawal
-    slips. Every adjustment is logged as a StockMovement for the same
-    traceability the transfer flow gets."""
+    """Direct single-item floor-stock correction.
+
+    Opening migration has a dedicated audited import flow; supplier stock
+    still follows Warehouse -> StockTransfer. This endpoint remains for
+    ordinary corrections and spot-counts, with the same StockMovement trail.
+    """
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'Only the Owner or a Branch Manager can make a stock adjustment.')
         return redirect('inventory_list')
@@ -1664,6 +1764,14 @@ def stock_adjustment_add(request):
         errors.append('Choose a valid branch.')
     if not quantity.isdigit() or int(quantity) <= 0:
         errors.append('Enter a quantity greater than zero.')
+    parsed_expiry = None
+    if expiry_date:
+        try:
+            parsed_expiry = parse_date(expiry_date)
+        except ValueError:
+            parsed_expiry = None
+        if parsed_expiry is None:
+            errors.append('Enter a valid expiry date.')
 
     if errors:
         for e in errors:
@@ -1675,38 +1783,277 @@ def stock_adjustment_add(request):
         })
         return render(request, 'inventory/inventory_list.html', context)
 
-    with transaction.atomic():
-        inv, _created = Inventory.objects.get_or_create(product=product, branch=branch)
-        qty_before = inv.quantity_on_hand
-        inv.quantity_on_hand += int(quantity)
-        inv.save()
-
-        StockMovement.objects.create(
-            inventory=inv,
-            location_type=StockMovement.LocationType.FLOOR,
-            movement_type=StockMovement.MovementType.ADJUSTMENT,
-            quantity_change=int(quantity),
-            quantity_before=qty_before,
-            quantity_after=inv.quantity_on_hand,
-            notes=f'Manual stock adjustment by {request.user.get_full_name() or request.user.username}',
-            created_by=request.user,
-        )
-
-        # A correction/spot-count is its own lot too — it must not silently
-        # widen an existing batch's quantity (or worse, have no batch at all
-        # and drift the row's batches out of sync with quantity_on_hand).
-        Batch.objects.create(
-            product=product,
-            branch=branch,
-            location=Batch.Location.FLOOR,
-            quantity=int(quantity),
-            received_date=timezone.localdate(),
-            expiry_date=parse_date(expiry_date) if expiry_date else None,
-            notes='Manual stock adjustment',
-        )
+    credit_floor_stock(
+        product=product,
+        branch=branch,
+        quantity=int(quantity),
+        actor=request.user,
+        movement_type=StockMovement.MovementType.ADJUSTMENT,
+        notes=f'Manual stock adjustment by {request.user.get_full_name() or request.user.username}',
+        expiry_date=parsed_expiry,
+        received_date=timezone.localdate(),
+    )
 
     messages.success(request, f'Added {quantity} to {product.product_name} at {branch.branch_name}.')
     return redirect('inventory_list')
+
+
+# -----------------------------------------------------------------------------
+# OPENING STOCK IMPORT
+# -----------------------------------------------------------------------------
+
+_OPENING_TMP_DIR = os.path.join(settings.BASE_DIR, 'tmp_uploads', 'opening_stock')
+_OPENING_MAX_BYTES = 10 * 1024 * 1024
+_OPENING_MAX_ROWS = 5000
+
+
+def _clear_opening_stock_session(request):
+    state = request.session.pop('opening_stock_import', None)
+    request.session.modified = True
+    if state and state.get('path') and os.path.exists(state['path']):
+        try:
+            os.remove(state['path'])
+        except OSError:
+            pass
+
+
+def _opening_owner_only(request):
+    if request.user.role == User.Role.OWNER:
+        return None
+    messages.error(request, 'Only the Owner can import or reverse opening stock.')
+    return redirect('inventory_list')
+
+
+def _opening_preview_context(request, state):
+    path = state.get('path')
+    if not path or not os.path.exists(path):
+        raise OpeningStockValidationError(
+            'The uploaded file is no longer available. Upload it again.'
+        )
+    as_of_date = parse_date(state['as_of_date'])
+    rows = parse_opening_stock_workbook(path, default_received_date=as_of_date)
+    if len(rows) > _OPENING_MAX_ROWS:
+        raise OpeningStockValidationError(
+            f'The file has {len(rows)} rows; the maximum is {_OPENING_MAX_ROWS}.'
+        )
+    validate_opening_stock_rows(rows)
+    canonical = canonical_opening_fingerprint(rows)
+    summary = opening_preview_summary(rows, canonical)
+    return {
+        'preview_rows': rows,
+        'preview_summary': summary,
+        'opening_state': state,
+        'as_of_date': as_of_date,
+    }
+
+
+@login_required(login_url='accounts:login')
+def opening_stock_import(request):
+    denied = _opening_owner_only(request)
+    if denied:
+        return denied
+
+    if request.method == 'POST':
+        upload = request.FILES.get('file')
+        as_of_text = request.POST.get('as_of_date', '').strip()
+        try:
+            as_of_date = parse_date(as_of_text) if as_of_text else timezone.localdate()
+        except ValueError:
+            as_of_date = None
+        if as_of_date is None:
+            messages.error(request, 'Enter a valid inventory as-of date.')
+            return render(request, 'inventory/opening_stock_import.html', {
+                'as_of_date': as_of_text,
+            })
+        if not upload or not upload.name.lower().endswith('.xlsx'):
+            messages.error(request, 'Choose a valid .xlsx spreadsheet.')
+            return render(request, 'inventory/opening_stock_import.html', {
+                'as_of_date': as_of_date,
+            })
+        if upload.size > _OPENING_MAX_BYTES:
+            messages.error(request, 'The spreadsheet cannot exceed 10 MB.')
+            return render(request, 'inventory/opening_stock_import.html', {
+                'as_of_date': as_of_date,
+            })
+
+        _clear_opening_stock_session(request)
+        os.makedirs(_OPENING_TMP_DIR, exist_ok=True)
+        path = os.path.join(_OPENING_TMP_DIR, f'{uuid.uuid4().hex}.xlsx')
+        digest = hashlib.sha256()
+        with open(path, 'wb') as target:
+            for chunk in upload.chunks():
+                digest.update(chunk)
+                target.write(chunk)
+
+        state = {
+            'path': path,
+            'filename': os.path.basename(upload.name),
+            'raw_sha256': digest.hexdigest(),
+            'as_of_date': as_of_date.isoformat(),
+        }
+        try:
+            context = _opening_preview_context(request, state)
+        except Exception as exc:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            message = str(exc) if isinstance(exc, OpeningStockValidationError) else (
+                'Could not read that workbook. Confirm it is a valid .xlsx file.'
+            )
+            messages.error(request, message)
+            return render(request, 'inventory/opening_stock_import.html', {
+                'as_of_date': as_of_date,
+            })
+        request.session['opening_stock_import'] = state
+        request.session.modified = True
+        return render(request, 'inventory/opening_stock_import.html', context)
+
+    state = request.session.get('opening_stock_import')
+    context = {'as_of_date': timezone.localdate()}
+    if state and request.GET.get('preview') == '1':
+        try:
+            context.update(_opening_preview_context(request, state))
+        except OpeningStockValidationError as exc:
+            _clear_opening_stock_session(request)
+            messages.error(request, str(exc))
+    return render(request, 'inventory/opening_stock_import.html', context)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def opening_stock_confirm(request):
+    denied = _opening_owner_only(request)
+    if denied:
+        return denied
+    state = request.session.get('opening_stock_import')
+    if not state:
+        messages.error(request, 'Upload and preview an opening-stock file first.')
+        return redirect('opening_stock_import')
+    try:
+        context = _opening_preview_context(request, state)
+        summary = context['preview_summary']
+        if summary['duplicate_import']:
+            raise OpeningStockDuplicateError(
+                f'This opening stock was already imported as batch #{summary["duplicate_import"].pk}.'
+            )
+        import_batch = commit_opening_stock_import(
+            rows=context['preview_rows'],
+            filename=state['filename'],
+            raw_sha256=state['raw_sha256'],
+            canonical_sha256=summary['canonical_sha256'],
+            as_of_date=context['as_of_date'],
+            actor=request.user,
+            warnings_acknowledged=request.POST.get('acknowledge_warnings') == '1',
+        )
+    except (OpeningStockValidationError, OpeningStockDuplicateError, IntegrityError) as exc:
+        messages.error(request, str(exc) or 'The import could not be committed.')
+        try:
+            context = _opening_preview_context(request, state)
+        except OpeningStockValidationError:
+            return redirect('opening_stock_import')
+        return render(request, 'inventory/opening_stock_import.html', context)
+
+    _clear_opening_stock_session(request)
+    messages.success(
+        request,
+        f'Opening stock import #{import_batch.pk} committed: '
+        f'{import_batch.total_quantity} units across {import_batch.row_count} rows.'
+    )
+    return redirect('opening_stock_import_detail', pk=import_batch.pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def opening_stock_cancel(request):
+    denied = _opening_owner_only(request)
+    if denied:
+        return denied
+    _clear_opening_stock_session(request)
+    messages.info(request, 'Opening-stock import cancelled.')
+    return redirect('inventory_list')
+
+
+@login_required(login_url='accounts:login')
+def opening_stock_import_history(request):
+    denied = _opening_owner_only(request)
+    if denied:
+        return denied
+    imports = OpeningStockImport.objects.select_related(
+        'uploaded_by', 'reversed_by'
+    ).all()
+    return render(request, 'inventory/opening_stock_history.html', {
+        'imports': imports,
+    })
+
+
+@login_required(login_url='accounts:login')
+def opening_stock_import_detail(request, pk):
+    denied = _opening_owner_only(request)
+    if denied:
+        return denied
+    import_batch = get_object_or_404(
+        OpeningStockImport.objects.select_related('uploaded_by', 'reversed_by'), pk=pk
+    )
+    rows = import_batch.rows.select_related('product', 'branch').prefetch_related(
+        'batches', 'movements'
+    )
+    return render(request, 'inventory/opening_stock_detail.html', {
+        'import_batch': import_batch,
+        'import_rows': rows,
+    })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def opening_stock_import_reverse(request, pk):
+    denied = _opening_owner_only(request)
+    if denied:
+        return denied
+    try:
+        import_batch = reverse_opening_stock_import(
+            import_id=pk,
+            actor=request.user,
+            reason=request.POST.get('reason', ''),
+        )
+    except (OpeningStockValidationError, OpeningStockImport.DoesNotExist) as exc:
+        messages.error(request, str(exc) or 'That import does not exist.')
+        return redirect('opening_stock_import_detail', pk=pk)
+    messages.success(request, f'Opening stock import #{import_batch.pk} was reversed.')
+    return redirect('opening_stock_import_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+def opening_stock_template(request):
+    denied = _opening_owner_only(request)
+    if denied:
+        return denied
+    import openpyxl
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Opening Stock'
+    headers = [
+        'Barcode', 'Branch', 'Opening Qty', 'Lot/Batch',
+        'Expiry Date', 'Received Date',
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.append(['4800361000826', 'Variety Store', 20, 'LOT-001', '2027-01-31', ''])
+    ws.append(['4800361390804', 'Mini Mart', 12, '', '', ''])
+    for row in range(2, 1002):
+        ws.cell(row=row, column=1).number_format = '@'
+    for index, width in enumerate((22, 24, 14, 20, 16, 16), start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename="gerlyn-opening-stock-template.xlsx"'
+    wb.save(response)
+    return response
 
 
 # ─────────────────────────────────────────────
@@ -1964,6 +2311,10 @@ def _describe_movement(m):
         return product_name, 'Manual entry', f'{branch_name} Floor'
     if m.movement_type == mt.ADJUSTMENT:
         return product_name, f'{branch_name} Floor', 'Correction'
+    if m.movement_type == mt.OPENING_BALANCE:
+        return product_name, 'Opening balance', f'{branch_name} Floor'
+    if m.movement_type == mt.OPENING_BALANCE_REVERSAL:
+        return product_name, f'{branch_name} Floor', 'Opening balance reversal'
     return product_name, '—', '—'
 
 

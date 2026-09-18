@@ -240,6 +240,21 @@ def _cart_items(request):
 # BROWSING — open to guests (log in only to buy)
 # ─────────────────────────────────────────────
 
+def _catalog_stock(branch_filters, search_query):
+    """Return the branch/search-filtered inventory shared by results and facets.
+
+    Category is intentionally absent here: category facet counts describe
+    what each category would contain under the current branch/search scope,
+    not only the categories that are already selected.
+    """
+    stock = Inventory.objects.sellable()
+    if branch_filters:
+        stock = stock.filter(branch_id__in=branch_filters)
+    if search_query:
+        stock = stock.filter(product__product_name__icontains=search_query)
+    return stock
+
+
 def product_catalog(request):
     branches = Branch.objects.all()
 
@@ -284,20 +299,16 @@ def product_catalog(request):
     # row's stock — so a product with an expired lot at one branch and a
     # fresh one at another (or even a fresh AND an expired lot in the same
     # row) is never hidden entirely, just correctly sized.
-    stock = Inventory.objects.sellable().select_related(
+    search_query = request.GET.get('q', '')
+    stock = _catalog_stock(branch_filters, search_query).select_related(
         'product', 'product__category'
     ).prefetch_related('product__images')
-    if branch_filters:
-        stock = stock.filter(branch_id__in=branch_filters)
 
-    search_query = request.GET.get('q', '')
     # getlist, not get: the rail is a checklist now, so "Rice AND Canned
     # goods" is a question a shopper can ask. Non-numeric values are dropped
     # rather than passed to the ORM, which raises on a bad pk instead of
     # simply matching nothing.
     category_filters = [c for c in request.GET.getlist('category') if c.isdigit()]
-    if search_query:
-        stock = stock.filter(product__product_name__icontains=search_query)
     if category_filters:
         stock = stock.filter(product__category_id__in=category_filters)
 
@@ -360,15 +371,15 @@ def product_catalog(request):
         # chips while the rail beside the grid kept offering the single
         # tick-box that filters nothing.
         #
-        # Lazy, because the queryset it replaced was: this same context is
-        # handed to catalog_grid.html on every live-search keystroke, and
-        # neither of the two partials rendered there names `categories`. A
-        # bare call would have bought a query per keystroke for a rail that
-        # is not being redrawn.
+        # Lazy so callers that inspect only result rows do not pay for the
+        # tree. Live responses deliberately render the category partial from
+        # this object, using the branch ids carried by that exact request.
         #
         # Each category carrying a live `stock_count`. See _category_rail.
         'categories': SimpleLazyObject(
-            lambda: _category_rail(branch_filters, search_query)
+            lambda: _category_rail(
+                branch_filters, search_query, category_filters
+            )
         ),
         'search_query': search_query,
         'category_filters': category_filters,
@@ -419,6 +430,7 @@ def product_catalog(request):
         return JsonResponse({
             'summary_html': render_to_string('partials/catalog_result_summary.html', context, request=request),
             'grid_html': render_to_string('partials/catalog_grid.html', context, request=request),
+            'category_html': render_to_string('partials/catalog_category_filter.html', context, request=request),
         })
 
     return render(request, 'orders/catalog.html', context)
@@ -564,7 +576,7 @@ def product_detail(request, product_id):
     })
 
 
-def _category_rail(branch_filters, search_query):
+def _category_rail(branch_filters, search_query, category_filters=()):
     """The Filters rail's Category list, with a live in-stock count per row.
 
     The counts are the reference's "Biscuits (348)", and they are counted the
@@ -576,22 +588,20 @@ def _category_rail(branch_filters, search_query):
     print (6) beside it and (0) beside every other row, which says nothing
     about what ticking those rows would do.
 
-    Rows with nothing behind them are dropped. An empty row in a filter rail
-    is a promise the grid then breaks.
+    Unselected rows with nothing behind them are dropped. A selected row is
+    retained at zero so a live branch change never silently discards that
+    filter.
 
-    One aggregate query on top of storefront_categories()'s own, and only on
-    the full-page path — product_catalog wraps this in a SimpleLazyObject,
-    and the live-search XHR renders neither partial that names it.
+    One aggregate query on top of storefront_categories()'s own. product_catalog
+    wraps this in a SimpleLazyObject, and both the full page and live facet
+    partial read it only when they render the Category rail.
     """
     categories = storefront_categories()
     if not categories:
         return []
 
-    stock = Inventory.objects.sellable()
-    if branch_filters:
-        stock = stock.filter(branch_id__in=branch_filters)
-    if search_query:
-        stock = stock.filter(product__product_name__icontains=search_query)
+    stock = _catalog_stock(branch_filters, search_query)
+    selected = {str(category_id) for category_id in category_filters}
 
     # distinct() because a product stocked at three branches is three
     # Inventory rows and one product on the shelf.
@@ -605,7 +615,7 @@ def _category_rail(branch_filters, search_query):
     rail = []
     for category in categories:
         count = len(counts.get(category.id, ()))
-        if not count:
+        if not count and str(category.id) not in selected:
             continue
         category.stock_count = count
         rail.append(category)

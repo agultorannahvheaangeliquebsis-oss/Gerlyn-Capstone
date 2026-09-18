@@ -197,6 +197,7 @@ class BatchSerializer(serializers.ModelSerializer):
     branchId = serializers.PrimaryKeyRelatedField(source='branch', read_only=True)
     branchName = serializers.CharField(source='branch.branch_name', read_only=True)
     batchNumber = serializers.CharField(source='batch_number', read_only=True)
+    externalLotCode = serializers.CharField(source='external_lot_code', read_only=True)
     location = serializers.CharField(read_only=True)
     receivedDate = serializers.DateField(source='received_date', read_only=True)
     expiryDate = serializers.DateField(source='expiry_date', read_only=True, allow_null=True)
@@ -207,7 +208,7 @@ class BatchSerializer(serializers.ModelSerializer):
         model = Batch
         fields = [
             'id', 'productId', 'productName', 'branchId', 'branchName',
-            'location', 'batchNumber', 'quantity', 'receivedDate', 'expiryDate',
+            'location', 'batchNumber', 'externalLotCode', 'quantity', 'receivedDate', 'expiryDate',
             'expiryStatus', 'daysUntilExpiry', 'notes',
         ]
 
@@ -241,6 +242,7 @@ class StockTransferSerializer(serializers.ModelSerializer):
     flagReason = serializers.CharField(source='flag_reason', read_only=True)
     receivedQty = serializers.IntegerField(source='received_qty', read_only=True)
     createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+    openingImportRowId = serializers.IntegerField(source='opening_import_row_id', read_only=True)
     items = StockTransferItemSerializer(many=True, read_only=True)
 
     class Meta:
@@ -383,7 +385,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'productName', 'locationType', 'movementType',
             'quantityChange', 'quantityBefore', 'quantityAfter',
-            'referenceId', 'notes', 'createdBy', 'createdAt',
+            'referenceId', 'openingImportRowId', 'notes', 'createdBy', 'createdAt',
         ]
 
     def get_productName(self, obj):
