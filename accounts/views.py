@@ -454,8 +454,11 @@ def user_form(request, pk=None):
         flag = f'edit={pk}' if target else 'add=1'
         return redirect(f"{reverse('accounts:user_list')}?{flag}")
 
-    username = request.POST.get('username', '').strip()
+    if target is None:
+        return _user_invite_submit(request)
+
     role = request.POST.get('role')
+    username = request.POST.get('username', '').strip()
     branch_id = request.POST.get('branch') or None
     first_name = request.POST.get('first_name', '').strip()
     last_name = request.POST.get('last_name', '').strip()
@@ -467,16 +470,11 @@ def user_form(request, pk=None):
         c for c in request.POST.getlist('allowed_modules') if c in ALL_MODULE_CODES
     ]
 
-    # The same three checks, in the same order, collected rather than
-    # redirected — a redirect discarded the whole form, and this one has
-    # six fields to retype.
+    # The same checks, collected rather than redirected — a redirect
+    # discarded the whole form, and this one has several fields to retype.
     errors = []
     if not username or role not in dict(INTERNAL_ROLE_CHOICES):
         errors.append('A username and a valid role are required.')
-    elif target is None and User.objects.filter(username=username).exists():
-        errors.append(f'Username "{username}" is already taken.')
-    elif target is None and not password:
-        errors.append('A password is required for a new user.')
 
     if password:
         try:
@@ -484,28 +482,21 @@ def user_form(request, pk=None):
         except ValidationError as e:
             errors.extend(e.messages)
 
-    if target is not None and target.pk == request.user.pk and role != target.role:
+    if target.pk == request.user.pk and role != target.role:
         errors.append("You can't change your own role.")
 
     if not errors:
         role_changed_from = None
-        if target is None:
-            target = User.objects.create_user(
-                username=username, email=request.POST.get('email', ''),
-                password=password, role=role,
-                first_name=first_name, last_name=last_name,
-            )
-        else:
-            if target.role != role:
-                role_changed_from = target.role
-            target.username = username
-            target.email = request.POST.get('email', '')
-            target.first_name = first_name
-            target.last_name = last_name
-            target.role = role
-            if password:
-                target.set_password(password)
-            target.save()
+        if target.role != role:
+            role_changed_from = target.role
+        target.username = username
+        target.email = request.POST.get('email', '')
+        target.first_name = first_name
+        target.last_name = last_name
+        target.role = role
+        if password:
+            target.set_password(password)
+        target.save()
 
         # Role changed (or this is a new account) — drop any stale profile
         # left over from a previous role. get_role_profile() resolves in a
@@ -577,23 +568,81 @@ def user_form(request, pk=None):
         return redirect('accounts:user_list')
 
     context = _user_list_context(request)
-    if pk:
-        context.update({
-            'show_edit_modal': True,
-            'edit_target': target,
-            'edit_branch_id': branch_id,
-            'edit_modules': submitted_modules,
-            'edit_errors': errors,
-            'edit_form_data': request.POST,
-        })
+    context.update({
+        'show_edit_modal': True,
+        'edit_target': target,
+        'edit_branch_id': branch_id,
+        'edit_modules': submitted_modules,
+        'edit_errors': errors,
+        'edit_form_data': request.POST,
+    })
+    return render(request, 'accounts/user_list.html', context)
+
+
+def _user_invite_submit(request):
+    """The Add User submit target when there is no existing target — invites
+    a new internal account by email/role/branch only. Kept as its own
+    function rather than folded into user_form's single body: validation,
+    creation and the re-render-on-error shape are different enough (no
+    username/password at all) that sharing the body just added branching
+    without actually sharing much logic."""
+    email = request.POST.get('email', '').strip()
+    role = request.POST.get('role')
+    branch_id = request.POST.get('branch') or None
+
+    errors = []
+    if role not in dict(INTERNAL_ROLE_CHOICES):
+        errors.append('A valid role is required.')
+    if not email:
+        errors.append('An email address is required.')
     else:
-        context.update({
-            'show_add_modal': True,
-            'add_branch_id': branch_id,
-            'add_modules': submitted_modules,
-            'add_errors': errors,
-            'add_form_data': request.POST,
-        })
+        try:
+            validate_email(email)
+        except ValidationError:
+            errors.append('Enter a valid email address.')
+        else:
+            if User.objects.filter(email=email).exists():
+                errors.append(f'A user with email "{email}" already exists.')
+    if not errors and role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and not branch_id:
+        errors.append('Assign a branch for this role.')
+
+    if not errors:
+        import uuid
+
+        from .services import send_staff_invite
+
+        # A real username doesn't exist yet — the invited person picks their
+        # own on the completion page. This placeholder is never shown
+        # anywhere and gets overwritten the moment they do; it only exists
+        # because the column itself is required and unique.
+        target = User.objects.create(
+            username=f'invited-{uuid.uuid4().hex[:24]}', email=email, role=role,
+            is_active=False,
+        )
+        target.set_unusable_password()
+        target.save()
+
+        # accounts.signals.create_user_profile already created the matching
+        # role profile (named from the placeholder username) the moment
+        # target was saved above — only the branch needs setting here.
+        if role == User.Role.BRANCH_MANAGER:
+            target.manager_profile.branch_id = branch_id
+            target.manager_profile.save()
+        elif role == User.Role.STAFF:
+            target.staff_profile.branch_id = branch_id
+            target.staff_profile.save()
+
+        send_staff_invite(target, request)
+        messages.success(request, f'Invite sent to {email}.')
+        return redirect('accounts:user_list')
+
+    context = _user_list_context(request)
+    context.update({
+        'show_add_modal': True,
+        'add_branch_id': branch_id,
+        'add_errors': errors,
+        'add_form_data': request.POST,
+    })
     return render(request, 'accounts/user_list.html', context)
 
 
@@ -616,7 +665,137 @@ def user_toggle_active(request, pk):
         state = 'reactivated' if target.is_active else 'deactivated'
         messages.success(request, f'{target.username} {state}.')
 
+    return redirect('accounts:customer_list' if target.role == User.Role.CUSTOMER else 'accounts:user_list')
+
+
+@login_required(login_url='accounts:login')
+def user_hard_delete(request, pk):
+    """Owner-only, in response to an actual deletion request received
+    outside the system (by email) — erases this account's identity fields
+    (accounts.services.hard_delete_personal_data) without touching anything
+    it's linked to. Works for any role; a customer's own request is the
+    expected case, but nothing here is customer-specific."""
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage users.')
+        return redirect('accounts:home')
+
+    target = get_object_or_404(User, pk=pk)
+    redirect_to = 'accounts:customer_list' if target.role == User.Role.CUSTOMER else 'accounts:user_list'
+
+    if target.pk == request.user.pk:
+        messages.error(request, "You can't delete your own personal data.")
+        return redirect(redirect_to)
+
+    if request.method != 'POST':
+        return redirect(redirect_to)
+
+    if target.deleted_at:
+        messages.info(request, f"{target.username}'s personal data was already deleted.")
+        return redirect(redirect_to)
+
+    if not target.has_usable_password():
+        messages.error(request, "That invite was never completed — cancel it instead.")
+        return redirect(redirect_to)
+
+    from .services import hard_delete_personal_data
+    hard_delete_personal_data(target, performed_by=request.user)
+    messages.success(request, "That account's personal data has been deleted.")
+    return redirect(redirect_to)
+
+
+@login_required(login_url='accounts:login')
+def user_cancel_invite(request, pk):
+    """Owner-only. Only for an account that has never been completed (Add
+    User was used, but has_usable_password() is still False) — nothing has
+    been created through it yet, so unlike user_hard_delete this actually
+    deletes the row (accounts.services.cancel_pending_invite) instead of
+    scrubbing and keeping it. There's no audit log yet to record who did
+    this, so for now that's just an accepted gap."""
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage users.')
+        return redirect('accounts:home')
+
+    target = get_object_or_404(User, pk=pk)
+
+    if target.has_usable_password():
+        messages.error(request, "That account has already been set up and can't be cancelled this way.")
+        return redirect('accounts:user_list')
+
+    if request.method != 'POST':
+        return redirect('accounts:user_list')
+
+    from .services import cancel_pending_invite
+    email = target.email
+    cancel_pending_invite(target)
+    messages.success(request, f'Invite to {email} cancelled.')
     return redirect('accounts:user_list')
+
+
+@login_required(login_url='accounts:login')
+def user_resend_invite(request, pk):
+    """Sends a fresh invite link for a still-pending account (Add User was
+    used, but the invited person hasn't finished setting up their username
+    and password yet) — the old link, if unused, is invalidated the same
+    way accounts.services.send_staff_invite already does for a repeat call."""
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage users.')
+        return redirect('accounts:home')
+
+    target = get_object_or_404(User, pk=pk)
+
+    if target.has_usable_password():
+        messages.info(request, f"{target.username} has already set up their account.")
+        return redirect('accounts:user_list')
+
+    if request.method == 'POST':
+        from .services import send_staff_invite
+        send_staff_invite(target, request)
+        messages.success(request, f'Invite resent to {target.email}.')
+
+    return redirect('accounts:user_list')
+
+
+@login_required(login_url='accounts:login')
+def customer_list(request):
+    """Owner-only view of customer accounts — User Management's own list
+    always excluded Customer, since nothing there (branch, modules, an
+    internal role) applies to one. This exists only so the Owner can find
+    an account to act on when an actual deletion request comes in by email;
+    it's read-focused, with just the same deactivate/reactivate and hard-
+    delete personal data actions User Management offers for internal roles.
+    """
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage users.')
+        return redirect('accounts:home')
+
+    customers = User.objects.filter(role=User.Role.CUSTOMER).select_related(
+        'customer_profile'
+    ).order_by('-date_joined')
+
+    search_query = request.GET.get('q', '')
+    if search_query:
+        customers = customers.filter(
+            Q(username__icontains=search_query) |
+            Q(email__icontains=search_query) |
+            Q(customer_profile__first_name__icontains=search_query) |
+            Q(customer_profile__last_name__icontains=search_query)
+        )
+
+    rows = []
+    for u in customers:
+        profile = getattr(u, 'customer_profile', None)
+        rows.append({
+            'user': u,
+            'full_name': u.get_full_name() or (
+                f'{profile.first_name} {profile.last_name}'.strip() if profile else ''
+            ) or u.username,
+        })
+
+    return render(request, 'accounts/customer_list.html', {
+        'rows': rows,
+        'search_query': search_query,
+        'active_count': customers.filter(is_active=True).count(),
+    })
 
 
 def home_view(request):
@@ -1068,6 +1247,93 @@ def verify_email(request, token):
 
     messages.success(request, "Email verified! You can now log in.")
     return redirect('accounts:login')
+
+
+def staff_invite_complete(request, token):
+    """The link an invited internal user (Staff/Manager/Supplier/Owner)
+    receives from Add User. They pick their own username and password here
+    — email stays locked to whatever the Owner entered, since that's the
+    address the invite itself proved they control, and there is no address
+    field since internal accounts don't ship anything."""
+    try:
+        token_obj = VerificationToken.objects.select_related('user').get(
+            token=token, purpose=VerificationToken.PURPOSE_STAFF_INVITE
+        )
+    except VerificationToken.DoesNotExist:
+        messages.error(request, "Invalid or already-used invite link.")
+        return redirect('accounts:login')
+
+    if not token_obj.is_valid:
+        messages.error(request, "This invite link has expired. Ask the Owner to resend it.")
+        return redirect('accounts:login')
+
+    user = token_obj.user
+
+    if request.method == 'POST':
+        username = request.POST.get('username', '').strip()
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        password1 = request.POST.get('password1', '')
+        password2 = request.POST.get('password2', '')
+
+        errors = []
+        if not username or len(username) > 150:
+            errors.append('Username must be between 1 and 150 characters.')
+        else:
+            try:
+                User.username_validator(username)
+            except ValidationError as e:
+                errors.extend(e.messages)
+            else:
+                if User.objects.exclude(pk=user.pk).filter(username=username).exists():
+                    errors.append(f'Username "{username}" is already taken.')
+
+        if not first_name or not last_name:
+            errors.append('Enter your first and last name.')
+
+        if password1 != password2:
+            errors.append('Passwords do not match.')
+        else:
+            try:
+                password_validation.validate_password(password1, user=user)
+            except ValidationError as e:
+                errors.extend(e.messages)
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+            return render(request, 'accounts/staff_invite_complete.html', {
+                'token': token, 'email': user.email,
+                'form_data': {
+                    'username': username, 'first_name': first_name, 'last_name': last_name,
+                },
+            })
+
+        token_obj.consume()
+        user.username = username
+        user.first_name = first_name
+        user.last_name = last_name
+        user.set_password(password1)
+        user.is_active = True
+        user.save()
+
+        # The role profile's own name field was left blank at invite time —
+        # fill it in now that a real name exists.
+        full_name = f'{first_name} {last_name}'.strip()
+        role_profile = user.get_role_profile()
+        for attr in ('manager_name', 'staff_name', 'supplier_name', 'owner_name'):
+            if hasattr(role_profile, attr):
+                setattr(role_profile, attr, full_name)
+                role_profile.save()
+                break
+
+        login(request, user)
+        messages.success(request, 'Your account is ready.')
+        return redirect_by_role(request, user)
+
+    return render(request, 'accounts/staff_invite_complete.html', {
+        'token': token, 'email': user.email,
+    })
 
 
 def verify_email_change(request, token):

@@ -10,6 +10,42 @@ def _build_url(request, view_name, token):
     return request.build_absolute_uri(relative)
 
 
+def send_staff_invite(user, request):
+    """
+    Sends the invite link for a just-created internal account (Owner clicked
+    Add User with only email/role/branch) — user is already saved, inactive,
+    with an unusable password. The link leads to a register-style page
+    where the invited person picks their own username and password; email
+    stays locked to what the Owner entered. Deletes any earlier unused
+    invite for this account first, same pattern as the other verification
+    emails, so an old link can't be used once a fresh one is sent.
+    """
+    VerificationToken.objects.filter(
+        user=user, purpose=VerificationToken.PURPOSE_STAFF_INVITE, is_used=False
+    ).delete()
+
+    token = VerificationToken.objects.create(
+        user=user, purpose=VerificationToken.PURPOSE_STAFF_INVITE
+    )
+    url = _build_url(request, 'accounts:staff_invite_complete', token)
+
+    send_mail(
+        subject="You've been added to Gerlyn Variety Store",
+        message=(
+            f"Hi,\n\n"
+            f"An account has been created for you at Gerlyn Variety Store. "
+            f"Click the link below to set up your username and password:\n\n"
+            f"{url}\n\n"
+            f"This link expires in {VerificationToken.EXPIRY_HOURS} hours. "
+            f"If you weren't expecting this, you can ignore this email.\n\n"
+            f"— Gerlyn Variety Store"
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+
 def should_notify(user, kind):
     """Gate for any outbound notification (email/push/SMS) tied to a user
     preference toggle. `kind` is one of: 'order_updates', 'promotions',
@@ -217,26 +253,63 @@ def send_account_deactivation_verification(user, request):
 
 def deactivate_account(user):
     """
-    Deactivates (never hard-deletes) the account: is_active=False blocks
-    login immediately, and PII is scrubbed so the original email/username
-    become free to register again. The User row itself, and everything
-    that references it (orders, billing records), stays intact — nothing
-    is orphaned, it's just no longer personally identifiable.
+    Self-service deactivation: is_active=False blocks login immediately,
+    and every other session is revoked, but nothing is erased. Reversible —
+    the Owner can flip is_active back on (User Management, or a customer
+    accounts view) and the account is exactly as it was, same email and
+    username. This is deliberately NOT where personal data is removed; that
+    is hard_delete_personal_data below, a distinct, Owner-triggered action
+    for an actual privacy request, not something that happens to everyone
+    who deactivates for an ordinary reason.
+    """
+    user.is_active = False
+    user.save(update_fields=['is_active'])
+    revoke_other_sessions(user, keep_session_key=None)
+
+
+def hard_delete_personal_data(user, performed_by):
+    """
+    Erases this account's identity — email, username, name, contact number,
+    profile address, avatar, saved Address rows — in response to an actual
+    deletion request (received outside the system, by email, per how this
+    store handles them). Deliberately NOT a row delete: everything the
+    account ever DID (sales, stock movements, billing confirmations) stays
+    exactly where it is, still linked by this row's immutable id — only the
+    fields that identify a person go blank. deleted_at/deleted_by on the
+    row itself are the entire accountability record this needs; there is no
+    in-system "request" to log since it never arrives through the app.
+
+    Always also deactivates the account (a hard-deleted identity has no
+    business being logged into), on top of whatever deactivate_account()
+    may or may not have already done to it.
+
+    Also used as "cancel this invite" for a still-pending account (Add User
+    was used, but the link was never completed) — in that case there is
+    barely any personal data on the row yet besides the email, but the
+    outstanding VerificationToken matters a lot: without deleting it here,
+    the emailed link keeps working against a row whose email has just been
+    overwritten with a placeholder, landing the invited person on a setup
+    page for an account that no longer identifies anyone. Any token type
+    (email verify, password change, a pending invite) is equally wrong to
+    leave alive once the identity it was emailed to has been erased.
     """
     import uuid
-    from .models import Address
+    from django.utils import timezone
+    from .models import Address, VerificationToken
 
     placeholder = uuid.uuid4().hex
 
     user.is_active = False
-    user.email = f"deactivated-{placeholder}@deactivated.invalid"
-    user.username = f"deactivated-{placeholder[:20]}"
+    user.email = f"deleted-{placeholder}@deleted.invalid"
+    user.username = f"deleted-{placeholder[:20]}"
     user.first_name = ''
     user.last_name = ''
     user.pending_email = None
     user.is_email_verified = False
     if user.avatar:
         user.avatar.delete(save=False)
+    user.deleted_at = timezone.now()
+    user.deleted_by = performed_by
     user.save()
 
     role_profile = user.get_role_profile()
@@ -252,7 +325,26 @@ def deactivate_account(user):
         role_profile.save()
 
     Address.objects.filter(user=user).delete()
+    VerificationToken.objects.filter(user=user).delete()
     revoke_other_sessions(user, keep_session_key=None)
+
+
+def cancel_pending_invite(user):
+    """
+    Cancels an invite that was never completed (Add User was used, but the
+    invited person never set up a username/password — has_usable_password()
+    is still False). Unlike hard_delete_personal_data, this actually deletes
+    the row: there is no accountability reason to keep a husk around for an
+    account nothing was ever done through (no sales, no logs — the row's
+    OneToOne role profile and any VerificationToken cascade-delete with it,
+    same as they always would for any User.delete()). No audit trail exists
+    yet to record who cancelled it, so for now this is just a delete; the
+    caller is trusted to only call this for a still-pending, Owner-only
+    action anyway.
+    """
+    if user.avatar:
+        user.avatar.delete(save=False)
+    user.delete()
 
 
 def send_email_change_verification(user, new_email, request):

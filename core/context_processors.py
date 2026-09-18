@@ -96,6 +96,7 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     "branch_edit": "branches", "branch_delete": "branches",
     "user_list": "users", "user_add": "users",
     "user_edit": "users", "user_toggle_active": "users",
+    "user_hard_delete": "users", "customer_list": "customers",
 }
 
 

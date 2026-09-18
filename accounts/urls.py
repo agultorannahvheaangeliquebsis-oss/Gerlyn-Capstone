@@ -27,6 +27,10 @@ urlpatterns = [
     path('manage/users/add/', views.user_form, name='user_add'),
     path('manage/users/<int:pk>/edit/', views.user_form, name='user_edit'),
     path('manage/users/<int:pk>/toggle/', views.user_toggle_active, name='user_toggle_active'),
+    path('manage/users/<int:pk>/hard-delete/', views.user_hard_delete, name='user_hard_delete'),
+    path('manage/users/<int:pk>/cancel-invite/', views.user_cancel_invite, name='user_cancel_invite'),
+    path('manage/users/<int:pk>/resend-invite/', views.user_resend_invite, name='user_resend_invite'),
+    path('manage/customers/', views.customer_list, name='customer_list'),
 
     # --- New: Profile ---
     path('profile/', views.profile_view, name='profile'),
@@ -37,6 +41,7 @@ urlpatterns = [
     path('verify-email/pending/', views.verify_pending, name='verify_pending'),
     path('verify-email/resend/', views.resend_verification, name='resend_verification'),
     path('verify-email/<uuid:token>/', views.verify_email, name='verify_email'),
+    path('invite/<uuid:token>/', views.staff_invite_complete, name='staff_invite_complete'),
     path('verify-email-change/<uuid:token>/', views.verify_email_change, name='verify_email_change'),
 
     # --- New: Notifications ---

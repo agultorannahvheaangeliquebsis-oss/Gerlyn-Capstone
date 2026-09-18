@@ -9,7 +9,7 @@ import re
 from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User, VerificationToken
@@ -51,57 +51,66 @@ class UserModalFlowTests(TestCase):
             reverse('accounts:user_list') + f'?edit={self.owner.pk}',
         )
 
-    def test_creating_a_manager_sets_their_branch(self):
+    def test_inviting_a_manager_creates_an_inactive_account_and_sets_their_branch(self):
         response = self.client.post(reverse('accounts:user_add'), {
-            # StrongPasswordValidator (uppercase + digit + symbol) is applied
-            # on create — the old 'pw123456' no longer passes.
-            'username': 'carlo', 'password': 'Vault-7788x',
+            'email': 'carlo@example.com',
             'role': User.Role.BRANCH_MANAGER, 'branch': self.branch.pk,
-            'first_name': 'Carlo', 'last_name': 'Reyes', 'email': 'c@x.ph',
         })
         self.assertRedirects(response, reverse('accounts:user_list'))
-        carlo = User.objects.get(username='carlo')
+        carlo = User.objects.get(email='carlo@example.com')
         self.assertEqual(carlo.role, User.Role.BRANCH_MANAGER)
+        self.assertFalse(carlo.is_active)
+        self.assertFalse(carlo.has_usable_password())
         profile = BranchManagerProfile.objects.get(user=carlo)
         self.assertEqual(profile.branch_id, self.branch.pk)
-        self.assertEqual(profile.manager_name, 'Carlo Reyes')
 
-    def test_missing_password_reopens_the_modal_and_keeps_the_fields(self):
-        response = self.client.post(reverse('accounts:user_add'), {
-            'username': 'carlo', 'password': '',
-            'role': User.Role.STAFF, 'first_name': 'Carlo',
+    def test_inviting_sends_the_invite_email(self):
+        self.client.post(reverse('accounts:user_add'), {
+            'email': 'invitee@example.com', 'role': User.Role.STAFF, 'branch': self.branch.pk,
         })
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context['show_add_modal'])
-        self.assertIn(
-            'A password is required for a new user.', response.context['add_errors']
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['invitee@example.com'])
+        user = User.objects.get(email='invitee@example.com')
+        self.assertTrue(
+            VerificationToken.objects.filter(
+                user=user, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+            ).exists()
         )
-        self.assertContains(response, 'value="carlo"')
-        self.assertFalse(User.objects.filter(username='carlo').exists())
 
-    def test_a_rejected_submit_never_writes_the_password_back(self):
+    def test_missing_email_reopens_the_modal(self):
         response = self.client.post(reverse('accounts:user_add'), {
-            'username': '', 'password': 'sup3rsecret',
-            'role': User.Role.STAFF,
-        })
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'sup3rsecret')
-
-    def test_duplicate_username_is_rejected(self):
-        response = self.client.post(reverse('accounts:user_add'), {
-            'username': 'owner', 'password': 'pw123456', 'role': User.Role.STAFF,
+            'role': User.Role.STAFF, 'branch': self.branch.pk,
         })
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['show_add_modal'])
-        self.assertEqual(User.objects.filter(username='owner').count(), 1)
+        self.assertIn('An email address is required.', response.context['add_errors'])
+
+    def test_a_staff_or_manager_invite_without_a_branch_is_refused(self):
+        response = self.client.post(reverse('accounts:user_add'), {
+            'email': 'nobranch@example.com', 'role': User.Role.STAFF,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Assign a branch for this role.', response.context['add_errors'])
+        self.assertFalse(User.objects.filter(email='nobranch@example.com').exists())
+
+    def test_duplicate_email_is_rejected(self):
+        User.objects.create_user(
+            username='existing', password='pw', role=User.Role.STAFF,
+            email='taken@example.com',
+        )
+        response = self.client.post(reverse('accounts:user_add'), {
+            'email': 'taken@example.com', 'role': User.Role.STAFF, 'branch': self.branch.pk,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertEqual(User.objects.filter(email='taken@example.com').count(), 1)
 
     def test_a_non_internal_role_is_still_refused(self):
         response = self.client.post(reverse('accounts:user_add'), {
-            'username': 'shopper', 'password': 'pw123456',
-            'role': User.Role.CUSTOMER,
+            'email': 'shopper@example.com', 'role': User.Role.CUSTOMER,
         })
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(User.objects.filter(username='shopper').exists())
+        self.assertFalse(User.objects.filter(email='shopper@example.com').exists())
 
     def test_editing_without_a_password_keeps_the_old_one(self):
         staff = User.objects.create_user(
@@ -717,3 +726,475 @@ class ApiThrottlingTests(TestCase):
 
             response = self.client.post(url, {'username': 'nobody', 'password': 'wrong'})
             self.assertEqual(response.status_code, 429)
+
+
+class DeactivateAccountIsReversibleTests(TestCase):
+    """Deactivate used to permanently scrub identity fields the moment it
+    ran — the same action as a hard delete, just triggered by an ordinary
+    "I don't want this anymore" click. It's now a plain, reversible
+    is_active toggle; hard_delete_personal_data is the only thing that
+    erases anything, and only ever in response to an actual request."""
+
+    def setUp(self):
+        self.customer = User.objects.create_user(
+            username='deac-cust', password='Right-Pass-2026',
+            email='deac@example.com', first_name='Dea', last_name='Customer',
+            role=User.Role.CUSTOMER,
+        )
+        self.customer.customer_profile.contact_number = '09171234567'
+        self.customer.customer_profile.address = '12 Real St, Baliuag'
+        self.customer.customer_profile.save()
+        self.client.force_login(self.customer)
+
+    def test_deactivating_keeps_identity_fields_intact(self):
+        response = self.client.post(reverse('accounts:deactivate_account_confirm'), {
+            'password': 'Right-Pass-2026',
+        })
+        self.assertRedirects(response, reverse('accounts:login'))
+
+        self.customer.refresh_from_db()
+        self.assertFalse(self.customer.is_active)
+        self.assertEqual(self.customer.username, 'deac-cust')
+        self.assertEqual(self.customer.email, 'deac@example.com')
+        self.assertEqual(self.customer.first_name, 'Dea')
+        self.assertEqual(self.customer.customer_profile.contact_number, '09171234567')
+        self.assertEqual(self.customer.customer_profile.address, '12 Real St, Baliuag')
+
+    def test_owner_can_reactivate_a_deactivated_customer(self):
+        from accounts.services import deactivate_account
+        deactivate_account(self.customer)
+        self.assertFalse(self.customer.is_active)
+
+        owner = User.objects.create_user(
+            username='deac-owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(owner)
+        response = self.client.post(
+            reverse('accounts:user_toggle_active', args=[self.customer.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:customer_list'))
+
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.is_active)
+        self.assertEqual(self.customer.username, 'deac-cust')
+
+
+class HardDeletePersonalDataTests(TestCase):
+    """The Owner-triggered erasure — only ever fired for an actual request
+    received outside the system. Scrubs identity, keeps everything the
+    account is linked to (a real transaction FK still resolves to the same
+    row, just no longer personally identifiable)."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='hd-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.customer = User.objects.create_user(
+            username='hd-cust', password='pw', email='hd@example.com',
+            first_name='Hard', last_name='Delete', role=User.Role.CUSTOMER,
+        )
+        self.customer.customer_profile.contact_number = '09171234567'
+        self.customer.customer_profile.address = '12 Real St, Baliuag'
+        self.customer.customer_profile.save()
+
+    def test_hard_delete_scrubs_identity_and_sets_the_audit_pair(self):
+        from accounts.services import hard_delete_personal_data
+
+        original_pk = self.customer.pk
+        hard_delete_personal_data(self.customer, performed_by=self.owner)
+
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.pk, original_pk)
+        self.assertFalse(self.customer.is_active)
+        self.assertNotEqual(self.customer.username, 'hd-cust')
+        self.assertNotEqual(self.customer.email, 'hd@example.com')
+        self.assertEqual(self.customer.first_name, '')
+        self.assertEqual(self.customer.customer_profile.contact_number, '')
+        self.assertEqual(self.customer.customer_profile.address, '')
+        self.assertEqual(self.customer.deleted_by, self.owner)
+        self.assertIsNotNone(self.customer.deleted_at)
+
+    def test_hard_delete_preserves_records_the_user_created(self):
+        from accounts.services import hard_delete_personal_data
+        from sales.models import SalesTransaction
+
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, customer=self.customer, total_amount=100,
+            transaction_type=SalesTransaction.TransactionType.ONLINE,
+        )
+        hard_delete_personal_data(self.customer, performed_by=self.owner)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.customer_id, self.customer.pk)
+        self.assertEqual(SalesTransaction.objects.count(), 1)
+
+    def test_deleted_addresses_are_removed(self):
+        from accounts.models import Address
+        from accounts.services import hard_delete_personal_data
+
+        Address.objects.create(user=self.customer, is_default=True, text='12 Real St')
+        hard_delete_personal_data(self.customer, performed_by=self.owner)
+
+        self.assertFalse(Address.objects.filter(user=self.customer).exists())
+
+    def test_outstanding_verification_tokens_are_invalidated(self):
+        """Found live: cancelling a pending invite (hard_delete_personal_data
+        on a not-yet-set-up account) scrubbed the email but left the emailed
+        link itself working — anyone who still had it could open the setup
+        page and complete an account for a row that had just been erased."""
+        from accounts.services import hard_delete_personal_data
+
+        VerificationToken.objects.create(
+            user=self.customer, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+        self.assertTrue(
+            VerificationToken.objects.filter(user=self.customer).exists()
+        )
+
+        hard_delete_personal_data(self.customer, performed_by=self.owner)
+
+        self.assertFalse(
+            VerificationToken.objects.filter(user=self.customer).exists()
+        )
+
+    def test_cancelling_a_pending_invite_kills_the_link(self):
+        """The exact scenario reported live: Cancel Invite on a not-yet-
+        completed account must leave the emailed link dead, not pointed at
+        a row that's just had its email overwritten with a placeholder."""
+        owner_client = Client(SERVER_NAME='localhost')
+        owner_client.force_login(self.owner)
+        branch = self.branch
+        invited_email = 'cancel-me@example.com'
+        owner_client.post(reverse('accounts:user_add'), {
+            'email': invited_email, 'role': User.Role.STAFF, 'branch': branch.pk,
+        })
+        invited = User.objects.get(email=invited_email)
+        token = VerificationToken.objects.get(
+            user=invited, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+
+        owner_client.post(reverse('accounts:user_cancel_invite', args=[invited.pk]))
+
+        response = Client(SERVER_NAME='localhost').get(
+            reverse('accounts:staff_invite_complete', args=[token.token]),
+            SERVER_NAME='localhost',
+        )
+        self.assertRedirects(response, reverse('accounts:login'))
+
+    def test_hard_delete_refuses_a_still_pending_invite(self):
+        """user_hard_delete is for a completed account (an actual privacy
+        request); a not-yet-completed invite has its own dedicated cancel
+        path (user_cancel_invite) that deletes the row outright instead of
+        leaving a scrubbed husk behind."""
+        owner_client = Client(SERVER_NAME='localhost')
+        owner_client.force_login(self.owner)
+        owner_client.post(reverse('accounts:user_add'), {
+            'email': 'never-completed@example.com', 'role': User.Role.STAFF,
+            'branch': self.branch.pk,
+        })
+        invited = User.objects.get(email='never-completed@example.com')
+
+        owner_client.post(reverse('accounts:user_hard_delete', args=[invited.pk]))
+
+        invited.refresh_from_db()
+        self.assertIsNone(invited.deleted_at)
+        self.assertEqual(invited.email, 'never-completed@example.com')
+
+
+class CancelPendingInviteTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='cpi-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.client.force_login(self.owner)
+        self.client.post(reverse('accounts:user_add'), {
+            'email': 'to-cancel@example.com', 'role': User.Role.STAFF, 'branch': self.branch.pk,
+        })
+        self.invited = User.objects.get(email='to-cancel@example.com')
+
+    def test_cancelling_deletes_the_row_outright(self):
+        pk = self.invited.pk
+        response = self.client.post(reverse('accounts:user_cancel_invite', args=[pk]))
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        self.assertFalse(User.objects.filter(pk=pk).exists())
+
+    def test_cancelling_cascades_the_role_profile_and_token(self):
+        from accounts.models import StaffProfile
+        pk = self.invited.pk
+        self.client.post(reverse('accounts:user_cancel_invite', args=[pk]))
+        self.assertFalse(StaffProfile.objects.filter(user_id=pk).exists())
+        self.assertFalse(VerificationToken.objects.filter(user_id=pk).exists())
+
+    def test_cannot_cancel_a_completed_account(self):
+        token = VerificationToken.objects.get(
+            user=self.invited, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+        Client(SERVER_NAME='localhost').post(
+            reverse('accounts:staff_invite_complete', args=[token.token]),
+            {'username': 'realstaffuser', 'first_name': 'Real', 'last_name': 'Staff',
+             'password1': 'Str0ngPass!2026', 'password2': 'Str0ngPass!2026'},
+            SERVER_NAME='localhost',
+        )
+        response = self.client.post(
+            reverse('accounts:user_cancel_invite', args=[self.invited.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        self.assertTrue(User.objects.filter(pk=self.invited.pk).exists())
+
+    def test_non_owner_cannot_cancel_invites(self):
+        staff = User.objects.create_user(
+            username='cpi-staff', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(staff)
+        pk = self.invited.pk
+        self.client.post(reverse('accounts:user_cancel_invite', args=[pk]))
+        self.assertTrue(User.objects.filter(pk=pk).exists())
+
+
+class UserHardDeleteViewTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='hdv-owner', password='pw', role=User.Role.OWNER
+        )
+        self.customer = User.objects.create_user(
+            username='hdv-cust', password='pw', email='hdv@example.com',
+            role=User.Role.CUSTOMER,
+        )
+        self.staff = User.objects.create_user(
+            username='hdv-staff', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(self.owner)
+
+    def test_owner_can_hard_delete_a_customer(self):
+        response = self.client.post(
+            reverse('accounts:user_hard_delete', args=[self.customer.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:customer_list'))
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.deleted_at)
+
+    def test_owner_can_hard_delete_a_staff_account(self):
+        response = self.client.post(
+            reverse('accounts:user_hard_delete', args=[self.staff.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        self.staff.refresh_from_db()
+        self.assertIsNotNone(self.staff.deleted_at)
+
+    def test_non_owner_cannot_hard_delete_anyone(self):
+        self.client.force_login(self.staff)
+        response = self.client.post(
+            reverse('accounts:user_hard_delete', args=[self.customer.pk])
+        )
+        self.customer.refresh_from_db()
+        self.assertIsNone(self.customer.deleted_at)
+
+    def test_owner_cannot_hard_delete_their_own_account(self):
+        response = self.client.post(
+            reverse('accounts:user_hard_delete', args=[self.owner.pk])
+        )
+        self.owner.refresh_from_db()
+        self.assertIsNone(self.owner.deleted_at)
+
+    def test_deleting_an_already_deleted_account_is_a_safe_no_op(self):
+        from accounts.services import hard_delete_personal_data
+        hard_delete_personal_data(self.customer, performed_by=self.owner)
+        first_deleted_at = self.customer.deleted_at
+
+        response = self.client.post(
+            reverse('accounts:user_hard_delete', args=[self.customer.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:customer_list'))
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.deleted_at, first_deleted_at)
+
+
+class CustomerAccountsListTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='cl-owner', password='pw', role=User.Role.OWNER
+        )
+        self.staff = User.objects.create_user(
+            username='cl-staff', password='pw', role=User.Role.STAFF
+        )
+        self.customer = User.objects.create_user(
+            username='cl-cust', password='pw', email='clcust@example.com',
+            role=User.Role.CUSTOMER,
+        )
+
+    def test_owner_sees_customers_but_not_staff(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('accounts:customer_list'))
+        self.assertEqual(response.status_code, 200)
+        usernames = [r['user'].username for r in response.context['rows']]
+        self.assertIn('cl-cust', usernames)
+        self.assertNotIn('cl-staff', usernames)
+
+    def test_non_owner_is_refused(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse('accounts:customer_list'))
+        self.assertRedirects(
+            response, reverse('accounts:home'), fetch_redirect_response=False
+        )
+
+    def test_search_filters_by_username(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('accounts:customer_list'), {'q': 'cl-cust'})
+        usernames = [r['user'].username for r in response.context['rows']]
+        self.assertEqual(usernames, ['cl-cust'])
+
+
+class StaffInviteCompleteTests(TestCase):
+    """The link an invited internal user follows — accounts:user_add creates
+    the inactive placeholder and sends this link; this is where they
+    actually get to sign in for the first time."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='inv-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.client.force_login(self.owner)
+        self.client.post(reverse('accounts:user_add'), {
+            'email': 'invitee@example.com', 'role': User.Role.STAFF, 'branch': self.branch.pk,
+        })
+        self.client.logout()
+        self.invited_user = User.objects.get(email='invitee@example.com')
+        self.token = VerificationToken.objects.get(
+            user=self.invited_user, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+
+    def _complete(self, **overrides):
+        payload = {
+            'username': 'realstaffuser', 'first_name': 'Real', 'last_name': 'Staffer',
+            'password1': 'Str0ngPass!2026', 'password2': 'Str0ngPass!2026',
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('accounts:staff_invite_complete', args=[self.token.token]), payload
+        )
+
+    def test_completing_the_invite_activates_and_logs_in(self):
+        response = self._complete()
+        self.assertRedirects(response, reverse('accounts:staff_dashboard'))
+
+        self.invited_user.refresh_from_db()
+        self.assertTrue(self.invited_user.is_active)
+        self.assertTrue(self.invited_user.has_usable_password())
+        self.assertEqual(self.invited_user.username, 'realstaffuser')
+        self.assertEqual(self.invited_user.first_name, 'Real')
+        self.assertTrue(self.invited_user.check_password('Str0ngPass!2026'))
+        self.assertIn('_auth_user_id', self.client.session)
+
+        self.assertEqual(self.invited_user.staff_profile.branch_id, self.branch.pk)
+        self.assertEqual(self.invited_user.staff_profile.staff_name, 'Real Staffer')
+
+    def test_email_field_is_not_editable_by_the_submission(self):
+        self._complete()
+        self.invited_user.refresh_from_db()
+        self.assertEqual(self.invited_user.email, 'invitee@example.com')
+
+    def test_mismatched_passwords_are_rejected(self):
+        response = self._complete(password2='SomethingElse!9')
+        self.assertEqual(response.status_code, 200)
+        self.invited_user.refresh_from_db()
+        self.assertFalse(self.invited_user.is_active)
+
+    def test_a_taken_username_is_rejected(self):
+        response = self._complete(username='inv-owner')
+        self.assertEqual(response.status_code, 200)
+        self.invited_user.refresh_from_db()
+        self.assertFalse(self.invited_user.is_active)
+
+    def test_the_token_is_single_use(self):
+        self._complete()
+        # The client is now logged in as the just-completed user — a fresh,
+        # anonymous client is what actually proves the token itself, not
+        # just an authenticated session, is what the second attempt hits.
+        anon = Client(SERVER_NAME='localhost')
+        second = anon.post(
+            reverse('accounts:staff_invite_complete', args=[self.token.token]),
+            {'username': 'anotherone', 'first_name': 'A', 'last_name': 'B',
+             'password1': 'Str0ngPass!2026', 'password2': 'Str0ngPass!2026'},
+        )
+        self.assertRedirects(second, reverse('accounts:login'))
+
+    def test_an_invalid_token_redirects_to_login(self):
+        response = self.client.get(
+            reverse('accounts:staff_invite_complete', args=['00000000-0000-0000-0000-000000000000'])
+        )
+        self.assertRedirects(response, reverse('accounts:login'))
+
+
+class UserResendInviteTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='ri-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.client.force_login(self.owner)
+        self.client.post(reverse('accounts:user_add'), {
+            'email': 'pending@example.com', 'role': User.Role.STAFF, 'branch': self.branch.pk,
+        })
+        self.invited_user = User.objects.get(email='pending@example.com')
+
+    def test_resending_invalidates_the_old_token_and_sends_a_new_one(self):
+        old_token = VerificationToken.objects.get(
+            user=self.invited_user, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+        response = self.client.post(
+            reverse('accounts:user_resend_invite', args=[self.invited_user.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        self.assertEqual(len(mail.outbox), 2)  # one from Add User, one from resend
+
+        self.assertFalse(
+            VerificationToken.objects.filter(pk=old_token.pk).exists()
+        )
+        new_token = VerificationToken.objects.get(
+            user=self.invited_user, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+        self.assertTrue(new_token.is_valid)
+
+    def test_cannot_resend_to_an_already_set_up_account(self):
+        token = VerificationToken.objects.get(
+            user=self.invited_user, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+        Client(SERVER_NAME='localhost').post(
+            reverse('accounts:staff_invite_complete', args=[token.token]),
+            {'username': 'realuser', 'first_name': 'Real', 'last_name': 'Person',
+             'password1': 'Str0ngPass!2026', 'password2': 'Str0ngPass!2026'},
+            SERVER_NAME='localhost',
+        )
+        response = self.client.post(
+            reverse('accounts:user_resend_invite', args=[self.invited_user.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        self.assertEqual(len(mail.outbox), 1)  # no second email sent
+
+    def test_cannot_resend_a_cancelled_invite(self):
+        """The exact gap the live bug came through: cancelling used to only
+        scrub the row (has_usable_password() stayed False, identical to a
+        still-pending row), so Resend could hand out a fresh, working setup
+        link for an identity that had already been erased. Cancelling now
+        deletes the row outright, which closes the gap by construction —
+        there's nothing left for Resend to find."""
+        pk = self.invited_user.pk
+        self.client.post(reverse('accounts:user_cancel_invite', args=[pk]))
+        self.assertFalse(User.objects.filter(pk=pk).exists())
+
+        response = self.client.post(
+            reverse('accounts:user_resend_invite', args=[pk])
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(len(mail.outbox), 1)  # no invite email sent for a cancelled row

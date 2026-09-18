@@ -129,6 +129,20 @@ form's own errors and had been silent to assistive tech.
           {% endfor %}
         </select>
       </div>
+      {% if pos_cancelled_orders %}
+      <div class="field">
+        <label for="pos-replaces">Replaces order <span class="gv-meta">(optional)</span></label>
+        <select id="pos-replaces" name="replaces">
+          <option value="">— Not a correction —</option>
+          {% for order in pos_cancelled_orders %}
+            <option value="{{ order.pk }}" {% if pos_form_data.replaces == order.pk|stringformat:"s" %}selected{% endif %}>
+              {{ order.order_number }} — {{ order.branch.branch_name }}
+            </option>
+          {% endfor %}
+        </select>
+        <p class="gv-meta" style="margin:4px 0 0;">Pick the cancelled order this sale is correcting, if any.</p>
+      </div>
+      {% endif %}
     </div>
 
     {% comment %}

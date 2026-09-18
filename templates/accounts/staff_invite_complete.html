@@ -1,0 +1,83 @@
+{% extends "public_base.html" %}
+{% load static %}
+{% block title %}Set Up Your Account — Gerlyn Variety Store{% endblock %}
+{% block body_class %}shop shop-auth{% endblock %}
+
+{% block content %}
+{% comment %}
+Same auth-band/auth-card shell as login.html/login_verify.html. Reached
+only from an emailed invite link (accounts.views.staff_invite_complete
+bounces an invalid/expired one straight to /login/) — email is locked
+because that's the address the invite proved they control; there is no
+address field here since internal accounts don't ship anything.
+{% endcomment %}
+<div class="auth-topbar">
+  <div class="shop-wrap auth-topbar-inner">
+    <a class="auth-topbar-brand" href="{% url 'orders:catalog' %}">
+      <img src="{% static 'img/logo.jpg' %}" alt="">
+      <span><strong>Gerlyn</strong> Variety Store</span>
+    </a>
+  </div>
+</div>
+
+<div class="auth-band">
+  <div class="shop-wrap auth-band-inner">
+    <div class="auth-hero">
+      <img class="auth-hero-mark" src="{% static 'img/logo.png' %}" alt="">
+      <p class="auth-hero-name">Gerlyn Variety Store</p>
+      <p class="auth-hero-tag">
+        Groceries, household goods and bulk supplies<br>
+        for Baliuag, Bulacan.
+      </p>
+    </div>
+
+    <div class="auth-card">
+      <h1 class="auth-title">Set Up Your Account</h1>
+      <p class="gv-meta" style="margin-top:-8px;">
+        You've been added to Gerlyn Variety Store as <strong>{{ email }}</strong>.
+        Choose a username and password to finish setting up your account.
+      </p>
+
+      <form method="POST">
+        {% csrf_token %}
+
+        <div class="field">
+          <label>Email</label>
+          <div class="field-static">{{ email }}</div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="invite-first-name">First Name</label>
+            <input id="invite-first-name" type="text" name="first_name" required
+                   value="{{ form_data.first_name|default:'' }}">
+          </div>
+          <div class="field">
+            <label for="invite-last-name">Last Name</label>
+            <input id="invite-last-name" type="text" name="last_name" required
+                   value="{{ form_data.last_name|default:'' }}">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="invite-username">Username</label>
+          <input id="invite-username" type="text" name="username" required
+                 value="{{ form_data.username|default:'' }}">
+        </div>
+
+        <div class="field">
+          <label for="invite-password1">Password</label>
+          <input id="invite-password1" type="password" name="password1" required autocomplete="new-password">
+        </div>
+
+        <div class="field">
+          <label for="invite-password2">Confirm Password</label>
+          <input id="invite-password2" type="password" name="password2" required autocomplete="new-password">
+        </div>
+
+        <button type="submit" class="btn btn-primary auth-submit">Set Up Account</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

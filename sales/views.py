@@ -164,7 +164,21 @@ def _pos_context(request):
         ],
         'pos_discount_rate_pct': int(PWD_SENIOR_DISCOUNT_RATE * 100),
         'pos_vat_rate_pct': int(VAT_RATE * 100),
+        # "Replaces" dropdown — recent cancelled orders only, since line
+        # items can't be edited and this is how a correction gets linked
+        # back to the order it's standing in for. Pinned staff/manager see
+        # only their own branch's; the Owner picks a branch on the form
+        # itself, so this stays unfiltered for them and transaction_add's
+        # own branch check on submit is what actually enforces the match.
+        'pos_cancelled_orders': _pos_cancelled_orders(user_branch),
     }
+
+
+def _pos_cancelled_orders(user_branch):
+    orders = SalesTransaction.objects.filter(order_status=SalesTransaction.OrderStatus.CANCELLED)
+    if user_branch:
+        orders = orders.filter(branch=user_branch)
+    return orders.order_by('-transaction_date')[:20]
 
 
 def _transaction_list_context(request):
@@ -515,6 +529,17 @@ def transaction_set_status(request, pk, new_status):
                     f'{locked_txn.order_status} to {new_status}.'
                 )
 
+            # Line items are immutable once an order exists — correcting a
+            # mistake means cancelling this one and ringing up a new order,
+            # never editing this one's items. A reason is what makes that
+            # cancellation an actual record of why, not just a status flip;
+            # required here, not left to convention, since a blank reason on
+            # a voided or unfulfilled order is exactly the gap an audit asks
+            # about later.
+            cancel_reason = request.POST.get('cancel_reason', '').strip()
+            if new_status == SalesTransaction.OrderStatus.CANCELLED and not cancel_reason:
+                raise _OrderActionError('Enter a reason for cancelling this order.')
+
             was_completed = locked_txn.order_status == SalesTransaction.OrderStatus.COMPLETED
 
             if was_completed and new_status == SalesTransaction.OrderStatus.CANCELLED:
@@ -537,6 +562,8 @@ def transaction_set_status(request, pk, new_status):
                 _deduct_stock(locked_txn, request.user)
 
             locked_txn.order_status = new_status
+            if new_status == SalesTransaction.OrderStatus.CANCELLED:
+                locked_txn.cancel_reason = cancel_reason
             locked_txn.save()
 
             if new_status == SalesTransaction.OrderStatus.CANCELLED:
@@ -993,6 +1020,21 @@ def transaction_add(request):
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity')
 
+    # --- replaces (optional) -------------------------------------------------
+    # Line items are immutable once an order exists, so "fixing" one is
+    # cancel-then-reorder — this is the lightweight version of that link:
+    # staff picks the cancelled order being corrected from a dropdown here,
+    # rather than a guided one-click "Reorder" flow. Restricted to this
+    # branch's own cancelled orders and silently dropped if it doesn't
+    # resolve to one — a stale dropdown value shouldn't block the sale
+    # itself, only the cross-reference is optional.
+    replaces_id = request.POST.get('replaces') or None
+    if replaces_id and not SalesTransaction.objects.filter(
+        pk=replaces_id, branch_id=branch_id,
+        order_status=SalesTransaction.OrderStatus.CANCELLED,
+    ).exists():
+        replaces_id = None
+
     # --- cash tendered -------------------------------------------------------
     # Only meaningful for a Cash sale — GCash/Card never had cash handed over,
     # so the field is parsed but required (below) only when Cash is chosen.
@@ -1172,6 +1214,7 @@ def transaction_add(request):
                         total_vat_amount=priced['total_vat_amount'],
                         amount_tendered=amount_tendered,
                         change_amount=change_amount,
+                        replaces_id=replaces_id,
                     )
 
                     for line in priced['lines']:

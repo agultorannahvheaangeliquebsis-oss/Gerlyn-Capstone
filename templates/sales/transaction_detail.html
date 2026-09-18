@@ -50,6 +50,7 @@
         never changes anyone's mind.
         {% endcomment %}
         <form method="post" action="{% url 'transaction_set_status' transaction.pk action %}"
+              class="row" style="gap:8px; align-items:center;"
               {% if action == 'Cancelled' %}
               data-confirm="{{ transaction.order_number }} will be closed as cancelled. It cannot be moved back from this screen."
               data-confirm-title="Cancel this order?"
@@ -58,6 +59,18 @@
               data-confirm-dismiss="Keep order"
               {% endif %}>
           {% csrf_token %}
+          {% comment %}
+          Line items can't be edited once an order exists (see cancel_reason's
+          own comment in transaction_set_status) — this is the only way to
+          correct a mistake, so the reason is what makes the record say why,
+          not just that. Plain visible input rather than folding it into the
+          confirm-dialog popup: that component is shared by every other
+          confirm() on the site and doesn't carry its own form fields.
+          {% endcomment %}
+          {% if action == 'Cancelled' %}
+          <input type="text" name="cancel_reason" placeholder="Reason for cancelling" required
+                 style="width:220px;">
+          {% endif %}
           <button type="submit" class="btn {% if action == 'Cancelled' %}btn-danger{% else %}btn-primary{% endif %}">
             {% if action == 'Cancelled' %}Cancel Order{% else %}Mark {{ action }}{% endif %}
           </button>
@@ -65,6 +78,26 @@
       {% endfor %}
     </div>
   </div>
+</div>
+{% endif %}
+
+{# ---- cancellation record ---- #}
+{% if transaction.order_status == "Cancelled" %}
+<div class="card card-pad mb-4">
+  <h3>Cancellation</h3>
+  <p class="gv-meta mb-0"><strong>Reason:</strong> {{ transaction.cancel_reason|default:"—" }}</p>
+  {% if transaction.replaces %}
+  <p class="gv-meta mb-0">
+    Corrects <a href="{% url 'transaction_detail' transaction.replaces.pk %}">{{ transaction.replaces.order_number }}</a>
+  </p>
+  {% endif %}
+  {% with replacement=transaction.replaced_by.first %}
+  {% if replacement %}
+  <p class="gv-meta mb-0">
+    Replaced by <a href="{% url 'transaction_detail' replacement.pk %}">{{ replacement.order_number }}</a>
+  </p>
+  {% endif %}
+  {% endwith %}
 </div>
 {% endif %}
 

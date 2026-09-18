@@ -690,14 +690,20 @@ class VoidPreservesConfirmationTrailTests(TestCase):
         billing.save()
         return txn, billing
 
-    def test_voiding_a_completed_sale_keeps_the_original_confirmation_trail(self):
+    # notify() is patched here for the same reason noted on the tests below
+    # in OrderCancellationReasonAndReplacesTests — a known, unrelated,
+    # pre-existing column-charset issue on accounts_notification, inside the
+    # same atomic block as the cancellation this test actually checks.
+    @mock.patch('core.notifications.notify')
+    def test_voiding_a_completed_sale_keeps_the_original_confirmation_trail(self, mock_notify):
         txn, billing = self._completed_sale_with_confirmed_payment()
         original_confirmed_by = billing.confirmed_by_id
         original_date_confirmed = billing.date_confirmed
 
         self.client.force_login(self.owner)
         response = self.client.post(
-            reverse('transaction_set_status', args=[txn.pk, 'Cancelled'])
+            reverse('transaction_set_status', args=[txn.pk, 'Cancelled']),
+            {'cancel_reason': 'Customer changed their mind'},
         )
         self.assertRedirects(
             response, reverse('transaction_detail', args=[txn.pk])
@@ -714,3 +720,114 @@ class VoidPreservesConfirmationTrailTests(TestCase):
         self.assertEqual(billing.voided_by, self.owner)
         self.assertIsNotNone(billing.date_voided)
         self.assertGreaterEqual(billing.date_voided, original_date_confirmed)
+
+
+class OrderCancellationReasonAndReplacesTests(TestCase):
+    """Line items are immutable once an order exists — correcting one means
+    cancelling it (with a reason) and ringing up a new order linked back to
+    it via `replaces`, never editing the original."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='oc-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.other_branch = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-OC', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+        self.client.force_login(self.owner)
+
+    def _pending_order(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, order_status=SalesTransaction.OrderStatus.PENDING,
+            total_amount=100, transaction_type=SalesTransaction.TransactionType.ONLINE,
+        )
+        return txn
+
+    def test_cancelling_without_a_reason_is_refused(self):
+        txn = self._pending_order()
+        response = self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Cancelled'])
+        )
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Pending')
+        self.assertEqual(txn.cancel_reason, '')
+
+    # notify() is patched in the two tests below only — cancelling an order
+    # sends one, and its message includes a peso-sign amount that a known,
+    # pre-existing, unrelated column-charset issue on accounts_notification
+    # currently chokes on. Both calls happen inside transaction_set_status's
+    # own atomic block, so an unhandled error there would roll back the
+    # cancellation itself and make these tests fail for a reason that has
+    # nothing to do with what they're actually checking.
+    @mock.patch('core.notifications.notify')
+    def test_cancelling_with_a_reason_saves_it(self, mock_notify):
+        txn = self._pending_order()
+        response = self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Cancelled']),
+            {'cancel_reason': 'Customer requested a different product'},
+        )
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Cancelled')
+        self.assertEqual(txn.cancel_reason, 'Customer requested a different product')
+
+    @mock.patch('core.notifications.notify')
+    def test_a_new_sale_can_link_to_the_cancelled_order_it_replaces(self, mock_notify):
+        original = self._pending_order()
+        self.client.post(
+            reverse('transaction_set_status', args=[original.pk, 'Cancelled']),
+            {'cancel_reason': 'Wrong item rung up'},
+        )
+
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'product_id': [str(self.product.pk)], 'quantity': ['1'],
+            'amount_tendered': '100', 'replaces': str(original.pk),
+        })
+        new_order = SalesTransaction.objects.exclude(pk=original.pk).get()
+        self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
+        self.assertEqual(new_order.replaces_id, original.pk)
+
+        original.refresh_from_db()
+        self.assertEqual(list(original.replaced_by.all()), [new_order])
+
+    def test_replaces_is_dropped_if_the_order_is_not_actually_cancelled(self):
+        still_pending = self._pending_order()
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'product_id': [str(self.product.pk)], 'quantity': ['1'],
+            'amount_tendered': '100', 'replaces': str(still_pending.pk),
+        })
+        new_order = SalesTransaction.objects.exclude(pk=still_pending.pk).get()
+        self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
+        self.assertIsNone(new_order.replaces_id)
+
+    def test_replaces_is_dropped_if_the_cancelled_order_is_a_different_branch(self):
+        Inventory.objects.create(
+            product=self.product, branch=self.other_branch,
+            quantity_on_hand=10, reorder_level=1,
+        )
+        other_branch_cancelled = SalesTransaction.objects.create(
+            branch=self.other_branch, order_status=SalesTransaction.OrderStatus.CANCELLED,
+            total_amount=100, transaction_type=SalesTransaction.TransactionType.ONLINE,
+        )
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'product_id': [str(self.product.pk)], 'quantity': ['1'],
+            'amount_tendered': '100', 'replaces': str(other_branch_cancelled.pk),
+        })
+        new_order = SalesTransaction.objects.get(branch=self.branch)
+        self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
+        self.assertIsNone(new_order.replaces_id)

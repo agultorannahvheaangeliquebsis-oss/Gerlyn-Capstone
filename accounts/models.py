@@ -53,6 +53,23 @@ class User(AbstractUser):
                   "its role. Owner is exempt and always sees everything."
     )
 
+    # Set only by accounts.services.hard_delete_personal_data — a deliberate,
+    # Owner-triggered erasure of this account's identity fields in response
+    # to an actual request (received outside the system, by email), never by
+    # ordinary self-service deactivation (is_active alone covers that, and
+    # is fully reversible). The row itself is never deleted and this FK is
+    # never cleared, so every table that references this user by id — sales,
+    # stock movements, billing confirmations — keeps working exactly as
+    # before; only the identity fields on THIS row go blank. This pair is
+    # the accountability record itself: who erased it and when, which is
+    # all a request like this needs to prove after the fact.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        'self', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='personal_data_deletions_performed',
+        help_text="The Owner who erased this account's personal data, if it has been."
+    )
+
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
@@ -105,7 +122,9 @@ class VerificationToken(models.Model):
     PURPOSE_EMAIL_CHANGE    = 'EMAIL_CHANGE'
     PURPOSE_PASSWORD_CHANGE = 'PASSWORD_CHANGE'
     PURPOSE_ACCOUNT_DEACTIVATE = 'ACCOUNT_DEACTIVATE'
+    PURPOSE_STAFF_INVITE    = 'STAFF_INVITE'
     PURPOSE_CHOICES = [
+        (PURPOSE_STAFF_INVITE, 'Internal user invite'),
         (PURPOSE_EMAIL_VERIFY, 'Initial email verification'),
         (PURPOSE_EMAIL_CHANGE, 'Email change verification'),
         (PURPOSE_PASSWORD_CHANGE, 'Password change verification'),

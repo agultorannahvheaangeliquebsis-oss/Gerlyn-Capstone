@@ -83,7 +83,7 @@
       {% csrf_token %}
       <div class="modal-body">
         <p class="gv-meta" style="margin:0; background:var(--danger-bg); color:var(--danger-fg); border-radius:var(--r-input); padding:10px 12px;">
-          {% t "This deactivates your account: you'll be signed out everywhere, your profile info is scrubbed, and you won't be able to log back in. It cannot be easily undone." %}
+          {% t "This deactivates your account: you'll be signed out everywhere, and you won't be able to log back in until it's reactivated. Your profile information is kept as-is, not erased — contact us if you'd like your personal data removed entirely." %}
         </p>
         <div class="field">
           <label for="deactivate-password">{% t "Password" %}</label>

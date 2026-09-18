@@ -182,15 +182,16 @@ DOM — it is off-screen until focused (see .skip-link).
       {% if request.user.role == 'OWNER' %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-administration" title="Administration"
-          aria-expanded="{% if active_page == 'branches' or active_page == 'users' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'branches' or active_page == 'users' or active_page == 'customers' %}true{% else %}false{% endif %}">
           <i data-lucide="shield"></i>
           <span class="sb-label">Administration</span>
           <i class="sb-chevron" data-lucide="chevron-right"></i>
         </button>
-        <ul class="sb-tree {% if active_page == 'branches' or active_page == 'users' %}open{% endif %}" id="tree-administration">
+        <ul class="sb-tree {% if active_page == 'branches' or active_page == 'users' or active_page == 'customers' %}open{% endif %}" id="tree-administration">
           <li class="sb-tree-inner">
             <a class="sb-tree-file {% if active_page == 'branches' %}sb-tree-file--active{% endif %}" href="{% url 'branch_list' %}"><span class="sb-label">Branch Management</span></a>
             <a class="sb-tree-file {% if active_page == 'users' %}sb-tree-file--active{% endif %}" href="{% url 'accounts:user_list' %}"><span class="sb-label">User Management</span></a>
+            <a class="sb-tree-file {% if active_page == 'customers' %}sb-tree-file--active{% endif %}" href="{% url 'accounts:customer_list' %}"><span class="sb-label">Customer Accounts</span></a>
           </li>
         </ul>
       </div>
@@ -432,6 +433,7 @@ DOM — it is off-screen until focused (see .skip-link).
         {% if request.user.role == 'OWNER' %}
         <a class="more-menu-link {% if active_page == 'branches' %}active{% endif %}" href="{% url 'branch_list' %}">Branch Management</a>
         <a class="more-menu-link {% if active_page == 'users' %}active{% endif %}" href="{% url 'accounts:user_list' %}">User Management</a>
+        <a class="more-menu-link {% if active_page == 'customers' %}active{% endif %}" href="{% url 'accounts:customer_list' %}">Customer Accounts</a>
         {% endif %}
         <a class="more-menu-link more-menu-link--danger" href="{% url 'accounts:logout' %}">Logout</a>
       </div>

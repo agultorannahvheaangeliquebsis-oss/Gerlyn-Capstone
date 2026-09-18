@@ -148,6 +148,23 @@ class SalesTransaction(models.Model):
                   "Pickup."
     )
 
+    # Line items are immutable once an order exists — there is no view that
+    # edits an existing SalesItem, by design. Correcting a mistake means
+    # cancelling this order (with a reason, so the record says why) and
+    # ringing up a new one; `replaces` is what keeps that new order visibly
+    # connected to the one it stands in for, rather than looking like an
+    # unrelated sale that happens to follow a cancellation.
+    cancel_reason = models.CharField(
+        max_length=255, blank=True,
+        help_text="Required when order_status is set to Cancelled — why the "
+                  "order was voided rather than fulfilled."
+    )
+    replaces = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='replaced_by',
+        help_text="The cancelled order this one was rung up to correct, if any."
+    )
+
     # --- statutory discount (PWD / Senior Citizen) --------------------------
     # Claimed once per transaction, not per line: the discount belongs to a
     # cardholder, and one sale has one cardholder. Which LINES it actually

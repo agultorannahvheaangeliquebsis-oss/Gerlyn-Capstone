@@ -18,6 +18,14 @@ NOT the toolbar's role_choices: the filter above can filter by any role a row
 carries, while this form may only assign an internal one, and the view has
 always validated against that narrower list.
 
+Add collects only email, role and branch — the invited person picks their
+own username and password on the link that email sends them, and starts
+with the ordinary default module access, adjustable afterward from Edit.
+Name/username/password/modules below are wrapped to EDIT ONLY for exactly
+that reason; `modules`/`target` are simply never passed in on the Add
+include, so `modules` reads as empty and every `target.*` lookup below is
+harmless on Add regardless.
+
 The password field is deliberately never repopulated from form_data. Nothing
 should write a password back into a page, and on edit it is optional anyway —
 blank means "keep the current one", which is what an empty field already says.
@@ -43,6 +51,7 @@ blank means "keep the current one", which is what an empty field already says.
       </div>
       {% endif %}
 
+      {% if which == "edit" %}
       <div class="grid-2">
         <div class="field">
           <label for="{{ which }}-user-first-name">First Name</label>
@@ -61,10 +70,12 @@ blank means "keep the current one", which is what an empty field already says.
         <input id="{{ which }}-user-username" type="text" name="username" required
                value="{% firstof form_data.username target.username '' %}">
       </div>
+      {% endif %}
 
       <div class="field">
         <label for="{{ which }}-user-email">Email</label>
         <input id="{{ which }}-user-email" type="email" name="email"
+               {% if which == "add" %}required{% endif %}
                value="{% firstof form_data.email target.email '' %}">
       </div>
 
@@ -88,6 +99,7 @@ blank means "keep the current one", which is what an empty field already says.
         </div>
       </div>
 
+      {% if which == "edit" %}
       <div class="field" id="{{ which }}-user-modules-field">
         <label>Module Access <span class="gv-meta">— managers &amp; staff only; which sections this account can see</span></label>
         <div class="grid-2" style="gap:6px 16px;">
@@ -103,16 +115,21 @@ blank means "keep the current one", which is what an empty field already says.
       <div class="field">
         <label for="{{ which }}-user-password">
           Password
-          {% if target %}<span class="gv-meta">— leave blank to keep the current one</span>{% endif %}
+          <span class="gv-meta">— leave blank to keep the current one</span>
         </label>
         <input id="{{ which }}-user-password" type="password" name="password"
-               placeholder="Enter password" autocomplete="new-password"
-               {% if not target %}required{% endif %}>
+               placeholder="Enter password" autocomplete="new-password">
       </div>
+      {% endif %}
 
       <div class="banner banner-info">
+        {% if which == "add" %}
+        An email invite is sent to this address with a link to set up their
+        username and password. The account can't sign in until they finish it.
+        {% else %}
         A manager or staff member only ever sees their assigned branch's data.
         The Owner sees every branch.
+        {% endif %}
       </div>
     </form>
 
