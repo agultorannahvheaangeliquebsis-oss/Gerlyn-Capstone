@@ -194,7 +194,10 @@ def billing_list(request):
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
 def billing_detail(request, pk):
     record = get_object_or_404(
-        BillingRecord.objects.select_related('transaction', 'transaction__branch'),
+        BillingRecord.objects.select_related(
+            'transaction', 'transaction__branch', 'transaction__customer',
+            'confirmed_by', 'voided_by',
+        ),
         pk=pk,
     )
 
@@ -380,21 +383,9 @@ def billing_create(request, transaction_id):
                 status=BillingRecord.PaymentStatus.PENDING,
             )
 
-        # X-2 — keep the sale's own mode_of_payment in step with what was
-        # just recorded on its bill. This form only ever touched the
-        # BillingRecord, so the Order Console could go on showing a payment
-        # method the bill itself had already moved past. Bank Transfer has
-        # no equivalent SalesTransaction.ModeOfPayment value (it is a
-        # billing-only method, recorded for wholesale/office accounts that
-        # settle by transfer rather than at the counter), so there is
-        # nothing to sync in that one case — the sale keeps whatever method
-        # it already had.
-        if (
-            payment_method in SalesTransaction.ModeOfPayment.values
-            and txn.mode_of_payment != payment_method
-        ):
-            txn.mode_of_payment = payment_method
-            txn.save(update_fields=['mode_of_payment'])
+        # X-2 — one definition shared with BillingPaymentSerializer.update,
+        # see BillingRecord.sync_payment_method_to_sale.
+        record.sync_payment_method_to_sale()
 
         messages.success(request, 'Billing record saved.')
         return redirect('billing_detail', pk=record.pk)

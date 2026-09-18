@@ -311,19 +311,8 @@ white-on-white.
         content was the thing clicking the menu should have done — so Shop
         becomes the plain link it is behaving as.
 
-        Two panes, the reference's shape: departments down the left, and the
-        shelves of whichever one is highlighted filling the panel to the
-        right. That is the whole reason the categories are a tree — a flat
-        drop-down of forty rows is a scrollbar, not a menu.
-
-        The left column is BUTTONS, not links, for any department that has
-        shelves. A link there would be unusable on a touch screen: the first
-        tap is the only tap, so it would navigate away before the flyout it
-        is supposed to open had ever been seen, putting every sub-category
-        out of reach on a phone. The department is still one click away —
-        it is the "Shop all of X" row at the top of its own pane, where a
-        tap can reach it. A department with no shelves has no pane to open,
-        so that one stays the plain link it behaves as.
+        One flat list of categories — every category is a peer of every
+        other one now, so there is nothing to disclose into a second pane.
         {% endcomment %}
         {% if nav_categories %}
         <div class="shop-menu" id="shop-menu">
@@ -357,83 +346,21 @@ white-on-white.
       off a nav item three quarters of the way across it.
       {% endcomment %}
       {% if nav_categories %}
-          <div class="shop-mega" id="shop-menu-panel">
-            <ul class="mega-depts">
+          <div class="shop-dropdown" id="shop-menu-panel">
+            <ul class="shop-dropdown-list">
               <li>
-                <a href="{% url 'orders:catalog' %}" class="mega-dept mega-dept-all">
+                <a href="{% url 'orders:catalog' %}" class="shop-dropdown-link shop-dropdown-link-all">
                   <strong>{% t "All products" %}</strong>
                 </a>
               </li>
               {% for c in nav_categories %}
               <li>
-                {% if c.subcategories %}
-                {% comment %}
-                aria-expanded, not aria-selected: this is a disclosure that
-                reveals a pane, and the pane stays in the DOM either way —
-                a screen reader needs to hear that pressing it opened
-                something, which "selected" does not say.
-                {% endcomment %}
-                <button type="button" class="mega-dept" data-mega-dept="{{ c.id }}"
-                        aria-expanded="false" aria-controls="mega-pane-{{ c.id }}">
-                  <span>{{ c.category_name }}</span>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mega-chev" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
-                </button>
-                {% else %}
-                <a href="{% url 'orders:catalog' %}?category={{ c.id }}" class="mega-dept">
-                  <span>{{ c.category_name }}</span>
+                <a href="{% url 'orders:catalog' %}?category={{ c.id }}" class="shop-dropdown-link">
+                  {{ c.category_name }}
                 </a>
-                {% endif %}
               </li>
               {% endfor %}
             </ul>
-
-            <div class="mega-panes">
-              {% comment %}
-              One pane per department that has shelves, all rendered and all
-              hidden but the open one. Rendering them up front rather than
-              fetching on hover is what makes the menu instant and keeps it
-              working with JavaScript off — the panes are already prefetched
-              alongside the departments (one query for the pair), so there is
-              nothing to fetch.
-
-              `hidden` rather than a display class, so the panes are out of
-              the accessibility tree and out of the tab order until opened —
-              otherwise Tab from the trigger would walk every shelf of every
-              department before reaching the next nav link.
-              {% endcomment %}
-              {% for c in nav_categories %}
-                {% if c.subcategories %}
-                <div class="mega-pane" id="mega-pane-{{ c.id }}" data-mega-pane="{{ c.id }}" hidden>
-                  <a class="mega-pane-head" href="{% url 'orders:catalog' %}?category={{ c.id }}">
-                    {{ c.category_name }}
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
-                  </a>
-                  <ul class="mega-subs">
-                    {% for s in c.subcategories %}
-                    <li><a href="{% url 'orders:catalog' %}?category={{ s.id }}">{{ s.category_name }}</a></li>
-                    {% endfor %}
-                  </ul>
-                  {% comment %}
-                  The reference closes each column with "View All Fresh
-                  Items". Ours says the department by name and lands on the
-                  same filtered catalog the heading above does — kept because
-                  at the bottom of a long flowed list the heading has scrolled
-                  out of reach of the eye, not because the two do different
-                  things.
-
-                  OUTSIDE the <ul>, not the last <li> in it. The list flows
-                  into three columns, and a final item inside it is placed by
-                  the column algorithm like any other — with two shelves in
-                  the department it landed at the top of column two, beside
-                  the shelves rather than under them. Out here it is a block
-                  after the columns, which is the one position that reads as
-                  "and the rest" no matter how many shelves there are.
-                  {% endcomment %}
-                  <a class="mega-sub-all" href="{% url 'orders:catalog' %}?category={{ c.id }}">{% t "View all" %} {{ c.category_name }}</a>
-                </div>
-                {% endif %}
-              {% endfor %}
-            </div>
           </div>
       {% endif %}
 
@@ -569,7 +496,7 @@ own when it grew a second pane — it is no longer the six lines a toggle takes,
 and inline script is the one thing on this page that cannot be cache-busted
 by APP_VERSION or read in a stack trace by name.
 {% endcomment %}
-<script src="{% static 'js/shop-mega-menu.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/shop-menu.js' %}?v={{ APP_VERSION }}" defer></script>
 
 <script src="{% static 'js/live-search.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/toast.js' %}?v={{ APP_VERSION }}"></script>

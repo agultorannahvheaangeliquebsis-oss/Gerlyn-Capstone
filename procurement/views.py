@@ -22,6 +22,7 @@ from django.db.models import Q
 from xhtml2pdf import pisa
 
 from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
+from core.people import person_display_name
 from core.querystrings import list_filter_querystring
 from core.permissions import (
     BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
@@ -138,21 +139,6 @@ def procurement_list(request):
     return render(request, 'procurement/procurement_list.html', _procurement_list_context(request))
 
 
-def _person_name(user):
-    """A person's display name, or '' when there is nobody.
-
-    Resolved here rather than in the template because a chained
-    `{{ x.get_full_name|default:x.username }}` raises VariableDoesNotExist
-    when `x` is null — a filter ARGUMENT is resolved strictly, unlike the
-    main variable position, which quietly yields ''. Older purchase orders
-    predate created_by and have it unset, so this is the normal case, not
-    an edge one.
-    """
-    if user is None:
-        return ''
-    return user.get_full_name() or user.username
-
-
 def _can_read_procurement(user, proc):
     """Scoping the list is not enough — every per-order page must check too,
     or anyone can read another branch's (or a rival supplier's) order by
@@ -203,14 +189,14 @@ def _procurement_document_context(proc, request):
         # be absent: created_by postdates the older orders, owner is only set
         # when an Owner raised the PO, and a supplier may have no named
         # contact person.
-        'prepared_by_name': _person_name(proc.created_by),
-        'authorized_by_name': _person_name(proc.owner),
+        'prepared_by_name': person_display_name(proc.created_by),
+        'authorized_by_name': person_display_name(proc.owner),
         'supplier_signatory': (
             (supplier_profile.contact_person or supplier_profile.supplier_name)
             if supplier_profile else ''
         ),
         'printed_on': timezone.localdate(),
-        'printed_by': _person_name(request.user),
+        'printed_by': person_display_name(request.user),
     }
 
 
@@ -423,13 +409,22 @@ def procurement_add(request):
         proc.save()
 
     if is_owner:
-        messages.success(request, 'Procurement order created successfully.')
-    else:
+        # Same opt-in bottom-sheet as the Cancelled confirmation below and in
+        # procurement_approve's Draft -> Ordered step — the Owner raising a
+        # PO authorizes it in the same act (see the comment above), so it
+        # deserves the same "now Ordered" confirmation, landing on the tab
+        # that shows it rather than back on All.
         messages.success(
-            request,
-            f'{proc.po_number} was created as a draft and is waiting for '
-            f'Owner approval before it can be ordered or received.'
+            request, f'{proc.po_number} is now Ordered.',
+            extra_tags='sheet',
         )
+        return redirect(f"{reverse('procurement_list')}?status={Procurement.Status.ORDERED}")
+
+    messages.success(
+        request,
+        f'{proc.po_number} was created as a draft and is waiting for '
+        f'Owner approval before it can be ordered or received.'
+    )
     return redirect('procurement_list')
 
 
@@ -505,7 +500,15 @@ def procurement_update_status(request, pk):
             locked.status = new_status
             locked.save()
 
-        messages.success(request, f'{proc.po_number} is now {new_status}.')
+        # Cancellation gets the bottom-sheet (extra_tags='sheet', same opt-in
+        # internal_base.html already gives Deliveries) instead of the banner:
+        # it's a terminal state reached from a confirm dialog, so the
+        # follow-up should read as one dismissable "done", not a persistent
+        # strip sitting above a PO that no longer has anything to update.
+        messages.success(
+            request, f'{proc.po_number} is now {new_status}.',
+            extra_tags='sheet' if new_status == Procurement.Status.CANCELLED else '',
+        )
 
         if new_status == Procurement.Status.CANCELLED:
             from core.module_permissions import PROCUREMENT
@@ -538,6 +541,12 @@ def procurement_update_status(request, pk):
                     action_url=reverse('supplier_portal'),
                     action_label='View order',
                 )
+
+            # Cancelling is terminal — there's nothing left to do on this PO's
+            # own detail page, so land back on the list, already filtered to
+            # the Cancelled tab, instead of reopening the order that was just
+            # closed out. The bottom-sheet above still confirms the result.
+            return redirect(f"{reverse('procurement_list')}?status={Procurement.Status.CANCELLED}")
 
     return redirect('procurement_detail', pk=pk)
 
@@ -658,14 +667,17 @@ def _safe_nonneg_int(value):
 
 @login_required(login_url='accounts:login')
 def delivery_list(request):
-    """Pick a purchase order to receive."""
+    """Every purchase order that has left Draft — Ordered, Received or
+    Cancelled — as one filter-tabs + table page, same pattern as Purchase
+    Orders and Billing. Receiving History used to be a separate page; it's
+    now just the Received tab here."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    pending = scope_queryset(
+    deliveries = scope_queryset(
         Procurement.objects.select_related('branch', 'supplier')
-        .filter(status=Procurement.Status.ORDERED),
+        .exclude(status=Procurement.Status.DRAFT),
         request.user,
     )
 
@@ -673,7 +685,7 @@ def delivery_list(request):
 
     search_query = request.GET.get('q', '')
     if search_query:
-        pending = pending.filter(
+        deliveries = deliveries.filter(
             Q(po_number__icontains=search_query) |
             Q(supplier__supplier_profile__supplier_name__icontains=search_query)
         )
@@ -685,9 +697,19 @@ def delivery_list(request):
     if branch_filter and not branch_filter.isdigit():
         branch_filter = ''
     if branch_filter:
-        pending = pending.filter(branch_id=branch_filter)
+        deliveries = deliveries.filter(branch_id=branch_filter)
 
-    pending = pending.order_by('delivery_date')
+    deliveries = deliveries.order_by('-order_date')
+
+    status_filter = request.GET.get('status', '')
+    counts = {
+        'all': deliveries.count(),
+        'ordered': deliveries.filter(status=Procurement.Status.ORDERED).count(),
+        'received': deliveries.filter(status=Procurement.Status.RECEIVED).count(),
+        'cancelled': deliveries.filter(status=Procurement.Status.CANCELLED).count(),
+    }
+    if status_filter:
+        deliveries = deliveries.filter(status=status_filter)
 
     from branches.models import Branch
     branches = Branch.objects.all() if not user_branch else []
@@ -717,7 +739,9 @@ def delivery_list(request):
             ).order_by('product_name')
 
     return render(request, 'procurement/delivery_list.html', {
-        'pending': pending,
+        'deliveries': deliveries,
+        'counts': counts,
+        'status_filter': status_filter,
         'today': timezone.now().date(),
         'search_query': search_query,
         'branches': branches,
@@ -726,10 +750,14 @@ def delivery_list(request):
         # Warehouse Stock, Product Master List and Stock Adjustments.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
+        # O-3 — one urlencoded filter string for the status tabs, same fix as
+        # Purchase Orders/Billing: a tab's href used to be hand-built and
+        # silently dropped other filters.
+        'filter_qs': list_filter_querystring(q=search_query, branch=branch_filter),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along — same idea as
         # _daterange.html's daterange_carry.
-        'branch_switch_carry': [('q', search_query)],
+        'branch_switch_carry': [('q', search_query), ('status', status_filter)],
         'receive_procurement': receive_procurement,
         'receive_items': receive_items,
         'addable_products': addable_products,
@@ -1062,22 +1090,6 @@ def delivery_add_unexpected(request, pk):
         f'that arrived, then confirm the receipt.'
     )
     return redirect('delivery_receive', pk=pk)
-
-
-@login_required(login_url='accounts:login')
-def receiving_history(request):
-    """Everything already received, newest first."""
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
-
-    received = scope_queryset(
-        Procurement.objects.select_related('branch', 'supplier')
-        .filter(status=Procurement.Status.RECEIVED),
-        request.user,
-    ).order_by('-delivery_date')
-
-    return render(request, 'procurement/receiving_history.html', {'received': received})
 
 
 # =============================================================================

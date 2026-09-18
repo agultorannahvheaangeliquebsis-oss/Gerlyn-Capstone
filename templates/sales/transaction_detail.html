@@ -3,27 +3,58 @@
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block branch_scope %}{{ transaction.branch.branch_name }}{% endblock %}
 
+{% block extra_css %}
+<style>
+  {% comment %}
+  Order progress — the same dot+line track orders/track_order.html draws for
+  the customer, from the same four Pending/Approved/Preparing/Completed
+  stages (sales.views.ORDER_PROGRESS_STEPS mirrors its STATUS_STEPS). Named
+  distinctly and scoped to this page rather than folded into gerlyn.css,
+  since it is this page's own copy of that widget, not a shared component.
+  {% endcomment %}
+  .order-progress-track { display: flex; gap: 0; margin: var(--s2) 0 var(--s1); }
+  .order-progress-step { flex: 1; text-align: center; position: relative; }
+  .order-progress-step .dot {
+    width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--line); color: var(--ink-400);
+    font: 700 13px/1 var(--font-sans); position: relative; z-index: 1;
+  }
+  .order-progress-step.done .dot { background: var(--brand); color: #fff; }
+  .order-progress-step.current .dot {
+    background: var(--action); color: #fff; box-shadow: 0 0 0 5px var(--green-50);
+  }
+  .order-progress-step::before {
+    content: ""; position: absolute; top: 13px; left: 0; right: 50%;
+    height: 2px; background: var(--line);
+  }
+  .order-progress-step::after {
+    content: ""; position: absolute; top: 13px; left: 50%; right: 0;
+    height: 2px; background: var(--line);
+  }
+  .order-progress-step:first-child::before, .order-progress-step:last-child::after { display: none; }
+  .order-progress-step.done::after, .order-progress-step.done::before { background: var(--brand); }
+  .order-progress-step.current::before { background: var(--brand); }
+  .order-progress-label { font: 600 13px/1.3 var(--font-sans); color: var(--ink-600); }
+  .order-progress-step.current .order-progress-label { color: var(--action-700); }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
     <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
     <h1 class="mt-2">{{ transaction.order_number }}
-      {% if transaction.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>
-      {% elif transaction.order_status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>
-      {% elif transaction.order_status == "Preparing" %}<span class="pill pill-warn">Preparing</span>
-      {% elif transaction.order_status == "Approved" %}<span class="pill pill-info">Approved</span>
-      {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}
+      {% include "partials/_order_status_pill_staff.html" with status=transaction.order_status %}
     </h1>
   </div>
   {% comment %}
-  Only a completed sale has a receipt to hand over. data-detail-modal opens
-  the document in the same overlay every other record uses;
-  transaction_receipt.html extends base_template, so the ?modal=1 fetch
-  returns the bare document and its own Print button calls window.print()
-  from inside the overlay. Same pattern as Print PO on procurement_detail.
+  Only a completed sale has a receipt to hand over. This opens as its own
+  page, not a modal — transaction_receipt.html is a dedicated print page
+  with its own back link and Print button (window.print()).
   {% endcomment %}
   {% if transaction.order_status == "Completed" %}
-  <a class="btn btn-primary" data-detail-modal="Sales Receipt"
+  <a class="btn btn-primary"
      href="{% url 'transaction_receipt' transaction.pk %}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
     Print Receipt
@@ -31,12 +62,46 @@
   {% endif %}
 </div>
 
+{# ---- order progress ---- #}
+<div class="card card-pad mb-4">
+  <h3 class="mb-2">Order Progress</h3>
+  {% if progress.cancelled %}
+  <div class="banner banner-error">
+    <span><strong>{{ transaction.order_number }} was cancelled</strong> — it will not move through the remaining stages.</span>
+  </div>
+  {% else %}
+  <div class="order-progress-track">
+    {% for step in progress.steps %}
+    <div class="order-progress-step {% if step.done %}done{% endif %} {% if step.current %}current{% endif %}">
+      <span class="dot">{% if step.done %}&#10003;{% else %}{{ forloop.counter }}{% endif %}</span>
+      <span class="order-progress-label">{{ step.name }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# ---- contextual messaging: order status vs. payment status can disagree ---- #}
+{% if transaction.order_status == "Completed" and not billing %}
+<div class="banner banner-warning">
+  <span><strong>Order completed but payment has not yet been verified.</strong> No billing record has been created for this order yet.</span>
+</div>
+{% elif transaction.order_status == "Completed" and billing.status == "Pending" %}
+<div class="banner banner-warning">
+  <span><strong>Order completed but payment has not yet been verified.</strong></span>
+</div>
+{% elif transaction.order_status == "Completed" and billing.status == "Rejected" %}
+<div class="banner banner-error">
+  <span><strong>Order completed, but the payment on file was rejected.</strong> Confirm payment before treating this order as paid.</span>
+</div>
+{% endif %}
+
 {# ---- lifecycle actions ---- #}
 {% if next_actions %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div>
-      <h3>Next step</h3>
+      <h3>Next Action</h3>
       <p class="gv-meta mb-0">This order is <strong>{{ transaction.order_status }}</strong>.
         {% if transaction.transaction_type == "Online" %}Completing it deducts stock from {{ transaction.branch.branch_name }}.{% endif %}
       </p>
@@ -133,6 +198,7 @@ this form is forged, so hiding the control is convenience, not the guard.
         <tr><td class="gv-meta">Customer</td><td style="text-align:right;">
           {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
           {% else %}Walk-in{% endif %}</td></tr>
+        <tr><td class="gv-meta">Placed on</td><td style="text-align:right;">{{ transaction.transaction_date|date:"F d, Y — g:i A" }}</td></tr>
         {% comment %}
         X-3 — recorded_by, not staff: staff is STAFF-role-only by its own
         limit_choices_to, so a sale the Owner or a Branch Manager rang up
@@ -199,35 +265,41 @@ this form is forged, so hiding the control is convenience, not the guard.
   <!-- Payment -->
   <div class="card card-pad">
     <div class="row-between mb-4">
-      <h3>Payment</h3>
+      <h3>Payment Status</h3>
       {% if billing %}
-        {% if billing.status == "Paid" %}<span class="pill pill-ok">Paid</span>
-        {% elif billing.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
-        {% elif billing.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
-        {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+        {% include "partials/_billing_status_pill.html" with status=billing.status %}
       {% endif %}
     </div>
     {% if billing %}
+    {% comment %}
+    Concise on purpose — this card is the order page's payment SUMMARY, not
+    a second copy of the billing record. Reference no. / confirmed-by /
+    voided-by live on billing_detail.html only now, next to the actions that
+    actually set them (Verify/Reject/Re-open), so a change to who confirmed
+    or voided a payment has one place to read, not two that can disagree.
+    {% endcomment %}
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
         <tr><td class="gv-meta">Amount due</td><td class="num strong" style="text-align:right;">₱{{ billing.amount_due|floatformat:2 }}</td></tr>
         <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ billing.payment_method }}</td></tr>
-        <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ billing.reference_number|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ billing.confirmed_by.username|default:"—" }}</td></tr>
       </tbody>
     </table>
-    <div class="row mt-4" style="justify-content: flex-end;">
-      {% comment %}
-      data-detail-modal so the billing record swaps into this same overlay
-      instead of navigating the window away — the modal-to-modal hop that
-      Print PO uses. billing_detail.html extends base_template, so the
-      ?modal=1 fetch already returns the bare fragment.
-      {% endcomment %}
-      <a class="btn" data-detail-modal="Billing record"
-         href="{% url 'billing_detail' billing.pk %}">View billing record</a>
-      {% if billing.status != "Paid" %}
-        <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
-      {% endif %}
+    {% comment %}
+    Related Billing Record — reference no., confirmed/voided by and when are
+    on that page; this strip is what identifies *which* record that is, next
+    to the button that opens it.
+    {% endcomment %}
+    <div class="row-between wrap mt-4" style="align-items:center;">
+      <div>
+        <div class="gv-label">Related Billing Record</div>
+        <div class="gv-meta mb-0">Billing #{{ billing.pk }} · recorded {{ billing.date_recorded|date:"j M Y" }}</div>
+      </div>
+      <div class="row">
+        <a class="btn" data-detail-modal="Billing Record" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
+        {% if billing.status != "Paid" %}
+          <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+        {% endif %}
+      </div>
     </div>
     {% else %}
       <p class="gv-meta">No billing record.</p>

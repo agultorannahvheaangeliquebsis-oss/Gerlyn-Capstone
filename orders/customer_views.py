@@ -15,7 +15,7 @@ from django.utils.functional import SimpleLazyObject
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
-from core.context_processors import storefront_categories, storefront_category_ids
+from core.context_processors import storefront_categories
 from inventory.alerts import stock_status
 from inventory.models import Inventory, Product, ProductCategory
 from inventory.stats import (
@@ -299,16 +299,7 @@ def product_catalog(request):
     if search_query:
         stock = stock.filter(product__product_name__icontains=search_query)
     if category_filters:
-        # Ticking a department means its shelves too. `category_filters` is
-        # deliberately NOT overwritten with the expanded set: the rail ticks
-        # its boxes off this list, and folding the children in would light up
-        # every shelf under a department the shopper never touched — and then
-        # unticking one of those phantom ticks would read as "Fresh minus
-        # Fresh Beef", which is not what they asked for. The expansion is a
-        # query detail; the ticks stay the shopper's own answer.
-        stock = stock.filter(
-            product__category_id__in=storefront_category_ids(category_filters)
-        )
+        stock = stock.filter(product__category_id__in=category_filters)
 
     # Collapse to one row per product when no branch is chosen; keep the
     # best availability so stock signals stay honest.
@@ -354,7 +345,7 @@ def product_catalog(request):
         if not _resolved:
             _resolved.append(list(
                 ProductCategory.objects.filter(pk__in=category_filters)
-                .select_related('parent').order_by('category_name')
+                .order_by('category_name')
             ))
         return _resolved[0]
 
@@ -375,9 +366,7 @@ def product_catalog(request):
         # bare call would have bought a query per keystroke for a rail that
         # is not being redrawn.
         #
-        # Departments carrying `shelves` and a `stock_count`, not a flat list
-        # — the rail groups its tick-boxes the same two levels the header's
-        # mega-menu opens to. See _category_rail.
+        # Each category carrying a live `stock_count`. See _category_rail.
         'categories': SimpleLazyObject(
             lambda: _category_rail(branch_filters, search_query)
         ),
@@ -576,31 +565,26 @@ def product_detail(request, product_id):
 
 
 def _category_rail(branch_filters, search_query):
-    """The Filters rail's Category tree, with a live in-stock count per row.
+    """The Filters rail's Category list, with a live in-stock count per row.
 
     The counts are the reference's "Biscuits (348)", and they are counted the
     same way the grid is: sellable stock only, narrowed by whatever branches
-    and search term are in play, so a shelf reading (0) genuinely has nothing
+    and search term are in play, so a row reading (0) genuinely has nothing
     on it here rather than nothing at this branch while the number claims
     otherwise. What they are deliberately NOT narrowed by is the category
     filter itself — a count that collapsed to the ticked category would
     print (6) beside it and (0) beside every other row, which says nothing
     about what ticking those rows would do.
 
-    A department's count includes its shelves, matching what clicking it
-    does (storefront_category_ids), so "Fresh (14)" and its shelves summing
-    to 14 are the same statement twice rather than two different ones.
+    Rows with nothing behind them are dropped. An empty row in a filter rail
+    is a promise the grid then breaks.
 
-    Rows with nothing behind them are dropped, and a department whose every
-    shelf is empty goes with them. An empty shelf in a filter rail is a
-    promise the grid then breaks.
-
-    One aggregate query on top of the tree's two, and only on the full-page
-    path — product_catalog wraps this in a SimpleLazyObject, and the
-    live-search XHR renders neither partial that names it.
+    One aggregate query on top of storefront_categories()'s own, and only on
+    the full-page path — product_catalog wraps this in a SimpleLazyObject,
+    and the live-search XHR renders neither partial that names it.
     """
-    departments = storefront_categories()
-    if not departments:
+    categories = storefront_categories()
+    if not categories:
         return []
 
     stock = Inventory.objects.sellable()
@@ -619,24 +603,12 @@ def _category_rail(branch_filters, search_query):
         counts.setdefault(category_id, set()).add(product_id)
 
     rail = []
-    for department in departments:
-        shelves = []
-        for shelf in department.subcategories:
-            count = len(counts.get(shelf.id, ()))
-            if count:
-                shelf.stock_count = count
-                shelves.append(shelf)
-        # Products filed directly on the department, plus everything on its
-        # shelves — a set union, not a sum, because the two never overlap but
-        # the union is what makes that obvious at a glance.
-        own = set(counts.get(department.id, ()))
-        for shelf in department.subcategories:
-            own |= counts.get(shelf.id, set())
-        if not own:
+    for category in categories:
+        count = len(counts.get(category.id, ()))
+        if not count:
             continue
-        department.stock_count = len(own)
-        department.shelves = shelves
-        rail.append(department)
+        category.stock_count = count
+        rail.append(category)
     return rail
 
 
@@ -691,12 +663,7 @@ def _active_chips(search_query, active_categories, branches, branch_filters):
         })
 
     for category in active_categories:
-        # Named with its department where it has one, because two departments
-        # may well both keep an "Others" shelf and two identical chips that
-        # remove different filters is the one thing a chip row must not do.
         value = category.category_name
-        if category.parent_id:
-            value = f'{category.parent.category_name} › {value}'
         chips.append({
             'label': 'Category',
             'value': value,

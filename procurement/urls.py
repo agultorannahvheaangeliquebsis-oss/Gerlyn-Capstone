@@ -20,7 +20,6 @@ urlpatterns = [
     path('deliveries/<int:pk>/scan/', views.delivery_scan, name='delivery_scan'),
     path('deliveries/<int:pk>/add-unexpected/', views.delivery_add_unexpected,
          name='delivery_add_unexpected'),
-    path('deliveries/history/', views.receiving_history, name='receiving_history'),
 
     # Supplier's own portal (role = SUPPLIER)
     path('portal/', views.supplier_portal, name='supplier_portal'),

@@ -200,9 +200,9 @@ body.shop {
 .shop-navbar-inner {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   max-width: 1280px; margin: 0 auto; padding: 0 24px;
-  /* The anchor for .shop-mega, which hangs below this row full-width. It
-     cannot anchor to the Shop trigger inside .shop-links: that is an
-     overflow scroller, which clips absolutely-positioned descendants. */
+  /* The anchor for .shop-dropdown, which hangs below this row. It cannot
+     anchor to the Shop trigger inside .shop-links: that is an overflow
+     scroller, which clips absolutely-positioned descendants. */
   position: relative;
 }
 .shop-links {
@@ -244,93 +244,46 @@ body.shop {
 /* Opens on hover for a mouse, on click/tap otherwise — a hover menu is
    unreachable on a touch screen, and this is the storefront's only route to a
    category from the nav row, so click stays as the fallback. See
-   static/js/shop-mega-menu.js. */
+   static/js/shop-menu.js. */
 .shop-menu { position: relative; flex: none; }
 
-/* ------------------------------------------------------------ mega-menu
-   Two panes: departments down the left, the highlighted department's
-   shelves filling the rest. The old single column of eight links became a
-   scrollbar the moment categories grew a second level, which is the whole
-   reason the reference set uses this shape.
-
-   Not `position: absolute` against .shop-menu the way the old panel was:
-   anchored to the trigger, a 720px panel hanging off a nav item three
-   quarters of the way across a 1200px page would run off the right edge of
-   the window. It is anchored to the nav row instead (left: 0 on a
-   position: relative ancestor, .shop-navbar-inner) so it opens into the
-   page rather than out of it. */
-.shop-mega {
+/* --------------------------------------------------------- shop dropdown
+   One flat column of category links. Not `position: absolute` against
+   .shop-menu the way a narrower panel could be: anchored to the trigger, a
+   wide panel hanging off a nav item three quarters of the way across a
+   1200px page would run off the right edge of the window. It is anchored to
+   the nav row instead (left: 0 on a position: relative ancestor,
+   .shop-navbar-inner) so it opens into the page rather than out of it. */
+.shop-dropdown {
   display: none; position: absolute; top: 100%; left: 0;
-  width: min(760px, 100%);
+  width: min(280px, 100%);
   background: var(--surface);
   border: 1px solid var(--line); border-radius: var(--r-card);
   box-shadow: 0 12px 32px rgba(23,37,30,.14); z-index: 30;
   overflow: hidden; animation: menuIn .15s ease;
 }
-.shop-mega.is-open { display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+.shop-dropdown.is-open { display: block; }
 
-.mega-depts {
+.shop-dropdown-list {
   list-style: none; margin: 0; padding: 8px 6px;
-  background: var(--surface);
-  border-right: 1px solid var(--line-soft);
-  /* Capped so a store with forty departments scrolls its list instead of
+  /* Capped so a store with forty categories scrolls its list instead of
      growing a menu taller than the viewport, which cannot be closed without
      scrolling the page underneath it. */
   max-height: 60vh; overflow-y: auto;
 }
-/* One rule for the <button>s and the <a>s — the left column mixes both
-   (a department with shelves discloses, one without navigates) and they
-   have to be indistinguishable to the eye. */
-.mega-dept {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  width: 100%; min-height: 40px; padding: 0 10px 0 12px;
-  background: none; border: 0; border-radius: var(--r-input); cursor: pointer;
-  text-align: left; text-decoration: none;
+.shop-dropdown-link {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 40px; padding: 0 12px;
+  border-radius: var(--r-input);
+  text-decoration: none;
   font: 500 14px/1.25 var(--font-sans); color: var(--ink-700);
   transition: background .12s ease, color .12s ease;
 }
-.mega-dept:hover,
-.mega-dept.is-active { background: var(--green-50); color: var(--action-700); }
-/* Weight, not colour alone — the highlighted row is the one saying which
-   pane is showing, and SC 1.4.1 does not accept a tint as the only signal. */
-.mega-dept.is-active { font-weight: 700; }
-.mega-dept .mega-chev { flex: none; color: var(--ink-400); transition: transform .15s ease; }
-.mega-dept.is-active .mega-chev { color: var(--action-700); transform: translateX(2px); }
-.mega-dept-all { border-bottom: 1px solid var(--line-soft); border-radius: 0; margin-bottom: 6px; }
-.mega-dept-all strong { font-weight: 700; }
-
-.mega-panes { padding: 16px 18px; max-height: 60vh; overflow-y: auto; }
-.mega-pane-head {
-  display: inline-flex; align-items: center; gap: 4px;
-  font: 700 14px/1.2 var(--font-sans); color: var(--brand);
-  text-decoration: none; margin-bottom: 12px;
+.shop-dropdown-link:hover { background: var(--green-50); color: var(--action-700); }
+.shop-dropdown-link-all {
+  border-bottom: 1px solid var(--line-soft); border-radius: 0; margin-bottom: 6px;
 }
-.mega-pane-head:hover { color: var(--action-700); text-decoration: underline; }
-/* Flowed into columns rather than laid out in a grid: the shelves under one
-   department are a single alphabetical list, and a grid would break the
-   reading order into rows so "Fruits" sat beside "Vegetables" with "Herbs"
-   on the line below. Columns keep it one list that happens to wrap. */
-.mega-subs {
-  list-style: none; margin: 0; padding: 0;
-  columns: 3; column-gap: 22px;
-}
-.mega-subs li { break-inside: avoid; }
-.mega-subs a {
-  display: block; padding: 5px 0;
-  font: 400 13.5px/1.4 var(--font-sans); color: var(--ink-700);
-  text-decoration: none;
-}
-.mega-subs a:hover { color: var(--action-700); text-decoration: underline; }
-/* A block after the flowed columns, not an item inside them — see the
-   template's comment. The rule above it separates it from the shelves it is
-   summarising, which is the whole reason it is not just another row. */
-.mega-sub-all {
-  display: block; margin-top: 12px; padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
-  font: 600 13px/1.4 var(--font-sans); color: var(--action);
-  text-decoration: none;
-}
-.mega-sub-all:hover { color: var(--action-700); text-decoration: underline; }
+.shop-dropdown-link-all strong { font-weight: 700; }
 
 /* The status line at the right edge of the nav row. The reference prints a
    standing delivery promise here; this one prints which branch the session
@@ -1277,27 +1230,10 @@ body.shop {
   .shop-brand-tag { display: none; }
   .pgrid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
 
-  /* The mega-menu stops being side-by-side and stacks: 232px of department
-     list plus three columns of shelves does not fit a tablet, let alone a
-     phone. The department list stays on top and its pane opens beneath the
-     one that was tapped, which is the accordion shape a narrow screen wants
-     — and the reason the department rows are buttons rather than links, so
-     that first tap opens the pane instead of leaving the page.
-
-     The panel is capped and scrolls as one, rather than each column
-     scrolling separately: two nested scrollers on a touch screen means a
-     swipe that moves the wrong thing. */
-  .shop-mega.is-open { grid-template-columns: minmax(0, 1fr); }
-  .shop-mega { width: 100%; max-height: 72vh; overflow-y: auto; }
-  .mega-depts {
-    max-height: none; overflow: visible;
-    border-right: 0; border-bottom: 1px solid var(--line-soft);
-  }
-  .mega-panes { max-height: none; overflow: visible; padding: 14px 16px; }
-  /* One column of shelves, not three — a 3-up flow at 360px is four
-     characters and an ellipsis per name. */
-  .mega-subs { columns: 1; }
-  .mega-subs a { padding: 9px 0; }
+  /* The dropdown is capped and scrolls on a tablet the same way it does on
+     desktop — it is already a single flat column, so there is no side-by-side
+     layout to stack here. */
+  .shop-dropdown { width: 100%; max-height: 72vh; overflow-y: auto; }
 }
 @media (max-width: 760px) {
   .shop-wrap { padding: 0 16px; }
@@ -2144,11 +2080,8 @@ body.shop-auth {
   font: 700 13px/1.2 var(--font-sans); color: var(--ink-900);
   margin-bottom: 8px;
 }
-/* Whatever follows the legend has to clear the float above. The block right
-   under it is a flex container now — a .rail-dept-row in the Category tree,
-   a .rail-check once Branch is open — and a flex box establishes its own
-   formatting context, so rather than overlapping the 100%-wide float like a
-   plain block would it gets pushed beside it, off the right edge of the rail. */
+/* Whatever follows the legend has to clear the float above — a plain block
+   would otherwise overlap the 100%-wide float instead of landing beneath it. */
 .rail-title + * { clear: left; }
 .rail-list { list-style: none; margin: 0; padding: 0; }
 .rail-item {
@@ -2234,29 +2167,12 @@ body.shop-auth {
 }
 .rail-check-text { min-width: 0; }
 
-/* ------------------------------------------------------ rail: two levels
-   Shelves indented under their department. The 1px guide line is what makes
-   the indent read as containment rather than as a stray margin — with eight
-   departments open at once, whitespace alone stops separating "the last
-   shelf of Fresh" from "the first shelf of Frozen". */
-.rail-shelves {
-  margin: 0 0 6px 9px; padding-left: 11px;
-  border-left: 1px solid var(--line-soft);
-}
-.rail-dept-row > .rail-check .rail-check-text { font-weight: 600; }
-.rail-shelves .rail-check { min-height: 30px; padding-top: 5px; padding-bottom: 5px; }
-.rail-shelves .rail-check-text { font-size: 13px; }
-/* The box on a shelf is a size down from its department's — a second, quieter
-   signal of the nesting for anyone reading the shapes rather than the indent. */
-.rail-shelves .rail-box { width: 16px; height: 16px; }
-
 /* ---------------------------------------------------- rail: disclosures
-   A department's shelves and the whole Branch list fold away behind a
-   chevron so the rail opens short. The button is rendered `hidden` and
-   revealed by catalog-rail-collapse.js — with the script blocked there is
-   no toggle and every list stays open, so nothing is unreachable. */
-.rail-dept-row { display: flex; align-items: center; }
-.rail-dept-row > .rail-check { flex: 1 1 auto; min-width: 0; }
+   The Branch list folds away behind a chevron so the rail opens short. The
+   button is rendered `hidden` and revealed by catalog-rail-collapse.js —
+   with the script blocked there is no toggle and the list stays open, so
+   nothing is unreachable. Category is a single flat list now, with no
+   disclosure of its own. */
 .rail-disclose {
   flex: none; margin-left: 2px;
   width: 30px; height: 30px; padding: 0;

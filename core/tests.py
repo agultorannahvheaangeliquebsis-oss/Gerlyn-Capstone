@@ -582,15 +582,30 @@ class DetailModalTests(TestCase):
         The eye button is the same markup in every module, so this finds them
         by it rather than by a list of files that a new module would not be
         on.
+
+        Financials is the deliberate exception: the Order Console and Billing
+        list navigate to Order Detail / Billing Detail as full pages, not a
+        modal — those detail pages link onward to each other (Order Detail
+        <-> Billing Detail) and to their own print page, which reads as
+        actual navigation with a real back button rather than a quick
+        look-up over the list. See templates/sales/transaction_list.html and
+        templates/billing/billing_list.html.
         """
+        EXEMPT_VIEW_ACTIONS = {
+            'sales/transaction_list.html',
+            'billing/billing_list.html',
+        }
         offenders = []
         for root in settings.TEMPLATES[0]['DIRS']:
             for path in Path(root).rglob('*.html'):
+                rel = str(path.relative_to(root)).replace('\\', '/')
+                if rel in EXEMPT_VIEW_ACTIONS:
+                    continue
                 text = path.read_text(encoding='utf-8')
                 for anchor in re.finditer(r'<a\s[^>]*?>', text, re.S):
                     tag = anchor.group(0)
                     if 'title="View"' in tag and 'data-detail-modal' not in tag:
-                        offenders.append(str(path.relative_to(root)))
+                        offenders.append(rel)
 
         self.assertEqual(
             offenders, [],

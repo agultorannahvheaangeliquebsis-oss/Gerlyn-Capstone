@@ -92,7 +92,7 @@ both surfaces) keeps intercepting them here too.
         </td>
         <td data-label="Category">{{ n.get_category_display }}</td>
         <td data-label="Branch">{{ n.branch.branch_name|default:"—" }}</td>
-        <td data-label="Time" class="gv-meta">{{ n.created_at|timesince }} ago</td>
+        <td data-label="Time" class="gv-meta">{{ n.created_at|date:"M d, g:i A" }}</td>
         <td data-label="Priority">
           {% if n.priority == "critical" %}<span class="pill pill-danger">Critical</span>
           {% elif n.priority == "high" %}<span class="pill pill-warn">High</span>

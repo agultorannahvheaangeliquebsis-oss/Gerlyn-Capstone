@@ -92,6 +92,9 @@ MODULE_REGISTRY = {
          # gated at all, so leaving it off would let a Staff account whose
          # Owner revoked the Order Console still re-price an order.
          'transaction_apply_discount',
+         # Printable receipt for the same reason — same section, same gap
+         # class as the discount action above.
+         'transaction_receipt',
          # API (sales/api_urls.py) — list also serves POST (mirrors
          # transaction_add); detail mirrors transaction_detail.
          'api-sales-list', 'api-sales-detail'],
@@ -115,7 +118,7 @@ MODULE_REGISTRY = {
     ),
     DELIVERIES: (
         'Deliveries',
-        ['delivery_list', 'delivery_receive', 'receiving_history'],
+        ['delivery_list', 'delivery_receive'],
     ),
     REPORTS: (
         'Reports Dashboard',

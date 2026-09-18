@@ -112,24 +112,17 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
         <td data-label="Payment" class="gv-meta">{{ t.mode_of_payment }}</td>
         <td data-label="Pay Status">
-          {% if t.billing_record.status == "Paid" %}<span class="pill pill-ok">Paid</span>
-          {% elif t.billing_record.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
-          {% elif t.billing_record.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
-          {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+          {% include "partials/_billing_status_pill.html" with status=t.billing_record.status %}
         </td>
         <td data-label="Order Status">
-          {% if t.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>
-          {% elif t.order_status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>
-          {% elif t.order_status == "Preparing" %}<span class="pill pill-warn">Preparing</span>
-          {% elif t.order_status == "Approved" %}<span class="pill pill-info">Approved</span>
-          {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}
+          {% include "partials/_order_status_pill_staff.html" with status=t.order_status %}
           {% if t.pk in over_committed_ids %}
           <span class="pill pill-warn" title="One or more items on this order are promised beyond the branch's current floor stock.">Over-committed</span>
           {% endif %}
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="icon-btn icon-btn-action" href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order"
+            <a class="icon-btn icon-btn-action" href="{% url 'transaction_detail' t.pk %}"
                title="View" aria-label="View order {{ t.order_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
           </span>
         </td>

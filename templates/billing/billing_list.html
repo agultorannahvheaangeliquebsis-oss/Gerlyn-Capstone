@@ -30,7 +30,7 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
 </form>
 
 <div class="filter-tabs">
-  {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger, Voided neutral. #}
+  {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger, Cancelled neutral. #}
   {% comment %}
   O-3 — filter_qs (from the view) replaces the hand-built q=...&branch=...
   each tab used to carry, which silently dropped an unrecognised filter and
@@ -69,13 +69,10 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
         <td data-label="Method">{{ r.payment_method }}</td>
         <td data-label="Reference" class="sku">{{ r.reference_number|default:"—" }}</td>
         <td data-label="Status">
-          {% if r.status == "Paid" %}<span class="pill pill-ok">Paid</span>
-          {% elif r.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
-          {% elif r.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
-          {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+          {% include "partials/_billing_status_pill.html" with status=r.status %}
         </td>
         <td data-label="Action">
-          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'billing_detail' r.pk %}" data-detail-modal="Billing Record"
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'billing_detail' r.pk %}"
                title="View" aria-label="View invoice for order {{ r.transaction.order_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>

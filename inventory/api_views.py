@@ -75,26 +75,14 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
         if denied:
             return denied
         category = self.get_object()
-        # Same two guards category_delete (the template view) applies —
-        # products are SET_NULL (would silently uncategorise the catalog)
-        # and children are PROTECT (would raise ProtectedError, a 500 on
-        # this endpoint with no guard of its own).
+        # Same guard category_delete (the template view) applies — products
+        # are SET_NULL, which would silently uncategorise the catalog.
         product_count = category.products.count()
         if product_count:
             return Response(
                 {'detail': f'Cannot delete "{category.category_name}" — '
                            f'{product_count} product'
                            f'{"s" if product_count != 1 else ""} still use it.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        child_count = category.children.count()
-        if child_count:
-            return Response(
-                {'detail': f'Cannot delete "{category.category_name}" — '
-                           f'{child_count} sub-categor'
-                           f'{"ies are" if child_count != 1 else "y is"} filed '
-                           f'under it. Move or delete '
-                           f'{"them" if child_count != 1 else "it"} first.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         response = super().destroy(request, *args, **kwargs)

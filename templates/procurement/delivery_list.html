@@ -1,6 +1,6 @@
 {% extends "internal_base.html" %}
 {% load static %}
-{% block title %}Receive Delivery{% endblock %}
+{% block title %}Deliveries{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
 List and Stock Adjustments: the topbar chip has to track whichever branch
@@ -9,6 +9,28 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
 {% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
 
 {% block extra_css %}
+<style>
+  {% comment %}
+  Actions column, this page only — not a gerlyn.css change (.row-actions is
+  shared by every list). The shared rule is a flex row with justify-content:
+  flex-end, which packs each row's own children to ITS OWN right edge. That
+  is fine when every row has the same children, but here a Received/Cancelled
+  row has only the eye icon while an Ordered row also has Receive — so the
+  lone icon hugs the column's right edge instead of sitting where the icon
+  sits on a two-item row, and it visibly jumps left/right row to row.
+
+  Grid with a fixed first track fixes that: the icon always lands in column
+  1 (sized off the icon-btn itself, identical on every row since that's the
+  only thing ever in it), and Receive, when present, is pushed to the end of
+  column 2. Column 1's position is then the same in every row whether or not
+  column 2 has anything in it.
+  {% endcomment %}
+  .row-actions--delivery {
+    display: grid; grid-template-columns: auto 1fr;
+    align-items: center; column-gap: 10px;
+  }
+  .row-actions--delivery .btn { justify-self: end; }
+</style>
 {% if receive_procurement %}
 <style>
   {% comment %}
@@ -58,14 +80,13 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Receive Delivery</h1>
+    <h1>Deliveries</h1>
   </div>
-  <a class="btn" href="{% url 'receiving_history' %}">Receiving History</a>
 </div>
 
 <form method="GET" class="toolbar toolbar-search">
   <div class="search-field">
-    <button type="submit" class="search-btn" title="Search" aria-label="Search pending deliveries">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search deliveries">
       <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
     </button>
     <input type="search" name="q" placeholder="Search PO number or supplier…" value="{{ search_query }}" autocomplete="off" aria-label="Search by PO number or supplier">
@@ -75,43 +96,91 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
   _branch_switch.html) — see branch_chip above. Owner only in practice — a
   Manager/Staff account is already pinned to its own branch's deliveries.
   {% endcomment %}
+  <input type="hidden" name="status" value="{{ status_filter }}">
 </form>
 
-<div class="card card-pad">
-  <h3 class="mb-4">Awaiting delivery</h3>
-  <div class="stack">
-    {% for p in pending %}
-    <div class="row-between wrap" style="padding:16px; border:1px solid var(--line); border-radius:var(--r-card);">
-      <div>
-        <div class="row" style="gap:10px;">
-          <span class="sku" style="font-weight:700;">{{ p.po_number }}</span>
-          <span style="font-weight:600;">{% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</span>
-          <span class="tag">{{ p.branch.branch_name }}</span>
-        </div>
-        <div class="gv-meta mt-2">
-          Expected
-          {% if p.delivery_date and p.delivery_date < today %}
-            <span style="color:var(--danger-fg); font-weight:600;">{{ p.delivery_date|date:"Y-m-d" }} · overdue</span>
-          {% else %}{{ p.delivery_date|date:"Y-m-d"|default:"—" }}{% endif %}
-          · {{ p.items.count }} item{{ p.items.count|pluralize }} · ₱{{ p.total_cost|floatformat:2 }}
-        </div>
-      </div>
-      <a class="btn btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive</a>
-    </div>
-    {% empty %}
-    <div class="empty">
-      <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
-      {% if search_query or branch_filter %}
-      <h3>No pending deliveries match</h3>
-      <p>Try clearing the search or branch filter.</p>
-      {% else %}
-      <h3>Nothing awaiting delivery</h3>
-      <p>Purchase orders marked “Ordered” show up here, ready to receive.</p>
-      <a class="btn btn-primary mt-2" href="{% url 'procurement_list' %}">View purchase orders</a>
-      {% endif %}
-    </div>
-    {% endfor %}
-  </div>
+<div class="filter-tabs">
+  {# Badge tints mirror the Status column below: Ordered info, Received ok, Cancelled danger. #}
+  {% comment %}
+  O-3 — filter_qs (from the view) carries q= and branch= along so switching
+  status tabs never drops them, same fix as Purchase Orders/Billing's tabs.
+  Draft isn't a tab here — a PO isn't a "delivery" until it's been ordered.
+  {% endcomment %}
+  <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?{{ filter_qs }}">All <span class="count">{{ counts.all }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?{{ filter_qs }}&status=Ordered">Ordered <span class="count count-info">{{ counts.ordered }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?{{ filter_qs }}&status=Received">Received <span class="count count-ok">{{ counts.received }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>PO ID</th>
+        <th>Branch</th>
+        <th>Supplier</th>
+        <th>Delivery Date</th>
+        <th class="num">Total</th>
+        <th>Status</th>
+        <th class="end">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in deliveries %}
+      <tr>
+        <td data-label="PO ID" class="sku strong">{{ p.po_number }}</td>
+        <td data-label="Branch">{{ p.branch.branch_name }}</td>
+        <td data-label="Supplier">{% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</td>
+        <td data-label="Delivery Date" class="gv-meta">
+          {% if p.delivery_date %}
+            {% if p.delivery_date < today and p.status == 'Ordered' %}
+              <span style="color:var(--danger-fg); font-weight:600;">{{ p.delivery_date|date:"Y-m-d" }} · overdue</span>
+            {% else %}{{ p.delivery_date|date:"Y-m-d" }}{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
+        <td data-label="Status">
+          {% if p.status == 'Received' %}
+            <span class="pill pill-ok">Received</span>
+            {% if p.receipt_flag == 'Discrepancy' %}<div class="gv-meta mt-2">Discrepancy</div>
+            {% elif p.receipt_flag == 'Partial' %}<div class="gv-meta mt-2">Partial</div>{% endif %}
+          {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
+          {% else %}<span class="pill pill-info">Ordered</span>{% endif %}
+        </td>
+        <td data-label="Action">
+          <span class="row-actions row-actions--delivery">
+            {% comment %}
+            Same overlay every other list's eye button opens (detail-modal.js)
+            — the full PO (line items, supplier, cost) without leaving this
+            list or its scroll position, same as Purchase Orders' own list.
+            {% endcomment %}
+            <a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order"
+               title="View details" aria-label="View details for {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
+            {% if p.status == 'Ordered' %}
+            <a class="btn btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive</a>
+            {% endif %}
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7">
+          <div class="empty">
+            <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
+            {% if search_query or branch_filter %}
+            <h3>No deliveries match</h3>
+            <p>Try clearing the search or branch filter.</p>
+            {% else %}
+            <h3>No deliveries yet</h3>
+            <p>Purchase orders marked “Ordered” show up here, ready to receive.</p>
+            <a class="btn btn-primary mt-2" href="{% url 'procurement_list' %}">View purchase orders</a>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 {% if receive_procurement %}

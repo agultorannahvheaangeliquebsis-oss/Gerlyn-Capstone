@@ -21,15 +21,14 @@ notification points at something (action_url, e.g. an order).
 
 <div class="tray-list-inner">
   {% for n in notifications %}
-  <div class="tray-ncard p-{{ n.priority }}{% if n.is_read %} is-read{% endif %}" id="notif-{{ n.pk }}">
+  <div class="tray-ncard{% if n.is_read %} is-read{% endif %}" id="notif-{{ n.pk }}">
     <span class="tray-ncard-dot"></span>
     <div class="tray-ncard-body">
-      <div class="tray-ncard-top">
-        <span class="tray-ncard-cat">{% if not n.is_read %}New{% endif %}</span>
-        <span class="tray-ncard-time">{{ n.created_at|timesince }} ago</span>
-      </div>
       <div class="tray-ncard-title">{{ n.title }}</div>
       <div class="tray-ncard-msg">{{ n.message }}</div>
+      <div class="tray-ncard-foot">
+        <span class="tray-ncard-time">{{ n.created_at|date:"M d, g:i A" }}</span>
+      </div>
       {% if n.action_url or not n.is_read %}
       <div class="tray-ncard-actions">
         {% if n.action_url %}

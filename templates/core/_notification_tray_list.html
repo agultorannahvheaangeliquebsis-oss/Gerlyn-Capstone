@@ -14,16 +14,16 @@ for the row's own label), low_group_more (how many beyond the 12 shown).
 
 <div class="tray-list-inner">
   {% for n in main_notifications %}
-  <div class="tray-ncard p-{{ n.priority }}{% if n.is_read %} is-read{% endif %}"
+  <div class="tray-ncard{% if n.is_read %} is-read{% endif %}"
        id="notif-{{ n.pk }}" data-cat="{{ n.category }} {{ n.priority }}">
     <span class="tray-ncard-dot"></span>
     <div class="tray-ncard-body">
-      <div class="tray-ncard-top">
-        <span class="tray-ncard-cat">{{ n.get_category_display }}{% if n.branch %} · {{ n.branch.branch_name }}{% endif %}</span>
-        <span class="tray-ncard-time">{{ n.created_at|timesince }} ago</span>
-      </div>
       <div class="tray-ncard-title">{{ n.title }}</div>
       <div class="tray-ncard-msg">{{ n.message }}</div>
+      <div class="tray-ncard-foot">
+        <span class="tray-ncard-cat">{{ n.get_category_display }}{% if n.branch %} · {{ n.branch.branch_name }}{% endif %}</span>
+        <span class="tray-ncard-time">{{ n.created_at|date:"M d, g:i A" }}</span>
+      </div>
       <div class="tray-ncard-actions">
         {% if n.action_url %}
         <a class="tray-tbtn primary" href="{{ n.action_url }}">{{ n.action_label|default:"View" }}</a>
@@ -58,15 +58,18 @@ for the row's own label), low_group_more (how many beyond the 12 shown).
   {% endfor %}
 
   {% if low_group_items %}
-  <div class="tray-ncard tray-ncard-group p-low" data-cat="staff procurement sales system low" id="notifGroupRow">
+  <div class="tray-ncard tray-ncard-group" data-cat="staff procurement sales system low" id="notifGroupRow">
     <span class="tray-ncard-dot"></span>
     <div class="tray-ncard-body">
-      <div class="tray-ncard-top"><span class="tray-ncard-cat">Low priority</span><span class="tray-ncard-time">today</span></div>
       <div class="tray-ncard-title">
         <svg class="tray-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
         {{ low_group_count }} low-priority update{{ low_group_count|pluralize }}
       </div>
       <div class="tray-ncard-msg">Tap to review — none of these need action.</div>
+      <div class="tray-ncard-foot">
+        <span class="tray-ncard-cat">Low priority</span>
+        <span class="tray-ncard-time">today</span>
+      </div>
     </div>
   </div>
   <div class="tray-group-children" id="notifGroupChildren">
@@ -74,7 +77,7 @@ for the row's own label), low_group_more (how many beyond the 12 shown).
       {% for n in low_group_items %}
       <div class="tray-group-item">
         <span>{{ n.title }}</span>
-        <span class="tray-ncard-time">{{ n.created_at|timesince }} ago</span>
+        <span class="tray-ncard-time">{{ n.created_at|date:"M d, g:i A" }}</span>
       </div>
       {% endfor %}
       {% if low_group_more %}

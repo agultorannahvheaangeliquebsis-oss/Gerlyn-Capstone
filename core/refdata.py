@@ -47,21 +47,7 @@ def cached_branches():
 
 
 def cached_categories():
-    """Every category, departments first and each department's shelves
-    grouped under it.
-
-    select_related('parent') is not an optimisation here, it is what makes
-    the list usable: since categories became two levels deep, the internal
-    pickers print ProductCategory.__str__, which is "Fresh > Fresh Beef" for
-    a shelf. Without the join that is one extra query per option — thirty-odd
-    on a real catalog, on a list whose entire reason for being cached is to
-    save a single round trip.
-
-    parent__category_name leads the ordering so a shelf sorts beside its
-    department instead of alphabetically among the departments — NULLs sort
-    first in MySQL, which puts the departments that have no shelves at the
-    top rather than scattered through.
-    """
+    """Every category, alphabetically — a flat list."""
     # See cached_branches()'s comment — same fallback-to-DB-on-any-cache-
     # error reasoning.
     try:
@@ -71,10 +57,7 @@ def cached_categories():
     if categories is None:
         from inventory.models import ProductCategory
 
-        categories = list(
-            ProductCategory.objects.select_related('parent')
-            .order_by('parent__category_name', 'category_name')
-        )
+        categories = list(ProductCategory.objects.order_by('category_name'))
         try:
             cache.set('refdata:categories', categories, REFDATA_CACHE_SECONDS)
         except Exception:

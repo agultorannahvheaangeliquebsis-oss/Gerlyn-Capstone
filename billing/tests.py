@@ -1056,3 +1056,44 @@ class BillingCreateValidationTests(TestCase):
         record.refresh_from_db()
         self.assertTrue(record.proof_of_payment)
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+
+class BillingCreateCancelLinkTests(TestCase):
+    """billing_create builds a two-front-doors breadcrumb (Sales & Orders vs
+    Billing) from the `from` flag on the entry link, precisely so a visitor
+    who opened this form from Billing is not quietly dropped back onto the
+    order page instead (see the comment in billing.views.billing_create).
+    The template's Cancel button is a second, separate exit from the same
+    page and must honour that same flag rather than hardcoding the order.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='bccl-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='BCCL Branch', location='Baliuag', owner=cls.owner
+        )
+
+    def _client(self):
+        client = Client()
+        client.force_login(self.owner)
+        return client
+
+    def test_cancel_returns_to_order_detail_when_opened_from_the_order(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, total_amount=100,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        response = self._client().get(f'/billing/create/{txn.pk}/')
+        self.assertContains(response, f'href="/sales/{txn.pk}/"')
+
+    def test_cancel_returns_to_billing_detail_when_opened_from_billing(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, total_amount=100,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        record = txn.billing_record
+        response = self._client().get(f'/billing/create/{txn.pk}/?from=billing')
+        self.assertContains(response, f'href="/billing/{record.pk}/"')

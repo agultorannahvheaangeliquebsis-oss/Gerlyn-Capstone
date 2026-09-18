@@ -108,7 +108,7 @@ Only Pending Collection is ever tinted; the money cards are plain.
   <table class="gv-table">
     <thead>
       <tr><th>Order</th><th>Branch</th><th>Date</th><th class="num">Amount Due</th>
-          <th>Method</th><th>Reference</th><th>Status</th></tr>
+          <th>Method</th><th>Reference</th><th>Status</th><th class="end no-print">Action</th></tr>
     </thead>
     <tbody>
       {% for r in records %}
@@ -120,14 +120,16 @@ Only Pending Collection is ever tinted; the money cards are plain.
         <td data-label="Method">{{ r.payment_method }}</td>
         <td data-label="Reference" class="sku">{{ r.reference_number|default:"—" }}</td>
         <td data-label="Status">
-          {% if r.status == "Paid" %}<span class="pill pill-ok">Paid</span>
-          {% elif r.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
-          {% elif r.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
-          {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+          {% include "partials/_billing_status_pill.html" with status=r.status %}
+        </td>
+        <td data-label="Action" class="no-print">
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'billing_detail' r.pk %}"
+               data-detail-modal="Billing Record"
+               title="View" aria-label="View invoice for order {{ r.transaction.order_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="7"><div class="empty">
+      <tr><td colspan="8"><div class="empty">
         <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span><h3>No billing records</h3></div></td></tr>
       {% endfor %}
     </tbody>

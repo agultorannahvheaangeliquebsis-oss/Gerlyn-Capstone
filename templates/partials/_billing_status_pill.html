@@ -1,0 +1,14 @@
+{% comment %}
+Internal Billing status pill — the Owner/Manager/Staff-facing wording for
+BillingRecord.status, used everywhere that status is shown to staff (Billing
+Records list/detail, the Order Console's Pay Status column, the Order
+Detail's Payment Status card, and the Billing Report). Not the customer
+wording in _order_status_pill.html, which is a different field
+(SalesTransaction.order_status) worded for shoppers.
+
+Usage: {% include "partials/_billing_status_pill.html" with status=record.status %}
+{% endcomment %}
+{% if status == "Paid" %}<span class="pill pill-ok">Paid</span>
+{% elif status == "Rejected" %}<span class="pill pill-danger">Payment Verification Rejected</span>
+{% elif status == "Cancelled" %}<span class="pill pill-neutral">Cancelled</span>
+{% else %}<span class="pill pill-warn">Pending Verification</span>{% endif %}

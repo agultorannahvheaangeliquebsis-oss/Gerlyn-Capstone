@@ -309,6 +309,22 @@ class SalesAPIModulePermissionTests(TestCase):
         response = self._client(self.owner).get('/api/sales/')
         self.assertEqual(response.status_code, 200)
 
+    def test_staff_without_sales_module_is_refused_the_receipt_page(self):
+        """transaction_receipt was left out of MODULE_REGISTRY's SALES_POS
+        entry — the same class of gap F-07 fixed for the API, just missed
+        for this one template url. A revoked Staff account could still open
+        the printable receipt directly by URL even though every other page
+        in the section (detail, set-status, apply-discount) was gated.
+        """
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=None, total_amount=100,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        response = self._client(self.staff_without).get(
+            reverse('transaction_receipt', args=[txn.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+
 
 class WalkInSalePaymentMethodValidationTests(TestCase):
     """F-05 — transaction_add read mode_of_payment straight from POST and wrote

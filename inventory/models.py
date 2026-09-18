@@ -8,67 +8,14 @@ from branches.models import Branch
 
 
 class ProductCategory(models.Model):
-    """A department, or a shelf inside one.
-
-    Exactly two levels deep, the shape every grocery storefront the reference
-    set was drawn from uses: a department ("Fresh") holding shelves ("Fresh
-    Beef", "Fresh Chicken"). `parent` is null on a department and set on a
-    shelf; a shelf may not itself be a parent, which is enforced in clean()
-    rather than left to the database, because MySQL has no CHECK on a
-    self-join and a three-level tree would break every surface that renders
-    this as one flyout column.
-
-    Products hang off either level. A department with its own products is a
-    normal thing in a variety store — "Household" with a few loose items and
-    no shelf worth naming — so nothing forces a leaf.
-    """
+    """A single flat grouping products are filed under. No hierarchy — every
+    category is a peer of every other one."""
 
     category_name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
-    parent = models.ForeignKey(
-        'self', null=True, blank=True,
-        on_delete=models.PROTECT, related_name='children',
-        help_text="Leave empty for a top-level department. Set it to file "
-                  "this category as a shelf inside that department.",
-    )
 
     def __str__(self):
-        if self.parent_id:
-            return f"{self.parent.category_name} › {self.category_name}"
         return self.category_name
-
-    @property
-    def is_department(self):
-        """Top-level. The storefront's mega-menu columns and the home tiles
-        list these and nothing else."""
-        return self.parent_id is None
-
-    def clean(self):
-        """Two levels, and no category that is its own ancestor.
-
-        The self-parent and grandchild cases are separate: a category filed
-        under itself is a cycle the tree walk would never terminate on, while
-        a category filed under a child is a legal tree that this UI cannot
-        draw. Both are refused here so category_form can report them as form
-        errors instead of the storefront rendering a column that swallows
-        the rest of the menu.
-        """
-        from django.core.exceptions import ValidationError
-
-        if self.parent_id is None:
-            return
-        if self.pk and self.parent_id == self.pk:
-            raise ValidationError({'parent': 'A category cannot be filed under itself.'})
-        if self.parent.parent_id is not None:
-            raise ValidationError({'parent': (
-                f'"{self.parent.category_name}" is already a sub-category. '
-                'Categories go two levels deep — pick a top-level department.'
-            )})
-        if self.pk and self.children.exists():
-            raise ValidationError({'parent': (
-                f'"{self.category_name}" has sub-categories of its own, so it '
-                'has to stay top-level. Move them out first.'
-            )})
 
     class Meta:
         verbose_name_plural = "Product Categories"

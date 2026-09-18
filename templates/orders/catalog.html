@@ -19,12 +19,11 @@ same list, one row down. See public_base.html's own comment on this block.
 <div class="shop-wrap section">
 
   {% comment %}
-  The trail names the category when exactly ONE is ticked, and walks its
-  department first — Home › Fresh › Fresh Beef, the reference's Home › Food.
-  With two or more ticked there is no single trail to draw (the shopper is
-  standing in two places at once), so it falls back to "All products" and the
-  chips below carry the detail instead. A search term wins over both, because
-  that is the narrower thing the page is answering.
+  The trail names the category when exactly ONE is ticked — Home › All
+  products › Fresh Beef. With two or more ticked there is no single trail to
+  draw (the shopper is standing in two places at once), so it falls back to
+  "All products" and the chips below carry the detail instead. A search term
+  wins over both, because that is the narrower thing the page is answering.
   {% endcomment %}
   <nav class="crumbs" aria-label="Breadcrumb">
     <a href="/">Home</a>
@@ -35,10 +34,6 @@ same list, one row down. See public_base.html's own comment on this block.
       {% with c=active_categories.0 %}
       <a href="{% url 'orders:catalog' %}?branch=">All products</a>
       <span class="crumb-sep" aria-hidden="true">›</span>
-      {% if c.parent %}
-        <a href="{% url 'orders:catalog' %}?category={{ c.parent.id }}">{{ c.parent.category_name }}</a>
-        <span class="crumb-sep" aria-hidden="true">›</span>
-      {% endif %}
       <span class="crumb-current" aria-current="page">{{ c.category_name }}</span>
       {% endwith %}
     {% else %}
@@ -50,7 +45,7 @@ same list, one row down. See public_base.html's own comment on this block.
   h1, not h2: this is the page's own title, and the page had no h1 at all.
   It names the category for the same reason the trail does — a screen reader
   landing here should hear what it is looking at, not "All Products" on a
-  page showing one shelf.
+  page showing one category.
   {% endcomment %}
   <h1 class="sr-only">{% if search_query %}Results for “{{ search_query }}”{% elif active_categories|length == 1 %}{{ active_categories.0.category_name }}{% else %}All Products{% endif %}</h1>
 
@@ -110,14 +105,7 @@ same list, one row down. See public_base.html's own comment on this block.
         <input type="hidden" name="sort" value="{{ sort }}">
 
         {% comment %}
-        Two levels, the same tree the header's mega-menu opens to: a
-        department row, then its shelves indented under it.
-
-        The department's own box is not a "select all" that ticks its
-        children — it is a filter in its own right that MEANS the whole
-        department, expanded server-side by storefront_category_ids(). That
-        distinction is what keeps "Fresh" and "Fresh, Fresh Beef" from being
-        two ways of writing the same query with different boxes lit.
+        One flat list of categories, plain rows, no indentation.
 
         The count beside each row is live: sellable stock, narrowed by the
         branches and search term in play, so a row saying (6) puts six
@@ -128,55 +116,18 @@ same list, one row down. See public_base.html's own comment on this block.
         {% if categories %}
         <fieldset class="rail-block">
           <legend class="rail-title">Category</legend>
-          {% comment %}
-          Each department with shelves is a disclosure: the department row
-          stays put, its shelves fold away behind the chevron so the rail
-          opens as a short list of departments rather than a wall of every
-          shelf in the store. catalog-rail-collapse.js wires the .rail-disclose
-          button (rendered `hidden`, revealed only once the script runs) and
-          starts each department collapsed unless one of its boxes is ticked,
-          so an active filter is never hidden. JS off: no button, everything
-          expanded, exactly as before.
-          {% endcomment %}
-          <ul class="rail-list rail-tree">
+          <ul class="rail-list">
             {% for c in categories %}
-            <li class="rail-dept">
-              <div class="rail-dept-row">
-                <label class="rail-check">
-                  <input type="checkbox" name="category" value="{{ c.id }}"
-                         {% if c.id|stringformat:'s' in category_filters %}checked{% endif %}>
-                  <span class="rail-box" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
-                  </span>
-                  <span class="rail-check-text">{{ c.category_name }}</span>
-                  <span class="rail-count">({{ c.stock_count }})</span>
-                </label>
-                {% if c.shelves %}
-                <button type="button" class="rail-disclose" hidden
-                        aria-expanded="true" aria-controls="rail-subs-{{ c.id }}">
-                  <svg class="rail-disclose-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-                  <span class="sr-only">Show or hide subcategories of {{ c.category_name }}</span>
-                </button>
-                {% endif %}
-              </div>
-
-              {% if c.shelves %}
-              <ul class="rail-list rail-shelves" id="rail-subs-{{ c.id }}">
-                {% for s in c.shelves %}
-                <li>
-                  <label class="rail-check">
-                    <input type="checkbox" name="category" value="{{ s.id }}"
-                           {% if s.id|stringformat:'s' in category_filters %}checked{% endif %}>
-                    <span class="rail-box" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
-                    </span>
-                    <span class="rail-check-text">{{ s.category_name }}</span>
-                    <span class="rail-count">({{ s.stock_count }})</span>
-                  </label>
-                </li>
-                {% endfor %}
-              </ul>
-              {% endif %}
+            <li>
+              <label class="rail-check">
+                <input type="checkbox" name="category" value="{{ c.id }}"
+                       {% if c.id|stringformat:'s' in category_filters %}checked{% endif %}>
+                <span class="rail-box" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                <span class="rail-check-text">{{ c.category_name }}</span>
+                <span class="rail-count">({{ c.stock_count }})</span>
+              </label>
             </li>
             {% endfor %}
           </ul>
