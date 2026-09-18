@@ -3,6 +3,140 @@
 {% block page_subtitle %}Procurement{% endblock %}
 {% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
 
+{% block extra_css %}
+<style>
+  {% comment %}
+  Update status is a two-row layout: description on top, controls below,
+  left-aligned under it. Column + align-items:flex-start keeps the form its
+  own natural width instead of the flex default (align-items: stretch)
+  blowing the select out to the card's full width.
+  {% endcomment %}
+  .status-update-block { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); }
+
+  {% comment %}
+  Dropdown + Update button, grouped as one form action row — scoped to this
+  card rather than reusing .row, since the mobile stack below needs
+  align-items:stretch and .row is used too widely elsewhere to safely
+  override. No flex-wrap: .status-update-block above sizes this row via
+  shrink-to-fit (align-items:flex-start), and a *wrapping* flex container's
+  shrink-to-fit width collapses to its single widest child rather than the
+  sum of its children — the select and button would drop onto separate
+  lines even with hundreds of spare pixels going unused. The row's own
+  max-width (.status-select's 280px, plus the button and gap) is narrow
+  enough that nowrap never overflows above the stack breakpoint.
+  {% endcomment %}
+  .status-update-form { display: flex; align-items: center; gap: var(--s3); }
+
+  {% comment %}
+  Update status used to be a plain <select>, then a <details> whose panel
+  was left in normal flow (no position:absolute) specifically so opening it
+  wouldn't land on top of Order Details/Delivery right below — but in-flow
+  also meant opening it grew the flex row's cross-axis size and re-centred
+  the Update button inside it, i.e. the button visibly moved.
+
+  This now follows the same anchored-popover shape as .avatar-menu-panel /
+  .branch-switch-panel elsewhere in gerlyn.css: <details class="status-select">
+  is position:relative and .status-select-panel is position:absolute,
+  floating over whatever is below rather than displacing it — the same
+  tradeoff every other dropdown in the app already makes. It's a transient
+  overlay that closes itself on outside click/Escape (status-select is in
+  sidebar.js's AUTOCLOSE_SEL) and flips to open upward when there isn't room
+  below (also sidebar.js, see .status-select--flip), not a layout
+  participant.
+
+  This page is also reachable inside the detail-modal overlay
+  (data-detail-modal on the Purchase Orders/Deliveries lists), which injects
+  the response via innerHTML — so any <script> here would never run there.
+  <details> and radio inputs need none: open/close is native, and the
+  trigger's own label is kept in sync with :has() below rather than JS.
+  sidebar.js is loaded globally and delegates on document, so its
+  autoclose/flip handling applies here too even though this markup didn't
+  exist when the page first loaded.
+  {% endcomment %}
+  .status-select { position: relative; min-width: 170px; flex: 1 1 220px; max-width: 280px; }
+  .status-select-trigger {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    list-style: none; min-height: var(--touch); padding: 0 14px;
+    background: var(--surface); border: 1.5px solid var(--input-line);
+    border-radius: var(--r-input);
+    font: 400 15px/1.4 var(--font-sans); color: var(--ink-900);
+    cursor: pointer;
+  }
+  .status-select-trigger::-webkit-details-marker { display: none; }
+  .status-select[open] .status-select-trigger { border-color: var(--action); }
+  .status-select-caret { color: var(--ink-500); flex: none; transition: transform .15s ease; }
+  .status-select[open] .status-select-caret { transform: rotate(180deg); }
+
+  .status-select-value { display: none; }
+  .status-select:has(input[value="Ordered"]:checked) .status-select-value[data-for="Ordered"],
+  .status-select:has(input[value="Received"]:checked) .status-select-value[data-for="Received"],
+  .status-select:has(input[value="Cancelled"]:checked) .status-select-value[data-for="Cancelled"] {
+    display: inline;
+  }
+  {% comment %}
+  Same fallback shape as .toolbar-search's :has() rule elsewhere in
+  gerlyn.css: without :has() support, .status-select-value stays display:none
+  from the rule above with nothing to ever un-hide it, so the trigger would
+  show no label at all. This shows the one span matching whatever's actually
+  checked by default (see the radios below) — static, but legible, which
+  beats a blank summary.
+  {% endcomment %}
+  @supports not selector(:has(*)) {
+    .status-select-value[data-for="{% if procurement.status == 'Draft' %}Cancelled{% else %}Received{% endif %}"] {
+      display: inline;
+    }
+  }
+
+  {% comment %}
+  width:100% (not a fixed min-width) so the panel lines up edge-to-edge with
+  its own trigger, whose width varies with viewport — see the mobile stack
+  below. z-index matches the other anchored panels in this file (30): it's
+  meant to sit over Order Details/Delivery, same as any of them sit over
+  whatever is below them.
+  {% endcomment %}
+  .status-select-panel {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+    width: 100%; max-height: 60vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 4px; background: var(--surface);
+    border: 1.5px solid var(--input-line); border-radius: var(--r-input);
+    box-shadow: var(--shadow-hero);
+  }
+  {% comment %}
+  Set on the <details> by sidebar.js when there isn't room below it in the
+  viewport at open time.
+  {% endcomment %}
+  .status-select.status-select--flip .status-select-panel { top: auto; bottom: calc(100% + 6px); }
+  .status-select-option {
+    display: flex; align-items: center; min-height: 36px; padding: 0 10px;
+    border-radius: 4px; font: 500 14px/1 var(--font-sans); color: var(--ink-700); cursor: pointer;
+  }
+  .status-select-option:hover { background: var(--line-soft); color: var(--ink-900); }
+  .status-select-option:has(input:checked) { color: var(--action-700); font-weight: 700; }
+
+  {% comment %}
+  Narrow enough that dropdown + button no longer fit comfortably side by
+  side: stack them instead of shrinking either one. align-items:stretch
+  (column flex's own default) gives both the same width for free — but the
+  row itself is still shrink-to-fit under .status-update-block's
+  align-items:flex-start, so without align-self:stretch here it would only
+  ever be as wide as its widest child (the select or the button, whichever
+  wins) instead of the full card width the stacked controls should fill.
+  {% endcomment %}
+  @media (max-width: 480px) {
+    .status-update-form { flex-direction: column; align-items: stretch; align-self: stretch; }
+    {% comment %}
+    .status-select's flex: 1 1 220px above is a row-layout sizing (220px is
+    a target *width*). Flipping the form to column without resetting it
+    would hand that same 220 to the flex-basis of the now-vertical main
+    axis instead — a 220px-tall trigger with its popover and the Update
+    button both landing inside that height, overlapping.
+    {% endcomment %}
+    .status-update-form .status-select { flex: none; max-width: none; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -69,7 +203,7 @@
 
 {% if procurement.status != "Received" and procurement.status != "Cancelled" %}
 <div class="card card-pad mb-4">
-  <div class="row-between wrap">
+  <div class="status-update-block">
     <div>
       <h3>Update status</h3>
       <p class="gv-meta mb-0">
@@ -88,7 +222,7 @@
     off to the Deliveries screen, which already has its own review step;
     stopping for either would tax the common path to guard the rare one.
     {% endcomment %}
-    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="row wrap"
+    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="status-update-form"
           data-confirm="{{ procurement.po_number }} will be closed as cancelled. Stock already received is not affected."
           data-confirm-title="Cancel this purchase order?"
           data-confirm-variant="warn"
@@ -96,17 +230,43 @@
           data-confirm-dismiss="Keep PO"
           data-confirm-when="status=Cancelled">
       {% csrf_token %}
-      <select name="status" style="min-width:170px;">
-        {% comment %}
-        Ordered is offered only on a PO that is already past Draft. On a draft
-        it is the approval step, which lives in the Approve card above and is
-        the Owner's alone — procurement_update_status refuses it here too, so
-        this is the matching UI, not the guard itself.
-        {% endcomment %}
-        {% if procurement.status != "Draft" %}<option value="Ordered">Ordered</option>{% endif %}
-        {% if procurement.status != "Draft" %}<option value="Received">Received</option>{% endif %}
-        <option value="Cancelled">Cancelled</option>
-      </select>
+      {% comment %}
+      Ordered/Received are offered only on a PO that is already past Draft.
+      On a draft, Cancel is the only option here — approval is the step that
+      moves it to Ordered, and that lives in the Approve card above, the
+      Owner's alone (procurement_update_status refuses Ordered/Received here
+      too, so this is the matching UI, not the guard itself). Whichever
+      status the PO is already in is left out of its own options — picking
+      it would just re-submit the current status, which can_transition_to
+      rejects as "cannot change a {status} order to {status}". Default value
+      matches whichever option comes first, same as a native select with no
+      `selected` option.
+      {% endcomment %}
+      <details class="status-select">
+        <summary class="status-select-trigger">
+          {% if procurement.status != "Ordered" %}<span class="status-select-value" data-for="Ordered">Ordered</span>{% endif %}
+          {% if procurement.status != "Received" %}<span class="status-select-value" data-for="Received">Received</span>{% endif %}
+          {% if procurement.status != "Cancelled" %}<span class="status-select-value" data-for="Cancelled">Cancelled</span>{% endif %}
+          <svg class="status-select-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="status-select-panel">
+          {% if procurement.status != "Draft" %}
+          {% if procurement.status != "Ordered" %}
+          <label class="status-select-option">
+            <input type="radio" name="status" value="Ordered" class="sr-only" checked>Ordered
+          </label>
+          {% endif %}
+          {% if procurement.status != "Received" %}
+          <label class="status-select-option">
+            <input type="radio" name="status" value="Received" class="sr-only"{% if procurement.status == "Ordered" %} checked{% endif %}>Received
+          </label>
+          {% endif %}
+          {% endif %}
+          <label class="status-select-option">
+            <input type="radio" name="status" value="Cancelled" class="sr-only"{% if procurement.status == "Draft" %} checked{% endif %}>Cancelled
+          </label>
+        </div>
+      </details>
       <button type="submit" class="btn btn-primary">Update</button>
     </form>
   </div>

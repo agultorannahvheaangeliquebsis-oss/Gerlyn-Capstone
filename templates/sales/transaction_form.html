@@ -56,11 +56,11 @@ form, not a shared component other pages should pick up automatically.
 .pos-subtotal-cell { font: 600 14px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
 
 .pos-remove-x {
-  width: 28px; height: 28px; padding: 0; border: 1px solid #E6B3AE; border-radius: var(--r-input);
-  background: var(--danger-bg); color: var(--danger-fg); font: 600 15px/1 var(--font-sans);
+  width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: var(--r-input);
+  background: transparent; color: var(--danger-fg); font: 600 15px/1 var(--font-sans);
   cursor: pointer; justify-self: end;
 }
-.pos-remove-x:hover { background: var(--danger-fg); color: #fff; }
+.pos-remove-x:hover { background: var(--danger-bg); }
 
 .pos-add-row {
   display: block; width: 100%; margin-top: 10px; padding: 10px;
@@ -191,7 +191,6 @@ form's own errors and had been silent to assistive tech.
   <div class="card card-pad mb-4">
     <div class="row-between mb-4">
       <h3>Items <span class="pill pill-neutral" id="pos-item-count">0 items</span></h3>
-      <button type="button" class="btn btn-sm" onclick="posAddRow()">+ Add Item</button>
     </div>
 
     <div class="field mb-4" style="max-width:480px;">

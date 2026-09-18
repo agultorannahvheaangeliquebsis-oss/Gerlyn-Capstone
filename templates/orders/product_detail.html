@@ -98,12 +98,17 @@ honest placeholder rather than being left out.
         <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
       {% elif product.on_hand == 0 %}
         {% comment %}
-        No repeat of "out of stock at <branch>" here — the .pdp-chips row
-        above already says it, and Available At (further down the same page)
-        already lists every other branch, so a second button and a "see
-        below" pointer were saying both of those a second time and telling
-        the shopper nothing the two panels hadn't already.
+        product_detail no longer renders a .pdp-chips stock indicator up top
+        (it was dropped when the header was simplified), so this can't lean
+        on "it already said so" the way it used to — that left this branch
+        rendering nothing at all, a dead gap where the buy panel should be.
+        Available At further down the page still lists every other branch,
+        so this only needs to name the one the shopper is actually looking
+        at, not repeat that list.
         {% endcomment %}
+        <p class="pdp-oos">
+          <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock{% if selected_branch %} at {{ selected_branch.branch_name }}{% endif %}</span>
+        </p>
       {% else %}
         {% comment %}
         One <form>, two submits, differing only in where the shopper lands:
@@ -132,11 +137,11 @@ honest placeholder rather than being left out.
             operable by keyboard.
             {% endcomment %}
             <div class="qty-line">
-              <div class="qty-stepper" data-qty-stepper>
-                <button type="button" class="qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
+              <div class="qty-stepper-pdp" data-qty-stepper>
+                <button type="button" class="qty-btn-pdp" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
                 <input id="quantity" type="number" name="quantity" min="1" max="{{ product.on_hand }}" step="1" value="1"
                        inputmode="numeric" aria-label="Quantity">
-                <button type="button" class="qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
+                <button type="button" class="qty-btn-pdp" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
               </div>
               <div class="qty-meta">
                 {% comment %}

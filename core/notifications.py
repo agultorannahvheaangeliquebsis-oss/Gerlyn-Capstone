@@ -112,3 +112,39 @@ def notify(category, priority, title, message, branch=None,
     ]
     Notification.objects.bulk_create(rows)
     return len(rows)
+
+
+def notify_supplier(supplier, priority, title, message,
+                     action_url='', action_label=''):
+    """
+    One notification straight to a specific Supplier user.
+
+    Unlike notify() above, there's no fan-out to compute: a purchase order
+    already has exactly one supplier (Procurement.supplier is a direct FK to
+    that User), so this writes one row for that one recipient and nothing
+    else — never the Owner or a branch's Manager/Staff, who already learn
+    about the same event through their own notify() call at the same call
+    site when the trigger warrants it.
+
+    requires_action is always False here: a supplier can't "resolve"
+    anything the way the Owner Notification Center means it (there's no
+    internal action left for them to take beyond reading), so their tray
+    never needs the Resolve workflow — only Dismiss.
+
+    No-ops (returns 0) if `supplier` isn't an active Supplier account —
+    Procurement.supplier is nullable (SET_NULL), so a deleted/deactivated
+    supplier must not silently raise here.
+    """
+    from accounts.models import Notification
+    from core.permissions import SUPPLIER
+
+    if supplier is None or supplier.role != SUPPLIER or not supplier.is_active:
+        return 0
+
+    Notification.objects.create(
+        user=supplier, title=title, message=message,
+        category=CATEGORY_PROCUREMENT, priority=priority,
+        action_url=action_url, action_label=action_label,
+        requires_action=False,
+    )
+    return 1

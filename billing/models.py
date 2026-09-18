@@ -81,6 +81,30 @@ class BillingRecord(models.Model):
             and self.transaction.staff_id == user.id
         )
 
+    def sync_payment_method_to_sale(self):
+        """X-2 — keep the sale's own mode_of_payment in step with what was
+        just recorded on its bill. billing_create (web) and
+        BillingPaymentSerializer.update (API) both only ever touch this
+        BillingRecord, so without this the Order Console could go on
+        showing a payment method the bill itself had already moved past.
+
+        Bank Transfer has no SalesTransaction.ModeOfPayment equivalent (it
+        is a billing-only method, recorded for wholesale/office accounts
+        that settle by transfer rather than at the counter), so there is
+        nothing to sync in that one case — the sale keeps whatever method
+        it already had.
+
+        Both entry points call this — one definition, same rule as
+        can_transition_to / is_self_confirmation above.
+        """
+        txn = self.transaction
+        if (
+            self.payment_method in SalesTransaction.ModeOfPayment.values
+            and txn.mode_of_payment != self.payment_method
+        ):
+            txn.mode_of_payment = self.payment_method
+            txn.save(update_fields=['mode_of_payment'])
+
     transaction = models.OneToOneField(
         SalesTransaction, on_delete=models.CASCADE,
         related_name='billing_record'

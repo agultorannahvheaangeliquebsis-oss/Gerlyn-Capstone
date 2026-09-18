@@ -601,11 +601,7 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
             {% else %}<span class="tag">In-Store</span>{% endif %}</td>
           <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
           <td data-label="Status">
-            {% if t.order_status == "Completed" %}<span class="pill pill-ok">Completed</span>
-            {% elif t.order_status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>
-            {% elif t.order_status == "Preparing" %}<span class="pill pill-warn">Preparing</span>
-            {% elif t.order_status == "Approved" %}<span class="pill pill-info">Approved</span>
-            {% else %}<span class="pill pill-neutral">Pending</span>{% endif %}</td>
+            {% include "partials/_order_status_pill_staff.html" with status=t.order_status %}</td>
         </tr>
         {% endfor %}
       </tbody>

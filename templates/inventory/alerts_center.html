@@ -1,6 +1,16 @@
 {% extends 'internal_base.html' %}
 {% block title %}Alerts Center{% endblock %}
 {% block page_subtitle %}Alerts{% endblock %}
+{% comment %}
+Same pattern as Stock Withdrawals/Floor Stock: the topbar chip is the branch
+switcher itself (partials/_branch_switch.html), Owner-only in practice —
+filter_branch/branches are both empty for Manager/Staff, who fall through to
+the base template's read-only user_branch label. Picking a branch narrows
+every count/tab on the page (inventory.views.alerts_center re-runs
+alert_summary against just that branch).
+{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -61,19 +71,19 @@ opens instead of standing alone as a figure that double-counts its neighbour.
   once its last user moved off it, so .tab here would render unstyled.
   {% endcomment %}
   <button type="button" class="filter-tab active" id="tab-floor" onclick="showTab('floor')">
-    Low Floor Stock
+    Low Floor Stock <span class="count count-warn">{{ low_count }}</span>
   </button>
   <button type="button" class="filter-tab" id="tab-warehouse" onclick="showTab('warehouse')">
-    Low Warehouse Stock
+    Low Warehouse Stock <span class="count count-warn">{{ warehouse_low_count }}</span>
   </button>
   <button type="button" class="filter-tab" id="tab-expired" onclick="showTab('expired')">
-    Expired
+    Expired <span class="count count-danger">{{ expired_count }}</span>
   </button>
   <button type="button" class="filter-tab" id="tab-soon" onclick="showTab('soon')">
-    Expiring Soon
+    Expiring Soon <span class="count count-warn">{{ expiring_soon_count }}</span>
   </button>
   <button type="button" class="filter-tab" id="tab-approaching" onclick="showTab('approaching')">
-    Approaching Expiry
+    Approaching Expiry <span class="count count-info">{{ approaching_expiry_count }}</span>
   </button>
 </div>
 

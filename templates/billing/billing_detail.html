@@ -7,11 +7,11 @@
   <div>
     <a class="back-link" href="{% url 'billing_list' %}">Billing Records</a>
     <h1 class="mt-2">Billing for {{ record.transaction.order_number }}
-      {% if record.status == "Paid" %}<span class="pill pill-ok">Paid</span>
-      {% elif record.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
-      {% elif record.status == "Cancelled" %}<span class="pill pill-neutral">Voided</span>
-      {% else %}<span class="pill pill-warn">Pending</span>{% endif %}
+      {% include "partials/_billing_status_pill.html" with status=record.status %}
     </h1>
+  </div>
+  <div class="row" style="gap:var(--s2);">
+    <a class="btn" data-detail-modal="Order" href="{% url 'transaction_detail' record.transaction.pk %}">View Order</a>
   </div>
 </div>
 
@@ -27,8 +27,8 @@
     </div>
     <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
       {% csrf_token %}
-      <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject</button>
-      <button type="submit" name="status" value="Paid" class="btn btn-primary">Mark as Paid</button>
+      <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
+      <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
     </form>
   </div>
 </div>
@@ -36,7 +36,7 @@
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div class="grow">
-      <h3>This payment was rejected</h3>
+      <h3>Payment Verification Rejected</h3>
       <p class="gv-meta mb-0">
         Re-open it if the customer is paying again, or if the rejection was a mistake —
         it goes back to Pending for a fresh check.
@@ -44,7 +44,7 @@
     </div>
     <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
       {% csrf_token %}
-      <button type="submit" name="status" value="Pending" class="btn">Re-open payment</button>
+      <button type="submit" name="status" value="Pending" class="btn">Re-open Payment</button>
     </form>
   </div>
 </div>
@@ -55,22 +55,39 @@
     <h3 class="mb-4">Payment Details</h3>
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
-        <tr><td class="gv-meta">Order</td><td style="text-align:right;">
-          <a data-detail-modal="Order" href="{% url 'transaction_detail' record.transaction.pk %}">{{ record.transaction.order_number }}</a></td></tr>
+        <tr><td class="gv-meta">Order</td><td style="text-align:right;">{{ record.transaction.order_number }}</td></tr>
+        <tr><td class="gv-meta">Customer</td><td style="text-align:right;">
+          {% if record.transaction.customer %}{{ record.transaction.customer.get_full_name|default:record.transaction.customer.username }}
+          {% else %}Walk-in{% endif %}</td></tr>
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ record.transaction.branch.branch_name }}</td></tr>
+        {% comment %}
+        Payment status row removed here — the h1 above already shows this
+        record's status pill, so a second copy two inches below it was the
+        same status shown twice on one page.
+        {% endcomment %}
         <tr><td class="gv-meta">Amount due</td><td class="num" style="text-align:right;">
           <span class="gv-metric" style="color:var(--action);">₱{{ record.amount_due|floatformat:2 }}</span></td></tr>
         <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ record.payment_method }}</td></tr>
         <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ record.reference_number|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Date recorded</td><td style="text-align:right;">{{ record.date_recorded|date:"Y-m-d H:i" }}</td></tr>
         <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ record.confirmed_by.username|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date confirmed</td><td style="text-align:right;">{{ record.date_confirmed|date:"Y-m-d H:i"|default:"—" }}</td></tr>
         {% if record.status == "Cancelled" %}
-        <tr><td class="gv-meta">Voided by</td><td style="text-align:right;">{{ record.voided_by.username|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Date voided</td><td style="text-align:right;">{{ record.date_voided|date:"Y-m-d H:i"|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Cancelled by</td><td style="text-align:right;">{{ record.voided_by.username|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Date cancelled</td><td style="text-align:right;">{{ record.date_voided|date:"Y-m-d H:i"|default:"—" }}</td></tr>
         {% endif %}
       </tbody>
     </table>
-    {% if record.status != "Paid" %}
+    {% comment %}
+    Paid and Cancelled are both terminal (BillingRecord.ALLOWED_STATUS_
+    TRANSITIONS has no outbound edge from Paid, and none at all from
+    Cancelled) — "effectively read-only" means the UI should not dangle an
+    edit/upload action that only leads to billing_create's own bounce
+    message ("this order was cancelled — its billing record is closed").
+    Pending and Rejected are the only statuses a payment's details can still
+    change under.
+    {% endcomment %}
+    {% if record.status == "Pending" or record.status == "Rejected" %}
       <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Edit payment details</a>
     {% endif %}
   </div>
@@ -87,7 +104,9 @@
           <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
           <h3>No proof uploaded</h3>
           <p>GCash or bank payments can attach a screenshot as evidence.</p>
-          <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
+          {% if record.status == "Pending" or record.status == "Rejected" %}
+            <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
+          {% endif %}
         </div>
       {% endif %}
     </div>

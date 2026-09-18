@@ -13,6 +13,7 @@ from django.utils import timezone
 from accounts.models import User
 from billing.models import BillingRecord
 from branches.models import Branch
+from core.people import person_display_name
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from inventory.alerts import stock_status
@@ -22,20 +23,14 @@ from .models import SalesItem, SalesItemBatchConsumption, SalesTransaction
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
-def _person_name(user):
-    """A person's display name, or '' when there is nobody — mirrors
-    procurement.views._person_name.
-
-    Used by the printed receipt for the cashier. X-3: the receipt reads
-    txn.recorded_by now, not txn.staff — staff is only ever set for a Staff
-    account, so a sale the Owner or a Branch Manager rang up left "Served
-    by" blank even though someone plainly served it. A chained
-    `{{ x.get_full_name|default:x.username }}` raises when x is null because
-    a filter argument is resolved strictly, hence this helper either way.
-    """
-    if user is None:
-        return ''
-    return user.get_full_name() or user.username
+def _pos_discount_choices():
+    """The two real discount claims — "None" is the absence of a claim, and
+    rendering it as a third radio invites picking it as if it were one.
+    Shared by _pos_context and transaction_detail so the two can't drift."""
+    return [
+        c for c in SalesTransaction.DiscountType.choices
+        if c[0] != SalesTransaction.DiscountType.NONE
+    ]
 
 
 # ─────────────────────────────────────────────
@@ -156,12 +151,7 @@ def _pos_context(request):
             c for c in SalesTransaction.ModeOfPayment.choices
             if c[0] in POS_PAYMENT_METHODS
         ],
-        # Only the two real claims — "None" is the absence of a claim, and
-        # rendering it as a third radio invites picking it as if it were one.
-        'pos_discount_choices': [
-            c for c in SalesTransaction.DiscountType.choices
-            if c[0] != SalesTransaction.DiscountType.NONE
-        ],
+        'pos_discount_choices': _pos_discount_choices(),
         'pos_discount_rate_pct': int(PWD_SENIOR_DISCOUNT_RATE * 100),
         'pos_vat_rate_pct': int(VAT_RATE * 100),
         # "Replaces" dropdown — recent cancelled orders only, since line
@@ -388,15 +378,13 @@ def transaction_detail(request, pk):
         'items': items,
         'billing': billing,
         'next_actions': _next_actions(txn, request.user),
+        'progress': _order_progress(txn),
         # Whether to offer the after-the-fact PWD/Senior discount form.
         # transaction_apply_discount re-checks every one of these conditions
         # itself - this only decides what to draw, and asks the same model
         # method the view enforces so the two cannot drift apart.
         'can_apply_discount': _can_offer_discount(txn, billing),
-        'discount_choices': [
-            c for c in SalesTransaction.DiscountType.choices
-            if c[0] != SalesTransaction.DiscountType.NONE
-        ],
+        'discount_choices': _pos_discount_choices(),
     })
 
 
@@ -407,9 +395,12 @@ def transaction_receipt(request, pk):
     Read-only and server-rendered, so the browser's own print-to-PDF does
     the output — the same approach po_print.html and the Reports pages take,
     and it keeps a PDF library out of the dependency list. Reached from the
-    "Print Receipt" button on transaction_detail, which opens it (?modal=1)
-    in the same #detail-modal overlay every other record uses; this template
-    extends base_template so that fetch returns the bare document.
+    "Print Receipt" button on transaction_detail as its own page, with its
+    own back link and a Print button that calls window.print(). The template
+    still extends base_template (rather than internal_base.html by name) so
+    a ?modal=1 fetch still returns the bare document, for parity with the
+    rest of the system's detail pages — nothing in the UI currently opens it
+    that way.
 
     The store identity on the letterhead — logo, TIN, the VAT line, the
     header and footer text, the closing thank-you line — is the
@@ -452,9 +443,9 @@ def transaction_receipt(request, pk):
         'line_sum': line_sum,
         'totals_disagree': line_sum != txn.total_amount,
         'gross_subtotal': gross_subtotal,
-        'served_by_name': _person_name(txn.recorded_by),
+        'served_by_name': person_display_name(txn.recorded_by),
         'printed_on': timezone.localdate(),
-        'printed_by': _person_name(request.user),
+        'printed_by': person_display_name(request.user),
     })
 
 
@@ -487,6 +478,30 @@ def _next_actions(txn, user=None):
         # one — don't offer a button transaction_set_status would reject.
         actions = [a for a in actions if a != 'Cancelled']
     return actions
+
+
+# The same four-stage lifecycle orders.customer_views.STATUS_STEPS draws on
+# the customer-facing Track Order page — read here only to feed the equivalent
+# "Order progress" widget on the staff-side Order Detail page. Purely a
+# display aid: it never feeds _next_actions or transaction_set_status, so it
+# cannot drift into gating anything.
+ORDER_PROGRESS_STEPS = ['Pending', 'Approved', 'Preparing', 'Completed']
+
+
+def _order_progress(txn):
+    cancelled = txn.order_status == SalesTransaction.OrderStatus.CANCELLED
+    current = 0 if cancelled else ORDER_PROGRESS_STEPS.index(txn.order_status)
+    return {
+        'cancelled': cancelled,
+        'steps': [
+            {
+                'name': name,
+                'done': (not cancelled) and i < current,
+                'current': (not cancelled) and i == current,
+            }
+            for i, name in enumerate(ORDER_PROGRESS_STEPS)
+        ],
+    }
 
 
 class _OrderActionError(Exception):

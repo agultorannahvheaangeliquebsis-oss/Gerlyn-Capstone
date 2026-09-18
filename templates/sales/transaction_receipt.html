@@ -5,18 +5,10 @@
 {% block branch_scope %}{{ transaction.branch.branch_name }}{% endblock %}
 
 {% comment %}
-The printable sales receipt. Like po_print.html it extends base_template,
-so a direct visit gets the full app shell for a preview and the "Print
-Receipt" link on transaction_detail opens it (?modal=1) in the same
-#detail-modal overlay the rest of the system uses — the Print button below
-then calls window.print() from inside that overlay. The global @media print
-block in gerlyn.css strips the shell chrome; the @media print rules in the
-<style> below strip the overlay's own framing and the Order Console still
-sitting behind it, and .rc-doc restyles what's left into a receipt.
-
-The <style> lives inside the content block, not an extra_css block, because
-_modal_base.html renders only the content block — the CSS has to travel
-with the fragment.
+The printable sales receipt — a dedicated page of its own, reached from the
+"Print Receipt" link on transaction_detail. The global @media print block in
+gerlyn.css strips the app shell chrome (sidebar, topbar, buttons); the
+@media print rules in the <style> below restyle what's left into a receipt.
 
 Deliberately read-only: nothing here posts. The store identity on the
 letterhead is set by the Owner on internal Settings (core.models.StoreSetting),
@@ -104,23 +96,6 @@ the same row po_print.html reads.
        this drops the document's own on-screen framing. */
     .rc-doc { border: 0; border-radius: 0; padding: 0; max-width: 80mm; }
     .rc-items tr { break-inside: avoid; }
-
-    /* When the receipt is read inside the #detail-modal overlay (Print
-       Receipt from the detail page), the Order Console it opened over is
-       still in the DOM behind the overlay, and the overlay brings its own
-       backdrop, card and close button. detail-modal.js flags the body while
-       the overlay is open; print the document alone. Mirrors po_print.html. */
-    body.detail-modal-open .app { display: none; }
-    body.detail-modal-open .detail-modal {
-      position: static; background: none; padding: 0; display: block;
-    }
-    body.detail-modal-open .detail-modal .modal-card {
-      max-width: none; max-height: none; box-shadow: none; display: block;
-    }
-    body.detail-modal-open .detail-modal .modal-head { display: none; }
-    body.detail-modal-open .detail-modal .modal-body {
-      display: block; padding: 0; overflow: visible;
-    }
   }
 </style>
 

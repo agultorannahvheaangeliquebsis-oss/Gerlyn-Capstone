@@ -1,0 +1,44 @@
+{% comment %}
+Shared by the supplier portal's floating tray (fetched as a JSON fragment by
+static/js/notification-tray.js) and the full page at
+procurement/supplier_notifications.html (included directly, server-rendered
+— the tray's no-JS fallback). Mirrors templates/core/_notification_tray_list.html,
+trimmed for the supplier's audience: no category/branch line (every row here
+is the same "your purchase order" category), no Resolve action
+(notify_supplier() never sets requires_action — see core/notifications.py),
+no Low-priority grouping (this inbox never runs deep enough to need it).
+
+Context: notifications (Notification objects, already ordered newest first).
+{% endcomment %}
+
+<div class="tray-list-inner">
+  {% for n in notifications %}
+  <div class="tray-ncard{% if n.is_read %} is-read{% endif %}"
+       id="notif-{{ n.pk }}" data-cat="all">
+    <span class="tray-ncard-dot"></span>
+    <div class="tray-ncard-body">
+      <div class="tray-ncard-title">{{ n.title }}</div>
+      <div class="tray-ncard-msg">{{ n.message }}</div>
+      <div class="tray-ncard-foot">
+        <span class="tray-ncard-cat">Purchase order</span>
+        <span class="tray-ncard-time">{{ n.created_at|date:"M d, g:i A" }}</span>
+      </div>
+      <div class="tray-ncard-actions">
+        {% if n.action_url %}
+        <a class="tray-tbtn primary" href="{{ n.action_url }}">{{ n.action_label|default:"View" }}</a>
+        {% endif %}
+        {% if not n.is_read %}
+        <form method="post" action="{% url 'supplier_notification_mark_read' n.pk %}" class="tray-read-form">
+          {% csrf_token %}
+          <button type="submit" class="tray-tbtn ghost">Dismiss</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="tray-empty">Nothing yet — updates on the orders placed with you will appear here.</div>
+  {% endfor %}
+
+  <div class="tray-filter-empty" hidden>No notifications match that search.</div>
+</div>

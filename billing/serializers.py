@@ -3,7 +3,6 @@
 from rest_framework import serializers
 from django.urls import reverse
 from .models import BillingRecord
-from sales.models import SalesTransaction
 
 # X-2 — the reference number is the only record of a GCash or bank transfer
 # with no payment gateway integrated; same rule billing.views.billing_create
@@ -81,14 +80,9 @@ class BillingPaymentSerializer(serializers.Serializer):
             instance.proof_of_payment = validated_data['proofOfPayment']
         instance.save()
 
-        # X-2 — keep the sale's own mode_of_payment in step with the bill.
-        # Bank Transfer has no SalesTransaction.ModeOfPayment equivalent, so
-        # there is nothing to sync in that one case.
-        method = validated_data['paymentMethod']
-        txn = instance.transaction
-        if method in SalesTransaction.ModeOfPayment.values and txn.mode_of_payment != method:
-            txn.mode_of_payment = method
-            txn.save(update_fields=['mode_of_payment'])
+        # X-2 — one definition shared with billing.views.billing_create, see
+        # BillingRecord.sync_payment_method_to_sale.
+        instance.sync_payment_method_to_sale()
 
         return instance
 

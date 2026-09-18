@@ -11,4 +11,15 @@ internal_base.html by name. core.context_processors.detail_modal resolves
 that variable per request: this file when the URL carries ?modal=1, and
 internal_base.html every other time, so the same template still answers a
 direct visit, a bookmark, or a browser with JavaScript off as a full page.
-{% endcomment %}{% block content %}{% endblock %}
+
+extra_css is declared here too, even though this shell has no <head> of its
+own: detail-modal.js drops the fetched fragment in with bodyEl.innerHTML,
+and a <style> tag survives that (only <script> is inert when set via
+innerHTML — the DOM spec, not a bug here). Without a matching block, a
+detail template's extra_css block has nowhere to render at all — Django
+drops content for a child block silently when no ancestor in the resolved
+chain declares it — so page-scoped styling would work on a direct visit and
+vanish the moment the same page opened inside this overlay. extra_js is
+deliberately left out: its <script> would never run via innerHTML either
+way, so declaring the block here would only leave inert markup behind.
+{% endcomment %}{% block extra_css %}{% endblock %}{% block content %}{% endblock %}

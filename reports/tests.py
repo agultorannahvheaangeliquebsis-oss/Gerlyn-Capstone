@@ -135,3 +135,33 @@ class RevenueExcludesCancelledAndPendingTests(TestCase):
         self.assertEqual(dash, self.COMPLETED)
         self.assertEqual(billing, self.COMPLETED)
         self.assertEqual(dash, billing)
+
+
+class BillingReportRowsLinkToBillingDetailTests(TestCase):
+    """The Billing Report used to duplicate the Billing list's table but drop
+    the Action column, leaving no way to open a record from the report. Each
+    row must now link to the same billing_detail page the Billing list uses.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='billing-report-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='Billing Report Branch', location='Baliuag', owner=cls.owner
+        )
+        cls.txn = SalesTransaction.objects.create(
+            branch=cls.branch,
+            total_amount=500,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+
+    def test_report_row_links_to_the_billing_detail_url(self):
+        client = Client()
+        client.force_login(self.owner)
+        resp = client.get('/reports/billing/')
+        record = resp.context['records'][0]
+
+        self.assertIn(f'/billing/{record.pk}/', resp.content.decode())

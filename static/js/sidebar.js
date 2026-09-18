@@ -125,13 +125,17 @@
     try { localStorage.setItem(COLLAPSE_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0'); } catch (e) {}
   }
 
-  /* The bottom-nav "More" menu and the topbar's branch-switch dropdown
+  /* The bottom-nav "More" menu, the topbar's branch-switch dropdown
      (partials/_branch_switch.html, used across every module with a branch
-     filter): close either when the user taps/clicks anywhere outside, since
-     <details> only closes natively on re-toggle. The header avatar used to
-     be handled here too; it is a plain link to My Profile now and has
-     nothing to close. */
-  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open]';
+     filter), the topbar's account (avatar) menu, and the Update status
+     dropdown on procurement_detail.html (.status-select): close any of
+     these when the user taps/clicks anywhere outside, since <details> only
+     closes natively on re-toggle. Delegated on document, so this also
+     covers .status-select instances injected later via the detail-modal's
+     innerHTML swap (procurement_list.html's data-detail-modal) — this
+     script only runs once, but a document-level listener doesn't care when
+     its target entered the DOM. */
+  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open], .avatar-menu[open], .status-select[open]';
   document.addEventListener('click', function (e) {
     document.querySelectorAll(AUTOCLOSE_SEL).forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;
@@ -144,6 +148,37 @@
       var s = d.querySelector('summary');
       if (s && d.contains(document.activeElement)) s.focus();
     });
+  });
+
+  /* Update status dropdown (procurement_detail.html): .status-select-panel
+     is an absolutely positioned overlay so opening it can't shift the
+     Update button next to it — see the comment on .status-select-panel in
+     procurement_detail.html. It opens below by default; this flips it
+     upward (.status-select--flip) when the viewport doesn't have room
+     below but does above. 'toggle' doesn't bubble in every browser, so this
+     listens in the capture phase (still reaches the target on the way
+     down) instead of joining AUTOCLOSE_SEL's bubble-phase delegation. */
+  document.addEventListener('toggle', function (e) {
+    var el = e.target;
+    if (!el.classList || !el.classList.contains('status-select')) return;
+    if (!el.open) { el.classList.remove('status-select--flip'); return; }
+    var panel = el.querySelector('.status-select-panel');
+    if (!panel) return;
+    var rect = el.getBoundingClientRect();
+    var needed = panel.offsetHeight || 160;
+    var fitsBelow = rect.bottom + needed <= window.innerHeight;
+    var fitsAbove = rect.top - needed >= 0;
+    el.classList.toggle('status-select--flip', !fitsBelow && fitsAbove);
+  }, true);
+
+  /* Picking an option in the Update status panel should close it like a
+     native select closes on pick, instead of leaving the panel open until
+     the outside-click handler above catches a later click. */
+  document.addEventListener('change', function (e) {
+    var option = e.target.closest && e.target.closest('.status-select-option');
+    if (!option) return;
+    var details = option.closest('.status-select');
+    if (details) details.open = false;
   });
 
   /* Sliding nav highlight ("magic move"): one absolutely-positioned element

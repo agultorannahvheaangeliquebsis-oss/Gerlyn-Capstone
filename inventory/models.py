@@ -8,67 +8,14 @@ from branches.models import Branch
 
 
 class ProductCategory(models.Model):
-    """A department, or a shelf inside one.
-
-    Exactly two levels deep, the shape every grocery storefront the reference
-    set was drawn from uses: a department ("Fresh") holding shelves ("Fresh
-    Beef", "Fresh Chicken"). `parent` is null on a department and set on a
-    shelf; a shelf may not itself be a parent, which is enforced in clean()
-    rather than left to the database, because MySQL has no CHECK on a
-    self-join and a three-level tree would break every surface that renders
-    this as one flyout column.
-
-    Products hang off either level. A department with its own products is a
-    normal thing in a variety store — "Household" with a few loose items and
-    no shelf worth naming — so nothing forces a leaf.
-    """
+    """A single flat grouping products are filed under. No hierarchy — every
+    category is a peer of every other one."""
 
     category_name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
-    parent = models.ForeignKey(
-        'self', null=True, blank=True,
-        on_delete=models.PROTECT, related_name='children',
-        help_text="Leave empty for a top-level department. Set it to file "
-                  "this category as a shelf inside that department.",
-    )
 
     def __str__(self):
-        if self.parent_id:
-            return f"{self.parent.category_name} › {self.category_name}"
         return self.category_name
-
-    @property
-    def is_department(self):
-        """Top-level. The storefront's mega-menu columns and the home tiles
-        list these and nothing else."""
-        return self.parent_id is None
-
-    def clean(self):
-        """Two levels, and no category that is its own ancestor.
-
-        The self-parent and grandchild cases are separate: a category filed
-        under itself is a cycle the tree walk would never terminate on, while
-        a category filed under a child is a legal tree that this UI cannot
-        draw. Both are refused here so category_form can report them as form
-        errors instead of the storefront rendering a column that swallows
-        the rest of the menu.
-        """
-        from django.core.exceptions import ValidationError
-
-        if self.parent_id is None:
-            return
-        if self.pk and self.parent_id == self.pk:
-            raise ValidationError({'parent': 'A category cannot be filed under itself.'})
-        if self.parent.parent_id is not None:
-            raise ValidationError({'parent': (
-                f'"{self.parent.category_name}" is already a sub-category. '
-                'Categories go two levels deep — pick a top-level department.'
-            )})
-        if self.pk and self.children.exists():
-            raise ValidationError({'parent': (
-                f'"{self.category_name}" has sub-categories of its own, so it '
-                'has to stay top-level. Move them out first.'
-            )})
 
     class Meta:
         verbose_name_plural = "Product Categories"
@@ -537,6 +484,16 @@ class Batch(models.Model):
                   "ahead of stock that IS known to be expiring soon."
     )
     notes = models.TextField(blank=True)
+    external_lot_code = models.CharField(
+        max_length=100, blank=True,
+        help_text="Manufacturer/supplier lot code printed on the product. "
+                  "Separate from batch_number, which is the system's own ID."
+    )
+    opening_import_row = models.ForeignKey(
+        'OpeningStockImportRow', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='batches',
+        help_text="Opening-stock row that created this lot, when applicable."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -796,6 +753,8 @@ class StockMovement(models.Model):
         MANUAL_IN = 'Manual In', 'Manual Stock In'
         MANUAL_OUT = 'Manual Out', 'Manual Stock Out'
         ADJUSTMENT = 'Adjustment', 'Stock Adjustment'
+        OPENING_BALANCE = 'Opening Balance', 'Opening Balance'
+        OPENING_BALANCE_REVERSAL = 'Opening Reversal', 'Opening Balance Reversal'
 
     class LocationType(models.TextChoices):
         WAREHOUSE = 'Warehouse', 'Warehouse'
@@ -832,6 +791,11 @@ class StockMovement(models.Model):
         'accounts.User', on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='stock_movements'
+    )
+    opening_import_row = models.ForeignKey(
+        'OpeningStockImportRow', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='movements',
+        help_text="Opening-stock row that caused this movement, when applicable."
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -903,3 +867,97 @@ class ProductImportMappingTemplate(models.Model):
         # free to call their own template "Supplier A" without colliding.
         unique_together = ('created_by', 'name')
         ordering = ['name']
+
+
+class OpeningStockImport(models.Model):
+    """One confirmed opening-inventory spreadsheet.
+
+    The unique committed fingerprint is the database-level idempotency guard:
+    a double-click, retry, or repeat upload of the same normalized contents
+    cannot credit stock twice. It remains populated after reversal so history
+    cannot be silently replayed.
+    """
+
+    class Status(models.TextChoices):
+        COMMITTED = 'Committed', 'Committed'
+        REVERSED = 'Reversed', 'Reversed'
+
+    original_filename = models.CharField(max_length=255)
+    raw_sha256 = models.CharField(max_length=64, db_index=True)
+    canonical_sha256 = models.CharField(max_length=64)
+    committed_fingerprint = models.CharField(
+        max_length=64, unique=True,
+        help_text="Canonical normalized-file hash; retained after reversal."
+    )
+    as_of_date = models.DateField()
+    status = models.CharField(
+        max_length=15, choices=Status.choices, default=Status.COMMITTED,
+    )
+    row_count = models.PositiveIntegerField(default=0)
+    product_count = models.PositiveIntegerField(default=0)
+    branch_count = models.PositiveIntegerField(default=0)
+    total_quantity = models.PositiveBigIntegerField(default=0)
+    warning_count = models.PositiveIntegerField(default=0)
+    warnings_acknowledged = models.BooleanField(default=False)
+    uploaded_by = models.ForeignKey(
+        'accounts.User', on_delete=models.SET_NULL, null=True,
+        related_name='opening_stock_imports',
+    )
+    confirmed_at = models.DateTimeField(auto_now_add=True)
+    reversed_by = models.ForeignKey(
+        'accounts.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reversed_opening_stock_imports',
+    )
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversal_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-confirmed_at']
+        indexes = [
+            models.Index(fields=['-confirmed_at'], name='openstock_confirmed_idx'),
+        ]
+
+    def __str__(self):
+        return f"Opening stock #{self.pk} - {self.original_filename}"
+
+
+class OpeningStockImportRow(models.Model):
+    """Immutable row-level evidence for an opening-stock import."""
+
+    import_batch = models.ForeignKey(
+        OpeningStockImport, on_delete=models.PROTECT, related_name='rows',
+    )
+    row_number = models.PositiveIntegerField()
+    normalized_hash = models.CharField(max_length=64)
+    product = models.ForeignKey(
+        Product, on_delete=models.SET_NULL, null=True,
+        related_name='opening_stock_rows',
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, null=True,
+        related_name='opening_stock_rows',
+    )
+    product_name_snapshot = models.CharField(max_length=150)
+    barcode_snapshot = models.CharField(max_length=64)
+    branch_name_snapshot = models.CharField(max_length=100)
+    quantity = models.PositiveIntegerField()
+    external_lot_code = models.CharField(max_length=100, blank=True)
+    received_date = models.DateField()
+    expiry_date = models.DateField(null=True, blank=True)
+    previous_quantity = models.PositiveIntegerField()
+    resulting_quantity = models.PositiveIntegerField()
+    warnings = models.JSONField(default=list, blank=True)
+    reversed_quantity = models.PositiveIntegerField(default=0)
+    consumed_quantity = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['row_number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['import_batch', 'row_number'],
+                name='unique_opening_import_row_number',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.import_batch_id} row {self.row_number}: {self.barcode_snapshot}"

@@ -57,7 +57,6 @@ class OrderConsoleOverCommittedTests(TestCase):
         self.assertEqual(response.context['over_committed_count'], 2)
         self.assertIn(first.pk, response.context['over_committed_ids'])
         self.assertIn(second.pk, response.context['over_committed_ids'])
-        self.assertContains(response, 'Over-committed Orders')
         self.assertContains(response, 'Over-committed</span>')
 
     def test_completed_orders_are_not_counted_toward_the_commitment(self):

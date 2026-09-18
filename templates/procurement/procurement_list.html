@@ -1,6 +1,12 @@
 {% extends "internal_base.html" %}
 {% block title %}Purchase Orders{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
+{% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
+List, Billing and Receive Delivery: the topbar chip tracks whichever branch
+the list is actually narrowed to. Owner only in practice — Manager/Staff are
+already pinned to their own branch's orders.{% endcomment %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" with branches=switch_branches %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -29,11 +35,15 @@ status — Draft neutral, Ordered info, Received ok, Cancelled danger. "All" is
 not a status, so it keeps the unclassed neutral default.
 {% endcomment %}
 <div class="filter-tabs">
-  <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?">All</a>
-  <a class="filter-tab{% if status_filter == 'Draft' %} active{% endif %}" href="?status=Draft">Draft</a>
-  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?status=Ordered">Ordered</a>
-  <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?status=Received">Received</a>
-  <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?status=Cancelled">Cancelled</a>
+  {% comment %}
+  O-3 — filter_qs (from the view) carries the branch filter along so
+  switching status tabs never drops it, same fix as Billing's tabs.
+  {% endcomment %}
+  <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?{{ filter_qs }}">All <span class="count">{{ counts.all }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Draft' %} active{% endif %}" href="?{{ filter_qs }}&status=Draft">Draft <span class="count count-neutral">{{ counts.draft }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?{{ filter_qs }}&status=Ordered">Ordered <span class="count count-info">{{ counts.ordered }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?{{ filter_qs }}&status=Received">Received <span class="count count-ok">{{ counts.received }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
 </div>
 
 <div class="card table-wrap">

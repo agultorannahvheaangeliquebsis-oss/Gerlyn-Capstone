@@ -1,5 +1,7 @@
 from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.template.loader import render_to_string
 from django.contrib.auth import authenticate, login, logout, password_validation, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -438,7 +440,6 @@ def user_list(request):
                 'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
                 'edit_modules': target.allowed_modules or [],
             })
-
     return render(request, 'accounts/user_list.html', context)
 
 
@@ -1071,6 +1072,7 @@ def _profile_context(user):
         'contact_number'    : contact_number,
         'role'              : user.get_role_display(),
         'two_factor_enabled': user.two_factor_enabled,
+        'addresses'         : user.addresses.all(),
         'default_address'   : user.addresses.filter(is_default=True).first(),
         'active_page'       : 'profile',
     }
@@ -1558,6 +1560,10 @@ def confirm_password_change(request, token):
 
     return render(request, 'accounts/confirm_password_change.html', {'token': token})
 
+def _is_xhr(request):
+    return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
 @login_required(login_url='accounts:login')
 def notifications_view(request):
     """
@@ -1570,8 +1576,22 @@ def notifications_view(request):
     notification and deciding whether to receive that kind of notification are
     the same errand, and splitting them meant the answer to "why am I getting
     these?" was never on the page showing them.
+
+    XHR (X-Requested-With) hits this same URL for the storefront header's
+    floating tray — static/js/notification-tray.js, shared verbatim with the
+    internal Owner tray (see core/views.py:notification_center_view) — and
+    gets back a JSON fragment (list_html + needs_action_count) instead of the
+    full page, same convention as that view. The href itself stays the
+    no-JS/fetch-failure fallback straight to this page.
     """
     notifications = request.user.notifications.all().order_by('-created_at')
+    if _is_xhr(request):
+        unread_count = notifications.filter(is_read=False).count()
+        list_html = render_to_string('accounts/_notification_tray_list.html', {
+            'notifications': notifications[:8],
+        }, request=request)
+        return JsonResponse({'list_html': list_html, 'needs_action_count': unread_count})
+
     prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
     return render(request, 'accounts/notifications.html', {
         'notifications': notifications,
@@ -1598,11 +1618,17 @@ def mark_notification_read(request, pk):
     """
     notification = get_object_or_404(Notification, pk=pk, user=request.user)
     if notification.is_read:
-        messages.info(request, "That notification was already marked as read.")
+        if not _is_xhr(request):
+            messages.info(request, "That notification was already marked as read.")
     else:
         notification.is_read = True
         notification.save(update_fields=['is_read'])
-        messages.success(request, "Marked as read.")
+        if not _is_xhr(request):
+            messages.success(request, "Marked as read.")
+    if _is_xhr(request):
+        return JsonResponse({
+            'needs_action_count': request.user.notifications.filter(is_read=False).count(),
+        })
     return redirect('accounts:notifications')
 
 
@@ -1618,6 +1644,10 @@ def mark_all_notifications_read(request):
     shopper around the shop forever.
     """
     updated = request.user.notifications.filter(is_read=False).update(is_read=True)
+    if _is_xhr(request):
+        return JsonResponse({
+            'needs_action_count': request.user.notifications.filter(is_read=False).count(),
+        })
     if updated:
         messages.success(
             request,
@@ -1632,12 +1662,23 @@ def mark_all_notifications_read(request):
 # ADDRESSES
 # ============================================================
 
+def _addresses_anchor():
+    """Where the Saved Addresses card sits on the merged profile page, so a
+    save/delete/set-default returns the reader to their addresses instead of
+    the top of the page."""
+    return reverse('accounts:profile') + '#addresses'
+
+
 @login_required(login_url='accounts:login')
 def addresses_view(request):
-    return render(request, 'accounts/addresses.html', {
-        'addresses': request.user.addresses.all(),
-        'active_page': 'addresses',
-    })
+    """
+    Permanently redirects to the merged profile page.
+
+    Addresses used to be their own page; they are now the Saved Addresses
+    card on My Profile. The route stays, same as notification_preferences_view
+    below, so old bookmarks and links land somewhere real instead of 404ing.
+    """
+    return redirect(_addresses_anchor(), permanent=True)
 
 
 def _address_fields_from_post(request):
@@ -1669,12 +1710,12 @@ def address_create(request):
 
     if not fields['text']:
         messages.error(request, "Please enter an address.")
-        return redirect('accounts:addresses')
+        return redirect(_addresses_anchor())
 
     is_first = not request.user.addresses.exists()
     Address.objects.create(user=request.user, is_default=is_first, **fields)
     messages.success(request, "Address added.")
-    return redirect('accounts:addresses')
+    return redirect(_addresses_anchor())
 
 
 @login_required(login_url='accounts:login')
@@ -1683,7 +1724,7 @@ def address_edit(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
     if address.is_default:
         messages.error(request, "Your default address can't be edited. Add a new address and set it as default instead.")
-        return redirect('accounts:addresses')
+        return redirect(_addresses_anchor())
 
     fields = _address_fields_from_post(request)
 
@@ -1692,13 +1733,13 @@ def address_edit(request, pk):
 
     if not fields['text']:
         messages.error(request, "Please enter an address.")
-        return redirect('accounts:addresses')
+        return redirect(_addresses_anchor())
 
     for key, value in fields.items():
         setattr(address, key, value)
     address.save()
     messages.success(request, "Address updated.")
-    return redirect('accounts:addresses')
+    return redirect(_addresses_anchor())
 
 
 @login_required(login_url='accounts:login')
@@ -1707,10 +1748,10 @@ def address_delete(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
     if address.is_default:
         messages.error(request, "You can't delete your default address. Set a different one as default first.")
-        return redirect('accounts:addresses')
+        return redirect(_addresses_anchor())
     address.delete()
     messages.success(request, "Address deleted.")
-    return redirect('accounts:addresses')
+    return redirect(_addresses_anchor())
 
 
 @login_required(login_url='accounts:login')
@@ -1719,7 +1760,7 @@ def address_set_default(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
     address.set_as_default()
     messages.success(request, "Default address updated.")
-    return redirect('accounts:addresses')
+    return redirect(_addresses_anchor())
 
 
 # ============================================================

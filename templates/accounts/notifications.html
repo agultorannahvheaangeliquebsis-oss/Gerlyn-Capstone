@@ -138,7 +138,7 @@ against gerlyn.css rather than the Bootstrap classes it was written for
         {% if notifications %}
           {% for n in notifications %}
           <div class="notif-row{% if not n.is_read %} notif-row--unread{% endif %}">
-            <div>
+            <div class="notif-row-content">
               <div class="notif-title">
                 <strong>{{ n.title }}</strong>
                 {% if not n.is_read %}<span class="pill pill-info">{% t "New" %}</span>{% endif %}
@@ -151,7 +151,7 @@ against gerlyn.css rather than the Bootstrap classes it was written for
             A form, not a link. Marking read writes to the database, and a
             GET href hands that write to anything that follows links.
             {% endcomment %}
-            <form method="post" action="{% url 'accounts:mark_notification_read' n.pk %}" style="margin:0; flex:none;">
+            <form method="post" action="{% url 'accounts:mark_notification_read' n.pk %}" class="notif-row-side" style="margin:0;">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm">{% t "Mark as read" %}</button>
             </form>

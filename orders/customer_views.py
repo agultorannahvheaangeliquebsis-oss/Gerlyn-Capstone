@@ -15,7 +15,7 @@ from django.utils.functional import SimpleLazyObject
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
-from core.context_processors import storefront_categories, storefront_category_ids
+from core.context_processors import storefront_categories
 from inventory.alerts import stock_status
 from inventory.models import Inventory, Product, ProductCategory
 from inventory.stats import (
@@ -240,6 +240,21 @@ def _cart_items(request):
 # BROWSING — open to guests (log in only to buy)
 # ─────────────────────────────────────────────
 
+def _catalog_stock(branch_filters, search_query):
+    """Return the branch/search-filtered inventory shared by results and facets.
+
+    Category is intentionally absent here: category facet counts describe
+    what each category would contain under the current branch/search scope,
+    not only the categories that are already selected.
+    """
+    stock = Inventory.objects.sellable()
+    if branch_filters:
+        stock = stock.filter(branch_id__in=branch_filters)
+    if search_query:
+        stock = stock.filter(product__product_name__icontains=search_query)
+    return stock
+
+
 def product_catalog(request):
     branches = Branch.objects.all()
 
@@ -284,31 +299,18 @@ def product_catalog(request):
     # row's stock — so a product with an expired lot at one branch and a
     # fresh one at another (or even a fresh AND an expired lot in the same
     # row) is never hidden entirely, just correctly sized.
-    stock = Inventory.objects.sellable().select_related(
+    search_query = request.GET.get('q', '')
+    stock = _catalog_stock(branch_filters, search_query).select_related(
         'product', 'product__category'
     ).prefetch_related('product__images')
-    if branch_filters:
-        stock = stock.filter(branch_id__in=branch_filters)
 
-    search_query = request.GET.get('q', '')
     # getlist, not get: the rail is a checklist now, so "Rice AND Canned
     # goods" is a question a shopper can ask. Non-numeric values are dropped
     # rather than passed to the ORM, which raises on a bad pk instead of
     # simply matching nothing.
     category_filters = [c for c in request.GET.getlist('category') if c.isdigit()]
-    if search_query:
-        stock = stock.filter(product__product_name__icontains=search_query)
     if category_filters:
-        # Ticking a department means its shelves too. `category_filters` is
-        # deliberately NOT overwritten with the expanded set: the rail ticks
-        # its boxes off this list, and folding the children in would light up
-        # every shelf under a department the shopper never touched — and then
-        # unticking one of those phantom ticks would read as "Fresh minus
-        # Fresh Beef", which is not what they asked for. The expansion is a
-        # query detail; the ticks stay the shopper's own answer.
-        stock = stock.filter(
-            product__category_id__in=storefront_category_ids(category_filters)
-        )
+        stock = stock.filter(product__category_id__in=category_filters)
 
     # Collapse to one row per product when no branch is chosen; keep the
     # best availability so stock signals stay honest.
@@ -354,7 +356,7 @@ def product_catalog(request):
         if not _resolved:
             _resolved.append(list(
                 ProductCategory.objects.filter(pk__in=category_filters)
-                .select_related('parent').order_by('category_name')
+                .order_by('category_name')
             ))
         return _resolved[0]
 
@@ -369,17 +371,15 @@ def product_catalog(request):
         # chips while the rail beside the grid kept offering the single
         # tick-box that filters nothing.
         #
-        # Lazy, because the queryset it replaced was: this same context is
-        # handed to catalog_grid.html on every live-search keystroke, and
-        # neither of the two partials rendered there names `categories`. A
-        # bare call would have bought a query per keystroke for a rail that
-        # is not being redrawn.
+        # Lazy so callers that inspect only result rows do not pay for the
+        # tree. Live responses deliberately render the category partial from
+        # this object, using the branch ids carried by that exact request.
         #
-        # Departments carrying `shelves` and a `stock_count`, not a flat list
-        # — the rail groups its tick-boxes the same two levels the header's
-        # mega-menu opens to. See _category_rail.
+        # Each category carrying a live `stock_count`. See _category_rail.
         'categories': SimpleLazyObject(
-            lambda: _category_rail(branch_filters, search_query)
+            lambda: _category_rail(
+                branch_filters, search_query, category_filters
+            )
         ),
         'search_query': search_query,
         'category_filters': category_filters,
@@ -430,6 +430,7 @@ def product_catalog(request):
         return JsonResponse({
             'summary_html': render_to_string('partials/catalog_result_summary.html', context, request=request),
             'grid_html': render_to_string('partials/catalog_grid.html', context, request=request),
+            'category_html': render_to_string('partials/catalog_category_filter.html', context, request=request),
         })
 
     return render(request, 'orders/catalog.html', context)
@@ -575,39 +576,32 @@ def product_detail(request, product_id):
     })
 
 
-def _category_rail(branch_filters, search_query):
-    """The Filters rail's Category tree, with a live in-stock count per row.
+def _category_rail(branch_filters, search_query, category_filters=()):
+    """The Filters rail's Category list, with a live in-stock count per row.
 
     The counts are the reference's "Biscuits (348)", and they are counted the
     same way the grid is: sellable stock only, narrowed by whatever branches
-    and search term are in play, so a shelf reading (0) genuinely has nothing
+    and search term are in play, so a row reading (0) genuinely has nothing
     on it here rather than nothing at this branch while the number claims
     otherwise. What they are deliberately NOT narrowed by is the category
     filter itself — a count that collapsed to the ticked category would
     print (6) beside it and (0) beside every other row, which says nothing
     about what ticking those rows would do.
 
-    A department's count includes its shelves, matching what clicking it
-    does (storefront_category_ids), so "Fresh (14)" and its shelves summing
-    to 14 are the same statement twice rather than two different ones.
+    Unselected rows with nothing behind them are dropped. A selected row is
+    retained at zero so a live branch change never silently discards that
+    filter.
 
-    Rows with nothing behind them are dropped, and a department whose every
-    shelf is empty goes with them. An empty shelf in a filter rail is a
-    promise the grid then breaks.
-
-    One aggregate query on top of the tree's two, and only on the full-page
-    path — product_catalog wraps this in a SimpleLazyObject, and the
-    live-search XHR renders neither partial that names it.
+    One aggregate query on top of storefront_categories()'s own. product_catalog
+    wraps this in a SimpleLazyObject, and both the full page and live facet
+    partial read it only when they render the Category rail.
     """
-    departments = storefront_categories()
-    if not departments:
+    categories = storefront_categories()
+    if not categories:
         return []
 
-    stock = Inventory.objects.sellable()
-    if branch_filters:
-        stock = stock.filter(branch_id__in=branch_filters)
-    if search_query:
-        stock = stock.filter(product__product_name__icontains=search_query)
+    stock = _catalog_stock(branch_filters, search_query)
+    selected = {str(category_id) for category_id in category_filters}
 
     # distinct() because a product stocked at three branches is three
     # Inventory rows and one product on the shelf.
@@ -619,24 +613,12 @@ def _category_rail(branch_filters, search_query):
         counts.setdefault(category_id, set()).add(product_id)
 
     rail = []
-    for department in departments:
-        shelves = []
-        for shelf in department.subcategories:
-            count = len(counts.get(shelf.id, ()))
-            if count:
-                shelf.stock_count = count
-                shelves.append(shelf)
-        # Products filed directly on the department, plus everything on its
-        # shelves — a set union, not a sum, because the two never overlap but
-        # the union is what makes that obvious at a glance.
-        own = set(counts.get(department.id, ()))
-        for shelf in department.subcategories:
-            own |= counts.get(shelf.id, set())
-        if not own:
+    for category in categories:
+        count = len(counts.get(category.id, ()))
+        if not count and str(category.id) not in selected:
             continue
-        department.stock_count = len(own)
-        department.shelves = shelves
-        rail.append(department)
+        category.stock_count = count
+        rail.append(category)
     return rail
 
 
@@ -691,12 +673,7 @@ def _active_chips(search_query, active_categories, branches, branch_filters):
         })
 
     for category in active_categories:
-        # Named with its department where it has one, because two departments
-        # may well both keep an "Others" shelf and two identical chips that
-        # remove different filters is the one thing a chip row must not do.
         value = category.category_name
-        if category.parent_id:
-            value = f'{category.parent.category_name} › {value}'
         chips.append({
             'label': 'Category',
             'value': value,

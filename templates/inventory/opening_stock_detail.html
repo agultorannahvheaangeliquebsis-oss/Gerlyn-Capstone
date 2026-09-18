@@ -1,0 +1,57 @@
+{% extends "internal_base.html" %}
+{% block title %}Opening Stock Import #{{ import_batch.pk }}{% endblock %}
+{% block page_subtitle %}Inventory Migration{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'opening_stock_import_history' %}">Opening Stock History</a>
+    <h1>Opening Stock Import #{{ import_batch.pk }}</h1>
+    <p class="gv-meta mb-0">{{ import_batch.original_filename }} · confirmed {{ import_batch.confirmed_at|date:'Y-m-d H:i' }}</p>
+  </div>
+  {% if import_batch.status == 'Reversed' %}<span class="pill pill-warn">Reversed</span>{% else %}<span class="pill pill-ok">Committed</span>{% endif %}
+</div>
+
+<div class="kpi-row compact">
+  <div class="kpi-card"><span class="label">Rows</span><span class="value">{{ import_batch.row_count }}</span></div>
+  <div class="kpi-card"><span class="label">Products</span><span class="value">{{ import_batch.product_count }}</span></div>
+  <div class="kpi-card"><span class="label">Branches</span><span class="value">{{ import_batch.branch_count }}</span></div>
+  <div class="kpi-card"><span class="label">Opening Units</span><span class="value">{{ import_batch.total_quantity }}</span></div>
+</div>
+
+{% if import_batch.status == 'Reversed' %}
+<div class="card mb-4"><div class="card-pad"><b>Reversed:</b> {{ import_batch.reversal_reason }}<br><span class="gv-meta">By {{ import_batch.reversed_by.get_full_name|default:import_batch.reversed_by.username }} on {{ import_batch.reversed_at|date:'Y-m-d H:i' }}</span></div></div>
+{% endif %}
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead><tr><th>Row</th><th>Product</th><th>Branch</th><th>Lot</th><th>Expiry</th><th class="num">Opening</th><th class="num">Before → After</th>{% if import_batch.status == 'Reversed' %}<th class="num">Reversed / Consumed</th>{% endif %}</tr></thead>
+    <tbody>
+      {% for row in import_rows %}
+      <tr>
+        <td class="gv-meta">{{ row.row_number }}</td>
+        <td class="strong">{{ row.product_name_snapshot }}<br><span class="sku">{{ row.barcode_snapshot }}</span></td>
+        <td>{{ row.branch_name_snapshot }}</td>
+        <td>{{ row.external_lot_code|default:'—' }}</td>
+        <td>{{ row.expiry_date|date:'Y-m-d'|default:'—' }}</td>
+        <td class="num strong">{{ row.quantity }}</td>
+        <td class="num">{{ row.previous_quantity }} → {{ row.resulting_quantity }}</td>
+        {% if import_batch.status == 'Reversed' %}<td class="num">{{ row.reversed_quantity }} / {{ row.consumed_quantity }}</td>{% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if import_batch.status == 'Committed' %}
+<div class="card mt-4" style="max-width:760px;">
+  <div class="card-pad">
+    <h2 style="margin-top:0;">Reverse this import</h2>
+    <p class="gv-meta">Only quantities still remaining in this import's batches will be removed. Units already sold or written off remain in their historical transactions.</p>
+    <form method="POST" action="{% url 'opening_stock_import_reverse' import_batch.pk %}" data-confirm="Reverse this opening-stock import?">{% csrf_token %}
+      <div class="field"><label for="reversal-reason">Reason</label><textarea id="reversal-reason" name="reason" required></textarea></div>
+      <button class="btn btn-danger" type="submit">Reverse Remaining Opening Stock</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -55,6 +55,9 @@ MODULE_REGISTRY = {
     FLOOR_STOCK: (
         'Floor Stock',
         ['inventory_list', 'inventory_edit', 'stock_adjustment_add',
+         'opening_stock_import', 'opening_stock_confirm', 'opening_stock_cancel',
+         'opening_stock_template', 'opening_stock_import_history',
+         'opening_stock_import_detail', 'opening_stock_import_reverse',
          # API (inventory/api_urls.py) — read-only, mirrors inventory_list.
          'api-inventory-list', 'api-inventory-detail'],
     ),
@@ -92,6 +95,9 @@ MODULE_REGISTRY = {
          # gated at all, so leaving it off would let a Staff account whose
          # Owner revoked the Order Console still re-price an order.
          'transaction_apply_discount',
+         # Printable receipt for the same reason — same section, same gap
+         # class as the discount action above.
+         'transaction_receipt',
          # API (sales/api_urls.py) — list also serves POST (mirrors
          # transaction_add); detail mirrors transaction_detail.
          'api-sales-list', 'api-sales-detail'],
@@ -115,7 +121,7 @@ MODULE_REGISTRY = {
     ),
     DELIVERIES: (
         'Deliveries',
-        ['delivery_list', 'delivery_receive', 'receiving_history'],
+        ['delivery_list', 'delivery_receive'],
     ),
     REPORTS: (
         'Reports Dashboard',

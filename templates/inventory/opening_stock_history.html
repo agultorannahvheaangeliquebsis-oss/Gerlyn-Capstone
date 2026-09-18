@@ -1,0 +1,34 @@
+{% extends "internal_base.html" %}
+{% block title %}Opening Stock History{% endblock %}
+{% block page_subtitle %}Inventory Migration{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'inventory_list' %}">Floor Stock</a>
+    <h1>Opening Stock Import History</h1>
+    <p class="gv-meta mb-0">Committed opening balances and their reversal status.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'opening_stock_import' %}">Import Opening Stock</a>
+</div>
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead><tr><th>Import</th><th>File</th><th>As of</th><th class="num">Rows</th><th class="num">Units</th><th>Imported by</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for item in imports %}
+      <tr>
+        <td class="strong">#{{ item.pk }}<br><span class="gv-meta">{{ item.confirmed_at|date:'Y-m-d H:i' }}</span></td>
+        <td>{{ item.original_filename }}<br><span class="sku">{{ item.canonical_sha256|slice:':16' }}…</span></td>
+        <td>{{ item.as_of_date|date:'Y-m-d' }}</td>
+        <td class="num">{{ item.row_count }}</td>
+        <td class="num strong">{{ item.total_quantity }}</td>
+        <td>{{ item.uploaded_by.get_full_name|default:item.uploaded_by.username|default:'—' }}</td>
+        <td>{% if item.status == 'Reversed' %}<span class="pill pill-warn">Reversed</span>{% else %}<span class="pill pill-ok">Committed</span>{% endif %}</td>
+        <td><a class="btn btn-sm" href="{% url 'opening_stock_import_detail' item.pk %}">View</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8"><div class="empty"><h3>No opening-stock imports</h3><p>Confirmed imports will appear here.</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

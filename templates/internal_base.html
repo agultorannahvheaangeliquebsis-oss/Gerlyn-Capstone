@@ -197,23 +197,6 @@ DOM — it is off-screen until focused (see .skip-link).
       </div>
       {% endif %}
     </nav>
-
-    <a class="sb-item" href="{% url 'orders:catalog' %}" target="_blank" rel="noopener noreferrer" title="View Store">
-      <i data-lucide="store"></i>
-      <span class="sb-label">View Store</span>
-    </a>
-    <a class="sb-item {% if active_page == 'download' %}sb-item--active{% endif %}" href="{% url 'download' %}" title="Download">
-      <i data-lucide="download"></i>
-      <span class="sb-label">Download</span>
-    </a>
-    <a class="sb-item {% if active_page == 'internal_settings' %}sb-item--active{% endif %}" href="{% url 'internal_settings' %}" title="Settings">
-      <i data-lucide="settings"></i>
-      <span class="sb-label">Settings</span>
-    </a>
-    <a class="sb-item sb-item--danger" href="{% url 'accounts:logout' %}" title="Logout">
-      <i data-lucide="log-out"></i>
-      <span class="sb-label">Logout</span>
-    </a>
   </aside>
 
   <!-- ============================== MAIN ============================== -->
@@ -279,46 +262,50 @@ DOM — it is off-screen until focused (see .skip-link).
                 Mark all read
               </button>
             </div>
-            <div class="notif-tray-search">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-              <input type="text" id="notifSearch" placeholder="Search notifications…" aria-label="Search notifications">
-            </div>
-            <div class="notif-tray-pills" id="notifPills">
-              <button type="button" class="notif-pill active" data-filter="all">All</button>
-              <button type="button" class="notif-pill" data-filter="critical">Critical</button>
-              <button type="button" class="notif-pill" data-filter="high">High</button>
-              <button type="button" class="notif-pill" data-filter="staff">Staff</button>
-              <button type="button" class="notif-pill" data-filter="procurement">Procurement</button>
-              <button type="button" class="notif-pill" data-filter="sales">Sales</button>
-              <button type="button" class="notif-pill" data-filter="system">System</button>
+            <div class="filter-tabs notif-tray-tabs" id="notifPills">
+              <button type="button" class="filter-tab active" data-filter="all">All</button>
+              <button type="button" class="filter-tab" data-filter="critical">Critical</button>
+              <button type="button" class="filter-tab" data-filter="high">High</button>
             </div>
             <div class="notif-tray-list" id="notifList">
               <div class="tray-empty">Loading…</div>
             </div>
-            <div class="notif-tray-foot"><a href="{% url 'notification_center' %}">See full list →</a></div>
+            <div class="notif-tray-foot"><a href="{% url 'notification_center' %}">See full list</a></div>
           </div>
           <div class="notif-tray-scrim" id="notifScrim"></div>
         </div>
         {% comment %}
-          The account control, at every width. It was a <details> panel whose
-          first row was My Profile; it is now that link directly, because that
-          row is what the menu was being opened for.
+          The account control, at every width. View Store, Download, Settings
+          and Logout used to sit as their own rows at the foot of the desktop
+          sidebar — invisible below 860px, where the sidebar is display:none.
+          Folding them into this menu instead puts all four one click behind
+          the avatar at every width, not just >860px.
 
-          The other rows have somewhere else to be. Branch Management, User
-          Management and Logout are all in the sidebar, and the bottom nav's
-          More panel carries them below 860px where the sidebar is
-          display:none — so nothing is reachable only through the avatar.
-
-          The disc shows one letter, so title and the visually-hidden span
-          state who is signed in and where the link goes; that name and role
-          were what the panel's identity row said.
+          Native <details>, closed on outside-click/Escape by the shared
+          handler in sidebar.js — same pattern as the branch switcher
+          (partials/_branch_switch.html) and the bottom nav's More menu.
         {% endcomment %}
-        <a class="avatar-link{% if active_page == 'internal_settings' %} avatar-link--active{% endif %}"
-           href="{% url 'internal_settings' %}"
-           title="{{ request.user.get_full_name|default:request.user.username }} — My Profile">
-          <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
-          <span class="sr-only">My Profile — signed in as {{ request.user.get_full_name|default:request.user.username }}, {{ request.user.get_role_display }}</span>
-        </a>
+        <details class="avatar-menu" id="avatarMenu">
+          <summary class="avatar-menu-trigger{% if active_page == 'internal_settings' %} avatar-menu-trigger--active{% endif %}"
+             title="{{ request.user.get_full_name|default:request.user.username }} — Account menu">
+            <span class="avatar">{{ request.user.username|slice:":1"|upper }}</span>
+            <span class="sr-only">Account menu — signed in as {{ request.user.get_full_name|default:request.user.username }}, {{ request.user.get_role_display }}</span>
+          </summary>
+          <div class="avatar-menu-panel" role="menu">
+            <a role="menuitem" class="avatar-menu-link" href="{% url 'orders:catalog' %}" target="_blank" rel="noopener noreferrer">
+              <i data-lucide="store"></i> View Store
+            </a>
+            <a role="menuitem" class="avatar-menu-link" href="{% url 'download' %}">
+              <i data-lucide="download"></i> Download
+            </a>
+            <a role="menuitem" class="avatar-menu-link{% if active_page == 'internal_settings' %} is-current{% endif %}" href="{% url 'internal_settings' %}">
+              <i data-lucide="settings"></i> Settings
+            </a>
+            <a role="menuitem" class="avatar-menu-link avatar-menu-link--danger" href="{% url 'accounts:logout' %}">
+              <i data-lucide="log-out"></i> Logout
+            </a>
+          </div>
+        </details>
       </div>
     </header>
 

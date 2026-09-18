@@ -16,8 +16,14 @@ Context expected:
                         search/status/range already set — same idea as
                         _daterange.html's daterange_carry, in reverse.
                         Optional: an unset value renders as no extra params.
+  readonly              optional. When truthy, renders the plain chip (no
+                        menu) even though `branches` is non-empty — for a
+                        page like Floor Stock that already has its own
+                        branch tabs below, so the topbar wouldn't otherwise
+                        need a second, redundant way to switch. Still shows
+                        whichever branch is currently active.
 {% endcomment %}
-{% if branches %}
+{% if branches and not readonly %}
 <details class="branch-switch" id="branch-switch">
   <summary class="branch-chip branch-chip--menu">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
@@ -36,6 +42,6 @@ Context expected:
 {% else %}
 <span class="branch-chip">
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-  {% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}
+  {% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}
 </span>
 {% endif %}

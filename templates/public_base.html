@@ -208,12 +208,44 @@ white-on-white.
         is spoken, and "Notifications" alone tells a non-sighted shopper
         nothing about whether there is anything to read.
         {% endcomment %}
-        <a class="shop-icon-btn" href="{% url 'accounts:notifications' %}"
-           aria-label="{% t 'Notifications' %}{% if notification_count %} ({{ notification_count }} {% t 'unread' %}){% endif %}"
-           title="{% t 'Notifications' %}">
-          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          {% if notification_count %}<span class="shop-icon-badge">{{ notification_count }}</span>{% endif %}
-        </a>
+        {% comment %}
+        A floating glass tray, not a straight link to the full inbox — same
+        component the internal Owner topbar bell uses (see
+        internal_base.html and static/js/notification-tray.js, shared
+        verbatim by both). The script intercepts this click and opens
+        #notifTray in place, fetching this same href with X-Requested-With
+        so accounts:notifications returns a JSON fragment (see
+        accounts/views.py:notifications_view) instead of the full page. The
+        href is the no-JS/fetch-failure fallback straight to that page.
+
+        shop-icon-btn's own classes stay (badge position, icon size) —
+        .notif-tray-anchor/topbar-bell/notif-tray are additive, not a
+        replacement of the storefront's existing bell styling.
+        {% endcomment %}
+        <div class="notif-tray-anchor">
+          <a class="shop-icon-btn" href="{% url 'accounts:notifications' %}"
+             id="notifBell" aria-haspopup="true" aria-expanded="false"
+             aria-label="{% t 'Notifications' %}{% if notification_count %} ({{ notification_count }} {% t 'unread' %}){% endif %}"
+             title="{% t 'Notifications' %}">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            {% if notification_count %}<span class="shop-icon-badge" id="notifBadge">{{ notification_count }}</span>{% endif %}
+          </a>
+          <div class="notif-tray" id="notifTray" role="dialog" aria-label="{% t 'Notifications' %}" aria-hidden="true">
+            <div class="notif-tray-head">
+              <h2>{% t "Notifications" %}</h2>
+              <button type="button" class="notif-tray-markread" id="notifMarkAll"
+                      data-url="{% url 'accounts:mark_all_notifications_read' %}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
+                {% t "Mark all read" %}
+              </button>
+            </div>
+            <div class="notif-tray-list" id="notifList">
+              <div class="tray-empty">{% t "Loading…" %}</div>
+            </div>
+            <div class="notif-tray-foot"><a href="{% url 'accounts:notifications' %}">{% t "See full list" %}</a></div>
+          </div>
+          <div class="notif-tray-scrim" id="notifScrim"></div>
+        </div>
       {% endif %}
 
       {% comment %}
@@ -279,19 +311,8 @@ white-on-white.
         content was the thing clicking the menu should have done — so Shop
         becomes the plain link it is behaving as.
 
-        Two panes, the reference's shape: departments down the left, and the
-        shelves of whichever one is highlighted filling the panel to the
-        right. That is the whole reason the categories are a tree — a flat
-        drop-down of forty rows is a scrollbar, not a menu.
-
-        The left column is BUTTONS, not links, for any department that has
-        shelves. A link there would be unusable on a touch screen: the first
-        tap is the only tap, so it would navigate away before the flyout it
-        is supposed to open had ever been seen, putting every sub-category
-        out of reach on a phone. The department is still one click away —
-        it is the "Shop all of X" row at the top of its own pane, where a
-        tap can reach it. A department with no shelves has no pane to open,
-        so that one stays the plain link it behaves as.
+        One flat list of categories — every category is a peer of every
+        other one now, so there is nothing to disclose into a second pane.
         {% endcomment %}
         {% if nav_categories %}
         <div class="shop-menu" id="shop-menu">
@@ -325,83 +346,21 @@ white-on-white.
       off a nav item three quarters of the way across it.
       {% endcomment %}
       {% if nav_categories %}
-          <div class="shop-mega" id="shop-menu-panel">
-            <ul class="mega-depts">
+          <div class="shop-dropdown" id="shop-menu-panel">
+            <ul class="shop-dropdown-list">
               <li>
-                <a href="{% url 'orders:catalog' %}" class="mega-dept mega-dept-all">
+                <a href="{% url 'orders:catalog' %}" class="shop-dropdown-link shop-dropdown-link-all">
                   <strong>{% t "All products" %}</strong>
                 </a>
               </li>
               {% for c in nav_categories %}
               <li>
-                {% if c.subcategories %}
-                {% comment %}
-                aria-expanded, not aria-selected: this is a disclosure that
-                reveals a pane, and the pane stays in the DOM either way —
-                a screen reader needs to hear that pressing it opened
-                something, which "selected" does not say.
-                {% endcomment %}
-                <button type="button" class="mega-dept" data-mega-dept="{{ c.id }}"
-                        aria-expanded="false" aria-controls="mega-pane-{{ c.id }}">
-                  <span>{{ c.category_name }}</span>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mega-chev" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
-                </button>
-                {% else %}
-                <a href="{% url 'orders:catalog' %}?category={{ c.id }}" class="mega-dept">
-                  <span>{{ c.category_name }}</span>
+                <a href="{% url 'orders:catalog' %}?category={{ c.id }}" class="shop-dropdown-link">
+                  {{ c.category_name }}
                 </a>
-                {% endif %}
               </li>
               {% endfor %}
             </ul>
-
-            <div class="mega-panes">
-              {% comment %}
-              One pane per department that has shelves, all rendered and all
-              hidden but the open one. Rendering them up front rather than
-              fetching on hover is what makes the menu instant and keeps it
-              working with JavaScript off — the panes are already prefetched
-              alongside the departments (one query for the pair), so there is
-              nothing to fetch.
-
-              `hidden` rather than a display class, so the panes are out of
-              the accessibility tree and out of the tab order until opened —
-              otherwise Tab from the trigger would walk every shelf of every
-              department before reaching the next nav link.
-              {% endcomment %}
-              {% for c in nav_categories %}
-                {% if c.subcategories %}
-                <div class="mega-pane" id="mega-pane-{{ c.id }}" data-mega-pane="{{ c.id }}" hidden>
-                  <a class="mega-pane-head" href="{% url 'orders:catalog' %}?category={{ c.id }}">
-                    {{ c.category_name }}
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
-                  </a>
-                  <ul class="mega-subs">
-                    {% for s in c.subcategories %}
-                    <li><a href="{% url 'orders:catalog' %}?category={{ s.id }}">{{ s.category_name }}</a></li>
-                    {% endfor %}
-                  </ul>
-                  {% comment %}
-                  The reference closes each column with "View All Fresh
-                  Items". Ours says the department by name and lands on the
-                  same filtered catalog the heading above does — kept because
-                  at the bottom of a long flowed list the heading has scrolled
-                  out of reach of the eye, not because the two do different
-                  things.
-
-                  OUTSIDE the <ul>, not the last <li> in it. The list flows
-                  into three columns, and a final item inside it is placed by
-                  the column algorithm like any other — with two shelves in
-                  the department it landed at the top of column two, beside
-                  the shelves rather than under them. Out here it is a block
-                  after the columns, which is the one position that reads as
-                  "and the rest" no matter how many shelves there are.
-                  {% endcomment %}
-                  <a class="mega-sub-all" href="{% url 'orders:catalog' %}?category={{ c.id }}">{% t "View all" %} {{ c.category_name }}</a>
-                </div>
-                {% endif %}
-              {% endfor %}
-            </div>
           </div>
       {% endif %}
 
@@ -537,10 +496,13 @@ own when it grew a second pane — it is no longer the six lines a toggle takes,
 and inline script is the one thing on this page that cannot be cache-busted
 by APP_VERSION or read in a stack trace by name.
 {% endcomment %}
-<script src="{% static 'js/shop-mega-menu.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/shop-menu.js' %}?v={{ APP_VERSION }}" defer></script>
 
 <script src="{% static 'js/live-search.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/toast.js' %}?v={{ APP_VERSION }}"></script>
+{% if request.user.is_authenticated %}
+<script src="{% static 'js/notification-tray.js' %}?v={{ APP_VERSION }}" defer></script>
+{% endif %}
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/pwa.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/qty-stepper.js' %}?v={{ APP_VERSION }}" defer></script>

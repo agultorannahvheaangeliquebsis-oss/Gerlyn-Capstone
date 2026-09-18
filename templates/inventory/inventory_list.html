@@ -5,14 +5,14 @@
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% elif active_branch %}{{ active_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% comment %}
-Top-bar branch switcher — turns the static scope chip into a menu of every
-branch, for the Owner only. Manager/Staff are branch-pinned server-side, so
-`branches` is empty for them and they keep the plain label. Each item just
-sets ?branch=; branch_switch_carry (the q/category/status filters) rides
-along so switching branch keeps the rest of the toolbar. Shared component —
-see partials/_branch_switch.html.
+Top-bar chip — read-only here (readonly=True) since the .scopebar tabs
+below are the branch switcher for this page; a second, independent dropdown
+in the topbar that did the same thing was confusing. The chip still tracks
+whichever branch tab is active, because that's a full navigation and
+filter_branch is recomputed server-side. Shared component — see
+partials/_branch_switch.html.
 {% endcomment %}
-{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" with readonly=True %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -74,10 +74,16 @@ see partials/_branch_switch.html.
     <p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% elif active_branch %} — {{ active_branch.branch_name }}{% else %} across all branches{% endif %}</p>
   </div>
   {% if can_adjust %}
-  <button type="button" class="btn btn-primary" id="open-adjust-modal">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    Stock Adjustment
-  </button>
+  <div class="row" style="gap:8px;">
+    {% if request.user.role == 'OWNER' %}
+    <a class="btn" href="{% url 'opening_stock_import' %}">Import Opening Stock</a>
+    <a class="btn" href="{% url 'opening_stock_import_history' %}">Import History</a>
+    {% endif %}
+    <button type="button" class="btn btn-primary" id="open-adjust-modal">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Stock Adjustment
+    </button>
+  </div>
   {% endif %}
 </div>
 
@@ -314,9 +320,9 @@ across the full width leave the default block padding as empty card.
     <form method="POST" action="{% url 'stock_adjustment_add' %}" class="modal-body" id="adjust-form">
       {% csrf_token %}
       <p class="gv-meta" style="margin:0;">
-        Adds directly to floor stock — for initial seeding, or for topping up a
-        count that came up short. Stock arriving from a supplier should go
-        through a Stock Withdrawal instead, so it stays traceable to a delivery.
+        Adds directly to floor stock for an individual count correction.
+        Use Import Opening Stock for migration; stock arriving from a supplier
+        should go through a Stock Withdrawal so it stays traceable to a delivery.
       </p>
 
       <div class="field">
