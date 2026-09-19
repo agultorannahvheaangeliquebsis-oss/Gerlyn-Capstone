@@ -581,6 +581,15 @@ def transaction_set_status(request, pk, new_status):
                 locked_txn.cancel_reason = cancel_reason
             locked_txn.save()
 
+            if (
+                new_status == SalesTransaction.OrderStatus.COMPLETED
+                and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE
+                and locked_txn.fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
+            ):
+                from .notifications import notify_order_delivered
+
+                notify_order_delivered(locked_txn, request.user)
+
             if new_status == SalesTransaction.OrderStatus.CANCELLED:
                 # Keep billing in step — this is the one field
                 # transaction_set_status doesn't already own, so it used to

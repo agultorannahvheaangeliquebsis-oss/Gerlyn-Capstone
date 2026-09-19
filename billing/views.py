@@ -499,7 +499,9 @@ def billing_confirm(request, pk):
 
         if new_status == BillingRecord.PaymentStatus.REJECTED:
             from core.module_permissions import BILLING as BILLING_MODULE
-            from core.notifications import CATEGORY_SALES, PRIORITY_HIGH, notify
+            from core.notifications import (
+                CATEGORY_SALES, EVENT_PAYMENT_REJECTED, PRIORITY_HIGH, notify,
+            )
 
             txn = record.transaction
             notify(
@@ -511,6 +513,22 @@ def billing_confirm(request, pk):
                 action_url=reverse('billing_detail', kwargs={'pk': record.pk}),
                 action_label='View Billing Record',
                 required_module=BILLING_MODULE,
+                event_type=EVENT_PAYMENT_REJECTED,
+                reference_type='billing_record', reference_id=record.pk,
+                exclude_user=request.user,
+            )
+
+        if new_status in {
+            BillingRecord.PaymentStatus.PAID,
+            BillingRecord.PaymentStatus.REJECTED,
+        }:
+            from .notifications import notify_payment_decision
+
+            # Rejection already reached the internal audience immediately
+            # above; this call adds the customer. Paid only has a customer
+            # audience in the matrix.
+            notify_payment_decision(
+                locked, request.user, include_internal=False
             )
 
     return redirect('billing_detail', pk=pk)

@@ -33,6 +33,10 @@ running before those apps are ready.
 """
 from decimal import Decimal
 
+from core.module_permissions import (
+    ALERTS, BILLING, DELIVERIES, FLOOR_STOCK, WAREHOUSE_STOCK,
+)
+
 CATEGORY_STAFF = 'staff'
 CATEGORY_PROCUREMENT = 'procurement'
 CATEGORY_SALES = 'sales'
@@ -42,6 +46,92 @@ PRIORITY_CRITICAL = 'critical'
 PRIORITY_HIGH = 'high'
 PRIORITY_MEDIUM = 'medium'
 PRIORITY_LOW = 'low'
+
+# Stable event names.  These mirror Notification.EventType without importing
+# the accounts model while Django is still loading applications.
+EVENT_LOW_STOCK = 'low_stock'
+EVENT_NEAR_EXPIRY = 'near_expiry'
+EVENT_PO_APPROVED = 'po_approved'
+EVENT_INCOMING_DELIVERY = 'incoming_delivery'
+EVENT_ORDER_DELIVERED = 'order_delivered'
+EVENT_PAYMENT_VERIFIED = 'payment_verified'
+EVENT_PAYMENT_REJECTED = 'payment_rejected'
+
+# Executable notification matrix.  ``internal`` means all active Owners plus
+# the branch's active Manager/Staff accounts that can access required_module.
+# Relational audiences are supplied by the call site (for example, the
+# Procurement's creator/supplier or a SalesTransaction's customer).
+#
+# ``when`` and ``recipients`` are intentionally kept here with the routing
+# data.  This makes the policy reviewable without reconstructing it from a
+# collection of views and signals; notify_event() consumes the other keys.
+EVENT_MATRIX = {
+    EVENT_LOW_STOCK: {
+        'when': 'Floor or warehouse stock crosses from above to at/below its reorder level.',
+        'recipients': 'Owner; branch Manager/Staff with the affected Floor/Warehouse Stock access.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'priority_note': 'Medium at/below reorder level; Critical at zero units.',
+        'required_module': FLOOR_STOCK,
+        'allowed_modules': (FLOOR_STOCK, WAREHOUSE_STOCK),
+        'exclude_actor': False,
+    },
+    EVENT_NEAR_EXPIRY: {
+        'when': 'A positive-quantity batch first enters the next 30 days before expiry.',
+        'recipients': 'Owner; branch Manager/Staff with Alerts access.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_HIGH,
+        'required_module': ALERTS,
+        'exclude_actor': False,
+    },
+    EVENT_PO_APPROVED: {
+        'when': 'The Owner authorizes a Draft purchase order into Ordered.',
+        'recipients': 'The PO requester and supplier; never duplicate the approving actor.',
+        'audiences': ('requester', 'supplier'),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_INCOMING_DELIVERY: {
+        'when': 'The supplier confirms or changes the expected delivery date.',
+        'recipients': 'Owner; branch Manager/Staff with Deliveries access.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': DELIVERIES,
+        'exclude_actor': True,
+    },
+    EVENT_ORDER_DELIVERED: {
+        'when': 'An online Delivery order moves to Completed.',
+        'recipients': 'The customer who placed the order.',
+        'audiences': ('customer',),
+        'category': CATEGORY_SALES,
+        'priority': PRIORITY_LOW,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_PAYMENT_VERIFIED: {
+        'when': 'A payment moves from Pending to Paid.',
+        'recipients': 'The customer attached to the order.',
+        'audiences': ('customer',),
+        'category': CATEGORY_SALES,
+        'priority': PRIORITY_LOW,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_PAYMENT_REJECTED: {
+        'when': 'A payment moves from Pending to Rejected.',
+        'recipients': 'Customer; Owner; branch Manager/Staff with Billing access.',
+        'audiences': ('customer', 'internal'),
+        'category': CATEGORY_SALES,
+        'priority': PRIORITY_HIGH,
+        'required_module': BILLING,
+        'exclude_actor': True,
+    },
+}
 
 # Priorities that stay pinned as unresolved until the Owner acts on them,
 # rather than clearing the moment they're opened.
@@ -80,7 +170,8 @@ def _recipients(branch=None, required_module=None):
 
 
 def notify(category, priority, title, message, branch=None,
-           action_url='', action_label='', required_module=None):
+           action_url='', action_label='', required_module=None,
+           event_type='', reference_type='', reference_id='', exclude_user=None):
     """
     Create one Notification per recipient (see _recipients). Returns how
     many rows were written.
@@ -98,6 +189,9 @@ def notify(category, priority, title, message, branch=None,
     from accounts.models import Notification
 
     recipients = _recipients(branch, required_module)
+    excluded_id = getattr(exclude_user, 'pk', None)
+    if excluded_id is not None:
+        recipients = [user for user in recipients if user.pk != excluded_id]
     if not recipients:
         return 0
 
@@ -107,6 +201,9 @@ def notify(category, priority, title, message, branch=None,
             category=category, priority=priority, branch=branch,
             action_url=action_url, action_label=action_label,
             requires_action=priority in _REQUIRES_ACTION,
+            event_type=event_type, recipient_role=user.role,
+            reference_type=reference_type,
+            reference_id=str(reference_id) if reference_id is not None else '',
         )
         for user in recipients
     ]
@@ -115,7 +212,8 @@ def notify(category, priority, title, message, branch=None,
 
 
 def notify_supplier(supplier, priority, title, message,
-                     action_url='', action_label=''):
+                     action_url='', action_label='', event_type='',
+                     reference_type='', reference_id=''):
     """
     One notification straight to a specific Supplier user.
 
@@ -146,5 +244,123 @@ def notify_supplier(supplier, priority, title, message,
         category=CATEGORY_PROCUREMENT, priority=priority,
         action_url=action_url, action_label=action_label,
         requires_action=False,
+        event_type=event_type, recipient_role=supplier.role,
+        reference_type=reference_type,
+        reference_id=str(reference_id) if reference_id is not None else '',
     )
     return 1
+
+
+def notify_event(event_type, title, message, *, branch=None, actor=None,
+                 related_users=None, action_url='', action_label='',
+                 reference_type='', reference_id='', audience_overrides=None,
+                 deduplicate=False, priority=None, audiences=None,
+                 required_module=None):
+    """Dispatch one matrix event and return the number of rows created.
+
+    ``related_users`` supplies relational audiences named by the rule, such
+    as ``{'customer': transaction.customer}`` or
+    ``{'requester': procurement.created_by, 'supplier': procurement.supplier}``.
+    ``audience_overrides`` can give one audience its portal-specific title,
+    message or link while preserving one recipient policy.  Expiry scans use
+    ``deduplicate=True`` so the daily command creates at most one notice per
+    recipient and batch.
+    """
+    from accounts.models import Notification, User
+
+    try:
+        rule = EVENT_MATRIX[event_type]
+    except KeyError as exc:
+        raise ValueError(f'Unknown notification event: {event_type}') from exc
+
+    related_users = related_users or {}
+    audience_overrides = audience_overrides or {}
+    selected_priority = priority or rule['priority']
+    selected_module = required_module or rule['required_module']
+    allowed_modules = rule.get('allowed_modules')
+    if required_module and (
+        allowed_modules is None or required_module not in allowed_modules
+    ):
+        raise ValueError(
+            f'{event_type} cannot be routed through module {required_module}'
+        )
+    candidates = []
+
+    selected_audiences = tuple(audiences or rule['audiences'])
+    invalid_audiences = set(selected_audiences) - set(rule['audiences'])
+    if invalid_audiences:
+        raise ValueError(
+            f'{event_type} does not route to: {sorted(invalid_audiences)}'
+        )
+
+    for audience in selected_audiences:
+        if audience == 'internal':
+            candidates.extend(
+                (audience, user)
+                for user in _recipients(branch, selected_module)
+            )
+            continue
+
+        users = related_users.get(audience)
+        if users is None:
+            continue
+        if isinstance(users, User):
+            users = (users,)
+        candidates.extend((audience, user) for user in users if user is not None)
+
+    # One row per recipient even if a person appears in two audiences (for
+    # example an Owner who both raised and approved their own PO).
+    seen_user_ids = set()
+    rows = []
+    ref_id = str(reference_id) if reference_id is not None else ''
+    actor_id = getattr(actor, 'pk', None)
+    for audience, user in candidates:
+        if not user.is_active or user.pk in seen_user_ids:
+            continue
+        if rule['exclude_actor'] and actor_id == user.pk:
+            continue
+        seen_user_ids.add(user.pk)
+
+        if deduplicate and Notification.objects.filter(
+            user=user,
+            event_type=event_type,
+            reference_type=reference_type,
+            reference_id=ref_id,
+        ).exists():
+            continue
+
+        content = audience_overrides.get(audience, {})
+        row_title = content.get('title', title)
+        row_message = content.get('message', message)
+        row_url = content.get('action_url', action_url)
+        row_label = content.get('action_label', action_label)
+
+        is_customer = user.role == User.Role.CUSTOMER
+        is_supplier = user.role == User.Role.SUPPLIER
+        category = '' if is_customer else rule['category']
+        if is_supplier:
+            category = CATEGORY_PROCUREMENT
+        requires_action = (
+            not is_customer and not is_supplier
+            and selected_priority in _REQUIRES_ACTION
+        )
+
+        rows.append(Notification(
+            user=user,
+            title=row_title,
+            message=row_message,
+            category=category,
+            priority=selected_priority,
+            branch=branch if not is_customer and not is_supplier else None,
+            action_url=row_url,
+            action_label=row_label,
+            requires_action=requires_action,
+            event_type=event_type,
+            recipient_role=user.role,
+            reference_type=reference_type,
+            reference_id=ref_id,
+        ))
+
+    if rows:
+        Notification.objects.bulk_create(rows)
+    return len(rows)

@@ -146,4 +146,11 @@ class BillingConfirmSerializer(serializers.Serializer):
             instance.confirmed_by = self.context['request'].user
             instance.date_confirmed = timezone.now()
         instance.save()
+        if new_status in {
+            BillingRecord.PaymentStatus.PAID,
+            BillingRecord.PaymentStatus.REJECTED,
+        }:
+            from .notifications import notify_payment_decision
+
+            notify_payment_decision(instance, self.context['request'].user)
         return instance

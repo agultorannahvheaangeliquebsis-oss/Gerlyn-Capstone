@@ -377,6 +377,24 @@ class Notification(models.Model):
         MEDIUM = 'medium', 'Medium'
         LOW = 'low', 'Low'
 
+    class EventType(models.TextChoices):
+        """Stable business-event codes used by the notification matrix.
+
+        ``GENERAL`` keeps customer notices and historical rows created before
+        the matrix valid.  Operational alerts should use one of the named
+        events so the database records *why* a row exists, independently of
+        wording that may later change.
+        """
+
+        GENERAL = '', 'General'
+        LOW_STOCK = 'low_stock', 'Low stock'
+        NEAR_EXPIRY = 'near_expiry', 'Near expiry'
+        PO_APPROVED = 'po_approved', 'Purchase order approved'
+        INCOMING_DELIVERY = 'incoming_delivery', 'Incoming delivery'
+        ORDER_DELIVERED = 'order_delivered', 'Order delivered'
+        PAYMENT_VERIFIED = 'payment_verified', 'Payment verified'
+        PAYMENT_REJECTED = 'payment_rejected', 'Payment rejected'
+
     user = models.ForeignKey(
         User, on_delete=models.CASCADE,
         related_name='notifications'
@@ -385,6 +403,24 @@ class Notification(models.Model):
     message = models.TextField()
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the recipient first marked this notification read.",
+    )
+
+    # Stable audit metadata.  The human title/message can change without
+    # losing which event produced the row or which business record it was
+    # about. recipient_role is deliberately a snapshot: a later role change
+    # must not rewrite who received the notice at the time it was sent.
+    event_type = models.CharField(
+        max_length=40, choices=EventType.choices, blank=True, default='',
+        db_index=True,
+    )
+    recipient_role = models.CharField(
+        max_length=20, choices=User.Role.choices, blank=True, default='',
+    )
+    reference_type = models.CharField(max_length=40, blank=True, default='')
+    reference_id = models.CharField(max_length=64, blank=True, default='')
 
     # --- Owner Notification Center fields ------------------------------
     category = models.CharField(
@@ -423,5 +459,7 @@ class Notification(models.Model):
 
     def resolve(self):
         self.is_read = True
-        self.resolved_at = timezone.now()
-        self.save(update_fields=['is_read', 'resolved_at'])
+        now = timezone.now()
+        self.read_at = self.read_at or now
+        self.resolved_at = now
+        self.save(update_fields=['is_read', 'read_at', 'resolved_at'])

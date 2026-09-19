@@ -374,6 +374,7 @@ Product Master List's image-delete confirm).
   (function () {
     function applyHash() {
       if (window.location.hash === '#expiring') showTab('expired');
+      else if (window.location.hash === '#soon') showTab('soon');
       else if (window.location.hash === '#warehouse') showTab('warehouse');
       else showTab('floor');
     }

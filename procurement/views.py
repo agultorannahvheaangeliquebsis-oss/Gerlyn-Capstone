@@ -409,6 +409,9 @@ def procurement_add(request):
         proc.save()
 
     if is_owner:
+        from .notifications import notify_po_approved
+
+        notify_po_approved(proc, request.user)
         # Same opt-in bottom-sheet as the Cancelled confirmation below and in
         # procurement_approve's Draft -> Ordered step — the Owner raising a
         # PO authorizes it in the same act (see the comment above), so it
@@ -486,7 +489,7 @@ def procurement_update_status(request, pk):
             # Branch Manager whose PO was forced to Draft could simply pick
             # "Ordered" from this form and approve their own spend. Routed to
             # procurement_approve instead, which records owner/authorized_at —
-            # this view writes neither.
+            # this endpoint records that same audit pair below for an Owner.
             if (locked.status == Procurement.Status.DRAFT
                     and new_status == Procurement.Status.ORDERED
                     and request.user.role != User.Role.OWNER):
@@ -497,7 +500,14 @@ def procurement_update_status(request, pk):
                 )
                 return redirect('procurement_detail', pk=pk)
 
+            is_approval = (
+                locked.status == Procurement.Status.DRAFT
+                and new_status == Procurement.Status.ORDERED
+            )
             locked.status = new_status
+            if is_approval:
+                locked.owner = request.user
+                locked.authorized_at = timezone.now()
             locked.save()
 
         # Cancellation gets the bottom-sheet (extra_tags='sheet', same opt-in
@@ -509,6 +519,11 @@ def procurement_update_status(request, pk):
             request, f'{proc.po_number} is now {new_status}.',
             extra_tags='sheet' if new_status == Procurement.Status.CANCELLED else '',
         )
+
+        if is_approval:
+            from .notifications import notify_po_approved
+
+            notify_po_approved(locked, request.user)
 
         if new_status == Procurement.Status.CANCELLED:
             from core.module_permissions import PROCUREMENT
@@ -605,19 +620,12 @@ def procurement_approve(request, pk):
         f'{proc.po_number} approved and is now Ordered.'
     )
 
-    from core.notifications import PRIORITY_MEDIUM, notify_supplier
+    from .notifications import notify_po_approved
 
     # This approval is the moment the order first becomes real to the
     # supplier — supplier_portal excludes Draft POs entirely, so before now
     # they had no way to know this order existed.
-    notify_supplier(
-        proc.supplier, PRIORITY_MEDIUM,
-        f'New purchase order: {proc.po_number}',
-        f'Gerlyn Variety Store placed {proc.po_number} with you for '
-        f'delivery to {proc.branch.branch_name}.',
-        action_url=reverse('supplier_portal'),
-        action_label='View order',
-    )
+    notify_po_approved(proc, request.user)
 
     return redirect('procurement_detail', pk=pk)
 
@@ -1176,12 +1184,20 @@ def supplier_set_delivery_date(request, pk):
         if not new_date:
             messages.error(request, 'Please choose a delivery date.')
             return redirect('supplier_portal')
+        date_changed = str(proc.delivery_date or '') != new_date
         proc.delivery_date = new_date
-        proc.save()
+        proc.save(update_fields=['delivery_date'])
         messages.success(
             request,
             f'Thanks — {proc.po_number} is confirmed for delivery on {new_date}.'
         )
+        if date_changed:
+            # Re-read so delivery_date is a date object for consistent
+            # formatting in the notification message.
+            proc.refresh_from_db(fields=['delivery_date'])
+            from .notifications import notify_incoming_delivery
+
+            notify_incoming_delivery(proc, request.user)
 
     return redirect('supplier_portal')
 
@@ -1256,7 +1272,8 @@ def supplier_notification_mark_read(request, pk):
     notification = get_object_or_404(request.user.notifications, pk=pk)
     if not notification.is_read:
         notification.is_read = True
-        notification.save(update_fields=['is_read'])
+        notification.read_at = timezone.now()
+        notification.save(update_fields=['is_read', 'read_at'])
     if _is_xhr(request):
         return JsonResponse(_supplier_notification_counts(
             request.user.notifications.filter(category=Notification.Category.PROCUREMENT)
@@ -1273,7 +1290,7 @@ def supplier_notification_mark_all_read(request):
 
     updated = request.user.notifications.filter(
         category=Notification.Category.PROCUREMENT, is_read=False
-    ).update(is_read=True)
+    ).update(is_read=True, read_at=timezone.now())
     if _is_xhr(request):
         return JsonResponse(_supplier_notification_counts(
             request.user.notifications.filter(category=Notification.Category.PROCUREMENT)
@@ -1776,7 +1793,26 @@ class ProcurementStatusUpdateAPIView(APIView):
                     {'detail': f"Cannot transition from '{locked_proc.status}' to '{new_status}'."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            if (
+                locked_proc.status == Procurement.Status.DRAFT
+                and new_status == Procurement.Status.ORDERED
+                and request.user.role != User.Role.OWNER
+            ):
+                return Response(
+                    {'detail': 'Only the Owner can approve a draft purchase order.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             updated = serializer.update(locked_proc, serializer.validated_data)
+
+            if new_status == Procurement.Status.ORDERED:
+                updated.owner = request.user
+                updated.authorized_at = timezone.now()
+                updated.save(update_fields=['owner', 'authorized_at'])
+
+        if new_status == Procurement.Status.ORDERED:
+            from .notifications import notify_po_approved
+
+            notify_po_approved(updated, request.user)
 
         read_serializer = ProcurementReadSerializer(updated)
         return Response(read_serializer.data)

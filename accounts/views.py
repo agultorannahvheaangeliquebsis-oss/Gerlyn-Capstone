@@ -1622,7 +1622,8 @@ def mark_notification_read(request, pk):
             messages.info(request, "That notification was already marked as read.")
     else:
         notification.is_read = True
-        notification.save(update_fields=['is_read'])
+        notification.read_at = timezone.now()
+        notification.save(update_fields=['is_read', 'read_at'])
         if not _is_xhr(request):
             messages.success(request, "Marked as read.")
     if _is_xhr(request):
@@ -1643,7 +1644,9 @@ def mark_all_notifications_read(request):
     the storefront, so an inbox nobody clears is a number that follows the
     shopper around the shop forever.
     """
-    updated = request.user.notifications.filter(is_read=False).update(is_read=True)
+    updated = request.user.notifications.filter(is_read=False).update(
+        is_read=True, read_at=timezone.now()
+    )
     if _is_xhr(request):
         return JsonResponse({
             'needs_action_count': request.user.notifications.filter(is_read=False).count(),

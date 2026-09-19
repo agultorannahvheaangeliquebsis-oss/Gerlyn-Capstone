@@ -173,6 +173,13 @@ views can never drift apart.
 
 ---
 
+## Notification operations
+
+The event, recipient-role, timing, priority, and reference rules are defined
+in [`docs/notification-matrix.md`](docs/notification-matrix.md). Run
+`python manage.py dispatch_notifications` once per day so batches that age
+into the 30-day expiry window receive an alert; the command is idempotent.
+
 ## Scope limitations (per Chapter 1)
 
 The following are intentionally **out of scope**:

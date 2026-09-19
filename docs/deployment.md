@@ -128,6 +128,20 @@ DJANGO_DEBUG=False DJANGO_SECRET_KEY=<a-real-key> python manage.py check --deplo
 
 ---
 
+## Schedule time-based notifications
+
+Create a Railway cron service from this repository with this command:
+
+```bash
+python manage.py dispatch_notifications
+```
+
+Run it once daily, ideally shortly after midnight Asia/Manila. State-change
+alerts fire immediately in the web service; this idempotent job only catches
+batches that entered the 30-day expiry window as time passed.
+
+---
+
 ## Test it in production mode locally first
 
 Do this **before** deploying — it catches nearly everything:

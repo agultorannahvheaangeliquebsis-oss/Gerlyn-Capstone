@@ -57,6 +57,7 @@ Only batches with an expiry_date set are ever considered.
 from datetime import timedelta
 
 from django.db.models import F, Sum
+from django.urls import reverse
 from django.utils import timezone
 
 from .models import Batch, Inventory, WarehouseStock
@@ -250,6 +251,52 @@ def expiry_alerts(branch_ids=None):
     for rows in tiers.values():
         rows.sort(key=lambda r: r["expiry_date"])
     return tiers
+
+
+def notify_near_expiry(batch):
+    """Create the matrix notification when one batch is within 30 days.
+
+    Idempotent per recipient and batch.  The Batch post-save signal covers
+    stock that arrives already close to expiry; ``dispatch_notifications``
+    calls this daily so older batches are picked up when time moves them into
+    the window.
+    """
+    today = timezone.localdate()
+    if (
+        batch.quantity <= 0
+        or batch.expiry_date is None
+        or not (today < batch.expiry_date <= today + timedelta(days=EXPIRING_SOON_DAYS))
+    ):
+        return 0
+
+    from core.notifications import EVENT_NEAR_EXPIRY, notify_event
+
+    days = (batch.expiry_date - today).days
+    location = 'floor' if batch.location == Batch.Location.FLOOR else 'warehouse'
+    return notify_event(
+        EVENT_NEAR_EXPIRY,
+        f'{batch.product.product_name} expires in {days} day{"" if days == 1 else "s"}',
+        f'{batch.quantity} unit{"" if batch.quantity == 1 else "s"} of '
+        f'{batch.product.product_name} at {batch.branch.branch_name} '
+        f'({location}) expires on {batch.expiry_date:%Y-%m-%d}.',
+        branch=batch.branch,
+        action_url=f'{reverse("alerts_center")}#soon',
+        action_label='Review Expiry',
+        reference_type='batch',
+        reference_id=batch.pk,
+        deduplicate=True,
+    )
+
+
+def dispatch_near_expiry_notifications():
+    """Materialize all due near-expiry alerts; return created row count."""
+    today = timezone.localdate()
+    batches = Batch.objects.filter(
+        quantity__gt=0,
+        expiry_date__gt=today,
+        expiry_date__lte=today + timedelta(days=EXPIRING_SOON_DAYS),
+    ).select_related('product', 'branch')
+    return sum(notify_near_expiry(batch) for batch in batches)
 
 
 def batch_inventory_mismatches(branch_ids=None):

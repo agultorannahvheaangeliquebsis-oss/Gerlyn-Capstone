@@ -3,6 +3,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.template.loader import render_to_string
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.permissions import INTERNAL_ROLES, OWNER, role_required
@@ -456,7 +457,8 @@ def notification_mark_read(request, pk):
     notification = get_object_or_404(request.user.notifications, pk=pk)
     if not notification.is_read:
         notification.is_read = True
-        notification.save(update_fields=['is_read'])
+        notification.read_at = timezone.now()
+        notification.save(update_fields=['is_read', 'read_at'])
     if _is_xhr(request):
         return JsonResponse(_notification_counts(request.user.notifications.exclude(category='')))
     return redirect('notification_center')
@@ -483,9 +485,10 @@ def notification_resolve(request, pk):
 @require_POST
 @role_required(*INTERNAL_ROLES)
 def notification_mark_all_read(request):
+    now = timezone.now()
     updated = request.user.notifications.exclude(category='').filter(
         is_read=False
-    ).update(is_read=True)
+    ).update(is_read=True, read_at=now)
     if _is_xhr(request):
         return JsonResponse(_notification_counts(request.user.notifications.exclude(category='')))
     if updated:
