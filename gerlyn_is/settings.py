@@ -176,8 +176,12 @@ B2_ENDPOINT = os.environ.get('B2_ENDPOINT', '')
 # 32 random bytes, url-safe base64. Backups are encrypted with a key derived
 # from this before they leave the server; without it they cannot be read.
 BACKUP_ENCRYPTION_KEY = os.environ.get('BACKUP_ENCRYPTION_KEY', '')
-# Shared secret the daily cron service presents to trigger a backup. Unset =
-# the trigger endpoint does not exist (404).
+# The web service runs the daily backup itself (backups/scheduler.py) at this
+# hour, UTC (19 = 03:00 Manila). BACKUP_SCHEDULER=False turns that off.
+BACKUP_SCHEDULER = env_bool('BACKUP_SCHEDULER', True)
+BACKUP_SCHEDULE_HOUR_UTC = int(os.environ.get('BACKUP_SCHEDULE_HOUR_UTC', '19'))
+# OPTIONAL: lets an external cron start a backup over HTTP (not needed while
+# the built-in schedule is on). Unset = that endpoint does not exist (404).
 BACKUP_TRIGGER_TOKEN = os.environ.get('BACKUP_TRIGGER_TOKEN', '')
 # The command-line tools, if they are not on PATH (e.g. on Windows).
 BACKUP_MYSQLDUMP = os.environ.get('BACKUP_MYSQLDUMP', 'mysqldump')

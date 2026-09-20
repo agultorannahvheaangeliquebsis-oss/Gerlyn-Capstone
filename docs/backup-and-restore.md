@@ -28,7 +28,7 @@ holds ciphertext.
 
 | | |
 |---|---|
-| Runs | Daily at **03:00 Manila time** (19:00 UTC), by the Railway cron service |
+| Runs | Daily at **03:00 Manila time** (19:00 UTC), started by the web service itself (`backups/scheduler.py`). A failed attempt is retried after 30 minutes, up to 3 times a day. If the app was down at that moment, the backup is taken as soon as it is back up. |
 | `daily/` | kept **14 days** |
 | `weekly/` (Sundays, UTC) | kept **8 weeks** |
 | `monthly/` (the 1st, UTC) | kept **12 months** |
@@ -54,8 +54,9 @@ the app's key cannot delete anything. Rules: `daily/` 14, `weekly/` 56,
   two offline copies (password manager + printed, stored safely).
 - **Backblaze account:** two-factor authentication on. Nobody else has the login.
 - **App access:** Backup Status and "Run backup now" are Owner (and Django
-  superuser) only. The daily trigger URL needs the secret `BACKUP_TRIGGER_TOKEN`
-  (sent as a Bearer header, never in the URL) and does not exist when it is unset.
+  superuser) only. The optional external trigger URL (§4) needs the secret
+  `BACKUP_TRIGGER_TOKEN` (sent as a Bearer header, never in the URL) and does not
+  exist when it is unset.
 - **Rotation:** rotate both Backblaze keys and the trigger token once a year, or
   immediately if a laptop or a Railway seat is lost. Rotating the *encryption*
   key makes older backups unreadable with the new key — keep the old key with the
@@ -76,27 +77,26 @@ application keys. Note the bucket **endpoint** (Buckets → your bucket, e.g.
 | `B2_KEY_ID` / `B2_APPLICATION_KEY` | the **writer** key |
 | `B2_BUCKET` | `gerlyn-backups` |
 | `BACKUP_ENCRYPTION_KEY` | from `python -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"` — save the offline copies first |
-| `BACKUP_TRIGGER_TOKEN` | any long random string, e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 
-`mysqldump` comes from `nixpacks.toml` (installs the MySQL client on deploy).
+That is all. `mysqldump` comes from `nixpacks.toml` (installs the MySQL client on
+deploy), and the schedule runs inside the web service — **there is no separate
+cron service to create.** Optional settings: `BACKUP_SCHEDULER=False` (turn the
+schedule off), `BACKUP_SCHEDULE_HOUR_UTC` (default `19`), `BACKUP_STALE_HOURS`
+(default `26`).
 
-### Railway — the cron service
-1. Project → **New** → **GitHub Repo** → pick the same repo. Name it `backup-cron`.
-2. **Settings → Config-as-code → Railway Config File**: `/railway.cron.json`
-   (holds the schedule `0 19 * * *` = 03:00 Manila, and the start command).
-   *Do not* add a cron schedule to the web service itself.
-3. **Variables** (only these two):
-   - `BACKUP_TRIGGER_URL` = `https://<your-app>.up.railway.app/monitoring/backups/trigger/`
-   - `BACKUP_TRIGGER_TOKEN` = the same value as on the web service
-4. Deploy. It runs at the scheduled time, asks the web service to start a backup
-   (the web service has the Volume) and exits. A failed trigger shows as a failed
-   cron run in Railway.
+### Optional: an external scheduler
+Not needed. If you would rather have Railway trigger backups, set
+`BACKUP_TRIGGER_TOKEN` on the web service and create a second service from this
+repo with config file `/railway.cron.json` and variables `BACKUP_TRIGGER_URL`
+(`https://<your-app>/monitoring/backups/trigger/`) and the same token. Then set
+`BACKUP_SCHEDULER=False` on the web service so two schedulers don't both fire.
 
 ### First check
 Open **System & Monitoring → Backups**. Every row of the *Setup check* should be
-**OK** (in particular *mysqldump*). Press **Run backup now**, refresh after a
-minute: four rows should show *Succeeded*, and `daily/` in the Backblaze bucket
-should hold four `.enc` files.
+**OK** (in particular *mysqldump* and *Automatic schedule*). Press **Run backup
+now**, refresh after a minute: four rows should show *Succeeded*, and `daily/` in
+the Backblaze bucket should hold four `.enc` files. The page shows the time of the
+next automatic backup.
 
 ## 5. Monitoring
 
@@ -193,9 +193,8 @@ On your **laptop** (needs the MySQL command-line tools; set `BACKUP_MYSQLDUMP` /
 | Setup check: *mysqldump* not found | The deploy hasn't picked up `nixpacks.toml` yet, or the base image lacks the package. Check the build log; run `mysqldump --version` in the Shell. |
 | Setup check: Backblaze storage not set | A `B2_*` Variable is missing on the **web** service. |
 | Backup fails with `AccessDenied` | Wrong/expired writer key, or the key isn't restricted to this bucket. |
-| Cron run fails `HTTP 403` | `BACKUP_TRIGGER_TOKEN` differs between the two services. |
-| Cron run fails `HTTP 404` | `BACKUP_TRIGGER_TOKEN` isn't set on the web service, or the URL is wrong. |
-| Cron run fails `HTTP 409` | A backup was already running (normal if triggered twice). |
+| No backup appeared at 03:00 | Check *Automatic schedule* is OK (`BACKUP_SCHEDULER` not `False`) and look in the web service logs for `Scheduled backup started`. A failed attempt shows on the page and is retried twice more. |
+| External trigger fails `HTTP 403` / `404` / `409` | Token differs between the services / token not set on the web service or wrong URL / a backup was already running. |
 | Restore: "Decryption failed: wrong BACKUP_ENCRYPTION_KEY" | Different key than the one the backup was made with. Use the offline copy. |
 | Restore: "checksum does not match" | The download was corrupted or the file was altered; try again, or use another day's backup. |
 | Backup stays "Running" for hours | The process was killed (redeploy). It is marked failed automatically after 3 hours. |

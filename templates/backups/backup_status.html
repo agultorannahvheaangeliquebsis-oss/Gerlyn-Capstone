@@ -8,7 +8,8 @@
     <h1>Backups</h1>
     <p class="gv-meta mb-0">
       The database and uploaded files are backed up daily (03:00 Manila time), encrypted, to
-      Backblaze. Kept 14 days daily, 8 weeks weekly, 12 months monthly. Restore steps are in
+      Backblaze{% if next_run %} — next automatic backup {{ next_run|date:"Y-m-d H:i" }} Manila time{% endif %}.
+      Kept 14 days daily, 8 weeks weekly, 12 months monthly. Restore steps are in
       <code>docs/backup-and-restore.md</code>.
     </p>
   </div>
@@ -37,7 +38,7 @@
     <p class="gv-meta mb-0">No successful backup has been recorded yet.</p>
     {% endif %}
     {% if s.overdue and s.last %}
-    <p class="gv-meta mb-0">More than {{ stale_hours }} hours ago — check the cron service and the setup below.</p>
+    <p class="gv-meta mb-0">More than {{ stale_hours }} hours ago — check the setup below and the web service logs.</p>
     {% endif %}
   </div>
   {% endfor %}

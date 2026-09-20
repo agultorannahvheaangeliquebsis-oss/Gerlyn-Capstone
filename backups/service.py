@@ -305,9 +305,11 @@ def setup_checks():
     except (dumper.BackupToolError, OSError, subprocess.SubprocessError, IndexError) as exc:
         checks.append(('mysqldump', False, str(exc)))
 
-    checks.append(('Daily trigger', bool(settings.BACKUP_TRIGGER_TOKEN),
-                   'Token set.' if settings.BACKUP_TRIGGER_TOKEN
-                   else 'BACKUP_TRIGGER_TOKEN is not set, so the daily cron cannot start a backup.'))
+    checks.append((
+        'Automatic schedule', bool(settings.BACKUP_SCHEDULER),
+        f'Runs daily at {settings.BACKUP_SCHEDULE_HOUR_UTC:02d}:00 UTC from the web service.'
+        if settings.BACKUP_SCHEDULER else 'Off (BACKUP_SCHEDULER=False) — backups only run when started by hand.',
+    ))
     checks.append(('Uploaded-files folder', Path(settings.MEDIA_ROOT).is_dir(),
                    str(settings.MEDIA_ROOT)))
     return checks

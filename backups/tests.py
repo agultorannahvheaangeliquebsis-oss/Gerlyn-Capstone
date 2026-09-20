@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import Client, SimpleTestCase, TestCase, override_settings
@@ -19,7 +20,7 @@ from django.utils import timezone
 
 from accounts.models import Notification, User
 from accounts.services import hard_delete_personal_data
-from backups import crypto, dumper, media, service, trigger_cli
+from backups import crypto, dumper, media, scheduler, service, trigger_cli
 from backups.crypto import BackupCryptoError, decrypt_file, encrypt_file, generate_key, load_key
 from backups.erasures import reapply
 from backups.models import BackupRun, RestoreTestRecord
@@ -411,7 +412,7 @@ class SetupCheckTests(TestCase):
 
         self.assertTrue(checks['Encryption key'][0])
         self.assertTrue(checks['Backblaze storage'][0])
-        self.assertTrue(checks['Daily trigger'][0])
+        self.assertTrue(checks['Automatic schedule'][0])
         blob = json.dumps(checks)
         for secret in (KEY, 'SECRET-KEY-ID', 'SECRET-APP-KEY', TOKEN):
             self.assertNotIn(secret, blob)
@@ -422,7 +423,11 @@ class SetupCheckTests(TestCase):
         checks = {label: ok for label, ok, _ in service.setup_checks()}
         self.assertFalse(checks['Encryption key'])
         self.assertFalse(checks['Backblaze storage'])
-        self.assertFalse(checks['Daily trigger'])
+
+    @override_settings(BACKUP_SCHEDULER=False)
+    def test_a_switched_off_schedule_is_flagged(self):
+        checks = {label: ok for label, ok, _ in service.setup_checks()}
+        self.assertFalse(checks['Automatic schedule'])
 
     @override_settings(BACKUP_STORAGE='local')
     def test_local_storage_is_flagged_as_not_off_site(self):
@@ -825,3 +830,95 @@ class RealDatabaseRoundTripTests(TempDirMixin, TestCase):
         call_command('verify_backup', replace=True, stdout=out)
         self.assertIn('RESTORE CHECK PASSED', out.getvalue())
         self.assertFalse(dumper.database_exists(f'{settings.DATABASES["default"]["NAME"]}_restore_check'))
+
+
+# --- the built-in daily schedule -----------------------------------------------------------
+
+class SchedulerTests(TestCase):
+    slot = _utc(2026, 9, 22, 19, 0, 0)  # 03:00 the next morning, Manila time
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _attempt(self, status, started, kind='database'):
+        return BackupRun.objects.create(
+            run_id='x', kind=kind, status=status, started_at=started, finished_at=started,
+        )
+
+    def test_next_run_is_todays_slot_until_it_passes_then_tomorrows(self):
+        self.assertEqual(scheduler.next_run(self.slot - timedelta(hours=1)), self.slot)
+        self.assertEqual(scheduler.next_run(self.slot + timedelta(minutes=1)), self.slot + timedelta(days=1))
+
+    def test_before_todays_slot_only_a_missed_run_from_the_previous_slot_matters(self):
+        yesterday = self.slot - timedelta(days=1)
+        self.assertTrue(scheduler.due(self.slot - timedelta(minutes=1)))  # nothing ever ran: catch up
+        self._attempt('success', yesterday + timedelta(minutes=5))
+        self.assertFalse(scheduler.due(self.slot - timedelta(minutes=1)))
+
+    def test_due_from_the_slot_onward_when_nothing_has_run(self):
+        for offset in (timedelta(0), timedelta(hours=5)):  # the second is a catch-up after downtime
+            with self.subTest(offset=offset):
+                self.assertTrue(scheduler.due(self.slot + offset))
+
+    def test_a_success_or_a_running_backup_since_the_slot_means_not_due(self):
+        self._attempt('success', self.slot + timedelta(minutes=2))
+        self.assertFalse(scheduler.due(self.slot + timedelta(hours=1)))
+        BackupRun.objects.all().delete()
+        self._attempt('running', self.slot + timedelta(minutes=2))
+        self.assertFalse(scheduler.due(self.slot + timedelta(hours=1)))
+
+    def test_yesterdays_backup_does_not_count_for_today(self):
+        self._attempt('success', self.slot - timedelta(hours=20))
+        self.assertTrue(scheduler.due(self.slot))
+
+    def test_a_manual_backup_taken_before_the_slot_does_not_replace_it(self):
+        self._attempt('success', self.slot - timedelta(hours=3))
+        self.assertTrue(scheduler.due(self.slot + timedelta(minutes=1)))
+
+    def test_a_failed_attempt_is_retried_after_thirty_minutes_up_to_three_times(self):
+        self._attempt('failed', self.slot + timedelta(minutes=1))
+        self.assertFalse(scheduler.due(self.slot + timedelta(minutes=10)))
+        self.assertTrue(scheduler.due(self.slot + timedelta(minutes=32)))
+
+        self._attempt('failed', self.slot + timedelta(minutes=33))
+        self._attempt('failed', self.slot + timedelta(minutes=70))
+        self.assertFalse(scheduler.due(self.slot + timedelta(hours=6)))  # three tries used up
+
+    def test_tick_starts_one_backup_and_a_second_worker_does_not_double_it(self):
+        with mock.patch('backups.service.spawn_backup_process') as spawn:
+            self.assertTrue(scheduler.tick(self.slot + timedelta(minutes=1)))
+            self.assertFalse(scheduler.tick(self.slot + timedelta(minutes=1, seconds=5)))
+        spawn.assert_called_once_with('scheduled')
+
+    def test_tick_does_nothing_when_the_latest_slot_is_already_done(self):
+        self._attempt('success', self.slot - timedelta(days=1) + timedelta(minutes=5))
+        with mock.patch('backups.service.spawn_backup_process') as spawn:
+            self.assertFalse(scheduler.tick(self.slot - timedelta(hours=2)))
+        spawn.assert_not_called()
+
+    def test_a_run_that_died_hours_ago_is_cleared_and_todays_backup_still_happens(self):
+        stuck = BackupRun.objects.create(
+            run_id='x', kind='database', status='running', started_at=self.slot - timedelta(hours=4),
+        )
+        with mock.patch('backups.service.spawn_backup_process') as spawn:
+            self.assertTrue(scheduler.tick(self.slot + timedelta(minutes=1)))
+        stuck.refresh_from_db()
+        self.assertEqual(stuck.status, 'failed')
+        spawn.assert_called_once()
+
+    @override_settings(BACKUP_SCHEDULE_HOUR_UTC=2)
+    def test_the_hour_is_configurable(self):
+        self.assertEqual(scheduler.slot_start(_utc(2026, 9, 22, 12)).hour, 2)
+
+    def test_the_thread_only_starts_inside_gunicorn(self):
+        with mock.patch.object(sys, 'argv', ['/opt/venv/bin/gunicorn', 'gerlyn_is.wsgi']):
+            self.assertTrue(scheduler.running_under_gunicorn())
+        for argv in (['manage.py', 'run_backup'], ['manage.py', 'test'], ['python']):
+            with mock.patch.object(sys, 'argv', argv):
+                self.assertFalse(scheduler.running_under_gunicorn())
+
+    def test_no_scheduler_thread_runs_during_tests_or_manage_commands(self):
+        import threading
+
+        self.assertNotIn('backup-scheduler', [t.name for t in threading.enumerate()])

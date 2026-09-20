@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.models import User
 
-from . import service
+from . import scheduler, service
 from .models import BackupRun, RestoreTestRecord
 
 logger = logging.getLogger(__name__)
@@ -29,12 +29,14 @@ def can_manage_backups(user):
 @csrf_exempt
 @require_POST
 def backup_trigger(request):
-    """Start a backup. Called once a day by the Railway cron service.
+    """Start a backup on request from an external scheduler (optional).
 
-    Not session-based: it presents a shared secret (BACKUP_TRIGGER_TOKEN) as a
-    Bearer token instead. With no token configured the endpoint doesn't exist.
-    The backup itself runs in a detached process — a database dump can outlast
-    a web request — and this returns immediately.
+    The web service normally schedules its own daily backup (backups/scheduler.py),
+    so nothing needs to call this; it exists for anyone who prefers an external
+    cron. Not session-based: it presents a shared secret (BACKUP_TRIGGER_TOKEN) as
+    a Bearer token. With no token configured the endpoint doesn't exist. The
+    backup runs in a detached process — a database dump can outlast a web
+    request — and this returns immediately.
     """
     expected = settings.BACKUP_TRIGGER_TOKEN
     if not expected:
@@ -77,6 +79,7 @@ def backup_status(request):
         'summaries': summaries,
         'runs': BackupRun.objects.all()[:40],
         'running': service.active_run_exists(now),
+        'next_run': scheduler.next_run(now) if settings.BACKUP_SCHEDULER else None,
         'restore_tests': tests,
         'restore_overdue': restore_overdue,
         'stale_hours': settings.BACKUP_STALE_HOURS,

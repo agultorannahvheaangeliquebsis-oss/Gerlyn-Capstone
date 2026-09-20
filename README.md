@@ -221,15 +221,15 @@ procedure and the restore-test log — is [`docs/backup-and-restore.md`](docs/ba
 Owners see status, run a backup on demand and record restore tests at
 *System & Monitoring → Backups*.
 
-- `python manage.py run_backup` — one full backup (normally started by the daily Railway
-  cron service, `railway.cron.json`, through a token-protected endpoint).
+- `python manage.py run_backup` — one full backup. The web service starts it itself every
+  day at 03:00 Manila time (`backups/scheduler.py`); no separate cron service is needed.
 - `python manage.py verify_backup` — the restore test: downloads the newest backup,
   restores it into a scratch database and proves it matches. Never touches the live database.
 - `python manage.py reapply_erasures` — after a restore, re-erase accounts whose personal
   data was erased after that backup was taken.
 - Needs `mysqldump`/`mysql` (installed on Railway by `nixpacks.toml`; set
   `BACKUP_MYSQLDUMP` / `BACKUP_MYSQL` locally if they aren't on PATH) and the `B2_*`,
-  `BACKUP_ENCRYPTION_KEY`, `BACKUP_TRIGGER_TOKEN` variables from `.env.example`.
+  `BACKUP_ENCRYPTION_KEY` variables from `.env.example`.
   `python manage.py test backups` runs without any of it (a real dump/restore test runs
   automatically when the MySQL tools are found).
 
