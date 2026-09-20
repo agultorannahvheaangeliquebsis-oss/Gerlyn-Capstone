@@ -7,6 +7,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
@@ -27,7 +28,10 @@ from rest_framework.permissions import IsAuthenticated
 from .models import (
     Procurement, ProcurementItem, SupplierProduct, DeliveryScanLog,
 )
-from .services import transfer_supplier_products, SupplierTransferError
+from .services import (
+    SupplierCostError, SupplierTransferError, snapshot_supplier_costs,
+    transfer_supplier_products,
+)
 from .serializers import (
     ProcurementReadSerializer,
     ProcurementWriteSerializer,
@@ -214,9 +218,21 @@ def _procurement_form_context(user):
         branches = Branch.objects.all()
         suppliers = User.objects.filter(role=User.Role.SUPPLIER)
 
+    supplier_catalog = {}
+    for link in SupplierProduct.objects.filter(
+        supplier__in=suppliers
+    ).values('supplier_id', 'product_id', 'current_cost_price'):
+        supplier_catalog.setdefault(str(link['supplier_id']), {})[
+            str(link['product_id'])
+        ] = (
+            str(link['current_cost_price'])
+            if link['current_cost_price'] is not None else None
+        )
+
     return {
         'products': Product.objects.all(),
         'suppliers': suppliers,
+        'supplier_catalog': supplier_catalog,
         'branches': branches,
         'user_branch': user_branch,
         # localdate(), not now(): the order-date field defaults to this, and
@@ -257,20 +273,19 @@ def procurement_add(request):
     delivery_date = request.POST.get('delivery_date') or None
     product_ids  = request.POST.getlist('product_id')
     quantities   = request.POST.getlist('quantity_ordered')
-    cost_prices  = request.POST.getlist('cost_price')
 
-    # Collect the usable lines BEFORE writing anything. This loop used to
-    # run inside the transaction with the Procurement already created, so a
-    # submission where every row was missing a cost price saved an order
-    # with no items and a ₱0.00 total, then reported "created successfully".
-    # That is not hypothetical — PO-2026-001 in this database is one, left
-    # behind when the cost field silently blanked itself (see the
-    # |unlocalize note in _po_modal.html).
+    # Validate product/quantity rows before writing the order. Cost is never
+    # accepted from this form; it comes from the supplier catalog later.
     items = []
-    for product_id, qty, cost in zip(product_ids, quantities, cost_prices):
-        if not product_id or not qty or not cost:
+    for product_id, qty in zip(product_ids, quantities):
+        if not product_id or not qty:
             continue
-        items.append((product_id, int(qty), float(cost)))
+        try:
+            parsed_qty = int(qty)
+        except (TypeError, ValueError):
+            continue
+        if parsed_qty > 0:
+            items.append((int(product_id), parsed_qty))
 
     if not items:
         context = _procurement_list_context(request)
@@ -278,15 +293,63 @@ def procurement_add(request):
             'show_po_modal': True,
             'po_errors': [
                 'The order was not created — every item needs a product, a '
-                'quantity and a cost price.'
+                'positive quantity.'
             ],
             'po_form_data': request.POST,
             'po_restore_rows': [
-                {'product_id': pid, 'quantity': qty, 'cost_price': cost}
-                for pid, qty, cost in zip(product_ids, quantities, cost_prices) if pid
+                {'product_id': pid, 'quantity': qty}
+                for pid, qty in zip(product_ids, quantities) if pid
             ],
         })
         return render(request, 'procurement/procurement_list.html', context)
+
+    mapped_ids = set(SupplierProduct.objects.filter(
+        supplier_id=supplier_id,
+        product_id__in=[product_id for product_id, _ in items],
+    ).values_list('product_id', flat=True))
+    unmapped_ids = {
+        product_id for product_id, _ in items if product_id not in mapped_ids
+    }
+    if unmapped_ids:
+        names = ', '.join(Product.objects.filter(
+            pk__in=unmapped_ids
+        ).values_list('product_name', flat=True))
+        context = _procurement_list_context(request)
+        context.update({
+            'show_po_modal': True,
+            'po_errors': [f'The selected supplier does not carry: {names}.'],
+            'po_form_data': request.POST,
+            'po_restore_rows': [
+                {'product_id': pid, 'quantity': qty}
+                for pid, qty in zip(product_ids, quantities) if pid
+            ],
+        })
+        return render(request, 'procurement/procurement_list.html', context)
+
+    is_owner = request.user.role == User.Role.OWNER
+    if is_owner:
+        unpriced_ids = set(SupplierProduct.objects.filter(
+            supplier_id=supplier_id,
+            product_id__in=mapped_ids,
+            current_cost_price__isnull=True,
+        ).values_list('product_id', flat=True))
+        if unpriced_ids:
+            names = ', '.join(Product.objects.filter(
+                pk__in=unpriced_ids
+            ).values_list('product_name', flat=True))
+            context = _procurement_list_context(request)
+            context.update({
+                'show_po_modal': True,
+                'po_errors': [
+                    f'The supplier must set a current cost for: {names}.'
+                ],
+                'po_form_data': request.POST,
+                'po_restore_rows': [
+                    {'product_id': pid, 'quantity': qty}
+                    for pid, qty in zip(product_ids, quantities) if pid
+                ],
+            })
+            return render(request, 'procurement/procurement_list.html', context)
 
     with transaction.atomic():
         # Who raises the order decides whether it is already authorized.
@@ -297,8 +360,6 @@ def procurement_add(request):
         # it (finding C-1). An Owner raising a PO still authorizes it in the
         # same act, exactly as before; the only change for them is that the
         # authorization is now written down rather than implied.
-        is_owner = request.user.role == User.Role.OWNER
-
         proc = Procurement.objects.create(
             branch_id=branch_id,
             supplier_id=supplier_id,
@@ -314,18 +375,15 @@ def procurement_add(request):
             authorized_at=timezone.now() if is_owner else None,
         )
 
-        total = 0
-        for product_id, qty, cost in items:
+        for product_id, qty in items:
             ProcurementItem.objects.create(
                 procurement=proc,
                 product_id=product_id,
                 quantity_ordered=qty,
-                cost_price=cost,
             )
-            total += qty * cost
 
-        proc.total_cost = total
-        proc.save()
+        if is_owner:
+            snapshot_supplier_costs(proc)
 
     if is_owner:
         messages.success(request, 'Procurement order created successfully.')
@@ -407,6 +465,16 @@ def procurement_update_status(request, pk):
                 )
                 return redirect('procurement_detail', pk=pk)
 
+            if (locked.status == Procurement.Status.DRAFT
+                    and new_status == Procurement.Status.ORDERED):
+                try:
+                    snapshot_supplier_costs(locked)
+                except SupplierCostError as exc:
+                    messages.error(request, str(exc))
+                    return redirect('procurement_detail', pk=pk)
+                locked.owner = request.user
+                locked.authorized_at = timezone.now()
+
             locked.status = new_status
             locked.save()
 
@@ -457,6 +525,12 @@ def procurement_approve(request, pk):
                 f'{locked.po_number} cannot be approved — it is already '
                 f'{locked.status}.'
             )
+            return redirect('procurement_detail', pk=pk)
+
+        try:
+            snapshot_supplier_costs(locked)
+        except SupplierCostError as exc:
+            messages.error(request, str(exc))
             return redirect('procurement_detail', pk=pk)
 
         locked.status = Procurement.Status.ORDERED
@@ -872,7 +946,10 @@ def delivery_add_unexpected(request, pk):
         product=product,
         quantity_ordered=0,
         quantity_received=0,
-        cost_price=link.default_cost_price if link and link.default_cost_price else 0,
+        unit_cost_snapshot=(
+            link.current_cost_price
+            if link and link.current_cost_price is not None else None
+        ),
         is_unexpected=True,
     )
     messages.success(
@@ -954,6 +1031,9 @@ def supplier_portal(request):
 
     return render(request, 'procurement/supplier_portal.html', {
         'orders': orders,
+        'catalog_links': SupplierProduct.objects.filter(
+            supplier=request.user
+        ).select_related('product').order_by('product__product_name'),
         'counts': counts,
         'status_filter': status_filter,
         'open_count': len(open_orders),
@@ -989,6 +1069,40 @@ def supplier_set_delivery_date(request, pk):
             f'Thanks — {proc.po_number} is confirmed for delivery on {new_date}.'
         )
 
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_set_product_cost(request, link_pk):
+    """Allow only the owning supplier to maintain its current unit cost."""
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    link = get_object_or_404(
+        SupplierProduct.objects.select_related('product'),
+        pk=link_pk,
+        supplier=request.user,
+    )
+    raw_cost = request.POST.get('current_cost_price', '').strip()
+    form_field = SupplierProduct._meta.get_field(
+        'current_cost_price'
+    ).formfield(required=True)
+    try:
+        link.current_cost_price = form_field.clean(raw_cost)
+        if link.current_cost_price < 0:
+            raise ValidationError('Enter a cost of zero or more.')
+        link.full_clean(exclude=['supplier', 'product'])
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
+        return redirect('supplier_portal')
+
+    link.save(update_fields=['current_cost_price'])
+    messages.success(
+        request,
+        f'Current cost for {link.product.product_name} updated.'
+    )
     return redirect('supplier_portal')
 
 
@@ -1194,7 +1308,6 @@ def supplier_product_add(request, pk):
 
     product = get_object_or_404(Product, pk=product_id)
 
-    cost = request.POST.get('default_cost_price') or None
     lead = request.POST.get('lead_time_days') or None
 
     # get_or_create rather than create: the picker already excludes what the
@@ -1205,7 +1318,6 @@ def supplier_product_add(request, pk):
         supplier=supplier, product=product,
         defaults={
             'supplier_sku': request.POST.get('supplier_sku', '').strip(),
-            'default_cost_price': cost,
             'lead_time_days': lead,
             'is_preferred': bool(request.POST.get('is_preferred')),
         },

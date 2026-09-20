@@ -25,6 +25,8 @@ urlpatterns = [
     path('portal/', views.supplier_portal, name='supplier_portal'),
     path('portal/<int:pk>/delivery-date/', views.supplier_set_delivery_date,
          name='supplier_set_delivery_date'),
+    path('portal/products/<int:link_pk>/cost/', views.supplier_set_product_cost,
+         name='supplier_set_product_cost'),
 
     # Suppliers (managed by the store)
     path('suppliers/', views.supplier_list, name='supplier_list'),

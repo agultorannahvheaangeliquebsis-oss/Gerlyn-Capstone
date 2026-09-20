@@ -97,7 +97,7 @@ would submit nothing.
       <tr>
         {% if can_edit and links %}<th style="width:34px;"><input type="checkbox" id="select-all" aria-label="Select all products"></th>{% endif %}
         <th>Product</th><th>Category</th><th>Supplier SKU</th>
-        <th class="num">Default Cost</th><th class="num">Lead Time</th><th>Preferred</th>
+        <th class="num">Current Cost</th><th class="num">Lead Time</th><th>Preferred</th>
         {% if can_edit %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
@@ -114,8 +114,8 @@ would submit nothing.
         </td>
         <td data-label="Category">{{ link.product.category.category_name|default:"—" }}</td>
         <td data-label="Supplier SKU" class="gv-meta">{{ link.supplier_sku|default:"—" }}</td>
-        <td data-label="Default Cost" class="num">
-          {% if link.default_cost_price %}₱{{ link.default_cost_price|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td data-label="Current Cost" class="num">
+          {% if link.current_cost_price is not None %}₱{{ link.current_cost_price|floatformat:2 }}{% else %}Awaiting supplier{% endif %}</td>
         <td data-label="Lead Time" class="num">
           {% if link.lead_time_days %}{{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }}{% else %}—{% endif %}</td>
         <td data-label="Preferred">
@@ -225,16 +225,11 @@ submit the transfer instead. Each button references its form by id.
           {% endfor %}
         </select>
       </div>
-      <div class="grid-2">
-        <div class="field">
-          <label for="add-product-sku">Supplier SKU <span class="gv-meta">— optional</span></label>
-          <input id="add-product-sku" type="text" name="supplier_sku" placeholder="Their code for it">
-        </div>
-        <div class="field">
-          <label for="add-product-cost">Default Cost Price <span class="gv-meta">— optional</span></label>
-          <input id="add-product-cost" type="number" name="default_cost_price" step="0.01" min="0" placeholder="0.00">
-        </div>
+      <div class="field">
+        <label for="add-product-sku">Supplier SKU <span class="gv-meta">— optional</span></label>
+        <input id="add-product-sku" type="text" name="supplier_sku" placeholder="Their code for it">
       </div>
+      <p class="gv-meta">The supplier will set this product's current cost in their portal.</p>
       <div class="field">
         <label for="add-product-lead">Lead Time (days) <span class="gv-meta">— optional</span></label>
         <input id="add-product-lead" type="number" name="lead_time_days" min="0" placeholder="7">
