@@ -1,4 +1,3 @@
-{% load l10n %}
 {% comment %}
 Create Purchase Order, as a modal on the Purchase Orders list. It was its own
 page (procurement_form.html); the fields, their names and the item-row JS
@@ -36,25 +35,25 @@ account reaching a control it can't use.
     no options — unfillable, unsubmittable, and silent about why. Show what
     is missing and the way out of it instead of a dead form.
     {% endcomment %}
-    {% if not suppliers or not products %}
+    {% if not suppliers or not supplier_product_options %}
     <div class="modal-body">
       <div class="empty">
         <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
-        {% if not suppliers and not products %}
-          <h3>Nothing to order, and no one to order from</h3>
-          <p>A purchase order is addressed to a supplier and lists products. Add at least one of each, then come back here.</p>
+        {% if not suppliers and not supplier_product_options %}
+          <h3>No orderable supplier catalog yet</h3>
+          <p>Add an active supplier and assign products to that supplier before creating a purchase order.</p>
           <div class="row mt-2">
             <a class="btn btn-primary" href="{% url 'supplier_add' %}">Add supplier</a>
-            <a class="btn" href="{% url 'product_add' %}">Add product</a>
+            <a class="btn" href="{% url 'supplier_list' %}">Manage supplier products</a>
           </div>
         {% elif not suppliers %}
           <h3>No suppliers to order from</h3>
           <p>A purchase order is addressed to a supplier. Add the supplier you buy from, then come back to place the order.</p>
           <a class="btn btn-primary mt-2" href="{% url 'supplier_add' %}">Add supplier</a>
         {% else %}
-          <h3>No products to order</h3>
-          <p>A purchase order lists the products you are buying. Add them first, then come back to place the order.</p>
-          <a class="btn btn-primary mt-2" href="{% url 'product_add' %}">Add product</a>
+          <h3>No products assigned to a supplier</h3>
+          <p>Assign at least one product to an active supplier before creating a purchase order.</p>
+          <a class="btn btn-primary mt-2" href="{% url 'supplier_list' %}">Manage supplier products</a>
         {% endif %}
       </div>
     </div>

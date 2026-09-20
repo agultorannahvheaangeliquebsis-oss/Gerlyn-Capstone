@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Procurement, ProcurementItem, SupplierProduct
-from .services import SupplierCostError, snapshot_supplier_costs
+from .services import SupplierCostError, snapshot_supplier_costs, unassigned_product_ids
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
 from branches.models import Branch
@@ -187,8 +187,10 @@ class ProcurementWriteSerializer(serializers.Serializer):
         return value
 
     def validate_supplierId(self, value):
-        if not User.objects.filter(id=value, role=User.Role.SUPPLIER).exists():
-            raise serializers.ValidationError("Supplier not found.")
+        if not User.objects.filter(
+            id=value, role=User.Role.SUPPLIER, is_active=True
+        ).exists():
+            raise serializers.ValidationError("Active supplier not found.")
         return value
 
     def validate_items(self, value):
@@ -201,14 +203,16 @@ class ProcurementWriteSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
+        """Items must belong to the supplier's current product catalog."""
         product_ids = [item['productId'] for item in attrs.get('items', [])]
-        mapped_ids = set(SupplierProduct.objects.filter(
-            supplier_id=attrs.get('supplierId'),
-            product_id__in=product_ids,
-        ).values_list('product_id', flat=True))
-        if set(product_ids) != mapped_ids:
+        if product_ids and unassigned_product_ids(
+            attrs.get('supplierId'), product_ids
+        ):
             raise serializers.ValidationError({
-                'items': 'Every product must belong to the selected supplier catalog.'
+                'items': (
+                    'One or more products are not active products assigned '
+                    'to the selected supplier.'
+                ),
             })
         return attrs
 
@@ -221,6 +225,20 @@ class ProcurementWriteSerializer(serializers.Serializer):
         created_by   = request.user
 
         with transaction.atomic():
+            # Re-check while locking the selected catalog rows. Validation
+            # above gives a useful 400 before any write; this second check
+            # prevents a concurrent unlink from slipping between validation
+            # and creation.
+            if unassigned_product_ids(
+                supplier, [item['productId'] for item in items_data], lock=True
+            ):
+                raise serializers.ValidationError({
+                    'items': (
+                        'One or more products are no longer assigned to the '
+                        'selected supplier.'
+                    ),
+                })
+
             proc = Procurement.objects.create(
                 branch=branch,
                 supplier=supplier,
@@ -241,7 +259,6 @@ class ProcurementWriteSerializer(serializers.Serializer):
                     product=product,
                     quantity_ordered=qty,
                 )
-
         return proc
 
 
