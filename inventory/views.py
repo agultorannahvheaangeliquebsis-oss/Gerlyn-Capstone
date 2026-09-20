@@ -393,12 +393,12 @@ def product_add(request):
                     is_pwd_eligible=bool(request.POST.get('is_pwd_eligible')),
                     is_senior_eligible=bool(request.POST.get('is_senior_eligible')),
                 )
-                ProductPriceTier.objects.bulk_create([
-                    ProductPriceTier(
+                # Row by row rather than bulk_create: bulk_create emits no signals, so the
+                # audit log would record the ladder being cleared but never what replaced it.
+                for quantity, price in price_tiers:
+                    ProductPriceTier.objects.create(
                         product=product, min_quantity=quantity, unit_price=price
                     )
-                    for quantity, price in price_tiers
-                ])
                 # request.FILES.getlist() returns EVERY file sent under name="images".
                 for index, image_file in enumerate(images):
                     ProductImage.objects.create(
@@ -492,12 +492,12 @@ def product_edit(request, pk):
                 # Sales already hold their own frozen unit_price, so rewriting
                 # tiers never reprices a sale that has already happened.
                 product.price_tiers.all().delete()
-                ProductPriceTier.objects.bulk_create([
-                    ProductPriceTier(
+                # Row by row rather than bulk_create: bulk_create emits no signals, so the
+                # audit log would record the ladder being cleared but never what replaced it.
+                for quantity, price in price_tiers:
+                    ProductPriceTier.objects.create(
                         product=product, min_quantity=quantity, unit_price=price
                     )
-                    for quantity, price in price_tiers
-                ])
 
                 # 1. Delete images the user ticked for removal (file + row).
                 delete_ids = request.POST.getlist('delete_images')
@@ -1219,12 +1219,12 @@ def product_import_preview(request):
             # it is a visible act rather than an omission.
             if row['price_tiers']:
                 product.price_tiers.all().delete()
-                ProductPriceTier.objects.bulk_create([
-                    ProductPriceTier(
+                # Row by row rather than bulk_create: bulk_create emits no signals, so the
+                # audit log would record the ladder being cleared but never what replaced it.
+                for quantity, price in row['price_tiers']:
+                    ProductPriceTier.objects.create(
                         product=product, min_quantity=quantity, unit_price=price
                     )
-                    for quantity, price in row['price_tiers']
-                ])
 
     if any_new_category:
         bust_categories_cache()

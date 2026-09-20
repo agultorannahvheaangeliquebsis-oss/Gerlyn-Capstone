@@ -1,0 +1,99 @@
+{% extends "internal_base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% block page_subtitle %}System &amp; Monitoring{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Audit Log</h1>
+  </div>
+</div>
+
+<form method="GET" class="toolbar">
+  <input class="input" type="search" name="q" value="{{ filters.q }}" placeholder="Search summary, record or ID…" aria-label="Search the audit log">
+  <select name="entity" aria-label="Filter by record type">
+    <option value="">All record types</option>
+    {% for key, label in entity_choices %}
+      <option value="{{ key }}" {% if filters.entity == key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="action" aria-label="Filter by action">
+    <option value="">All actions</option>
+    {% for value, label in action_choices %}
+      <option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input class="input" type="text" name="actor" value="{{ filters.actor }}" placeholder="Actor username" aria-label="Filter by actor">
+  <input class="input" type="date" name="from" value="{{ filters.from }}" aria-label="From date">
+  <input class="input" type="date" name="to" value="{{ filters.to }}" aria-label="To date">
+  <button type="submit" class="btn btn-primary">Filter</button>
+  {% if querystring %}<a class="btn" href="{% url 'audit_log_list' %}">Clear</a>{% endif %}
+</form>
+
+<div class="card table-wrap">
+  <table class="gv-table" id="audit-table">
+    <thead>
+      <tr><th>When</th><th>Actor</th><th>Action</th><th>Record</th><th>What happened</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td data-label="When" class="gv-meta">
+          {{ r.log.timestamp|date:"Y-m-d H:i:s" }}
+          {% if r.log.ip_address %}<div>{{ r.log.ip_address }}</div>{% endif %}
+        </td>
+        <td data-label="Actor">
+          <span class="strong">{{ r.actor }}</span>
+          {% if r.log.actor_role %}<div class="gv-meta">{{ r.log.actor_role }}</div>{% endif %}
+        </td>
+        <td data-label="Action">
+          {% if r.log.action == 'create' %}<span class="pill pill-ok">Created</span>
+          {% elif r.log.action == 'delete' %}<span class="pill pill-danger">Deleted</span>
+          {% else %}<span class="pill pill-info">Updated</span>{% endif %}
+        </td>
+        <td data-label="Record">
+          <span class="strong">{{ r.entity_label }}</span>
+          <div class="gv-meta">{{ r.log.record_repr }} · ID {{ r.log.record_id }}{% if r.branch %} · {{ r.branch }}{% endif %}</div>
+        </td>
+        <td data-label="What happened">
+          {{ r.log.summary }}
+          {% if r.changes %}
+          <details class="mt-1">
+            <summary class="gv-meta" style="cursor:pointer;">View {{ r.changes|length }} field{{ r.changes|length|pluralize }}</summary>
+            <table class="gv-table kv-table" style="border:0; margin-top:8px;">
+              <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+              <tbody>
+                {% for field, before, after in r.changes %}
+                <tr>
+                  <td class="sku">{{ field }}</td>
+                  <td class="gv-meta">{% if before is None %}—{% else %}{{ before }}{% endif %}</td>
+                  <td class="gv-meta">{% if after is None %}—{% else %}{{ after }}{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
+        <h3>No entries</h3>
+        <p>{% if querystring %}Nothing matches these filters.{% else %}Changes will appear here as they happen.{% endif %}</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page.paginator.num_pages > 1 %}
+<div class="row-between mt-4">
+  <span class="gv-meta">Page {{ page.number }} of {{ page.paginator.num_pages }} · {{ page.paginator.count }} entries</span>
+  <div class="row">
+    {% if page.has_previous %}<a class="btn" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    {% if page.has_next %}<a class="btn" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -146,6 +146,8 @@ views can never drift apart.
 | `procurement` | Suppliers, purchase orders, deliveries |
 | `orders` | Customer storefront (catalog, cart, checkout) |
 | `reports` | Dashboard, reports, CSV export |
+| `audit` | Append-only Audit Log of every data change (System & Monitoring) |
+| `backups` | Encrypted off-site backups to Backblaze, restore check, status page (System & Monitoring) |
 
 ---
 
@@ -158,6 +160,10 @@ views can never drift apart.
   (business rule 13), and re-receiving is blocked.
 - **Audit trail** — every stock change writes a `StockMovement` row recording the
   before/after quantities, the reason, and who did it.
+- **Audit Log** — `audit/` records every create, edit and delete on the models listed in
+  `audit/registry.py` (actor, action, record type and ID, timestamp, before/after values),
+  viewable by Owner accounts under *System & Monitoring → Audit Log*. See
+  [Audit log](#audit-log) below.
 - **Payments are recorded, not processed** — no gateway is integrated, per the
   documented scope limitation. Staff confirm cash or a GCash reference.
 
@@ -172,6 +178,60 @@ views can never drift apart.
   password** and treat the old one as compromised.
 
 ---
+
+## Audit log
+
+Every create, update and delete on the models in `audit/registry.py` writes one
+`AuditLog` row: who (user ID and role, or *System*), what (action, record type, record ID),
+when, from where (IP), and only the fields that changed (before/after). Rows from one
+request share a `request_id`. Viewable by Owner accounts and Django superusers at
+*System & Monitoring → Audit Log*.
+
+- **Append-only.** Rows can only be inserted: the model and queryset refuse edits and
+  deletes, the Django admin is read-only, and MySQL triggers (`audit/triggers.py`,
+  migration `0003`) refuse them at the database level. Triggers need the `TRIGGER`
+  privilege; if the database user lacks it, `migrate` prints a warning and the
+  application-level protection remains. Check with
+  `SHOW TRIGGERS LIKE 'audit_auditlog';`. `AUDIT_DB_TRIGGERS=False` skips them (the test
+  suite does this automatically).
+- **Never recorded:** passwords/hashes, tokens, and uploaded file contents or names
+  (recorded as `[file]`). Personal fields (names, email, contact numbers, addresses,
+  delivery addresses, PWD/Senior ID numbers) are recorded as *changed* with the value
+  shown as `[personal data]`, so an erasure request (`hard_delete_personal_data`) is not
+  undone by the log. Records are named by non-personal fields only (order number, product
+  name); users read as `User account #<id>`.
+- **Adding a model:** add it to `REGISTRY` in `audit/registry.py`, naming its `mask`,
+  `exclude` and `repr_field`. `python manage.py test audit` checks the entry against the model.
+- **Not captured:** `QuerySet.update()` and `bulk_create()` emit no Django signals, so
+  they bypass the log — save row by row where history matters (price tiers do).
+  Stock quantities are excluded from generic tracking; the `StockMovement` ledger owns them.
+  Logins and failed logins are deliberately not logged. History starts from the day the
+  feature was deployed.
+- **Fail-open.** A failure while writing an entry is logged (and reaches Sentry) but never
+  blocks the business action it was recording.
+- **Seeding.** `seed_demo` runs with capture suppressed (`audit.context.suppressed`).
+  `AUDIT_ENABLED=False` switches capture off entirely.
+
+## Backups
+
+The database and uploaded files (payment proofs) are backed up daily, **encrypted before
+they leave the server**, to a private Backblaze B2 bucket. The full runbook — schedule,
+retention (14 daily / 8 weekly / 12 monthly), access controls, Railway setup, restore
+procedure and the restore-test log — is [`docs/backup-and-restore.md`](docs/backup-and-restore.md).
+Owners see status, run a backup on demand and record restore tests at
+*System & Monitoring → Backups*.
+
+- `python manage.py run_backup` — one full backup (normally started by the daily Railway
+  cron service, `railway.cron.json`, through a token-protected endpoint).
+- `python manage.py verify_backup` — the restore test: downloads the newest backup,
+  restores it into a scratch database and proves it matches. Never touches the live database.
+- `python manage.py reapply_erasures` — after a restore, re-erase accounts whose personal
+  data was erased after that backup was taken.
+- Needs `mysqldump`/`mysql` (installed on Railway by `nixpacks.toml`; set
+  `BACKUP_MYSQLDUMP` / `BACKUP_MYSQL` locally if they aren't on PATH) and the `B2_*`,
+  `BACKUP_ENCRYPTION_KEY`, `BACKUP_TRIGGER_TOKEN` variables from `.env.example`.
+  `python manage.py test backups` runs without any of it (a real dump/restore test runs
+  automatically when the MySQL tools are found).
 
 ## Notification operations
 

@@ -90,6 +90,9 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     "inventory_report": "reports", "procurement_report": "reports",
     "billing_report": "reports", "export_csv": "reports",
     "alerts_center": "alerts",
+    "audit_log_list": "audit",
+    "backup_status": "backups", "backup_run_now": "backups",
+    "backup_record_restore_test": "backups",
     # Administration
     "branch_list": "branches", "branch_add": "branches",
     "branch_edit": "branches", "branch_delete": "branches",

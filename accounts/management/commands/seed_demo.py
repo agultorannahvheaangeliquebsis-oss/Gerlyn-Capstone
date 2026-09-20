@@ -19,6 +19,7 @@ from django.core.management.base import BaseCommand
 from django.db import models, transaction
 from django.utils import timezone
 
+from audit.context import suppressed
 from accounts.models import (
     BranchManagerProfile,
     CustomerProfile,
@@ -56,6 +57,7 @@ class Command(BaseCommand):
         )
 
     @transaction.atomic
+    @suppressed()
     def handle(self, *args, **opts):
         # Honour --verbosity so the test runner's output stays readable.
         self.quiet = opts.get("verbosity", 1) == 0
