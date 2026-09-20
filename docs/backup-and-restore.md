@@ -162,6 +162,19 @@ person's data is gone from Backblaze within 12 months at the latest.
 Do one after setup, then at least **every three months** and after any change to
 the backup system. The status page turns amber when the last one is over 100 days old.
 
+**Recommended — in the Railway web-service Shell** (production MySQL, tools and the
+encryption key already there; the read-only key is given to this one command only,
+so no Variable changes). Never point `--media-dir` at `/app/media` for a test:
+
+```
+B2_KEY_ID='<restorer keyID>' B2_APPLICATION_KEY='<restorer applicationKey>'   /opt/venv/bin/python manage.py verify_backup --replace --media-dir /tmp/restored_media
+rm -rf /tmp/restored_media
+```
+
+Then record it on **Backups → Restore tests**. (Doing it on a laptop instead also
+works, but a local MariaDB can reject a MySQL 8 dump with "Unknown collation"
+errors — use a local MySQL 8.) Laptop steps, if you want them:
+
 On your **laptop** (needs the MySQL command-line tools; set `BACKUP_MYSQLDUMP` /
 `BACKUP_MYSQL` in `.env` if they are not on your PATH):
 
@@ -184,7 +197,8 @@ On your **laptop** (needs the MySQL command-line tools; set `BACKUP_MYSQLDUMP` /
 | # | Date | Backup used | Where | Result | Notes |
 |---|---|---|---|---|---|
 | 0 | 2026-09-20 | `daily/…-20260920-164409Z` (local folder, not Backblaze) | Developer laptop, MariaDB 10.6 | **PASSED** | Rehearsal of the tooling: 50 tables matched, 53 files (171,226 bytes) byte-identical, scratch database dropped, wrong key correctly refused. Not a Backblaze test. |
-| 1 | _pending_ | _first real Backblaze backup_ | Owner's laptop | | Do this after the first scheduled backup. |
+| 1 | 2026-09-21 | `daily/…-20260920-175153Z` (Backblaze B2, first real backup) | Railway web-service Shell, production MySQL, read-only restorer key | **PASSED** in 8 s | Downloaded from Backblaze, checksums verified, decrypted, restored into scratch database `railway_restore_check`: **50 tables checked, 0 problems**. Uploaded-files archive matched its manifest, but held **0 files** (no payment proof had been uploaded yet), so the file-restore path is proven only for an empty archive — repeat once real proofs exist (entry 2). Erased-accounts list: 0. Scratch database dropped afterwards; live database never touched. |
+| 2 | _pending_ | _a backup taken after real payment proofs exist_ | Railway Shell | | Repeat to prove non-empty file restore; then every 3 months. |
 
 ## 9. Troubleshooting
 

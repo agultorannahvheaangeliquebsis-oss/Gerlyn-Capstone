@@ -61,6 +61,11 @@ class B2Storage:
         import boto3
         from botocore.config import Config
 
+        # Backblaze's bucket page shows the endpoint without a scheme
+        # (s3.eu-central-003.backblazeb2.com); boto3 insists on one.
+        endpoint = endpoint.strip()
+        if '://' not in endpoint:
+            endpoint = f'https://{endpoint}'
         # https://s3.us-west-004.backblazeb2.com -> us-west-004
         host = endpoint.split('//')[-1]
         region = host.split('.')[1] if host.count('.') >= 3 else 'us-west-004'
@@ -107,8 +112,11 @@ def get_storage():
         ]
         if missing:
             raise BackupStorageError('Backblaze is not configured: ' + ', '.join(missing) + ' not set.')
-        return B2Storage(
-            settings.B2_ENDPOINT, settings.B2_KEY_ID,
-            settings.B2_APPLICATION_KEY, settings.B2_BUCKET,
-        )
+        try:
+            return B2Storage(
+                settings.B2_ENDPOINT, settings.B2_KEY_ID,
+                settings.B2_APPLICATION_KEY, settings.B2_BUCKET,
+            )
+        except Exception as exc:
+            raise BackupStorageError(f'Could not set up Backblaze: {exc}')
     raise BackupStorageError(f'Unknown BACKUP_STORAGE "{backend}" (use "b2" or "local").')

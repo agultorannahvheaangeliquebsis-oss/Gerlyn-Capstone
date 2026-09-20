@@ -154,6 +154,17 @@ class StorageTests(TempDirMixin, SimpleTestCase):
             with self.assertRaises(BackupStorageError):
                 get_storage()
 
+    def test_a_bad_backblaze_setting_becomes_a_clean_storage_error(self):
+        with override_settings(BACKUP_STORAGE='b2', B2_BUCKET='b', B2_ENDPOINT='https://', B2_KEY_ID='i',
+                               B2_APPLICATION_KEY='k'),                 mock.patch('backups.storage.B2Storage', side_effect=ValueError('Invalid endpoint')):
+            with self.assertRaisesMessage(BackupStorageError, 'Could not set up Backblaze: Invalid endpoint'):
+                get_storage()
+
+    def test_an_endpoint_pasted_without_https_still_works(self):
+        storage = B2Storage('s3.eu-central-003.backblazeb2.com', 'id', 'key', 'bucket')
+        self.assertEqual(storage.client.meta.endpoint_url, 'https://s3.eu-central-003.backblazeb2.com')
+        self.assertEqual(storage.client.meta.region_name, 'eu-central-003')
+
     def test_b2_client_is_built_from_the_endpoint_without_touching_the_network(self):
         storage = B2Storage('https://s3.us-west-004.backblazeb2.com', 'id', 'key', 'bucket')
         self.assertEqual(storage.client.meta.region_name, 'us-west-004')
