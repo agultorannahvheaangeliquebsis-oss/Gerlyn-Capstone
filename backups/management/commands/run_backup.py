@@ -5,7 +5,10 @@
 Normally started by the daily cron service via the trigger endpoint; also runnable
 by hand (or from the Backup Status page). Exits non-zero if any part failed.
 """
+import uuid
+
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from backups.models import BackupRun
 from backups.service import BackupInProgress, run_backup
@@ -22,6 +25,16 @@ class Command(BaseCommand):
             runs = run_backup(trigger=options['trigger'][:10])
         except BackupInProgress as exc:
             raise CommandError(str(exc))
+        except Exception as exc:
+            # Anything unexpected must still reach the Backups page: this runs in a
+            # detached process whose output nobody is watching, so a crash that only
+            # printed a traceback would look like "nothing happened".
+            BackupRun.objects.create(
+                run_id=uuid.uuid4().hex, kind=BackupRun.Kind.MANIFEST,
+                trigger=options['trigger'][:10], status=BackupRun.Status.FAILED,
+                finished_at=timezone.now(), error=f'{type(exc).__name__}: {exc}'[:2000],
+            )
+            raise CommandError(f'The backup crashed: {type(exc).__name__}: {exc}')
 
         failed = 0
         for run in runs:

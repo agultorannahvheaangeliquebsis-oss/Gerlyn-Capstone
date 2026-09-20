@@ -710,6 +710,14 @@ class CommandTests(TempDirMixin, TestCase):
             with self.assertRaisesMessage(CommandError, 'failed'):
                 call_command('run_backup', stdout=io.StringIO())
 
+    def test_an_unexpected_crash_is_recorded_so_it_shows_on_the_status_page(self):
+        with mock.patch('backups.management.commands.run_backup.run_backup', side_effect=RuntimeError('boom')):
+            with self.assertRaisesMessage(CommandError, 'boom'):
+                call_command('run_backup', stdout=io.StringIO())
+        failed = BackupRun.objects.get()
+        self.assertEqual(failed.status, 'failed')
+        self.assertIn('RuntimeError: boom', failed.error)
+
     def test_run_backup_command_refuses_to_overlap(self):
         BackupRun.objects.create(run_id='x', kind='database', status='running', started_at=timezone.now())
         with self.assertRaisesMessage(CommandError, 'already running'):
