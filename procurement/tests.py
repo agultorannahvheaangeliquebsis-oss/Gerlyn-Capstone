@@ -18,7 +18,7 @@ from branches.models import Branch
 from inventory.models import (
     Batch, Product, StockMovement, Warehouse, WarehouseStock,
 )
-from procurement.models import Procurement, ProcurementItem
+from procurement.models import Procurement, ProcurementItem, SupplierProduct
 
 
 class ProcurementTransitionMapTests(TestCase):
@@ -378,6 +378,11 @@ class ProcurementAuthorizationBase(TestCase):
         )
         cls.product = Product.objects.create(
             sku_code='C1-SKU-1', product_name='Sack of Rice', unit_price=100,
+        )
+        SupplierProduct.objects.create(
+            supplier=cls.supplier,
+            product=cls.product,
+            default_cost_price=50,
         )
 
     def setUp(self):

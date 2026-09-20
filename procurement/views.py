@@ -4,6 +4,7 @@
 #   SECTION 2 — new DRF API views (what React calls)
 
 import io
+from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -36,7 +37,12 @@ from rest_framework.permissions import IsAuthenticated
 from .models import (
     Procurement, ProcurementItem, SupplierProduct, DeliveryScanLog,
 )
-from .services import transfer_supplier_products, SupplierTransferError
+from .services import (
+    active_supplier_product_links,
+    transfer_supplier_products,
+    unassigned_product_ids,
+    SupplierTransferError,
+)
 from .serializers import (
     ProcurementReadSerializer,
     ProcurementWriteSerializer,
@@ -268,6 +274,24 @@ def procurement_pdf(request, pk):
     return response
 
 
+def _po_suppliers_for_user(user):
+    """Active suppliers the user may address a new purchase order to."""
+    user_branch = branch_for_user(user)
+    suppliers = User.objects.filter(
+        role=User.Role.SUPPLIER,
+        is_active=True,
+    )
+
+    if user_branch:
+        return suppliers.filter(
+            Q(supplier_profile__branch=user_branch)
+            | Q(supplier_profile__branch__isnull=True)
+        )
+    if user.role == User.Role.OWNER:
+        return suppliers
+    return suppliers.none()
+
+
 def _procurement_form_context(user):
     """The suppliers/products/branches the Create PO modal needs, shared by
     _procurement_list_context's initial GET and procurement_add's error
@@ -282,22 +306,44 @@ def _procurement_form_context(user):
         # Branch Manager creating a PO for their branch should never see,
         # or be able to pick, a supplier scoped to a different one.
         branches = Branch.objects.filter(pk=user_branch.pk)
-        suppliers = User.objects.filter(role=User.Role.SUPPLIER).filter(
-            Q(supplier_profile__branch=user_branch) | Q(supplier_profile__branch__isnull=True)
-        )
+        suppliers = _po_suppliers_for_user(user)
     elif user.role == User.Role.OWNER:
         branches = Branch.objects.all()
-        suppliers = User.objects.filter(role=User.Role.SUPPLIER)
+        suppliers = _po_suppliers_for_user(user)
     else:
         # branch_for_user() is also None for a Manager/Staff whose profile
         # branch is NULL. They have no branch to raise a PO for, so the modal
         # gets nothing to pick — not the Owner's every-branch list.
         branches = Branch.objects.none()
-        suppliers = User.objects.filter(role=User.Role.SUPPLIER).none()
+        suppliers = _po_suppliers_for_user(user)
+
+    # Keep each relationship row instead of flattening to Product because
+    # default cost belongs to a supplier/product pair. These are the only
+    # options the PO JavaScript will put in a product selector.
+    links = list(
+        SupplierProduct.objects.filter(supplier__in=suppliers)
+        .select_related('product')
+        .prefetch_related('product__price_tiers')
+        .order_by('supplier_id', 'product__product_name')
+    )
+    supplier_product_options = [
+        {
+            'supplier_id': link.supplier_id,
+            'product_id': link.product_id,
+            'name': link.product.product_name,
+            'sku': link.product.sku_code,
+            'cost': str(
+                link.default_cost_price
+                if link.default_cost_price is not None
+                else link.product.bulk_floor_price
+            ),
+        }
+        for link in links
+    ]
 
     return {
-        'products': Product.objects.all(),
         'suppliers': suppliers,
+        'supplier_product_options': supplier_product_options,
         'branches': branches,
         'user_branch': user_branch,
         # localdate(), not now(): the order-date field defaults to this, and
@@ -347,20 +393,58 @@ def procurement_add(request):
     # That is not hypothetical — PO-2026-001 in this database is one, left
     # behind when the cost field silently blanked itself (see the
     # |unlocalize note in _po_modal.html).
+    errors = []
+    if not (
+        len(product_ids) == len(quantities) == len(cost_prices)
+    ):
+        errors.append('Every item must include a product, quantity and cost price.')
     items = []
     for product_id, qty, cost in zip(product_ids, quantities, cost_prices):
-        if not product_id or not qty or not cost:
+        if not product_id and not qty and not cost:
             continue
-        items.append((product_id, int(qty), float(cost)))
+        try:
+            parsed_product_id = int(product_id)
+            parsed_quantity = int(qty)
+            parsed_cost = Decimal(cost)
+        except (TypeError, ValueError, InvalidOperation):
+            errors.append(
+                'Every item needs a valid product, quantity and cost price.'
+            )
+            continue
+        if parsed_quantity < 1 or parsed_cost < 0:
+            errors.append(
+                'Item quantity must be at least 1 and cost cannot be negative.'
+            )
+            continue
+        items.append((parsed_product_id, parsed_quantity, parsed_cost))
 
-    if not items:
+    if not items and not errors:
+        errors.append(
+            'The order was not created — add at least one complete item.'
+        )
+
+    suppliers = _po_suppliers_for_user(request.user)
+    supplier = suppliers.filter(pk=supplier_id).first()
+    if supplier is None:
+        errors.append('Choose an active supplier available to this branch.')
+
+    parsed_product_ids = [product_id for product_id, _, _ in items]
+    if len(parsed_product_ids) != len(set(parsed_product_ids)):
+        errors.append('Each product may appear only once on a purchase order.')
+
+    if supplier and parsed_product_ids and unassigned_product_ids(
+        supplier, parsed_product_ids
+    ):
+        errors.append(
+            'The order was not created — every item must be an active product '
+            'assigned to the selected supplier.'
+        )
+
+    if errors:
         context = _procurement_list_context(request)
         context.update({
             'show_po_modal': True,
-            'po_errors': [
-                'The order was not created — every item needs a product, a '
-                'quantity and a cost price.'
-            ],
+            'po_errors': errors,
             'po_form_data': request.POST,
             'po_restore_rows': [
                 {'product_id': pid, 'quantity': qty, 'cost_price': cost}
@@ -370,6 +454,29 @@ def procurement_add(request):
         return render(request, 'procurement/procurement_list.html', context)
 
     with transaction.atomic():
+        # Re-check while locking the selected mapping rows. Validation above
+        # gives a useful error before any write; this closes the smaller race
+        # with a concurrent supplier-catalog removal.
+        if unassigned_product_ids(supplier, parsed_product_ids, lock=True):
+            context = _procurement_list_context(request)
+            context.update({
+                'show_po_modal': True,
+                'po_errors': [
+                    'The supplier catalog changed while you were creating '
+                    'the order. Review the items and try again.'
+                ],
+                'po_form_data': request.POST,
+                'po_restore_rows': [
+                    {'product_id': pid, 'quantity': qty, 'cost_price': cost}
+                    for pid, qty, cost in zip(
+                        product_ids, quantities, cost_prices
+                    ) if pid
+                ],
+            })
+            return render(
+                request, 'procurement/procurement_list.html', context
+            )
+
         # Who raises the order decides whether it is already authorized.
         # Every PO used to be created Ordered no matter who submitted this
         # form, so a Branch Manager could commit spend against a supplier
@@ -382,7 +489,7 @@ def procurement_add(request):
 
         proc = Procurement.objects.create(
             branch_id=branch_id,
-            supplier_id=supplier_id,
+            supplier=supplier,
             owner=request.user if is_owner else None,
             created_by=request.user,
             order_date=order_date,
@@ -1836,9 +1943,9 @@ class SupplierListAPIView(APIView):
                 {'detail': 'Permission denied.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        suppliers = User.objects.filter(
-            role=User.Role.SUPPLIER
-        ).select_related('supplier_profile')
+        suppliers = _po_suppliers_for_user(request.user).select_related(
+            'supplier_profile'
+        )
         data = [
             {
                 'id': s.id,
@@ -1851,3 +1958,45 @@ class SupplierListAPIView(APIView):
             for s in suppliers
         ]
         return Response(data)
+
+
+class SupplierProductListAPIView(APIView):
+    """Active products assigned to one supplier for PO item pickers."""
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def get(self, request, pk):
+        if request.user.role not in [
+            User.Role.OWNER,
+            User.Role.BRANCH_MANAGER,
+        ]:
+            return Response(
+                {'detail': 'Permission denied.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        supplier = _po_suppliers_for_user(request.user).filter(pk=pk).first()
+        if supplier is None:
+            return Response(
+                {'detail': 'Active supplier not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        links = (
+            active_supplier_product_links(supplier)
+            .select_related('product')
+            .prefetch_related('product__price_tiers')
+            .order_by('product__product_name')
+        )
+        return Response([
+            {
+                'id': link.product_id,
+                'name': link.product.product_name,
+                'sku': link.product.sku_code,
+                'defaultCost': (
+                    link.default_cost_price
+                    if link.default_cost_price is not None
+                    else link.product.bulk_floor_price
+                ),
+            }
+            for link in links
+        ])

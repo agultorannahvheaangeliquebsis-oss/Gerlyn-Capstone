@@ -116,20 +116,71 @@ not a status, so it keeps the unclassed neutral default.
 })();
 </script>
 {% endif %}
-{% if can_create and suppliers and products %}
+{% if can_create and suppliers and supplier_product_options %}
 <script>
 // Global, not scoped: the template's rows are cloned with inline
 // onchange/oninput/onclick handlers, which resolve against window. po-
 // prefixed so nothing else on the list can collide with them.
 var poRows = document.getElementById('po-item-rows');
 var poTpl = document.getElementById('po-row-template');
+var poSupplier = document.getElementById('po-supplier');
+var poCatalogEl = document.getElementById('po-supplier-products');
+var poCatalog = poCatalogEl ? JSON.parse(poCatalogEl.textContent) : [];
+
+function poProductsForSupplier() {
+  var supplierId = parseInt(poSupplier.value, 10);
+  return poCatalog.filter(function (item) {
+    return item.supplier_id === supplierId;
+  });
+}
+
+function poPopulateProductSelect(row, preserveSelection) {
+  var sel = row.querySelector('.js-product');
+  var previous = preserveSelection ? sel.value : '';
+  var products = poProductsForSupplier();
+  sel.replaceChildren();
+
+  var placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = products.length
+    ? 'Choose a product…'
+    : 'No active products assigned to this supplier';
+  sel.appendChild(placeholder);
+
+  products.forEach(function (item) {
+    var option = document.createElement('option');
+    option.value = item.product_id;
+    option.textContent = item.name + ' (' + item.sku + ')';
+    option.dataset.cost = item.cost;
+    sel.appendChild(option);
+  });
+
+  sel.disabled = products.length === 0;
+  if (previous && products.some(function (item) {
+    return String(item.product_id) === previous;
+  })) {
+    sel.value = previous;
+  }
+}
+
+function poProductChanged(sel) {
+  var option = sel.options[sel.selectedIndex];
+  sel.closest('.item-row').querySelector('.js-cost').value =
+    (option && option.dataset.cost) || '';
+  poRecalc();
+}
+
+function poRefreshProducts() {
+  poRows.querySelectorAll('.item-row').forEach(function (row) {
+    poPopulateProductSelect(row, true);
+    poProductChanged(row.querySelector('.js-product'));
+  });
+}
 
 function poAddRow() {
   poRows.appendChild(poTpl.content.cloneNode(true));
-  // Prefill cost from the product's wholesale price.
   var last = poRows.lastElementChild;
-  var sel = last.querySelector('.js-product');
-  last.querySelector('.js-cost').value = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.cost) || '';
+  poPopulateProductSelect(last, false);
   poSyncRemoveButtons();
   poRecalc();
 }
@@ -158,6 +209,7 @@ function poRecalc() {
 }
 
 (function () {
+  poSupplier.addEventListener('change', poRefreshProducts);
   // A rejected submit sends the item rows back; otherwise open with one blank row.
   var restoreEl = document.getElementById('po-restore-rows');
   var restore = restoreEl ? JSON.parse(restoreEl.textContent) : [];
