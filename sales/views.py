@@ -378,6 +378,9 @@ def transaction_detail(request, pk):
         'items': items,
         'billing': billing,
         'next_actions': _next_actions(txn, request.user),
+        # The Mark Completed button is only live once the payment is Paid
+        # (transaction_set_status enforces it; this just keeps the UI honest).
+        'payment_is_paid': bool(billing and billing.status == BillingRecord.PaymentStatus.PAID),
         'progress': _order_progress(txn),
         # Whether to offer the after-the-fact PWD/Senior discount form.
         # transaction_apply_discount re-checks every one of these conditions
@@ -472,6 +475,13 @@ _FLOW = {
 
 def _next_actions(txn, user=None):
     actions = _FLOW.get(txn.order_status, [])
+    if (txn.transaction_type == SalesTransaction.TransactionType.PHYSICAL
+            and txn.order_status == SalesTransaction.OrderStatus.PENDING):
+        # A walk-in that is still Pending is one whose payment hasn't cleared
+        # yet (GCash/Card — see transaction_add). The goods already left the
+        # counter, so Approved / Preparing mean nothing here: the only real
+        # steps are "payment verified, complete it" or "it fell through".
+        actions = ['Completed', 'Cancelled']
     if (txn.order_status == SalesTransaction.OrderStatus.COMPLETED
             and user is not None and user.role not in [OWNER, BRANCH_MANAGER]):
         # Staff can cancel an unfulfilled order but not void a completed
@@ -555,7 +565,30 @@ def transaction_set_status(request, pk, new_status):
             if new_status == SalesTransaction.OrderStatus.CANCELLED and not cancel_reason:
                 raise _OrderActionError('Enter a reason for cancelling this order.')
 
+            # An order is only Completed once its payment is verified Paid.
+            # The billing row is read fresh and locked, same as the
+            # cancellation path below — billing_confirm locks it too, so a
+            # payment being rejected in the gap can't slip a completion through.
+            if new_status == SalesTransaction.OrderStatus.COMPLETED:
+                paying = BillingRecord.objects.select_for_update().filter(
+                    transaction=locked_txn
+                ).first()
+                if not paying or paying.status != BillingRecord.PaymentStatus.PAID:
+                    raise _OrderActionError(
+                        f'{locked_txn.order_number} can only be completed once its '
+                        f'payment is verified as Paid — record and verify the payment first.'
+                    )
+
             was_completed = locked_txn.order_status == SalesTransaction.OrderStatus.COMPLETED
+
+            if (not was_completed
+                    and new_status == SalesTransaction.OrderStatus.CANCELLED
+                    and locked_txn.transaction_type == SalesTransaction.TransactionType.PHYSICAL):
+                # A walk-in's stock leaves the shelf when it is rung up, even
+                # while its payment is still pending — so cancelling it before
+                # completion has to put that stock back, unlike an online
+                # order, which hasn't deducted anything until it completes.
+                _reverse_stock(locked_txn, request.user)
 
             if was_completed and new_status == SalesTransaction.OrderStatus.CANCELLED:
                 # Voiding a completed sale — undo what _deduct_stock already
@@ -1229,7 +1262,14 @@ def transaction_add(request):
                         recorded_by=request.user,
                         transaction_type=SalesTransaction.TransactionType.PHYSICAL,
                         mode_of_payment=mode_of_payment,
-                        order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
+                        # A Cash sale is settled at the counter, so it is done. GCash
+                        # and Card have to clear as a separate, verified step first
+                        # (below), so those stay Pending until the payment is Paid.
+                        order_status=(
+                            SalesTransaction.OrderStatus.COMPLETED
+                            if mode_of_payment == SalesTransaction.ModeOfPayment.CASH
+                            else SalesTransaction.OrderStatus.PENDING
+                        ),
                         total_amount=total,
                         discount_type=discount_type,
                         discount_id_number=discount_id_number,
@@ -1296,7 +1336,15 @@ def transaction_add(request):
                         f'total is unchanged.'
                     )
                 else:
-                    messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
+                    if txn.order_status == SalesTransaction.OrderStatus.PENDING:
+                        messages.success(
+                            request,
+                            f'Sale {txn.order_number} recorded — ₱{total}. It stays '
+                            f'Pending until the {mode_of_payment} payment is recorded '
+                            f'and verified.'
+                        )
+                    else:
+                        messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
                 return redirect('transaction_detail', pk=txn.pk)
 
     # Rejected. Re-render the form with the header selections re-chosen and

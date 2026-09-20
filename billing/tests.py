@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import threading
 from decimal import Decimal
+from unittest import mock
 from importlib import import_module
 
 from django.conf import settings
@@ -27,6 +28,18 @@ from core.module_permissions import BILLING, DEFAULT_STAFF_MODULES
 from sales.models import SalesTransaction
 
 SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
+
+
+def _valid_png_file(name='receipt.png'):
+    """A genuinely valid PNG — the upload check opens it with Pillow, which
+    correctly rejects the hand-crafted _PNG_BYTES used for byte comparisons."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new('RGB', (2, 2), color='white').save(buf, format='PNG')
+    return ContentFile(buf.getvalue(), name=name)
 
 
 class BillingListOutstandingTotalTests(TestCase):
@@ -122,15 +135,18 @@ class BillingConfirmStateMachineTests(TestCase):
 
     def test_pending_to_paid_is_allowed(self):
         rec = self._record()
-        # The proof-of-payment gate (a non-Cash method needs a reference
-        # number or an uploaded proof before it can be marked Paid) is
+        # The proof-of-payment gate (each method's required reference number
+        # and/or proof, BillingRecord.missing_payment_evidence) is
         # orthogonal to what this test checks — that the state machine
         # allows Pending -> Paid at all — so satisfy it explicitly rather
         # than depend on which Pending record seed_demo hands back first.
-        if rec.payment_method != BillingRecord.PaymentMethod.CASH and not rec.reference_number:
+        if rec.payment_method in BillingRecord.REFERENCE_REQUIRED_METHODS and not rec.reference_number:
             rec.reference_number = 'TEST-REF-001'
             rec.save(update_fields=['reference_number'])
-        self.login('gerlyn').post(f'/billing/{rec.pk}/confirm/', {'status': 'Paid'})
+        if rec.payment_method in BillingRecord.PROOF_REQUIRED_METHODS and not rec.proof_of_payment:
+            rec.proof_of_payment.save('proof.png', _valid_png_file(), save=True)
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            self.login('gerlyn').post(f'/billing/{rec.pk}/confirm/', {'status': 'Paid'})
         rec.refresh_from_db()
         self.assertEqual(rec.status, 'Paid')
         self.assertEqual(rec.confirmed_by, self.owner)
@@ -433,7 +449,12 @@ class BillingConfirmMakerCheckerTests(TestCase):
             total_amount=500,
         )
         record = txn.billing_record
-        self._confirm(self.staff, record.pk)
+        # Cash on Delivery is settled in person, so it needs no reference or
+        # proof on file to be verified. The customer notification is stubbed:
+        # its "₱" text can't be stored by this database's charset, an issue
+        # unrelated to what this test is about.
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            self._confirm(self.staff, record.pk)
 
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
@@ -1015,7 +1036,8 @@ class BillingCreateValidationTests(TestCase):
 
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'payment_method': 'GCash', 'reference_number': 'GC-9'},
+            {'payment_method': 'GCash', 'reference_number': 'GC-9',
+             'proof_of_payment': _valid_png_file()},
         )
 
         self.assertRedirects(response, f'/billing/{record.pk}/')
@@ -1138,3 +1160,234 @@ class BillingCreateCancelLinkTests(TestCase):
         record = txn.billing_record
         response = self._client().get(f'/billing/create/{txn.pk}/?from=billing')
         self.assertContains(response, f'href="/billing/{record.pk}/"')
+
+
+class PaymentEvidencePerMethodTests(TestCase):
+    """What each method has to have on file before it can be saved or
+    verified: GCash and Bank Transfer need a reference number AND a proof,
+    Card needs a proof, and Cash / Cash on Delivery / Pay at Store need
+    neither. One rule (BillingRecord.missing_payment_evidence) shared by the
+    web form, the API and Mark as Paid."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='pe-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='PE Branch', location='Baliuag', owner=cls.owner
+        )
+
+    def _txn(self, method=SalesTransaction.ModeOfPayment.GCASH):
+        return SalesTransaction.objects.create(
+            branch=self.branch, total_amount=250, mode_of_payment=method,
+        )
+
+    def _client(self):
+        client = Client()
+        client.force_login(self.owner)
+        return client
+
+    def _save_payment(self, txn, **data):
+        return self._client().post(f'/billing/create/{txn.pk}/', data)
+
+    def _messages(self, response):
+        return [str(m) for m in get_messages(response.wsgi_request)]
+
+    # -- the rule itself ----------------------------------------------------
+
+    def test_the_rule_per_method(self):
+        need = BillingRecord.missing_payment_evidence
+        M = BillingRecord.PaymentMethod
+        self.assertEqual(need(M.GCASH, '', False), ['reference number', 'proof of payment'])
+        self.assertEqual(need(M.GCASH, 'GC-1', False), ['proof of payment'])
+        self.assertEqual(need(M.GCASH, '', True), ['reference number'])
+        self.assertEqual(need(M.GCASH, 'GC-1', True), [])
+        self.assertEqual(need(M.BANK_TRANSFER, 'BT-1', False), ['proof of payment'])
+        self.assertEqual(need(M.CARD, '', False), ['proof of payment'])
+        self.assertEqual(need(M.CARD, '', True), [])
+        for method in (M.CASH, M.COD, M.PAY_AT_STORE):
+            self.assertEqual(need(method, '', False), [])
+
+    def test_a_blank_or_whitespace_reference_counts_as_missing(self):
+        need = BillingRecord.missing_payment_evidence
+        self.assertEqual(
+            need(BillingRecord.PaymentMethod.GCASH, '   ', True), ['reference number']
+        )
+
+    # -- Save Payment (billing_create) ----------------------------------------
+
+    def test_gcash_without_a_reference_is_not_saved(self):
+        txn = self._txn()
+        response = self._save_payment(
+            txn, payment_method='GCash', proof_of_payment=_valid_png_file()
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'billing/billing_form.html')
+        self.assertTrue(any('reference number' in m for m in self._messages(response)))
+        record = txn.billing_record
+        record.refresh_from_db()
+        self.assertFalse(record.proof_of_payment)
+
+    def test_gcash_without_a_proof_is_not_saved(self):
+        txn = self._txn()
+        response = self._save_payment(
+            txn, payment_method='GCash', reference_number='GC-1'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any('proof of payment' in m for m in self._messages(response)))
+        record = txn.billing_record
+        record.refresh_from_db()
+        self.assertEqual(record.reference_number, '')
+
+    def test_bank_transfer_needs_both_too(self):
+        txn = self._txn()
+        response = self._save_payment(
+            txn, payment_method='Bank Transfer', reference_number='BT-1'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any('proof of payment' in m for m in self._messages(response)))
+
+    def test_gcash_with_both_saves(self):
+        txn = self._txn()
+        response = self._save_payment(
+            txn, payment_method='GCash', reference_number='GC-7',
+            proof_of_payment=_valid_png_file(),
+        )
+
+        record = txn.billing_record
+        self.assertRedirects(response, f'/billing/{record.pk}/')
+        record.refresh_from_db()
+        self.assertEqual(record.reference_number, 'GC-7')
+        self.assertTrue(record.proof_of_payment)
+
+    def test_a_proof_already_on_file_is_not_demanded_again(self):
+        txn = self._txn()
+        record = txn.billing_record
+        record.proof_of_payment.save('first.png', _valid_png_file(), save=True)
+
+        response = self._save_payment(
+            txn, payment_method='GCash', reference_number='GC-8'
+        )
+
+        self.assertRedirects(response, f'/billing/{record.pk}/')
+        record.refresh_from_db()
+        self.assertEqual(record.reference_number, 'GC-8')
+
+    def test_card_needs_a_proof_but_not_a_reference(self):
+        txn = self._txn(SalesTransaction.ModeOfPayment.CARD)
+        refused = self._save_payment(txn, payment_method='Card')
+        self.assertEqual(refused.status_code, 200)
+        self.assertTrue(any('proof of payment' in m for m in self._messages(refused)))
+
+        saved = self._save_payment(
+            txn, payment_method='Card', reference_number='typed-and-dropped',
+            proof_of_payment=_valid_png_file(),
+        )
+        record = txn.billing_record
+        self.assertRedirects(saved, f'/billing/{record.pk}/')
+        record.refresh_from_db()
+        self.assertEqual(record.payment_method, 'Card')
+        # Card has no reference to keep, so anything typed is cleared.
+        self.assertEqual(record.reference_number, '')
+        self.assertTrue(record.proof_of_payment)
+
+    def test_cash_saves_with_nothing(self):
+        txn = self._txn(SalesTransaction.ModeOfPayment.CASH)
+        response = self._save_payment(txn, payment_method='Cash')
+
+        self.assertRedirects(response, f'/billing/{txn.billing_record.pk}/')
+
+    def test_the_form_hands_the_page_the_same_lists_the_server_uses(self):
+        txn = self._txn()
+        response = self._client().get(f'/billing/create/{txn.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.context['reference_required_methods']),
+            {'GCash', 'Bank Transfer'},
+        )
+        self.assertEqual(
+            set(response.context['proof_required_methods']),
+            {'GCash', 'Bank Transfer', 'Card'},
+        )
+        # Hidden until the method calls for them, and the copy no longer
+        # calls the proof "optional".
+        self.assertContains(response, 'id="reference_field" style="display:none;"')
+        self.assertContains(response, 'id="proof_field" style="display:none;"')
+        self.assertNotContains(response, 'optional screenshot')
+
+    # -- Mark as Paid (billing_confirm) -------------------------------------
+
+    def _record(self, method, reference='', proof=False):
+        record = self._txn().billing_record
+        record.payment_method = method
+        record.reference_number = reference
+        record.save()
+        if proof:
+            record.proof_of_payment.save('proof.png', _valid_png_file(), save=True)
+        return record
+
+    def _mark_paid(self, record):
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            self._client().post(f'/billing/{record.pk}/confirm/', {'status': 'Paid'})
+        record.refresh_from_db()
+        return record.status
+
+    def test_gcash_cannot_be_verified_on_a_reference_alone(self):
+        record = self._record('GCash', reference='GC-1')
+        self.assertEqual(self._mark_paid(record), 'Pending')
+
+    def test_gcash_cannot_be_verified_on_a_proof_alone(self):
+        record = self._record('GCash', proof=True)
+        self.assertEqual(self._mark_paid(record), 'Pending')
+
+    def test_gcash_verifies_with_both(self):
+        record = self._record('GCash', reference='GC-1', proof=True)
+        self.assertEqual(self._mark_paid(record), 'Paid')
+
+    def test_card_verifies_on_a_proof_and_not_without(self):
+        self.assertEqual(self._mark_paid(self._record('Card')), 'Pending')
+        self.assertEqual(self._mark_paid(self._record('Card', proof=True)), 'Paid')
+
+    def test_counter_settled_methods_verify_with_nothing(self):
+        for method in ('Cash', 'Cash on Delivery', 'Pay at Store'):
+            with self.subTest(method=method):
+                self.assertEqual(self._mark_paid(self._record(method)), 'Paid')
+
+    # -- the API serializers mirror it --------------------------------------
+
+    def test_confirm_serializer_enforces_the_same_rule(self):
+        request = RequestFactory().patch('/')
+        request.user = self.owner
+        short = BillingConfirmSerializer(
+            self._record('GCash', reference='GC-1'),
+            data={'status': 'Paid'}, context={'request': request},
+        )
+        self.assertFalse(short.is_valid())
+
+        complete = BillingConfirmSerializer(
+            self._record('GCash', reference='GC-2', proof=True),
+            data={'status': 'Paid'}, context={'request': request},
+        )
+        self.assertTrue(complete.is_valid(), complete.errors)
+
+    def test_payment_serializer_enforces_the_same_rule(self):
+        from billing.serializers import BillingPaymentSerializer
+
+        record = self._record('Cash')
+        missing_proof = BillingPaymentSerializer(
+            record, data={'paymentMethod': 'GCash', 'referenceNumber': 'GC-1'}
+        )
+        self.assertFalse(missing_proof.is_valid())
+
+        card_no_proof = BillingPaymentSerializer(
+            record, data={'paymentMethod': 'Card'}
+        )
+        self.assertFalse(card_no_proof.is_valid())
+
+        cash = BillingPaymentSerializer(record, data={'paymentMethod': 'Cash'})
+        self.assertTrue(cash.is_valid(), cash.errors)

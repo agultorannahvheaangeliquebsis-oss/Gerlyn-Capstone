@@ -126,6 +126,10 @@ class AcceptanceTests(TestCase):
 
         staff = self.login('ana')
         for status in ['Approved', 'Preparing', 'Completed']:
+            if status == 'Completed':
+                # An order can only be completed once its payment is Paid.
+                order.billing_record.status = 'Paid'
+                order.billing_record.save(update_fields=['status'])
             staff.post(f'/sales/{order.pk}/status/{status}/')
 
         order.refresh_from_db()

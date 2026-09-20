@@ -54,6 +54,30 @@ class BillingRecord(models.Model):
         PaymentStatus.CANCELLED: set(),
     }
 
+    # What each method has to leave behind before it can be saved or verified.
+    # No payment gateway is integrated, so for a remote settlement the
+    # reference number and the screenshot ARE the record that it happened:
+    # GCash and bank transfers need both, a card payment needs the slip/
+    # screenshot (a card has no reference the counter can key in), and the
+    # counter-settled methods (Cash, Cash on Delivery, Pay at Store) leave
+    # nothing to attach. One definition — the web form, the API serializer,
+    # billing_confirm and checkout all read these, so they cannot drift apart.
+    REFERENCE_REQUIRED_METHODS = {PaymentMethod.GCASH, PaymentMethod.BANK_TRANSFER}
+    PROOF_REQUIRED_METHODS = {
+        PaymentMethod.GCASH, PaymentMethod.BANK_TRANSFER, PaymentMethod.CARD,
+    }
+
+    @classmethod
+    def missing_payment_evidence(cls, method, reference_number, has_proof):
+        """Names of what `method` still needs that isn't there — empty when
+        the record is complete. Callers word their own message."""
+        missing = []
+        if method in cls.REFERENCE_REQUIRED_METHODS and not (reference_number or '').strip():
+            missing.append('reference number')
+        if method in cls.PROOF_REQUIRED_METHODS and not has_proof:
+            missing.append('proof of payment')
+        return missing
+
     def can_transition_to(self, new_status):
         """True when billing_confirm may move this record to `new_status`."""
         return new_status in self.ALLOWED_STATUS_TRANSITIONS.get(self.status, set())

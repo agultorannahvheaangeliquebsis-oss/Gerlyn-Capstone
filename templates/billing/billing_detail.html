@@ -103,7 +103,7 @@
         <div class="empty">
           <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
           <h3>No proof uploaded</h3>
-          <p>GCash or bank payments can attach a screenshot as evidence.</p>
+          <p>GCash, bank transfer and card payments need a screenshot or receipt on file before they can be verified.</p>
           {% if record.status == "Pending" or record.status == "Rejected" %}
             <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
           {% endif %}

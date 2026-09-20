@@ -30,6 +30,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import User
+from billing.models import BillingRecord
 from branches.models import Branch
 from inventory.models import Inventory, Product, StockMovement
 from sales.models import SalesTransaction
@@ -349,6 +350,9 @@ class SalesApiOnlineStockDeductionTests(OnlinePricingTestCase):
 
         self.client.force_login(self.owner)
         for status in ['Approved', 'Preparing', 'Completed']:
+            if status == 'Completed':
+                # An order can only be completed once its payment is Paid.
+                BillingRecord.objects.filter(transaction=order).update(status='Paid')
             resp = self.client.post(
                 reverse('transaction_set_status', args=[order.pk, status])
             )

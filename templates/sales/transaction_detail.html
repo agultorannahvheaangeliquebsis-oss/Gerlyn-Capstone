@@ -136,9 +136,17 @@
           <input type="text" name="cancel_reason" placeholder="Reason for cancelling" required
                  style="width:220px;">
           {% endif %}
-          <button type="submit" class="btn {% if action == 'Cancelled' %}btn-danger{% else %}btn-primary{% endif %}">
+          {% comment %}
+          Completing is locked until the payment is Paid — the view refuses it
+          otherwise; disabling the button here just says so before the click.
+          {% endcomment %}
+          <button type="submit" class="btn {% if action == 'Cancelled' %}btn-danger{% else %}btn-primary{% endif %}"
+                  {% if action == 'Completed' and not payment_is_paid %}disabled title="Verify the payment as Paid first"{% endif %}>
             {% if action == 'Cancelled' %}Cancel Order{% else %}Mark {{ action }}{% endif %}
           </button>
+          {% if action == 'Completed' and not payment_is_paid %}
+          <span class="gv-meta">Payment must be verified as Paid first.</span>
+          {% endif %}
         </form>
       {% endfor %}
     </div>

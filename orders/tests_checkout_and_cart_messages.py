@@ -19,7 +19,10 @@ wrote a field nobody had checked:
 """
 from decimal import Decimal
 
+import io
+
 from django.contrib.messages import get_messages
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
@@ -68,8 +71,18 @@ class StorefrontShopperTestCase(TestCase):
 # ─────────────────────────────────────────────────────────────────────────
 # L8 — GCash reference number
 # ─────────────────────────────────────────────────────────────────────────
+def _proof(name='receipt.png'):
+    """A genuinely valid PNG — the upload check opens it with Pillow."""
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new('RGB', (2, 2), color='white').save(buf, format='PNG')
+    return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
+
+
 class GCashReferenceTests(StorefrontShopperTestCase):
-    """GCash needs a reference; nothing else may keep one."""
+    """GCash needs a reference AND a proof of payment; nothing else may keep
+    a reference."""
 
     def check_out(self, **payload):
         payload.setdefault('fulfillment_type', 'Pickup')
@@ -77,7 +90,9 @@ class GCashReferenceTests(StorefrontShopperTestCase):
         return self.client.post(reverse('orders:checkout'), payload, follow=True)
 
     def test_gcash_with_no_reference_is_refused_and_nothing_is_saved(self):
-        response = self.check_out(mode_of_payment='GCash', reference_number='')
+        response = self.check_out(
+            mode_of_payment='GCash', reference_number='', proof_of_payment=_proof()
+        )
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
         self.assertIn(
@@ -90,7 +105,7 @@ class GCashReferenceTests(StorefrontShopperTestCase):
 
     def test_gcash_with_a_missing_reference_field_is_refused(self):
         """A stripped form is the same as a blank box, not a pass."""
-        response = self.check_out(mode_of_payment='GCash')
+        response = self.check_out(mode_of_payment='GCash', proof_of_payment=_proof())
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
         self.assertIn(
@@ -101,14 +116,48 @@ class GCashReferenceTests(StorefrontShopperTestCase):
 
     def test_a_whitespace_only_reference_counts_as_blank(self):
         response = self.check_out(
-            mode_of_payment='GCash', reference_number='   '
+            mode_of_payment='GCash', reference_number='   ', proof_of_payment=_proof()
+        )
+
+        self.assertEqual(SalesTransaction.objects.count(), 0)
+
+    def test_gcash_without_a_proof_is_refused_and_nothing_is_saved(self):
+        response = self.check_out(
+            mode_of_payment='GCash', reference_number='GC-2026-0001'
+        )
+
+        self.assertEqual(SalesTransaction.objects.count(), 0)
+        self.assertIn(
+            'Enter your GCash proof of payment, or choose another payment '
+            'method — we cannot match the payment to your order without it.',
+            _messages(response),
+        )
+
+    def test_gcash_with_neither_asks_for_both(self):
+        response = self.check_out(mode_of_payment='GCash')
+
+        self.assertEqual(SalesTransaction.objects.count(), 0)
+        self.assertIn(
+            'Enter your GCash reference number and proof of payment, or choose '
+            'another payment method — we cannot match the payment to your '
+            'order without it.',
+            _messages(response),
+        )
+
+    def test_a_non_image_proof_is_refused(self):
+        response = self.check_out(
+            mode_of_payment='GCash', reference_number='GC-2026-0001',
+            proof_of_payment=SimpleUploadedFile(
+                'receipt.html', b'<script>alert(1)</script>', content_type='text/html'
+            ),
         )
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
 
     def test_gcash_with_a_reference_is_accepted_and_records_it(self):
         response = self.check_out(
-            mode_of_payment='GCash', reference_number=' GC-2026-0001 '
+            mode_of_payment='GCash', reference_number=' GC-2026-0001 ',
+            proof_of_payment=_proof(),
         )
 
         sale = SalesTransaction.objects.get()
@@ -116,6 +165,7 @@ class GCashReferenceTests(StorefrontShopperTestCase):
         # Stored stripped, the same treatment delivery_address gets.
         self.assertEqual(sale.billing_record.reference_number, 'GC-2026-0001')
         self.assertEqual(sale.billing_record.payment_method, 'GCash')
+        self.assertTrue(sale.billing_record.proof_of_payment)
 
     def test_a_non_gcash_order_does_not_keep_a_typed_reference(self):
         """The box is always on the form. A reference typed and then abandoned

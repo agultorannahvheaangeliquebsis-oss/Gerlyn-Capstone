@@ -847,3 +847,161 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.get(branch=self.branch)
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertIsNone(new_order.replaces_id)
+
+
+class PaymentGatesOrderCompletionTests(TestCase):
+    """An order is only Completed once its payment is verified Paid. A walk-in
+    settled in Cash is done at the counter (Completed + Paid); a GCash or Card
+    walk-in stays Pending until its payment has been recorded and verified,
+    then can be completed like any other order."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='pg-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-PG', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100,
+        )
+        self.inventory = Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+        self.client.force_login(self.owner)
+
+    def _online_order(self, status='Preparing'):
+        return SalesTransaction.objects.create(
+            branch=self.branch, order_status=status, total_amount=100,
+            transaction_type=SalesTransaction.TransactionType.ONLINE,
+            mode_of_payment=SalesTransaction.ModeOfPayment.COD,
+        )
+
+    def _set_billing(self, txn, status):
+        BillingRecord.objects.filter(transaction=txn).update(status=status)
+
+    def _complete(self, txn):
+        return self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Completed'])
+        )
+
+    def _walk_in(self, method, qty='2', **extra):
+        payload = {
+            'branch': self.branch.pk, 'mode_of_payment': method,
+            'product_id': [str(self.product.pk)], 'quantity': [qty],
+        }
+        if method == 'Cash':
+            payload['amount_tendered'] = '1000'
+        payload.update(extra)
+        response = self.client.post(reverse('transaction_add'), payload)
+        return SalesTransaction.objects.latest('pk'), response
+
+    # -- the gate ---------------------------------------------------------------
+
+    def test_completing_is_refused_while_payment_is_pending(self):
+        txn = self._online_order()
+        response = self._complete(txn)
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Preparing')
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('verified as Paid' in m for m in messages_))
+
+    def test_completing_is_refused_while_payment_is_rejected(self):
+        txn = self._online_order()
+        self._set_billing(txn, BillingRecord.PaymentStatus.REJECTED)
+        self._complete(txn)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Preparing')
+
+    def test_completing_works_once_payment_is_paid(self):
+        txn = self._online_order()
+        self._set_billing(txn, BillingRecord.PaymentStatus.PAID)
+        self._complete(txn)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Completed')
+
+    def test_a_refused_completion_takes_no_stock(self):
+        txn = self._online_order()
+        from sales.models import SalesItem
+        SalesItem.objects.create(
+            transaction=txn, product=self.product, quantity_sold=5, unit_price=100,
+        )
+        self._complete(txn)
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 50)
+
+    def test_the_button_is_disabled_until_paid(self):
+        txn = self._online_order()
+        page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
+        self.assertContains(page, 'Payment must be verified as Paid first.')
+
+        self._set_billing(txn, BillingRecord.PaymentStatus.PAID)
+        page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
+        self.assertNotContains(page, 'Payment must be verified as Paid first.')
+
+    # -- walk-in sales ----------------------------------------------------------
+
+    def test_a_cash_walk_in_is_completed_and_paid_at_the_counter(self):
+        txn, _ = self._walk_in('Cash')
+
+        self.assertEqual(txn.order_status, 'Completed')
+        self.assertEqual(txn.billing_record.status, 'Paid')
+
+    def test_gcash_and_card_walk_ins_stay_pending_until_verified(self):
+        for method in ('GCash', 'Card'):
+            with self.subTest(method=method):
+                txn, response = self._walk_in(method)
+
+                self.assertEqual(txn.order_status, 'Pending')
+                self.assertEqual(txn.billing_record.status, 'Pending')
+                messages_ = [m.message for m in response.wsgi_request._messages]
+                self.assertTrue(any('stays Pending' in m for m in messages_))
+
+    def test_a_pending_walk_in_has_already_left_the_shelf(self):
+        self._walk_in('GCash', qty='2')
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 48)
+
+    def test_a_pending_walk_in_only_offers_complete_or_cancel(self):
+        txn, _ = self._walk_in('GCash')
+        page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertEqual(page.context['next_actions'], ['Completed', 'Cancelled'])
+
+    def test_a_pending_walk_in_completes_after_payment_is_verified_without_a_second_deduction(self):
+        txn, _ = self._walk_in('GCash', qty='2')
+
+        self._complete(txn)
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Pending')
+
+        self._set_billing(txn, BillingRecord.PaymentStatus.PAID)
+        self._complete(txn)
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Completed')
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 48)
+
+    @mock.patch('core.notifications.notify')
+    def test_cancelling_a_pending_walk_in_puts_its_stock_back(self, mock_notify):
+        txn, _ = self._walk_in('GCash', qty='2')
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 48)
+
+        self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Cancelled']),
+            {'cancel_reason': 'Customer never paid'},
+        )
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Cancelled')
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 50)
