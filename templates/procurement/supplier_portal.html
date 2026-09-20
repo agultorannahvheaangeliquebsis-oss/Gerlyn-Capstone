@@ -1,4 +1,4 @@
-{% load static %}<!DOCTYPE html>
+{% load static l10n %}<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -254,6 +254,46 @@
 
   <div class="page-head">
     <div>
+      <h1>Product Pricing</h1>
+      <p class="gv-meta mb-0">Set the current unit costs used when Gerlyn confirms new purchase orders. Existing confirmed orders keep their original cost.</p>
+    </div>
+  </div>
+
+  <div class="card table-wrap mb-6">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Product</th><th>SKU</th><th class="num">Current Unit Cost</th><th class="end">Action</th></tr>
+      </thead>
+      <tbody>
+        {% for link in catalog_links %}
+        <tr>
+          <td data-label="Product" class="strong">{{ link.product.product_name }}</td>
+          <td data-label="SKU" class="sku">{{ link.supplier_sku|default:link.product.sku_code }}</td>
+          <td data-label="Current Unit Cost" class="num">
+            <form method="POST" action="{% url 'supplier_set_product_cost' link.pk %}" id="cost-{{ link.pk }}">
+              {% csrf_token %}
+              <input type="number" name="current_cost_price" min="0" step="0.01" required
+                     value="{{ link.current_cost_price|default_if_none:''|unlocalize }}"
+                     aria-label="Current unit cost for {{ link.product.product_name }}"
+                     style="width:130px; text-align:right;">
+            </form>
+          </td>
+          <td data-label="Action" class="end">
+            <button type="submit" form="cost-{{ link.pk }}" class="btn btn-sm btn-primary">Save Cost</button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4"><div class="empty">
+          <h3>No products assigned</h3>
+          <p>Gerlyn will assign products to your supplier catalog before you can set their costs.</p>
+        </div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="page-head">
+    <div>
       <h1>Your Purchase Orders</h1>
       <p class="gv-meta mb-0">Orders Gerlyn Variety Store has placed with you.</p>
     </div>
@@ -323,7 +363,7 @@
             <tr>
               <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
               <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
-              <td data-label="Unit Cost" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
+              <td data-label="Unit Cost" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}—{% endif %}</td>
               <td data-label="Line Total" class="num">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
               {% if o.status == 'Received' %}
               <td data-label="Qty Received" class="num

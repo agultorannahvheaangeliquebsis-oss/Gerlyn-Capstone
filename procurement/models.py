@@ -110,6 +110,10 @@ class Procurement(models.Model):
 
 
 class ProcurementItem(models.Model):
+    def __init__(self, *args, **kwargs):
+        if 'cost_price' in kwargs and 'unit_cost_snapshot' not in kwargs:
+            kwargs['unit_cost_snapshot'] = kwargs.pop('cost_price')
+        super().__init__(*args, **kwargs)
     # --- unchanged ---
     procurement = models.ForeignKey(
         Procurement, on_delete=models.CASCADE,
@@ -121,7 +125,11 @@ class ProcurementItem(models.Model):
     )
     quantity_ordered = models.PositiveIntegerField()
     quantity_received = models.PositiveIntegerField(default=0)
-    cost_price = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_cost_snapshot = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        editable=False,
+        help_text='Supplier cost copied when this purchase order is confirmed.',
+    )
 
     # --- new field ----------------------------------------------------------
     is_unexpected = models.BooleanField(
@@ -133,13 +141,21 @@ class ProcurementItem(models.Model):
 
     @property
     def line_total(self):
-        """Ordered quantity x cost price.
+        """Ordered quantity x the confirmed supplier-cost snapshot.
 
         Both procurement_detail.html and the printable PO render this column;
         without it the template's `item.line_total` silently resolved to
         nothing and every line printed as ₱0.00.
         """
-        return self.quantity_ordered * self.cost_price
+        return self.quantity_ordered * (self.unit_cost_snapshot or 0)
+
+    @property
+    def cost_price(self):
+        return self.unit_cost_snapshot
+
+    @cost_price.setter
+    def cost_price(self, value):
+        self.unit_cost_snapshot = value
 
     def __str__(self):
         return f"{self.product.product_name} x{self.quantity_ordered}"
@@ -154,6 +170,11 @@ class SupplierProduct(models.Model):
     now". This one is the forward-looking mapping — it's what a supplier's
     product sub-view lists and what a transfer moves between suppliers.
     """
+    def __init__(self, *args, **kwargs):
+        if 'default_cost_price' in kwargs and 'current_cost_price' not in kwargs:
+            kwargs['current_cost_price'] = kwargs.pop('default_cost_price')
+        super().__init__(*args, **kwargs)
+
     supplier = models.ForeignKey(
         User, on_delete=models.CASCADE,
         limit_choices_to={'role': 'SUPPLIER'},
@@ -168,10 +189,9 @@ class SupplierProduct(models.Model):
         help_text="The supplier's own code for this product, if it differs "
                   "from our sku_code"
     )
-    default_cost_price = models.DecimalField(
+    current_cost_price = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
-        help_text="Pre-fills cost_price when this product is added to a new "
-                  "purchase order for this supplier"
+        help_text='Supplier current cost, copied when a PO is confirmed.'
     )
     lead_time_days = models.PositiveIntegerField(
         null=True, blank=True,
@@ -189,6 +209,14 @@ class SupplierProduct(models.Model):
 
     def __str__(self):
         return f"{self.product.product_name} <- {self.supplier}"
+
+    @property
+    def default_cost_price(self):
+        return self.current_cost_price
+
+    @default_cost_price.setter
+    def default_cost_price(self, value):
+        self.current_cost_price = value
 
 
 class DeliveryScanLog(models.Model):

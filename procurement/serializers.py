@@ -4,7 +4,8 @@ from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Procurement, ProcurementItem
+from .models import Procurement, ProcurementItem, SupplierProduct
+from .services import SupplierCostError, snapshot_supplier_costs
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
 from branches.models import Branch
@@ -25,8 +26,9 @@ class ProcurementItemSerializer(serializers.ModelSerializer):
     productSku   = serializers.SerializerMethodField()
     quantityOrdered   = serializers.IntegerField(source='quantity_ordered')
     quantityReceived  = serializers.IntegerField(source='quantity_received', read_only=True)
-    costPrice    = serializers.DecimalField(
-        source='cost_price', max_digits=10, decimal_places=2
+    unitCostSnapshot = serializers.DecimalField(
+        source='unit_cost_snapshot', max_digits=10, decimal_places=2,
+        read_only=True, allow_null=True,
     )
     subtotal     = serializers.SerializerMethodField()
 
@@ -39,7 +41,7 @@ class ProcurementItemSerializer(serializers.ModelSerializer):
             'productSku',
             'quantityOrdered',
             'quantityReceived',
-            'costPrice',
+            'unitCostSnapshot',
             'subtotal',
         ]
 
@@ -53,7 +55,7 @@ class ProcurementItemSerializer(serializers.ModelSerializer):
         return obj.product.sku_code if obj.product else None
 
     def get_subtotal(self, obj):
-        return float(obj.quantity_ordered * obj.cost_price)
+        return float(obj.line_total)
 
 
 # =============================================================================
@@ -157,7 +159,6 @@ class ProcurementItemWriteSerializer(serializers.Serializer):
     """Flat item input — used inside ProcurementWriteSerializer."""
     productId       = serializers.IntegerField()   # DB pk, not 'P001' string
     quantityOrdered = serializers.IntegerField(min_value=1)
-    costPrice       = serializers.DecimalField(max_digits=10, decimal_places=2)
 
 
 class ProcurementWriteSerializer(serializers.Serializer):
@@ -195,6 +196,18 @@ class ProcurementWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("One or more products not found.")
         return value
 
+    def validate(self, attrs):
+        product_ids = [item['productId'] for item in attrs.get('items', [])]
+        mapped_ids = set(SupplierProduct.objects.filter(
+            supplier_id=attrs.get('supplierId'),
+            product_id__in=product_ids,
+        ).values_list('product_id', flat=True))
+        if set(product_ids) != mapped_ids:
+            raise serializers.ValidationError({
+                'items': 'Every product must belong to the selected supplier catalog.'
+            })
+        return attrs
+
     def create(self, validated_data):
         request      = self.context['request']
         items_data   = validated_data.pop('items')
@@ -215,22 +228,15 @@ class ProcurementWriteSerializer(serializers.Serializer):
                 total_cost=0,
             )
 
-            total = 0
             for item_data in items_data:
                 product = Product.objects.get(id=item_data['productId'])
                 qty     = item_data['quantityOrdered']
-                cost    = item_data['costPrice']
 
                 ProcurementItem.objects.create(
                     procurement=proc,
                     product=product,
                     quantity_ordered=qty,
-                    cost_price=cost,
                 )
-                total += qty * float(cost)
-
-            proc.total_cost = total
-            proc.save()
 
         return proc
 
@@ -281,6 +287,13 @@ class ProcurementStatusSerializer(serializers.Serializer):
         user = self.context.get('request').user if self.context.get('request') else None
 
         with transaction.atomic():
+            if (instance.status == Procurement.Status.DRAFT
+                    and new_status == Procurement.Status.ORDERED):
+                try:
+                    snapshot_supplier_costs(instance)
+                except SupplierCostError as exc:
+                    raise serializers.ValidationError({'detail': str(exc)})
+
             instance.status       = new_status
             instance.receipt_flag = receipt_flag
             if delivery_date:

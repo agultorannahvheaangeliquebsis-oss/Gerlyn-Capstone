@@ -8,6 +8,7 @@ validated correctly; this proves the template door is now locked too.
 """
 import datetime as dt
 import json
+from decimal import Decimal
 
 from django.contrib.messages import get_messages
 from django.test import Client, TestCase
@@ -18,7 +19,7 @@ from branches.models import Branch
 from inventory.models import (
     Batch, Product, StockMovement, Warehouse, WarehouseStock,
 )
-from procurement.models import Procurement, ProcurementItem
+from procurement.models import Procurement, ProcurementItem, SupplierProduct
 
 
 class ProcurementTransitionMapTests(TestCase):
@@ -379,6 +380,11 @@ class ProcurementAuthorizationBase(TestCase):
         cls.product = Product.objects.create(
             sku_code='C1-SKU-1', product_name='Sack of Rice', unit_price=100,
         )
+        SupplierProduct.objects.create(
+            supplier=cls.supplier,
+            product=cls.product,
+            current_cost_price=Decimal('50.00'),
+        )
 
     def setUp(self):
         self.client = Client()
@@ -683,3 +689,138 @@ class SupplierPortalHidesDraftsTests(ProcurementAuthorizationBase):
         self.assertContains(
             self.client.get(reverse('supplier_portal')), po.po_number
         )
+
+
+class SupplierOwnedCostTests(ProcurementAuthorizationBase):
+    def _add(self, user, posted_cost='999.99'):
+        self.client.force_login(user)
+        return self.client.post(reverse('procurement_add'), {
+            'branch': self.home_branch.pk,
+            'supplier': self.supplier.pk,
+            'order_date': '2026-01-01',
+            'product_id': [str(self.product.pk)],
+            'quantity_ordered': ['2'],
+            # A stale or malicious client may still submit this legacy key;
+            # it must never influence procurement cost.
+            'cost_price': [posted_cost],
+        })
+
+    def test_owner_form_ignores_submitted_cost_and_snapshots_supplier_cost(self):
+        self._add(self.owner)
+
+        po = Procurement.objects.get()
+        item = po.items.get()
+        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(item.unit_cost_snapshot, Decimal('50.00'))
+        self.assertEqual(po.total_cost, Decimal('100.00'))
+        self.assertNotEqual(item.unit_cost_snapshot, Decimal('999.99'))
+        self.assertEqual(self.product.unit_price, Decimal('100.00'))
+
+    def test_manager_draft_snapshots_latest_supplier_cost_on_approval(self):
+        self._add(self.manager)
+        po = Procurement.objects.get()
+        item = po.items.get()
+        self.assertIsNone(item.unit_cost_snapshot)
+        self.assertEqual(po.total_cost, Decimal('0.00'))
+
+        link = SupplierProduct.objects.get(
+            supplier=self.supplier, product=self.product
+        )
+        self.client.force_login(self.supplier)
+        self.client.post(
+            reverse('supplier_set_product_cost', args=[link.pk]),
+            {'current_cost_price': '75.25'},
+        )
+
+        self.client.force_login(self.owner)
+        self.client.post(reverse('procurement_approve', args=[po.pk]))
+        po.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(item.unit_cost_snapshot, Decimal('75.25'))
+        self.assertEqual(po.total_cost, Decimal('150.50'))
+
+        link.current_cost_price = Decimal('80.00')
+        link.save(update_fields=['current_cost_price'])
+        item.refresh_from_db()
+        self.assertEqual(item.unit_cost_snapshot, Decimal('75.25'))
+
+    def test_missing_supplier_cost_blocks_confirmation(self):
+        link = SupplierProduct.objects.get(
+            supplier=self.supplier, product=self.product
+        )
+        link.current_cost_price = None
+        link.save(update_fields=['current_cost_price'])
+        self._add(self.manager)
+        po = Procurement.objects.get()
+
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            reverse('procurement_approve', args=[po.pk])
+        )
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.DRAFT)
+        self.assertIsNone(po.items.get().unit_cost_snapshot)
+        messages_text = ' '.join(
+            str(message) for message in get_messages(response.wsgi_request)
+        )
+        self.assertIn('must set a current cost', messages_text)
+
+    def test_only_owning_supplier_can_change_current_cost(self):
+        other = User.objects.create_user(
+            username='other-cost-supplier', password='pw',
+            role=User.Role.SUPPLIER,
+        )
+        link = SupplierProduct.objects.get(
+            supplier=self.supplier, product=self.product
+        )
+        self.client.force_login(other)
+
+        response = self.client.post(
+            reverse('supplier_set_product_cost', args=[link.pk]),
+            {'current_cost_price': '1.00'},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        link.refresh_from_db()
+        self.assertEqual(link.current_cost_price, Decimal('50.00'))
+
+    def test_internal_po_form_has_no_editable_cost_field(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('procurement_list'))
+        self.assertNotContains(response, 'name="cost_price"')
+        self.assertContains(response, 'Supplier Unit Cost')
+
+    def test_api_snapshots_supplier_cost_instead_of_submitted_cost(self):
+        self.client.force_login(self.owner)
+        created = self.client.post(
+            '/api/procurement/',
+            data=json.dumps({
+                'branchId': self.home_branch.pk,
+                'supplierId': self.supplier.pk,
+                'orderDate': '2026-01-01',
+                'items': [{
+                    'productId': self.product.pk,
+                    'quantityOrdered': 3,
+                    'costPrice': '999.99',
+                }],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        po = Procurement.objects.get()
+        self.assertIsNone(po.items.get().unit_cost_snapshot)
+
+        confirmed = self.client.patch(
+            f'/api/procurement/{po.pk}/update_status/',
+            data=json.dumps({'status': Procurement.Status.ORDERED}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(confirmed.status_code, 200, confirmed.content)
+        po.refresh_from_db()
+        item = po.items.get()
+        self.assertEqual(item.unit_cost_snapshot, Decimal('50.00'))
+        self.assertEqual(po.total_cost, Decimal('150.00'))
+        self.assertEqual(confirmed.json()['items'][0]['unitCostSnapshot'], '50.00')
+        self.assertNotIn('costPrice', confirmed.json()['items'][0])

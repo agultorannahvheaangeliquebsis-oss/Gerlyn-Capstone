@@ -7,6 +7,7 @@ from .models import (
 class ProcurementItemInline(admin.TabularInline):
     model = ProcurementItem
     extra = 1
+    readonly_fields = ('unit_cost_snapshot',)
 
 
 @admin.register(Procurement)
@@ -25,7 +26,7 @@ class ProcurementAdmin(admin.ModelAdmin):
 class ProcurementItemAdmin(admin.ModelAdmin):
     list_display = (
         'procurement', 'product',
-        'quantity_ordered', 'quantity_received', 'cost_price',
+        'quantity_ordered', 'quantity_received', 'unit_cost_snapshot',
         'is_unexpected',
     )
     list_filter = ('is_unexpected',)
@@ -35,11 +36,12 @@ class ProcurementItemAdmin(admin.ModelAdmin):
 class SupplierProductAdmin(admin.ModelAdmin):
     list_display = (
         'product', 'supplier', 'supplier_sku',
-        'default_cost_price', 'lead_time_days', 'is_preferred',
+        'current_cost_price', 'lead_time_days', 'is_preferred',
     )
     list_filter = ('is_preferred', 'supplier')
     search_fields = ('product__product_name', 'product__sku_code', 'supplier_sku')
     autocomplete_fields = ()
+    readonly_fields = ('current_cost_price',)
 
 
 @admin.register(DeliveryScanLog)

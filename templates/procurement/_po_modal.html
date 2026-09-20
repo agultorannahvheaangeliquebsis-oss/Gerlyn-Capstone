@@ -120,18 +120,11 @@ account reaching a control it can't use.
         <div class="item-row row wrap" style="gap:12px; align-items:flex-end;">
           <div class="field grow" style="min-width:220px;">
             <label>Product</label>
-            {% comment %}
-            |unlocalize is load-bearing. USE_THOUSAND_SEPARATOR is on, so
-            without it this renders data-cost="1,650.00"; poAddRow() then
-            assigns that to an <input type="number">, the browser rejects it
-            as an invalid number and silently blanks the field. Every row
-            started empty, the estimated total stayed at ₱0.00, and the
-            server dropped every unpriced row — so the form reported success
-            and saved an order with nothing on it.
-            {% endcomment %}
-            <select name="product_id" class="js-product" onchange="poRecalc()">
+            {# JavaScript hides products not carried by the selected supplier. #}
+            <select name="product_id" class="js-product" required onchange="poRecalc()">
+              <option value="">Choose a product</option>
               {% for p in products %}
-                <option value="{{ p.id }}" data-cost="{{ p.bulk_floor_price|unlocalize }}">{{ p.product_name }}</option>
+                <option value="{{ p.id }}">{{ p.product_name }}</option>
               {% endfor %}
             </select>
           </div>
@@ -139,10 +132,9 @@ account reaching a control it can't use.
             <label>Quantity</label>
             <input type="number" name="quantity_ordered" class="js-qty" min="1" value="1" required oninput="poRecalc()">
           </div>
-          <div class="field" style="width:130px;">
-            <label>Cost Price (₱)</label>
-            {# required: the server skips any row missing a cost, so without this the browser happily submits rows that are then thrown away. #}
-            <input type="number" step="0.01" min="0" name="cost_price" class="js-cost" required oninput="poRecalc()">
+          <div class="field" style="width:150px;">
+            <label>Supplier Unit Cost</label>
+            <div class="field-static js-cost-display">Select a product</div>
           </div>
           {# The quiet button, not the danger one: DESIGN.md reserves danger styling for destructive actions awaiting confirmation. Dropping a line from an order that does not exist yet is the most routine edit on the page. #}
           <button type="button" class="btn btn-quiet js-remove" onclick="poRemoveRow(this)">Remove</button>
@@ -172,3 +164,4 @@ element as "no rows to restore" and opens with one blank row, which is the
 normal case.
 {% endcomment %}
 {% if po_restore_rows %}{{ po_restore_rows|json_script:"po-restore-rows" }}{% endif %}
+{{ supplier_catalog|json_script:"po-supplier-catalog" }}

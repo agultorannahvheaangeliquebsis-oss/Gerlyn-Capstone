@@ -31,6 +31,8 @@ urlpatterns = [
          name='supplier_notification_mark_read'),
     path('portal/notifications/read-all/', views.supplier_notification_mark_all_read,
          name='supplier_notification_mark_all_read'),
+    path('portal/products/<int:link_pk>/cost/', views.supplier_set_product_cost,
+         name='supplier_set_product_cost'),
 
     # Suppliers (managed by the store)
     path('suppliers/', views.supplier_list, name='supplier_list'),

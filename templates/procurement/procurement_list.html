@@ -123,13 +123,29 @@ not a status, so it keeps the unclassed neutral default.
 // prefixed so nothing else on the list can collide with them.
 var poRows = document.getElementById('po-item-rows');
 var poTpl = document.getElementById('po-row-template');
+var poSupplier = document.getElementById('po-supplier');
+var poCatalog = JSON.parse(document.getElementById('po-supplier-catalog').textContent);
+
+function poSupplierProducts() {
+  return poCatalog[poSupplier.value] || {};
+}
+function poFilterProducts(select) {
+  var available = poSupplierProducts();
+  Array.from(select.options).forEach(function (option) {
+    if (!option.value) return;
+    var allowed = Object.prototype.hasOwnProperty.call(available, option.value);
+    option.hidden = !allowed;
+    option.disabled = !allowed;
+  });
+  if (select.value && !Object.prototype.hasOwnProperty.call(available, select.value)) {
+    select.value = '';
+  }
+}
 
 function poAddRow() {
   poRows.appendChild(poTpl.content.cloneNode(true));
-  // Prefill cost from the product's wholesale price.
   var last = poRows.lastElementChild;
-  var sel = last.querySelector('.js-product');
-  last.querySelector('.js-cost').value = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.cost) || '';
+  poFilterProducts(last.querySelector('.js-product'));
   poSyncRemoveButtons();
   poRecalc();
 }
@@ -149,13 +165,33 @@ function poSyncRemoveButtons() {
 function poPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 function poRecalc() {
   var total = 0;
+  var pricePending = false;
+  var available = poSupplierProducts();
   poRows.querySelectorAll('.item-row').forEach(function (r) {
     var qty = parseInt(r.querySelector('.js-qty').value || 0, 10);
-    var cost = parseFloat(r.querySelector('.js-cost').value || 0);
-    if (qty > 0 && cost > 0) total += qty * cost;
+    var productId = r.querySelector('.js-product').value;
+    var rawCost = productId ? available[productId] : null;
+    var display = r.querySelector('.js-cost-display');
+    if (!productId) {
+      display.textContent = 'Select a product';
+    } else if (rawCost === null || typeof rawCost === 'undefined') {
+      display.textContent = 'Pending supplier price';
+      pricePending = true;
+    } else {
+      var cost = parseFloat(rawCost);
+      display.textContent = poPeso(cost);
+      if (qty > 0) total += qty * cost;
+    }
   });
-  document.getElementById('po-grand-total').textContent = poPeso(total);
+  document.getElementById('po-grand-total').textContent = pricePending
+    ? 'Pending supplier pricing'
+    : poPeso(total);
 }
+
+poSupplier.addEventListener('change', function () {
+  poRows.querySelectorAll('.js-product').forEach(poFilterProducts);
+  poRecalc();
+});
 
 (function () {
   // A rejected submit sends the item rows back; otherwise open with one blank row.
@@ -167,7 +203,7 @@ function poRecalc() {
       var row = poRows.lastElementChild;
       row.querySelector('.js-product').value = item.product_id;
       row.querySelector('.js-qty').value = item.quantity;
-      row.querySelector('.js-cost').value = item.cost_price;
+      poFilterProducts(row.querySelector('.js-product'));
     });
   } else {
     poAddRow();
