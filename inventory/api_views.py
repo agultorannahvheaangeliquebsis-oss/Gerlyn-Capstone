@@ -347,7 +347,7 @@ class StockMovementListAPIView(APIView):
         qs = StockMovement.objects.select_related(
             'inventory__product', 'inventory__branch',
             'warehouse_stock__product', 'warehouse_stock__warehouse__branch',
-            'created_by',
+            'batch', 'created_by',
         ).all()
 
         # A movement hangs off either a floor Inventory row or a WarehouseStock
@@ -568,10 +568,18 @@ class StockTransferReleaseAPIView(APIView):
                         WarehouseStock.objects.select_for_update(),
                         warehouse=transfer.warehouse, product=item.product
                     )
-                    if item.quantity_approved > ws.quantity_on_hand:
+                    batch_available = Batch.available_quantity(
+                        item.product, transfer.source_branch,
+                        Batch.Location.WAREHOUSE,
+                    )
+                    available = (
+                        ws.quantity_on_hand if batch_available is None
+                        else min(ws.quantity_on_hand, batch_available)
+                    )
+                    if item.quantity_approved > available:
                         raise _InsufficientStockError(
                             f'Not enough warehouse stock for {item.product.product_name} to '
-                            f'release this transfer — available: {ws.quantity_on_hand}, '
+                            f'release this transfer — available: {available}, '
                             f'approved: {item.quantity_approved}.'
                         )
                     qty_before_warehouse = ws.quantity_on_hand

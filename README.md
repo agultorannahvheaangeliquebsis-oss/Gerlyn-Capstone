@@ -177,8 +177,11 @@ views can never drift apart.
 
 The event, recipient-role, timing, priority, and reference rules are defined
 in [`docs/notification-matrix.md`](docs/notification-matrix.md). Run
-`python manage.py dispatch_notifications` once per day so batches that age
-into the 30-day expiry window receive an alert; the command is idempotent.
+Run `python manage.py dispatch_notifications` once per day. It atomically
+writes off batches whose expiry date has arrived from floor/warehouse stock,
+records one batch-linked `Expiry Write-off` movement per lot, and then sends
+near-expiry alerts. The command is idempotent. For an expiry-only manual run,
+use `python manage.py process_expired_stock`.
 
 ## Scope limitations (per Chapter 1)
 

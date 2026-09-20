@@ -24,9 +24,9 @@ from .models import (
     ProductImportMappingTemplate, OpeningStockImport,
 )
 from .services import (
-    OpeningStockDuplicateError, OpeningStockValidationError,
+    ExpiryProcessingError, OpeningStockDuplicateError, OpeningStockValidationError,
     canonical_opening_fingerprint, commit_opening_stock_import,
-    credit_floor_stock, opening_preview_summary,
+    credit_floor_stock, expire_due_batches, opening_preview_summary,
     parse_opening_stock_workbook, reverse_opening_stock_import,
     validate_opening_stock_rows,
 )
@@ -1423,16 +1423,16 @@ def alerts_center(request):
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
 @require_POST
 def expiry_write_off(request, pk):
-    """Confirm-and-remove one expired Floor Stock BATCH, reached from the
+    """Manual fallback for one expired Floor Stock batch, reached from the
     Expired tab of Alerts Center. Zeroes just that lot — not the whole
     product/branch row, which may still have other, unexpired batches — and
-    logs it as a write-off. A deliberate, one-way action a human triggers,
-    never anything automatic.
+    logs it as a write-off. The daily sweep normally handles this
+    automatically; this action uses the same service when the scheduler has
+    not run yet.
 
     Distinct from inventory_edit (Owner/Branch Manager only, for the
     reorder level): this only ever zeroes a lot that is ALREADY expired, so
-    it is open to Staff too — "only after staff confirms the expiry" is the
-    whole point of this action existing.
+    it is open to Staff too as a safe operational fallback.
     """
     batch = get_object_or_404(
         Batch.objects.select_related('product', 'branch'),
@@ -1449,39 +1449,20 @@ def expiry_write_off(request, pk):
         )
         return redirect('alerts_center')
 
-    with transaction.atomic():
-        locked = Batch.objects.select_for_update().get(pk=batch.pk)
-        before = locked.quantity
-        if before > 0:
-            locked.quantity = 0
-            locked.save(update_fields=['quantity'])
-
-            # Batches back the aggregate row's quantity_on_hand — writing
-            # off a lot has to bring the row down with it, the same as any
-            # other floor-stock-reducing movement.
-            inv = get_object_or_404(
-                Inventory.objects.select_for_update(),
-                product=locked.product, branch=locked.branch,
-            )
-            inv_before = inv.quantity_on_hand
-            inv.quantity_on_hand = max(inv.quantity_on_hand - before, 0)
-            inv.save()
-
-            StockMovement.objects.create(
-                inventory=inv,
-                location_type=StockMovement.LocationType.FLOOR,
-                movement_type=StockMovement.MovementType.MANUAL_OUT,
-                quantity_change=-before,
-                quantity_before=inv_before,
-                quantity_after=inv.quantity_on_hand,
-                notes=f'Expired batch {locked.batch_number} written off by '
-                      f'{request.user.get_full_name() or request.user.username}',
-                created_by=request.user,
-            )
+    try:
+        result = expire_due_batches(
+            actor=request.user,
+            batch_ids=[batch.pk],
+            locations=[Batch.Location.FLOOR],
+        )
+    except ExpiryProcessingError as exc:
+        messages.error(request, str(exc))
+        return redirect('alerts_center')
 
     messages.success(
         request,
-        f'{batch.product.product_name} at {batch.branch.branch_name} written off ({before} unit{"s" if before != 1 else ""}).'
+        f'{batch.product.product_name} at {batch.branch.branch_name} written off '
+        f'({result.unit_count} unit{"s" if result.unit_count != 1 else ""}).'
     )
     return redirect('alerts_center')
 
@@ -2946,10 +2927,18 @@ def transfer_complete(request, pk):
                             warehouse=transfer.warehouse,
                             product=item.product
                         )
-                        if qty_release > ws.quantity_on_hand:
+                        batch_available = Batch.available_quantity(
+                            item.product, transfer.source_branch,
+                            Batch.Location.WAREHOUSE,
+                        )
+                        available = (
+                            ws.quantity_on_hand if batch_available is None
+                            else min(ws.quantity_on_hand, batch_available)
+                        )
+                        if qty_release > available:
                             raise _InsufficientStockError(
                                 f'Not enough warehouse stock for {item.product.product_name} to '
-                                f'release this transfer — available: {ws.quantity_on_hand}, '
+                                f'release this transfer — available: {available}, '
                                 f'being released: {qty_release}.'
                             )
                         qty_before_warehouse = ws.quantity_on_hand
@@ -3081,6 +3070,7 @@ def transfer_complete(request, pk):
                         Batch.consume_fefo(
                             item.product, transfer.source_branch,
                             Batch.Location.FLOOR, qty_release,
+                            include_expired=True,
                         )
 
                 released_total = sum(
