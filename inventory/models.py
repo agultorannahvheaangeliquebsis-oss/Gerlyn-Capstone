@@ -301,7 +301,7 @@ class WarehouseStock(models.Model):
 class InventoryQuerySet(models.QuerySet):
     def sellable(self):
         """Annotates every row with `available_qty` — the portion of this
-        product/branch's FLOOR stock that is NOT past its expiry_date,
+        product/branch's FLOOR stock whose expiry date has NOT arrived,
         summed across its Batches.
 
         This is batch-aware, not a whole-row exclusion: a product with one
@@ -309,12 +309,12 @@ class InventoryQuerySet(models.QuerySet):
         buyable, rather than the product disappearing entirely just because
         SOME of its stock has expired. Used by every customer-facing and
         point-of-sale code path that checks what can actually be sold — read
-        `available_qty` there, never the raw `quantity_on_hand`, which still
-        counts expired stock until someone confirms a write-off.
+        `available_qty` there, never the raw `quantity_on_hand`, which can
+        briefly include expired stock until the daily sweep writes it off.
 
-        Deliberately NOT applied to internal Floor Stock management (listing,
-        editing, alerts, reports) — staff still need to see and act on the
-        true quantity_on_hand regardless of expiry.
+        Deliberately NOT applied to internal Floor Stock management. Those
+        screens show the aggregate that the daily sweep reconciles and may
+        surface a due lot during the short interval before that sweep runs.
 
         A row with NO batches at all falls back to its raw quantity_on_hand
         rather than reading as 0. Every real write path creates a matching
@@ -333,7 +333,7 @@ class InventoryQuerySet(models.QuerySet):
         )
         non_expired_sum = (
             floor_batches
-            .filter(models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gte=today))
+            .filter(models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=today))
             .values('product_id')
             .annotate(total=models.Sum('quantity'))
             .values('total')
@@ -560,7 +560,7 @@ class Batch(models.Model):
         """
         Computed property — not stored in DB.
         Called by the serializer's SerializerMethodField.
-        Thresholds: expired = past today, expiring soon = within 30 days.
+        Thresholds: expired = today or earlier, expiring soon = within 30 days.
         """
         if self.expiry_date is None:
             return self.ExpiryStatus.NO_EXPIRY
@@ -568,7 +568,10 @@ class Batch(models.Model):
         today = timezone.localdate()
         delta = (self.expiry_date - today).days
 
-        if delta < 0:
+        # An expiry date is the first day the lot may no longer be sold.
+        # This matches expiry_alerts(), the opening-stock warning, and the
+        # daily expiry sweep.
+        if delta <= 0:
             return self.ExpiryStatus.EXPIRED
         elif delta <= 30:
             return self.ExpiryStatus.EXPIRING_SOON
@@ -583,7 +586,33 @@ class Batch(models.Model):
         return (self.expiry_date - today).days
 
     @classmethod
-    def consume_fefo(cls, product, branch, location, quantity):
+    def available_quantity(cls, product, branch, location, *, as_of_date=None):
+        """Return non-expired batch quantity, or ``None`` when no batches
+        exist and the caller should use the legacy aggregate-row fallback.
+
+        Floor-sale reads use ``InventoryQuerySet.sellable()`` to annotate
+        many products at once. This single-product version protects warehouse
+        releases from moving an expired lot onto the floor.
+        """
+        as_of_date = as_of_date or timezone.localdate()
+        batches = cls.objects.filter(
+            product=product, branch=branch, location=location,
+        )
+        if not batches.exists():
+            return None
+        return (
+            batches.filter(
+                models.Q(expiry_date__isnull=True)
+                | models.Q(expiry_date__gt=as_of_date),
+                quantity__gt=0,
+            ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        )
+
+    @classmethod
+    def consume_fefo(
+        cls, product, branch, location, quantity, *,
+        include_expired=False, as_of_date=None,
+    ):
         """Deduct `quantity` units from this product/branch/location's
         batches, nearest-expiry-first — the FEFO rule described in this
         model's own docstring, actually enforced. Spans batches if the
@@ -605,6 +634,11 @@ class Batch(models.Model):
         drifted out of sync somewhere and is worth surfacing, not silently
         swallowing.
 
+        Expired lots are excluded by default, so an availability check can
+        never pass on fresh stock and then accidentally consume an older,
+        expired lot. Explicit disposal/count-correction paths may opt into
+        expired stock with ``include_expired=True``.
+
         Must be called from within an existing transaction — locks each
         batch row it touches.
         """
@@ -612,7 +646,14 @@ class Batch(models.Model):
         consumed = []
         batches = cls.objects.select_for_update().filter(
             product=product, branch=branch, location=location, quantity__gt=0
-        ).order_by(F('expiry_date').asc(nulls_last=True))
+        )
+        if not include_expired:
+            as_of_date = as_of_date or timezone.localdate()
+            batches = batches.filter(
+                models.Q(expiry_date__isnull=True)
+                | models.Q(expiry_date__gt=as_of_date)
+            )
+        batches = batches.order_by(F('expiry_date').asc(nulls_last=True))
         for batch in batches:
             if remaining <= 0:
                 break
@@ -805,6 +846,7 @@ class StockMovement(models.Model):
         ADJUSTMENT = 'Adjustment', 'Stock Adjustment'
         OPENING_BALANCE = 'Opening Balance', 'Opening Balance'
         OPENING_BALANCE_REVERSAL = 'Opening Reversal', 'Opening Balance Reversal'
+        EXPIRY_WRITE_OFF = 'Expiry Write-off', 'Expiry Write-off'
 
     class LocationType(models.TextChoices):
         WAREHOUSE = 'Warehouse', 'Warehouse'
@@ -834,7 +876,12 @@ class StockMovement(models.Model):
     quantity_after = models.PositiveIntegerField()
     reference_id = models.PositiveIntegerField(
         null=True, blank=True,
-        help_text="ID of the Sale, Procurement, or StockTransfer that caused this"
+        help_text="ID of the Sale, Procurement, StockTransfer, or Batch that caused this"
+    )
+    batch = models.ForeignKey(
+        Batch, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='stock_movements',
+        help_text="Specific lot affected by this movement, when applicable."
     )
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(

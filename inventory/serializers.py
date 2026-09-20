@@ -377,6 +377,19 @@ class StockMovementSerializer(serializers.ModelSerializer):
     quantityBefore = serializers.IntegerField(source='quantity_before', read_only=True)
     quantityAfter = serializers.IntegerField(source='quantity_after', read_only=True)
     referenceId = serializers.IntegerField(source='reference_id', read_only=True)
+    batchId = serializers.IntegerField(source='batch_id', read_only=True, allow_null=True)
+    batchNumber = serializers.CharField(
+        source='batch.batch_number', read_only=True, allow_null=True,
+    )
+    externalLotCode = serializers.CharField(
+        source='batch.external_lot_code', read_only=True, allow_null=True,
+    )
+    batchExpiryDate = serializers.DateField(
+        source='batch.expiry_date', read_only=True, allow_null=True,
+    )
+    openingImportRowId = serializers.IntegerField(
+        source='opening_import_row_id', read_only=True, allow_null=True,
+    )
     createdBy = serializers.SerializerMethodField()
     createdAt = serializers.DateTimeField(source='created_at', read_only=True)
 
@@ -385,7 +398,8 @@ class StockMovementSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'productName', 'locationType', 'movementType',
             'quantityChange', 'quantityBefore', 'quantityAfter',
-            'referenceId', 'openingImportRowId', 'notes', 'createdBy', 'createdAt',
+            'referenceId', 'batchId', 'batchNumber', 'externalLotCode',
+            'batchExpiryDate', 'openingImportRowId', 'notes', 'createdBy', 'createdAt',
         ]
 
     def get_productName(self, obj):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -20,7 +21,7 @@ from django.utils.dateparse import parse_date
 from branches.models import Branch
 from .models import (
     Batch, Inventory, OpeningStockImport, OpeningStockImportRow, Product,
-    StockMovement,
+    StockMovement, WarehouseStock,
 )
 
 
@@ -34,6 +35,153 @@ class OpeningStockDuplicateError(OpeningStockError):
 
 class OpeningStockValidationError(OpeningStockError):
     pass
+
+
+class ExpiryProcessingError(Exception):
+    """An expired lot could not be reconciled with its aggregate stock row."""
+
+
+@dataclass(frozen=True)
+class ExpirySweepResult:
+    batch_count: int = 0
+    unit_count: int = 0
+    floor_batch_count: int = 0
+    floor_unit_count: int = 0
+    warehouse_batch_count: int = 0
+    warehouse_unit_count: int = 0
+
+
+def expire_due_batches(
+    *, as_of_date=None, actor=None, batch_ids=None, locations=None,
+):
+    """Atomically remove expired lots from aggregate stock and audit each lot.
+
+    A lot is expired on its ``expiry_date`` (not the day after). Both floor
+    and warehouse stock are processed by default: warehouse stock is not
+    directly sellable, but leaving it there would allow a later release to
+    put expired goods back onto the floor.
+
+    The positive-quantity filter makes the sweep idempotent. Row locks keep a
+    concurrent sale, transfer, manual write-off, or second sweep from removing
+    the same units twice. Any aggregate/batch mismatch aborts the whole sweep
+    instead of fabricating a disposal quantity.
+    """
+    as_of_date = as_of_date or timezone.localdate()
+    batch_ids = tuple(batch_ids) if batch_ids is not None else None
+    locations = tuple(locations) if locations is not None else None
+    counts = {
+        'batch_count': 0,
+        'unit_count': 0,
+        'floor_batch_count': 0,
+        'floor_unit_count': 0,
+        'warehouse_batch_count': 0,
+        'warehouse_unit_count': 0,
+    }
+
+    with transaction.atomic():
+        due = Batch.objects.filter(
+            quantity__gt=0,
+            expiry_date__isnull=False,
+            expiry_date__lte=as_of_date,
+        )
+        if batch_ids is not None:
+            due = due.filter(pk__in=batch_ids)
+        if locations is not None:
+            due = due.filter(location__in=locations)
+        due = due.order_by(
+            'branch_id', 'product_id', 'location', 'pk',
+        ).values_list(
+            'pk', 'batch_number', 'product_id', 'product__product_name',
+            'branch_id', 'branch__branch_name', 'location',
+        )
+
+        # Match the lock order used by sales and transfers: aggregate row
+        # first, then the specific batch. This avoids a transfer holding a
+        # WarehouseStock lock while the sweep holds the Batch lock each needs
+        # from the other side.
+        for (
+            batch_id, batch_number, product_id, product_name,
+            branch_id, branch_name, location,
+        ) in due:
+            if location == Batch.Location.FLOOR:
+                try:
+                    aggregate = Inventory.objects.select_for_update().get(
+                        product_id=product_id, branch_id=branch_id,
+                    )
+                except Inventory.DoesNotExist as exc:
+                    raise ExpiryProcessingError(
+                        f'Expired batch {batch_number} has no floor inventory row.'
+                    ) from exc
+                location_type = StockMovement.LocationType.FLOOR
+                movement_kwargs = {'inventory': aggregate}
+                batch_counter = 'floor_batch_count'
+                unit_counter = 'floor_unit_count'
+            else:
+                try:
+                    aggregate = WarehouseStock.objects.select_for_update().get(
+                        product_id=product_id,
+                        warehouse__branch_id=branch_id,
+                    )
+                except WarehouseStock.DoesNotExist as exc:
+                    raise ExpiryProcessingError(
+                        f'Expired batch {batch_number} has no warehouse stock row.'
+                    ) from exc
+                location_type = StockMovement.LocationType.WAREHOUSE
+                movement_kwargs = {'warehouse_stock': aggregate}
+                batch_counter = 'warehouse_batch_count'
+                unit_counter = 'warehouse_unit_count'
+
+            batch = Batch.objects.select_for_update().filter(
+                pk=batch_id,
+                quantity__gt=0,
+                expiry_date__isnull=False,
+                expiry_date__lte=as_of_date,
+                product_id=product_id,
+                branch_id=branch_id,
+                location=location,
+            ).first()
+            if batch is None:
+                # Another expiry sweep or a manual disposal won the race.
+                continue
+
+            quantity = batch.quantity
+            before = aggregate.quantity_on_hand
+            if before < quantity:
+                raise ExpiryProcessingError(
+                    f'Expired batch {batch.batch_number} contains {quantity} units '
+                    f'but its aggregate stock row contains only {before}.'
+                )
+
+            aggregate.quantity_on_hand = before - quantity
+            aggregate.save()
+            batch.quantity = 0
+            batch.save(update_fields=['quantity'])
+
+            action = 'Automatic' if actor is None else 'Confirmed'
+            lot = f' / lot {batch.external_lot_code}' if batch.external_lot_code else ''
+            StockMovement.objects.create(
+                **movement_kwargs,
+                batch=batch,
+                location_type=location_type,
+                movement_type=StockMovement.MovementType.EXPIRY_WRITE_OFF,
+                quantity_change=-quantity,
+                quantity_before=before,
+                quantity_after=aggregate.quantity_on_hand,
+                reference_id=batch.pk,
+                notes=(
+                    f'{action} expiry write-off for {product_name} at '
+                    f'{branch_name} ({location}), batch {batch.batch_number}{lot}; '
+                    f'expiry date {batch.expiry_date:%Y-%m-%d}.'
+                ),
+                created_by=actor,
+            )
+
+            counts['batch_count'] += 1
+            counts['unit_count'] += quantity
+            counts[batch_counter] += 1
+            counts[unit_counter] += quantity
+
+    return ExpirySweepResult(**counts)
 
 
 HEADER_ALIASES = {

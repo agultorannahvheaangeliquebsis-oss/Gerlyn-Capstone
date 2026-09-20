@@ -31,5 +31,7 @@ this idempotent command once per day in production:
 python manage.py dispatch_notifications
 ```
 
-The dispatcher checks the event/reference/recipient tuple and does not create
-duplicates when it runs again.
+Before dispatching notifications, the same command removes due floor and
+warehouse batches and records one batch-linked `Expiry Write-off` movement
+per lot. Both steps are idempotent: repeated runs neither deduct stock nor
+create notifications twice.
