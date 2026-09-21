@@ -141,7 +141,7 @@ for days_ago in range(14, -1, -1):
         order_date=day,
         delivery_date=day + timedelta(days=random.randint(1, 5)),
         total_cost=0,
-        status=random.choice(['Ordered', 'Received']),
+        status=random.choice(['Incoming', 'Received']),
     )
     proc.save()
     proc.po_number = f'PO-DEMO-{proc.pk:04d}'

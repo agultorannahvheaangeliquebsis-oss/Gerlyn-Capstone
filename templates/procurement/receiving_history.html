@@ -13,7 +13,7 @@
 <div class="card table-wrap">
   <table class="gv-table">
     <thead>
-      <tr><th>PO ID</th><th>Branch</th><th>Supplier</th><th>Delivered</th>
+      <tr><th>PO ID</th><th>Branch</th><th>Supplier</th><th>Expected</th><th>Actual Receipt</th>
           <th class="num">Total</th><th>Receipt</th><th class="end">Action</th></tr>
     </thead>
     <tbody>
@@ -22,11 +22,12 @@
         <td data-label="PO ID" class="sku strong">{{ p.po_number }}</td>
         <td data-label="Branch">{{ p.branch.branch_name }}</td>
         <td data-label="Supplier">{% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</td>
-        <td data-label="Delivered" class="gv-meta">{{ p.delivery_date|date:"Y-m-d"|default:"—" }}</td>
+        <td data-label="Expected" class="gv-meta">{{ p.delivery_date|date:"Y-m-d"|default:"—" }}</td>
+        <td data-label="Actual Receipt" class="gv-meta">{{ p.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
         <td data-label="Receipt">
-          {% if p.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
-          {% elif p.receipt_flag == 'Partial' %}<span class="pill pill-warn">Partial</span>
+          {% if p.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+          {% elif p.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
           {% else %}<span class="pill pill-ok">Complete</span>{% endif %}
         </td>
         <td data-label="Action">
@@ -35,7 +36,7 @@
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="7"><div class="empty">
+      <tr><td colspan="8"><div class="empty">
         <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
         <h3>No deliveries received yet</h3>
         <p>Received purchase orders appear here with their receipt status.</p>

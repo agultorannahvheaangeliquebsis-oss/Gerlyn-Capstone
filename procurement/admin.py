@@ -14,7 +14,7 @@ class ProcurementItemInline(admin.TabularInline):
 class ProcurementAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'branch', 'supplier', 'owner',
-        'order_date', 'delivery_date',
+        'order_date', 'delivery_date', 'actual_receipt_date',
         'total_cost', 'status'
     )
     list_filter = ('branch', 'status')

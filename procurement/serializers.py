@@ -87,6 +87,9 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
     createdBy        = serializers.SerializerMethodField()
     orderDate        = serializers.DateField(source='order_date', read_only=True)
     expectedDelivery = serializers.DateField(source='delivery_date', read_only=True, allow_null=True)
+    actualReceiptDate = serializers.DateField(
+        source='actual_receipt_date', read_only=True, allow_null=True
+    )
     total            = serializers.DecimalField(source='total_cost', max_digits=12, decimal_places=2, read_only=True)
     receiptFlag      = serializers.CharField(source='receipt_flag', read_only=True)
     items            = ProcurementItemSerializer(many=True, read_only=True)
@@ -103,6 +106,7 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
             'createdBy',
             'orderDate',
             'expectedDelivery',
+            'actualReceiptDate',
             'total',
             'status',
             'receiptFlag',
@@ -264,6 +268,7 @@ class ProcurementStatusSerializer(serializers.Serializer):
     )
     # Optional: override delivery date when marking as received
     deliveryDate = serializers.DateField(required=False, allow_null=True)
+    actualReceiptDate = serializers.DateField(required=False)
     # Optional per-item received quantities for a RECEIVED transition. If
     # omitted entirely, every item is assumed received in full — the same
     # assumption this endpoint always made, kept as the default for any
@@ -274,6 +279,7 @@ class ProcurementStatusSerializer(serializers.Serializer):
         new_status   = validated_data['status']
         receipt_flag = validated_data.get('receiptFlag', Procurement.ReceiptFlag.NONE)
         delivery_date = validated_data.get('deliveryDate') or instance.delivery_date
+        receipt_date = validated_data.get('actualReceiptDate') or timezone.localdate()
         submitted_items = {
             entry['itemId']: entry['quantityReceived']
             for entry in validated_data.get('items', [])
@@ -282,38 +288,59 @@ class ProcurementStatusSerializer(serializers.Serializer):
 
         with transaction.atomic():
             if (instance.status == Procurement.Status.DRAFT
-                    and new_status == Procurement.Status.ORDERED):
+                    and new_status == Procurement.Status.APPROVED):
                 try:
                     snapshot_supplier_costs(instance)
                 except SupplierCostError as exc:
                     raise serializers.ValidationError({'detail': str(exc)})
+                instance.owner = user
+                instance.authorized_at = timezone.now()
 
-            instance.status       = new_status
-            instance.receipt_flag = receipt_flag
             if delivery_date:
                 instance.delivery_date = delivery_date
-            instance.save()
+            if new_status not in (
+                Procurement.Status.PARTIALLY_RECEIVED,
+                Procurement.Status.RECEIVED,
+            ):
+                instance.status = new_status
+                instance.receipt_flag = receipt_flag
+                instance.save()
 
-            if new_status == Procurement.Status.RECEIVED:
-                received_date = delivery_date or timezone.now().date()
+            if new_status in (
+                Procurement.Status.PARTIALLY_RECEIVED,
+                Procurement.Status.RECEIVED,
+            ):
                 warehouse = Warehouse.objects.filter(branch=instance.branch).first()
                 if warehouse is None:
                     raise serializers.ValidationError(
                         {'detail': f'No warehouse is configured for {instance.branch.branch_name} — cannot receive stock.'}
                     )
 
-                for item in instance.items.select_related('product').all():
+                items = list(instance.items.select_related('product').all())
+                any_received = False
+                for item in items:
                     # A quantity greater than what was ordered is rejected
                     # rather than silently inflating stock — clamp to the
                     # valid [0, quantity_ordered] range.
-                    requested_qty = submitted_items.get(item.id, item.quantity_ordered)
-                    qty_received = max(0, min(requested_qty, item.quantity_ordered))
-
-                    item.quantity_received = qty_received
-                    item.save()
+                    remaining = max(
+                        item.quantity_ordered - item.quantity_received, 0
+                    )
+                    default_qty = 0 if submitted_items else remaining
+                    qty_received = submitted_items.get(item.id, default_qty)
+                    if not item.is_unexpected and qty_received > remaining:
+                        raise serializers.ValidationError({
+                            'items': (
+                                f'{item.product.product_name} has only '
+                                f'{remaining} remaining to receive.'
+                            )
+                        })
 
                     if qty_received <= 0:
                         continue
+
+                    any_received = True
+                    item.quantity_received += qty_received
+                    item.save(update_fields=['quantity_received'])
 
                     # A delivery stocks the WAREHOUSE, not the branch floor —
                     # Inventory (floor stock) only increases via an approved,
@@ -351,9 +378,39 @@ class ProcurementStatusSerializer(serializers.Serializer):
                         location=Batch.Location.WAREHOUSE,
                         procurement=instance,
                         quantity=qty_received,
-                        received_date=received_date,
+                        received_date=receipt_date,
                         expiry_date=None,
                         notes=f"Auto-created from {instance.po_number}.",
                     )
+
+                if not any_received:
+                    raise serializers.ValidationError({
+                        'items': 'At least one received quantity must be greater than zero.'
+                    })
+
+                has_remaining = any(
+                    not item.is_unexpected
+                    and item.quantity_received < item.quantity_ordered
+                    for item in items
+                )
+                has_unexpected = any(
+                    item.is_unexpected and item.quantity_received > 0
+                    for item in items
+                )
+                instance.status = (
+                    Procurement.Status.PARTIALLY_RECEIVED
+                    if has_remaining else Procurement.Status.RECEIVED
+                )
+                instance.receipt_flag = (
+                    Procurement.ReceiptFlag.PARTIAL
+                    if has_remaining else (
+                        Procurement.ReceiptFlag.DISCREPANCY
+                        if has_unexpected
+                        or receipt_flag == Procurement.ReceiptFlag.DISCREPANCY
+                        else Procurement.ReceiptFlag.NONE
+                    )
+                )
+                instance.actual_receipt_date = receipt_date
+                instance.save()
 
         return instance

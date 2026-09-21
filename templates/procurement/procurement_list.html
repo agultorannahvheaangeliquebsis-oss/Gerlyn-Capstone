@@ -31,7 +31,9 @@ not a status, so it keeps the unclassed neutral default.
 <div class="filter-tabs">
   <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?">All</a>
   <a class="filter-tab{% if status_filter == 'Draft' %} active{% endif %}" href="?status=Draft">Draft</a>
-  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?status=Ordered">Ordered</a>
+  <a class="filter-tab{% if status_filter == 'Approved' %} active{% endif %}" href="?status=Approved">Approved</a>
+  <a class="filter-tab{% if status_filter == 'Incoming' %} active{% endif %}" href="?status=Incoming">Incoming</a>
+  <a class="filter-tab{% if status_filter == 'Partially Received' %} active{% endif %}" href="?status=Partially%20Received">Partially Received</a>
   <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?status=Received">Received</a>
   <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?status=Cancelled">Cancelled</a>
 </div>
@@ -41,7 +43,7 @@ not a status, so it keeps the unclassed neutral default.
     <thead>
       <tr>
         <th>PO ID</th><th>Branch</th><th>Supplier</th>
-        <th>Order Date</th><th>Expected Delivery</th>
+        <th>Order Date</th><th>Expected Delivery</th><th>Actual Receipt</th>
         <th class="num">Total</th><th>Status</th>
         <th class="end">Action</th>
       </tr>
@@ -55,15 +57,18 @@ not a status, so it keeps the unclassed neutral default.
         <td data-label="Order Date" class="gv-meta">{{ p.order_date|date:"Y-m-d" }}</td>
         <td data-label="Expected Delivery">
           {% if p.delivery_date %}
-            {% if p.delivery_date < today and p.status == 'Ordered' %}
+            {% if p.delivery_date < today and p.status == 'Incoming' %}
               <span style="color:var(--danger-fg); font-weight:600;">{{ p.delivery_date|date:"Y-m-d" }} · overdue</span>
             {% else %}{{ p.delivery_date|date:"Y-m-d" }}{% endif %}
           {% else %}—{% endif %}
         </td>
+        <td data-label="Actual Receipt">{{ p.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
         <td data-label="Status">
           {% if p.status == 'Received' %}<span class="pill pill-ok">Received</span>
-          {% elif p.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+          {% elif p.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+          {% elif p.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
+          {% elif p.status == 'Approved' %}<span class="pill pill-info">Approved</span>
           {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
           {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
         </td>
@@ -74,7 +79,7 @@ not a status, so it keeps the unclassed neutral default.
       </tr>
       {% empty %}
       <tr>
-        <td colspan="8">
+        <td colspan="9">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
             <h3>No purchase orders</h3>

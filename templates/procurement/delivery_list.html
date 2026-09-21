@@ -86,7 +86,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
 </form>
 
 <div class="card card-pad">
-  <h3 class="mb-4">Awaiting delivery</h3>
+  <h3 class="mb-4">Incoming deliveries</h3>
   <div class="stack">
     {% for p in pending %}
     <div class="row-between wrap" style="padding:16px; border:1px solid var(--line); border-radius:var(--r-card);">
@@ -95,6 +95,8 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
           <span class="sku" style="font-weight:700;">{{ p.po_number }}</span>
           <span style="font-weight:600;">{% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</span>
           <span class="tag">{{ p.branch.branch_name }}</span>
+          {% if p.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+          {% else %}<span class="pill pill-info">Incoming</span>{% endif %}
         </div>
         <div class="gv-meta mt-2">
           Expected
@@ -113,8 +115,8 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
       <h3>No pending deliveries match</h3>
       <p>Try clearing the search or branch filter.</p>
       {% else %}
-      <h3>Nothing awaiting delivery</h3>
-      <p>Purchase orders marked “Ordered” show up here, ready to receive.</p>
+      <h3>No incoming deliveries</h3>
+      <p>Purchase orders marked Incoming or Partially Received show up here.</p>
       <a class="btn btn-primary mt-2" href="{% url 'procurement_list' %}">View purchase orders</a>
       {% endif %}
     </div>
@@ -181,6 +183,12 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
     tr.classList.remove('v-complete', 'v-partial', 'v-over');
     count.textContent = '';
 
+    if (!unexpected && ordered === 0) {
+      badge.textContent = 'Previously complete';
+      badge.style.color = 'var(--ok, #1E7A4F)';
+      tr.classList.add('v-complete');
+      return 'complete';
+    }
     if (unexpected) {
       // Same split as the Partial branch below: the state is the word, the
       // quantity is a number beside it. This one glued a bare count rather
@@ -244,6 +252,8 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
     if (!tr) return null;
     var field = tr.querySelector('.qty-input');
     var current = parseInt(field.value, 10);
+    var maximum = parseInt(field.max, 10);
+    if (!isNaN(maximum) && maximum === 0) return null;
     field.value = (isNaN(current) ? 0 : current) + 1;
 
     tr.classList.remove('just-scanned');
@@ -284,8 +294,13 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
 
         if (d.status === 'matched') {
           var now = bump(d.item_id);
-          setStatus(d.product_name + ' — ' + now + ' of ' + d.quantity_ordered + ' counted.', 'good');
-          logScan(d.product_name + '  ' + now + '/' + d.quantity_ordered);
+          if (now === null) {
+            setStatus(d.product_name + ' was already received in full.', 'bad');
+            logScan(d.product_name + '  — already complete', true);
+            return;
+          }
+          setStatus(d.product_name + ' — ' + now + ' of ' + d.quantity_remaining + ' remaining counted.', 'good');
+          logScan(d.product_name + '  ' + now + '/' + d.quantity_remaining + ' remaining');
         } else if (d.status === 'not_on_order') {
           setStatus(d.product_name + ' is not on this order.', 'bad');
           logScan(d.product_name + '  — not on this PO', true);

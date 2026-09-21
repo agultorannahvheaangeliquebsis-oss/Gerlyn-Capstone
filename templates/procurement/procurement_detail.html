@@ -9,7 +9,9 @@
     <a class="back-link" href="{% url 'procurement_list' %}">Purchase Orders</a>
     <h1 class="mt-2">{{ procurement.po_number }}
       {% if procurement.status == 'Received' %}<span class="pill pill-ok">Received</span>
-      {% elif procurement.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+      {% elif procurement.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+      {% elif procurement.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
+      {% elif procurement.status == 'Approved' %}<span class="pill pill-info">Approved</span>
       {% elif procurement.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
       {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
     </h1>
@@ -42,7 +44,7 @@
     </div>
     {% if user.role == "OWNER" %}
     <form method="POST" action="{% url 'procurement_approve' procurement.pk %}" class="row"
-          data-confirm="{{ procurement.po_number }} will be approved and moved to Ordered, committing the order to the supplier."
+          data-confirm="{{ procurement.po_number }} will be approved, committing the order to the supplier."
           data-confirm-title="Approve this purchase order?"
           data-confirm-ok="Approve PO"
           data-confirm-dismiss="Not yet">
@@ -62,9 +64,9 @@
       <p class="gv-meta mb-0">
         {% if procurement.status == "Draft" %}
         A draft can only be cancelled from here — approval is what moves it to
-        <strong>Ordered</strong>.
+        <strong>Approved</strong>.
         {% else %}
-        Marking this <strong>Received</strong> adds the delivered quantities to
+        Recording a receipt adds the delivered quantities to
         {{ procurement.branch.branch_name }}'s stock.
         {% endif %}
       </p>
@@ -90,8 +92,8 @@
         the Owner's alone — procurement_update_status refuses it here too, so
         this is the matching UI, not the guard itself.
         {% endcomment %}
-        {% if procurement.status != "Draft" %}<option value="Ordered">Ordered</option>{% endif %}
-        {% if procurement.status != "Draft" %}<option value="Received">Received</option>{% endif %}
+        {% if procurement.status == "Approved" %}<option value="Incoming">Incoming</option>{% endif %}
+        {% if procurement.status != "Draft" %}<option value="Received">Record receipt</option>{% endif %}
         <option value="Cancelled">Cancelled</option>
       </select>
       <button type="submit" class="btn btn-primary">Update</button>
@@ -110,6 +112,7 @@
           {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
         <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
           {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">

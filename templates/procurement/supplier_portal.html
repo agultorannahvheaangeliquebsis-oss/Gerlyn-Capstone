@@ -273,7 +273,9 @@
   {% endcomment %}
   <div class="filter-tabs">
     <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">All <span class="tab-count">({{ counts.all }})</span></a>
-    <a class="filter-tab {% if status_filter == 'Ordered' %}active{% endif %}" href="?status=Ordered">To fulfil <span class="tab-count">({{ counts.ordered }})</span></a>
+    <a class="filter-tab {% if status_filter == 'Approved' %}active{% endif %}" href="?status=Approved">Approved <span class="tab-count">({{ counts.approved }})</span></a>
+    <a class="filter-tab {% if status_filter == 'Incoming' %}active{% endif %}" href="?status=Incoming">Incoming <span class="tab-count">({{ counts.incoming }})</span></a>
+    <a class="filter-tab {% if status_filter == 'Partially Received' %}active{% endif %}" href="?status=Partially%20Received">Partially Received <span class="tab-count">({{ counts.partially_received }})</span></a>
     <a class="filter-tab {% if status_filter == 'Received' %}active{% endif %}" href="?status=Received">Delivered <span class="tab-count">({{ counts.received }})</span></a>
     <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?status=Cancelled">Cancelled <span class="tab-count">({{ counts.cancelled }})</span></a>
   </div>
@@ -284,6 +286,9 @@
       <div class="row po-card-head" style="gap:10px;">
         <span class="sku" style="font-weight:700; font-size:16px;">{{ o.po_number }}</span>
         {% if o.status == 'Received' %}<span class="pill pill-ok">Delivered &amp; received</span>
+        {% elif o.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+        {% elif o.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
+        {% elif o.status == 'Approved' %}<span class="pill pill-info">Approved</span>
         {% elif o.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
         {% else %}<span class="pill pill-info">To fulfil</span>{% endif %}
         {% if o.receipt_flag == 'Discrepancy' %}<span class="pill pill-warn">Quantity discrepancy</span>{% endif %}
@@ -292,7 +297,7 @@
         Deliver to <strong>{{ o.branch.branch_name }}</strong>
         · ordered {{ o.order_date|date:"Y-m-d" }}
         {% if o.delivery_date %}
-          {% if o.delivery_date < today and o.status == 'Ordered' %}
+          {% if o.delivery_date < today and o.status == 'Incoming' %}
             · due <strong style="color:var(--danger-fg);">{{ o.delivery_date|date:"Y-m-d" }} (overdue)</strong>
           {% endif %}
         {% else %}
@@ -305,7 +310,7 @@
           <thead>
             <tr><th>Product</th><th class="num">Qty ordered</th><th class="num">Unit cost</th>
                 <th class="num">Line total</th>
-                {% if o.status == 'Received' %}<th class="num">Qty received</th>{% endif %}</tr>
+                {% if o.status == 'Received' or o.status == 'Partially Received' %}<th class="num">Qty received</th>{% endif %}</tr>
           </thead>
           <tbody>
             {% for item in o.items.all %}
@@ -314,7 +319,7 @@
               <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
               <td data-label="Unit Cost" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}—{% endif %}</td>
               <td data-label="Line Total" class="num">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
-              {% if o.status == 'Received' %}
+              {% if o.status == 'Received' or o.status == 'Partially Received' %}
               <td data-label="Qty Received" class="num
                   {% if item.quantity_received != item.quantity_ordered %}strong{% endif %}"
                   {% if item.quantity_received != item.quantity_ordered %}style="color:var(--danger-fg);"{% endif %}>
@@ -328,13 +333,13 @@
             <tr>
               <td colspan="3" class="num" style="color:#5B655F;">Order total</td>
               <td class="num strong" style="color:#1E7A4F;">₱{{ o.total_cost|floatformat:2 }}</td>
-              {% if o.status == 'Received' %}<td></td>{% endif %}
+              {% if o.status == 'Received' or o.status == 'Partially Received' %}<td></td>{% endif %}
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {% if o.status == 'Ordered' %}
+      {% if o.status == 'Approved' or o.status == 'Incoming' %}
       <div class="confirm-date-box mt-4" style="background:#F6F8F6; border:1px solid #E3E8E4; border-radius:9px; padding:16px 18px;">
         {% if o.delivery_date %}
           <div class="row wrap" data-view="confirmed" style="gap:8px; align-items:center; justify-content:space-between;">

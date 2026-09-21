@@ -15,7 +15,7 @@ from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 
-from django.db.models import Q
+from django.db.models import F, Q
 
 from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, SUPPLIER, role_required
@@ -65,7 +65,11 @@ def _procurement_list_context(request):
     counts = {
         'all': procurements.count(),
         'draft': procurements.filter(status=Procurement.Status.DRAFT).count(),
-        'ordered': procurements.filter(status=Procurement.Status.ORDERED).count(),
+        'approved': procurements.filter(status=Procurement.Status.APPROVED).count(),
+        'incoming': procurements.filter(status=Procurement.Status.INCOMING).count(),
+        'partially_received': procurements.filter(
+            status=Procurement.Status.PARTIALLY_RECEIVED
+        ).count(),
         'received': procurements.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': procurements.filter(status=Procurement.Status.CANCELLED).count(),
     }
@@ -369,7 +373,10 @@ def procurement_add(request):
             delivery_date=delivery_date,
             total_cost=0,
             status=(
-                Procurement.Status.ORDERED if is_owner
+                (
+                    Procurement.Status.INCOMING if delivery_date
+                    else Procurement.Status.APPROVED
+                ) if is_owner
                 else Procurement.Status.DRAFT
             ),
             authorized_at=timezone.now() if is_owner else None,
@@ -426,7 +433,10 @@ def procurement_update_status(request, pk):
         # from adding the same delivery to stock twice. delivery_receive has
         # its own atomic block that re-locks and rejects an already-Received or
         # Cancelled PO, so the transition is still validated — just not here.
-        if new_status == Procurement.Status.RECEIVED:
+        if new_status in (
+            Procurement.Status.PARTIALLY_RECEIVED,
+            Procurement.Status.RECEIVED,
+        ):
             if proc.status == Procurement.Status.RECEIVED:
                 messages.error(request, f'{proc.po_number} has already been received.')
                 return redirect('procurement_detail', pk=pk)
@@ -456,7 +466,7 @@ def procurement_update_status(request, pk):
             # procurement_approve instead, which records owner/authorized_at —
             # this view writes neither.
             if (locked.status == Procurement.Status.DRAFT
-                    and new_status == Procurement.Status.ORDERED
+                    and new_status == Procurement.Status.APPROVED
                     and request.user.role != User.Role.OWNER):
                 messages.error(
                     request,
@@ -466,7 +476,7 @@ def procurement_update_status(request, pk):
                 return redirect('procurement_detail', pk=pk)
 
             if (locked.status == Procurement.Status.DRAFT
-                    and new_status == Procurement.Status.ORDERED):
+                    and new_status == Procurement.Status.APPROVED):
                 try:
                     snapshot_supplier_costs(locked)
                 except SupplierCostError as exc:
@@ -519,7 +529,7 @@ def procurement_approve(request, pk):
         # legal targets include Ordered. Reusing can_transition_to keeps this
         # endpoint on the same map as the other two (finding C-3) instead of
         # testing `status == DRAFT` on its own.
-        if not locked.can_transition_to(Procurement.Status.ORDERED):
+        if not locked.can_transition_to(Procurement.Status.APPROVED):
             messages.error(
                 request,
                 f'{locked.po_number} cannot be approved — it is already '
@@ -533,14 +543,17 @@ def procurement_approve(request, pk):
             messages.error(request, str(exc))
             return redirect('procurement_detail', pk=pk)
 
-        locked.status = Procurement.Status.ORDERED
+        locked.status = (
+            Procurement.Status.INCOMING
+            if locked.delivery_date else Procurement.Status.APPROVED
+        )
         locked.owner = request.user
         locked.authorized_at = timezone.now()
         locked.save()
 
     messages.success(
         request,
-        f'{proc.po_number} approved and is now Ordered.'
+        f'{proc.po_number} approved and is now {locked.status}.'
     )
     return redirect('procurement_detail', pk=pk)
 
@@ -570,7 +583,11 @@ def _not_receivable_reason(proc):
             f'{proc.po_number} is still in Draft and has not been approved — '
             f'it cannot be received until the Owner approves it.'
         )
-    if proc.status != Procurement.Status.ORDERED:
+    if proc.status not in (
+        Procurement.Status.APPROVED,
+        Procurement.Status.INCOMING,
+        Procurement.Status.PARTIALLY_RECEIVED,
+    ):
         return f'{proc.po_number} cannot be received while it is {proc.status}.'
     return None
 
@@ -596,8 +613,12 @@ def delivery_list(request):
         return redirect('accounts:home')
 
     pending = scope_queryset(
-        Procurement.objects.select_related('branch', 'supplier')
-        .filter(status=Procurement.Status.ORDERED),
+        Procurement.objects.select_related('branch', 'supplier').filter(
+            status__in=[
+                Procurement.Status.INCOMING,
+                Procurement.Status.PARTIALLY_RECEIVED,
+            ]
+        ),
         request.user,
     )
 
@@ -637,7 +658,12 @@ def delivery_list(request):
     receive_pk = request.GET.get('receive')
     if receive_pk and receive_pk.isdigit():
         candidate = Procurement.objects.select_related('branch', 'supplier').filter(
-            pk=receive_pk, status=Procurement.Status.ORDERED
+            pk=receive_pk,
+            status__in=[
+                Procurement.Status.APPROVED,
+                Procurement.Status.INCOMING,
+                Procurement.Status.PARTIALLY_RECEIVED,
+            ],
         ).first()
         if candidate and user_can_access_branch(request.user, candidate.branch_id):
             receive_procurement = candidate
@@ -715,6 +741,14 @@ def delivery_receive(request, pk):
         # One expiry_date input per table row, same DOM order as item_ids —
         # optional per line, since not every product's lot needs tracking.
         expiry_map = request.POST.getlist('expiry_date')
+        receipt_date_raw = request.POST.get('actual_receipt_date', '').strip()
+        receipt_date = (
+            parse_date(receipt_date_raw) if receipt_date_raw
+            else timezone.localdate()
+        )
+        if receipt_date_raw and receipt_date is None:
+            messages.error(request, 'Enter a valid actual receipt date.')
+            return redirect('delivery_receive', pk=pk)
 
         try:
             with transaction.atomic():
@@ -729,7 +763,7 @@ def delivery_receive(request, pk):
                 if locked_unreceivable:
                     raise _DeliveryStatusError(locked_unreceivable)
 
-                any_short = False
+                any_received = False
                 for idx, (item_id, qty_str) in enumerate(zip(item_ids, received_map)):
                     item = locked_proc.items.select_related('product').get(pk=item_id)
                     expiry_str = expiry_map[idx].strip() if idx < len(expiry_map) else ''
@@ -749,22 +783,23 @@ def delivery_receive(request, pk):
                     # construction, so this guard would reject every one of
                     # them. They are flagged as a discrepancy below instead,
                     # which is the "a human looks at it" the guard is for.
-                    if not item.is_unexpected and qty_received > item.quantity_ordered:
+                    remaining = max(
+                        item.quantity_ordered - item.quantity_received, 0
+                    )
+                    if not item.is_unexpected and qty_received > remaining:
                         raise _DeliveryStatusError(
                             f'Received quantity for {item.product.product_name} '
-                            f'({qty_received}) cannot exceed what was ordered '
-                            f'({item.quantity_ordered}). If this product arrived '
+                            f'({qty_received}) cannot exceed the remaining quantity '
+                            f'({remaining}). If this product arrived '
                             f'without being ordered, add it as an unexpected item.'
                         )
 
-                    if item.is_unexpected or qty_received != item.quantity_ordered:
-                        any_short = True
-
-                    item.quantity_received = qty_received
-                    item.save()
-
                     if qty_received <= 0:
                         continue
+
+                    any_received = True
+                    item.quantity_received += qty_received
+                    item.save(update_fields=['quantity_received'])
 
                     ws, _ = WarehouseStock.objects.select_for_update().get_or_create(
                         product=item.product, warehouse=warehouse,
@@ -799,25 +834,46 @@ def delivery_receive(request, pk):
                         location=Batch.Location.WAREHOUSE,
                         procurement=locked_proc,
                         quantity=qty_received,
-                        received_date=timezone.localdate(),
+                        received_date=receipt_date,
                         expiry_date=parse_date(expiry_str) if expiry_str else None,
                     )
 
-                locked_proc.status = Procurement.Status.RECEIVED
-                locked_proc.receipt_flag = (
-                    Procurement.ReceiptFlag.DISCREPANCY if any_short
-                    else Procurement.ReceiptFlag.NONE
+                if not any_received:
+                    raise _DeliveryStatusError(
+                        'Enter at least one received quantity greater than zero.'
+                    )
+
+                has_remaining = locked_proc.items.filter(
+                    is_unexpected=False,
+                    quantity_received__lt=F('quantity_ordered'),
+                ).exists()
+                has_unexpected = locked_proc.items.filter(
+                    is_unexpected=True, quantity_received__gt=0,
+                ).exists()
+                locked_proc.status = (
+                    Procurement.Status.PARTIALLY_RECEIVED
+                    if has_remaining else Procurement.Status.RECEIVED
                 )
-                locked_proc.save()
+                locked_proc.receipt_flag = (
+                    Procurement.ReceiptFlag.PARTIAL
+                    if has_remaining else (
+                        Procurement.ReceiptFlag.DISCREPANCY
+                        if has_unexpected else Procurement.ReceiptFlag.NONE
+                    )
+                )
+                locked_proc.actual_receipt_date = receipt_date
+                locked_proc.save(update_fields=[
+                    'status', 'receipt_flag', 'actual_receipt_date',
+                ])
         except _DeliveryStatusError as e:
             messages.error(request, str(e))
             return redirect('procurement_detail', pk=pk)
 
-        if any_short:
+        if has_remaining:
             messages.warning(
                 request,
-                f'{proc.po_number} received with a discrepancy — '
-                f'delivered quantities differ from what was ordered.'
+                f'{proc.po_number} was partially received. The remaining '
+                f'quantities stay in Incoming Deliveries for the next shipment.'
             )
         else:
             messages.success(
@@ -890,6 +946,7 @@ def delivery_scan(request, pk):
             'item_id': item.pk,
             'product_name': item.product.product_name,
             'quantity_ordered': item.quantity_ordered,
+            'quantity_remaining': item.remaining_quantity,
         })
 
     if product:
@@ -968,10 +1025,14 @@ def receiving_history(request):
         return redirect('accounts:home')
 
     received = scope_queryset(
-        Procurement.objects.select_related('branch', 'supplier')
-        .filter(status=Procurement.Status.RECEIVED),
+        Procurement.objects.select_related('branch', 'supplier').filter(
+            status__in=[
+                Procurement.Status.PARTIALLY_RECEIVED,
+                Procurement.Status.RECEIVED,
+            ]
+        ),
         request.user,
-    ).order_by('-delivery_date')
+    ).order_by('-actual_receipt_date', '-delivery_date')
 
     return render(request, 'procurement/receiving_history.html', {'received': received})
 
@@ -1006,7 +1067,11 @@ def supplier_portal(request):
     status_filter = request.GET.get('status', '')
     counts = {
         'all': orders.count(),
-        'ordered': orders.filter(status=Procurement.Status.ORDERED).count(),
+        'approved': orders.filter(status=Procurement.Status.APPROVED).count(),
+        'incoming': orders.filter(status=Procurement.Status.INCOMING).count(),
+        'partially_received': orders.filter(
+            status=Procurement.Status.PARTIALLY_RECEIVED
+        ).count(),
         'received': orders.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': orders.filter(status=Procurement.Status.CANCELLED).count(),
     }
@@ -1020,7 +1085,13 @@ def supplier_portal(request):
     # tabs had no Ordered rows left to summarize, and every stat silently
     # collapsed to 0 / ₱0.00 the moment you weren't on All or To fulfil.
     today = timezone.now().date()
-    open_orders = [o for o in orders if o.status == Procurement.Status.ORDERED]
+    open_orders = [
+        o for o in orders if o.status in (
+            Procurement.Status.APPROVED,
+            Procurement.Status.INCOMING,
+            Procurement.Status.PARTIALLY_RECEIVED,
+        )
+    ]
     open_value = sum(o.total_cost for o in open_orders)
     overdue = sum(
         1 for o in open_orders if o.delivery_date and o.delivery_date < today
@@ -1053,7 +1124,10 @@ def supplier_set_delivery_date(request, pk):
 
     proc = get_object_or_404(Procurement, pk=pk, supplier=request.user)
 
-    if proc.status != Procurement.Status.ORDERED:
+    if proc.status not in (
+        Procurement.Status.APPROVED,
+        Procurement.Status.INCOMING,
+    ):
         messages.error(request, f'{proc.po_number} is no longer open.')
         return redirect('supplier_portal')
 
@@ -1063,7 +1137,8 @@ def supplier_set_delivery_date(request, pk):
             messages.error(request, 'Please choose a delivery date.')
             return redirect('supplier_portal')
         proc.delivery_date = new_date
-        proc.save()
+        proc.status = Procurement.Status.INCOMING
+        proc.save(update_fields=['delivery_date', 'status'])
         messages.success(
             request,
             f'Thanks — {proc.po_number} is confirmed for delivery on {new_date}.'

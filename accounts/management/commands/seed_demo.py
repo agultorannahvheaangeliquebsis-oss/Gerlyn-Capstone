@@ -423,9 +423,9 @@ class Command(BaseCommand):
              [("SKU-001", 200, 27), ("SKU-005", 100, 41)]),
             (M, "Monde Nissin Corporation", 10, -6, "Received", 3600,
              [("SKU-004", 300, 12)]),
-            (G, "Del Monte Philippines Inc.", 4, 3, "Ordered", 2920,
+            (G, "Del Monte Philippines Inc.", 4, 3, "Incoming", 2920,
              [("SKU-009", 80, 23), ("SKU-014", 40, 29)]),
-            (T, "San Miguel Purefoods Co. Inc.", 8, -2, "Ordered", 5000,   # overdue on purpose
+            (T, "San Miguel Purefoods Co. Inc.", 8, -2, "Incoming", 5000,   # overdue on purpose
              [("SKU-006", 100, 50)]),
             (M, "Century Pacific Food Inc.", 1, 6, "Draft", 5700,
              [("SKU-002", 150, 22), ("SKU-003", 120, 20)]),
@@ -440,6 +440,10 @@ class Command(BaseCommand):
                 created_by=owner,
                 order_date=today - dt.timedelta(days=ordered_ago),
                 delivery_date=today + dt.timedelta(days=due_in),
+                actual_receipt_date=(
+                    today + dt.timedelta(days=due_in)
+                    if status == "Received" else None
+                ),
                 status=status, total_cost=D(total),
             )
             for sku, qty, cost in items:
