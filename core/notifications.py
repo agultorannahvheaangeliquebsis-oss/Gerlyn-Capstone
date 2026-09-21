@@ -87,7 +87,7 @@ EVENT_MATRIX = {
         'exclude_actor': False,
     },
     EVENT_PO_APPROVED: {
-        'when': 'The Owner authorizes a Draft purchase order into Ordered.',
+        'when': 'The Owner authorizes a Draft purchase order into Approved.',
         'recipients': 'The PO requester and supplier; never duplicate the approving actor.',
         'audiences': ('requester', 'supplier'),
         'category': CATEGORY_PROCUREMENT,

@@ -268,7 +268,13 @@ def staff_dashboard(request):
 
     pending_deliveries = Procurement.objects.select_related(
         'supplier__supplier_profile'
-    ).filter(branch=branch, status=Procurement.Status.ORDERED).order_by('delivery_date')
+    ).filter(
+        branch=branch,
+        status__in=[
+            Procurement.Status.INCOMING,
+            Procurement.Status.PARTIALLY_RECEIVED,
+        ],
+    ).order_by('delivery_date')
 
     pending_receipts = StockTransfer.objects.select_related('source_branch').filter(
         destination_branch=branch, status=StockTransfer.Status.RELEASED

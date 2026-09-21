@@ -7,8 +7,10 @@ from accounts.models import User
 
 class Procurement(models.Model):
     class Status(models.TextChoices):
-        DRAFT = 'Draft', 'Draft'               # <-- new
-        ORDERED = 'Ordered', 'Ordered'
+        DRAFT = 'Draft', 'Draft'
+        APPROVED = 'Approved', 'Approved'
+        INCOMING = 'Incoming', 'Incoming'
+        PARTIALLY_RECEIVED = 'Partially Received', 'Partially Received'
         RECEIVED = 'Received', 'Received'
         CANCELLED = 'Cancelled', 'Cancelled'
 
@@ -24,16 +26,28 @@ class Procurement(models.Model):
     # Ordered — or to an arbitrary string (finding C-3). Content is exactly
     # what the DRF endpoint's local map already allowed:
     #
-    #   Draft    -> Ordered | Cancelled
-    #   Ordered  -> Received | Cancelled
-    #   Received -> (terminal)
-    #   Cancelled-> (terminal)
+    #   Draft              -> Approved | Cancelled
+    #   Approved           -> Incoming | Received | Cancelled
+    #   Incoming           -> Partially Received | Received | Cancelled
+    #   Partially Received -> Received | Cancelled
+    #   Received/Cancelled -> (terminal)
     #
-    # Whether an Ordered -> Received move is legal is checked here, but the
+    # Approved -> Received remains legal for direct/backwards-compatible
+    # receiving, although the normal interface moves a scheduled PO through
+    # Incoming first. Whether a receipt target is legal is checked here, but the
     # receipt itself still runs through delivery_receive's own atomic block.
     ALLOWED_TRANSITIONS = {
-        Status.DRAFT: {Status.ORDERED, Status.CANCELLED},
-        Status.ORDERED: {Status.RECEIVED, Status.CANCELLED},
+        Status.DRAFT: {Status.APPROVED, Status.CANCELLED},
+        Status.APPROVED: {
+            Status.INCOMING, Status.PARTIALLY_RECEIVED,
+            Status.RECEIVED, Status.CANCELLED,
+        },
+        Status.INCOMING: {
+            Status.PARTIALLY_RECEIVED, Status.RECEIVED, Status.CANCELLED,
+        },
+        Status.PARTIALLY_RECEIVED: {
+            Status.RECEIVED, Status.CANCELLED,
+        },
         Status.RECEIVED: set(),
         Status.CANCELLED: set(),
     }
@@ -59,11 +73,15 @@ class Procurement(models.Model):
     )
     order_date = models.DateField()
     delivery_date = models.DateField(null=True, blank=True)
+    actual_receipt_date = models.DateField(
+        null=True, blank=True,
+        help_text='Date goods were most recently received against this PO.',
+    )
     total_cost = models.DecimalField(
         max_digits=12, decimal_places=2, default=0
     )
     status = models.CharField(
-        max_length=15, choices=Status.choices,
+        max_length=20, choices=Status.choices,
         default=Status.DRAFT                   # <-- changed default to Draft
     )
 
@@ -109,6 +127,12 @@ class Procurement(models.Model):
         return f"{self.po_number or f'Procurement #{self.id}'} - {self.branch} - {self.status}"
 
 
+# Temporary source-code compatibility for integrations that imported the old
+# enum member. Its value is now the explicit Approved state; no new database
+# row is written as Ordered.
+Procurement.Status.ORDERED = Procurement.Status.APPROVED
+
+
 class ProcurementItem(models.Model):
     def __init__(self, *args, **kwargs):
         if 'cost_price' in kwargs and 'unit_cost_snapshot' not in kwargs:
@@ -152,6 +176,12 @@ class ProcurementItem(models.Model):
     @property
     def cost_price(self):
         return self.unit_cost_snapshot
+
+    @property
+    def remaining_quantity(self):
+        if self.is_unexpected:
+            return 0
+        return max(self.quantity_ordered - self.quantity_received, 0)
 
     @cost_price.setter
     def cost_price(self, value):

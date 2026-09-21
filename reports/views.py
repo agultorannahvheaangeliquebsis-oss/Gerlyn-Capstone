@@ -847,7 +847,12 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
     expiring_count = expired_count + summary['expiring_soon_count']
 
     pending_pos = procurement_qs.filter(
-        status__in=[Procurement.Status.DRAFT, Procurement.Status.ORDERED]
+        status__in=[
+            Procurement.Status.DRAFT,
+            Procurement.Status.APPROVED,
+            Procurement.Status.INCOMING,
+            Procurement.Status.PARTIALLY_RECEIVED,
+        ]
     ).count()
 
     pending_orders = sales_qs.filter(order_status__in=OPEN_ORDER_STATUSES).count()
@@ -1891,7 +1896,9 @@ def _inventory_value_chart(branch_summary):
 # with the dataviz skill's validator (all-pairs, light mode): PASS.
 PROCUREMENT_STATUS_COLOURS = {
     Procurement.Status.DRAFT: '#8A968F',
-    Procurement.Status.ORDERED: '#3B6FD4',
+    Procurement.Status.APPROVED: '#3B6FD4',
+    Procurement.Status.INCOMING: '#7C3AED',
+    Procurement.Status.PARTIALLY_RECEIVED: '#B45309',
     Procurement.Status.RECEIVED: '#2E9E6B',
     Procurement.Status.CANCELLED: '#B42318',
 }
@@ -2295,10 +2302,20 @@ def procurement_report(request):
 
     active_value = sum(
         p.total_cost for p in records
-        if p.status in (Procurement.Status.DRAFT, Procurement.Status.ORDERED)
+        if p.status in (
+            Procurement.Status.DRAFT,
+            Procurement.Status.APPROVED,
+            Procurement.Status.INCOMING,
+            Procurement.Status.PARTIALLY_RECEIVED,
+        )
     )
     received_value = sum(p.total_cost for p in records if p.status == Procurement.Status.RECEIVED)
-    pending_delivery = sum(1 for p in records if p.status == Procurement.Status.ORDERED)
+    pending_delivery = sum(
+        1 for p in records if p.status in (
+            Procurement.Status.INCOMING,
+            Procurement.Status.PARTIALLY_RECEIVED,
+        )
+    )
 
     status_counts = {choice.value: 0 for choice in Procurement.Status}
     for p in records:
