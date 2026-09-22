@@ -98,6 +98,11 @@ MODULE_REGISTRY = {
          # Printable receipt for the same reason — same section, same gap
          # class as the discount action above.
          'transaction_receipt',
+         # Refunds — same reason again: the role check inside the view is
+         # the real Owner/Manager-only gate, but the url name still has to
+         # be registered here or a Staff account whose Owner revoked the
+         # Order Console entirely could still reach it directly.
+         'transaction_refund',
          # API (sales/api_urls.py) — list also serves POST (mirrors
          # transaction_add); detail mirrors transaction_detail.
          'api-sales-list', 'api-sales-detail'],

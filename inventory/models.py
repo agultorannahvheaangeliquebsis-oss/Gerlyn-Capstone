@@ -847,6 +847,10 @@ class StockMovement(models.Model):
         OPENING_BALANCE = 'Opening Balance', 'Opening Balance'
         OPENING_BALANCE_REVERSAL = 'Opening Reversal', 'Opening Balance Reversal'
         EXPIRY_WRITE_OFF = 'Expiry Write-off', 'Expiry Write-off'
+        # A Sellable-condition line from sales.views.transaction_refund. Distinct
+        # from ADJUSTMENT (the void-reversal type): a refund is a customer handing
+        # goods back, not a correction to a mistaken count.
+        CUSTOMER_RETURN = 'Customer Return', 'Customer Return (Refund)'
 
     class LocationType(models.TextChoices):
         WAREHOUSE = 'Warehouse', 'Warehouse'

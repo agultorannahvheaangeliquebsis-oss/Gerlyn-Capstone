@@ -226,6 +226,100 @@ this form is forged, so hiding the control is convenience, not the guard.
 </div>
 {% endif %}
 
+{# ---- refund (Owner / Branch Manager only, within the refund window) ---- #}
+{% comment %}
+refundable_items comes from sales.views._can_offer_refund /
+_refundable_items — Owner/Branch Manager only, order Completed, billing
+Paid, within SalesTransaction.REFUND_WINDOW of completion, and only items
+that still have unrefunded quantity. transaction_refund re-checks every one
+of these itself, so a forged POST is still refused server-side.
+{% endcomment %}
+{% if refundable_items %}
+<div class="card card-pad mb-4">
+  <h3>Refund</h3>
+  <p class="gv-meta">
+    Select what the customer returned. Sellable items go back onto {{ transaction.branch.branch_name }}'s
+    floor stock; Damaged items are written off. Nothing here moves money —
+    the system only records that it was given back.
+  </p>
+  <form method="post" action="{% url 'transaction_refund' transaction.pk %}" class="stack"
+        data-confirm="This records a refund on {{ transaction.order_number }}. It cannot be undone."
+        data-confirm-title="Issue this refund?"
+        data-confirm-variant="danger"
+        data-confirm-ok="Issue refund">
+    {% csrf_token %}
+    <table class="gv-table" style="border:0;">
+      <thead>
+        <tr><th></th><th>Product</th><th class="num">Remaining</th><th class="num">Qty to refund</th><th>Condition</th></tr>
+      </thead>
+      <tbody>
+        {% for row in refundable_items %}
+        <tr>
+          <td><input type="checkbox" name="item_id" value="{{ row.item.pk }}"></td>
+          <td data-label="Product" class="strong">{{ row.item.product.product_name }}</td>
+          <td data-label="Remaining" class="num">{{ row.remaining }}</td>
+          <td data-label="Qty to refund">
+            <input type="number" name="quantity_{{ row.item.pk }}" min="1" max="{{ row.remaining }}"
+                   value="{{ row.remaining }}" style="width:80px;">
+          </td>
+          <td data-label="Condition">
+            <select name="condition_{{ row.item.pk }}">
+              {% for value, label in refund_condition_choices %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="grid-2">
+      <div class="field">
+        <label for="refund_reason">Reason</label>
+        <input type="text" id="refund_reason" name="reason" placeholder="Why this is being refunded" required>
+      </div>
+      <div class="field">
+        <label for="refund_method">How the money was given back</label>
+        <select id="refund_method" name="refund_method" required>
+          <option value="">Select…</option>
+          {% for value, label in refund_method_choices %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-danger">Issue refund</button>
+  </form>
+</div>
+{% endif %}
+
+{# ---- refund history ---- #}
+{% if refunds %}
+<div class="card card-pad mb-4">
+  <h3 class="mb-2">Refund History</h3>
+  <table class="gv-table kv-table" style="border:0;">
+    <thead><tr><th>When</th><th>Items</th><th class="num">Amount</th><th>Method</th><th>Reason</th><th>By</th></tr></thead>
+    <tbody>
+      {% for r in refunds %}
+      <tr>
+        <td data-label="When" class="gv-meta">{{ r.refunded_at|date:"j M Y, g:i a" }}</td>
+        <td data-label="Items">
+          {% for i in r.items.all %}
+          <div>{{ i.sales_item.product.product_name }} x{{ i.quantity }}
+            <span class="gv-meta">({{ i.get_condition_display }})</span></div>
+          {% endfor %}
+        </td>
+        <td data-label="Amount" class="num strong">₱{{ r.total_amount|floatformat:2 }}</td>
+        <td data-label="Method">{{ r.refund_method }}</td>
+        <td data-label="Reason" class="gv-meta">{{ r.reason }}</td>
+        <td data-label="By" class="gv-meta">{{ r.refunded_by.username|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <div class="grid-2 mb-4">
   <!-- Order info -->
   <div class="card card-pad">

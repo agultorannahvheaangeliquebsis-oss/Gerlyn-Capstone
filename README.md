@@ -166,6 +166,15 @@ views can never drift apart.
   [Audit log](#audit-log) below.
 - **Payments are recorded, not processed** — no gateway is integrated, per the
   documented scope limitation. Staff confirm cash or a GCash reference.
+- **Refunds** — Owner/Branch Manager only, on a Completed + Paid order, within
+  `SalesTransaction.REFUND_WINDOW` (3 days) of completion. A refund targets specific
+  items and quantities (an order can be refunded more than once), records who
+  authorized it, how the money was given back, and each item's condition — Sellable
+  restocks the branch floor (a fresh, no-expiry batch, since a returned unit has no
+  traceable original lot), Damaged does not. Like billing, it only ever *records* that
+  money was returned; nothing moves. Order status and the billing record's Paid status
+  are left untouched — the `Refund`/`RefundItem` rows (`sales/models.py`) are the source
+  of truth. Action and history live on the order's own page (Sales & Orders).
 
 ---
 

@@ -116,6 +116,10 @@ REGISTRY = {
         mask=_f('delivery_address', 'discount_id_number', 'discount_holder_name'),
     ),
     'sales.SalesItem': AuditConfig('Order item', branch_path='transaction.branch_id'),
+    'sales.Refund': AuditConfig('Refund', branch_path='transaction.branch_id'),
+    'sales.RefundItem': AuditConfig(
+        'Refund item', branch_path='refund.transaction.branch_id',
+    ),
     # --- billing -------------------------------------------------------------
     'billing.BillingRecord': AuditConfig(
         'Payment record', branch_path='transaction.branch_id',
