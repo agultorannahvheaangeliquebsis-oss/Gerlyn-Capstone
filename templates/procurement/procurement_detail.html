@@ -68,7 +68,7 @@
   .status-select[open] .status-select-caret { transform: rotate(180deg); }
 
   .status-select-value { display: none; }
-  .status-select:has(input[value="Ordered"]:checked) .status-select-value[data-for="Ordered"],
+  .status-select:has(input[value="Incoming"]:checked) .status-select-value[data-for="Incoming"],
   .status-select:has(input[value="Received"]:checked) .status-select-value[data-for="Received"],
   .status-select:has(input[value="Cancelled"]:checked) .status-select-value[data-for="Cancelled"] {
     display: inline;
@@ -82,7 +82,7 @@
   beats a blank summary.
   {% endcomment %}
   @supports not selector(:has(*)) {
-    .status-select-value[data-for="{% if procurement.status == 'Draft' %}Cancelled{% else %}Received{% endif %}"] {
+    .status-select-value[data-for="{% if procurement.status == 'Draft' %}Cancelled{% elif procurement.status == 'Approved' %}Incoming{% else %}Received{% endif %}"] {
       display: inline;
     }
   }
@@ -143,7 +143,9 @@
     <a class="back-link" href="{% url 'procurement_list' %}">Purchase Orders</a>
     <h1 class="mt-2">{{ procurement.po_number }}
       {% if procurement.status == 'Received' %}<span class="pill pill-ok">Received</span>
-      {% elif procurement.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+      {% elif procurement.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+      {% elif procurement.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
+      {% elif procurement.status == 'Approved' %}<span class="pill pill-info">Approved</span>
       {% elif procurement.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
       {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
     </h1>
@@ -189,7 +191,7 @@
     </div>
     {% if user.role == "OWNER" %}
     <form method="POST" action="{% url 'procurement_approve' procurement.pk %}" class="row"
-          data-confirm="{{ procurement.po_number }} will be approved and moved to Ordered, committing the order to the supplier."
+          data-confirm="{{ procurement.po_number }} will be approved, committing the order to the supplier."
           data-confirm-title="Approve this purchase order?"
           data-confirm-ok="Approve PO"
           data-confirm-dismiss="Not yet">
@@ -209,16 +211,16 @@
       <p class="gv-meta mb-0">
         {% if procurement.status == "Draft" %}
         A draft can only be cancelled from here — approval is what moves it to
-        <strong>Ordered</strong>.
+        <strong>Approved</strong>.
         {% else %}
-        Marking this <strong>Received</strong> adds the delivered quantities to
+        Recording a receipt adds the delivered quantities to
         {{ procurement.branch.branch_name }}'s stock.
         {% endif %}
       </p>
     </div>
     {% comment %}
     One form, three outcomes, and only one of them is destructive — hence
-    data-confirm-when. Ordered is a routine status bump and Received hands
+    data-confirm-when. Incoming is a routine status bump and Received hands
     off to the Deliveries screen, which already has its own review step;
     stopping for either would tax the common path to guard the rare one.
     {% endcomment %}
@@ -231,10 +233,10 @@
           data-confirm-when="status=Cancelled">
       {% csrf_token %}
       {% comment %}
-      Ordered/Received are offered only on a PO that is already past Draft.
+      Receipt actions are offered only on a PO that is already past Draft.
       On a draft, Cancel is the only option here — approval is the step that
-      moves it to Ordered, and that lives in the Approve card above, the
-      Owner's alone (procurement_update_status refuses Ordered/Received here
+      moves it to Approved, and that lives in the Approve card above, the
+      Owner's alone (procurement_update_status refuses approval here
       too, so this is the matching UI, not the guard itself). Whichever
       status the PO is already in is left out of its own options — picking
       it would just re-submit the current status, which can_transition_to
@@ -244,23 +246,21 @@
       {% endcomment %}
       <details class="status-select">
         <summary class="status-select-trigger">
-          {% if procurement.status != "Ordered" %}<span class="status-select-value" data-for="Ordered">Ordered</span>{% endif %}
-          {% if procurement.status != "Received" %}<span class="status-select-value" data-for="Received">Received</span>{% endif %}
+          {% if procurement.status == "Approved" %}<span class="status-select-value" data-for="Incoming">Incoming</span>{% endif %}
+          {% if procurement.status != "Draft" %}<span class="status-select-value" data-for="Received">Record receipt</span>{% endif %}
           {% if procurement.status != "Cancelled" %}<span class="status-select-value" data-for="Cancelled">Cancelled</span>{% endif %}
           <svg class="status-select-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </summary>
         <div class="status-select-panel">
+          {% if procurement.status == "Approved" %}
+          <label class="status-select-option">
+            <input type="radio" name="status" value="Incoming" class="sr-only" checked>Incoming
+          </label>
+          {% endif %}
           {% if procurement.status != "Draft" %}
-          {% if procurement.status != "Ordered" %}
           <label class="status-select-option">
-            <input type="radio" name="status" value="Ordered" class="sr-only" checked>Ordered
+            <input type="radio" name="status" value="Received" class="sr-only"{% if procurement.status != "Approved" %} checked{% endif %}>Record receipt
           </label>
-          {% endif %}
-          {% if procurement.status != "Received" %}
-          <label class="status-select-option">
-            <input type="radio" name="status" value="Received" class="sr-only"{% if procurement.status == "Ordered" %} checked{% endif %}>Received
-          </label>
-          {% endif %}
           {% endif %}
           <label class="status-select-option">
             <input type="radio" name="status" value="Cancelled" class="sr-only"{% if procurement.status == "Draft" %} checked{% endif %}>Cancelled
@@ -283,6 +283,7 @@
           {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
         <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
           {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">

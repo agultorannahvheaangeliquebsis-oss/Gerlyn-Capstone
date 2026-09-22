@@ -145,7 +145,7 @@ class AcceptanceTests(TestCase):
 
     # ---------------------------------------------------------- scenario 3
     def test_short_delivery_flags_discrepancy_and_adds_only_delivered(self):
-        po = Procurement.objects.filter(status='Ordered').first()
+        po = Procurement.objects.filter(status=Procurement.Status.INCOMING).first()
         items = list(po.items.all())
         # A received delivery credits the branch WAREHOUSE, never floor
         # Inventory — floor stock only increases via an approved, released
@@ -166,7 +166,8 @@ class AcceptanceTests(TestCase):
 
         po.refresh_from_db()
         ws.refresh_from_db()
-        self.assertEqual(po.receipt_flag, 'Discrepancy')
+        self.assertEqual(po.status, Procurement.Status.PARTIALLY_RECEIVED)
+        self.assertEqual(po.receipt_flag, Procurement.ReceiptFlag.PARTIAL)
         self.assertEqual(ws.quantity_on_hand, before + items[0].quantity_ordered - 5)
         self.assertTrue(
             StockMovement.objects.filter(
@@ -176,7 +177,7 @@ class AcceptanceTests(TestCase):
         )
 
     def test_double_receive_is_blocked(self):
-        po = Procurement.objects.filter(status='Ordered').first()
+        po = Procurement.objects.filter(status=Procurement.Status.INCOMING).first()
         items = list(po.items.all())
         owner = self.login('gerlyn')
         owner.post(f'/procurement/deliveries/{po.pk}/receive/', {
@@ -336,7 +337,9 @@ class AcceptanceTests(TestCase):
 
     def test_supplier_can_confirm_delivery_date_on_own_order(self):
         supplier = User.objects.get(username='delmonte')
-        po = Procurement.objects.filter(supplier=supplier, status='Ordered').first()
+        po = Procurement.objects.filter(
+            supplier=supplier, status=Procurement.Status.INCOMING
+        ).first()
         client = Client()
         client.force_login(supplier)
         client.post(f'/procurement/portal/{po.pk}/delivery-date/',
@@ -347,12 +350,14 @@ class AcceptanceTests(TestCase):
     def test_supplier_cannot_mark_their_own_order_received(self):
         """Business rule 13: only the store validates a receipt."""
         supplier = User.objects.get(username='delmonte')
-        po = Procurement.objects.filter(supplier=supplier, status='Ordered').first()
+        po = Procurement.objects.filter(
+            supplier=supplier, status=Procurement.Status.INCOMING
+        ).first()
         client = Client()
         client.force_login(supplier)
         client.post(f'/procurement/{po.pk}/update-status/', {'status': 'Received'})
         po.refresh_from_db()
-        self.assertEqual(po.status, 'Ordered')
+        self.assertEqual(po.status, Procurement.Status.INCOMING)
 
     # --- customer order history + tracking ---------------------------------
     # The Context Diagram promises the Customer receives order status back.

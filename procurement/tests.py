@@ -27,8 +27,14 @@ class ProcurementTransitionMapTests(TestCase):
         # Pin the exact map that was relocated from the DRF view.
         S = Procurement.Status
         self.assertEqual(Procurement.ALLOWED_TRANSITIONS, {
-            S.DRAFT: {S.ORDERED, S.CANCELLED},
-            S.ORDERED: {S.RECEIVED, S.CANCELLED},
+            S.DRAFT: {S.APPROVED, S.CANCELLED},
+            S.APPROVED: {
+                S.INCOMING, S.PARTIALLY_RECEIVED, S.RECEIVED, S.CANCELLED,
+            },
+            S.INCOMING: {
+                S.PARTIALLY_RECEIVED, S.RECEIVED, S.CANCELLED,
+            },
+            S.PARTIALLY_RECEIVED: {S.RECEIVED, S.CANCELLED},
             S.RECEIVED: set(),
             S.CANCELLED: set(),
         })
@@ -39,6 +45,9 @@ class ProcurementTransitionMapTests(TestCase):
         self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.CANCELLED))
         self.assertTrue(Procurement(status=S.ORDERED).can_transition_to(S.RECEIVED))
         self.assertTrue(Procurement(status=S.ORDERED).can_transition_to(S.CANCELLED))
+        self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.INCOMING))
+        self.assertTrue(Procurement(status=S.INCOMING).can_transition_to(S.PARTIALLY_RECEIVED))
+        self.assertTrue(Procurement(status=S.PARTIALLY_RECEIVED).can_transition_to(S.RECEIVED))
         self.assertFalse(Procurement(status=S.ORDERED).can_transition_to(S.DRAFT))
         self.assertFalse(Procurement(status=S.RECEIVED).can_transition_to(S.ORDERED))
         self.assertFalse(Procurement(status=S.CANCELLED).can_transition_to(S.ORDERED))
@@ -645,6 +654,94 @@ class DeliveryReceiveRequiresApprovalTests(ProcurementAuthorizationBase):
             ).exists(),
             'an approved receipt must still credit warehouse stock',
         )
+
+
+class IncomingDeliveryWorkflowTests(ProcurementAuthorizationBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.warehouse, _ = Warehouse.objects.get_or_create(
+            branch=cls.home_branch, defaults={'name': 'Incoming Warehouse'}
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.owner)
+        self.po = self._po(
+            status=Procurement.Status.INCOMING,
+            delivery_date=dt.date(2026, 2, 10),
+        )
+        self.item = ProcurementItem.objects.create(
+            procurement=self.po,
+            product=self.product,
+            quantity_ordered=10,
+            cost_price=Decimal('50.00'),
+        )
+
+    def _receive(self, quantity, date):
+        return self.client.post(
+            reverse('delivery_receive', args=[self.po.pk]),
+            {
+                'item_id': [str(self.item.pk)],
+                'quantity_received': [str(quantity)],
+                'actual_receipt_date': date,
+            },
+        )
+
+    def test_partial_then_final_receipt_tracks_dates_and_only_new_stock(self):
+        self._receive(4, '2026-02-11')
+
+        self.po.refresh_from_db()
+        self.item.refresh_from_db()
+        stock = WarehouseStock.objects.get(
+            warehouse=self.warehouse, product=self.product
+        )
+        self.assertEqual(self.po.status, Procurement.Status.PARTIALLY_RECEIVED)
+        self.assertEqual(self.po.receipt_flag, Procurement.ReceiptFlag.PARTIAL)
+        self.assertEqual(str(self.po.actual_receipt_date), '2026-02-11')
+        self.assertEqual(self.item.quantity_received, 4)
+        self.assertEqual(stock.quantity_on_hand, 4)
+
+        self._receive(6, '2026-02-14')
+
+        self.po.refresh_from_db()
+        self.item.refresh_from_db()
+        stock.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.RECEIVED)
+        self.assertEqual(str(self.po.actual_receipt_date), '2026-02-14')
+        self.assertEqual(self.item.quantity_received, 10)
+        self.assertEqual(stock.quantity_on_hand, 10)
+        self.assertEqual(
+            StockMovement.objects.filter(reference_id=self.po.pk).count(), 2
+        )
+
+    def test_incoming_queue_keeps_partial_po_visible(self):
+        self._receive(4, '2026-02-11')
+
+        response = self.client.get(reverse('delivery_list'))
+
+        self.assertContains(response, self.po.po_number)
+        self.assertContains(response, 'Partially Received')
+
+    def test_api_partial_receipt_returns_actual_status_and_date(self):
+        response = self.client.patch(
+            f'/api/procurement/{self.po.pk}/update_status/',
+            data=json.dumps({
+                'status': Procurement.Status.RECEIVED,
+                'actualReceiptDate': '2026-02-11',
+                'items': [{
+                    'itemId': self.item.pk,
+                    'quantityReceived': 4,
+                }],
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            response.json()['status'], Procurement.Status.PARTIALLY_RECEIVED
+        )
+        self.assertEqual(response.json()['actualReceiptDate'], '2026-02-11')
 
 
 class SupplierPortalHidesDraftsTests(ProcurementAuthorizationBase):

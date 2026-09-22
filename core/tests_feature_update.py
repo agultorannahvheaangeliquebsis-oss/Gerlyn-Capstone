@@ -126,10 +126,10 @@ class FeatureUpdateTests(TestCase):
         return User.objects.filter(role=User.Role.OWNER).first()
 
     def open_po(self):
-        """An Ordered PO with items, ready to receive."""
+        """An Incoming PO with items, ready to receive."""
         return (
             Procurement.objects
-            .filter(status=Procurement.Status.ORDERED)
+            .filter(status=Procurement.Status.INCOMING)
             .filter(items__isnull=False)
             .distinct()
             .first()
@@ -403,7 +403,7 @@ class FeatureUpdateTests(TestCase):
         )
 
         proc.refresh_from_db()
-        self.assertEqual(proc.status, Procurement.Status.ORDERED)
+        self.assertEqual(proc.status, Procurement.Status.INCOMING)
 
     # -------------------------------------------------- withdrawal release
     def approved_slip(self, quantity=10):

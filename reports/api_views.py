@@ -77,7 +77,11 @@ class DashboardSummaryAPIView(APIView):
 
         low_stock_count = inventory_qs.filter(restock=True).count()
         total_procurement_cost = procurement_qs.aggregate(total=Sum('total_cost'))['total'] or 0
-        pending_orders = procurement_qs.filter(status='Ordered').count()
+        pending_orders = procurement_qs.filter(status__in=[
+            Procurement.Status.APPROVED,
+            Procurement.Status.INCOMING,
+            Procurement.Status.PARTIALLY_RECEIVED,
+        ]).count()
         total_products = Product.objects.count()
 
         return Response({
