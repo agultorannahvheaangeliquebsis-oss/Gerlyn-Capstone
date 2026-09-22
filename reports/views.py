@@ -1453,6 +1453,12 @@ def reports_dashboard(request):
     show_branch_donut = not branch_filter and branch_chart['branch_count'] > 1
     top_products = _top_products(revenue_qs)
 
+    # Sales by Category donut (DESIGN.md §2c names category as the other half
+    # of the row's donut/breakdown panel, alongside branch). Same revenue_qs,
+    # so it always agrees with the KPI cards, the other two donuts and the
+    # table on which rows are "this report".
+    category_chart = _sales_by_category_chart(revenue_qs)
+
     # --- §2c trend panel + §2a delta pills ------------------------------
     # Both need a real lower edge, and 'All time' has none by design. The
     # Dashboard resolves one from the earliest posting on record; this does
@@ -1488,6 +1494,7 @@ def reports_dashboard(request):
         'branch_chart': branch_chart,
         'show_branch_donut': show_branch_donut,
         'top_products': top_products,
+        'category_chart': category_chart,
         'sales_series': sales_series,
         'total_orders': total_orders,
         'total_sales': total_sales,
@@ -1793,6 +1800,67 @@ def _top_products(sales_qs):
         'total_display': _compact_peso(total),
         'product_count': count,
         'subtitle': subtitle,
+    }
+
+
+# --- Sales by Category (Reports → Sales tab) ------------------------------
+# DESIGN.md §2c's multi-panel row spec names "the donut/breakdown (sales by
+# branch or category)" as that row's first panel. This is the category half
+# of that pairing, added as a third donut alongside Sales by Branch and Top
+# Products rather than swapped in for either — branch answers "where", Top
+# Products answers "which item", this answers "which category", three
+# different cuts of the same revenue rather than the same cut three ways.
+#
+# Reuses TOP_PRODUCTS_RAMP rather than inventing a fourth green scale: this
+# panel is a revenue ranking exactly like Top Products, so the same
+# monotone dark-to-pale ordering (and the same accepted pale-fourth-slot
+# trade-off, see that ramp's note above) applies for the same reason.
+CATEGORY_OTHER_LABEL = 'Other categories'
+
+# A line item lands here when it has no category to report at all: either its
+# product was filed under none (Product.category is nullable) or the product
+# itself is gone (SalesItem.product is SET_NULL, so the category join is
+# unreachable). Both are indistinguishable from here, so they collapse into
+# one bucket rather than one deleted-product bucket plus a separate
+# no-category one.
+UNCATEGORIZED_LABEL = 'Uncategorized'
+
+
+def _sales_by_category_chart(sales_qs):
+    """
+    "Sales by Category" donut for the Reports Sales tab.
+
+    Aggregates whatever `sales_qs` the Sales tab has already filtered (branch
+    dropdown + §2e date range) — the same branch- and range-scoped queryset
+    Sales by Branch and Top Products read, so all three donuts in the panel
+    row, the KPI cards above them and the transactions table below always
+    describe the same rows.
+
+    Grouping is by category_id, not by name: two categories sharing a name
+    stay two rows, and every line item whose product carries no category (or
+    whose product is gone) collapses into one Uncategorized bucket instead of
+    being dropped or splitting across several unlabelled ones.
+    """
+    rows = list(
+        SalesItem.objects
+        .filter(transaction__in=sales_qs)
+        .values('product__category_id', 'product__category__category_name')
+        .annotate(revenue=Sum('subtotal'))
+        .order_by('-revenue')
+    )
+    # Same zero-revenue guard _top_products uses: a 0%-wide slice would still
+    # cost the panel a legend row nobody can see.
+    named = [
+        (r['product__category__category_name'] or UNCATEGORIZED_LABEL, r['revenue'])
+        for r in rows if r['revenue']
+    ]
+    chart = _donut(named, TOP_PRODUCTS_RAMP, CATEGORY_OTHER_LABEL)
+    return {
+        **chart,
+        # Same centre treatment as the other two donuts in this row: peso
+        # total first, category count second.
+        'total_display': _compact_peso(chart['total']),
+        'category_count': len(named) if chart['total'] else 0,
     }
 
 
