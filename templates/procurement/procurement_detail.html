@@ -201,7 +201,14 @@
 </div>
 {% endif %}
 
-{% if procurement.status != "Received" and procurement.status != "Cancelled" %}
+{% comment %}
+UIUX-006 — every option this card can ever offer a Supplier viewer
+(Received, Cancelled) is one procurement_update_status already refuses them:
+Drafts are never visible to a Supplier (see supplier_portal), so on their own
+Ordered PO this card would show nothing they're actually allowed to submit.
+Hiding it here matches the backend guard rather than leaving a dead-end form.
+{% endcomment %}
+{% if procurement.status != "Received" and procurement.status != "Cancelled" and user.role != "SUPPLIER" %}
 <div class="card card-pad mb-4">
   <div class="status-update-block">
     <div>

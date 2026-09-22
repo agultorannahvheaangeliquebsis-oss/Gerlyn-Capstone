@@ -30,7 +30,7 @@
       <form method="POST" action="{% url 'billing_confirm' record.pk %}">
         {% csrf_token %}
         <input type="hidden" name="status" value="Rejected">
-        <button type="submit" class="btn btn-danger">Reject</button>
+        <button type="submit" class="btn btn-danger">Reject Payment</button>
       </form>
       <form method="POST" action="{% url 'billing_confirm' record.pk %}"
             data-confirm="Marking {{ record.transaction.order_number }} as Paid is permanent and cannot be undone."
@@ -39,7 +39,7 @@
             data-confirm-dismiss="Not yet">
         {% csrf_token %}
         <input type="hidden" name="status" value="Paid">
-        <button type="submit" class="btn btn-primary">Mark as Paid</button>
+        <button type="submit" class="btn btn-primary">Verify Payment</button>
       </form>
     </div>
   </div>

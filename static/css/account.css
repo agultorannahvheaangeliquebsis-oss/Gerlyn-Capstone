@@ -371,63 +371,30 @@
 }
 input.is-invalid { border-color: var(--danger-dot) !important; }
 
-/* ── Confirm-password modal (2FA toggle) ──────────────────────────── */
-.modal-overlay {
-  display: none;
-  position: fixed; inset: 0;
-  background: rgba(23,37,30,.45);
-  align-items: center; justify-content: center;
-  padding: 16px;
-  z-index: 100;
-}
-.modal-overlay.is-open { display: flex; }
-.modal-card {
-  background: var(--surface);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-hero);
-  width: 100%; max-width: 420px;
-  max-height: calc(100vh - 64px);
-  display: flex;
-  flex-direction: column;
-}
-/* The picker's <form> wraps modal-body + modal-foot, so it also needs to
-   participate in the flex column (and not itself scroll) for the header
-   and footer to stay pinned while only the body scrolls. */
+/* ── Confirm-password modal (2FA toggle) ──────────────────────────────
+   UIUX-003 — sizing (max-width, font-size, padding, gap) used to be
+   redeclared here at slightly smaller values than gerlyn.css's own
+   .modal-overlay/.modal-card/.modal-head/.modal-body/.modal-foot, and
+   because this file loads after gerlyn.css on every page that includes
+   it, those smaller values silently won. Removed — gerlyn.css's single
+   definition is what applies now, everywhere.
+
+   What's left below is genuinely additive, not a duplicate: gerlyn.css
+   has no opinion on a <form> wrapping modal-body + modal-foot, but all
+   three modals that load this file are built that way — the 2FA modal
+   on Profile, the 2FA modal on Internal Settings, and the shared address
+   picker (_address_picker_modal.html). Without these, the form doesn't
+   participate in .modal-card's flex column, so the header and footer
+   can't stay pinned while only the body scrolls. ── */
 .modal-card > form {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
-.modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--line);
-  flex: none;
-}
-.modal-head h2 { font: 650 18px/1.25 var(--font-sans); margin: 0; }
-.modal-close {
-  display: inline-flex; align-items: center; justify-content: center;
-  flex: none;
-  width: 28px; height: 28px; padding: 0; margin: 0; line-height: 0;
-  border: none; background: none;
-  color: var(--ink-600); cursor: pointer; border-radius: var(--r-input);
-}
-.modal-close:hover { color: var(--ink-900); }
 .modal-body {
-  padding: 20px;
-  display: flex; flex-direction: column; gap: 14px;
-  overflow-y: auto;
   min-height: 0;
 }
-/* Flex items shrink by default — without this, a tight modal squeezes the
-   map (and everything else) down to fit instead of actually scrolling. */
 .modal-body > * { flex-shrink: 0; }
-.modal-foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--line);
-  flex: none;
-}
 
 /* ── Address cards ────────────────────────────────────────────── */
 .address-list { display: flex; flex-direction: column; gap: 12px; }
@@ -630,7 +597,8 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 
 /* ── Notifications ──────────────────────────────────────────────────── */
 .notif-row {
-  display: flex; align-items: flex-start; gap: 14px; padding: 13px 16px;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px; padding: 13px 16px;
   border-bottom: 1px solid var(--line-soft);
 }
 .notif-row:last-child { border-bottom: 0; }

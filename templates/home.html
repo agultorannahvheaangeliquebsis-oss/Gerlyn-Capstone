@@ -6,6 +6,15 @@
 <style>
   .mobile-hero-box { display: none; }
 
+  /* UIUX-002 — the mobile hero rail now takes hero_slides the same way
+     desktop's #banner-rotator does (see partials/home_extra_js.html, which
+     drives both rails off [data-hero-rotator] independently). Simple
+     display toggle rather than desktop's absolute-position cross-fade:
+     each slide is a full block (icon/eyebrow/h1/p), so there's no shared
+     min-height to preserve across slides the way the absolute layout needs. */
+  .mobile-hero-slide { display: none; }
+  .mobile-hero-slide.is-active { display: block; }
+
   @media (max-width: 768px) {
     .desktop-hero-box { display: none !important; }
     .mobile-hero-box { display: block !important; }
@@ -144,19 +153,44 @@
 <!-- ================= MOBILE VIEW ================= -->
 <div class="mobile-hero-box">
 
-    <!-- Green Hero Banner -->
-    <section style="background-color: #1E7A4F; color: #ffffff; padding: 14px 14px 16px; margin-bottom: 10px;">
-        <div style="font-size: 10px; color: #A7F3D0; display: flex; align-items: center; gap: 5px; margin-bottom: 3px;">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg> Fresh stocks daily
-        </div>
-        <h1 style="font-size: 19px; font-weight: 800; line-height: 1.15; margin-bottom: 5px;">
-            Groceries Delivered to Your Door
-        </h1>
-        <p style="font-size: 11px; line-height: 1.35; color: #E5E7EB; margin-bottom: 10px;">
-            Cash on delivery available across Baliuag. Order before 6PM for next-day delivery.
-        </p>
+    {% comment %}
+    UIUX-002 — this rail now reads hero_slides the same way desktop's
+    #banner-rotator does (partials/home_content.html), instead of a second,
+    hardcoded copy of the hero that never saw Owner edits or the fabricated
+    "10% off" claim baked into a static card below. Empty hero_slides falls
+    back to the exact copy this page always showed, so a store with no
+    slides configured yet sees no change at all.
+    {% endcomment %}
+    <section class="mobile-hero-rail" data-hero-rotator style="background-color: #1E7A4F; color: #ffffff; padding: 14px 14px 16px; margin-bottom: 10px;">
+        {% if hero_slides %}
+          {% for s in hero_slides %}
+          <a class="mobile-hero-slide{% if forloop.first %} is-active{% endif %}" href="{{ s.cta_url }}" data-slide {% if not forloop.first %}tabindex="-1"{% endif %} style="color:inherit; text-decoration:none;">
+            <div style="font-size: 10px; color: #A7F3D0; display: flex; align-items: center; gap: 5px; margin-bottom: 3px;">
+                {% include "partials/_hero_icon.html" with key=s.icon size=11 %} {{ s.eyebrow }}
+            </div>
+            <h1 style="font-size: 19px; font-weight: 800; line-height: 1.15; margin-bottom: 5px;">
+                {{ s.headline }}
+            </h1>
+            <p style="font-size: 11px; line-height: 1.35; color: #E5E7EB; margin-bottom: 10px;">
+                {{ s.body }}
+            </p>
+          </a>
+          {% endfor %}
+        {% else %}
+          <a class="mobile-hero-slide is-active" data-slide href="{% url 'orders:catalog' %}" style="color:inherit; text-decoration:none;">
+            <div style="font-size: 10px; color: #A7F3D0; display: flex; align-items: center; gap: 5px; margin-bottom: 3px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg> Fresh stocks daily
+            </div>
+            <h1 style="font-size: 19px; font-weight: 800; line-height: 1.15; margin-bottom: 5px;">
+                Groceries Delivered to Your Door
+            </h1>
+            <p style="font-size: 11px; line-height: 1.35; color: #E5E7EB; margin-bottom: 10px;">
+                Cash on delivery available across Baliuag. Order before 6PM for next-day delivery.
+            </p>
+          </a>
+        {% endif %}
 
-        <!-- Buttons -->
+        <!-- Buttons: fixed navigation, not tied to a slide's own CTA -->
         <div style="display: flex; gap: 7px;">
             <a href="{% url 'orders:catalog' %}" style="flex: 1; background-color: #ffffff; color: #1E7A4F; text-align: center; font-weight: 700; padding: 7px 9px; border-radius: 9999px; text-decoration: none; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 4px;">
                 Shop Now <span>›</span>
@@ -166,37 +200,65 @@
             </a>
         </div>
 
-        <!-- Slider Dots -->
+        <!-- Slider Dots: one per slide when there's more than one, matching desktop's own >1 threshold -->
+        {% if hero_slides|length > 1 %}
+        <div class="mobile-hero-dots" role="tablist" aria-label="Store highlights" style="display: flex; justify-content: center; gap: 5px; margin-top: 8px;">
+          {% for s in hero_slides %}
+          <button class="mobile-hero-dot" type="button" role="tab" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" aria-label="{{ s.headline }}" data-dot style="width:{% if forloop.first %}14{% else %}5{% endif %}px; height:3px; background:{% if forloop.first %}#fff{% else %}rgba(255,255,255,0.4){% endif %}; border-radius:2px; border:0; padding:0;"></button>
+          {% endfor %}
+        </div>
+        {% else %}
         <div style="display: flex; justify-content: center; gap: 5px; margin-top: 8px;">
             <span style="width: 14px; height: 3px; background: #fff; border-radius: 2px;"></span>
             <span style="width: 5px; height: 3px; background: rgba(255,255,255,0.4); border-radius: 2px;"></span>
             <span style="width: 5px; height: 3px; background: rgba(255,255,255,0.4); border-radius: 2px;"></span>
         </div>
+        {% endif %}
     </section>
 
-    <!-- 3 Promotional Cards -->
+    {% comment %}
+    UIUX-002 — mirrors desktop's hero_side_cards exactly: at most 2 cards,
+    same real facts in the fallback (no promotions model — see
+    partials/home_content.html's own top comment). This replaces the old
+    3-card layout, whose 2nd card claimed a "10% off" discount that doesn't
+    exist anywhere in the system.
+    {% endcomment %}
     <div style="padding: 0 14px; display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;">
-        <div style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; gap: 7px;">
-            <span style="display:flex; color:#1E7A4F;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 16V5h11v11"/><path d="M14 9h4l3 3.5V16h-7"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg></span>
+        {% if hero_side_cards %}
+          {% for s in hero_side_cards %}
+          <a href="{{ s.cta_url }}" style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; gap: 7px; text-decoration:none;">
+            <span style="display:flex; color:#1E7A4F;">{% include "partials/_hero_icon.html" with key=s.icon size=16 %}</span>
             <div>
-                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">Free delivery within Baliuag</div>
-                <div style="font-size: 9.5px; color: #4B5563;">On orders over ₱500</div>
+                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">{{ s.headline }}</div>
+                <div style="font-size: 9.5px; color: #4B5563;">{{ s.body }}</div>
             </div>
-        </div>
-        <div style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; gap: 7px;">
-            <span style="display:flex; color:#1E7A4F;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8A2 2 0 0 1 4.8 2.8H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg></span>
+          </a>
+          {% endfor %}
+          {% if hero_side_cards|length == 1 %}
+          <a href="{% url 'orders:select_branch' %}" style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; gap: 7px; text-decoration:none;">
+            <span style="display:flex; color:#1E7A4F;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
             <div>
-                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">New customer discount</div>
-                <div style="font-size: 9.5px; color: #4B5563;">10% off your first order</div>
+                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">Delivery or pickup</div>
+                <div style="font-size: 9.5px; color: #4B5563;">Free delivery within Baliuag over ₱500, or collect at a branch.</div>
             </div>
-        </div>
-        <div style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; gap: 7px;">
-            <span style="display:flex; color:#1E7A4F;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg></span>
+          </a>
+          {% endif %}
+        {% else %}
+        <a href="{% url 'orders:select_branch' %}" style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; gap: 7px; text-decoration:none;">
+            <span style="display:flex; color:#1E7A4F;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
             <div>
-                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">Bulk order discounts</div>
-                <div style="font-size: 9.5px; color: #4B5563;">Wholesale prices available</div>
+                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">Delivery or pickup</div>
+                <div style="font-size: 9.5px; color: #4B5563;">Free delivery within Baliuag over ₱500, or collect at a branch.</div>
             </div>
-        </div>
+        </a>
+        <a href="{% url 'orders:catalog' %}" style="background: #F0FDF4; border: 1px solid #DCFCE7; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; gap: 7px; text-decoration:none;">
+            <span style="display:flex; color:#1E7A4F;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span>
+            <div>
+                <div style="font-size: 10.5px; font-weight: 700; color: #1E7A4F;">Wholesale prices</div>
+                <div style="font-size: 9.5px; color: #4B5563;">Bulk orders welcome — buy by the sack, box or case.</div>
+            </div>
+        </a>
+        {% endif %}
     </div>
 
     <!-- Backend Content (Shop by Category, atbp.) -->
