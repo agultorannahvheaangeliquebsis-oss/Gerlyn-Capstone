@@ -5,13 +5,16 @@ from django.utils import timezone
 
 from accounts.models import User
 from branches.models import Branch
+from inventory.models import Product, ProductCategory
 from procurement.models import Procurement
-from sales.models import SalesTransaction
+from sales.models import SalesItem, SalesTransaction
 from reports.views import (
     _dashboard_branch_breakdown,
     _dashboard_daily_series,
     _dashboard_range_totals,
     _previous_window,
+    _sales_by_category_chart,
+    UNCATEGORIZED_LABEL,
 )
 
 
@@ -165,3 +168,107 @@ class BillingReportRowsLinkToBillingDetailTests(TestCase):
         record = resp.context['records'][0]
 
         self.assertIn(f'/billing/{record.pk}/', resp.content.decode())
+
+
+class SalesByCategoryChartTests(TestCase):
+    """Panel-review ask: a meaningful category donut on the Reports Sales tab,
+    with the period and percentage basis it covers stated on the page, not
+    just implied.
+
+    Mirrors the branch-donut coverage above: the aggregation must (a) group
+    revenue by category, (b) fold every line item whose product has no
+    category (or whose product is gone) into one Uncategorized bucket rather
+    than dropping it, and (c) — via the rendered view — only ever see the
+    same Completed-only rows the rest of the Sales tab already agrees on
+    (F-03), so a cancelled sale's items cannot inflate it.
+    """
+
+    GRAINS_REVENUE = 1000    # 20 x P50
+    BEVERAGES_REVENUE = 480  # 12 x P40
+    UNCATEGORIZED_REVENUE = 200  # 10 x P20
+    TOTAL = GRAINS_REVENUE + BEVERAGES_REVENUE + UNCATEGORIZED_REVENUE
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='cat-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='Category Branch', location='Baliuag', owner=cls.owner
+        )
+        cls.grains = ProductCategory.objects.create(category_name='Grains')
+        cls.beverages = ProductCategory.objects.create(category_name='Beverages')
+
+        cls.rice = Product.objects.create(
+            category=cls.grains, sku_code='SKU-CAT-001', product_name='Rice',
+            unit_price=50,
+        )
+        cls.soda = Product.objects.create(
+            category=cls.beverages, sku_code='SKU-CAT-002', product_name='Soda',
+            unit_price=40,
+        )
+        cls.misc = Product.objects.create(
+            category=None, sku_code='SKU-CAT-003', product_name='Misc',
+            unit_price=20,
+        )
+
+        cls.completed = cls._sale(SalesTransaction.OrderStatus.COMPLETED)
+        cls._item(cls.completed, cls.rice, quantity=20, unit_price=50)
+        cls._item(cls.completed, cls.soda, quantity=12, unit_price=40)
+        cls._item(cls.completed, cls.misc, quantity=10, unit_price=20)
+
+        # A cancelled sale's items must never reach the chart — hugely
+        # outweighs the completed rows so any leak is unmistakable.
+        cls.cancelled = cls._sale(SalesTransaction.OrderStatus.CANCELLED)
+        cls._item(cls.cancelled, cls.rice, quantity=999, unit_price=50)
+
+    @classmethod
+    def _sale(cls, status):
+        txn = SalesTransaction.objects.create(
+            branch=cls.branch,
+            total_amount=0,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        if txn.order_status != status:
+            txn.order_status = status
+            txn.save(update_fields=['order_status'])
+        return txn
+
+    @classmethod
+    def _item(cls, txn, product, quantity, unit_price):
+        return SalesItem.objects.create(
+            transaction=txn, product=product,
+            quantity_sold=quantity, unit_price=unit_price,
+        )
+
+    def test_groups_by_category_and_folds_no_category_lines_into_uncategorized(self):
+        chart = _sales_by_category_chart(
+            SalesTransaction.objects.filter(pk=self.completed.pk)
+        )
+
+        self.assertEqual(chart['total'], self.TOTAL)
+        by_name = {seg['name']: seg['value'] for seg in chart['segments']}
+        self.assertEqual(by_name, {
+            'Grains': self.GRAINS_REVENUE,
+            'Beverages': self.BEVERAGES_REVENUE,
+            UNCATEGORIZED_LABEL: self.UNCATEGORIZED_REVENUE,
+        })
+        # Percentages are each segment's share of the same stated total — they
+        # must sum back to (approximately) it, modulo the one-decimal rounding
+        # _donut prints.
+        self.assertAlmostEqual(
+            sum(seg['pct'] for seg in chart['segments']), 100.0, delta=0.2
+        )
+        self.assertEqual(chart['category_count'], 3)
+
+    def test_rendered_report_excludes_cancelled_sale_items(self):
+        client = Client()
+        client.force_login(self.owner)
+        ctx = client.get('/reports/').context
+
+        self.assertEqual(ctx['category_chart']['total'], self.TOTAL)
+        by_name = {seg['name']: seg['value'] for seg in ctx['category_chart']['segments']}
+        # The cancelled sale's 999 x P50 Rice line would dwarf and swallow
+        # every other segment if it leaked in.
+        self.assertEqual(by_name.get('Grains'), self.GRAINS_REVENUE)
