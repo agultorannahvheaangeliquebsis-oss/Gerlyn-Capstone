@@ -13,8 +13,8 @@ from datetime import datetime, timedelta
 from billing.models import BillingRecord
 
 from sales.models import SalesItem, SalesTransaction
-from inventory.models import Inventory, WarehouseStock
-from inventory.alerts import EXPIRING_SOON_DAYS, alert_summary
+from inventory.models import Batch, Inventory, WarehouseStock
+from inventory.alerts import EXPIRING_SOON_DAYS, _expiry_tier, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
@@ -1907,6 +1907,133 @@ def _inventory_branch_summary(records):
     return summary
 
 
+# Trailing window a floor-stock row's own sales are measured against to call
+# it "non-performing" — see _non_performing_products docstring for the full
+# rule. Same 30-day figure as inventory.alerts.EXPIRING_SOON_DAYS: it is
+# already the store's working definition of "needs attention soon" for
+# expiry, and reusing it here means Reports doesn't introduce a second,
+# unrelated time horizon for staff to learn. Documented in docs/METRICS.md.
+NON_PERFORMING_SALES_WINDOW_DAYS = 30
+
+
+def _non_performing_products(branch_ids=None):
+    """
+    Flag every floor-stock (Inventory) row that is non-performing,
+    near-expiry, or both. Rows that are neither are not returned — same
+    convention as low_stock_alerts()/expiry_alerts(), which only ever list
+    what needs attention. Full rule, with rationale, lives in
+    docs/METRICS.md; this is the one place it is computed.
+
+    Non-Performing
+      quantity_on_hand > 0 AND zero units sold (Completed orders only —
+      the same REVENUE_ORDER_STATUSES revenue_sales() uses, so an order
+      still Pending or a voided Cancelled sale can't count as "activity")
+      in the trailing NON_PERFORMING_SALES_WINDOW_DAYS (30) days. Units are
+      SalesItem.quantity_sold, not distinct transactions, so one big order
+      still reads as real velocity.
+
+      Zero stock is excluded on purpose: a product with nothing on the
+      floor isn't "not selling", it's out of stock — that is already
+      low_stock_alerts()'s job, and double-flagging it here would tell
+      staff to do nothing about a shelf that actually needs restocking.
+
+    Near-Expiry
+      The nearest FLOOR batch's expiry tier (inventory.alerts._expiry_tier,
+      the same function expiry_alerts() uses) is "Expiring Soon" (<=30
+      days) or "Approaching Expiry" (<=90 days) — no new expiry rule, just
+      this report reading the existing one. A row with no batch-tracked
+      expiry at all is never near-expiry. "Expired" is deliberately NOT
+      included: an already-expired lot's correct next step is the daily
+      write-off sweep (see the Batch model's docstring), not a slot on a
+      performance report — by the time it's expired the "should we still
+      be stocking this" question is moot.
+
+    A product can be both — slow to sell AND sitting on ageing stock is the
+    strongest signal something needs a markdown/return/delisting decision,
+    so those rows sort first.
+
+    `branch_ids=None` -> all branches (Owner). Pass a list to scope to a
+    manager/staff's branch (use core.scoping.branch_ids_for_user).
+    """
+    today = timezone.localdate()
+    window_start = timezone.now() - timedelta(days=NON_PERFORMING_SALES_WINDOW_DAYS)
+
+    inv_qs = (
+        Inventory.objects.filter(quantity_on_hand__gt=0)
+        .select_related('product', 'product__category', 'branch')
+    )
+    if branch_ids is not None:
+        inv_qs = inv_qs.filter(branch_id__in=branch_ids)
+
+    # Units actually sold per product/branch in the trailing window.
+    sold_qs = SalesItem.objects.filter(
+        transaction__order_status__in=REVENUE_ORDER_STATUSES,
+        transaction__transaction_date__gte=window_start,
+    )
+    if branch_ids is not None:
+        sold_qs = sold_qs.filter(transaction__branch_id__in=branch_ids)
+    sold_totals = {
+        (row['product_id'], row['transaction__branch_id']): row['units']
+        for row in sold_qs.values('product_id', 'transaction__branch_id')
+        .annotate(units=Sum('quantity_sold'))
+    }
+
+    # Nearest FLOOR batch expiry per product/branch — same source
+    # expiry_alerts() reads, just grouped down to one date per row instead
+    # of one row per lot, since this table is keyed by product/branch.
+    batch_qs = Batch.objects.filter(
+        location=Batch.Location.FLOOR, expiry_date__isnull=False, quantity__gt=0,
+    )
+    if branch_ids is not None:
+        batch_qs = batch_qs.filter(branch_id__in=branch_ids)
+    nearest_expiry = {
+        (row['product_id'], row['branch_id']): row['nearest']
+        for row in batch_qs.values('product_id', 'branch_id')
+        .annotate(nearest=Min('expiry_date'))
+    }
+
+    rows = []
+    for inv in inv_qs:
+        key = (inv.product_id, inv.branch_id)
+        units_sold = sold_totals.get(key, 0)
+        is_non_performing = units_sold == 0
+
+        expiry_date = nearest_expiry.get(key)
+        days_until_expiry = None
+        tier = None
+        if expiry_date is not None:
+            days_until_expiry = (expiry_date - today).days
+            tier = _expiry_tier(days_until_expiry)
+        is_near_expiry = tier in ('Expiring Soon', 'Approaching Expiry')
+
+        if not (is_non_performing or is_near_expiry):
+            continue
+
+        if is_non_performing and is_near_expiry:
+            status, pill_class, sort_rank = 'Non-Performing + Near-Expiry', 'pill-danger', 0
+        elif is_non_performing:
+            status, pill_class, sort_rank = 'Non-Performing', 'pill-warn', 1
+        else:
+            status, pill_class, sort_rank = 'Near-Expiry', 'pill-warn', 2
+
+        rows.append({
+            'product': inv.product,
+            'branch': inv.branch,
+            'quantity_on_hand': inv.quantity_on_hand,
+            'expiry_date': expiry_date,
+            'days_until_expiry': days_until_expiry,
+            'units_sold': units_sold,
+            'is_non_performing': is_non_performing,
+            'is_near_expiry': is_near_expiry,
+            'status': status,
+            'pill_class': pill_class,
+            '_sort_rank': sort_rank,
+        })
+
+    rows.sort(key=lambda r: (r['_sort_rank'], r['product'].product_name if r['product'] else ''))
+    return rows
+
+
 def _compact_currency(value):
     """Auto-compact a peso amount: 850 / 30k / 1.2M — for axis ticks."""
     value = float(value)
@@ -2275,6 +2402,13 @@ def inventory_report(request):
     branch_summary = _inventory_branch_summary(records)
     chart = _inventory_value_chart(branch_summary)
 
+    # Same effective scope as `records` above: the account's own branch
+    # access (branch_ids) narrowed further by whichever single branch an
+    # Owner picked in the toolbar (branch_filter), so this table never
+    # shows a branch the KPI cards/table above it don't.
+    non_performing_branch_ids = [int(branch_filter)] if branch_filter else branch_ids
+    non_performing_rows = _non_performing_products(non_performing_branch_ids)
+
     return render(request, 'reports/inventory_report.html', {
         'inventory_records': records,
         'branches': Branch.objects.all() if show_branch_filter else [],
@@ -2292,6 +2426,8 @@ def inventory_report(request):
         'product_lines': product_lines,
         'branch_summary': branch_summary,
         'chart': chart,
+        'non_performing_rows': non_performing_rows,
+        'non_performing_window_days': NON_PERFORMING_SALES_WINDOW_DAYS,
         'user_branch': user_branch,
         'active_page': 'reports',
     })
