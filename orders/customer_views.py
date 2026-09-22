@@ -161,11 +161,9 @@ def _cart_items(request):
     Priced at the tier each line's own quantity earns — the same one checkout()
     will use — so the figures here are what they will actually be billed. The
     session cart holds one entry per product, so the quantity read here is
-    already the shopper's whole commitment to that item. The PWD/Senior
-    discount is deliberately NOT previewed, and since F-04 it cannot be
-    claimed here at all: it is granted by staff, against a sighted ID, after
-    the order exists. Showing it on the cart would promise a price the order
-    is not entitled to and may never get.
+    already the shopper's whole commitment to that item. The cart view may
+    show a separate PWD estimate, but this regular subtotal is recorded until
+    staff verify the ID.
 
     Returns (items, total, dropped_names). S-1 — a line that can no longer be
     priced at all (delisted, the branch stopped carrying it, its last lot
@@ -1001,9 +999,15 @@ def view_cart(request):
     # (no checkout attempt in between) doesn't rotate it out from under a
     # form the shopper already has open in another tab.
     request.session.setdefault('checkout_token', uuid.uuid4().hex)
+    pwd_estimate = price_cart(
+        [(item['product'], item['quantity'], item['unit_price']) for item in items],
+        discount_type='PWD',
+    ) if items else None
     return render(request, 'orders/cart.html', {
         'items': items,
         'total': total,
+        'pwd_estimate': pwd_estimate,
+        'pwd_estimated_savings': total - pwd_estimate['total_amount'] if pwd_estimate else None,
         'checkout_token': request.session['checkout_token'],
         'free_delivery_over': FREE_DELIVERY_OVER,
         'remaining_for_free': remaining,
@@ -1210,24 +1214,16 @@ def checkout(request):
     else:  # Pickup — never carries an address, whatever is on the account.
         delivery_address = ''
 
-    # --- PWD / Senior Citizen discount --------------------------------------
-    # Deliberately NOT read from this form, and there is no UI offering it.
-    #
-    # F-04 — checkout used to take discount_type straight from the POST and
-    # apply the full statutory 20% + VAT exemption on it. The only guard was
-    # that the ID-number and holder-name fields be non-empty strings, so
-    # 'MADE-UP-123' bought a permanent 20% discount; no staff member ever saw
-    # a card. The discount is conditioned on presenting a PWD or OSCA ID, and
-    # nothing typed into a web form is presenting anything.
-    #
-    # So every order this view writes is undiscounted, whatever the request
-    # contains. Where a discount is genuinely owed, staff apply it afterwards
-    # from the Order Console (sales.views.transaction_apply_discount), which
-    # records who verified the ID — and which refuses outright on a Delivery
-    # order, because nobody at the branch ever meets that customer.
-    #
-    # This matches the API write path next door, which has always passed
-    # discount_type=None for the same reason (SalesTransactionWriteSerializer).
+    request_pwd = request.POST.get('request_pwd_discount') == 'on'
+    if request_pwd and fulfillment_type != SalesTransaction.FulfillmentType.PICKUP:
+        messages.error(request, 'PWD discount requests require pickup at the selected branch.')
+        return redirect('orders:cart')
+    if request_pwd and mode_of_payment != SalesTransaction.ModeOfPayment.PAY_AT_STORE:
+        messages.error(request, 'Choose Pay at Store for a PWD discount request. Payment follows branch verification.')
+        return redirect('orders:cart')
+
+    # The opt-in creates a pending request only. Checkout still stores the
+    # regular prices; staff verify the actual ID and reprice at the branch.
 
     with transaction.atomic():
         # Validate availability WITHOUT deducting: an online order only leaves
@@ -1311,7 +1307,19 @@ def checkout(request):
             total_amount=total,
             total_vat_amount=priced['total_vat_amount'],
             total_discount_amount=priced['total_discount_amount'],
+            pwd_verification_status=(
+                SalesTransaction.PwdVerificationStatus.PENDING if request_pwd
+                else SalesTransaction.PwdVerificationStatus.NONE
+            ),
         )
+
+        if request_pwd:
+            from sales.models import DiscountVerification
+            DiscountVerification.objects.create(
+                order=sale, customer=request.user, discount_type='PWD',
+                status=SalesTransaction.PwdVerificationStatus.PENDING,
+                branch_id=branch_id,
+            )
 
         for line in priced['lines']:
             SalesItem.objects.create(

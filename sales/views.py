@@ -20,6 +20,7 @@ from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import SalesItem, SalesItemBatchConsumption, SalesTransaction
+from .pwd_verification import VerificationError, decide_pwd
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
@@ -472,6 +473,12 @@ _FLOW = {
 
 def _next_actions(txn, user=None):
     actions = _FLOW.get(txn.order_status, [])
+    if txn.pwd_verification_status == SalesTransaction.PwdVerificationStatus.PENDING:
+        actions = [a for a in actions if a != SalesTransaction.OrderStatus.COMPLETED]
+    elif txn.pwd_verification_status != SalesTransaction.PwdVerificationStatus.NONE:
+        bill = getattr(txn, 'billing_record', None)
+        if not bill or bill.status != BillingRecord.PaymentStatus.PAID:
+            actions = [a for a in actions if a != SalesTransaction.OrderStatus.COMPLETED]
     if (txn.order_status == SalesTransaction.OrderStatus.COMPLETED
             and user is not None and user.role not in [OWNER, BRANCH_MANAGER]):
         # Staff can cancel an unfulfilled order but not void a completed
@@ -530,6 +537,14 @@ def transaction_set_status(request, pk, new_status):
             # against the same stale, pre-lock read — and can't both reach
             # _deduct_stock for the same order.
             locked_txn = SalesTransaction.objects.select_for_update().get(pk=pk)
+            if (new_status == SalesTransaction.OrderStatus.COMPLETED
+                    and locked_txn.pwd_verification_status == SalesTransaction.PwdVerificationStatus.PENDING):
+                raise _OrderActionError('Decide the pending PWD request before releasing this order.')
+            if (new_status == SalesTransaction.OrderStatus.COMPLETED
+                    and locked_txn.pwd_verification_status != SalesTransaction.PwdVerificationStatus.NONE):
+                locked_bill = BillingRecord.objects.select_for_update().filter(transaction=locked_txn).first()
+                if not locked_bill or locked_bill.status != BillingRecord.PaymentStatus.PAID:
+                    raise _OrderActionError('Collect and confirm the final payment before releasing this order.')
 
             # Without the user, _next_actions falls back to its role-blind
             # default set and would let a Staff request through the "void a
@@ -660,10 +675,32 @@ def _can_offer_discount(txn, billing):
     """
     return (
         txn.can_apply_pwd_senior_discount()
+        and txn.pwd_verification_status == SalesTransaction.PwdVerificationStatus.NONE
         and txn.discount_type == SalesTransaction.DiscountType.NONE
         and txn.order_status != SalesTransaction.OrderStatus.CANCELLED
         and not (billing and billing.status == BillingRecord.PaymentStatus.PAID)
     )
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transaction_decide_pwd(request, pk):
+    if request.method != 'POST':
+        return redirect('transaction_detail', pk=pk)
+    try:
+        decide_pwd(
+            pk, request.user, request.POST.get('decision', ''),
+            id_number=request.POST.get('discount_id_number', ''),
+            holder_name=request.POST.get('discount_holder_name', ''),
+            rejection_reason=request.POST.get('rejection_reason', ''),
+        )
+    except PermissionError:
+        messages.error(request, 'That order belongs to another branch.')
+        return redirect('transaction_list')
+    except VerificationError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'PWD request decided and amount due updated.')
+    return redirect('transaction_detail', pk=pk)
 
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
@@ -720,6 +757,10 @@ def transaction_apply_discount(request, pk):
         )
         return redirect('transaction_detail', pk=pk)
 
+    if txn.pwd_verification_status != SalesTransaction.PwdVerificationStatus.NONE:
+        messages.error(request, 'Use the PWD verification action for this order.')
+        return redirect('transaction_detail', pk=pk)
+
     if txn.discount_type != SalesTransaction.DiscountType.NONE:
         # Re-pricing already-discounted lines would take 20% off the
         # discounted price, compounding it. One claim per sale, as the
@@ -773,6 +814,10 @@ def transaction_apply_discount(request, pk):
         # the same stale read and compound the reduction — the pattern
         # billing_confirm (D-1) and transaction_set_status already use.
         locked = SalesTransaction.objects.select_for_update().get(pk=pk)
+
+        if locked.pwd_verification_status != SalesTransaction.PwdVerificationStatus.NONE:
+            messages.error(request, 'Use the PWD verification action for this order.')
+            return redirect('transaction_detail', pk=pk)
 
         if locked.discount_type != SalesTransaction.DiscountType.NONE:
             messages.error(

@@ -163,6 +163,25 @@ views can never drift apart.
 
 ---
 
+### PWD requests for pickup orders
+
+At checkout, a customer can request a PWD discount for pickup and choose Pay at
+Store. The cart, confirmation, and tracking pages show an estimated amount. The
+order and billing record keep the regular subtotal until staff see a valid PWD
+ID at the selected branch. Staff use the Order Console to verify (enter the ID
+number and holder name) or reject (enter a reason). Verification recalculates
+eligible lines and updates the amount due; rejection keeps the regular amount.
+The order cannot be paid while the request is pending or released before its
+final payment is confirmed. Staff and
+managers are limited to their assigned branch; the Owner can act at any branch.
+Every request and decision is recorded in `DiscountVerification`.
+
+API clients can set `fulfillmentType: "Pickup"` and
+`requestPwdDiscount: true` on `POST /api/sales/` with
+`modeOfPayment: "Pay at Store"`. Authorized staff decide a request through
+`POST /api/sales/<id>/pwd-verification/` with `decision` set to `verify` or
+`reject` and the corresponding ID details or `rejection_reason`.
+
 ## Security notes
 
 - Secrets live in `.env` (git-ignored). `.env.example` documents what's needed.

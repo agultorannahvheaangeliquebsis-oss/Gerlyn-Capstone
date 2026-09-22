@@ -31,6 +31,7 @@
       <tbody>
         <tr><td class="gv-meta">Status</td><td style="text-align:right;">{% include "partials/_order_status_pill.html" with status=sale.order_status %}</td></tr>
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
+        {% if sale.pwd_verification_status != 'NONE' %}<tr><td class="gv-meta">PWD status</td><td style="text-align:right;">{{ sale.get_pwd_verification_status_display }}</td></tr>{% endif %}
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
         {% if sale.delivery_address %}
         <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ sale.delivery_address }}</td></tr>
@@ -57,9 +58,15 @@
       </tbody>
     </table>
     <div class="card-pad row-between" style="border-top:1px solid var(--line);">
-      <span class="gv-label">Total</span>
+      <span class="gv-label">{% if sale.pwd_verification_status == 'PENDING' %}Subtotal before PWD verification{% else %}Total{% endif %}</span>
       <span class="gv-metric" style="color:var(--action);">₱{{ sale.total_amount|floatformat:2 }}</span>
     </div>
+    {% if sale.pwd_verification_status == 'PENDING' %}
+    <div class="card-pad"><p>Estimated savings, including VAT relief: ₱{{ sale.estimated_pwd_savings|floatformat:2 }}</p>
+      <p>Estimated PWD discount: ₱{{ sale.estimated_pwd_discount|floatformat:2 }}</p>
+      <p>Estimated amount after verification: ₱{{ sale.estimated_pwd_total|floatformat:2 }}</p>
+      <p>PWD discount is subject to verification of a valid PWD ID/document at your selected pickup branch. The final amount will be confirmed after verification.</p></div>
+    {% endif %}
   </div>
 
   <div class="row mt-6">

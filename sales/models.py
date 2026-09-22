@@ -6,6 +6,7 @@
 #   - All original fields untouched
 
 from django.db import models, transaction
+from django.utils.functional import cached_property
 from branches.models import Branch
 from inventory.models import Product
 from accounts.models import User
@@ -175,6 +176,17 @@ class SalesTransaction(models.Model):
         PWD = 'PWD', 'PWD'
         SENIOR = 'Senior', 'Senior Citizen'
 
+    class PwdVerificationStatus(models.TextChoices):
+        NONE = 'NONE', 'None'
+        PENDING = 'PENDING', 'Pending'
+        VERIFIED = 'VERIFIED', 'Verified'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    pwd_verification_status = models.CharField(
+        max_length=8, choices=PwdVerificationStatus.choices,
+        default=PwdVerificationStatus.NONE,
+    )
+
     discount_type = models.CharField(
         max_length=10, choices=DiscountType.choices,
         default=DiscountType.NONE
@@ -251,6 +263,31 @@ class SalesTransaction(models.Model):
             return True
         return self.fulfillment_type == self.FulfillmentType.PICKUP
 
+    @cached_property
+    def estimated_pwd_breakdown(self):
+        if self.pwd_verification_status != self.PwdVerificationStatus.PENDING:
+            return None
+        from .pricing import price_cart
+        return price_cart(
+            [(item.product, item.quantity_sold, item.unit_price)
+             for item in self.items.select_related('product')],
+            discount_type=self.DiscountType.PWD,
+        )
+
+    @property
+    def estimated_pwd_total(self):
+        return self.estimated_pwd_breakdown['total_amount'] if self.estimated_pwd_breakdown else None
+
+    @property
+    def estimated_pwd_savings(self):
+        estimate = self.estimated_pwd_total
+        return self.total_amount - estimate if estimate is not None else None
+
+    @property
+    def estimated_pwd_discount(self):
+        return self.estimated_pwd_breakdown['total_discount_amount'] if self.estimated_pwd_breakdown else None
+
+
     def save(self, *args, **kwargs):
         # Existing row, or a caller that set order_number explicitly: nothing
         # to allocate, save straight through.
@@ -302,6 +339,26 @@ class SalesTransaction(models.Model):
                 name='sales_txn_branch_date_idx',
             ),
         ]
+
+
+class DiscountVerification(models.Model):
+    order = models.OneToOneField(SalesTransaction, on_delete=models.CASCADE,
+                                 related_name='pwd_verification')
+    customer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,
+                                 related_name='discount_verifications')
+    discount_type = models.CharField(max_length=10,
+                                     choices=SalesTransaction.DiscountType.choices)
+    status = models.CharField(max_length=8,
+                              choices=SalesTransaction.PwdVerificationStatus.choices)
+    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True,
+                               related_name='discount_verifications')
+    verified_by_employee = models.ForeignKey(User, on_delete=models.SET_NULL,
+                                              null=True, blank=True,
+                                              related_name='pwd_decisions')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class SalesItem(models.Model):

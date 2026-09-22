@@ -94,6 +94,10 @@ class BillingPaymentAPIView(APIView):
         if not user_can_access_billing_record(request.user, record):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        if record.transaction.pwd_verification_status == 'PENDING':
+            return Response({'detail': 'Decide the PWD request before recording payment.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         if record.status != BillingRecord.PaymentStatus.PENDING:
             return Response(
                 {'detail': 'This billing record has already been processed.'},

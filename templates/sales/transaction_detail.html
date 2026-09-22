@@ -168,12 +168,35 @@
 
 {# ---- apply PWD / Senior discount (walk-in or pickup only) ---- #}
 {% comment %}
-F-04. This is the only place the statutory discount can be granted:
-customer checkout no longer accepts one at all. can_apply_discount comes
+F-04. This is where a statutory discount can be granted:
+customer checkout only records a pending PWD request. can_apply_discount comes
 from SalesTransaction.can_apply_pwd_senior_discount() via the view, which
 re-checks it on POST — a Delivery order is refused server-side even if
 this form is forged, so hiding the control is convenience, not the guard.
 {% endcomment %}
+{% if transaction.pwd_verification_status == 'PENDING' %}
+<div class="card card-pad mb-4">
+  <h3>PWD discount verification</h3>
+  <p>Order {{ transaction.order_number }} · {{ transaction.customer.get_full_name|default:transaction.customer.username }} · {{ transaction.branch.branch_name }}</p>
+  <p>Subtotal: ₱{{ transaction.total_amount|floatformat:2 }} · Estimated PWD discount: ₱{{ transaction.estimated_pwd_discount|floatformat:2 }} · Estimated savings including VAT relief: ₱{{ transaction.estimated_pwd_savings|floatformat:2 }} · Estimated amount: ₱{{ transaction.estimated_pwd_total|floatformat:2 }}</p>
+  <p class="gv-meta">PWD discount is subject to verification of a valid PWD ID/document at your selected pickup branch. The final amount will be confirmed after verification.</p>
+  <form method="post" action="{% url 'transaction_decide_pwd' transaction.pk %}" class="stack"
+        data-confirm="Confirm that you saw a valid PWD ID and apply the recalculated amount due?"
+        data-confirm-title="Verify PWD ID?" data-confirm-ok="Verify discount">
+    {% csrf_token %}<input type="hidden" name="decision" value="verify">
+    <div class="field"><label for="pwd_id_number">PWD ID number</label><input id="pwd_id_number" name="discount_id_number" required></div>
+    <div class="field"><label for="pwd_holder_name">Name on ID</label><input id="pwd_holder_name" name="discount_holder_name" required></div>
+    <button type="submit" class="btn btn-primary">Verify PWD discount</button>
+  </form>
+  <form method="post" action="{% url 'transaction_decide_pwd' transaction.pk %}" class="stack mt-4"
+        data-confirm="Reject this PWD request and charge the regular subtotal?"
+        data-confirm-title="Reject PWD request?" data-confirm-ok="Reject request">
+    {% csrf_token %}<input type="hidden" name="decision" value="reject">
+    <div class="field"><label for="pwd_rejection_reason">Rejection reason</label><textarea id="pwd_rejection_reason" name="rejection_reason" required></textarea></div>
+    <button type="submit" class="btn">Reject request</button>
+  </form>
+</div>
+{% endif %}
 {% if can_apply_discount %}
 <div class="card card-pad mb-4">
   <h3>Apply PWD / Senior Citizen discount</h3>
@@ -225,6 +248,11 @@ this form is forged, so hiding the control is convenience, not the guard.
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
         <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ transaction.branch.branch_name }}</td></tr>
+        <tr><td class="gv-meta">PWD status</td><td style="text-align:right;">{{ transaction.get_pwd_verification_status_display }}</td></tr>
+        {% if transaction.pwd_verification_status == 'VERIFIED' or transaction.pwd_verification_status == 'REJECTED' %}
+        <tr><td class="gv-meta">PWD decision by</td><td style="text-align:right;">{{ transaction.pwd_verification.verified_by_employee.username }} · {{ transaction.pwd_verification.verified_at|date:"j M Y, g:i a" }}</td></tr>
+        {% if transaction.pwd_verification.rejection_reason %}<tr><td class="gv-meta">Rejection reason</td><td style="text-align:right;">{{ transaction.pwd_verification.rejection_reason }}</td></tr>{% endif %}
+        {% endif %}
         <tr><td class="gv-meta">Channel</td><td style="text-align:right;">
           {% if transaction.transaction_type == "Online" %}<span class="tag">Online</span>
           {% else %}<span class="tag">In-Store</span>{% endif %}</td></tr>
@@ -329,7 +357,7 @@ this form is forged, so hiding the control is convenience, not the guard.
       </div>
       <div class="row">
         <a class="btn" data-detail-modal="Billing Record" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
-        {% if billing.status != "Paid" %}
+        {% if billing.status != "Paid" and transaction.pwd_verification_status != 'PENDING' %}
           <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
         {% endif %}
       </div>

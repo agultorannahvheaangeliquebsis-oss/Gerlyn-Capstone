@@ -15,4 +15,6 @@ urlpatterns = [
     # Delivery order is refused server-side.
     path('<int:pk>/discount/', views.transaction_apply_discount,
          name='transaction_apply_discount'),
+    path('<int:pk>/pwd-verification/', views.transaction_decide_pwd,
+         name='transaction_decide_pwd'),
 ]

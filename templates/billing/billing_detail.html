@@ -15,7 +15,9 @@
   </div>
 </div>
 
-{% if record.status == "Pending" %}
+{% if record.transaction.pwd_verification_status == 'PENDING' %}
+<div class="banner banner-warning mb-4">Decide the PWD request at the pickup branch before recording or confirming payment.</div>
+{% elif record.status == "Pending" %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div class="grow">
@@ -87,8 +89,10 @@
     Pending and Rejected are the only statuses a payment's details can still
     change under.
     {% endcomment %}
+    {% if record.transaction.pwd_verification_status != 'PENDING' %}
     {% if record.status == "Pending" or record.status == "Rejected" %}
       <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Edit payment details</a>
+    {% endif %}
     {% endif %}
   </div>
 
@@ -104,8 +108,10 @@
           <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
           <h3>No proof uploaded</h3>
           <p>GCash or bank payments can attach a screenshot as evidence.</p>
+          {% if record.transaction.pwd_verification_status != 'PENDING' %}
           {% if record.status == "Pending" or record.status == "Rejected" %}
             <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
+          {% endif %}
           {% endif %}
         </div>
       {% endif %}

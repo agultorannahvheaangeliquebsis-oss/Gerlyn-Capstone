@@ -1,7 +1,8 @@
 from django.urls import path
-from .api_views import SalesTransactionListCreateAPIView, SalesTransactionDetailAPIView
+from .api_views import SalesTransactionListCreateAPIView, SalesTransactionDetailAPIView, PwdVerificationAPIView
 
 urlpatterns = [
     path('', SalesTransactionListCreateAPIView.as_view(), name='api-sales-list'),
     path('<int:pk>/', SalesTransactionDetailAPIView.as_view(), name='api-sales-detail'),
+    path('<int:pk>/pwd-verification/', PwdVerificationAPIView.as_view(), name='api-sales-pwd-verification'),
 ]

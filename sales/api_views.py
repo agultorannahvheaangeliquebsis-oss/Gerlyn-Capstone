@@ -8,6 +8,7 @@ from core.permissions import HasModuleAccess
 from django.shortcuts import get_object_or_404
 
 from .models import SalesTransaction
+from .pwd_verification import VerificationError, decide_pwd
 from .serializers import SalesTransactionSerializer, SalesTransactionWriteSerializer
 from accounts.models import User
 
@@ -89,3 +90,26 @@ class SalesTransactionDetailAPIView(APIView):
         if not _can_access_transaction(request.user, txn):
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(SalesTransactionSerializer(txn).data)
+
+
+class PwdVerificationAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def post(self, request, pk):
+        if request.user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        txn = get_object_or_404(SalesTransaction, pk=pk)
+        if not user_can_access_branch(request.user, txn.branch_id):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        try:
+            updated = decide_pwd(
+                pk, request.user, request.data.get('decision', ''),
+                id_number=request.data.get('discount_id_number', ''),
+                holder_name=request.data.get('discount_holder_name', ''),
+                rejection_reason=request.data.get('rejection_reason', ''),
+            )
+        except PermissionError:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        except VerificationError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SalesTransactionSerializer(updated).data)

@@ -258,6 +258,10 @@ def billing_create(request, transaction_id):
         messages.error(request, 'That transaction is not available to you.')
         return redirect('billing_list')
 
+    if txn.pwd_verification_status == SalesTransaction.PwdVerificationStatus.PENDING:
+        messages.error(request, 'Verify or reject the PWD request before recording payment.')
+        return redirect('transaction_detail', pk=txn.pk)
+
     # The signal may have already created a pending record.
     # If it exists and is still Pending, let the user fill in payment details.
     # If it's already Paid/Rejected, just show the existing record.
@@ -311,6 +315,15 @@ def billing_create(request, transaction_id):
         ]
 
     allowed_payment_methods = _payment_methods_for_channel(txn.transaction_type)
+    if (txn.transaction_type == SalesTransaction.TransactionType.ONLINE
+            and txn.fulfillment_type == SalesTransaction.FulfillmentType.PICKUP
+            and txn.pwd_verification_status in (
+                SalesTransaction.PwdVerificationStatus.VERIFIED,
+                SalesTransaction.PwdVerificationStatus.REJECTED,
+            )):
+        allowed_payment_methods += [
+            BillingRecord.PaymentMethod.CASH, BillingRecord.PaymentMethod.CARD,
+        ]
     form_context = {
         'transaction': txn,
         'record': existing,  # Pass to template so it can pre-fill payment_method if desired
@@ -434,6 +447,12 @@ def billing_confirm(request, pk):
             locked = BillingRecord.objects.select_for_update().select_related(
                 'transaction'
             ).get(pk=pk)
+
+            if (new_status == BillingRecord.PaymentStatus.PAID
+                    and locked.transaction.pwd_verification_status
+                    == SalesTransaction.PwdVerificationStatus.PENDING):
+                messages.error(request, 'Decide the PWD request before accepting payment.')
+                return redirect('billing_detail', pk=pk)
 
             # A-1 — maker/checker separation. Whether this user may act on
             # the record at all is logically prior to what they're moving it

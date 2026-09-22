@@ -117,7 +117,7 @@ every panel in the app to fix one column.
       <div class="summary-line"><span class="gv-meta">Delivery</span>
         <span class="num">{% if qualifies %}Free{% else %}Arranged with the branch{% endif %}</span></div>
       <div class="summary-total">
-        <span class="gv-label">Total</span>
+        <span class="gv-label" id="cart_total_label">Total</span>
         <span class="gv-metric" style="color:var(--action);">₱{{ total|floatformat:2 }}</span>
       </div>
       {% if not qualifies %}
@@ -156,6 +156,21 @@ every panel in the app to fix one column.
             <option value="Delivery">Deliver to my address</option>
             <option value="Pickup">I'll pick it up at the branch</option>
           </select>
+        </div>
+        <div class="field" id="pwd_request_field" style="display:none;">
+          <label for="request_pwd_discount">
+            <input id="request_pwd_discount" type="checkbox" name="request_pwd_discount">
+            Request PWD Discount
+          </label>
+          <p class="gv-meta">PWD discount is subject to verification of a valid PWD ID/document at your selected pickup branch. The final amount will be confirmed after verification.</p>
+          {% if pwd_estimate %}
+          <div id="pwd_estimate" style="display:none;">
+            <div class="summary-line"><span>Subtotal</span><span>₱{{ total|floatformat:2 }}</span></div>
+            <div class="summary-line"><span>Estimated PWD discount</span><span>₱{{ pwd_estimate.total_discount_amount|floatformat:2 }}</span></div>
+            <div class="summary-line"><span>Estimated savings, including VAT relief</span><span>₱{{ pwd_estimated_savings|floatformat:2 }}</span></div>
+            <div class="summary-line"><strong>Estimated amount after verification</strong><strong>₱{{ pwd_estimate.total_amount|floatformat:2 }}</strong></div>
+          </div>
+          {% endif %}
         </div>
         {% comment %}
         Pay at Store only makes sense when someone from the store hands the
@@ -263,10 +278,19 @@ Delivery, independent of anything this script does.
     var gcashField = document.getElementById('gcash_reference_field');
     var gcashInput = document.getElementById('reference_number');
     var conflictBanner = document.getElementById('payment_delivery_conflict');
+    var pwdField = document.getElementById('pwd_request_field');
+    var pwdInput = document.getElementById('request_pwd_discount');
+    var pwdEstimate = document.getElementById('pwd_estimate');
+    var totalLabel = document.getElementById('cart_total_label');
     if (!paymentSelect || !fulfillmentSelect) return;
 
     function sync() {
       var isDelivery = fulfillmentSelect.value === 'Delivery';
+      if (pwdField) pwdField.style.display = isDelivery ? 'none' : '';
+      if (isDelivery && pwdInput) pwdInput.checked = false;
+      if (pwdEstimate) pwdEstimate.style.display = pwdInput && pwdInput.checked ? '' : 'none';
+      if (totalLabel) totalLabel.textContent = pwdInput && pwdInput.checked ? 'Subtotal before verification' : 'Total';
+      if (pwdInput && pwdInput.checked) paymentSelect.value = 'Pay at Store';
       var isGCash = paymentSelect.value === 'GCash';
       var isPayAtStoreDelivery = paymentSelect.value === 'Pay at Store' && isDelivery;
 
@@ -293,6 +317,7 @@ Delivery, independent of anything this script does.
 
     paymentSelect.addEventListener('change', sync);
     fulfillmentSelect.addEventListener('change', sync);
+    if (pwdInput) pwdInput.addEventListener('change', sync);
     sync();
   })();
 </script>

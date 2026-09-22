@@ -3,11 +3,12 @@
 from rest_framework import serializers
 from django.db import transaction
 
-from .models import SalesTransaction, SalesItem, SalesItemBatchConsumption
+from .models import SalesTransaction, SalesItem, SalesItemBatchConsumption, DiscountVerification
 from .pricing import price_cart
 from core.scoping import user_can_access_branch
 from inventory.models import Product, Inventory, Batch, StockMovement
 from branches.models import Branch
+from accounts.models import User
 
 
 # =============================================================================
@@ -43,6 +44,10 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     transactionType = serializers.CharField(source='transaction_type', read_only=True)
     modeOfPayment = serializers.CharField(source='mode_of_payment', read_only=True)
     orderStatus = serializers.CharField(source='order_status', read_only=True)
+    pwdVerificationStatus = serializers.CharField(source='pwd_verification_status', read_only=True)
+    estimatedPwdTotal = serializers.DecimalField(source='estimated_pwd_total', max_digits=12, decimal_places=2, read_only=True)
+    estimatedPwdSavings = serializers.DecimalField(source='estimated_pwd_savings', max_digits=12, decimal_places=2, read_only=True)
+    estimatedPwdDiscount = serializers.DecimalField(source='estimated_pwd_discount', max_digits=12, decimal_places=2, read_only=True)
     deliveryAddress = serializers.CharField(source='delivery_address', read_only=True)
     items = SalesItemSerializer(many=True, read_only=True)
 
@@ -51,7 +56,8 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'orderNumber', 'branch', 'staff', 'customer',
             'transactionDate', 'totalAmount', 'transactionType', 'modeOfPayment',
-            'orderStatus', 'deliveryAddress', 'items',
+            'orderStatus', 'pwdVerificationStatus', 'estimatedPwdTotal',
+            'estimatedPwdSavings', 'estimatedPwdDiscount', 'deliveryAddress', 'items',
         ]
 
     def get_staff(self, obj):
@@ -88,6 +94,10 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
     transactionType = serializers.ChoiceField(choices=SalesTransaction.TransactionType.choices)
     modeOfPayment = serializers.ChoiceField(choices=SalesTransaction.ModeOfPayment.choices)
     deliveryAddress = serializers.CharField(required=False, allow_blank=True)
+    fulfillmentType = serializers.ChoiceField(
+        choices=SalesTransaction.FulfillmentType.choices, required=False,
+    )
+    requestPwdDiscount = serializers.BooleanField(required=False, default=False)
     items = SalesItemWriteSerializer(many=True, min_length=1)
 
     def validate_items(self, value):
@@ -98,10 +108,20 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         return value
 
     def validate(self, data):
+        fulfillment = data.get('fulfillmentType', SalesTransaction.FulfillmentType.DELIVERY)
         if data.get('transactionType') == SalesTransaction.TransactionType.ONLINE \
+                and fulfillment == SalesTransaction.FulfillmentType.DELIVERY \
                 and not data.get('deliveryAddress', '').strip():
             raise serializers.ValidationError(
                 {'deliveryAddress': 'Delivery address is required for online orders.'}
+            )
+        if data.get('requestPwdDiscount') and (
+                self.context['request'].user.role != User.Role.CUSTOMER
+                or data.get('transactionType') != SalesTransaction.TransactionType.ONLINE
+                or fulfillment != SalesTransaction.FulfillmentType.PICKUP
+                or data.get('modeOfPayment') != SalesTransaction.ModeOfPayment.PAY_AT_STORE):
+            raise serializers.ValidationError(
+                {'requestPwdDiscount': 'PWD requests require online pickup and Pay at Store.'}
             )
         return data
 
@@ -205,15 +225,27 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 # online order to Pickup would open exactly the in-person
                 # verification hole that gate exists to close.
                 fulfillment_type=(
-                    SalesTransaction.FulfillmentType.DELIVERY
-                    if validated_data['transactionType']
-                    == SalesTransaction.TransactionType.ONLINE
+                    validated_data.get('fulfillmentType', SalesTransaction.FulfillmentType.DELIVERY)
+                    if validated_data['transactionType'] == SalesTransaction.TransactionType.ONLINE
                     else SalesTransaction.FulfillmentType.PICKUP
                 ),
-                delivery_address=validated_data.get('deliveryAddress', ''),
+                delivery_address=(validated_data.get('deliveryAddress', '')
+                                  if validated_data.get('fulfillmentType', SalesTransaction.FulfillmentType.DELIVERY)
+                                  == SalesTransaction.FulfillmentType.DELIVERY else ''),
                 total_amount=total,
                 total_vat_amount=priced['total_vat_amount'],
+                pwd_verification_status=(
+                    SalesTransaction.PwdVerificationStatus.PENDING
+                    if validated_data.get('requestPwdDiscount')
+                    else SalesTransaction.PwdVerificationStatus.NONE
+                ),
             )
+            if validated_data.get('requestPwdDiscount'):
+                DiscountVerification.objects.create(
+                    order=txn, customer=txn.customer, branch_id=branch_id,
+                    discount_type=SalesTransaction.DiscountType.PWD,
+                    status=SalesTransaction.PwdVerificationStatus.PENDING,
+                )
 
             # An Online order has not left the shelf yet — it is Pending
             # until the Order Console walks it to Completed, and

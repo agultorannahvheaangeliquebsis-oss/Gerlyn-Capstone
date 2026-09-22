@@ -95,12 +95,13 @@ MODULE_REGISTRY = {
          # gated at all, so leaving it off would let a Staff account whose
          # Owner revoked the Order Console still re-price an order.
          'transaction_apply_discount',
+         'transaction_decide_pwd',
          # Printable receipt for the same reason — same section, same gap
          # class as the discount action above.
          'transaction_receipt',
          # API (sales/api_urls.py) — list also serves POST (mirrors
          # transaction_add); detail mirrors transaction_detail.
-         'api-sales-list', 'api-sales-detail'],
+         'api-sales-list', 'api-sales-detail', 'api-sales-pwd-verification'],
     ),
     BILLING: (
         'Billing',

@@ -93,6 +93,9 @@ class BillingConfirmSerializer(serializers.Serializer):
 
     def validate_status(self, value):
         record = self.instance
+        if (record is not None and value == BillingRecord.PaymentStatus.PAID
+                and record.transaction.pwd_verification_status == 'PENDING'):
+            raise serializers.ValidationError('Decide the PWD request before accepting payment.')
 
         # A-1 — maker/checker separation, the same guard billing_confirm
         # applies and checked first for the same reason: whether this user

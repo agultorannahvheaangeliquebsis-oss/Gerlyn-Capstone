@@ -56,6 +56,7 @@ the header lands.
           <div>
             <div class="order-row-head">
               <span class="order-row-num">{{ o.order_number }}</span>
+              {% if o.pwd_verification_status == 'PENDING' %}<span class="pill pill-warn">PWD verification pending</span>{% endif %}
               {% include "partials/_order_status_pill.html" with status=o.order_status %}
             </div>
             <div class="order-row-meta">
@@ -69,7 +70,7 @@ the header lands.
             </div>
           </div>
           <div class="order-row-side">
-            <div class="order-row-total">₱{{ o.total_amount|floatformat:2 }}</div>
+            <div class="order-row-total">{% if o.pwd_verification_status == 'PENDING' %}<small>Subtotal before verification</small> {% endif %}₱{{ o.total_amount|floatformat:2 }}</div>
             <a class="btn btn-sm" href="{% url 'orders:track_order' o.pk %}">{% t "Track order" %}</a>
           </div>
         </div>
