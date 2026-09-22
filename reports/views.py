@@ -847,12 +847,7 @@ def _needs_attention_rows(summary, procurement_qs, sales_qs):
     expiring_count = expired_count + summary['expiring_soon_count']
 
     pending_pos = procurement_qs.filter(
-        status__in=[
-            Procurement.Status.DRAFT,
-            Procurement.Status.APPROVED,
-            Procurement.Status.INCOMING,
-            Procurement.Status.PARTIALLY_RECEIVED,
-        ]
+        status__in=Procurement.OPEN_STATUSES
     ).count()
 
     pending_orders = sales_qs.filter(order_status__in=OPEN_ORDER_STATUSES).count()
@@ -2092,6 +2087,9 @@ def _inventory_value_chart(branch_summary):
 PROCUREMENT_STATUS_COLOURS = {
     Procurement.Status.DRAFT: '#8A968F',
     Procurement.Status.APPROVED: '#3B6FD4',
+    Procurement.Status.PENDING_OWNER_REVIEW: '#DB2777',
+    Procurement.Status.PENDING_SUPPLIER_REVIEW: '#0891B2',
+    Procurement.Status.TERMS_AGREED: '#CA8A04',
     Procurement.Status.INCOMING: '#7C3AED',
     Procurement.Status.PARTIALLY_RECEIVED: '#B45309',
     Procurement.Status.RECEIVED: '#2E9E6B',
@@ -2506,12 +2504,7 @@ def procurement_report(request):
 
     active_value = sum(
         p.total_cost for p in records
-        if p.status in (
-            Procurement.Status.DRAFT,
-            Procurement.Status.APPROVED,
-            Procurement.Status.INCOMING,
-            Procurement.Status.PARTIALLY_RECEIVED,
-        )
+        if p.status in Procurement.OPEN_STATUSES
     )
     received_value = sum(p.total_cost for p in records if p.status == Procurement.Status.RECEIVED)
     pending_delivery = sum(

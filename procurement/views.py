@@ -4,6 +4,7 @@
 #   SECTION 2 — new DRF API views (what React calls)
 
 import io
+from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -38,8 +39,7 @@ from .models import (
     Procurement, ProcurementItem, SupplierProduct, DeliveryScanLog,
 )
 from .services import (
-    SupplierCostError, SupplierTransferError, snapshot_supplier_costs,
-    transfer_supplier_products,
+    SupplierTransferError, apply_agreed_terms, transfer_supplier_products,
 )
 from .serializers import (
     ProcurementReadSerializer,
@@ -87,6 +87,13 @@ def _procurement_list_context(request):
         'all': procurements.count(),
         'draft': procurements.filter(status=Procurement.Status.DRAFT).count(),
         'approved': procurements.filter(status=Procurement.Status.APPROVED).count(),
+        # One tab for all three negotiation statuses (Pending Owner/Supplier
+        # Review, Terms Agreed) rather than three more tabs — they're all
+        # "in progress toward Incoming" from this list's point of view; the
+        # exact step is what procurement_detail's negotiation card is for.
+        'negotiating': procurements.filter(
+            status__in=Procurement.NEGOTIATION_STATUSES
+        ).count(),
         'incoming': procurements.filter(status=Procurement.Status.INCOMING).count(),
         'partially_received': procurements.filter(
             status=Procurement.Status.PARTIALLY_RECEIVED
@@ -94,7 +101,9 @@ def _procurement_list_context(request):
         'received': procurements.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': procurements.filter(status=Procurement.Status.CANCELLED).count(),
     }
-    if status_filter:
+    if status_filter == 'Negotiating':
+        procurements = procurements.filter(status__in=Procurement.NEGOTIATION_STATUSES)
+    elif status_filter:
         procurements = procurements.filter(status=status_filter)
 
     # Staff can now view this list (see core.module_permissions), but
@@ -355,12 +364,13 @@ def procurement_add(request):
 
     supplier_id  = request.POST.get('supplier')
     order_date   = request.POST.get('order_date')
-    delivery_date = request.POST.get('delivery_date') or None
     product_ids  = request.POST.getlist('product_id')
     quantities   = request.POST.getlist('quantity_ordered')
 
-    # Validate product/quantity rows before writing the order. Cost is never
-    # accepted from this form; it comes from the supplier catalog later.
+    # Neither cost nor delivery date is accepted from this form — both are
+    # negotiated with the supplier after the order is raised (see
+    # procurement_supplier_propose / procurement_review_terms), never set by
+    # whoever creates the PO.
     items = []
     for product_id, qty in zip(product_ids, quantities):
         if not product_id or not qty:
@@ -412,29 +422,6 @@ def procurement_add(request):
         return render(request, 'procurement/procurement_list.html', context)
 
     is_owner = request.user.role == User.Role.OWNER
-    if is_owner:
-        unpriced_ids = set(SupplierProduct.objects.filter(
-            supplier_id=supplier_id,
-            product_id__in=mapped_ids,
-            current_cost_price__isnull=True,
-        ).values_list('product_id', flat=True))
-        if unpriced_ids:
-            names = ', '.join(Product.objects.filter(
-                pk__in=unpriced_ids
-            ).values_list('product_name', flat=True))
-            context = _procurement_list_context(request)
-            context.update({
-                'show_po_modal': True,
-                'po_errors': [
-                    f'The supplier must set a current cost for: {names}.'
-                ],
-                'po_form_data': request.POST,
-                'po_restore_rows': [
-                    {'product_id': pid, 'quantity': qty}
-                    for pid, qty in zip(product_ids, quantities) if pid
-                ],
-            })
-            return render(request, 'procurement/procurement_list.html', context)
 
     with transaction.atomic():
         # Who raises the order decides whether it is already authorized.
@@ -444,22 +431,17 @@ def procurement_add(request):
         # was left null, so there wasn't even a trace of who hadn't approved
         # it (finding C-1). An Owner raising a PO still authorizes it in the
         # same act, exactly as before; the only change for them is that the
-        # authorization is now written down rather than implied.
+        # authorization is now written down rather than implied. Either way
+        # it lands on Approved, never further — price and delivery date are
+        # negotiated with the supplier from here, not set at creation.
         proc = Procurement.objects.create(
             branch_id=branch_id,
             supplier_id=supplier_id,
             owner=request.user if is_owner else None,
             created_by=request.user,
             order_date=order_date,
-            delivery_date=delivery_date,
             total_cost=0,
-            status=(
-                (
-                    Procurement.Status.INCOMING if delivery_date
-                    else Procurement.Status.APPROVED
-                ) if is_owner
-                else Procurement.Status.DRAFT
-            ),
+            status=Procurement.Status.APPROVED if is_owner else Procurement.Status.DRAFT,
             authorized_at=timezone.now() if is_owner else None,
         )
 
@@ -469,9 +451,6 @@ def procurement_add(request):
                 product_id=product_id,
                 quantity_ordered=qty,
             )
-
-        if is_owner:
-            snapshot_supplier_costs(proc)
 
     if is_owner:
         from .notifications import notify_po_approved
@@ -520,6 +499,27 @@ def procurement_update_status(request, pk):
 
     if request.method == 'POST':
         new_status = request.POST.get('status')
+
+        # Negotiation targets carry their own payload (a price/date offer,
+        # or who is accepting what) that a bare status POST has none of —
+        # routed to the dedicated views instead, same idea as the Received
+        # special case below. Incoming is included: it's reachable only
+        # through the supplier's own final confirmation once Terms Agreed,
+        # never as a status this generic form can set directly (that used
+        # to be a way to skip negotiation entirely by POSTing a bare status).
+        if new_status in (
+            Procurement.Status.PENDING_OWNER_REVIEW,
+            Procurement.Status.PENDING_SUPPLIER_REVIEW,
+            Procurement.Status.TERMS_AGREED,
+            Procurement.Status.INCOMING,
+        ):
+            messages.error(
+                request,
+                f'{proc.po_number}: price and delivery date are negotiated '
+                f'with the supplier, not set directly — see the order for '
+                f'the current step.'
+            )
+            return redirect('procurement_detail', pk=pk)
 
         # Receiving moves stock, so it goes through the Deliveries screen where
         # actual quantities are recorded. This guard also stops a repeat POST
@@ -572,12 +572,6 @@ def procurement_update_status(request, pk):
                 locked.status == Procurement.Status.DRAFT
                 and new_status == Procurement.Status.APPROVED
             )
-            if is_approval:
-                try:
-                    snapshot_supplier_costs(locked)
-                except SupplierCostError as exc:
-                    messages.error(request, str(exc))
-                    return redirect('procurement_detail', pk=pk)
             locked.status = new_status
             if is_approval:
                 locked.owner = request.user
@@ -621,11 +615,7 @@ def procurement_update_status(request, pk):
             # before the transaction above and still holds the pre-change
             # status, so this reflects what the supplier's portal showed
             # them a moment ago.
-            if proc.status in (
-                Procurement.Status.APPROVED,
-                Procurement.Status.INCOMING,
-                Procurement.Status.PARTIALLY_RECEIVED,
-            ):
+            if proc.status in Procurement.COMMITTED_OPEN_STATUSES:
                 notify_supplier(
                     proc.supplier, PRIORITY_HIGH,
                     f'{proc.po_number} cancelled',
@@ -688,16 +678,10 @@ def procurement_approve(request, pk):
             )
             return redirect('procurement_detail', pk=pk)
 
-        try:
-            snapshot_supplier_costs(locked)
-        except SupplierCostError as exc:
-            messages.error(request, str(exc))
-            return redirect('procurement_detail', pk=pk)
-
-        locked.status = (
-            Procurement.Status.INCOMING
-            if locked.delivery_date else Procurement.Status.APPROVED
-        )
+        # Price and delivery date are negotiated with the supplier from
+        # here — approval no longer snapshots a catalog cost or jumps
+        # straight to Incoming.
+        locked.status = Procurement.Status.APPROVED
         locked.owner = request.user
         locked.authorized_at = timezone.now()
         locked.save()
@@ -715,6 +699,221 @@ def procurement_approve(request, pk):
     notify_po_approved(proc, request.user)
 
     return redirect('procurement_detail', pk=pk)
+
+
+# =============================================================================
+# NEGOTIATION — price and delivery date, agreed between the two sides on an
+# Approved PO. Neither is ever set by whoever raises the order (procurement_
+# add/procurement_approve above). See Procurement.Status and
+# ALLOWED_TRANSITIONS for the full state shape:
+#
+#   Approved -> [supplier proposes] -> Pending Owner Review
+#     -> [buyer accepts] -> Terms Agreed
+#     -> [buyer counters] -> Pending Supplier Review
+#       -> [supplier accepts] -> Terms Agreed
+#       -> [supplier counters] -> Pending Owner Review (repeats)
+#   Terms Agreed -> [supplier's own final confirmation, always required,
+#                    even when THEY were the one who just accepted] -> Incoming
+#
+# Either side may cancel at any point via the existing procurement_update_
+# status (Cancelled was never removed from ALLOWED_TRANSITIONS for these
+# statuses — only the negotiation-progress targets need a dedicated view,
+# since only those carry a price/date payload update_status has no form
+# field for).
+# =============================================================================
+
+def _read_proposed_terms(request, proc):
+    """Parse+validate a delivery date and one cost per real (non-unexpected)
+    line from a negotiation POST. Returns (delivery_date, {item_id: cost})
+    on success, or (None, [error strings]) — the caller tells the two
+    apart by whether the first element is a string list or a date.
+    """
+    errors = []
+
+    raw_date = request.POST.get('delivery_date', '').strip()
+    delivery_date = parse_date(raw_date) if raw_date else None
+    if not delivery_date:
+        errors.append('Choose a delivery date.')
+    elif delivery_date < timezone.localdate():
+        errors.append('The delivery date cannot be in the past.')
+
+    items = list(proc.items.filter(is_unexpected=False))
+    costs = {}
+    for item in items:
+        raw_cost = request.POST.get(f'unit_cost_{item.pk}', '').strip()
+        try:
+            cost = Decimal(raw_cost)
+        except (InvalidOperation, ValueError):
+            cost = None
+        if cost is None or cost <= 0:
+            errors.append(
+                f'Enter a valid cost for {item.product.product_name if item.product else "a removed product"}.'
+            )
+        else:
+            costs[item.pk] = cost
+
+    if errors:
+        return None, errors
+    return (delivery_date, costs), []
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_supplier_respond(request, pk):
+    """The supplier's side of the negotiation: submit an offer (the first
+    proposal, or a counter to the buyer's own counter), or accept the
+    buyer's counter as-is. Mirrors procurement_owner_respond below — kept
+    as two views rather than one branching on role, since each side has a
+    different set of legal source statuses and a different next status."""
+    proc = get_object_or_404(Procurement, pk=pk)
+
+    if request.user.role != User.Role.SUPPLIER or proc.supplier_id != request.user.id:
+        messages.error(request, 'That purchase order is not available to you.')
+        return redirect('supplier_portal')
+
+    action = request.POST.get('action')
+
+    with transaction.atomic():
+        locked = Procurement.objects.select_for_update().get(pk=pk)
+
+        if action == 'accept':
+            if locked.status != Procurement.Status.PENDING_SUPPLIER_REVIEW:
+                messages.error(
+                    request,
+                    f'{locked.po_number} is not waiting on your acceptance.'
+                )
+                return redirect('supplier_portal')
+            locked.status = Procurement.Status.TERMS_AGREED
+            locked.save(update_fields=['status'])
+            messages.success(
+                request,
+                f'Terms agreed on {locked.po_number} — confirm below to start preparing it.'
+            )
+            return redirect('supplier_portal')
+
+        if locked.status not in (
+            Procurement.Status.APPROVED, Procurement.Status.PENDING_SUPPLIER_REVIEW,
+        ):
+            messages.error(request, f'{locked.po_number} is not open for a proposal.')
+            return redirect('supplier_portal')
+
+        parsed, errors = _read_proposed_terms(request, locked)
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+            return redirect('supplier_portal')
+        delivery_date, costs = parsed
+
+        was_countering = locked.status == Procurement.Status.PENDING_SUPPLIER_REVIEW
+        locked.proposed_delivery_date = delivery_date
+        locked.proposed_by = request.user
+        locked.status = Procurement.Status.PENDING_OWNER_REVIEW
+        locked.save(update_fields=['proposed_delivery_date', 'proposed_by', 'status'])
+        for item in locked.items.filter(is_unexpected=False):
+            item.proposed_unit_cost = costs[item.pk]
+            item.save(update_fields=['proposed_unit_cost'])
+
+    messages.success(
+        request,
+        f'{locked.po_number}: your terms were sent to {locked.branch.branch_name} for review.'
+    )
+    from .notifications import notify_terms_for_buyer
+
+    notify_terms_for_buyer(locked, request.user, countered=was_countering)
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_owner_respond(request, pk):
+    """The buyer's (Owner/Manager) side: accept the supplier's current
+    proposal outright, or counter with different terms."""
+    proc = get_object_or_404(Procurement, pk=pk)
+
+    if request.user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER):
+        messages.error(request, 'You do not have permission to respond to this order.')
+        return redirect('procurement_detail', pk=pk)
+    if not _can_read_procurement(request.user, proc):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('procurement_list')
+
+    action = request.POST.get('action')
+
+    with transaction.atomic():
+        locked = Procurement.objects.select_for_update().get(pk=pk)
+        if locked.status != Procurement.Status.PENDING_OWNER_REVIEW:
+            messages.error(request, f'{locked.po_number} is not waiting on your review.')
+            return redirect('procurement_detail', pk=pk)
+
+        if action == 'accept':
+            locked.status = Procurement.Status.TERMS_AGREED
+            locked.save(update_fields=['status'])
+            messages.success(
+                request,
+                f'{locked.po_number}: terms accepted — waiting on the supplier '
+                f'to confirm and start preparing it.'
+            )
+            from .notifications import notify_terms_for_supplier
+
+            notify_terms_for_supplier(locked, request.user, agreed=True)
+            return redirect('procurement_detail', pk=pk)
+
+        parsed, errors = _read_proposed_terms(request, locked)
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+            return redirect('procurement_detail', pk=pk)
+        delivery_date, costs = parsed
+
+        locked.proposed_delivery_date = delivery_date
+        locked.proposed_by = request.user
+        locked.status = Procurement.Status.PENDING_SUPPLIER_REVIEW
+        locked.save(update_fields=['proposed_delivery_date', 'proposed_by', 'status'])
+        for item in locked.items.filter(is_unexpected=False):
+            item.proposed_unit_cost = costs[item.pk]
+            item.save(update_fields=['proposed_unit_cost'])
+
+    messages.success(
+        request,
+        f'{locked.po_number}: your counter-terms were sent to the supplier.'
+    )
+    from .notifications import notify_terms_for_supplier
+
+    notify_terms_for_supplier(locked, request.user, agreed=False)
+    return redirect('procurement_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_supplier_confirm(request, pk):
+    """The supplier's final, explicit commitment once terms are agreed —
+    always required, even when the supplier's own acceptance was what
+    reached Terms Agreed. Locks the negotiated price/date onto the order
+    and moves it to Incoming."""
+    proc = get_object_or_404(Procurement, pk=pk)
+
+    if request.user.role != User.Role.SUPPLIER or proc.supplier_id != request.user.id:
+        messages.error(request, 'That purchase order is not available to you.')
+        return redirect('supplier_portal')
+
+    with transaction.atomic():
+        locked = Procurement.objects.select_for_update().get(pk=pk)
+        if locked.status != Procurement.Status.TERMS_AGREED:
+            messages.error(request, f'{locked.po_number} is not ready to confirm.')
+            return redirect('supplier_portal')
+
+        apply_agreed_terms(locked)
+        locked.status = Procurement.Status.INCOMING
+        locked.save(update_fields=['status'])
+
+    messages.success(
+        request,
+        f'{locked.po_number} confirmed — delivery on {locked.delivery_date}.'
+    )
+    from .notifications import notify_incoming_delivery
+
+    notify_incoming_delivery(locked, request.user)
+    return redirect('supplier_portal')
 
 
 # =============================================================================
@@ -742,8 +941,13 @@ def _not_receivable_reason(proc):
             f'{proc.po_number} is still in Draft and has not been approved — '
             f'it cannot be received until the Owner approves it.'
         )
+    if proc.status in Procurement.NEGOTIATION_STATUSES or proc.status == Procurement.Status.APPROVED:
+        return (
+            f'{proc.po_number} has no agreed price or delivery date yet — '
+            f'it cannot be received until the supplier and the buyer agree '
+            f'on terms.'
+        )
     if proc.status not in (
-        Procurement.Status.APPROVED,
         Procurement.Status.INCOMING,
         Procurement.Status.PARTIALLY_RECEIVED,
     ):
@@ -804,6 +1008,9 @@ def delivery_list(request):
     counts = {
         'all': deliveries.count(),
         'approved': deliveries.filter(status=Procurement.Status.APPROVED).count(),
+        'negotiating': deliveries.filter(
+            status__in=Procurement.NEGOTIATION_STATUSES
+        ).count(),
         'incoming': deliveries.filter(status=Procurement.Status.INCOMING).count(),
         'partially_received': deliveries.filter(
             status=Procurement.Status.PARTIALLY_RECEIVED
@@ -811,7 +1018,9 @@ def delivery_list(request):
         'received': deliveries.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': deliveries.filter(status=Procurement.Status.CANCELLED).count(),
     }
-    if status_filter:
+    if status_filter == 'Negotiating':
+        deliveries = deliveries.filter(status__in=Procurement.NEGOTIATION_STATUSES)
+    elif status_filter:
         deliveries = deliveries.filter(status=status_filter)
 
     from branches.models import Branch
@@ -832,7 +1041,6 @@ def delivery_list(request):
         candidate = Procurement.objects.select_related('branch', 'supplier').filter(
             pk=receive_pk,
             status__in=[
-                Procurement.Status.APPROVED,
                 Procurement.Status.INCOMING,
                 Procurement.Status.PARTIALLY_RECEIVED,
             ],
@@ -1265,6 +1473,11 @@ def supplier_portal(request):
     counts = {
         'all': orders.count(),
         'approved': orders.filter(status=Procurement.Status.APPROVED).count(),
+        # Pending Owner/Supplier Review, Terms Agreed — one tab, see
+        # _procurement_list_context's matching tab for the buyer side.
+        'negotiating': orders.filter(
+            status__in=Procurement.NEGOTIATION_STATUSES
+        ).count(),
         'incoming': orders.filter(status=Procurement.Status.INCOMING).count(),
         'partially_received': orders.filter(
             status=Procurement.Status.PARTIALLY_RECEIVED
@@ -1282,26 +1495,35 @@ def supplier_portal(request):
     # tabs had no Ordered rows left to summarize, and every stat silently
     # collapsed to 0 / ₱0.00 the moment you weren't on All or To fulfil.
     today = timezone.now().date()
+    # Committed but not yet finished — includes the negotiation statuses now:
+    # a PO mid-negotiation is exactly as "open" as one already Incoming, and
+    # used to silently fall out of this count the moment it left Approved.
     open_orders = [
-        o for o in orders if o.status in (
-            Procurement.Status.APPROVED,
-            Procurement.Status.INCOMING,
-            Procurement.Status.PARTIALLY_RECEIVED,
-        )
+        o for o in orders if o.status in Procurement.COMMITTED_OPEN_STATUSES
     ]
     open_value = sum(o.total_cost for o in open_orders)
     overdue = sum(
         1 for o in open_orders if o.delivery_date and o.delivery_date < today
     )
 
-    if status_filter:
+    if status_filter == 'Negotiating':
+        orders = orders.filter(status__in=Procurement.NEGOTIATION_STATUSES)
+    elif status_filter:
         orders = orders.filter(status=status_filter)
+
+    catalog_links = SupplierProduct.objects.filter(
+        supplier=request.user
+    ).select_related('product').order_by('product__product_name')
 
     return render(request, 'procurement/supplier_portal.html', {
         'orders': orders,
-        'catalog_links': SupplierProduct.objects.filter(
-            supplier=request.user
-        ).select_related('product').order_by('product__product_name'),
+        'catalog_links': catalog_links,
+        # The "Add a product" picker — Product Master List minus what this
+        # supplier already carries, same exclusion supplier_detail's own
+        # picker uses so neither can bounce off the unique constraint.
+        'available_products': Product.objects.exclude(
+            pk__in=catalog_links.values_list('product_id', flat=True)
+        ).order_by('product_name'),
         'counts': counts,
         'status_filter': status_filter,
         'open_count': len(open_orders),
@@ -1311,46 +1533,6 @@ def supplier_portal(request):
         'profile': getattr(request.user, 'supplier_profile', None),
         'notif_unread_count': request.user.notifications.filter(is_read=False).count(),
     })
-
-
-@login_required(login_url='accounts:login')
-def supplier_set_delivery_date(request, pk):
-    """The supplier commits to (or revises) a delivery date on their own order."""
-    if request.user.role != User.Role.SUPPLIER:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
-
-    proc = get_object_or_404(Procurement, pk=pk, supplier=request.user)
-
-    if proc.status not in (
-        Procurement.Status.APPROVED,
-        Procurement.Status.INCOMING,
-    ):
-        messages.error(request, f'{proc.po_number} is no longer open.')
-        return redirect('supplier_portal')
-
-    if request.method == 'POST':
-        new_date = request.POST.get('delivery_date')
-        if not new_date:
-            messages.error(request, 'Please choose a delivery date.')
-            return redirect('supplier_portal')
-        date_changed = str(proc.delivery_date or '') != new_date
-        proc.delivery_date = new_date
-        proc.status = Procurement.Status.INCOMING
-        proc.save(update_fields=['delivery_date', 'status'])
-        messages.success(
-            request,
-            f'Thanks — {proc.po_number} is confirmed for delivery on {new_date}.'
-        )
-        if date_changed:
-            # Re-read so delivery_date is a date object for consistent
-            # formatting in the notification message.
-            proc.refresh_from_db(fields=['delivery_date'])
-            from .notifications import notify_incoming_delivery
-
-            notify_incoming_delivery(proc, request.user)
-
-    return redirect('supplier_portal')
 
 
 @login_required(login_url='accounts:login')
@@ -1712,6 +1894,39 @@ def supplier_product_add(request, pk):
     else:
         messages.info(request, f'{product.product_name} is already on this supplier.')
     return redirect('supplier_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_product_self_add(request):
+    """The supplier's own equivalent of supplier_product_add — a supplier
+    can now also say what it carries, not only the Owner. Kept as a
+    separate view (rather than widening the role check above) since this
+    one has no `pk` to look a target supplier up by — it always means
+    request.user — and redirects back to the portal, not supplier_detail,
+    which the Owner/Manager role check on that view would refuse a
+    supplier anyway."""
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    product_id = request.POST.get('product')
+    if not product_id:
+        messages.error(request, 'Choose a product to add.')
+        return redirect('supplier_portal')
+
+    product = get_object_or_404(Product, pk=product_id)
+
+    link, created = SupplierProduct.objects.get_or_create(
+        supplier=request.user, product=product,
+    )
+    if created:
+        messages.success(
+            request, f'{product.product_name} added — set your cost for it below.'
+        )
+    else:
+        messages.info(request, f'{product.product_name} is already on your catalog.')
+    return redirect('supplier_portal')
 
 
 @login_required(login_url='accounts:login')

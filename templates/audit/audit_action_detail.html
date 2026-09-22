@@ -1,0 +1,96 @@
+{% extends "internal_base.html" %}
+{% block title %}Audit Log — Action{% endblock %}
+{% block page_subtitle %}System &amp; Monitoring{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'audit_log_list' %}">Audit Log</a>
+    <h1 class="mt-2">{{ summary_text }}</h1>
+  </div>
+</div>
+
+<div class="card card-pad mb-4">
+  <div class="grid-2">
+    <div class="field">
+      <label>Actor</label>
+      <div class="field-static">{{ actor }}</div>
+    </div>
+    <div class="field">
+      <label>Action</label>
+      <div class="field-static">
+        {% if action_display == 'create' %}<span class="pill pill-ok">Created</span>
+        {% elif action_display == 'delete' %}<span class="pill pill-danger">Deleted</span>
+        {% elif action_display == 'update' %}<span class="pill pill-info">Updated</span>
+        {% else %}<span class="pill pill-neutral">Mixed</span>{% endif %}
+      </div>
+    </div>
+    <div class="field">
+      <label>When</label>
+      <div class="field-static">
+        {% if started_at == ended_at %}
+          {{ started_at|date:"Y-m-d H:i:s" }}
+        {% else %}
+          {{ started_at|date:"Y-m-d H:i:s" }} – {{ ended_at|date:"H:i:s" }}
+        {% endif %}
+      </div>
+    </div>
+    <div class="field">
+      <label>Branch / IP</label>
+      <div class="field-static">{{ branch|default:"—" }}{% if ip_address %} · {{ ip_address }}{% endif %}</div>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+Every row this one action produced — same per-row markup the list page used
+to show inline (Action pill, Record cell, raw summary, expandable field
+diff), just living here instead. audit.views._changes builds `changes` the
+same way it always has.
+{% endcomment %}
+<div class="card table-wrap">
+  <div class="card-pad" style="padding-bottom:0;">
+    <h3>Processes <span class="pill pill-neutral">{{ rows|length }}</span></h3>
+  </div>
+  <table class="gv-table">
+    <thead>
+      <tr><th>Action</th><th>Record</th><th>What happened</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td data-label="Action">
+          {% if r.log.action == 'create' %}<span class="pill pill-ok">Created</span>
+          {% elif r.log.action == 'delete' %}<span class="pill pill-danger">Deleted</span>
+          {% else %}<span class="pill pill-info">Updated</span>{% endif %}
+        </td>
+        <td data-label="Record">
+          <span class="strong">{{ r.entity_label }}</span>
+          <div class="gv-meta">{{ r.log.record_repr }} · ID {{ r.log.record_id }}{% if r.branch %} · {{ r.branch }}{% endif %}</div>
+        </td>
+        <td data-label="What happened">
+          {{ r.log.summary }}
+          {% if r.changes %}
+          <details class="mt-1">
+            <summary class="gv-meta" style="cursor:pointer;">View {{ r.changes|length }} field{{ r.changes|length|pluralize }}</summary>
+            <table class="gv-table kv-table" style="border:0; margin-top:8px;">
+              <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+              <tbody>
+                {% for field, before, after in r.changes %}
+                <tr>
+                  <td class="sku">{{ field }}</td>
+                  <td class="gv-meta">{% if before is None %}—{% else %}{{ before }}{% endif %}</td>
+                  <td class="gv-meta">{% if after is None %}—{% else %}{{ after }}{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

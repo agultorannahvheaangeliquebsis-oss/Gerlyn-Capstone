@@ -503,15 +503,23 @@ class AuditLogViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-    def test_the_before_and_after_values_are_shown(self):
+    def test_the_before_and_after_values_are_shown_on_the_detail_page(self):
+        """The list page shows the summary and a View processes link; the
+        field-level before/after diff lives on the action's own detail page
+        now, not inline (audit_action_detail)."""
         self.branch.location = 'Bulacan'
         self.branch.save()
 
-        response = self.client.get(self.url, {'action': 'update'})
+        list_response = self.client.get(self.url, {'action': 'update'})
+        self.assertContains(list_response, 'location Baliuag')
+        self.assertContains(list_response, 'View processes')
+        self.assertNotContains(list_response, 'View 1 field')
 
-        self.assertContains(response, 'Baliuag')
-        self.assertContains(response, 'Bulacan')
-        self.assertContains(response, 'View 1 field')
+        (entry,) = _logs('branches.Branch', 'update')
+        detail = self.client.get(reverse('audit_action_detail', args=[f'row_{entry.pk}']))
+        self.assertContains(detail, 'Baliuag')
+        self.assertContains(detail, 'Bulacan')
+        self.assertContains(detail, 'View 1 field')
 
     def test_a_removed_actor_is_labelled_not_a_crash(self):
         AuditLog.objects.create(
@@ -539,11 +547,11 @@ class AuditLogViewTests(TestCase):
             for i in range(60)
         ])
         first = self.client.get(self.url)
-        self.assertEqual(len(first.context['rows']), 50)
+        self.assertEqual(len(first.context['groups']), 50)
         self.assertTrue(first.context['page'].has_next())
 
         second = self.client.get(self.url, {'page': 2})
-        self.assertGreater(len(second.context['rows']), 0)
+        self.assertGreater(len(second.context['groups']), 0)
         self.assertFalse(second.context['page'].has_next())
 
     def test_the_sidebar_link_is_owner_only(self):
@@ -556,3 +564,139 @@ class AuditLogViewTests(TestCase):
         self.client.force_login(manager)
         manager_page = self.client.get(reverse('reports_dashboard'))
         self.assertNotContains(manager_page, self.url)
+
+
+class GroupedActionTests(TestCase):
+    """One user-facing action can write several AuditLog rows (audit.views.
+    _group_key groups them by request_id). These pin down that the list
+    shows one row per action — not per write — with a human summary where
+    one was set (audit.context.set_action_label) and the full detail
+    reachable through it, while genuinely separate actions never merge."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='grp-owner', password='pw', role=User.Role.OWNER
+        )
+        self.list_url = reverse('audit_log_list')
+        self.client.force_login(self.owner)
+
+    def _supplier(self):
+        supplier = User.objects.create_user(
+            username='grp-supplier', password='pw', role=User.Role.SUPPLIER,
+        )
+        profile = supplier.supplier_profile
+        profile.contact_number = '09170000000'
+        profile.save()
+        return supplier
+
+    def test_a_multi_row_request_becomes_one_group_on_the_list(self):
+        branch = Branch.objects.create(branch_name='B', location='L', owner=self.owner)
+        self.client.post(reverse('accounts:user_add'), {
+            'email': 'grp-invitee@example.com', 'role': User.Role.STAFF,
+            'branch': branch.pk,
+        })
+        # The invite writes at least 2 rows (the User, its auto-created
+        # StaffProfile) sharing one request_id — see
+        # ActorTests.test_rows_from_one_request_share_a_request_id.
+        invited = User.objects.get(email='grp-invitee@example.com')
+        request_id = AuditLog.objects.filter(
+            entity='accounts.User', record_id=str(invited.pk), action='create',
+        ).get().request_id
+        self.assertGreaterEqual(
+            AuditLog.objects.filter(request_id=request_id).count(), 2,
+        )
+
+        response = self.client.get(self.list_url)
+
+        groups = {g['key']: g for g in response.context['groups']}
+        self.assertIn(request_id, groups)
+        self.assertEqual(groups[request_id]['process_count'],
+                          AuditLog.objects.filter(request_id=request_id).count())
+
+    def test_hard_deleting_a_supplier_shows_the_labeled_summary(self):
+        supplier = self._supplier()
+
+        self.client.post(reverse('accounts:user_hard_delete', args=[supplier.pk]))
+
+        response = self.client.get(self.list_url)
+        self.assertContains(response, 'Deleted a user account')
+
+        request_id = AuditLog.objects.filter(
+            entity='accounts.User', record_id=str(supplier.pk), action='update',
+        ).latest('id').request_id
+        self.assertTrue(request_id)
+        self.assertGreaterEqual(AuditLog.objects.filter(request_id=request_id).count(), 2)
+
+        detail = self.client.get(reverse('audit_action_detail', args=[request_id]))
+        self.assertContains(detail, 'Deleted a user account')
+        self.assertContains(detail, 'User account')
+        self.assertContains(detail, 'Supplier profile')
+
+    def test_toggling_active_shows_deactivated_then_reactivated(self):
+        target = User.objects.create_user(
+            username='grp-toggle', password='pw', role=User.Role.STAFF,
+        )
+
+        self.client.post(reverse('accounts:user_toggle_active', args=[target.pk]))
+        self.assertContains(self.client.get(self.list_url), 'Deactivated a user account')
+
+        self.client.post(reverse('accounts:user_toggle_active', args=[target.pk]))
+        self.assertContains(self.client.get(self.list_url), 'Reactivated a user account')
+
+    def test_two_unrelated_system_rows_never_merge(self):
+        """Both rows have request_id='' (no bound request) — grouping them
+        together would wrongly present two unrelated direct writes as one
+        action. Each must stay its own group."""
+        Branch.objects.create(branch_name='First', location='L', owner=self.owner)
+        Branch.objects.create(branch_name='Second', location='L', owner=self.owner)
+
+        response = self.client.get(self.list_url)
+
+        keys = [g['key'] for g in response.context['groups']]
+        self.assertEqual(len(keys), len(set(keys)))  # no accidental merge
+        self.assertTrue(all(k.startswith('row_') for k in keys))
+
+    def test_filtering_by_a_secondary_records_entity_returns_the_whole_group(self):
+        """The Supplier profile row is not the group's primary (the User
+        row is, created first) — filtering to just the profile's entity
+        must still surface the whole action, per the user's own
+        requirement that a filter match on any row in the group. _supplier()
+        itself also touches SupplierProfile (creating it, then setting a
+        contact number) outside of any request, each its own unrelated
+        singleton group — those must stay separate, not merge into or stand
+        in for the hard-delete's own group."""
+        supplier = self._supplier()
+        self.client.post(reverse('accounts:user_hard_delete', args=[supplier.pk]))
+        request_id = AuditLog.objects.filter(
+            entity='accounts.User', record_id=str(supplier.pk), action='update',
+        ).latest('id').request_id
+
+        response = self.client.get(self.list_url, {'entity': 'accounts.SupplierProfile'})
+
+        groups = {g['key']: g for g in response.context['groups']}
+        self.assertIn(request_id, groups)  # the whole action, found via a non-primary row
+        self.assertEqual(groups[request_id]['entity_label'], 'User account')  # its primary, not the filter hit
+        self.assertEqual(groups[request_id]['summary_text'], 'Deleted a user account')
+
+    def test_the_detail_page_is_owner_only(self):
+        branch = Branch.objects.create(branch_name='B', location='L', owner=self.owner)
+        entry = AuditLog.objects.filter(entity='branches.Branch', record_id=str(branch.pk)).get()
+        url = reverse('audit_action_detail', args=[f'row_{entry.pk}'])
+
+        manager = User.objects.create_user(
+            username='grp-manager', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        self.client.force_login(manager)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn(url, response['Location'])
+
+    def test_the_detail_page_404s_for_an_unknown_group(self):
+        self.assertEqual(
+            self.client.get(reverse('audit_action_detail', args=['row_999999'])).status_code, 404,
+        )
+        self.assertEqual(
+            self.client.get(reverse('audit_action_detail', args=['not-a-real-request-id'])).status_code,
+            404,
+        )

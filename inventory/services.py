@@ -77,6 +77,14 @@ def expire_due_batches(
         'warehouse_batch_count': 0,
         'warehouse_unit_count': 0,
     }
+    # One notification per (branch, location) once everything below has
+    # actually committed — never per batch, or a bad day (several lots due
+    # at once) would flood Alerts with one row per lot. Only populated, and
+    # only ever notified on, the unattended sweep (actor is None): the
+    # manual "Write off" button on Alerts Center's Expired tab already gives
+    # the person doing it an on-screen confirmation, so a second, async
+    # notification telling them what they just clicked would be noise.
+    breakdown = {}
 
     with transaction.atomic():
         due = Batch.objects.filter(
@@ -181,7 +189,52 @@ def expire_due_batches(
             counts[batch_counter] += 1
             counts[unit_counter] += quantity
 
+            if actor is None:
+                key = (branch_id, branch_name, location)
+                entry = breakdown.setdefault(
+                    key, {'batch_count': 0, 'unit_count': 0, 'products': []}
+                )
+                entry['batch_count'] += 1
+                entry['unit_count'] += quantity
+                entry['products'].append(product_name)
+
+    if breakdown:
+        _notify_expiry_write_off(breakdown)
+
     return ExpirySweepResult(**counts)
+
+
+def _notify_expiry_write_off(breakdown):
+    """One EVENT_EXPIRY_WRITE_OFF notification per (branch, location) group
+    the unattended sweep just wrote off — see expire_due_batches' own
+    comment for why this is grouped rather than per-batch, and why it never
+    fires for the manual per-batch "Write off" action."""
+    from django.urls import reverse
+
+    from core.module_permissions import FLOOR_STOCK, WAREHOUSE_STOCK
+    from core.notifications import EVENT_EXPIRY_WRITE_OFF, notify_event
+
+    branches = Branch.objects.in_bulk({key[0] for key in breakdown})
+    for (branch_id, branch_name, location), entry in breakdown.items():
+        branch = branches.get(branch_id)
+        if branch is None:
+            continue
+        names = ', '.join(dict.fromkeys(entry['products']))  # de-duplicated, order kept
+        location_label = 'Floor Stock' if location == Batch.Location.FLOOR else 'Warehouse Stock'
+        module = FLOOR_STOCK if location == Batch.Location.FLOOR else WAREHOUSE_STOCK
+        notify_event(
+            EVENT_EXPIRY_WRITE_OFF,
+            f'{entry["batch_count"]} batch{"" if entry["batch_count"] == 1 else "es"} '
+            f'written off at {branch_name} ({location_label})',
+            f'{entry["unit_count"]} unit{"" if entry["unit_count"] == 1 else "s"} across '
+            f'{entry["batch_count"]} batch{"" if entry["batch_count"] == 1 else "es"} removed '
+            f'from {location_label} at {branch_name} for having reached their expiry date: '
+            f'{names}.',
+            branch=branch,
+            action_url=f'{reverse("alerts_center")}#expired',
+            action_label='Review Expiry',
+            required_module=module,
+        )
 
 
 HEADER_ALIASES = {

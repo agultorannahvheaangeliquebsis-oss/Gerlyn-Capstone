@@ -66,6 +66,13 @@ class AuditLog(models.Model):
     branch_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
 
     summary = models.CharField(max_length=500, blank=True)
+    # A human-facing name for the whole action this row belongs to (e.g.
+    # "Deleted a user account"), set by the view/service via
+    # audit.context.set_action_label() before it writes — never derived
+    # from field values, so it can't leak personal data. Blank when nobody
+    # labeled that action; the grouped list then falls back to this row's
+    # own `summary`. See audit/context.py.
+    action_label = models.CharField(max_length=100, blank=True)
     # Only the fields that changed (update), the full row (create → after,
     # delete → before). Masked values read "[personal data]" / "[file]".
     before = models.JSONField(null=True, blank=True)

@@ -330,7 +330,7 @@ _warehouse_stock_list_context in inventory/views.py.
                   {{ ws.product.product_name }}
                   <input type="hidden" name="product_id" value="{{ ws.product.id }}">
                 </td>
-                <td class="num" data-label="Available">{{ ws.quantity_on_hand }}</td>
+                <td class="num" data-label="Available">{{ ws.available_qty }}</td>
                 <td data-label="Request qty">
                   <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
                 </td>

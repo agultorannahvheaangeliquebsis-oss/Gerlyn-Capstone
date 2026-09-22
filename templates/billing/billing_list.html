@@ -30,7 +30,7 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
 </form>
 
 <div class="filter-tabs">
-  {# Badge tints and glyphs mirror the Status column below: Pending warn, Paid ok, Rejected danger, Cancelled neutral. #}
+  {# Badge tints and glyphs mirror the Status column below: Pending/Partially Refunded warn, Paid ok, Rejected danger, Refunded info, Cancelled neutral. #}
   {% comment %}
   O-3 — filter_qs (from the view) replaces the hand-built q=...&branch=...
   each tab used to carry, which silently dropped an unrecognised filter and
@@ -41,6 +41,9 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
   <a class="filter-tab {% if status_filter == 'Pending' %}active{% endif %}" href="?{{ filter_qs }}&status=Pending">Pending <span class="count count-warn">{{ counts.pending }}</span></a>
   <a class="filter-tab {% if status_filter == 'Paid' %}active{% endif %}" href="?{{ filter_qs }}&status=Paid">Paid <span class="count count-ok">{{ counts.paid }}</span></a>
   <a class="filter-tab {% if status_filter == 'Rejected' %}active{% endif %}" href="?{{ filter_qs }}&status=Rejected">Rejected <span class="count count-danger">{{ counts.rejected }}</span></a>
+  {# Partially Refunded still has refundable quantity left on the order; Refunded doesn't — sales.views.transaction_refund is what moves a record between the two. #}
+  <a class="filter-tab {% if status_filter == 'Partially Refunded' %}active{% endif %}" href="?{{ filter_qs }}&status=Partially%20Refunded">Partially Refunded <span class="count count-warn">{{ counts.partially_refunded }}</span></a>
+  <a class="filter-tab {% if status_filter == 'Refunded' %}active{% endif %}" href="?{{ filter_qs }}&status=Refunded">Refunded <span class="count count-info">{{ counts.refunded }}</span></a>
   {# status=Cancelled is the void trail: the order behind the bill was cancelled or a completed sale was voided. #}
   <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled <span class="count count-neutral">{{ counts.cancelled }}</span></a>
 </div>

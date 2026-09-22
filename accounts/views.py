@@ -668,8 +668,12 @@ def user_toggle_active(request, pk):
 
     if request.method == 'POST':
         target.is_active = not target.is_active
-        target.save()
         state = 'reactivated' if target.is_active else 'deactivated'
+
+        from audit.context import set_action_label
+        set_action_label(f'{state.capitalize()} a user account')
+
+        target.save()
         messages.success(request, f'{target.username} {state}.')
 
     return redirect('accounts:customer_list' if target.role == User.Role.CUSTOMER else 'accounts:user_list')
@@ -703,6 +707,9 @@ def user_hard_delete(request, pk):
     if not target.has_usable_password():
         messages.error(request, "That invite was never completed — cancel it instead.")
         return redirect(redirect_to)
+
+    from audit.context import set_action_label
+    set_action_label('Deleted a user account')
 
     from .services import hard_delete_personal_data
     hard_delete_personal_data(target, performed_by=request.user)

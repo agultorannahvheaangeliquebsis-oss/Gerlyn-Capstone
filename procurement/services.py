@@ -61,6 +61,29 @@ def snapshot_supplier_costs(procurement):
     return total
 
 
+def apply_agreed_terms(procurement):
+    """Lock in the negotiated price/date once the supplier gives their final
+    confirmation (Terms Agreed -> Incoming) — copies the currently-proposed
+    date and per-item costs onto the fields the rest of the app (receiving,
+    the printable PO, reports) actually reads, and recomputes total_cost
+    from them. Unlike snapshot_supplier_costs (the old, now-unused-at-
+    creation path pulling from the supplier's standing catalog price), this
+    pulls from what was actually negotiated on THIS order.
+    """
+    procurement.delivery_date = procurement.proposed_delivery_date
+
+    total = Decimal('0.00')
+    items = list(procurement.items.filter(is_unexpected=False))
+    for item in items:
+        item.unit_cost_snapshot = item.proposed_unit_cost
+        item.save(update_fields=['unit_cost_snapshot'])
+        total += item.quantity_ordered * (item.unit_cost_snapshot or 0)
+
+    procurement.total_cost = total
+    procurement.save(update_fields=['delivery_date', 'total_cost'])
+    return total
+
+
 @transaction.atomic
 def transfer_supplier_products(product_ids, from_supplier, to_supplier):
     """Move products from one supplier's catalog to another's.

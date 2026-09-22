@@ -103,11 +103,12 @@ account reaching a control it can't use.
           {# Defaults to today: every order is raised on the day it is raised, and the field is required, so an empty one is friction with no upside. #}
           <input id="po-order-date" type="date" name="order_date" value="{% firstof po_form_data.order_date today|date:'Y-m-d' %}" required>
         </div>
-        <div class="field">
-          <label for="po-delivery-date">Expected Delivery Date</label>
-          <input id="po-delivery-date" type="date" name="delivery_date" value="{{ po_form_data.delivery_date|default:'' }}">
-        </div>
       </div>
+      {% comment %}
+      No Expected Delivery Date field here — the supplier proposes it (and
+      the price) once this order is Approved; a Manager/Owner raising the
+      order has neither to give. See procurement.views' NEGOTIATION section.
+      {% endcomment %}
 
       <div class="row-between">
         <h3>Items</h3>

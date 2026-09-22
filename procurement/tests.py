@@ -13,6 +13,7 @@ from decimal import Decimal
 from django.contrib.messages import get_messages
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import BranchManagerProfile, StaffProfile, User
 from branches.models import Branch
@@ -24,13 +25,21 @@ from procurement.models import Procurement, ProcurementItem, SupplierProduct
 
 class ProcurementTransitionMapTests(TestCase):
     def test_allowed_transitions_content(self):
-        # Pin the exact map that was relocated from the DRF view.
+        # Pin the exact map — Approved no longer jumps straight to Incoming/
+        # Received (that bypassed negotiation entirely); it must go through
+        # the negotiation statuses, reachable only via the dedicated
+        # negotiation views, never a bare status POST.
         S = Procurement.Status
         self.assertEqual(Procurement.ALLOWED_TRANSITIONS, {
             S.DRAFT: {S.APPROVED, S.CANCELLED},
-            S.APPROVED: {
-                S.INCOMING, S.PARTIALLY_RECEIVED, S.RECEIVED, S.CANCELLED,
+            S.APPROVED: {S.PENDING_OWNER_REVIEW, S.CANCELLED},
+            S.PENDING_OWNER_REVIEW: {
+                S.PENDING_SUPPLIER_REVIEW, S.TERMS_AGREED, S.CANCELLED,
             },
+            S.PENDING_SUPPLIER_REVIEW: {
+                S.PENDING_OWNER_REVIEW, S.TERMS_AGREED, S.CANCELLED,
+            },
+            S.TERMS_AGREED: {S.INCOMING, S.CANCELLED},
             S.INCOMING: {
                 S.PARTIALLY_RECEIVED, S.RECEIVED, S.CANCELLED,
             },
@@ -43,11 +52,16 @@ class ProcurementTransitionMapTests(TestCase):
         S = Procurement.Status
         self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.ORDERED))
         self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.CANCELLED))
-        self.assertTrue(Procurement(status=S.ORDERED).can_transition_to(S.RECEIVED))
-        self.assertTrue(Procurement(status=S.ORDERED).can_transition_to(S.CANCELLED))
-        self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.INCOMING))
+        self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.PENDING_OWNER_REVIEW))
+        self.assertTrue(Procurement(status=S.PENDING_OWNER_REVIEW).can_transition_to(S.TERMS_AGREED))
+        self.assertTrue(Procurement(status=S.PENDING_OWNER_REVIEW).can_transition_to(S.PENDING_SUPPLIER_REVIEW))
+        self.assertTrue(Procurement(status=S.PENDING_SUPPLIER_REVIEW).can_transition_to(S.TERMS_AGREED))
+        self.assertTrue(Procurement(status=S.TERMS_AGREED).can_transition_to(S.INCOMING))
         self.assertTrue(Procurement(status=S.INCOMING).can_transition_to(S.PARTIALLY_RECEIVED))
         self.assertTrue(Procurement(status=S.PARTIALLY_RECEIVED).can_transition_to(S.RECEIVED))
+        # The old direct backdoor — no longer legal, negotiation is mandatory.
+        self.assertFalse(Procurement(status=S.APPROVED).can_transition_to(S.INCOMING))
+        self.assertFalse(Procurement(status=S.APPROVED).can_transition_to(S.RECEIVED))
         self.assertFalse(Procurement(status=S.ORDERED).can_transition_to(S.DRAFT))
         self.assertFalse(Procurement(status=S.RECEIVED).can_transition_to(S.ORDERED))
         self.assertFalse(Procurement(status=S.CANCELLED).can_transition_to(S.ORDERED))
@@ -638,10 +652,10 @@ class DeliveryReceiveRequiresApprovalTests(ProcurementAuthorizationBase):
         self.assertIn('Draft', text)
         self.assertIn('approved', text)
 
-    def test_ordered_po_still_receives(self):
+    def test_incoming_po_still_receives(self):
         """Regression against the existing delivery behaviour: the new guard
         adds Draft to the rejected set and disturbs nothing else."""
-        po, item = self._po_with_item(Procurement.Status.ORDERED)
+        po, item = self._po_with_item(Procurement.Status.INCOMING)
         self.client.force_login(self.owner)
 
         self._receive(po, item)
@@ -654,6 +668,22 @@ class DeliveryReceiveRequiresApprovalTests(ProcurementAuthorizationBase):
             ).exists(),
             'an approved receipt must still credit warehouse stock',
         )
+
+    def test_approved_po_cannot_be_received_before_negotiation(self):
+        """The old Approved -> Received backdoor let receiving skip
+        negotiation entirely (no agreed price/date at all). Only Incoming/
+        Partially Received — reached through the supplier's own final
+        confirmation — are receivable now."""
+        po, item = self._po_with_item(Procurement.Status.APPROVED)
+        self.client.force_login(self.owner)
+
+        resp = self._receive(po, item)
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
+        self.assertFalse(WarehouseStock.objects.filter(product=self.product).exists())
+        text = ' '.join(str(m) for m in get_messages(resp.wsgi_request))
+        self.assertIn('agreed price or delivery date', text)
 
 
 class IncomingDeliveryWorkflowTests(ProcurementAuthorizationBase):
@@ -802,23 +832,28 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
             'cost_price': [posted_cost],
         })
 
-    def test_owner_form_ignores_submitted_cost_and_snapshots_supplier_cost(self):
+    def test_owner_form_ignores_submitted_cost_and_snapshots_nothing_yet(self):
+        """Cost is negotiated with the supplier after the order is raised
+        (see the NEGOTIATION tests below) — creation, even by the Owner
+        whose PO auto-authorizes, snapshots nothing."""
         self._add(self.owner)
 
         po = Procurement.objects.get()
         item = po.items.get()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
-        self.assertEqual(item.unit_cost_snapshot, Decimal('50.00'))
-        self.assertEqual(po.total_cost, Decimal('100.00'))
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
+        self.assertIsNone(item.unit_cost_snapshot)
+        self.assertEqual(po.total_cost, Decimal('0.00'))
         self.assertNotEqual(item.unit_cost_snapshot, Decimal('999.99'))
-        self.assertEqual(self.product.unit_price, Decimal('100.00'))
 
-    def test_manager_draft_snapshots_latest_supplier_cost_on_approval(self):
+    def test_manager_draft_approval_snapshots_nothing(self):
+        """Approving a Draft used to pull the supplier's standing catalog
+        price and lock it in immediately. It no longer touches cost at
+        all — negotiation happens afterward, regardless of what (if
+        anything) the supplier's catalog says."""
         self._add(self.manager)
         po = Procurement.objects.get()
         item = po.items.get()
         self.assertIsNone(item.unit_cost_snapshot)
-        self.assertEqual(po.total_cost, Decimal('0.00'))
 
         link = SupplierProduct.objects.get(
             supplier=self.supplier, product=self.product
@@ -833,15 +868,14 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
         self.client.post(reverse('procurement_approve', args=[po.pk]))
         po.refresh_from_db()
         item.refresh_from_db()
-        self.assertEqual(item.unit_cost_snapshot, Decimal('75.25'))
-        self.assertEqual(po.total_cost, Decimal('150.50'))
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
+        self.assertIsNone(item.unit_cost_snapshot)
+        self.assertEqual(po.total_cost, Decimal('0.00'))
 
-        link.current_cost_price = Decimal('80.00')
-        link.save(update_fields=['current_cost_price'])
-        item.refresh_from_db()
-        self.assertEqual(item.unit_cost_snapshot, Decimal('75.25'))
-
-    def test_missing_supplier_cost_blocks_confirmation(self):
+    def test_missing_supplier_catalog_cost_no_longer_blocks_approval(self):
+        """The old block: a Draft with no priced SupplierProduct link
+        couldn't even be approved. Approval doesn't look at catalog
+        pricing anymore, so a missing one is no obstacle."""
         link = SupplierProduct.objects.get(
             supplier=self.supplier, product=self.product
         )
@@ -851,17 +885,10 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
         po = Procurement.objects.get()
 
         self.client.force_login(self.owner)
-        response = self.client.post(
-            reverse('procurement_approve', args=[po.pk])
-        )
+        self.client.post(reverse('procurement_approve', args=[po.pk]))
 
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.DRAFT)
-        self.assertIsNone(po.items.get().unit_cost_snapshot)
-        messages_text = ' '.join(
-            str(message) for message in get_messages(response.wsgi_request)
-        )
-        self.assertIn('must set a current cost', messages_text)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
 
     def test_only_owning_supplier_can_change_current_cost(self):
         other = User.objects.create_user(
@@ -921,3 +948,273 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
         self.assertEqual(po.total_cost, Decimal('150.00'))
         self.assertEqual(confirmed.json()['items'][0]['unitCostSnapshot'], '50.00')
         self.assertNotIn('costPrice', confirmed.json()['items'][0])
+
+
+class NegotiationFlowTests(ProcurementAuthorizationBase):
+    """Price and delivery date, agreed between the buyer and the supplier
+    on an Approved PO — never set by whoever raised the order. See
+    procurement.views' NEGOTIATION section for the full state shape."""
+
+    def setUp(self):
+        super().setUp()
+        self.po = self._po(status=Procurement.Status.APPROVED, owner=self.owner)
+        self.item = ProcurementItem.objects.create(
+            procurement=self.po, product=self.product, quantity_ordered=10,
+        )
+        # Relative to "today" rather than a fixed calendar date, which a
+        # past-date validation would eventually start rejecting on its own.
+        today = timezone.localdate()
+        self.date1 = today + dt.timedelta(days=14)
+        self.date2 = today + dt.timedelta(days=20)
+        self.date3 = today + dt.timedelta(days=10)
+        self.past_date = today - dt.timedelta(days=1)
+
+    def _propose(self, client, url_name='procurement_supplier_respond', action='propose',
+                 date=None, cost='55.00', pk=None):
+        return client.post(reverse(url_name, args=[pk or self.po.pk]), {
+            'action': action,
+            'delivery_date': (date or self.date1).isoformat(),
+            f'unit_cost_{self.item.pk}': cost,
+        })
+
+    def test_supplier_can_propose_from_approved(self):
+        self.client.force_login(self.supplier)
+
+        self._propose(self.client)
+
+        self.po.refresh_from_db()
+        self.item.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.PENDING_OWNER_REVIEW)
+        self.assertEqual(self.po.proposed_delivery_date, self.date1)
+        self.assertEqual(self.po.proposed_by, self.supplier)
+        self.assertEqual(self.item.proposed_unit_cost, Decimal('55.00'))
+        # Nothing final is touched until the supplier's own confirmation.
+        self.assertIsNone(self.po.delivery_date)
+        self.assertIsNone(self.item.unit_cost_snapshot)
+
+    def test_full_happy_path_owner_accepts_supplier_confirms(self):
+        self.client.force_login(self.supplier)
+        self._propose(self.client)
+
+        self.client.force_login(self.owner)
+        self.client.post(
+            reverse('procurement_owner_respond', args=[self.po.pk]), {'action': 'accept'}
+        )
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.TERMS_AGREED)
+        # Accepting alone is never enough — nothing is locked in yet.
+        self.assertIsNone(self.po.delivery_date)
+
+        self.client.force_login(self.supplier)
+        self.client.post(reverse('procurement_supplier_confirm', args=[self.po.pk]))
+
+        self.po.refresh_from_db()
+        self.item.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.INCOMING)
+        self.assertEqual(self.po.delivery_date, self.date1)
+        self.assertEqual(self.item.unit_cost_snapshot, Decimal('55.00'))
+        self.assertEqual(self.po.total_cost, Decimal('550.00'))
+
+    def test_owner_counter_then_supplier_accepts_uses_owners_numbers(self):
+        self.client.force_login(self.supplier)
+        self._propose(self.client, date=self.date1, cost='55.00')
+
+        self.client.force_login(self.owner)
+        self.client.post(reverse('procurement_owner_respond', args=[self.po.pk]), {
+            'action': 'counter', 'delivery_date': self.date2.isoformat(),
+            f'unit_cost_{self.item.pk}': '48.00',
+        })
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.PENDING_SUPPLIER_REVIEW)
+        self.assertEqual(self.po.proposed_by, self.owner)
+
+        self.client.force_login(self.supplier)
+        self.client.post(
+            reverse('procurement_supplier_respond', args=[self.po.pk]), {'action': 'accept'}
+        )
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.TERMS_AGREED)
+
+        self.client.post(reverse('procurement_supplier_confirm', args=[self.po.pk]))
+        self.po.refresh_from_db()
+        self.item.refresh_from_db()
+        # The owner's counter-numbers, not the supplier's original ones.
+        self.assertEqual(self.po.delivery_date, self.date2)
+        self.assertEqual(self.item.unit_cost_snapshot, Decimal('48.00'))
+
+    def test_supplier_can_counter_again_after_owner_counters(self):
+        self.client.force_login(self.supplier)
+        self._propose(self.client, date=self.date1, cost='55.00')
+        self.client.force_login(self.owner)
+        self.client.post(reverse('procurement_owner_respond', args=[self.po.pk]), {
+            'action': 'counter', 'delivery_date': self.date2.isoformat(),
+            f'unit_cost_{self.item.pk}': '48.00',
+        })
+
+        self.client.force_login(self.supplier)
+        self._propose(
+            self.client, action='propose', date=self.date3, cost='51.00',
+        )
+
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.PENDING_OWNER_REVIEW)
+        self.assertEqual(self.po.proposed_by, self.supplier)
+        self.assertEqual(self.po.proposed_delivery_date, self.date3)
+
+    def test_supplier_cannot_confirm_before_terms_are_agreed(self):
+        self.client.force_login(self.supplier)
+
+        self.client.post(reverse('procurement_supplier_confirm', args=[self.po.pk]))
+
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.APPROVED)
+
+    def test_owner_cannot_respond_before_the_supplier_proposes(self):
+        self.client.force_login(self.owner)
+
+        self.client.post(
+            reverse('procurement_owner_respond', args=[self.po.pk]), {'action': 'accept'}
+        )
+
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.APPROVED)
+
+    def test_a_manager_from_another_branch_cannot_respond(self):
+        other_manager = User.objects.create_user(
+            username='neg-other-manager', password='pw', role=User.Role.BRANCH_MANAGER,
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=other_manager,
+            defaults={'branch': self.other_branch, 'manager_name': 'Other'},
+        )
+        self.client.force_login(self.supplier)
+        self._propose(self.client)
+
+        self.client.force_login(other_manager)
+        response = self.client.post(
+            reverse('procurement_owner_respond', args=[self.po.pk]), {'action': 'accept'}
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.PENDING_OWNER_REVIEW)
+
+    def test_a_different_supplier_cannot_respond_on_this_order(self):
+        other_supplier = User.objects.create_user(
+            username='neg-other-supplier', password='pw', role=User.Role.SUPPLIER,
+        )
+        self.client.force_login(other_supplier)
+
+        self._propose(self.client)
+
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.APPROVED)
+
+    def test_a_missing_cost_is_rejected_and_nothing_changes(self):
+        self.client.force_login(self.supplier)
+
+        self.client.post(reverse('procurement_supplier_respond', args=[self.po.pk]), {
+            'action': 'propose', 'delivery_date': '2026-02-01',
+            f'unit_cost_{self.item.pk}': '',
+        })
+
+        self.po.refresh_from_db()
+        self.item.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.APPROVED)
+        self.assertIsNone(self.item.proposed_unit_cost)
+
+    def test_a_past_delivery_date_is_rejected(self):
+        self.client.force_login(self.supplier)
+
+        self._propose(self.client, date=self.past_date)
+
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.APPROVED)
+
+    def test_can_still_cancel_mid_negotiation(self):
+        self.client.force_login(self.supplier)
+        self._propose(self.client)
+
+        self.client.force_login(self.owner)
+        self.client.post(
+            reverse('procurement_update_status', args=[self.po.pk]),
+            {'status': Procurement.Status.CANCELLED},
+        )
+
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.CANCELLED)
+
+    def test_generic_status_update_cannot_skip_negotiation(self):
+        """The old backdoor: POSTing a bare status used to be able to jump
+        Approved straight to Incoming, or straight into a negotiation
+        status with no price/date payload at all. Both are refused now."""
+        self.client.force_login(self.owner)
+
+        for target in (
+            Procurement.Status.INCOMING,
+            Procurement.Status.TERMS_AGREED,
+            Procurement.Status.PENDING_OWNER_REVIEW,
+        ):
+            with self.subTest(target=target):
+                self.client.post(
+                    reverse('procurement_update_status', args=[self.po.pk]),
+                    {'status': target},
+                )
+                self.po.refresh_from_db()
+                self.assertEqual(self.po.status, Procurement.Status.APPROVED)
+
+
+class SupplierSelfServiceCatalogTests(ProcurementAuthorizationBase):
+    """A supplier can now say what it carries too — supplier_product_add
+    (Suppliers > a supplier's detail page) stays Owner-only; this is the
+    supplier's own equivalent, from their own portal."""
+
+    def _other_product(self):
+        return Product.objects.create(
+            sku_code='C1-SKU-2', product_name='Bag of Sugar', unit_price=60,
+        )
+
+    def test_supplier_can_add_a_product_to_their_own_catalog(self):
+        product = self._other_product()
+        self.client.force_login(self.supplier)
+
+        self.client.post(reverse('supplier_product_self_add'), {'product': product.pk})
+
+        self.assertTrue(
+            SupplierProduct.objects.filter(supplier=self.supplier, product=product).exists()
+        )
+
+    def test_adding_the_same_product_twice_is_a_no_op_not_a_crash(self):
+        self.client.force_login(self.supplier)
+
+        response = self.client.post(
+            reverse('supplier_product_self_add'), {'product': self.product.pk}
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            SupplierProduct.objects.filter(
+                supplier=self.supplier, product=self.product
+            ).count(), 1,
+        )
+
+    def test_a_non_supplier_cannot_use_this_endpoint(self):
+        product = self._other_product()
+        self.client.force_login(self.owner)
+
+        self.client.post(reverse('supplier_product_self_add'), {'product': product.pk})
+
+        self.assertFalse(
+            SupplierProduct.objects.filter(supplier=self.owner, product=product).exists()
+        )
+
+    def test_the_portal_lists_only_products_not_already_carried(self):
+        product = self._other_product()
+        self.client.force_login(self.supplier)
+
+        response = self.client.get(reverse('supplier_portal'))
+
+        # self.product is already linked (ProcurementAuthorizationBase); the
+        # new one isn't yet.
+        self.assertNotContains(response, 'value="' + str(self.product.pk) + '">Sack of Rice')
+        self.assertContains(response, product.product_name)

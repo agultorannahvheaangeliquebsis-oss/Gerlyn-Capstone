@@ -181,6 +181,8 @@ for this to be built from existing primitives, and that includes the grid.
             {% if p.status == 'Received' %}<span class="pill pill-ok">Received</span>
             {% elif p.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
             {% elif p.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
+            {% elif p.status == 'Terms Agreed' %}<span class="pill pill-ok">Terms Agreed</span>
+            {% elif p.status == 'Pending Owner Review' or p.status == 'Pending Supplier Review' %}<span class="pill pill-warn">{{ p.status }}</span>
             {% elif p.status == 'Approved' %}<span class="pill pill-info">Approved</span>
             {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
             {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}</td>

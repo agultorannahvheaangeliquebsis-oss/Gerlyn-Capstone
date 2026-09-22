@@ -785,3 +785,43 @@ class BatchInventoryReconciliationTests(TestCase):
 
         with self.assertRaises(CommandError):
             call_command('check_batch_reconciliation', stdout=StringIO())
+
+
+class AlertsCenterLowStockActionTests(TestCase):
+    """The Low Floor Stock tab's row action restocks from the branch's own
+    warehouse — it must send staff to Warehouse Stock's own Request Stock to
+    Floor modal, not New Stock Adjustment (that's for write-offs/corrections,
+    a different action entirely that just happened to be wired here)."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='alerts-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Low Stock Branch', location='Baliuag',
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-LOW', product_name='Low Stock Product', unit_price=10,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=1, reorder_level=10,
+        )
+        self.client.force_login(self.owner)
+
+    def test_the_row_action_opens_the_request_to_floor_modal_for_that_branch(self):
+        response = self.client.get(reverse('alerts_center'))
+
+        self.assertContains(response, 'Request Stock to Floor')
+        expected_href = (
+            f"{reverse('warehouse_stock_list')}?open_request=1&amp;branch={self.branch.pk}"
+        )
+        self.assertContains(response, expected_href)
+
+    def test_following_the_link_lands_on_the_modal_pre_scoped_to_the_branch(self):
+        url = f"{reverse('warehouse_stock_list')}?open_request=1&branch={self.branch.pk}"
+
+        response = self.client.get(url)
+
+        self.assertTrue(response.context['show_request_modal'])
+        self.assertEqual(response.context['request_target_branch'], self.branch)

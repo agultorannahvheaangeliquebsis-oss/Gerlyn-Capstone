@@ -149,6 +149,10 @@ def billing_list(request):
         'pending': records.filter(status=BillingRecord.PaymentStatus.PENDING).count(),
         'paid': records.filter(status=BillingRecord.PaymentStatus.PAID).count(),
         'rejected': records.filter(status=BillingRecord.PaymentStatus.REJECTED).count(),
+        'refunded': records.filter(status=BillingRecord.PaymentStatus.REFUNDED).count(),
+        'partially_refunded': records.filter(
+            status=BillingRecord.PaymentStatus.PARTIALLY_REFUNDED
+        ).count(),
         'cancelled': records.filter(status=BillingRecord.PaymentStatus.CANCELLED).count(),
     }
 

@@ -9,6 +9,19 @@ class Procurement(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'Draft', 'Draft'
         APPROVED = 'Approved', 'Approved'
+        # Price and delivery date are negotiated between the two sides once
+        # a PO is Approved — never set by whoever raised the order. These
+        # three sit between Approved and Incoming:
+        #   Approved                -> supplier submits the first offer
+        #   Pending Owner Review    -> buyer's turn: accept, counter, or cancel
+        #   Pending Supplier Review -> supplier's turn: accept, counter, or cancel
+        #   Terms Agreed            -> either side accepted; only the
+        #                              supplier's own final confirmation
+        #                              (never an accept alone) moves it to
+        #                              Incoming — see procurement.views.
+        PENDING_OWNER_REVIEW = 'Pending Owner Review', 'Pending Owner Review'
+        PENDING_SUPPLIER_REVIEW = 'Pending Supplier Review', 'Pending Supplier Review'
+        TERMS_AGREED = 'Terms Agreed', 'Terms Agreed'
         INCOMING = 'Incoming', 'Incoming'
         PARTIALLY_RECEIVED = 'Partially Received', 'Partially Received'
         RECEIVED = 'Received', 'Received'
@@ -26,22 +39,34 @@ class Procurement(models.Model):
     # Ordered — or to an arbitrary string (finding C-3). Content is exactly
     # what the DRF endpoint's local map already allowed:
     #
-    #   Draft              -> Approved | Cancelled
-    #   Approved           -> Incoming | Received | Cancelled
-    #   Incoming           -> Partially Received | Received | Cancelled
-    #   Partially Received -> Received | Cancelled
-    #   Received/Cancelled -> (terminal)
+    #   Draft                   -> Approved | Cancelled
+    #   Approved                -> Pending Owner Review | Cancelled
+    #   Pending Owner Review    -> Pending Supplier Review | Terms Agreed | Cancelled
+    #   Pending Supplier Review -> Pending Owner Review | Terms Agreed | Cancelled
+    #   Terms Agreed            -> Incoming | Cancelled
+    #   Incoming                -> Partially Received | Received | Cancelled
+    #   Partially Received      -> Received | Cancelled
+    #   Received/Cancelled      -> (terminal)
     #
-    # Approved -> Received remains legal for direct/backwards-compatible
-    # receiving, although the normal interface moves a scheduled PO through
-    # Incoming first. Whether a receipt target is legal is checked here, but the
-    # receipt itself still runs through delivery_receive's own atomic block.
+    # Approved -> Incoming/Received used to be legal too, for direct/
+    # backwards-compatible receiving with no in-app negotiation. That
+    # backdoor is gone: it let anyone with status-update access skip price/
+    # date negotiation entirely by POSTing a bare status, which is exactly
+    # what negotiation exists to prevent. Incoming is now reachable only
+    # through the supplier's own final confirmation
+    # (procurement_supplier_confirm), once Terms Agreed — never through
+    # procurement_update_status's generic status POST, which explicitly
+    # refuses every negotiation-related target (see that view).
     ALLOWED_TRANSITIONS = {
         Status.DRAFT: {Status.APPROVED, Status.CANCELLED},
-        Status.APPROVED: {
-            Status.INCOMING, Status.PARTIALLY_RECEIVED,
-            Status.RECEIVED, Status.CANCELLED,
+        Status.APPROVED: {Status.PENDING_OWNER_REVIEW, Status.CANCELLED},
+        Status.PENDING_OWNER_REVIEW: {
+            Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED, Status.CANCELLED,
         },
+        Status.PENDING_SUPPLIER_REVIEW: {
+            Status.PENDING_OWNER_REVIEW, Status.TERMS_AGREED, Status.CANCELLED,
+        },
+        Status.TERMS_AGREED: {Status.INCOMING, Status.CANCELLED},
         Status.INCOMING: {
             Status.PARTIALLY_RECEIVED, Status.RECEIVED, Status.CANCELLED,
         },
@@ -55,6 +80,27 @@ class Procurement(models.Model):
     def can_transition_to(self, new_status):
         """True when a status view may move this order to `new_status`."""
         return new_status in self.ALLOWED_TRANSITIONS.get(self.status, set())
+
+    # A PO mid-negotiation is real, committed spend (it already survived
+    # Draft -> Approved) but has no delivery_date yet and no locked-in cost
+    # — anything that used to treat "Approved...Partially Received" as the
+    # open/uncompleted span must widen to include these three, or a
+    # negotiating PO silently drops out of dashboards, reports and KPI
+    # counts while it's arguably the order most worth surfacing. Shared here
+    # so reports/views.py, reports/api_views.py and accounts/views.py's own
+    # "open orders" tallies read the same span instead of each hand-copying
+    # a status list that quietly goes stale the next time this changes.
+    NEGOTIATION_STATUSES = frozenset({
+        Status.PENDING_OWNER_REVIEW, Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED,
+    })
+    # Every status short of Received/Cancelled, including Draft.
+    OPEN_STATUSES = frozenset({Status.DRAFT, Status.APPROVED}) | NEGOTIATION_STATUSES | frozenset({
+        Status.INCOMING, Status.PARTIALLY_RECEIVED,
+    })
+    # Same, but Draft excluded — Draft has no owner/authorized_at yet and
+    # commits no spend, so it's left out of anything counting "committed"
+    # open orders (matches supplier_portal.html's own Draft exclusion).
+    COMMITTED_OPEN_STATUSES = OPEN_STATUSES - {Status.DRAFT}
 
     # --- existing fields (untouched) ----------------------------------------
     branch = models.ForeignKey(
@@ -72,6 +118,10 @@ class Procurement(models.Model):
         related_name='authorized_procurements'
     )
     order_date = models.DateField()
+    # The AGREED delivery date, final once negotiation completes — null
+    # until then. What the supplier is currently offering, mid-negotiation,
+    # lives separately in proposed_delivery_date below and is never copied
+    # here until the supplier's own final confirmation.
     delivery_date = models.DateField(null=True, blank=True)
     actual_receipt_date = models.DateField(
         null=True, blank=True,
@@ -81,8 +131,26 @@ class Procurement(models.Model):
         max_digits=12, decimal_places=2, default=0
     )
     status = models.CharField(
-        max_length=20, choices=Status.choices,
+        max_length=24, choices=Status.choices,
         default=Status.DRAFT                   # <-- changed default to Draft
+    )
+
+    # --- negotiation (price/date) --------------------------------------------
+    # The date currently on the table — whoever's turn it ISN'T proposed it.
+    # Overwritten on every offer/counter; each round's history is already on
+    # record via the audit log (Procurement is audit-tracked), so nothing
+    # here needs to remember prior rounds itself. Copied onto delivery_date
+    # only by the supplier's final confirmation (procurement_supplier_confirm).
+    proposed_delivery_date = models.DateField(null=True, blank=True)
+    # Who is waiting on a response — i.e. whoever did NOT submit the
+    # currently-pending proposed_delivery_date/ProcurementItem.proposed_unit_cost.
+    # Kept distinct from `status` (which already encodes whose turn it is)
+    # purely so the review screen can say "Century Pacific proposed…" /
+    # "You countered with…" without re-deriving who from status + role.
+    proposed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+',
+        help_text='Who submitted the currently pending price/date proposal.',
     )
 
     # --- new fields ---------------------------------------------------------
@@ -153,6 +221,16 @@ class ProcurementItem(models.Model):
         max_digits=10, decimal_places=2, null=True, blank=True,
         editable=False,
         help_text='Supplier cost copied when this purchase order is confirmed.',
+    )
+
+    # --- negotiation ----------------------------------------------------------
+    # This line's cost as of the CURRENT pending proposal (Procurement.
+    # proposed_by says who's turn it now is). Overwritten on every offer/
+    # counter, copied onto unit_cost_snapshot only once terms are agreed and
+    # the supplier gives their final confirmation — see
+    # procurement.views.procurement_supplier_confirm.
+    proposed_unit_cost = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
     )
 
     # --- new field ----------------------------------------------------------

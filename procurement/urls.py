@@ -14,6 +14,12 @@ urlpatterns = [
     path('<int:pk>/approve/', views.procurement_approve,
          name='procurement_approve'),
 
+    # Negotiation — price and delivery date, agreed between the buyer and
+    # the supplier on an Approved PO. See procurement/views.py's own
+    # NEGOTIATION section comment for the full state shape.
+    path('<int:pk>/respond/', views.procurement_owner_respond,
+         name='procurement_owner_respond'),
+
     # Deliveries (receive a PO into stock)
     path('deliveries/', views.delivery_list, name='delivery_list'),
     path('deliveries/<int:pk>/receive/', views.delivery_receive, name='delivery_receive'),
@@ -23,8 +29,10 @@ urlpatterns = [
 
     # Supplier's own portal (role = SUPPLIER)
     path('portal/', views.supplier_portal, name='supplier_portal'),
-    path('portal/<int:pk>/delivery-date/', views.supplier_set_delivery_date,
-         name='supplier_set_delivery_date'),
+    path('portal/<int:pk>/respond/', views.procurement_supplier_respond,
+         name='procurement_supplier_respond'),
+    path('portal/<int:pk>/confirm/', views.procurement_supplier_confirm,
+         name='procurement_supplier_confirm'),
     path('portal/notifications/', views.supplier_notifications,
          name='supplier_notifications'),
     path('portal/notifications/<int:pk>/read/', views.supplier_notification_mark_read,
@@ -33,6 +41,8 @@ urlpatterns = [
          name='supplier_notification_mark_all_read'),
     path('portal/products/<int:link_pk>/cost/', views.supplier_set_product_cost,
          name='supplier_set_product_cost'),
+    path('portal/products/add/', views.supplier_product_self_add,
+         name='supplier_product_self_add'),
 
     # Suppliers (managed by the store)
     path('suppliers/', views.supplier_list, name='supplier_list'),

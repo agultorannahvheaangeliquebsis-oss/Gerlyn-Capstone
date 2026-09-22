@@ -8,11 +8,13 @@ These are the checks the ISO 25010 evaluation leans on for Functional
 Suitability, Reliability, and Security — so they must stay green.
 """
 import re
+from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management import call_command
 from django.test import Client, TestCase
+from django.utils import timezone
 
 from accounts.models import Address, User
 from branches.models import Branch
@@ -21,7 +23,7 @@ from inventory.models import (
     Inventory, Product, StockMovement, StockTransfer, StockTransferItem,
     Warehouse, WarehouseStock,
 )
-from procurement.models import Procurement
+from procurement.models import Procurement, ProcurementItem
 from sales.models import SalesTransaction
 
 
@@ -335,17 +337,42 @@ class AcceptanceTests(TestCase):
         for po in Procurement.objects.exclude(supplier=supplier)[:3]:
             self.assertNotIn(po.po_number, html)
 
-    def test_supplier_can_confirm_delivery_date_on_own_order(self):
+    def test_supplier_can_propose_and_confirm_a_delivery_date_on_own_order(self):
+        """Delivery date is agreed through the negotiation flow now — the
+        supplier proposes it, the buyer accepts, and only the supplier's
+        own final confirmation locks it in (procurement.views' NEGOTIATION
+        section)."""
         supplier = User.objects.get(username='delmonte')
-        po = Procurement.objects.filter(
-            supplier=supplier, status=Procurement.Status.INCOMING
-        ).first()
+        branch = Branch.objects.filter(procurements__supplier=supplier).first()
+        product = Product.objects.filter(sku_code='SKU-009').first()
+        po = Procurement.objects.create(
+            branch=branch, supplier=supplier,
+            order_date=timezone.localdate(), status=Procurement.Status.APPROVED,
+            total_cost=0,
+        )
+        item = ProcurementItem.objects.create(
+            procurement=po, product=product, quantity_ordered=10,
+        )
+        proposed_date = timezone.localdate() + timedelta(days=14)
+
         client = Client()
         client.force_login(supplier)
-        client.post(f'/procurement/portal/{po.pk}/delivery-date/',
-                    {'delivery_date': '2026-08-01'})
+        client.post(f'/procurement/portal/{po.pk}/respond/', {
+            'action': 'propose', 'delivery_date': proposed_date.isoformat(),
+            f'unit_cost_{item.pk}': '23.00',
+        })
         po.refresh_from_db()
-        self.assertEqual(str(po.delivery_date), '2026-08-01')
+        self.assertEqual(po.status, Procurement.Status.PENDING_OWNER_REVIEW)
+
+        client.force_login(User.objects.get(username='gerlyn'))
+        client.post(f'/procurement/{po.pk}/respond/', {'action': 'accept'})
+
+        client.force_login(supplier)
+        client.post(f'/procurement/portal/{po.pk}/confirm/')
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.INCOMING)
+        self.assertEqual(po.delivery_date, proposed_date)
 
     def test_supplier_cannot_mark_their_own_order_received(self):
         """Business rule 13: only the store validates a receipt."""

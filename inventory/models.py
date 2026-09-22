@@ -211,8 +211,49 @@ class Warehouse(models.Model):
         return f"{self.name} ({self.branch.branch_name})"
 
 
+class WarehouseStockQuerySet(models.QuerySet):
+    def sellable(self):
+        """The WAREHOUSE-location twin of InventoryQuerySet.sellable() —
+        same annotation, same reasoning (see that docstring), just keyed on
+        Batch.Location.WAREHOUSE and joined through warehouse__branch_id
+        instead of a direct branch_id. Used so Warehouse Stock's own
+        management screens can stop counting an expired lot as available
+        stock immediately, without waiting for the daily sweep to actually
+        remove it from quantity_on_hand.
+        """
+        today = timezone.localdate()
+        warehouse_batches = Batch.objects.filter(
+            product_id=models.OuterRef('product_id'),
+            branch_id=models.OuterRef('warehouse__branch_id'),
+            location=Batch.Location.WAREHOUSE,
+        )
+        non_expired_sum = (
+            warehouse_batches
+            .filter(models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=today))
+            .values('product_id')
+            .annotate(total=models.Sum('quantity'))
+            .values('total')
+        )
+        return self.annotate(
+            has_batches=models.Exists(warehouse_batches),
+            available_qty=models.Case(
+                models.When(
+                    has_batches=True,
+                    then=Coalesce(
+                        models.Subquery(non_expired_sum, output_field=models.IntegerField()),
+                        models.Value(0),
+                    ),
+                ),
+                default=models.F('quantity_on_hand'),
+                output_field=models.IntegerField(),
+            ),
+        )
+
+
 class WarehouseStock(models.Model):
     # --- unchanged ---
+    objects = WarehouseStockQuerySet.as_manager()
+
     warehouse = models.ForeignKey(
         Warehouse, on_delete=models.CASCADE,
         related_name='stock_records'

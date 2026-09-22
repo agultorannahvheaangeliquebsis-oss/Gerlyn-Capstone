@@ -256,7 +256,7 @@ of these itself, so a forged POST is still refused server-side.
         {% for row in refundable_items %}
         <tr>
           <td><input type="checkbox" name="item_id" value="{{ row.item.pk }}"></td>
-          <td data-label="Product" class="strong">{{ row.item.product.product_name }}</td>
+          <td data-label="Product" class="strong">{{ row.product_label }}</td>
           <td data-label="Remaining" class="num">{{ row.remaining }}</td>
           <td data-label="Qty to refund">
             <input type="number" name="quantity_{{ row.item.pk }}" min="1" max="{{ row.remaining }}"
@@ -305,7 +305,7 @@ of these itself, so a forged POST is still refused server-side.
         <td data-label="When" class="gv-meta">{{ r.refunded_at|date:"j M Y, g:i a" }}</td>
         <td data-label="Items">
           {% for i in r.items.all %}
-          <div>{{ i.sales_item.product.product_name }} x{{ i.quantity }}
+          <div>{{ i.sales_item.product.product_name|default:"(product removed)" }} x{{ i.quantity }}
             <span class="gv-meta">({{ i.get_condition_display }})</span></div>
           {% endfor %}
         </td>
@@ -454,7 +454,7 @@ of these itself, so a forged POST is still refused server-side.
     <tbody>
       {% for item in items %}
       <tr>
-        <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+        <td data-label="Product" class="strong">{{ item.product.product_name|default:"(product removed)" }}</td>
         <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
         <td data-label="Unit Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
         <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>

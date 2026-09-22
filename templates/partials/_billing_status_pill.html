@@ -11,4 +11,6 @@ Usage: {% include "partials/_billing_status_pill.html" with status=record.status
 {% if status == "Paid" %}<span class="pill pill-ok">Paid</span>
 {% elif status == "Rejected" %}<span class="pill pill-danger">Payment Verification Rejected</span>
 {% elif status == "Cancelled" %}<span class="pill pill-neutral">Cancelled</span>
+{% elif status == "Refunded" %}<span class="pill pill-info">Refunded</span>
+{% elif status == "Partially Refunded" %}<span class="pill pill-warn">Partially Refunded</span>
 {% else %}<span class="pill pill-warn">Pending Verification</span>{% endif %}
