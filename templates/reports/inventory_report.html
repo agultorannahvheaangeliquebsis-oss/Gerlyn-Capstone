@@ -150,4 +150,51 @@ three tabs carry the control in .page-head.
     </tbody>
   </table>
 </div>
+
+{# ---------------------------- non-performing / near-expiry products ---------------------------- #}
+{% comment %}
+DSS flag, not a duplicate stock list: only rows that are Non-Performing
+(stock on hand, zero units sold in the last {{ non_performing_window_days }}
+days) and/or Near-Expiry (nearest floor batch is in the Expiring Soon or
+Approaching Expiry tier — the same tiers inventory.alerts.expiry_alerts()
+already uses) show up here, same convention as the Alerts Center's own
+tables. See docs/METRICS.md for the exact rule, thresholds and rationale.
+{% endcomment %}
+<div class="card table-wrap mt-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Non-Performing &amp; Near-Expiry Products</h3>
+    <p class="gv-meta" style="margin:4px 0 0;">
+      Non-Performing = stock on hand with zero units sold in the last {{ non_performing_window_days }} days.
+      Near-Expiry = nearest batch is Expiring Soon (&le;{{ non_performing_window_days }}d) or Approaching Expiry (&le;90d).
+      A product can carry both flags at once.
+    </p>
+  </div>
+  <table class="gv-table">
+    <thead>
+      <tr><th>Product / SKU</th><th>Branch</th><th class="num">Stock</th>
+          <th>Nearest Expiry</th><th class="num">Units Sold ({{ non_performing_window_days }}d)</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for row in non_performing_rows %}
+      <tr>
+        <td data-label="Product / SKU">
+          <span class="strong">{{ row.product.product_name }}</span>
+          <div class="gv-meta">{{ row.product.sku_code }}</div>
+        </td>
+        <td data-label="Branch" class="gv-meta">{{ row.branch.branch_name }}</td>
+        <td data-label="Stock" class="num strong">{{ row.quantity_on_hand }}</td>
+        <td data-label="Nearest Expiry">
+          {% if row.expiry_date %}{{ row.expiry_date }}{% else %}<span class="gv-meta">&mdash;</span>{% endif %}
+        </td>
+        <td data-label="Units Sold ({{ non_performing_window_days }}d)" class="num">{{ row.units_sold }}</td>
+        <td data-label="Status"><span class="pill {{ row.pill_class }}">{{ row.status }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
+        <h3>No non-performing or near-expiry products</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

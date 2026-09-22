@@ -116,7 +116,7 @@ for one card's sake.
 DESIGN.md §2c's panel row: what the sales are made of, and how they moved day
 to day. Plain .grid-2 — `repeat(auto-fit, minmax(320px, 1fr))` — so the panels
 lay out side by side and fold to one column on their own. That is also what
-absorbs the third panel when the donut is shown: three children become three
+absorbs a variable panel count: three or four children become that many
 columns on a wide screen and fold to two, then one, with no override, exactly
 as the Procurement tab's three-panel row does.
 
@@ -129,6 +129,13 @@ Sales by Branch renders only when there is a split to show (see the view). At
 one branch the ring, its centre figure, its single legend row and the Total
 Sales card above all state the same number, so Top Products takes the slot
 instead — same question, an answer that varies.
+
+Sales by Category (added for the panel-review ask: a meaningful donut with
+its period and percentage basis stated on the page, not just implied) always
+renders alongside it — §2c names category as the other half of this row's
+donut/breakdown panel, and unlike the branch/Top-Products pair it answers a
+question neither of the other two panels does ("which category"), so it never
+needs to yield its slot the way Sales by Branch does.
 {% endcomment %}
 <div class="grid-2 mb-6">
 
@@ -181,6 +188,66 @@ instead — same question, an answer that varies.
   </div>
 </div>
 {% endif %}
+
+{% comment %}
+Sales by Category — the category half of DESIGN.md §2c's donut/breakdown
+panel, added against the capstone panel feedback asking for a meaningful
+pie/donut (sales by category or branch) with its period and percentage basis
+stated on the page rather than left implied. The caption below states both
+explicitly: the exact date range the ring covers, and that every slice's
+percentage is a share of total sales in that range — not of some other total
+a reader would have to assume.
+
+Markup deliberately identical to the branch/Top-Products donuts above — same
+.pie-wrap, same ring geometry, same legend row — with only the ramp source
+and labels differing (see reports/views.py::_sales_by_category_chart).
+{% endcomment %}
+<div class="card">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Sales by Category</h3>
+    <p class="gv-meta mb-0">% of total sales in {{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }} · ₱{{ total_sales|floatformat:2 }} total</p>
+  </div>
+  <div class="card-pad">
+    {% if category_chart.total %}
+    <div class="pie-wrap">
+      <svg viewBox="0 0 {{ category_chart.box }} {{ category_chart.box }}" width="160" height="160" role="img"
+           aria-label="Sales by category, {{ category_chart.total_display }} total: {% for seg in category_chart.segments %}{{ seg.name }} {{ seg.pct }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
+        <g transform="rotate(-90 {{ category_chart.centre }} {{ category_chart.centre }})">
+          {% for seg in category_chart.segments %}
+          <circle cx="{{ category_chart.centre }}" cy="{{ category_chart.centre }}" r="{{ category_chart.radius }}"
+                  fill="none" stroke="{{ seg.colour }}" stroke-width="{{ category_chart.stroke }}"
+                  stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"/>
+          {% endfor %}
+        </g>
+        {% comment %}
+        Same centre treatment as the other two donuts in this row: peso total
+        as the headline, category count as the secondary line.
+        {% endcomment %}
+        <text x="{{ category_chart.centre }}" y="{{ category_chart.centre }}" text-anchor="middle" dy="-2"
+              style="font: 700 17px/1 var(--font-sans); font-variant-numeric: tabular-nums; fill: var(--ink-900);">{{ category_chart.total_display }}</text>
+        <text x="{{ category_chart.centre }}" y="{{ category_chart.centre }}" text-anchor="middle" dy="14"
+              style="font: 400 11px/1 var(--font-sans); fill: var(--ink-600);">
+          {{ category_chart.category_count }} categor{{ category_chart.category_count|pluralize:"y,ies" }}</text>
+      </svg>
+      <ul class="pie-legend">
+        {% for seg in category_chart.segments %}
+        <li>
+          <span class="pie-dot" style="background:{{ seg.colour }};"></span>{{ seg.name }}
+          <span class="pie-count">₱{{ seg.value|floatformat:2 }}
+            <span class="gv-meta">· {{ seg.pct }}% of total sales</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="empty">
+      <span class="glyph">{% include "partials/_empty_icon.html" with icon="tag" %}</span>
+      <h3>No sales to chart</h3>
+      <p>{% if branch_filter %}Nothing matches this filter — try “All”.{% else %}Sales appear here once orders are completed.{% endif %}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
 
 {% comment %}
 Top Products — DESIGN.md Section 1's "Top-Selling Products list", drawn as a
