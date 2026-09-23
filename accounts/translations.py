@@ -27,7 +27,7 @@ TRANSLATIONS = {
         'Search': 'Maghanap',
         'Track Order': 'Subaybayan ang Order',
         'Free delivery within Baliuag on orders over ₱500': 'Libreng delivery sa loob ng Baliuag para sa orders na ₱500 pataas',
-        '© 2026 Gerlyn Variety Store · Baliuag, Bulacan · All rights reserved.': '© 2026 Gerlyn Variety Store · Baliuag, Bulacan · Nakalaan ang lahat ng karapatan.',
+        '© 2026 GERLYN · Baliuag, Bulacan · All rights reserved.': '© 2026 GERLYN · Baliuag, Bulacan · Nakalaan ang lahat ng karapatan.',
 
         # ── Settings sidebar ─────────────────────────────────────────
         'My Profile': 'Aking Profile',
@@ -117,7 +117,7 @@ TRANSLATIONS = {
         'Control what data we keep, download a copy of it, or delete your account.': 'Kontrolin ang data na iniimbak namin, mag-download ng kopya nito, o burahin ang iyong account.',
 
         # ── About page ────────────────────────────────────────────────
-        'About Gerlyn Variety Store': 'Tungkol sa Gerlyn Variety Store',
+        'About GERLYN': 'Tungkol sa GERLYN',
         'Serving Baliuag, Bulacan and nearby communities.': 'Naglilingkod sa Baliuag, Bulacan at mga karatig-lugar.',
         'Our Branches': 'Aming mga Sangay',
         'Delivery': 'Delivery',
@@ -151,8 +151,8 @@ TRANSLATIONS = {
         'Go to Settings → Notifications to turn order updates, promotions, delivery reminders, and the newsletter on or off individually.':
             'Pumunta sa Settings → Notifications para i-on o i-off ang order updates, promotions, delivery reminders, at newsletter nang paisa-isa.',
 
-        'Visit or call your nearest Gerlyn Variety Store branch — Tarcan, Makinabang, or Tiaong Baliwag Mini Mart — listed on the About page.':
-            'Bisitahin o tawagan ang pinakamalapit na sangay ng Gerlyn Variety Store — Tarcan, Makinabang, o Tiaong Baliwag Mini Mart — na nakalista sa About page.',
+        'Visit or call your nearest GERLYN branch — Tarcan, Makinabang, or Tiaong Baliwag Mini Mart — listed on the About page.':
+            'Bisitahin o tawagan ang pinakamalapit na sangay ng GERLYN — Tarcan, Makinabang, o Tiaong Baliwag Mini Mart — na nakalista sa About page.',
 
         # ── Sessions page ─────────────────────────────────────────────
         'This device': 'Ang device na ito',

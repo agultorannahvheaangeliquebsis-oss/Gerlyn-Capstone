@@ -1,7 +1,7 @@
 # GerlynPLUS
 
 **Process-Linked Unified Systems Enterprise** — an integrated information system for
-Gerlyn Variety Store, a multi-branch retail enterprise in Baliuag, Bulacan.
+GERLYN, a multi-branch retail enterprise in Baliuag, Bulacan.
 
 Capstone project · BSIS · Bulacan State University · CICT
 

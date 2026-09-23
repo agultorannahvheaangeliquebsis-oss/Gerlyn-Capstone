@@ -12,27 +12,9 @@ wording.{% endcomment %}
 
 {% block extra_css %}
 <style>
-  /* .modal-overlay / -card / -head / -close / -body / -foot and .sr-only now
-     live in gerlyn.css — Add Category uses the same shell. What stays here is
-     what only this form needs. */
-  .dropzone {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 4px; text-align: center;
-    border: 1.5px dashed var(--input-line);
-    border-radius: var(--r-card);
-    padding: var(--s6) var(--s4);
-    cursor: pointer;
-    color: var(--ink-600);
-    transition: border-color .12s ease, background .12s ease;
-  }
-  .dropzone:hover, .dropzone.is-dragover {
-    border-color: var(--brand);
-    background: var(--green-50);
-  }
-  .dropzone svg { color: var(--ink-400); }
-  .dropzone-title { font: 600 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
-  .dropzone-filename { font: 400 13px/1.4 var(--font-sans); color: var(--action); word-break: break-all; }
-
+  /* .modal-overlay / -card / -head / -close / -body / -foot, .sr-only and
+     .dropzone now live in gerlyn.css — Add Category uses the same shell.
+     What stays here is what only this form needs. */
   .field-auto-row { display: flex; align-items: center; gap: 10px; }
   .field-auto-row input { background: var(--surface-2); color: var(--ink-600); }
   .badge-auto {

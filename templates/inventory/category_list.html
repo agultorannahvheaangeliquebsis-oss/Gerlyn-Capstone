@@ -53,6 +53,16 @@
        rest of them. */
     .cat-table td.num { text-align: right; }
   }
+
+  /* .dropzone lives in gerlyn.css now, shared with Add/Edit Product. */
+  .cat-image-current {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px;
+  }
+  .cat-image-current img {
+    width: 56px; height: 56px; border-radius: 8px; object-fit: cover;
+    border: 1px solid var(--line);
+  }
 </style>
 {% endblock %}
 
@@ -159,7 +169,7 @@
       </button>
     </div>
 
-    <form method="POST" action="{% url 'category_add' %}" class="modal-body" id="add-category-form">
+    <form method="POST" action="{% url 'category_add' %}" enctype="multipart/form-data" class="modal-body" id="add-category-form">
       {% csrf_token %}
 
       {% if add_errors %}
@@ -167,6 +177,17 @@
         {% for err in add_errors %}<div>{{ err }}</div>{% endfor %}
       </div>
       {% endif %}
+
+      <div class="field">
+        <label>Category Image <span class="gv-meta">— optional</span></label>
+        <label class="dropzone" id="add-category-dropzone" for="add-category-image">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5-9 9"/><path d="M15 8h3M16.5 6.5v3"/></svg>
+          <span class="dropzone-title">Upload category photo</span>
+          <span class="gv-meta">Click or drag &amp; drop — shown on the storefront's Shop by Category tile</span>
+          <span class="dropzone-filename" id="add-category-dropzone-filename"></span>
+        </label>
+        <input type="file" id="add-category-image" name="image" accept="image/*" class="sr-only">
+      </div>
 
       <div class="field">
         <label for="add-category-name">Category Name</label>
@@ -206,7 +227,7 @@
       </button>
     </div>
 
-    <form method="POST" action="{% url 'category_edit' edit_category.pk %}" class="modal-body" id="edit-category-form">
+    <form method="POST" action="{% url 'category_edit' edit_category.pk %}" enctype="multipart/form-data" class="modal-body" id="edit-category-form">
       {% csrf_token %}
 
       {% if edit_errors %}
@@ -220,6 +241,25 @@
       otherwise the category's stored values. Same rule as Products'
       _edit_modal_values(), written inline because it is two fields.
       {% endcomment %}
+      <div class="field">
+        <label>Category Image <span class="gv-meta">— optional</span></label>
+        {% if edit_category.image %}
+        <div class="cat-image-current">
+          <img src="{{ edit_category.image.url }}" alt="" width="56" height="56">
+          <label class="gv-meta" style="display:flex; align-items:center; gap:6px; font-weight:400;">
+            <input type="checkbox" name="remove_image" value="1"> Remove current image
+          </label>
+        </div>
+        {% endif %}
+        <label class="dropzone" id="edit-category-dropzone" for="edit-category-image">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5-9 9"/><path d="M15 8h3M16.5 6.5v3"/></svg>
+          <span class="dropzone-title">{% if edit_category.image %}Replace category photo{% else %}Upload category photo{% endif %}</span>
+          <span class="gv-meta">Click or drag &amp; drop</span>
+          <span class="dropzone-filename" id="edit-category-dropzone-filename"></span>
+        </label>
+        <input type="file" id="edit-category-image" name="image" accept="image/*" class="sr-only">
+      </div>
+
       <div class="field">
         <label for="edit-category-name">Category Name</label>
         <input id="edit-category-name" type="text" name="category_name" required
@@ -251,11 +291,17 @@
     openerIds: ['open-add-category-modal', 'open-add-category-modal-empty'],
     closerIds: ['close-add-category-modal', 'cancel-add-category-modal'],
     autoopenParam: 'add',
+    dropzoneId: 'add-category-dropzone',
+    fileInputId: 'add-category-image',
+    filenameId: 'add-category-dropzone-filename',
   });
 
   initModal({
     modalId: 'edit-category-modal',
     closerIds: ['close-edit-category-modal', 'cancel-edit-category-modal'],
+    dropzoneId: 'edit-category-dropzone',
+    fileInputId: 'edit-category-image',
+    filenameId: 'edit-category-dropzone-filename',
   });
 
   // Put the caret in the name field when a modal opens — it is the only thing

@@ -30,7 +30,7 @@ def notify_po_approved(procurement, actor):
             'supplier': {
                 'title': f'New purchase order: {procurement.po_number}',
                 'message': (
-                    f'Gerlyn Variety Store placed {procurement.po_number} with '
+                    f'GERLYN placed {procurement.po_number} with '
                     f'you for delivery to {procurement.branch.branch_name}.'
                 ),
                 'action_url': reverse('supplier_portal'),

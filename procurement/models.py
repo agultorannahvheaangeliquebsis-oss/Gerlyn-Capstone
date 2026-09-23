@@ -1,4 +1,7 @@
 
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
 from django.db import models
 from branches.models import Branch
 from inventory.models import Product
@@ -127,8 +130,14 @@ class Procurement(models.Model):
         null=True, blank=True,
         help_text='Date goods were most recently received against this PO.',
     )
+    # Zero is a legitimate value here — a Draft order with no lines yet, or
+    # any order before snapshot_supplier_costs/apply_agreed_terms has run,
+    # genuinely has no cost yet. This is a computed total (quantity x unit
+    # cost, summed), not a price or cost entered by a person, so it is only
+    # ever guarded against going negative, not against being zero.
     total_cost = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(Decimal('0'))],
     )
     status = models.CharField(
         max_length=24, choices=Status.choices,
@@ -194,6 +203,14 @@ class Procurement(models.Model):
     def __str__(self):
         return f"{self.po_number or f'Procurement #{self.id}'} - {self.branch} - {self.status}"
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(total_cost__gte=0),
+                name='procurement_total_cost_not_negative',
+            ),
+        ]
+
 
 # Temporary source-code compatibility for integrations that imported the old
 # enum member. Its value is now the explicit Approved state; no new database
@@ -220,7 +237,9 @@ class ProcurementItem(models.Model):
     unit_cost_snapshot = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
         editable=False,
-        help_text='Supplier cost copied when this purchase order is confirmed.',
+        validators=[MinValueValidator(Decimal('0.01'))],
+        help_text='Supplier cost copied when this purchase order is confirmed. '
+                  'Null until then; once set it must be greater than zero.',
     )
 
     # --- negotiation ----------------------------------------------------------
@@ -231,6 +250,9 @@ class ProcurementItem(models.Model):
     # procurement.views.procurement_supplier_confirm.
     proposed_unit_cost = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0.01'))],
+        help_text='Cost currently on the table for this line. Null until a '
+                  'proposal exists; once set it must be greater than zero.',
     )
 
     # --- new field ----------------------------------------------------------
@@ -268,6 +290,24 @@ class ProcurementItem(models.Model):
     def __str__(self):
         return f"{self.product.product_name} x{self.quantity_ordered}"
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(unit_cost_snapshot__isnull=True)
+                    | models.Q(unit_cost_snapshot__gt=0)
+                ),
+                name='procurementitem_unit_cost_snapshot_positive_or_null',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(proposed_unit_cost__isnull=True)
+                    | models.Q(proposed_unit_cost__gt=0)
+                ),
+                name='procurementitem_proposed_unit_cost_positive_or_null',
+            ),
+        ]
+
 
 class SupplierProduct(models.Model):
     """Which products a supplier currently carries.
@@ -299,7 +339,10 @@ class SupplierProduct(models.Model):
     )
     current_cost_price = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
-        help_text='Supplier current cost, copied when a PO is confirmed.'
+        validators=[MinValueValidator(Decimal('0.01'))],
+        help_text='Supplier current cost, copied when a PO is confirmed. '
+                  'Null until the supplier sets one; once set it must be '
+                  'greater than zero.'
     )
     lead_time_days = models.PositiveIntegerField(
         null=True, blank=True,
@@ -314,6 +357,15 @@ class SupplierProduct(models.Model):
     class Meta:
         unique_together = ('supplier', 'product')
         ordering = ['product__product_name']
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(current_cost_price__isnull=True)
+                    | models.Q(current_cost_price__gt=0)
+                ),
+                name='supplierproduct_current_cost_price_positive_or_null',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.product.product_name} <- {self.supplier}"

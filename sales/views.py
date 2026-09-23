@@ -1255,6 +1255,14 @@ def transaction_refund(request, pk):
             item_ids = request.POST.getlist('item_id')
             if not item_ids:
                 raise _OrderActionError('Select at least one item to refund.')
+            if len(item_ids) != len(set(item_ids)):
+                # Each duplicate would re-read the same pre-loop "remaining"
+                # figure (RefundItem rows for this submission aren't written
+                # until after every line passes), letting the same units be
+                # refunded and restocked more than once in a single request.
+                raise _OrderActionError(
+                    'That item was selected more than once — refund it in a single line.'
+                )
 
             sales_items = {
                 str(i.pk): i for i in

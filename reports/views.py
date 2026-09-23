@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from billing.models import BillingRecord
 
-from sales.models import SalesItem, SalesTransaction
+from sales.models import Refund, SalesItem, SalesTransaction
 from inventory.models import Batch, Inventory, WarehouseStock
 from inventory.alerts import EXPIRING_SOON_DAYS, _expiry_tier, alert_summary
 from procurement.models import Procurement
@@ -23,6 +23,12 @@ from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.timebounds import (
     local_day_bounds, local_month_bounds, local_range_bounds,
     parse_iso_date, range_from_request, resolve_date_range,
+)
+from reports.services import (
+    PIPELINE_ORDER_STATUSES, PROCUREMENT_COST_STATUSES, REVENUE_ORDER_STATUSES,
+    gross_sales_total, low_stock_count, net_sales_total, pipeline_sales,
+    pipeline_value_total, refund_value_total, revenue_sales,
+    scoped_report_querysets,
 )
 
 
@@ -40,42 +46,11 @@ from core.timebounds import (
 get_user_branch = branch_for_user
 
 
-def _scoped_querysets(user, override_branch_id=None):
-    """Sales/procurement/inventory/warehouse querysets scoped to the
-    EFFECTIVE branch: a Branch Manager or Staff account's own branch always
-    wins regardless of `override_branch_id` (they have no selector to send
-    one from — see operational_dashboard), an Owner's explicit
-    branch-selector choice is honoured when given, and an Owner with no
-    choice made sees every branch, same as before this parameter existed.
-    """
-    sales_qs = SalesTransaction.objects.all()
-    procurement_qs = Procurement.objects.all()
-    inventory_qs = Inventory.objects.select_related('product', 'branch').prefetch_related('product__price_tiers').all()
-    warehouse_qs = WarehouseStock.objects.select_related('product', 'warehouse__branch').all()
-
-    effective_branch = get_user_branch(user)
-    if effective_branch is None and user.role == User.Role.OWNER and override_branch_id:
-        effective_branch = Branch.objects.filter(pk=override_branch_id).first()
-
-    if effective_branch:
-        sales_qs = sales_qs.filter(branch=effective_branch)
-        procurement_qs = procurement_qs.filter(branch=effective_branch)
-        inventory_qs = inventory_qs.filter(branch=effective_branch)
-        warehouse_qs = warehouse_qs.filter(warehouse__branch=effective_branch)
-
-    # Backstop. effective_branch is None both for an Owner (correct: every
-    # branch) and for a Manager/Staff with a NULL profile branch, and the
-    # block above cannot tell them apart — so that account previously fell
-    # through with all four querysets unfiltered and saw the whole company.
-    # scope_queryset goes via branch_ids_for_user, which returns None only
-    # for the Owner (no-op here) and [] for an unassigned account (matches
-    # nothing), so it fails CLOSED.
-    sales_qs = scope_queryset(sales_qs, user, 'branch')
-    procurement_qs = scope_queryset(procurement_qs, user, 'branch')
-    inventory_qs = scope_queryset(inventory_qs, user, 'branch')
-    warehouse_qs = scope_queryset(warehouse_qs, user, 'warehouse__branch')
-
-    return sales_qs, procurement_qs, inventory_qs, warehouse_qs, effective_branch
+# Moved to reports/services.py (scoped_report_querysets) so
+# reports/api_views.py can share the exact same branch-scoping rule instead
+# of re-deriving its own — this name stays as the alias every call site in
+# this module already uses.
+_scoped_querysets = scoped_report_querysets
 
 
 # --- Dashboard: Inventory summary + Sales Trend by Branch ----------------
@@ -120,7 +95,9 @@ def _dashboard_inventory_metrics(inventory_qs):
         0,
     )
     total_units = sum(inv.quantity_on_hand for inv in records)
-    low_critical_count = sum(1 for inv in records if inv.restock)
+    # The canonical live predicate (reports.services.low_stock_count), not
+    # the stored Inventory.restock flag — see that function's docstring.
+    low_critical_count = low_stock_count(inventory_qs)
     return total_value, total_units, low_critical_count
 
 
@@ -270,8 +247,14 @@ def _dashboard_daily_series(sales_qs, procurement_qs, start, end):
     trend chart and each dashboard's previous-window comparison — excludes
     Cancelled and still-open orders from one place, rather than each caller
     remembering to.
+
+    `procurement_qs` is likewise narrowed to PROCUREMENT_COST_STATUSES (every
+    status except Cancelled — see reports/services.py) so a cancelled PO
+    can no longer inflate the Procurement Cost KPI/trend just for having
+    once been raised.
     """
     sales_qs = revenue_sales(sales_qs)
+    procurement_qs = procurement_qs.filter(status__in=PROCUREMENT_COST_STATUSES)
 
     n_days = (end - start).days + 1
     buckets = {
@@ -779,33 +762,14 @@ OPEN_ORDERS_LIMIT = 8
 # Neither belongs in Total Sales, the daily trend, the Sales-by-Branch donut
 # or the average transaction value.
 #
-# Every place the dashboards sum total_amount narrows its queryset through
-# revenue_sales() first (or through a helper that already does), so the
-# Reports Sales tab and the Billing Report — which scopes its revenue to
-# Completed the same way, see billing_report — can no longer report a
-# different total for the same rows.
-REVENUE_ORDER_STATUSES = [SalesTransaction.OrderStatus.COMPLETED]
-
-# The flip side of revenue: money a customer has committed but the store has
-# not realised yet. Deliberately the same non-terminal set the Open Orders
-# panel calls "open" (OPEN_ORDER_STATUSES) — an order is in the pipeline for
-# exactly as long as it is unfulfilled. Surfaced next to Total Sales as its
-# own figure, never added into it.
-PIPELINE_ORDER_STATUSES = list(OPEN_ORDER_STATUSES)
-
-
-def revenue_sales(sales_qs):
-    """Narrow a SalesTransaction queryset to realised revenue — Completed
-    orders only. The single definition of "counts as a sale" that every
-    range total, daily series and branch breakdown on the dashboards reads
-    through, so they cannot drift apart from each other or from Billing."""
-    return sales_qs.filter(order_status__in=REVENUE_ORDER_STATUSES)
-
-
-def pipeline_sales(sales_qs):
-    """Narrow to committed-but-unfulfilled orders (Pending / Approved /
-    Preparing) — the pipeline figure shown alongside Total Sales."""
-    return sales_qs.filter(order_status__in=PIPELINE_ORDER_STATUSES)
+# REVENUE_ORDER_STATUSES, PIPELINE_ORDER_STATUSES, revenue_sales() and
+# pipeline_sales() now live in reports/services.py (imported at the top of
+# this file) so reports/api_views.py reads the exact same definitions —
+# this module used to carry its own copy, which is how the API and the
+# template views drifted apart. PIPELINE_ORDER_STATUSES is deliberately the
+# same non-terminal set the Open Orders panel above calls "open"
+# (OPEN_ORDER_STATUSES): an order is in the pipeline for exactly as long as
+# it is unfulfilled.
 
 
 def _needs_attention_rows(summary, procurement_qs, sales_qs):
@@ -1412,8 +1376,19 @@ def reports_dashboard(request):
     revenue_qs = revenue_sales(sales_qs)
 
     total_orders = revenue_qs.count()
-    total_sales = revenue_qs.aggregate(t=Sum('total_amount'))['t'] or 0
-    avg_order_value = (total_sales / total_orders) if total_orders else 0
+    # Gross Sales (Completed orders, before refunds) vs. Net Sales (Gross
+    # minus Refund Value) — see reports/services.py for the shared
+    # definitions. `total_sales`, the headline KPI, is NET: a refunded order
+    # is still "Completed" (a refund never changes order_status — see
+    # sales.models.Refund) so gross_sales_total alone would keep counting
+    # money that was handed back. avg_order_value stays on the GROSS figure
+    # deliberately — it describes the size of a typical completed order, not
+    # a figure blended with refunds that don't line up one-to-one with this
+    # window's own orders.
+    gross_sales = gross_sales_total(sales_qs)
+    refund_value = refund_value_total(sales_qs)
+    total_sales = gross_sales - refund_value
+    avg_order_value = (gross_sales / total_orders) if total_orders else 0
     # Channel mix, not revenue — a pending online order is still an online
     # order — so this one stays on the full row set.
     online_orders = sales_qs.filter(
@@ -1422,10 +1397,10 @@ def reports_dashboard(request):
 
     # Committed but unfulfilled: orders a customer has placed that have not
     # been completed or cancelled (Pending / Approved / Preparing). Shown as
-    # its own line under the KPI rail, never folded into Total Sales — the
-    # Owner keeps sight of the pipeline without it inflating revenue.
+    # its own line under the KPI rail, never folded into Total/Net Sales —
+    # the Owner keeps sight of the pipeline without it inflating revenue.
     pipeline_qs = pipeline_sales(sales_qs)
-    pipeline_total = pipeline_qs.aggregate(t=Sum('total_amount'))['t'] or 0
+    pipeline_total = pipeline_value_total(sales_qs)
     pipeline_count = pipeline_qs.count()
 
     # Donut panel — built from the same revenue_qs as the KPIs above, so
@@ -1493,6 +1468,13 @@ def reports_dashboard(request):
         'sales_series': sales_series,
         'total_orders': total_orders,
         'total_sales': total_sales,
+        # Gross/Refund not currently rendered by reports_home.html (it only
+        # ever showed one "Total Sales" figure) — carried in context so the
+        # Net Sales figure above them is auditable, and for the web/API
+        # parity tests. See reports/services.py's module docstring for the
+        # definitions.
+        'gross_sales': gross_sales,
+        'refund_value': refund_value,
         'avg_order_value': avg_order_value,
         'online_orders': online_orders,
         # Committed-but-unfulfilled pipeline (Pending / Approved / Preparing),
@@ -2123,13 +2105,21 @@ def _procurement_status_chart(status_counts):
     return {'total': total, 'segments': segments, 'gradient': ', '.join(stops)}
 
 
-def _billing_payment_breakdown(completed_records, total_revenue):
-    """Revenue-by-payment-method rows for the Billing Report (completed orders only)."""
+def _billing_payment_breakdown(completed_records, total_revenue, refunds_by_transaction=None):
+    """Revenue-by-payment-method rows for the Billing Report (completed
+    orders only), net of any refund recorded against each row's own
+    transaction — the same Net Sales definition `total_revenue` itself uses
+    (see billing_report / reports/services.py). Netted per-row rather than
+    once at the end so the rows still sum to `total_revenue` exactly and
+    each pct below stays a real share of it, instead of the table quietly
+    summing to more than the KPI above it once a refund exists.
+    """
+    refunds_by_transaction = refunds_by_transaction or {}
     by_method = {}
     for r in completed_records:
         row = by_method.setdefault(r.payment_method, {'count': 0, 'total': 0})
         row['count'] += 1
-        row['total'] += r.amount_due
+        row['total'] += r.amount_due - refunds_by_transaction.get(r.transaction_id, 0)
 
     rows = [
         {
@@ -2321,9 +2311,22 @@ def billing_report(request):
         r for r in records
         if r.transaction and r.transaction.order_status == SalesTransaction.OrderStatus.COMPLETED
     ]
-    total_revenue = sum(r.amount_due for r in completed_records)
+    gross_revenue = sum(r.amount_due for r in completed_records)
+    # Net of refunds — a refund never changes order_status (see
+    # sales.models.Refund), so a refunded order is still "Completed" and
+    # still in completed_records; without this, a fully-refunded order kept
+    # counting its original amount_due as revenue forever.
+    refunds_by_transaction = dict(
+        Refund.objects.filter(
+            transaction_id__in=[r.transaction_id for r in completed_records]
+        ).values('transaction_id').annotate(total=Sum('total_amount')).values_list('transaction_id', 'total')
+    )
+    refund_value = sum(refunds_by_transaction.values())
+    total_revenue = gross_revenue - refund_value
 
-    payment_breakdown = _billing_payment_breakdown(completed_records, total_revenue)
+    payment_breakdown = _billing_payment_breakdown(
+        completed_records, total_revenue, refunds_by_transaction
+    )
 
     return render(request, 'reports/billing_report.html', {
         'records': records,
@@ -2343,6 +2346,11 @@ def billing_report(request):
         'branch_switch_carry': _range_carry(active_range, range_start, range_end),
         'completed_count': len(completed_records),
         'total_revenue': total_revenue,
+        # Not currently rendered by billing_report.html — carried for
+        # auditability and the web/API parity tests, same as
+        # reports_dashboard's gross_sales/refund_value.
+        'gross_revenue': gross_revenue,
+        'refund_value': refund_value,
         'collected': collected,
         'collected_count': len(collected_records),
         'outstanding': outstanding,
@@ -2394,7 +2402,9 @@ def inventory_report(request):
 
     total_units = sum(inv.quantity_on_hand for inv in records)
     total_value = sum(inv.value for inv in records)
-    low_critical_count = sum(1 for inv in records if inv.restock)
+    # The canonical live predicate (reports.services.low_stock_count), not
+    # the stored Inventory.restock flag — see that function's docstring.
+    low_critical_count = low_stock_count(inventory_qs)
     product_lines = len({inv.product_id for inv in records if inv.product_id})
 
     branch_summary = _inventory_branch_summary(records)

@@ -978,10 +978,10 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    highlight target besides. */
 .sb-tree-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 0 0 0 5px; }
 .sb-tree-file { min-height: 38px; font-weight: 500; color: var(--ink-600); }
-.sb-tree-file:hover { color: var(--action-700); }
+.sb-tree-file:hover { color: var(--action); }
 .sb-tree-file--active,
 .sb-tree-file--active:hover {
-  background: var(--sb-active-fill); color: var(--action-700); font-weight: 600;
+  background: var(--sb-active-fill); color: var(--action); font-weight: 600;
   border-radius: 0; box-shadow: none;
 }
 
@@ -1453,6 +1453,27 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
+
+/* The file-upload dropzone: Add/Edit Product's photo field first, now also
+   Add/Edit Category's. Shared here rather than duplicated per page — see
+   .sr-only above for the same reasoning. */
+.dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; text-align: center;
+  border: 1.5px dashed var(--input-line);
+  border-radius: var(--r-card);
+  padding: var(--s6) var(--s4);
+  cursor: pointer;
+  color: var(--ink-600);
+  transition: border-color .12s ease, background .12s ease;
+}
+.dropzone:hover, .dropzone.is-dragover {
+  border-color: var(--brand);
+  background: var(--green-50);
+}
+.dropzone svg { color: var(--ink-400); }
+.dropzone-title { font: 600 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
+.dropzone-filename { font: 400 13px/1.4 var(--font-sans); color: var(--action); word-break: break-all; }
 
 .toolbar { display: flex; gap: var(--s2); margin-bottom: var(--s4); flex-wrap: wrap; }
 .toolbar .input, .toolbar select { width: auto; min-width: 200px; }
@@ -2591,6 +2612,58 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    <tr> outright (display:flex turns off table layout). Cancel it rather
    than touching the shared rule itself. */
 .gv-table tr.tray-ncard { display: table-row; position: static; }
+
+/* ---- Notifications page layout/density (core/notification_center.html) —
+   page-scoped so the shared .page-head/.toolbar-search/.filter-tabs/.gv-table
+   components stay untouched everywhere else (see
+   feedback-scope-visual-changes-to-named-pages). Trims the header block now
+   that its subtitle is one short line, widens the search field to use the
+   width its card already claims, gives the Notification column the room its
+   two-line title+message needs, and tightens row padding for an
+   admin-density scan list. */
+.notif-page .page-head { margin-bottom: var(--s4); }
+.notif-page .toolbar-search { margin-bottom: var(--s3); }
+.notif-page .toolbar-search .search-field { max-width: none; }
+.notif-page .filter-tabs { margin-bottom: var(--s3); }
+
+.notif-table td { padding: 9px 16px; height: auto; }
+/* table-layout:fixed so the Notification column reliably gets its extra
+   share instead of the UA's auto-layout heuristic starving Branch/Category
+   down to a 3-line wrap to feed columns it guesses need more room. Scoped to
+   the desktop table (>860px) — below that .gv-table's shared responsive
+   rule turns every td into its own full-width stacked row, and a leftover
+   column percentage would fight that layout instead of sizing real columns. */
+@media (min-width: 861px) {
+  /* table-layout:fixed sizes columns purely from these percentages — a
+     per-cell min-width doesn't grow its own column track (verified: Chrome
+     just lets the cell's content overflow into the next column instead),
+     so the floor has to live on the table itself. 930px is the smallest
+     table width at which every one of the min-widths below is actually met
+     by its column's percentage; below that this makes the table wider than
+     its container, and the existing .table-wrap overflow-x:auto scrolls it
+     instead of letting Priority/Status/Action collide. */
+  .notif-table { table-layout: fixed; min-width: 930px; }
+  .notif-table th:nth-child(1), .notif-table td:nth-child(1) { width: 28%; }
+  .notif-table th:nth-child(2), .notif-table td:nth-child(2) { width: 13%; }
+  .notif-table th:nth-child(3), .notif-table td:nth-child(3) { width: 11%; }
+  .notif-table th:nth-child(4), .notif-table td:nth-child(4) { width: 13%; }
+  .notif-table th:nth-child(5), .notif-table td:nth-child(5) { width: 10%; min-width: 92px; }
+  .notif-table th:nth-child(6), .notif-table td:nth-child(6) { width: 13%; min-width: 118px; }
+  .notif-table th:nth-child(7), .notif-table td:nth-child(7) { width: 12%; min-width: 84px; }
+}
+@media (max-width: 860px) {
+  /* Branch is the least load-bearing of the seven fields on this page (see
+     the Category column and the branch chip in the page head) — hide it in
+     the stacked mobile card rather than making every card seven rows deep. */
+  .notif-table td[data-label="Branch"] { display: none; }
+  /* The shared stacked-card row is built for one value per td (row-flex,
+     label left / value right) — this cell carries two (title + message), so
+     that layout would force them onto one cramped line. Stack them the same
+     top-to-bottom way the desktop table already does, label first. */
+  .notif-table td[data-label="Notification"] {
+    flex-direction: column; align-items: flex-start; gap: 4px;
+  }
+}
 
 /* ---- full-page fallback context: same partial, no hover-gating ---- */
 .notif-page-list .tray-ncard {
