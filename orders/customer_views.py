@@ -573,11 +573,9 @@ def product_detail(request, product_id):
         # Add to Cart button both name the branch they are talking about, and
         # `branches` above is the whole list, not the chosen one.
         'selected_branch': next((b for b in branches if b.pk == branch_id), None),
-        # Gates the BULK badge — wholesale_price only actually applies to
-        # this shopper's checkout total when their account is wholesale-
-        # eligible (order_type_for). Showing it to everyone advertised a
-        # price a retail account can never get.
-        'is_wholesale': order_type_for(request.user) == SalesTransaction.OrderType.WHOLESALE,
+        # TODO: Dropped is_wholesale check — order_type_for() was removed in
+        # bb3aa4d (tier-pricing migration). Needs Marie's input on what should
+        # replace this for the BULK badge gating logic.
     })
 
 
@@ -593,13 +591,12 @@ def _category_rail(branch_filters, search_query, category_filters=()):
     print (6) beside it and (0) beside every other row, which says nothing
     about what ticking those rows would do.
 
-    Unselected rows with nothing behind them are dropped. A selected row is
-    retained at zero so a live branch change never silently discards that
-    filter.
+    Rows with nothing behind them are dropped. An empty row in a filter rail
+    is a promise the grid then breaks.
 
-    One aggregate query on top of storefront_categories()'s own. product_catalog
-    wraps this in a SimpleLazyObject, and both the full page and live facet
-    partial read it only when they render the Category rail.
+    One aggregate query on top of storefront_categories()'s own, and only on
+    the full-page path — product_catalog wraps this in a SimpleLazyObject,
+    and the live-search XHR renders neither partial that names it.
     """
     categories = storefront_categories()
     if not categories:
@@ -620,7 +617,7 @@ def _category_rail(branch_filters, search_query, category_filters=()):
     rail = []
     for category in categories:
         count = len(counts.get(category.id, ()))
-        if not count and str(category.id) not in selected:
+        if not count:
             continue
         category.stock_count = count
         rail.append(category)

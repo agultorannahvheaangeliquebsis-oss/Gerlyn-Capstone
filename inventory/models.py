@@ -263,14 +263,14 @@ class WarehouseStock(models.Model):
 
         branch = self.warehouse.branch
         if critical:
-            title = f'{self.product.product_name} is out of warehouse stock'
+            title = f'Out of Stock Alert: {self.product.product_name} (Warehouse)'
             message = (
                 f'{branch.branch_name} has 0 units of '
                 f'{self.product.product_name} in its warehouse.'
             )
             priority = PRIORITY_CRITICAL
         else:
-            title = f'{self.product.product_name} is low in warehouse stock'
+            title = f'Low Stock Alert: {self.product.product_name} (Warehouse)'
             message = (
                 f'{branch.branch_name}: {self.quantity_on_hand} warehouse '
                 f'units remain, at or below the reorder level of '
@@ -417,14 +417,14 @@ class Inventory(models.Model):
         )
 
         if critical:
-            title = f"{self.product.product_name} is out of stock"
+            title = f"Out of Stock Alert: {self.product.product_name}"
             message = (
                 f"{self.branch.branch_name} has 0 units of "
                 f"{self.product.product_name} on the floor."
             )
             priority = PRIORITY_CRITICAL
         else:
-            title = f"{self.product.product_name} is low on stock"
+            title = f"Low Stock Alert: {self.product.product_name}"
             message = (
                 f"{self.branch.branch_name}: {self.quantity_on_hand} units left, "
                 f"at or below the reorder level of {self.reorder_level}."

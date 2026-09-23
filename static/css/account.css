@@ -597,8 +597,7 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 
 /* ── Notifications ──────────────────────────────────────────────────── */
 .notif-row {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 14px; padding: 13px 16px;
+  display: flex; align-items: flex-start; gap: 14px; padding: 13px 16px;
   border-bottom: 1px solid var(--line-soft);
 }
 .notif-row:last-child { border-bottom: 0; }

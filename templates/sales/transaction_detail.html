@@ -300,7 +300,7 @@ this form is forged, so hiding the control is convenience, not the guard.
     <div class="row-between mb-4">
       <h3>Payment Status</h3>
       {% if billing %}
-        {% include "partials/_payment_status_pill.html" with status=billing.status %}
+        {% include "partials/_billing_status_pill.html" with status=billing.status %}
       {% endif %}
     </div>
     {% if billing %}
@@ -315,24 +315,22 @@ this form is forged, so hiding the control is convenience, not the guard.
       <tbody>
         <tr><td class="gv-meta">Amount due</td><td class="num strong" style="text-align:right;">₱{{ billing.amount_due|floatformat:2 }}</td></tr>
         <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ billing.payment_method }}</td></tr>
+        <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ billing.reference_number|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{% if billing.confirmed_by %}{{ billing.confirmed_by.get_full_name|default:billing.confirmed_by.username }}{% else %}—{% endif %}</td></tr>
       </tbody>
     </table>
-    {% comment %}
-    Related Billing Record — reference no., confirmed/voided by and when are
-    on that page; this strip is what identifies *which* record that is, next
-    to the button that opens it.
-    {% endcomment %}
-    <div class="row-between wrap mt-4" style="align-items:center;">
-      <div>
-        <div class="gv-label">Related Billing Record</div>
-        <div class="gv-meta mb-0">Billing #{{ billing.pk }} · recorded {{ billing.date_recorded|date:"j M Y" }}</div>
-      </div>
-      <div class="row">
-        <a class="btn" data-detail-modal="Billing Record" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
-        {% if billing.status != "Paid" %}
-          <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
-        {% endif %}
-      </div>
+    <div class="row mt-4" style="justify-content: flex-end;">
+      {% comment %}
+      data-detail-modal so the billing record swaps into this same overlay
+      instead of navigating the window away — the modal-to-modal hop that
+      Print PO uses. billing_detail.html extends base_template, so the
+      ?modal=1 fetch already returns the bare fragment.
+      {% endcomment %}
+      <a class="btn" data-detail-modal="Billing record"
+         href="{% url 'billing_detail' billing.pk %}">View billing record</a>
+      {% if billing.status == "Pending" %}
+        <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+      {% endif %}
     </div>
     {% else %}
       <p class="gv-meta">No billing record.</p>

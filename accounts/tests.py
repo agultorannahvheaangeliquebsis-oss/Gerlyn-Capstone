@@ -31,6 +31,26 @@ def _latest_otp():
     return re.search(r'login code is: (\d{6})', body).group(1)
 
 
+class ContactNumberValidatorTests(TestCase):
+    def test_accepts_every_format_already_in_use_across_seed_data_and_tests(self):
+        from accounts.validators import validate_ph_mobile_number
+
+        for value in (
+            '09171234567', '0917-123-4567', '+639171234567', '+63 917 123 4567',
+            '0917-000-0001', '0918-000-0000', '0999-000-0000',
+        ):
+            validate_ph_mobile_number(value)  # raises on failure
+
+    def test_rejects_obviously_wrong_input(self):
+        from django.core.exceptions import ValidationError
+
+        from accounts.validators import validate_ph_mobile_number
+
+        for value in ('not-a-number', '12345', '091712345', '+1234567890'):
+            with self.assertRaises(ValidationError):
+                validate_ph_mobile_number(value)
+
+
 class UserModalFlowTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -123,6 +143,54 @@ class UserModalFlowTests(TestCase):
         staff.refresh_from_db()
         self.assertTrue(staff.check_password('original'))
         self.assertEqual(staff.first_name, 'Ana')
+
+    def test_editing_sets_a_valid_contact_number_on_the_role_profile(self):
+        staff = User.objects.create_user(
+            username='ana', password='pw', role=User.Role.STAFF
+        )
+        response = self.client.post(reverse('accounts:user_edit', args=[staff.pk]), {
+            'username': 'ana', 'password': '', 'role': User.Role.STAFF,
+            'first_name': 'Ana', 'branch': self.branch.pk,
+            'contact_number': '0917-123-4567',
+        })
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        staff.refresh_from_db()
+        self.assertEqual(staff.staff_profile.contact_number, '0917-123-4567')
+
+    def test_editing_with_a_malformed_contact_number_reopens_the_modal(self):
+        staff = User.objects.create_user(
+            username='ana', password='pw', role=User.Role.STAFF
+        )
+        response = self.client.post(reverse('accounts:user_edit', args=[staff.pk]), {
+            'username': 'ana', 'password': '', 'role': User.Role.STAFF,
+            'first_name': 'Ana', 'branch': self.branch.pk,
+            'contact_number': 'not-a-number',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_edit_modal'])
+        self.assertIn(
+            'Enter a valid PH mobile number, e.g. 0917 123 4567 or +63 917 123 4567.',
+            response.context['edit_errors'],
+        )
+        staff.refresh_from_db()
+        self.assertEqual(staff.staff_profile.contact_number, '')
+
+    def test_editing_with_a_contact_number_already_used_elsewhere_is_refused(self):
+        ben = User.objects.create_user(
+            username='ben', password='pw', role=User.Role.STAFF
+        )
+        ben.staff_profile.contact_number = '0917-123-4567'
+        ben.staff_profile.save()
+        staff = User.objects.create_user(
+            username='ana', password='pw', role=User.Role.STAFF
+        )
+        response = self.client.post(reverse('accounts:user_edit', args=[staff.pk]), {
+            'username': 'ana', 'password': '', 'role': User.Role.STAFF,
+            'first_name': 'Ana', 'branch': self.branch.pk,
+            'contact_number': '0917-123-4567',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('That contact number is already in use.', response.context['edit_errors'])
 
     def test_non_owner_cannot_post(self):
         staff = User.objects.create_user(
@@ -398,6 +466,24 @@ class RegisterInputValidationTests(TestCase):
         self.assertRedirects(response, reverse('accounts:customer_dashboard'))
         self.assertTrue(User.objects.filter(username='newcustomer').exists())
 
+    def test_an_optional_contact_number_left_blank_still_succeeds(self):
+        response = self._register(contact_number='')
+        self.assertRedirects(response, reverse('accounts:customer_dashboard'))
+
+    def test_a_malformed_contact_number_is_rejected(self):
+        response = self._register(contact_number='12345')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(username='newcustomer').exists())
+
+    def test_a_contact_number_already_registered_is_rejected(self):
+        self._register()
+        self.client.logout()
+        response = self._register(
+            username='anothercustomer', email='another@example.com',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(username='anothercustomer').exists())
+
     def test_sixth_attempt_from_the_same_ip_within_the_window_is_refused(self):
         from accounts.rate_limit import REGISTER_MAX_ATTEMPTS
 
@@ -414,6 +500,49 @@ class RegisterInputValidationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(User.objects.filter(username='oneMoreUser').exists())
         self.assertContains(response, 'Too many sign-up attempts')
+
+
+class SelfEditContactNumberTests(TestCase):
+    """update_profile's contact-number branch — the same one internal
+    users hit through internal_settings.html, since both templates post to
+    this one view. Only customer login is exercised here; the branch itself
+    doesn't care which template rendered the form."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='shopper', password='pw', role=User.Role.CUSTOMER
+        )
+        self.client.force_login(self.user)
+
+    def test_a_valid_number_is_saved(self):
+        response = self.client.post(reverse('accounts:update_profile'), {
+            'contact_number': '0917-123-4567',
+        })
+        self.assertRedirects(response, reverse('accounts:profile'))
+        self.user.customer_profile.refresh_from_db()
+        self.assertEqual(self.user.customer_profile.contact_number, '0917-123-4567')
+
+    def test_a_malformed_number_is_rejected_with_a_field_error(self):
+        response = self.client.post(reverse('accounts:update_profile'), {
+            'contact_number': '12345',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context['errors']['contact_number'],
+            'Enter a valid PH mobile number, e.g. 0917 123 4567 or +63 917 123 4567.',
+        )
+        self.user.customer_profile.refresh_from_db()
+        self.assertEqual(self.user.customer_profile.contact_number, '')
+
+    def test_leaving_it_blank_does_not_touch_the_existing_number(self):
+        self.user.customer_profile.contact_number = '0917-123-4567'
+        self.user.customer_profile.save()
+        response = self.client.post(reverse('accounts:update_profile'), {
+            'contact_number': '',
+        })
+        self.assertRedirects(response, reverse('accounts:profile'))
+        self.user.customer_profile.refresh_from_db()
+        self.assertEqual(self.user.customer_profile.contact_number, '0917-123-4567')
 
 
 class SavedAddressTests(TestCase):

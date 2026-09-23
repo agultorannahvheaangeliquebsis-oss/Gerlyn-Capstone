@@ -7,7 +7,7 @@
   <div>
     <a class="back-link" href="{% url 'billing_list' %}">Billing Records</a>
     <h1 class="mt-2">Billing for {{ record.transaction.order_number }}
-      {% include "partials/_payment_status_pill.html" with status=record.status %}
+      {% include "partials/_billing_status_pill.html" with status=record.status %}
     </h1>
   </div>
   <div class="row" style="gap:var(--s2);">
@@ -26,22 +26,11 @@
         seen the cash or checked the reference number.
       </p>
     </div>
-    <div class="row">
-      <form method="POST" action="{% url 'billing_confirm' record.pk %}">
-        {% csrf_token %}
-        <input type="hidden" name="status" value="Rejected">
-        <button type="submit" class="btn btn-danger">Reject Payment</button>
-      </form>
-      <form method="POST" action="{% url 'billing_confirm' record.pk %}"
-            data-confirm="Marking {{ record.transaction.order_number }} as Paid is permanent and cannot be undone."
-            data-confirm-title="Mark this bill Paid?"
-            data-confirm-ok="Mark as Paid"
-            data-confirm-dismiss="Not yet">
-        {% csrf_token %}
-        <input type="hidden" name="status" value="Paid">
-        <button type="submit" class="btn btn-primary">Verify Payment</button>
-      </form>
-    </div>
+    <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
+      {% csrf_token %}
+      <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
+      <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
+    </form>
   </div>
 </div>
 {% endif %}
@@ -83,10 +72,10 @@
         <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ record.payment_method }}</td></tr>
         <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ record.reference_number|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date recorded</td><td style="text-align:right;">{{ record.date_recorded|date:"Y-m-d H:i" }}</td></tr>
-        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{% if record.confirmed_by %}{{ record.confirmed_by.get_full_name|default:record.confirmed_by.username }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ record.confirmed_by.username|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date confirmed</td><td style="text-align:right;">{{ record.date_confirmed|date:"Y-m-d H:i"|default:"—" }}</td></tr>
         {% if record.status == "Cancelled" %}
-        <tr><td class="gv-meta">Cancelled by</td><td style="text-align:right;">{% if record.voided_by %}{{ record.voided_by.get_full_name|default:record.voided_by.username }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="gv-meta">Cancelled by</td><td style="text-align:right;">{{ record.voided_by.username|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date cancelled</td><td style="text-align:right;">{{ record.date_voided|date:"Y-m-d H:i"|default:"—" }}</td></tr>
         {% endif %}
       </tbody>
@@ -117,8 +106,8 @@
           <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
           <h3>No proof uploaded</h3>
           <p>GCash or bank payments can attach a screenshot as evidence.</p>
-          {% if record.status == "Pending" or record.status == "Rejected" %}
-            <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
+          {% if record.status == "Pending" %}
+          <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
           {% endif %}
         </div>
       {% endif %}

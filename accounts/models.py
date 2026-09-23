@@ -5,6 +5,7 @@ from django.utils import timezone
 import uuid
 
 from core.module_permissions import default_allowed_modules
+from .validators import validate_ph_mobile_number
 
 
 def avatar_upload_path(instance, filename):
@@ -176,7 +177,7 @@ class OwnerProfile(models.Model):
         User, on_delete=models.CASCADE, related_name='owner_profile'
     )
     owner_name     = models.CharField(max_length=100)
-    contact_number = models.CharField(max_length=20)
+    contact_number = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
 
     def __str__(self):
         return self.owner_name
@@ -191,7 +192,7 @@ class BranchManagerProfile(models.Model):
         null=True, blank=True, related_name='managers'
     )
     manager_name   = models.CharField(max_length=100)
-    contact_number = models.CharField(max_length=20)
+    contact_number = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
 
     def __str__(self):
         return self.manager_name
@@ -206,7 +207,7 @@ class StaffProfile(models.Model):
         null=True, blank=True, related_name='staff'
     )
     staff_name     = models.CharField(max_length=100)
-    contact_number = models.CharField(max_length=20)
+    contact_number = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
     date_hired     = models.DateField(null=True, blank=True)
     shift_start    = models.TimeField(null=True, blank=True)
     shift_end      = models.TimeField(null=True, blank=True)
@@ -221,7 +222,7 @@ class CustomerProfile(models.Model):
     )
     first_name     = models.CharField(max_length=50)
     last_name      = models.CharField(max_length=50)
-    contact_number = models.CharField(max_length=20)
+    contact_number = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
     address        = models.TextField(blank=True)
 
     def __str__(self):
@@ -341,7 +342,7 @@ class SupplierProfile(models.Model):
                   "assign one to scope it to just that branch's dropdowns."
     )
     supplier_name     = models.CharField(max_length=100)
-    contact_number    = models.CharField(max_length=20)
+    contact_number    = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
     address           = models.TextField(blank=True)
     supplier_category = models.CharField(max_length=100, blank=True)
     contact_person    = models.CharField(max_length=100, blank=True)

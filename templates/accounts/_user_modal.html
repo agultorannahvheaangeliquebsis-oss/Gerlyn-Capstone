@@ -79,6 +79,15 @@ blank means "keep the current one", which is what an empty field already says.
                value="{% firstof form_data.email target.email '' %}">
       </div>
 
+      {% if which == "edit" %}
+      <div class="field">
+        <label for="{{ which }}-user-contact-number">Mobile Number</label>
+        <input id="{{ which }}-user-contact-number" type="tel" name="contact_number"
+               placeholder="+63 9XX XXX XXXX"
+               value="{% firstof form_data.contact_number target.get_role_profile.contact_number '' %}">
+      </div>
+      {% endif %}
+
       <div class="grid-2">
         <div class="field">
           <label for="{{ which }}-user-role">Role</label>
