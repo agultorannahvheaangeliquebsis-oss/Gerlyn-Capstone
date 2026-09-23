@@ -15,6 +15,7 @@ business record plus its action link.
 | Order delivered | An online Delivery order moves to Completed | Customer who placed it | Low | SalesTransaction; customer order tracking |
 | Payment verified | Pending payment moves to Paid | Customer attached to the order | Low | BillingRecord; customer order tracking |
 | Payment rejected | Pending payment moves to Rejected | Customer; Owner; affected branch Manager/Staff with Billing access; deciding actor is excluded from matrix fan-out | High | BillingRecord; customer order tracking or internal billing detail |
+| Expiry write-off | The daily expiry sweep removes one or more due batches, unattended (no actor) | Owner; affected branch Manager/Staff with access to the affected stock module | High | One notice per (branch, Floor/Warehouse Stock) group per sweep run — never per batch; Expired tab |
 
 Manager and Staff delivery is both branch-scoped and module-gated. Owners are
 global. Supplier and customer messages use their own portal links and never
@@ -31,5 +32,7 @@ this idempotent command once per day in production:
 python manage.py dispatch_notifications
 ```
 
-The dispatcher checks the event/reference/recipient tuple and does not create
-duplicates when it runs again.
+Before dispatching notifications, the same command removes due floor and
+warehouse batches and records one batch-linked `Expiry Write-off` movement
+per lot. Both steps are idempotent: repeated runs neither deduct stock nor
+create notifications twice.

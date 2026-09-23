@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -93,6 +94,12 @@ INSTALLED_APPS = [
     'billing',
     'reports',
     'orders',
+    # Append-only record of every data change (who, what, when, before/after).
+    # Listed last so its signal handlers run after every other app's own
+    # post_save handlers have finished adjusting the row.
+    'audit',
+    # Encrypted, off-site database + uploaded-file backups (Backblaze B2).
+    'backups',
     # The DRF API (/api/) is served same-origin by this project, so no CORS
     # layer is needed. (The `frontend-react` branch, which calls it from a Vite
     # dev server on :5173, re-adds django-cors-headers.)
@@ -127,6 +134,9 @@ MIDDLEWARE = [
     # Per-user module access (core.module_permissions) — after Auth (needs
     # request.user) and Message (denial shows a message) middleware.
     'accounts.middleware.ModulePermissionMiddleware',
+    # Remembers which request (and so which user) a data change belongs to,
+    # so the audit log can name its actor. Needs request.user, so after Auth.
+    'audit.middleware.AuditContextMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Backs the idle-timeout / back-button auth guard: blocks the browser
     # from serving a cached authenticated page after logout or session expiry.
@@ -135,6 +145,49 @@ MIDDLEWARE = [
 
 if DEBUG:
     MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
+
+# --- Audit log --------------------------------------------------------------
+# AUDIT_ENABLED=False switches change capture off entirely (emergencies only —
+# nothing is recorded while it is off).
+#
+# AUDIT_DB_TRIGGERS installs MySQL triggers that refuse UPDATE/DELETE on the
+# audit table, so the log stays append-only even against code or a database
+# session that bypasses the app. Off while running the test suite (Django's
+# TransactionTestCase flush issues DELETEs the trigger would reject); the
+# trigger itself is covered by a dedicated test instead.
+AUDIT_ENABLED = env_bool('AUDIT_ENABLED', True)
+TESTING = len(sys.argv) > 1 and sys.argv[1] == 'test'
+AUDIT_DB_TRIGGERS = env_bool('AUDIT_DB_TRIGGERS', not TESTING)
+
+# --- Backups ------------------------------------------------------------------
+# See docs/backup-and-restore.md. Every value below comes from the environment
+# (Railway Variables in production, .env locally); none has a usable default,
+# so an unconfigured install simply reports "not set up" on the Backup Status
+# page instead of half-working.
+#
+# BACKUP_STORAGE: 'b2' (Backblaze, S3-compatible API) or 'local' (a folder —
+# for trying it out and for the tests). Defaults to b2 once a bucket is set.
+BACKUP_STORAGE = os.environ.get('BACKUP_STORAGE', 'b2' if os.environ.get('B2_BUCKET') else 'local')
+BACKUP_LOCAL_DIR = Path(os.environ.get('BACKUP_LOCAL_DIR', str(BASE_DIR / 'tmp_backups')))
+B2_KEY_ID = os.environ.get('B2_KEY_ID', '')
+B2_APPLICATION_KEY = os.environ.get('B2_APPLICATION_KEY', '')
+B2_BUCKET = os.environ.get('B2_BUCKET', '')
+B2_ENDPOINT = os.environ.get('B2_ENDPOINT', '')
+# 32 random bytes, url-safe base64. Backups are encrypted with a key derived
+# from this before they leave the server; without it they cannot be read.
+BACKUP_ENCRYPTION_KEY = os.environ.get('BACKUP_ENCRYPTION_KEY', '')
+# The web service runs the daily backup itself (backups/scheduler.py) at this
+# hour, UTC (19 = 03:00 Manila). BACKUP_SCHEDULER=False turns that off.
+BACKUP_SCHEDULER = env_bool('BACKUP_SCHEDULER', True)
+BACKUP_SCHEDULE_HOUR_UTC = int(os.environ.get('BACKUP_SCHEDULE_HOUR_UTC', '19'))
+# OPTIONAL: lets an external cron start a backup over HTTP (not needed while
+# the built-in schedule is on). Unset = that endpoint does not exist (404).
+BACKUP_TRIGGER_TOKEN = os.environ.get('BACKUP_TRIGGER_TOKEN', '')
+# The command-line tools, if they are not on PATH (e.g. on Windows).
+BACKUP_MYSQLDUMP = os.environ.get('BACKUP_MYSQLDUMP', 'mysqldump')
+BACKUP_MYSQL = os.environ.get('BACKUP_MYSQL', 'mysql')
+# The status page flags a backup as overdue after this many hours.
+BACKUP_STALE_HOURS = int(os.environ.get('BACKUP_STALE_HOURS', '26'))
 
 # Trust the deployed origin for POSTs (set once the app has a real URL),
 # e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app

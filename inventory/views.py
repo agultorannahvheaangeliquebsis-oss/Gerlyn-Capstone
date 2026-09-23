@@ -24,9 +24,9 @@ from .models import (
     ProductImportMappingTemplate, OpeningStockImport,
 )
 from .services import (
-    OpeningStockDuplicateError, OpeningStockValidationError,
+    ExpiryProcessingError, OpeningStockDuplicateError, OpeningStockValidationError,
     canonical_opening_fingerprint, commit_opening_stock_import,
-    credit_floor_stock, opening_preview_summary,
+    credit_floor_stock, expire_due_batches, opening_preview_summary,
     parse_opening_stock_workbook, reverse_opening_stock_import,
     validate_opening_stock_rows,
 )
@@ -393,12 +393,12 @@ def product_add(request):
                     is_pwd_eligible=bool(request.POST.get('is_pwd_eligible')),
                     is_senior_eligible=bool(request.POST.get('is_senior_eligible')),
                 )
-                ProductPriceTier.objects.bulk_create([
-                    ProductPriceTier(
+                # Row by row rather than bulk_create: bulk_create emits no signals, so the
+                # audit log would record the ladder being cleared but never what replaced it.
+                for quantity, price in price_tiers:
+                    ProductPriceTier.objects.create(
                         product=product, min_quantity=quantity, unit_price=price
                     )
-                    for quantity, price in price_tiers
-                ])
                 # request.FILES.getlist() returns EVERY file sent under name="images".
                 for index, image_file in enumerate(images):
                     ProductImage.objects.create(
@@ -492,12 +492,12 @@ def product_edit(request, pk):
                 # Sales already hold their own frozen unit_price, so rewriting
                 # tiers never reprices a sale that has already happened.
                 product.price_tiers.all().delete()
-                ProductPriceTier.objects.bulk_create([
-                    ProductPriceTier(
+                # Row by row rather than bulk_create: bulk_create emits no signals, so the
+                # audit log would record the ladder being cleared but never what replaced it.
+                for quantity, price in price_tiers:
+                    ProductPriceTier.objects.create(
                         product=product, min_quantity=quantity, unit_price=price
                     )
-                    for quantity, price in price_tiers
-                ])
 
                 # 1. Delete images the user ticked for removal (file + row).
                 delete_ids = request.POST.getlist('delete_images')
@@ -1219,12 +1219,12 @@ def product_import_preview(request):
             # it is a visible act rather than an omission.
             if row['price_tiers']:
                 product.price_tiers.all().delete()
-                ProductPriceTier.objects.bulk_create([
-                    ProductPriceTier(
+                # Row by row rather than bulk_create: bulk_create emits no signals, so the
+                # audit log would record the ladder being cleared but never what replaced it.
+                for quantity, price in row['price_tiers']:
+                    ProductPriceTier.objects.create(
                         product=product, min_quantity=quantity, unit_price=price
                     )
-                    for quantity, price in row['price_tiers']
-                ])
 
     if any_new_category:
         bust_categories_cache()
@@ -1423,20 +1423,25 @@ def alerts_center(request):
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
 @require_POST
 def expiry_write_off(request, pk):
-    """Confirm-and-remove one expired Floor Stock BATCH, reached from the
-    Expired tab of Alerts Center. Zeroes just that lot — not the whole
-    product/branch row, which may still have other, unexpired batches — and
-    logs it as a write-off. A deliberate, one-way action a human triggers,
-    never anything automatic.
+    """Manual fallback for one expired Floor OR Warehouse Stock batch,
+    reached from the Expired tab of Alerts Center. Zeroes just that lot —
+    not the whole product/branch row, which may still have other,
+    unexpired batches — and logs it as a write-off. The daily sweep
+    normally handles this automatically; this action uses the same
+    service when the scheduler has not run yet.
+
+    Warehouse stock gets this action directly, the same as Floor — there is
+    no reason an expired warehouse lot should have to be transferred to the
+    floor first just to become eligible for write-off; that would only add
+    a pointless extra step (and briefly show it as available on the floor,
+    which it never actually was).
 
     Distinct from inventory_edit (Owner/Branch Manager only, for the
     reorder level): this only ever zeroes a lot that is ALREADY expired, so
-    it is open to Staff too — "only after staff confirms the expiry" is the
-    whole point of this action existing.
+    it is open to Staff too as a safe operational fallback.
     """
     batch = get_object_or_404(
-        Batch.objects.select_related('product', 'branch'),
-        pk=pk, location=Batch.Location.FLOOR,
+        Batch.objects.select_related('product', 'branch'), pk=pk,
     )
     if not user_can_access_branch(request.user, batch.branch_id):
         messages.error(request, 'That batch belongs to another branch.')
@@ -1449,39 +1454,20 @@ def expiry_write_off(request, pk):
         )
         return redirect('alerts_center')
 
-    with transaction.atomic():
-        locked = Batch.objects.select_for_update().get(pk=batch.pk)
-        before = locked.quantity
-        if before > 0:
-            locked.quantity = 0
-            locked.save(update_fields=['quantity'])
-
-            # Batches back the aggregate row's quantity_on_hand — writing
-            # off a lot has to bring the row down with it, the same as any
-            # other floor-stock-reducing movement.
-            inv = get_object_or_404(
-                Inventory.objects.select_for_update(),
-                product=locked.product, branch=locked.branch,
-            )
-            inv_before = inv.quantity_on_hand
-            inv.quantity_on_hand = max(inv.quantity_on_hand - before, 0)
-            inv.save()
-
-            StockMovement.objects.create(
-                inventory=inv,
-                location_type=StockMovement.LocationType.FLOOR,
-                movement_type=StockMovement.MovementType.MANUAL_OUT,
-                quantity_change=-before,
-                quantity_before=inv_before,
-                quantity_after=inv.quantity_on_hand,
-                notes=f'Expired batch {locked.batch_number} written off by '
-                      f'{request.user.get_full_name() or request.user.username}',
-                created_by=request.user,
-            )
+    try:
+        result = expire_due_batches(
+            actor=request.user,
+            batch_ids=[batch.pk],
+            locations=[batch.location],
+        )
+    except ExpiryProcessingError as exc:
+        messages.error(request, str(exc))
+        return redirect('alerts_center')
 
     messages.success(
         request,
-        f'{batch.product.product_name} at {batch.branch.branch_name} written off ({before} unit{"s" if before != 1 else ""}).'
+        f'{batch.product.product_name} at {batch.branch.branch_name} written off '
+        f'({result.unit_count} unit{"s" if result.unit_count != 1 else ""}).'
     )
     return redirect('alerts_center')
 
@@ -1491,9 +1477,14 @@ def expiry_write_off(request, pk):
 # ─────────────────────────────────────────────
 
 def _inventory_list_context(request):
+    # .sellable() annotates available_qty (quantity_on_hand with any expired
+    # batch's quantity already netted out) — used below for Status/counts
+    # instead of the raw column, so an expired lot reads as gone from this
+    # screen the moment its date passes, not only after the daily sweep
+    # actually removes it from quantity_on_hand.
     records = Inventory.objects.select_related(
         'product', 'product__category', 'branch'
-    ).all()
+    ).sellable()
 
     # Managers/staff see only their own branch (server-side, not just the UI).
     # scope_queryset, not `if user_branch:`: user_branch is None for an Owner
@@ -1539,11 +1530,14 @@ def _inventory_list_context(request):
     branch_totals, branch_alerts = {}, {}
     last_change = None
     for r in records:
-        # Computed live from quantity_on_hand/reorder_level, not from the
+        # Computed live from available_qty/reorder_level, not from the
         # stored Inventory.restock flag — that flag is only ever recomputed
         # inside Inventory.save(), so anything that bypasses save() (bulk
         # update, a data import) leaves it stale with nothing to catch it.
-        status = stock_status(r.quantity_on_hand, r.reorder_level)
+        # available_qty (not quantity_on_hand) so a product whose only stock
+        # has expired reads as No Stock here immediately, not just once the
+        # daily sweep has actually zeroed the batch.
+        status = stock_status(r.available_qty, r.reorder_level)
 
         # Scope-bar tallies: counted before the branch filter, so every segment
         # shows what it would return. The search and category filters do apply
@@ -1570,8 +1564,16 @@ def _inventory_list_context(request):
     pairs = {(r.product_id, r.branch_id) for r, _ in matching}
     batches_by_pair = {}
     if pairs:
+        today = timezone.localdate()
+        # Excludes a batch whose expiry_date has arrived — it should not be
+        # visible here as a lot to sell from any more, even though it is
+        # only actually zeroed out by the daily sweep (or the "Write off"
+        # action on Alerts Center's Expired tab). Mirrors sellable()'s own
+        # non-expired filter.
         batch_qs = Batch.objects.filter(
             location=Batch.Location.FLOOR, quantity__gt=0
+        ).filter(
+            models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=today)
         ).order_by(models.F('expiry_date').asc(nulls_last=True))
         for b in batch_qs:
             key = (b.product_id, b.branch_id)
@@ -2097,9 +2099,14 @@ def _warehouse_stock_list_context(request):
     if user_branch:
         try:
             warehouse = Warehouse.objects.get(branch=user_branch)
+            # .sellable() nets out any expired-lot quantity into available_qty
+            # — see _inventory_list_context's identical treatment of Floor
+            # Stock, and WarehouseStockQuerySet.sellable()'s own docstring.
             stock_records = WarehouseStock.objects.filter(
                 warehouse=warehouse
-            ).select_related('product', 'product__category', 'warehouse', 'warehouse__branch')
+            ).select_related(
+                'product', 'product__category', 'warehouse', 'warehouse__branch'
+            ).sellable()
         except Warehouse.DoesNotExist:
             messages.error(
                 request,
@@ -2111,7 +2118,7 @@ def _warehouse_stock_list_context(request):
         # Owner sees all warehouses, narrowed to one via branch_filter if set.
         stock_records = WarehouseStock.objects.select_related(
             'product', 'product__category', 'warehouse', 'warehouse__branch'
-        ).all()
+        ).sellable()
         warehouse = None
         if branch_filter:
             stock_records = stock_records.filter(warehouse__branch_id=branch_filter)
@@ -2143,7 +2150,9 @@ def _warehouse_stock_list_context(request):
         'Critical': 'critical', 'Low Stock': 'low',
         'In Stock': 'in_stock', 'No Stock': 'no_stock',
     }
-    matching = [(s, stock_status(s.quantity_on_hand, s.reorder_level)) for s in stock_records]
+    # available_qty, not quantity_on_hand — see _inventory_list_context's
+    # identical reasoning for Floor Stock.
+    matching = [(s, stock_status(s.available_qty, s.reorder_level)) for s in stock_records]
     for _, status in matching:
         counts[key_for[status]] += 1
 
@@ -2155,8 +2164,13 @@ def _warehouse_stock_list_context(request):
     pairs = {(s.product_id, s.warehouse.branch_id) for s, _ in matching}
     batches_by_pair = {}
     if pairs:
+        today = timezone.localdate()
+        # Same expiry exclusion as _inventory_list_context's Floor Stock
+        # batch_qs — a due lot stops appearing as its own row here too.
         batch_qs = Batch.objects.filter(
             location=Batch.Location.WAREHOUSE, quantity__gt=0
+        ).filter(
+            models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=today)
         ).order_by(models.F('expiry_date').asc(nulls_last=True))
         for b in batch_qs:
             key = (b.product_id, b.branch_id)
@@ -2184,9 +2198,15 @@ def _warehouse_stock_list_context(request):
             branch=request_target_branch
         ).first()
         if request_warehouse:
-            request_warehouse_stock = WarehouseStock.objects.filter(
-                warehouse=request_warehouse, quantity_on_hand__gt=0
-            ).select_related('product')
+            # available_qty (expired lots excluded), not raw quantity_on_hand
+            # — this list is what staff may request onto the floor, and an
+            # expired warehouse lot has nothing sellable behind it to send.
+            request_warehouse_stock = [
+                s for s in WarehouseStock.objects.filter(
+                    warehouse=request_warehouse
+                ).select_related('product').sellable()
+                if s.available_qty > 0
+            ]
 
     return {
         'active_page': 'warehouse_stock',
@@ -2946,10 +2966,18 @@ def transfer_complete(request, pk):
                             warehouse=transfer.warehouse,
                             product=item.product
                         )
-                        if qty_release > ws.quantity_on_hand:
+                        batch_available = Batch.available_quantity(
+                            item.product, transfer.source_branch,
+                            Batch.Location.WAREHOUSE,
+                        )
+                        available = (
+                            ws.quantity_on_hand if batch_available is None
+                            else min(ws.quantity_on_hand, batch_available)
+                        )
+                        if qty_release > available:
                             raise _InsufficientStockError(
                                 f'Not enough warehouse stock for {item.product.product_name} to '
-                                f'release this transfer — available: {ws.quantity_on_hand}, '
+                                f'release this transfer — available: {available}, '
                                 f'being released: {qty_release}.'
                             )
                         qty_before_warehouse = ws.quantity_on_hand
@@ -3081,6 +3109,7 @@ def transfer_complete(request, pk):
                         Batch.consume_fefo(
                             item.product, transfer.source_branch,
                             Batch.Location.FLOOR, qty_release,
+                            include_expired=True,
                         )
 
                 released_total = sum(

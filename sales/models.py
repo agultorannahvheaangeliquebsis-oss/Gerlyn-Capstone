@@ -5,6 +5,8 @@
 #   - Added delivery_address (for Online orders)
 #   - All original fields untouched
 
+from datetime import timedelta
+
 from django.db import models, transaction
 from branches.models import Branch
 from inventory.models import Product
@@ -228,6 +230,31 @@ class SalesTransaction(models.Model):
         help_text="amount_tendered minus total_amount, frozen at sale time."
     )
 
+    # --- refunds --------------------------------------------------------------
+    # When this order actually became Completed — set by transaction_set_status
+    # the moment it moves there, and at creation for a walk-in Cash sale (which
+    # is Completed on the spot, never passing through transaction_set_status at
+    # all). NOT the same as transaction_date: an online order can sit Pending
+    # for days first, so transaction_date would understate its refund window.
+    # Null for an order that has never been Completed. Orders that were already
+    # Completed before this field existed were backfilled from transaction_date
+    # (the closest honest approximation — see the migration).
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # A refund is only offered within this many days of completion — a
+    # grocery-appropriate return window, not a statutory one. One named
+    # constant instead of a bare "3" wherever the rule is checked.
+    REFUND_WINDOW = timedelta(days=3)
+
+    def refund_window_expired(self):
+        """True once REFUND_WINDOW has passed since this order was completed,
+        or when there is no completion date to measure from at all (an order
+        that has never been Completed has nothing to refund yet either)."""
+        if self.completed_at is None:
+            return True
+        from django.utils import timezone
+        return timezone.now() - self.completed_at > self.REFUND_WINDOW
+
     def can_apply_pwd_senior_discount(self):
         """Whether staff may apply the statutory PWD/Senior discount here.
 
@@ -388,3 +415,80 @@ class SalesItemBatchConsumption(models.Model):
     class Meta:
         verbose_name = "Sales item batch consumption"
         verbose_name_plural = "Sales item batch consumptions"
+
+
+class Refund(models.Model):
+    """One refund event against a Completed, Paid order — a financial
+    correction after a legitimate sale, distinct from voiding a completed sale
+    (transaction_set_status's Completed -> Cancelled path): a void undoes the
+    whole order because something was wrong with it; a refund hands back money
+    for specific items on an order that was otherwise correct. Owner/Branch
+    Manager only (sales.views.transaction_refund), within
+    SalesTransaction.REFUND_WINDOW of completion.
+
+    No payment gateway is integrated (Chapter 1, Limitation 1), so exactly
+    like a payment being recorded rather than processed, this is a RECORD that
+    money was handed back — refund_method says how, but nothing here moves
+    anything. Order status and the billing record's Paid status are left
+    untouched; this row (and its RefundItems) is the only source of truth for
+    how much of an order has been refunded, which is why an order can carry
+    more than one — a customer bringing back 2 items today and 1 more next
+    week is two Refund rows, not an edit to the first one.
+    """
+    class RefundMethod(models.TextChoices):
+        CASH = 'Cash', 'Cash'
+        GCASH = 'GCash', 'GCash'
+        BANK_TRANSFER = 'Bank Transfer', 'Bank Transfer'
+
+    transaction = models.ForeignKey(
+        SalesTransaction, on_delete=models.CASCADE, related_name='refunds'
+    )
+    reason = models.CharField(max_length=255)
+    refund_method = models.CharField(max_length=20, choices=RefundMethod.choices)
+    # The sum of this refund's RefundItem.amount, stored rather than summed on
+    # every read — same reasoning as SalesTransaction.total_amount.
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    refunded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER']},
+        related_name='refunds_issued',
+        help_text="The Owner or Branch Manager who issued this refund."
+    )
+    refunded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Refund #{self.id} - {self.transaction.order_number} - ₱{self.total_amount}"
+
+    class Meta:
+        ordering = ['-refunded_at']
+
+
+class RefundItem(models.Model):
+    """One line of a Refund — how much of one SalesItem came back, and in
+    what condition. condition decides the stock effect
+    (sales.views._restock_refunded_item): Sellable goes back onto the branch's
+    floor as a fresh, honestly-unknown-provenance batch (the same fallback
+    _create_void_reversal_batch already uses for a void reversal that can't be
+    traced to a real lot); Damaged changes nothing in stock at all.
+    """
+    class Condition(models.TextChoices):
+        SELLABLE = 'Sellable', 'Sellable'
+        DAMAGED = 'Damaged', 'Damaged / unsellable'
+
+    refund = models.ForeignKey(Refund, on_delete=models.CASCADE, related_name='items')
+    # CASCADE: a SalesItem is only ever removed by its SalesTransaction being
+    # removed (nothing edits/deletes one on its own), which would take this
+    # refund with it via `refund` above anyway — consistent with
+    # SalesItemBatchConsumption.sales_item just above.
+    sales_item = models.ForeignKey(
+        SalesItem, on_delete=models.CASCADE, related_name='refund_items'
+    )
+    quantity = models.PositiveIntegerField()
+    condition = models.CharField(max_length=10, choices=Condition.choices)
+    # quantity x the SalesItem's own frozen unit_price — already the price the
+    # customer actually paid (a PWD/Senior line's unit_price is already the
+    # discounted figure), so no discount arithmetic is redone here.
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.sales_item.product.product_name} x{self.quantity} ({self.condition})"

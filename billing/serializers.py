@@ -4,16 +4,6 @@ from rest_framework import serializers
 from django.urls import reverse
 from .models import BillingRecord
 
-# X-2 — the reference number is the only record of a GCash or bank transfer
-# with no payment gateway integrated; same rule billing.views.billing_create
-# enforces on the web form and orders.customer_views.checkout enforces for
-# GCash at checkout.
-REFERENCE_REQUIRED_METHODS = {
-    BillingRecord.PaymentMethod.GCASH,
-    BillingRecord.PaymentMethod.BANK_TRANSFER,
-}
-
-
 class BillingRecordSerializer(serializers.ModelSerializer):
     transactionId = serializers.PrimaryKeyRelatedField(source='transaction', read_only=True)
     orderNumber = serializers.CharField(source='transaction.order_number', read_only=True)
@@ -61,16 +51,25 @@ class BillingPaymentSerializer(serializers.Serializer):
     proofOfPayment = serializers.ImageField(required=False)
 
     def validate(self, data):
-        # X-2 — required for GCash/Bank Transfer, cleared for everything
-        # else, the same rule billing_create enforces on the web form.
+        # X-2 — what each method needs is BillingRecord.missing_payment_
+        # evidence, the same rule billing_create enforces on the web form.
+        # A proof already on the record counts. Anything not required is
+        # cleared.
         method = data.get('paymentMethod')
         reference = data.get('referenceNumber', '').strip()
-        if method in REFERENCE_REQUIRED_METHODS and not reference:
+        if method not in BillingRecord.REFERENCE_REQUIRED_METHODS:
+            reference = ''
+        has_proof = bool(
+            data.get('proofOfPayment')
+            or (self.instance is not None and self.instance.proof_of_payment)
+        )
+        missing = BillingRecord.missing_payment_evidence(method, reference, has_proof)
+        if missing:
             raise serializers.ValidationError(
-                {'referenceNumber': f'Enter the {method} reference number — we '
-                                     f'cannot match the payment to this order without it.'}
+                f'A {method} payment needs its {" and ".join(missing)} — we '
+                f'cannot match the payment to this order without it.'
             )
-        data['referenceNumber'] = reference if method in REFERENCE_REQUIRED_METHODS else ''
+        data['referenceNumber'] = reference
         return data
 
     def update(self, instance, validated_data):
@@ -116,23 +115,20 @@ class BillingConfirmSerializer(serializers.Serializer):
                 f'A {record.status} payment cannot be changed to {value}.'
             )
 
-        # Same proof gate billing_confirm enforces: a non-Cash method has no
-        # counter moment where handing over money and confirming it are the
-        # same event, so Paid needs a reference number or an uploaded proof
-        # of payment on record — otherwise this is the one irreversible
-        # status change (ALLOWED_STATUS_TRANSITIONS has no outbound edge
-        # from Paid) with zero evidence behind it.
-        if (
-            record is not None
-            and value == BillingRecord.PaymentStatus.PAID
-            and record.payment_method != BillingRecord.PaymentMethod.CASH
-            and not record.reference_number
-            and not record.proof_of_payment
-        ):
-            raise serializers.ValidationError(
-                f'A {record.payment_method} payment needs a reference number '
-                f'or an uploaded proof of payment before it can be marked Paid.'
+        # Same evidence gate billing_confirm enforces: Paid is the one
+        # irreversible status change (ALLOWED_STATUS_TRANSITIONS has no
+        # outbound edge from it), so what the method requires —
+        # BillingRecord.missing_payment_evidence — has to be on record first.
+        if record is not None and value == BillingRecord.PaymentStatus.PAID:
+            missing = BillingRecord.missing_payment_evidence(
+                record.payment_method, record.reference_number,
+                bool(record.proof_of_payment),
             )
+            if missing:
+                raise serializers.ValidationError(
+                    f'A {record.payment_method} payment needs its '
+                    f'{" and ".join(missing)} before it can be marked Paid.'
+                )
         return value
 
     def update(self, instance, validated_data):

@@ -83,6 +83,7 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     # Financials
     "transaction_list": "orders", "transaction_add": "orders",
     "transaction_detail": "orders", "transaction_set_status": "orders",
+    "transaction_refund": "orders",
     "billing_list": "billing", "billing_create": "billing",
     "billing_detail": "billing", "billing_confirm": "billing",
     # System & Monitoring
@@ -90,6 +91,9 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     "inventory_report": "reports", "procurement_report": "reports",
     "billing_report": "reports", "export_csv": "reports",
     "alerts_center": "alerts",
+    "audit_log_list": "audit",
+    "backup_status": "backups", "backup_run_now": "backups",
+    "backup_record_restore_test": "backups",
     # Administration
     "branch_list": "branches", "branch_add": "branches",
     "branch_edit": "branches", "branch_delete": "branches",

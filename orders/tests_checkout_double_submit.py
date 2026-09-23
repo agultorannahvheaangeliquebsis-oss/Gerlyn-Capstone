@@ -8,8 +8,10 @@ checkout_token (set when the cart page renders, rotated once consumed) plus
 an atomic cache.add() closes this: of two requests carrying the same token,
 only the first can ever win it.
 """
+import io
 from decimal import Decimal
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
@@ -119,9 +121,16 @@ class CheckoutDoubleSubmitTests(TestCase):
         retry_token = self.client.session['checkout_token']
         self.assertNotEqual(retry_token, token)
 
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new('RGB', (2, 2), color='white').save(buf, format='PNG')
         retry = self.client.post(reverse('orders:checkout'), {
             'mode_of_payment': 'GCash',
             'reference_number': 'GC-RETRY-1',
+            'proof_of_payment': SimpleUploadedFile(
+                'receipt.png', buf.getvalue(), content_type='image/png'
+            ),
             'fulfillment_type': 'Pickup',
             'checkout_token': retry_token,
         }, follow=True)

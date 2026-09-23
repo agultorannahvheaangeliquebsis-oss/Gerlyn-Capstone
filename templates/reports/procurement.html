@@ -55,7 +55,7 @@ status here, not emphasis.
   <div class="kpi-card">
     <span class="label">PO Value (Active)</span>
     <span class="value">₱{{ active_value|floatformat:2 }}</span>
-    {# Draft + Ordered, per the view — "active" is the two statuses, not one. #}
+    {# Draft plus all open delivery states, per the view. #}
   </div>
   <div class="kpi-card">
     <span class="label">Received Value</span>
@@ -137,7 +137,7 @@ for this to be built from existing primitives, and that includes the grid.
   {% endcomment %}
   <div class="card">
     <div class="card-pad" style="border-bottom:1px solid var(--line);">
-      <h3>Ordered vs Received</h3>
+      <h3>Open vs Received</h3>
       <p class="gv-meta mb-0">How much of the committed spend has arrived</p>
     </div>
     <div class="card-pad">
@@ -179,7 +179,11 @@ for this to be built from existing primitives, and that includes the grid.
           <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
           <td data-label="Status">
             {% if p.status == 'Received' %}<span class="pill pill-ok">Received</span>
-            {% elif p.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+            {% elif p.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+            {% elif p.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
+            {% elif p.status == 'Terms Agreed' %}<span class="pill pill-ok">Terms Agreed</span>
+            {% elif p.status == 'Pending Owner Review' or p.status == 'Pending Supplier Review' %}<span class="pill pill-warn">{{ p.status }}</span>
+            {% elif p.status == 'Approved' %}<span class="pill pill-info">Approved</span>
             {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
             {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}</td>
         </tr>

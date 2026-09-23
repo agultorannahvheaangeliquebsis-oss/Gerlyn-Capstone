@@ -242,9 +242,9 @@ def expiry_alerts(branch_ids=None):
             "quantity_on_hand": batch.quantity,
             "expiry_date": batch.expiry_date,
             "days_until_expiry": days,
-            # What the Expired tab's "Confirm Write-Off" action
-            # (inventory.views.expiry_write_off) targets — one specific lot,
-            # not the whole product/branch row.
+            # What the Expired tab's manual fallback targets if the daily
+            # automatic sweep has not run yet: one specific lot, not the
+            # whole product/branch row.
             "batch_id": batch.pk,
         })
 

@@ -54,13 +54,16 @@ class StockMovementAdmin(admin.ModelAdmin):
     list_display = (
         'created_at', 'inventory', 'movement_type',
         'quantity_before', 'quantity_change', 'quantity_after',
-        'reference_id', 'created_by'
+        'batch', 'reference_id', 'created_by'
     )
     list_filter = ('movement_type', 'inventory__branch')
-    search_fields = ('inventory__product__product_name',)
+    search_fields = (
+        'inventory__product__product_name', 'warehouse_stock__product__product_name',
+        'batch__batch_number', 'batch__external_lot_code',
+    )
     readonly_fields = (
         'inventory', 'movement_type', 'quantity_change',
-        'quantity_before', 'quantity_after', 'reference_id',
+        'quantity_before', 'quantity_after', 'batch', 'reference_id',
         'notes', 'created_by', 'created_at'
     )
 

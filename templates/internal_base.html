@@ -153,16 +153,16 @@ DOM — it is off-screen until focused (see .skip-link).
       {% endif %}
 
       {# -------------------------------------------------- System / Monitoring #}
-      {% if module_access.reports or module_access.alerts %}
+      {% if module_access.reports or module_access.alerts or request.user.role == 'OWNER' or request.user.is_superuser %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-monitoring" title="System &amp; Monitoring"
-          aria-expanded="{% if active_page == 'reports' or active_page == 'alerts' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'reports' or active_page == 'alerts' or active_page == 'audit' or active_page == 'backups' %}true{% else %}false{% endif %}">
           <i data-lucide="activity"></i>
           <span class="sb-label">System &amp; Monitoring</span>
           {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
           <i class="sb-chevron" data-lucide="chevron-right"></i>
         </button>
-        <ul class="sb-tree {% if active_page == 'reports' or active_page == 'alerts' %}open{% endif %}" id="tree-monitoring">
+        <ul class="sb-tree {% if active_page == 'reports' or active_page == 'alerts' or active_page == 'audit' or active_page == 'backups' %}open{% endif %}" id="tree-monitoring">
           <li class="sb-tree-inner">
             {% if module_access.reports %}
             <a class="sb-tree-file {% if active_page == 'reports' %}sb-tree-file--active{% endif %}" href="{% url 'reports_dashboard' %}"><span class="sb-label">Reports</span></a>
@@ -172,6 +172,11 @@ DOM — it is off-screen until focused (see .skip-link).
               <span class="sb-label">Alerts</span>
               {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
             </a>
+            {% endif %}
+            {# Owner accounts only — audit.views.can_view_audit_log is the real gate. #}
+            {% if request.user.role == 'OWNER' or request.user.is_superuser %}
+            <a class="sb-tree-file {% if active_page == 'audit' %}sb-tree-file--active{% endif %}" href="{% url 'audit_log_list' %}"><span class="sb-label">Audit Log</span></a>
+            <a class="sb-tree-file {% if active_page == 'backups' %}sb-tree-file--active{% endif %}" href="{% url 'backup_status' %}"><span class="sb-label">Backups</span></a>
             {% endif %}
           </li>
         </ul>

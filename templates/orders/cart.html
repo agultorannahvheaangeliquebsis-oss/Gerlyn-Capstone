@@ -128,7 +128,7 @@ every panel in the app to fix one column.
         confirm delivery with you, or you can collect it yourself.</p>
       {% endif %}
 
-      <form method="POST" action="{% url 'orders:checkout' %}" class="stack" id="checkout-form">
+      <form method="POST" action="{% url 'orders:checkout' %}" class="stack" id="checkout-form" enctype="multipart/form-data">
         {% csrf_token %}
         {% comment %}
         One-time token, paired with the atomic cache.add() guard in
@@ -212,6 +212,10 @@ every panel in the app to fix one column.
           <label for="reference_number">GCash reference <span class="gv-meta">— required when paying by GCash</span></label>
           <input id="reference_number" type="text" name="reference_number" placeholder="e.g. GC-2026-0001">
         </div>
+        <div class="field" id="gcash_proof_field" style="display:none;">
+          <label for="proof_of_payment">Proof of payment <span class="gv-meta">— required · screenshot of your GCash receipt</span></label>
+          <input id="proof_of_payment" type="file" name="proof_of_payment" accept="image/*" style="padding-top:10px;">
+        </div>
 
         <div class="banner banner-info">
           We record your payment method — payment itself happens on delivery or in store.
@@ -265,6 +269,8 @@ Delivery, independent of anything this script does.
     var addressField = document.getElementById('delivery_address_field');
     var gcashField = document.getElementById('gcash_reference_field');
     var gcashInput = document.getElementById('reference_number');
+    var gcashProofField = document.getElementById('gcash_proof_field');
+    var gcashProofInput = document.getElementById('proof_of_payment');
     var conflictBanner = document.getElementById('payment_delivery_conflict');
     if (!paymentSelect || !fulfillmentSelect) return;
 
@@ -294,6 +300,8 @@ Delivery, independent of anything this script does.
 
       if (gcashField) gcashField.style.display = isGCash ? '' : 'none';
       if (gcashInput) gcashInput.required = isGCash;
+      if (gcashProofField) gcashProofField.style.display = isGCash ? '' : 'none';
+      if (gcashProofInput) gcashProofInput.required = isGCash;
 
       if (conflictBanner) conflictBanner.style.display = isPayAtStoreDelivery ? '' : 'none';
       // Native validation, not a disabled submit button — a disabled button

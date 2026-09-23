@@ -8,11 +8,13 @@ These are the checks the ISO 25010 evaluation leans on for Functional
 Suitability, Reliability, and Security — so they must stay green.
 """
 import re
+from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management import call_command
 from django.test import Client, TestCase
+from django.utils import timezone
 
 from accounts.models import Address, User
 from branches.models import Branch
@@ -21,7 +23,7 @@ from inventory.models import (
     Inventory, Product, StockMovement, StockTransfer, StockTransferItem,
     Warehouse, WarehouseStock,
 )
-from procurement.models import Procurement
+from procurement.models import Procurement, ProcurementItem
 from sales.models import SalesTransaction
 
 
@@ -126,6 +128,10 @@ class AcceptanceTests(TestCase):
 
         staff = self.login('ana')
         for status in ['Approved', 'Preparing', 'Completed']:
+            if status == 'Completed':
+                # An order can only be completed once its payment is Paid.
+                order.billing_record.status = 'Paid'
+                order.billing_record.save(update_fields=['status'])
             staff.post(f'/sales/{order.pk}/status/{status}/')
 
         order.refresh_from_db()
@@ -141,7 +147,7 @@ class AcceptanceTests(TestCase):
 
     # ---------------------------------------------------------- scenario 3
     def test_short_delivery_flags_discrepancy_and_adds_only_delivered(self):
-        po = Procurement.objects.filter(status='Ordered').first()
+        po = Procurement.objects.filter(status=Procurement.Status.INCOMING).first()
         items = list(po.items.all())
         # A received delivery credits the branch WAREHOUSE, never floor
         # Inventory — floor stock only increases via an approved, released
@@ -162,7 +168,8 @@ class AcceptanceTests(TestCase):
 
         po.refresh_from_db()
         ws.refresh_from_db()
-        self.assertEqual(po.receipt_flag, 'Discrepancy')
+        self.assertEqual(po.status, Procurement.Status.PARTIALLY_RECEIVED)
+        self.assertEqual(po.receipt_flag, Procurement.ReceiptFlag.PARTIAL)
         self.assertEqual(ws.quantity_on_hand, before + items[0].quantity_ordered - 5)
         self.assertTrue(
             StockMovement.objects.filter(
@@ -172,7 +179,7 @@ class AcceptanceTests(TestCase):
         )
 
     def test_double_receive_is_blocked(self):
-        po = Procurement.objects.filter(status='Ordered').first()
+        po = Procurement.objects.filter(status=Procurement.Status.INCOMING).first()
         items = list(po.items.all())
         owner = self.login('gerlyn')
         owner.post(f'/procurement/deliveries/{po.pk}/receive/', {
@@ -330,25 +337,54 @@ class AcceptanceTests(TestCase):
         for po in Procurement.objects.exclude(supplier=supplier)[:3]:
             self.assertNotIn(po.po_number, html)
 
-    def test_supplier_can_confirm_delivery_date_on_own_order(self):
+    def test_supplier_can_propose_and_confirm_a_delivery_date_on_own_order(self):
+        """Delivery date is agreed through the negotiation flow now — the
+        supplier proposes it, the buyer accepts, and only the supplier's
+        own final confirmation locks it in (procurement.views' NEGOTIATION
+        section)."""
         supplier = User.objects.get(username='delmonte')
-        po = Procurement.objects.filter(supplier=supplier, status='Ordered').first()
+        branch = Branch.objects.filter(procurements__supplier=supplier).first()
+        product = Product.objects.filter(sku_code='SKU-009').first()
+        po = Procurement.objects.create(
+            branch=branch, supplier=supplier,
+            order_date=timezone.localdate(), status=Procurement.Status.APPROVED,
+            total_cost=0,
+        )
+        item = ProcurementItem.objects.create(
+            procurement=po, product=product, quantity_ordered=10,
+        )
+        proposed_date = timezone.localdate() + timedelta(days=14)
+
         client = Client()
         client.force_login(supplier)
-        client.post(f'/procurement/portal/{po.pk}/delivery-date/',
-                    {'delivery_date': '2026-08-01'})
+        client.post(f'/procurement/portal/{po.pk}/respond/', {
+            'action': 'propose', 'delivery_date': proposed_date.isoformat(),
+            f'unit_cost_{item.pk}': '23.00',
+        })
         po.refresh_from_db()
-        self.assertEqual(str(po.delivery_date), '2026-08-01')
+        self.assertEqual(po.status, Procurement.Status.PENDING_OWNER_REVIEW)
+
+        client.force_login(User.objects.get(username='gerlyn'))
+        client.post(f'/procurement/{po.pk}/respond/', {'action': 'accept'})
+
+        client.force_login(supplier)
+        client.post(f'/procurement/portal/{po.pk}/confirm/')
+
+        po.refresh_from_db()
+        self.assertEqual(po.status, Procurement.Status.INCOMING)
+        self.assertEqual(po.delivery_date, proposed_date)
 
     def test_supplier_cannot_mark_their_own_order_received(self):
         """Business rule 13: only the store validates a receipt."""
         supplier = User.objects.get(username='delmonte')
-        po = Procurement.objects.filter(supplier=supplier, status='Ordered').first()
+        po = Procurement.objects.filter(
+            supplier=supplier, status=Procurement.Status.INCOMING
+        ).first()
         client = Client()
         client.force_login(supplier)
         client.post(f'/procurement/{po.pk}/update-status/', {'status': 'Received'})
         po.refresh_from_db()
-        self.assertEqual(po.status, 'Ordered')
+        self.assertEqual(po.status, Procurement.Status.INCOMING)
 
     # --- customer order history + tracking ---------------------------------
     # The Context Diagram promises the Customer receives order status back.

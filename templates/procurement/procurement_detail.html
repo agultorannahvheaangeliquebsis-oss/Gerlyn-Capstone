@@ -68,7 +68,7 @@
   .status-select[open] .status-select-caret { transform: rotate(180deg); }
 
   .status-select-value { display: none; }
-  .status-select:has(input[value="Ordered"]:checked) .status-select-value[data-for="Ordered"],
+  .status-select:has(input[value="Incoming"]:checked) .status-select-value[data-for="Incoming"],
   .status-select:has(input[value="Received"]:checked) .status-select-value[data-for="Received"],
   .status-select:has(input[value="Cancelled"]:checked) .status-select-value[data-for="Cancelled"] {
     display: inline;
@@ -82,7 +82,7 @@
   beats a blank summary.
   {% endcomment %}
   @supports not selector(:has(*)) {
-    .status-select-value[data-for="{% if procurement.status == 'Draft' %}Cancelled{% else %}Received{% endif %}"] {
+    .status-select-value[data-for="{% if procurement.status == 'Draft' %}Cancelled{% elif procurement.status == 'Approved' %}Incoming{% else %}Received{% endif %}"] {
       display: inline;
     }
   }
@@ -143,7 +143,11 @@
     <a class="back-link" href="{% url 'procurement_list' %}">Purchase Orders</a>
     <h1 class="mt-2">{{ procurement.po_number }}
       {% if procurement.status == 'Received' %}<span class="pill pill-ok">Received</span>
-      {% elif procurement.status == 'Ordered' %}<span class="pill pill-info">Ordered</span>
+      {% elif procurement.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
+      {% elif procurement.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
+      {% elif procurement.status == 'Terms Agreed' %}<span class="pill pill-ok">Terms Agreed</span>
+      {% elif procurement.status == 'Pending Owner Review' or procurement.status == 'Pending Supplier Review' %}<span class="pill pill-warn">{{ procurement.status }}</span>
+      {% elif procurement.status == 'Approved' %}<span class="pill pill-info">Approved</span>
       {% elif procurement.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
       {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
     </h1>
@@ -189,7 +193,7 @@
     </div>
     {% if user.role == "OWNER" %}
     <form method="POST" action="{% url 'procurement_approve' procurement.pk %}" class="row"
-          data-confirm="{{ procurement.po_number }} will be approved and moved to Ordered, committing the order to the supplier."
+          data-confirm="{{ procurement.po_number }} will be approved, committing the order to the supplier."
           data-confirm-title="Approve this purchase order?"
           data-confirm-ok="Approve PO"
           data-confirm-dismiss="Not yet">
@@ -202,6 +206,7 @@
 {% endif %}
 
 {% comment %}
+<<<<<<< HEAD
 UIUX-006 — every option this card can ever offer a Supplier viewer
 (Received, Cancelled) is one procurement_update_status already refuses them:
 Drafts are never visible to a Supplier (see supplier_portal), so on their own
@@ -209,6 +214,18 @@ Ordered PO this card would show nothing they're actually allowed to submit.
 Hiding it here matches the backend guard rather than leaving a dead-end form.
 {% endcomment %}
 {% if procurement.status != "Received" and procurement.status != "Cancelled" and user.role != "SUPPLIER" %}
+=======
+Restricted to the three statuses where a plain status bump still makes
+unambiguous sense: Draft (cancel only — approval is the Approve card
+above), and Incoming/Partially Received (record a receipt, or cancel).
+Approved and every negotiation status (Pending Owner/Supplier Review,
+Terms Agreed) are owned entirely by the negotiation card below instead,
+including its own Cancel action — Incoming is reachable only through the
+supplier's own final confirmation once Terms Agreed, never a bare status
+POST here (that used to be a way to skip negotiation entirely).
+{% endcomment %}
+{% if procurement.status == "Draft" or procurement.status == "Incoming" or procurement.status == "Partially Received" %}
+>>>>>>> 0169cbae728023a4cb950562df57be1e2c8b6bb2
 <div class="card card-pad mb-4">
   <div class="status-update-block">
     <div>
@@ -216,18 +233,18 @@ Hiding it here matches the backend guard rather than leaving a dead-end form.
       <p class="gv-meta mb-0">
         {% if procurement.status == "Draft" %}
         A draft can only be cancelled from here — approval is what moves it to
-        <strong>Ordered</strong>.
+        <strong>Approved</strong>.
         {% else %}
-        Marking this <strong>Received</strong> adds the delivered quantities to
+        Recording a receipt adds the delivered quantities to
         {{ procurement.branch.branch_name }}'s stock.
         {% endif %}
       </p>
     </div>
     {% comment %}
-    One form, three outcomes, and only one of them is destructive — hence
-    data-confirm-when. Ordered is a routine status bump and Received hands
-    off to the Deliveries screen, which already has its own review step;
-    stopping for either would tax the common path to guard the rare one.
+    One form, two outcomes, and only one of them is destructive — hence
+    data-confirm-when. Received hands off to the Deliveries screen, which
+    already has its own review step, so stopping for it would tax the
+    common path to guard the rare one.
     {% endcomment %}
     <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="status-update-form"
           data-confirm="{{ procurement.po_number }} will be closed as cancelled. Stock already received is not affected."
@@ -238,10 +255,9 @@ Hiding it here matches the backend guard rather than leaving a dead-end form.
           data-confirm-when="status=Cancelled">
       {% csrf_token %}
       {% comment %}
-      Ordered/Received are offered only on a PO that is already past Draft.
       On a draft, Cancel is the only option here — approval is the step that
-      moves it to Ordered, and that lives in the Approve card above, the
-      Owner's alone (procurement_update_status refuses Ordered/Received here
+      moves it to Approved, and that lives in the Approve card above, the
+      Owner's alone (procurement_update_status refuses approval here
       too, so this is the matching UI, not the guard itself). Whichever
       status the PO is already in is left out of its own options — picking
       it would just re-submit the current status, which can_transition_to
@@ -251,23 +267,15 @@ Hiding it here matches the backend guard rather than leaving a dead-end form.
       {% endcomment %}
       <details class="status-select">
         <summary class="status-select-trigger">
-          {% if procurement.status != "Ordered" %}<span class="status-select-value" data-for="Ordered">Ordered</span>{% endif %}
-          {% if procurement.status != "Received" %}<span class="status-select-value" data-for="Received">Received</span>{% endif %}
-          {% if procurement.status != "Cancelled" %}<span class="status-select-value" data-for="Cancelled">Cancelled</span>{% endif %}
+          {% if procurement.status != "Draft" %}<span class="status-select-value" data-for="Received">Record receipt</span>{% endif %}
+          <span class="status-select-value" data-for="Cancelled">Cancelled</span>
           <svg class="status-select-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </summary>
         <div class="status-select-panel">
           {% if procurement.status != "Draft" %}
-          {% if procurement.status != "Ordered" %}
           <label class="status-select-option">
-            <input type="radio" name="status" value="Ordered" class="sr-only" checked>Ordered
+            <input type="radio" name="status" value="Received" class="sr-only" checked>Record receipt
           </label>
-          {% endif %}
-          {% if procurement.status != "Received" %}
-          <label class="status-select-option">
-            <input type="radio" name="status" value="Received" class="sr-only"{% if procurement.status == "Ordered" %} checked{% endif %}>Received
-          </label>
-          {% endif %}
           {% endif %}
           <label class="status-select-option">
             <input type="radio" name="status" value="Cancelled" class="sr-only"{% if procurement.status == "Draft" %} checked{% endif %}>Cancelled
@@ -277,6 +285,127 @@ Hiding it here matches the backend guard rather than leaving a dead-end form.
       <button type="submit" class="btn btn-primary">Update</button>
     </form>
   </div>
+</div>
+{% endif %}
+
+{% comment %}
+NEGOTIATION — price and delivery date, agreed between the buyer and the
+supplier once the PO is Approved. See procurement.views' NEGOTIATION
+section for the full state shape. Owns Approved through Terms Agreed
+entirely, including its own Cancel action — the generic "Update status"
+card above deliberately excludes these statuses now.
+{% endcomment %}
+{% if procurement.status == "Approved" or procurement.status == "Pending Owner Review" or procurement.status == "Pending Supplier Review" or procurement.status == "Terms Agreed" %}
+<div class="card card-pad mb-4">
+  <h3 class="mb-4">Negotiate price &amp; delivery date</h3>
+
+  {% if procurement.proposed_delivery_date %}
+  <div class="card-pad" style="background:var(--line-soft); border-radius:var(--r-card); padding:12px 16px; margin-bottom:16px;">
+    <p class="gv-meta mb-0">
+      Currently on the table, proposed by
+      {% if procurement.proposed_by_id == procurement.supplier_id %}the supplier{% else %}{{ procurement.branch.branch_name }}{% endif %}:
+    </p>
+    <div class="row-between mt-1"><span>Delivery date</span><span class="strong">{{ procurement.proposed_delivery_date|date:"Y-m-d" }}</span></div>
+    {% for item in items %}
+      {% if not item.is_unexpected %}
+      <div class="row-between"><span class="gv-meta">{{ item.product.product_name }}</span><span>{% if item.proposed_unit_cost is not None %}₱{{ item.proposed_unit_cost|floatformat:2 }}{% else %}—{% endif %}</span></div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if user.role == "SUPPLIER" and procurement.supplier_id == user.id and procurement.status == "Approved" or user.role == "SUPPLIER" and procurement.supplier_id == user.id and procurement.status == "Pending Supplier Review" %}
+    {% comment %}Supplier's turn: propose (first offer, or a counter to the buyer's counter), or accept the buyer's terms as-is.{% endcomment %}
+    {% if procurement.status == "Pending Supplier Review" %}
+    <form method="POST" action="{% url 'procurement_supplier_respond' procurement.pk %}" class="mb-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="accept">
+      <button type="submit" class="btn btn-primary">Accept these terms</button>
+    </form>
+    {% endif %}
+    <form method="POST" action="{% url 'procurement_supplier_respond' procurement.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="propose">
+      <div class="field" style="max-width:220px;">
+        <label for="neg-delivery-date">Delivery date</label>
+        <input id="neg-delivery-date" type="date" name="delivery_date" required>
+      </div>
+      <table class="gv-table kv-table mt-2" style="border:0;">
+        <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>
+        <tbody>
+          {% for item in items %}
+            {% if not item.is_unexpected %}
+            <tr>
+              <td>{{ item.product.product_name }}</td>
+              <td class="num">{{ item.quantity_ordered }}</td>
+              <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" style="width:110px;" required></td>
+            </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" class="btn btn-primary mt-4">{% if procurement.status == "Pending Supplier Review" %}Counter{% else %}Send terms{% endif %}</button>
+    </form>
+
+  {% elif procurement.status == "Pending Owner Review" and user.role == "OWNER" or procurement.status == "Pending Owner Review" and user.role == "BRANCH_MANAGER" %}
+    {% comment %}Buyer's turn: accept the supplier's proposal, or counter.{% endcomment %}
+    <form method="POST" action="{% url 'procurement_owner_respond' procurement.pk %}" class="mb-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="accept">
+      <button type="submit" class="btn btn-primary">Accept these terms</button>
+    </form>
+    <form method="POST" action="{% url 'procurement_owner_respond' procurement.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="counter">
+      <div class="field" style="max-width:220px;">
+        <label for="neg-counter-date">Delivery date</label>
+        <input id="neg-counter-date" type="date" name="delivery_date" required>
+      </div>
+      <table class="gv-table kv-table mt-2" style="border:0;">
+        <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Counter unit cost</th></tr></thead>
+        <tbody>
+          {% for item in items %}
+            {% if not item.is_unexpected %}
+            <tr>
+              <td>{{ item.product.product_name }}</td>
+              <td class="num">{{ item.quantity_ordered }}</td>
+              <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" style="width:110px;" required></td>
+            </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" class="btn btn-primary mt-4">Counter</button>
+    </form>
+
+  {% elif procurement.status == "Terms Agreed" and user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
+    <p class="gv-meta">Terms are agreed. Confirm to start preparing this order.</p>
+    <form method="POST" action="{% url 'procurement_supplier_confirm' procurement.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">Confirm &amp; start preparing</button>
+    </form>
+
+  {% else %}
+    <p class="gv-meta mb-0">
+      {% if procurement.status == "Approved" %}Waiting for the supplier to propose a delivery date and pricing.
+      {% elif procurement.status == "Pending Owner Review" %}Waiting for {{ procurement.branch.branch_name }} to review the supplier's proposal.
+      {% elif procurement.status == "Pending Supplier Review" %}Waiting for the supplier to respond to the counter-offer.
+      {% else %}Terms are agreed — waiting for the supplier to confirm and start preparing this order.{% endif %}
+    </p>
+  {% endif %}
+
+  {% if user.role == "OWNER" or user.role == "BRANCH_MANAGER" or user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
+  <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="mt-4"
+        data-confirm="{{ procurement.po_number }} will be closed as cancelled."
+        data-confirm-title="Cancel this purchase order?"
+        data-confirm-variant="warn"
+        data-confirm-ok="Cancel PO"
+        data-confirm-dismiss="Keep PO">
+    {% csrf_token %}
+    <input type="hidden" name="status" value="Cancelled">
+    <button type="submit" class="btn btn-quiet">Cancel this order</button>
+  </form>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -290,6 +419,7 @@ Hiding it here matches the backend guard rather than leaving a dead-end form.
           {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
         <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
           {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">
@@ -321,7 +451,7 @@ Hiding it here matches the backend guard rather than leaving a dead-end form.
   <table class="gv-table">
     <thead>
       <tr><th>Product</th><th class="num">Qty Ordered</th><th class="num">Qty Received</th>
-          <th class="num">Cost Price</th><th class="num">Line Total</th></tr>
+          <th class="num">Unit Cost Snapshot</th><th class="num">Line Total</th></tr>
     </thead>
     <tbody>
       {% for item in items %}
@@ -329,7 +459,7 @@ Hiding it here matches the backend guard rather than leaving a dead-end form.
         <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
         <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
         <td data-label="Qty Received" class="num">{{ item.quantity_received }}</td>
-        <td data-label="Cost Price" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
+        <td data-label="Unit Cost Snapshot" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}Pending confirmation{% endif %}</td>
         <td data-label="Line Total" class="num strong">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
       </tr>
       {% empty %}

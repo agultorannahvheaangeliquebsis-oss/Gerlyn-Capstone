@@ -1,0 +1,6 @@
+# Adds the MySQL command-line client (mysqldump / mysql) to the build image, which
+# the daily backup and the restore test need. "..." keeps everything Nixpacks
+# would install anyway. On Debian this is the MariaDB client, on Ubuntu the
+# MySQL 8 client; the backup flags work with either.
+[phases.setup]
+aptPkgs = ["...", "default-mysql-client"]

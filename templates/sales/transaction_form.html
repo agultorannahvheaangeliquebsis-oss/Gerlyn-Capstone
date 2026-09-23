@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load static %}
+{% load l10n static %}
 {% block title %}Walk-in Sale{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block branch_scope %}{% if pos_user_branch %}{{ pos_user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
@@ -113,12 +113,15 @@ form's own errors and had been silent to assistive tech.
       {% else %}
         <div class="field">
           <label for="pos-branch">Branch</label>
-          <select id="pos-branch" name="branch" required onchange="posRecalc()">
+          <select id="pos-branch" name="branch" required onchange="posBranchChanged(this)">
             <option value="">— Choose a branch —</option>
             {% for b in pos_branches %}
-              <option value="{{ b.id }}" {% if pos_form_data.branch == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+              <option value="{{ b.id|unlocalize }}" {% if pos_owner_branch.id == b.id %}selected{% endif %}>{{ b.branch_name }}</option>
             {% endfor %}
           </select>
+          {% if not pos_owner_branch %}
+          <p class="gv-meta" style="margin:4px 0 0;">Choose a branch first — only the products it carries will be offered below.</p>
+          {% endif %}
         </div>
       {% endif %}
       <div class="field">
@@ -135,7 +138,7 @@ form's own errors and had been silent to assistive tech.
         <select id="pos-replaces" name="replaces">
           <option value="">— Not a correction —</option>
           {% for order in pos_cancelled_orders %}
-            <option value="{{ order.pk }}" {% if pos_form_data.replaces == order.pk|stringformat:"s" %}selected{% endif %}>
+            <option value="{{ order.pk|unlocalize }}" {% if pos_form_data.replaces == order.pk|stringformat:"s" %}selected{% endif %}>
               {{ order.order_number }} — {{ order.branch.branch_name }}
             </option>
           {% endfor %}
@@ -188,6 +191,7 @@ form's own errors and had been silent to assistive tech.
     </div>
   </div>
 
+  {% if pos_effective_branch %}
   <div class="card card-pad mb-4">
     <div class="row-between mb-4">
       <h3>Items <span class="pill pill-neutral" id="pos-item-count">0 items</span></h3>
@@ -218,9 +222,17 @@ form's own errors and had been silent to assistive tech.
           <select name="product_id" class="js-product" onchange="posRecalc()">
             <option value="">— Select a product —</option>
             {% for p in pos_products %}
-              <option value="{{ p.id }}"
+              {% comment %}
+              unlocalize both — USE_THOUSAND_SEPARATOR otherwise renders a
+              product id ≥ 1000 as "1,016" (an invalid option value the row
+              JS can never match back to pos_stock_map) and a price ≥ ₱1000
+              as "1,270.00" (parseFloat stops at the comma, pricing the row
+              at ₱1). See core.tests.test_price_over_1000_survives_an_edit
+              for the same class of bug on the product price input.
+              {% endcomment %}
+              <option value="{{ p.id|unlocalize }}"
                       data-sku="{{ p.sku_code|lower }}"
-                      data-retail="{{ p.unit_price }}"
+                      data-retail="{{ p.unit_price|unlocalize }}"
                       {# [[min_quantity, price], ...] ascending — posRecalc walks it against the row's quantity. #}
                       data-tiers="{{ p.tiers_json }}"
                       {# The cart preview needs every flag to mirror sales.pricing exactly. #}
@@ -310,6 +322,14 @@ form's own errors and had been silent to assistive tech.
     <a href="{% url 'transaction_list' %}" class="btn">Cancel</a>
     <button type="submit" class="btn btn-primary" id="pos-submit-btn">Record Sale</button>
   </div>
+  {% else %}
+  <div class="card card-pad mb-4">
+    <p class="gv-meta">Choose a branch above to start adding items — only products that branch actually carries will be offered.</p>
+  </div>
+  <div class="row" style="justify-content:flex-end;">
+    <a href="{% url 'transaction_list' %}" class="btn">Cancel</a>
+  </div>
+  {% endif %}
 </form>
 
 {% comment %}
@@ -334,11 +354,24 @@ above, for the same reason: no HTML-attribute quoting to fight with.
 <script>
 // USB/Bluetooth scanners type into whatever holds focus, so the scan field
 // gets it as soon as the page is ready — otherwise the first scan of every
-// sale would go nowhere.
-document.getElementById('pos-scan-input').focus();
+// sale would go nowhere. Absent entirely until a branch is chosen (Items
+// card isn't rendered yet), so this is guarded like everything else below.
+var posScanInput = document.getElementById('pos-scan-input');
+if (posScanInput) posScanInput.focus();
 
 var posRows = document.getElementById('pos-item-rows');
 var posTpl = document.getElementById('pos-row-template');
+
+// The Owner's branch <select> reloads the page to ?branch=<id> instead of
+// recalculating in place — the product list itself is server-scoped to the
+// chosen branch (P-2/thousand-SKU catalog problem), so switching branches
+// needs a fresh render, not a client-side swap.
+function posBranchChanged(sel) {
+  if (!sel.value) return;
+  var params = new URLSearchParams(location.search);
+  params.set('branch', sel.value);
+  location.search = params.toString();
+}
 
 function posAddRow() {
   posRows.appendChild(posTpl.content.cloneNode(true));
@@ -376,10 +409,11 @@ function posUpdateItemCount() {
 var POS_VAT_RATE = 0.12;
 var POS_DISCOUNT_RATE = 0.20;
 
-// Stock indicator. Staff/Branch Manager have no #pos-branch select (their
-// branch is pinned server-side), so POS_FIXED_BRANCH_ID carries that id for
-// them; the Owner reads the live selection instead.
-var POS_FIXED_BRANCH_ID = {% if pos_user_branch %}{{ pos_user_branch.id }}{% else %}null{% endif %};
+// Stock indicator. The branch is fixed for the lifetime of this page render
+// — Staff/Branch Manager are pinned server-side, and the Owner's own choice
+// (pos_owner_branch) now only takes effect via a full reload to ?branch=,
+// same as a pinned branch from the JS's point of view.
+var POS_FIXED_BRANCH_ID = {% if pos_effective_branch %}{{ pos_effective_branch.id|unlocalize }}{% else %}null{% endif %};
 var POS_STOCK_MAP = (function () {
   var el = document.getElementById('pos-stock-map');
   return el ? JSON.parse(el.textContent) : {};
@@ -510,6 +544,11 @@ function posTierPrice(opt, qty) {
 }
 
 function posRecalc() {
+  // Mode of Payment / the discount toggle are visible even before a branch
+  // is chosen (they don't depend on one), but everything this function
+  // touches beyond them — item rows, the receipt breakdown, the tender row —
+  // lives inside the Items card, which isn't rendered yet in that state.
+  if (!posRows) return;
   var discountSelect = document.getElementById('pos-discount-type');
   var discountType = discountSelect ? discountSelect.value : 'None';
   var discountClaimed = discountType !== 'None';
@@ -660,6 +699,9 @@ function posRecalc() {
 })();
 
 (function () {
+  // Nothing to seed until a branch is chosen — the Items card (and
+  // #pos-item-rows/#pos-row-template within it) isn't rendered yet.
+  if (!posRows || !posTpl) return;
   // A rejected submit sends the basket back; otherwise open with one row.
   var restoreEl = document.getElementById('pos-restore-rows');
   var restore = restoreEl ? JSON.parse(restoreEl.textContent) : [];
@@ -682,6 +724,7 @@ function posRecalc() {
 // the code arrives from a USB/Bluetooth hardware scanner (which just types +
 // Enter) or the in-app camera.
 (function () {
+  if (!posScanInput) return;  // no Items card yet — nothing to attach to
   function findProductOptionBySku(code) {
     var needle = code.trim().toLowerCase();
     if (!needle) return null;

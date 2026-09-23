@@ -1,0 +1,97 @@
+{% extends "internal_base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% block page_subtitle %}System &amp; Monitoring{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Audit Log</h1>
+  </div>
+</div>
+
+<form method="GET" class="toolbar">
+  <input class="input" type="search" name="q" value="{{ filters.q }}" placeholder="Search summary, record or ID…" aria-label="Search the audit log">
+  <select name="entity" aria-label="Filter by record type">
+    <option value="">All record types</option>
+    {% for key, label in entity_choices %}
+      <option value="{{ key }}" {% if filters.entity == key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="action" aria-label="Filter by action">
+    <option value="">All actions</option>
+    {% for value, label in action_choices %}
+      <option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input class="input" type="text" name="actor" value="{{ filters.actor }}" placeholder="Actor username" aria-label="Filter by actor">
+  <input class="input" type="date" name="from" value="{{ filters.from }}" aria-label="From date">
+  <input class="input" type="date" name="to" value="{{ filters.to }}" aria-label="To date">
+  <button type="submit" class="btn btn-primary">Filter</button>
+  {% if querystring %}<a class="btn" href="{% url 'audit_log_list' %}">Clear</a>{% endif %}
+</form>
+
+{% comment %}
+One row per ACTION (a request, or one unrequested system write), not per
+model save — a single action can write several AuditLog rows (audit.views.
+_group_key groups them by request_id). A filter still matches on the raw
+rows, but a matching row pulls its whole group along, so a group with a
+match buried in a secondary record still shows here in full — see
+audit.views.audit_log_list's second, unfiltered fetch.
+{% endcomment %}
+<div class="card table-wrap">
+  <table class="gv-table" id="audit-table">
+    <thead>
+      <tr><th>When</th><th>Actor</th><th>Action</th><th>Record</th><th>What happened</th></tr>
+    </thead>
+    <tbody>
+      {% for g in groups %}
+      <tr>
+        <td data-label="When" class="gv-meta">
+          {{ g.primary.timestamp|date:"Y-m-d H:i:s" }}
+          {% if g.primary.ip_address %}<div>{{ g.primary.ip_address }}</div>{% endif %}
+        </td>
+        <td data-label="Actor">
+          <span class="strong">{{ g.actor }}</span>
+          {% if g.primary.actor_role %}<div class="gv-meta">{{ g.primary.actor_role }}</div>{% endif %}
+        </td>
+        <td data-label="Action">
+          {% if g.action_display == 'create' %}<span class="pill pill-ok">Created</span>
+          {% elif g.action_display == 'delete' %}<span class="pill pill-danger">Deleted</span>
+          {% elif g.action_display == 'update' %}<span class="pill pill-info">Updated</span>
+          {% else %}<span class="pill pill-neutral">Mixed</span>{% endif %}
+        </td>
+        <td data-label="Record">
+          <span class="strong">{{ g.entity_label }}</span>
+          <div class="gv-meta">{{ g.primary.record_repr }} · ID {{ g.primary.record_id }}{% if g.branch %} · {{ g.branch }}{% endif %}</div>
+        </td>
+        <td data-label="What happened">
+          <div class="row" style="gap:8px; align-items:flex-start;">
+            <span>{{ g.summary_text }}</span>
+            <a href="{% url 'audit_action_detail' g.key %}" class="gv-meta" style="white-space:nowrap; display:inline-flex; align-items:center; gap:4px;" title="View processes" aria-label="View the {{ g.process_count }} process{{ g.process_count|pluralize }} in this action">
+              {% include "partials/_empty_icon.html" with icon="eye" %}
+              {% if g.process_count > 1 %}View processes ({{ g.process_count }}){% else %}View processes{% endif %}
+            </a>
+          </div>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
+        <h3>No entries</h3>
+        <p>{% if querystring %}Nothing matches these filters.{% else %}Changes will appear here as they happen.{% endif %}</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page.paginator.num_pages > 1 %}
+<div class="row-between mt-4">
+  <span class="gv-meta">Page {{ page.number }} of {{ page.paginator.num_pages }} · {{ page.paginator.count }} action{{ page.paginator.count|pluralize }}</span>
+  <div class="row">
+    {% if page.has_previous %}<a class="btn" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    {% if page.has_next %}<a class="btn" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

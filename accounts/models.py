@@ -395,6 +395,7 @@ class Notification(models.Model):
         ORDER_DELIVERED = 'order_delivered', 'Order delivered'
         PAYMENT_VERIFIED = 'payment_verified', 'Payment verified'
         PAYMENT_REJECTED = 'payment_rejected', 'Payment rejected'
+        EXPIRY_WRITE_OFF = 'expiry_write_off', 'Expiry write-off'
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE,

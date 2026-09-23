@@ -128,7 +128,7 @@ DJANGO_DEBUG=False DJANGO_SECRET_KEY=<a-real-key> python manage.py check --deplo
 
 ---
 
-## Schedule time-based notifications
+## Schedule daily inventory tasks
 
 Create a Railway cron service from this repository with this command:
 
@@ -136,9 +136,12 @@ Create a Railway cron service from this repository with this command:
 python manage.py dispatch_notifications
 ```
 
-Run it once daily, ideally shortly after midnight Asia/Manila. State-change
-alerts fire immediately in the web service; this idempotent job only catches
-batches that entered the 30-day expiry window as time passed.
+Run it once daily, ideally shortly after midnight Asia/Manila. The idempotent
+job first removes batches whose expiry date has arrived from floor/warehouse
+stock and records batch-linked expiry write-offs, then catches batches that
+entered the 30-day notification window as time passed. Availability queries
+also exclude due lots immediately, so a delayed cron run cannot make them
+sellable.
 
 ---
 

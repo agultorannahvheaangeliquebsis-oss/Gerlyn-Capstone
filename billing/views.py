@@ -149,6 +149,10 @@ def billing_list(request):
         'pending': records.filter(status=BillingRecord.PaymentStatus.PENDING).count(),
         'paid': records.filter(status=BillingRecord.PaymentStatus.PAID).count(),
         'rejected': records.filter(status=BillingRecord.PaymentStatus.REJECTED).count(),
+        'refunded': records.filter(status=BillingRecord.PaymentStatus.REFUNDED).count(),
+        'partially_refunded': records.filter(
+            status=BillingRecord.PaymentStatus.PARTIALLY_REFUNDED
+        ).count(),
         'cancelled': records.filter(status=BillingRecord.PaymentStatus.CANCELLED).count(),
     }
 
@@ -316,6 +320,10 @@ def billing_create(request, transaction_id):
         'record': existing,  # Pass to template so it can pre-fill payment_method if desired
         'payment_choices': [(m.value, m.label) for m in allowed_payment_methods],
         'breadcrumb': trail,
+        # The form shows each field only for the methods that need it; the
+        # lists come from the model so the page and the server rule agree.
+        'reference_required_methods': sorted(BillingRecord.REFERENCE_REQUIRED_METHODS),
+        'proof_required_methods': sorted(BillingRecord.PROOF_REQUIRED_METHODS),
     }
 
     if request.method == 'POST':
@@ -345,26 +353,28 @@ def billing_create(request, transaction_id):
                 messages.error(request, e.message)
                 return render(request, 'billing/billing_form.html', form_context)
 
-        # X-2 — with no payment gateway integrated, the reference number IS
-        # the record of a GCash or bank transfer; the same rule
-        # orders.customer_views.checkout already enforces for GCash at
-        # checkout. Required for those two methods, cleared for every other
-        # one — a reference typed before switching methods must not ride
-        # along onto a record that has no reference by definition.
-        REFERENCE_REQUIRED_METHODS = {
-            BillingRecord.PaymentMethod.GCASH,
-            BillingRecord.PaymentMethod.BANK_TRANSFER,
-        }
-        if payment_method in REFERENCE_REQUIRED_METHODS:
-            if not reference_number:
-                messages.error(
-                    request,
-                    f'Enter the {payment_method} reference number — we cannot '
-                    f'match the payment to this order without it.'
-                )
-                return render(request, 'billing/billing_form.html', form_context)
-        else:
+        # X-2 — with no payment gateway integrated, the reference number and
+        # the screenshot ARE the record of a remote payment. What each method
+        # needs is BillingRecord.missing_payment_evidence (one definition,
+        # shared with the API and Mark as Paid). A proof already on file from
+        # an earlier save counts — editing the reference shouldn't force a
+        # re-upload. Anything not required is cleared: a reference typed
+        # before switching methods must not ride along onto a record that has
+        # no reference by definition.
+        if payment_method not in BillingRecord.REFERENCE_REQUIRED_METHODS:
             reference_number = ''
+        missing = BillingRecord.missing_payment_evidence(
+            payment_method, reference_number,
+            bool(proof_of_payment or (existing and existing.proof_of_payment)),
+        )
+        if missing:
+            messages.error(
+                request,
+                f'A {payment_method} payment needs its {" and ".join(missing)} '
+                f'before it can be saved — we cannot match the payment to '
+                f'this order without it.'
+            )
+            return render(request, 'billing/billing_form.html', form_context)
 
         if existing:
             # Update the auto-created record with the actual payment details
@@ -460,27 +470,27 @@ def billing_confirm(request, pk):
                 )
                 return redirect('billing_detail', pk=pk)
 
-            # A non-Cash method has no counter moment where handing over
-            # money and confirming it are the same event — Mark as Paid is
-            # the only record that a GCash/Card/bank payment ever happened,
-            # and once Paid it can never be undone (ALLOWED_STATUS_TRANSITIONS
-            # has no outbound edge from it). Without evidence, a bill could
-            # read "GCash · —" with no reference number and no screenshot and
-            # still be confirmed Paid on nothing but the click.
-            if (
-                new_status == BillingRecord.PaymentStatus.PAID
-                and locked.payment_method != BillingRecord.PaymentMethod.CASH
-                and not locked.reference_number
-                and not locked.proof_of_payment
-            ):
-                messages.error(
-                    request,
-                    f'{locked.transaction.order_number}: a {locked.payment_method} '
-                    f'payment needs a reference number or an uploaded proof of '
-                    f'payment before it can be marked Paid — add one from '
-                    f'"Edit payment details" first.'
+            # A remote method has no counter moment where handing over money
+            # and confirming it are the same event — Mark as Paid is the only
+            # record that a GCash/Card/bank payment ever happened, and once
+            # Paid it can never be undone (ALLOWED_STATUS_TRANSITIONS has no
+            # outbound edge from it). What each method must have on file is
+            # BillingRecord.missing_payment_evidence; a record saved before
+            # that rule existed can still be short, which is why it is
+            # re-checked here and not only when the payment is saved.
+            if new_status == BillingRecord.PaymentStatus.PAID:
+                missing = BillingRecord.missing_payment_evidence(
+                    locked.payment_method, locked.reference_number,
+                    bool(locked.proof_of_payment),
                 )
-                return redirect('billing_detail', pk=pk)
+                if missing:
+                    messages.error(
+                        request,
+                        f'{locked.transaction.order_number}: a {locked.payment_method} '
+                        f'payment needs its {" and ".join(missing)} before it can '
+                        f'be marked Paid — add it from "Edit payment details" first.'
+                    )
+                    return redirect('billing_detail', pk=pk)
 
             locked.status = new_status
             if new_status == BillingRecord.PaymentStatus.PENDING:

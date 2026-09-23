@@ -57,12 +57,41 @@
   }
   .term-val { font-size: 10pt; font-weight: bold; margin-top: 2px; }
 
+  {% comment %}
+  Stress-tested at 20/50/100+ line items (procurement/tests_pdf_stress.py)
+  against the xhtml2pdf version this app is pinned to (0.2.19). Two things a
+  reader might expect to see added here are deliberately absent, verified
+  from xhtml2pdf's own source rather than assumed:
+
+  - No `repeat` attribute on <thead>/<table>. xhtml2pdf already repeats
+    whatever rows are inside a <thead> on every page with no attribute at
+    all (xhtml2pdf/tables.py: pisaTagTHEAD.end() sets `tdata.repeat` to the
+    row count <thead> held). The items table below already uses a real
+    <thead>, so the header already repeats; there is nothing to switch on.
+  - No `page-break-inside: avoid` on <tr>. xhtml2pdf's CSS layer does not
+    implement that property at all (or -pdf-keep-with-next, despite an
+    unrelated docstring elsewhere claiming it), so it would be a no-op. A
+    single row is already protected from being split across a page break
+    for a different, structural reason: xhtml2pdf always builds its table
+    with reportlab's `splitByRow=1`, which only ever breaks a table between
+    rows, never inside one.
+
+  What *is* set below is `-pdf-keep-in-frame-mode: shrink` on each item
+  cell — xhtml2pdf already defaults every <td> to this mode (it wraps cell
+  content in a KeepInFrame), which is what keeps a long, unbroken product
+  name (no spaces to wrap on) from overflowing into the next column instead
+  of overlapping it. Declaring it explicitly here just stops that safety
+  net from being an invisible default a future change could drop.
+  {% endcomment %}
   .items-table th {
     text-align: left; font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase;
     padding: 6px 7px; border-bottom: 2px solid #111111; border-top: 1px solid #111111;
     background-color: #f2f2f2;
   }
-  .items-table td { padding: 6px 7px; border-bottom: 1px solid #dddddd; font-size: 9pt; }
+  .items-table td {
+    padding: 6px 7px; border-bottom: 1px solid #dddddd; font-size: 9pt;
+    -pdf-keep-in-frame-mode: shrink;
+  }
   .items-table .num { text-align: right; }
   .items-table .sku { font-size: 7.5pt; color: #666666; }
   .items-table .total-row td {

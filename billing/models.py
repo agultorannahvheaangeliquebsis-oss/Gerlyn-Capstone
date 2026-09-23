@@ -16,6 +16,14 @@ class BillingRecord(models.Model):
         # distinct from REJECTED, which means a submitted payment proof was
         # specifically turned down, not that the order itself fell through.
         CANCELLED = 'Cancelled', 'Cancelled'
+        # sales.views.transaction_refund is the only writer of either of
+        # these — set once a Refund exists against a Paid record, so Billing
+        # (list, filters, report) can show which orders were refunded
+        # without opening each one in Sales & Orders. PARTIALLY_REFUNDED
+        # while sales.views._refundable_items still finds unrefunded
+        # quantity on the order; REFUNDED once none remains.
+        PARTIALLY_REFUNDED = 'Partially Refunded', 'Partially Refunded'
+        REFUNDED = 'Refunded', 'Refunded'
 
     class PaymentMethod(models.TextChoices):
         CASH = 'Cash', 'Cash'
@@ -32,10 +40,12 @@ class BillingRecord(models.Model):
     # Paid -> Rejected -> Paid indefinitely, each pass silently overwriting
     # confirmed_by / date_confirmed with no history.
     #
-    #   Pending  -> Paid | Rejected | Cancelled
-    #   Rejected -> Pending | Cancelled     (re-open for another payment attempt)
-    #   Paid     -> Cancelled               (terminal to confirm/reject either way)
-    #   Cancelled-> (terminal here)
+    #   Pending            -> Paid | Rejected | Cancelled
+    #   Rejected           -> Pending | Cancelled           (re-open for another payment attempt)
+    #   Paid               -> Cancelled | Partially Refunded | Refunded
+    #   Partially Refunded -> Refunded | Cancelled          (more of the order gets refunded, or it's voided)
+    #   Refunded           -> (terminal here — nothing left to refund)
+    #   Cancelled          -> (terminal here)
     #
     # B-1 — CANCELLED is reachable from every state, but ONLY the order's own
     # cancellation may actually take that route: sales.views.transaction_set_
@@ -47,12 +57,45 @@ class BillingRecord(models.Model):
     # Pending — so adding it here does not open a new control anywhere; it
     # closes the gap where this map claimed Paid was terminal while a
     # completely different module quietly moved it anyway.
+    #
+    # PARTIALLY_REFUNDED / REFUNDED follow the same shape — only
+    # sales.views.transaction_refund ever passes either here (also through
+    # can_transition_to, never written straight onto the field), so a human
+    # still has no direct control to flip a record to either from Billing.
     ALLOWED_STATUS_TRANSITIONS = {
         PaymentStatus.PENDING: {PaymentStatus.PAID, PaymentStatus.REJECTED, PaymentStatus.CANCELLED},
         PaymentStatus.REJECTED: {PaymentStatus.PENDING, PaymentStatus.CANCELLED},
-        PaymentStatus.PAID: {PaymentStatus.CANCELLED},
+        PaymentStatus.PAID: {
+            PaymentStatus.CANCELLED, PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED,
+        },
+        PaymentStatus.PARTIALLY_REFUNDED: {PaymentStatus.REFUNDED, PaymentStatus.CANCELLED},
+        PaymentStatus.REFUNDED: set(),
         PaymentStatus.CANCELLED: set(),
     }
+
+    # What each method has to leave behind before it can be saved or verified.
+    # No payment gateway is integrated, so for a remote settlement the
+    # reference number and the screenshot ARE the record that it happened:
+    # GCash and bank transfers need both, a card payment needs the slip/
+    # screenshot (a card has no reference the counter can key in), and the
+    # counter-settled methods (Cash, Cash on Delivery, Pay at Store) leave
+    # nothing to attach. One definition — the web form, the API serializer,
+    # billing_confirm and checkout all read these, so they cannot drift apart.
+    REFERENCE_REQUIRED_METHODS = {PaymentMethod.GCASH, PaymentMethod.BANK_TRANSFER}
+    PROOF_REQUIRED_METHODS = {
+        PaymentMethod.GCASH, PaymentMethod.BANK_TRANSFER, PaymentMethod.CARD,
+    }
+
+    @classmethod
+    def missing_payment_evidence(cls, method, reference_number, has_proof):
+        """Names of what `method` still needs that isn't there — empty when
+        the record is complete. Callers word their own message."""
+        missing = []
+        if method in cls.REFERENCE_REQUIRED_METHODS and not (reference_number or '').strip():
+            missing.append('reference number')
+        if method in cls.PROOF_REQUIRED_METHODS and not has_proof:
+            missing.append('proof of payment')
+        return missing
 
     def can_transition_to(self, new_status):
         """True when billing_confirm may move this record to `new_status`."""
@@ -124,7 +167,7 @@ class BillingRecord(models.Model):
         help_text="Optional uploaded screenshot/photo of payment"
     )
     status = models.CharField(
-        max_length=10, choices=PaymentStatus.choices,
+        max_length=18, choices=PaymentStatus.choices,
         default=PaymentStatus.PENDING
     )
     confirmed_by = models.ForeignKey(

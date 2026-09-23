@@ -19,7 +19,7 @@ from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, u
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
-from .models import SalesItem, SalesItemBatchConsumption, SalesTransaction
+from .models import Refund, RefundItem, SalesItem, SalesItemBatchConsumption, SalesTransaction
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
@@ -69,6 +69,24 @@ def _pos_user_branch(request):
     if request.user.role == BRANCH_MANAGER:
         branch = getattr(getattr(request.user, 'manager_profile', None), 'branch', None)
         return branch or POS_BRANCH_UNASSIGNED
+    return None
+
+
+def _pos_owner_branch(request):
+    """The branch an Owner has chosen for this Walk-in Sale, if any.
+
+    Read from the just-submitted form (a rejected POST redisplay) first,
+    then the ?branch= query string (the branch picker reloading the page
+    once a branch is chosen) — same two sources _branch_scoped_modal_target
+    reads, and for the same reason: a validation-error redisplay must
+    recover the branch without a query string.
+
+    Meaningless for a Staff/Branch Manager, who is already pinned via
+    _pos_user_branch — callers only need this for the Owner.
+    """
+    branch_id = request.POST.get('branch') or request.GET.get('branch')
+    if branch_id and str(branch_id).isdigit():
+        return Branch.objects.filter(pk=branch_id).first()
     return None
 
 
@@ -128,6 +146,16 @@ def _pos_context(request):
     `branches` for its filter toolbar — a different list answering a
     different question)."""
     user_branch = _pos_user_branch(request)
+    # An Owner has no pinned branch, so the product list has nowhere to
+    # scope to until they pick one on the form — previously this fell back
+    # to _pos_products_for(None), embedding every product in the system
+    # (unit price, tiers, eligibility flags — one <option> apiece) in every
+    # item row, on a store whose catalog can run past a thousand SKUs. The
+    # branch picker below now gates the whole Items card until one is
+    # chosen, at which point this is exactly as scoped as a pinned
+    # Staff/Manager's list always was.
+    owner_branch = None if user_branch else _pos_owner_branch(request)
+    effective_branch = user_branch or owner_branch
     # Tiers travel to the page as JSON per product so the row JS can show the
     # price the cashier is about to charge as the quantity is typed. It is a
     # preview only — transaction_add re-resolves every line server-side.
@@ -135,8 +163,8 @@ def _pos_context(request):
     # filter below: a cashier should not even see a product their branch has
     # never stocked, tier preview or not.
     pos_products = list(
-        _pos_products_for(user_branch).prefetch_related('price_tiers')
-    )
+        _pos_products_for(effective_branch).prefetch_related('price_tiers')
+    ) if effective_branch else []
     for product in pos_products:
         product.tiers_json = json.dumps([
             [tier.min_quantity, float(tier.unit_price)]
@@ -146,7 +174,12 @@ def _pos_context(request):
         'pos_products': pos_products,
         'pos_branches': Branch.objects.all() if not user_branch else [],
         'pos_user_branch': user_branch,
-        'pos_stock_map': _pos_stock_map(user_branch),
+        # The Owner's choice specifically — None until the branch picker
+        # step is completed. Distinct from pos_effective_branch so the
+        # template can tell "no branch chosen yet" from "pinned branch".
+        'pos_owner_branch': owner_branch,
+        'pos_effective_branch': effective_branch,
+        'pos_stock_map': _pos_stock_map(effective_branch),
         'pos_payment_choices': [
             c for c in SalesTransaction.ModeOfPayment.choices
             if c[0] in POS_PAYMENT_METHODS
@@ -378,6 +411,9 @@ def transaction_detail(request, pk):
         'items': items,
         'billing': billing,
         'next_actions': _next_actions(txn, request.user),
+        # The Mark Completed button is only live once the payment is Paid
+        # (transaction_set_status enforces it; this just keeps the UI honest).
+        'payment_is_paid': bool(billing and billing.status == BillingRecord.PaymentStatus.PAID),
         'progress': _order_progress(txn),
         # Whether to offer the after-the-fact PWD/Senior discount form.
         # transaction_apply_discount re-checks every one of these conditions
@@ -385,6 +421,18 @@ def transaction_detail(request, pk):
         # method the view enforces so the two cannot drift apart.
         'can_apply_discount': _can_offer_discount(txn, billing),
         'discount_choices': _pos_discount_choices(),
+        # Owner/Branch Manager only, within the refund window — see
+        # _can_offer_refund's own comment for why this is asked here too,
+        # not just enforced in transaction_refund.
+        'refundable_items': (
+            _refundable_items(txn)
+            if _can_offer_refund(txn, billing, request.user) else []
+        ),
+        'refund_method_choices': Refund.RefundMethod.choices,
+        'refund_condition_choices': RefundItem.Condition.choices,
+        'refunds': txn.refunds.select_related('refunded_by').prefetch_related(
+            'items__sales_item__product'
+        ),
     })
 
 
@@ -472,6 +520,13 @@ _FLOW = {
 
 def _next_actions(txn, user=None):
     actions = _FLOW.get(txn.order_status, [])
+    if (txn.transaction_type == SalesTransaction.TransactionType.PHYSICAL
+            and txn.order_status == SalesTransaction.OrderStatus.PENDING):
+        # A walk-in that is still Pending is one whose payment hasn't cleared
+        # yet (GCash/Card — see transaction_add). The goods already left the
+        # counter, so Approved / Preparing mean nothing here: the only real
+        # steps are "payment verified, complete it" or "it fell through".
+        actions = ['Completed', 'Cancelled']
     if (txn.order_status == SalesTransaction.OrderStatus.COMPLETED
             and user is not None and user.role not in [OWNER, BRANCH_MANAGER]):
         # Staff can cancel an unfulfilled order but not void a completed
@@ -555,7 +610,35 @@ def transaction_set_status(request, pk, new_status):
             if new_status == SalesTransaction.OrderStatus.CANCELLED and not cancel_reason:
                 raise _OrderActionError('Enter a reason for cancelling this order.')
 
+            # An order is only Completed once its payment is verified Paid.
+            # The billing row is read fresh and locked, same as the
+            # cancellation path below — billing_confirm locks it too, so a
+            # payment being rejected in the gap can't slip a completion through.
+            if new_status == SalesTransaction.OrderStatus.COMPLETED:
+                paying = BillingRecord.objects.select_for_update().filter(
+                    transaction=locked_txn
+                ).first()
+                if not paying or paying.status != BillingRecord.PaymentStatus.PAID:
+                    raise _OrderActionError(
+                        f'{locked_txn.order_number} can only be completed once its '
+                        f'payment is verified as Paid — record and verify the payment first.'
+                    )
+
             was_completed = locked_txn.order_status == SalesTransaction.OrderStatus.COMPLETED
+            # Lines whose product was hard-deleted from the catalog since the
+            # sale — _reverse_stock skips them (nothing to credit) rather than
+            # crashing; collected here so the person voiding/cancelling is
+            # told, instead of the order just quietly restocking short.
+            skipped_products = []
+
+            if (not was_completed
+                    and new_status == SalesTransaction.OrderStatus.CANCELLED
+                    and locked_txn.transaction_type == SalesTransaction.TransactionType.PHYSICAL):
+                # A walk-in's stock leaves the shelf when it is rung up, even
+                # while its payment is still pending — so cancelling it before
+                # completion has to put that stock back, unlike an online
+                # order, which hasn't deducted anything until it completes.
+                skipped_products += _reverse_stock(locked_txn, request.user)
 
             if was_completed and new_status == SalesTransaction.OrderStatus.CANCELLED:
                 # Voiding a completed sale — undo what _deduct_stock already
@@ -569,7 +652,7 @@ def transaction_set_status(request, pk, new_status):
                     raise _OrderActionError(
                         'Only the Owner or a Branch Manager can void a completed sale.'
                     )
-                _reverse_stock(locked_txn, request.user)
+                skipped_products += _reverse_stock(locked_txn, request.user)
 
             # Deduct stock once, when an online order is completed.
             if (new_status == SalesTransaction.OrderStatus.COMPLETED
@@ -579,6 +662,10 @@ def transaction_set_status(request, pk, new_status):
             locked_txn.order_status = new_status
             if new_status == SalesTransaction.OrderStatus.CANCELLED:
                 locked_txn.cancel_reason = cancel_reason
+            if new_status == SalesTransaction.OrderStatus.COMPLETED:
+                # The refund window (SalesTransaction.refund_window_expired)
+                # counts from here, not from when the order was placed.
+                locked_txn.completed_at = timezone.now()
             locked_txn.save()
 
             if (
@@ -683,7 +770,28 @@ def transaction_set_status(request, pk, new_status):
         return redirect('transaction_detail', pk=pk)
 
     messages.success(request, f'{txn.order_number} is now {new_status}.')
+    if skipped_products:
+        total_units = sum(i.quantity_sold for i in skipped_products)
+        messages.warning(
+            request,
+            f'{len(skipped_products)} line item(s) ({total_units} unit(s) total) could '
+            f'not have their stock restored — the product has since been removed from '
+            f'the catalog.'
+        )
     return redirect('transaction_detail', pk=pk)
+
+
+# Once money has actually changed hands (Paid, or refunded from having been
+# Paid) a NEW discount claim has nothing left to apply against — the price
+# was already settled at the counter. Shared by _can_offer_discount (what
+# the Order Console draws) and transaction_apply_discount's own two checks
+# (the pre-lock read and the re-check against the locked row) so the three
+# can't drift apart on which statuses count as "already settled".
+_DISCOUNT_BLOCKED_BILLING_STATUSES = {
+    BillingRecord.PaymentStatus.PAID,
+    BillingRecord.PaymentStatus.PARTIALLY_REFUNDED,
+    BillingRecord.PaymentStatus.REFUNDED,
+}
 
 
 def _can_offer_discount(txn, billing):
@@ -697,7 +805,7 @@ def _can_offer_discount(txn, billing):
         txn.can_apply_pwd_senior_discount()
         and txn.discount_type == SalesTransaction.DiscountType.NONE
         and txn.order_status != SalesTransaction.OrderStatus.CANCELLED
-        and not (billing and billing.status == BillingRecord.PaymentStatus.PAID)
+        and not (billing and billing.status in _DISCOUNT_BLOCKED_BILLING_STATUSES)
     )
 
 
@@ -767,7 +875,7 @@ def transaction_apply_discount(request, pk):
         return redirect('transaction_detail', pk=pk)
 
     billing = getattr(txn, 'billing_record', None)
-    if billing and billing.status == BillingRecord.PaymentStatus.PAID:
+    if billing and billing.status in _DISCOUNT_BLOCKED_BILLING_STATUSES:
         messages.error(
             request,
             f'{txn.order_number} is already paid — the amount due cannot be '
@@ -827,7 +935,7 @@ def transaction_apply_discount(request, pk):
         billing = BillingRecord.objects.select_for_update().filter(
             transaction=locked
         ).first()
-        if billing and billing.status == BillingRecord.PaymentStatus.PAID:
+        if billing and billing.status in _DISCOUNT_BLOCKED_BILLING_STATUSES:
             messages.error(
                 request,
                 f'{locked.order_number} is already paid — the amount due '
@@ -892,6 +1000,15 @@ def transaction_apply_discount(request, pk):
     return redirect('transaction_detail', pk=pk)
 
 
+def _item_label(item):
+    """A SalesItem's product name, safe against a product that was hard-
+    deleted from the catalog since the sale (inventory.views.product_delete
+    — Product.product FK is on_delete=SET_NULL precisely so the sale itself
+    survives that; this is the one place downstream code used to assume it
+    never happened and crashed reading .product.product_name off None)."""
+    return item.product.product_name if item.product_id else 'a product since removed from the catalog'
+
+
 def _deduct_stock(txn, user):
     """Deduct each line item from the order's branch floor stock + audit it.
 
@@ -899,7 +1016,9 @@ def _deduct_stock(txn, user):
     _OrderActionError instead of silently floor-ing at 0 (or skipping
     entirely when no Inventory row exists at all) when there isn't enough —
     the caller's atomic block rolls back the whole sale so a rejected sale
-    never partially applies.
+    never partially applies. A line whose product was since deleted from the
+    catalog can never have stock to deduct (there is no Inventory row left to
+    identify), so it always fails this same check rather than crashing on it.
     """
     for item in txn.items.select_related('product').all():
         # available_qty nets out anything past its expiry_date — stock that
@@ -911,7 +1030,7 @@ def _deduct_stock(txn, user):
         available = inv.available_qty if inv else 0
         if available < item.quantity_sold:
             raise _OrderActionError(
-                f'Not enough stock for {item.product.product_name} — '
+                f'Not enough stock for {_item_label(item)} — '
                 f'available: {available}, needed: {item.quantity_sold}.'
             )
         before = inv.quantity_on_hand
@@ -964,8 +1083,19 @@ def _reverse_stock(txn, user):
     existed (no consumption rows at all), and a consumption row whose batch
     was itself deleted since (SET_NULL leaves quantity_taken behind with no
     batch to credit).
+
+    A line whose product was hard-deleted from the catalog since the sale
+    (SalesItem.product is SET_NULL for exactly this) has no Inventory row to
+    credit at all — product is a required field on it — so there is nothing
+    to reverse; that line is skipped rather than raising IntegrityError
+    trying to insert an Inventory row with no product. Returns the skipped
+    items so the caller can tell the person voiding the order.
     """
+    skipped = []
     for item in txn.items.select_related('product').all():
+        if item.product_id is None:
+            skipped.append(item)
+            continue
         inv, _ = Inventory.objects.select_for_update().get_or_create(
             product=item.product, branch=txn.branch,
             defaults={'quantity_on_hand': 0, 'reorder_level': 0},
@@ -985,6 +1115,7 @@ def _reverse_stock(txn, user):
             created_by=user,
         )
         _reverse_batches(item, txn, user)
+    return skipped
 
 
 def _reverse_batches(item, txn, user):
@@ -1027,6 +1158,233 @@ def _create_void_reversal_batch(product, txn, quantity):
         quantity=quantity, received_date=timezone.localdate(), expiry_date=None,
         notes=f'Void reversal for {txn.order_number} — original batch unknown.',
     )
+
+
+# ─────────────────────────────────────────────
+# REFUNDS
+# A financial correction on a Completed, Paid order — distinct from voiding
+# a completed sale (which cancels the whole order). Owner/Branch Manager
+# only, within SalesTransaction.REFUND_WINDOW of completion. No payment
+# gateway is integrated, so this only ever records that money went back —
+# see Refund's own docstring in sales/models.py.
+# ─────────────────────────────────────────────
+
+def _can_offer_refund(txn, billing, user):
+    """Whether `user` may refund `txn` right now — the single definition
+    transaction_detail asks to decide what to draw, and transaction_refund
+    re-asks (against a freshly locked read) to decide what to allow, so the
+    control shown and the control permitted can never drift apart."""
+    return (
+        user.role in (OWNER, BRANCH_MANAGER)
+        and txn.order_status == SalesTransaction.OrderStatus.COMPLETED
+        and billing is not None
+        # Partially Refunded still has refundable quantity left on it (that's
+        # exactly what distinguishes it from Refunded, which doesn't) — an
+        # order already refunded once must stay refundable for what's left.
+        and billing.status in (
+            BillingRecord.PaymentStatus.PAID, BillingRecord.PaymentStatus.PARTIALLY_REFUNDED,
+        )
+        and not txn.refund_window_expired()
+    )
+
+
+def _refundable_items(txn):
+    """This order's items that still have unrefunded quantity, each paired
+    with how much of it remains — an order can be refunded more than once,
+    so "remaining" is quantity_sold minus everything already refunded on it,
+    not quantity_sold itself."""
+    items = txn.items.select_related('product').annotate(
+        already_refunded=dj_models.Sum('refund_items__quantity')
+    )
+    rows = []
+    for item in items:
+        remaining = item.quantity_sold - (item.already_refunded or 0)
+        if remaining > 0:
+            rows.append({'item': item, 'remaining': remaining, 'product_label': _item_label(item)})
+    return rows
+
+
+def _restock_refunded_item(sales_item, txn, quantity, user):
+    """The stock side of a Sellable-condition refund line: back onto the
+    branch's floor. A fresh, no-expiry batch — the same honestly-unknown-
+    provenance fallback _create_void_reversal_batch uses — since a unit that
+    has left the store and come back has no traceable original lot to credit,
+    and once it has changed hands its true remaining shelf life isn't
+    something this system can claim to know.
+
+    Callers must not call this for a line whose product has since been
+    deleted from the catalog (sales_item.product_id is None) — there is no
+    Inventory row to identify (product is a required field on it). See
+    transaction_refund, which checks this before calling in.
+    """
+    inv, _ = Inventory.objects.select_for_update().get_or_create(
+        product=sales_item.product, branch=txn.branch,
+        defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+    )
+    before = inv.quantity_on_hand
+    inv.quantity_on_hand += quantity
+    inv.save()
+    batch = Batch.objects.create(
+        product=sales_item.product, branch=txn.branch, location=Batch.Location.FLOOR,
+        quantity=quantity, received_date=timezone.localdate(), expiry_date=None,
+        notes=f'Customer return for {txn.order_number} — refunded, marked sellable.',
+    )
+    StockMovement.objects.create(
+        inventory=inv,
+        location_type=StockMovement.LocationType.FLOOR,
+        movement_type=StockMovement.MovementType.CUSTOMER_RETURN,
+        quantity_change=inv.quantity_on_hand - before,
+        quantity_before=before,
+        quantity_after=inv.quantity_on_hand,
+        reference_id=txn.pk,
+        batch=batch,
+        notes=f'Refund on {txn.order_number} — {_item_label(sales_item)} returned sellable.',
+        created_by=user,
+    )
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transaction_refund(request, pk):
+    """Refund some or all of a Completed, Paid order's items. Module-gated
+    (SALES_POS) the same as every other order action, but the role check
+    below is what actually restricts this to Owner/Branch Manager — Staff
+    never reaches past it, matching who may void a completed sale."""
+    txn = get_object_or_404(SalesTransaction, pk=pk)
+
+    if not user_can_access_branch(request.user, txn.branch_id):
+        messages.error(request, 'That order belongs to another branch.')
+        return redirect('transaction_list')
+
+    if request.user.role not in (OWNER, BRANCH_MANAGER):
+        messages.error(request, 'Only the Owner or a Branch Manager can issue a refund.')
+        return redirect('transaction_detail', pk=pk)
+
+    if request.method != 'POST':
+        return redirect('transaction_detail', pk=pk)
+
+    try:
+        with transaction.atomic():
+            # Re-fetch and lock so two refunds racing the same order can't
+            # both pass the remaining-quantity check against the same stale,
+            # pre-lock read — the pattern billing_confirm (D-1) and
+            # transaction_set_status already use.
+            locked_txn = SalesTransaction.objects.select_for_update().get(pk=pk)
+            billing = BillingRecord.objects.select_for_update().filter(
+                transaction=locked_txn
+            ).first()
+
+            if not _can_offer_refund(locked_txn, billing, request.user):
+                raise _OrderActionError(
+                    f'{locked_txn.order_number} is not eligible for a refund '
+                    f'right now — it must be Completed, Paid, and within '
+                    f'{locked_txn.REFUND_WINDOW.days} days of completion.'
+                )
+
+            reason = request.POST.get('reason', '').strip()
+            refund_method = request.POST.get('refund_method', '')
+            if not reason:
+                raise _OrderActionError('Enter a reason for this refund.')
+            if refund_method not in Refund.RefundMethod.values:
+                raise _OrderActionError('Choose how the money was given back.')
+
+            item_ids = request.POST.getlist('item_id')
+            if not item_ids:
+                raise _OrderActionError('Select at least one item to refund.')
+
+            sales_items = {
+                str(i.pk): i for i in
+                SalesItem.objects.select_for_update().select_related('product')
+                .filter(transaction=locked_txn)
+            }
+            lines = []
+            total = Decimal('0')
+            for item_id in item_ids:
+                sales_item = sales_items.get(item_id)
+                if sales_item is None:
+                    raise _OrderActionError('That item does not belong to this order.')
+
+                qty_raw = request.POST.get(f'quantity_{item_id}', '').strip()
+                condition = request.POST.get(f'condition_{item_id}', '')
+                if not qty_raw.isdigit() or int(qty_raw) <= 0:
+                    raise _OrderActionError(
+                        f'Enter a valid quantity for {_item_label(sales_item)}.'
+                    )
+                if condition not in RefundItem.Condition.values:
+                    raise _OrderActionError(
+                        f'Choose a condition for {_item_label(sales_item)}.'
+                    )
+
+                quantity = int(qty_raw)
+                already_refunded = sales_item.refund_items.aggregate(
+                    total=dj_models.Sum('quantity')
+                )['total'] or 0
+                remaining = sales_item.quantity_sold - already_refunded
+                if quantity > remaining:
+                    raise _OrderActionError(
+                        f'Only {remaining} unit(s) of {_item_label(sales_item)} '
+                        f'can still be refunded on this order.'
+                    )
+
+                lines.append((sales_item, quantity, condition))
+                total += quantity * sales_item.unit_price
+
+            refund = Refund.objects.create(
+                transaction=locked_txn, reason=reason, refund_method=refund_method,
+                total_amount=total, refunded_by=request.user,
+            )
+            unrestockable = 0
+            for sales_item, quantity, condition in lines:
+                RefundItem.objects.create(
+                    refund=refund, sales_item=sales_item, quantity=quantity,
+                    condition=condition, amount=quantity * sales_item.unit_price,
+                )
+                if condition == RefundItem.Condition.SELLABLE:
+                    # A line whose product was since deleted from the catalog
+                    # has nowhere to be restocked to (Inventory requires a
+                    # product) — the refund itself is still recorded (the
+                    # money was genuinely paid), just not the stock movement.
+                    if sales_item.product_id is None:
+                        unrestockable += quantity
+                    else:
+                        _restock_refunded_item(sales_item, locked_txn, quantity, request.user)
+
+            # Billing (list, filters, report) otherwise has no way to show
+            # which orders were refunded short of opening each one here —
+            # Refunded once nothing on the order is left to refund,
+            # Partially Refunded while _refundable_items still finds some.
+            new_billing_status = (
+                BillingRecord.PaymentStatus.REFUNDED
+                if not _refundable_items(locked_txn)
+                else BillingRecord.PaymentStatus.PARTIALLY_REFUNDED
+            )
+            if billing.can_transition_to(new_billing_status):
+                billing.status = new_billing_status
+                billing.save(update_fields=['status'])
+    except _OrderActionError as e:
+        messages.error(request, str(e))
+        return redirect('transaction_detail', pk=pk)
+
+    from core.module_permissions import SALES_POS
+    from core.notifications import CATEGORY_SALES, PRIORITY_MEDIUM, notify
+
+    notify(
+        CATEGORY_SALES, PRIORITY_MEDIUM,
+        f'Refund issued — {txn.order_number}',
+        f'₱{total} refunded on {txn.order_number} ({txn.branch.branch_name}) '
+        f'by {request.user.username}.',
+        branch=txn.branch,
+        action_url=reverse('transaction_detail', kwargs={'pk': txn.pk}),
+        action_label='View Order',
+        required_module=SALES_POS,
+    )
+    messages.success(request, f'Refund of ₱{total} recorded for {txn.order_number}.')
+    if unrestockable:
+        messages.warning(
+            request,
+            f'{unrestockable} unit(s) marked Sellable could not be added back to stock — '
+            f'the product has since been removed from the catalog.'
+        )
+    return redirect('transaction_detail', pk=pk)
 
 
 # ─────────────────────────────────────────────
@@ -1264,7 +1622,22 @@ def transaction_add(request):
                         recorded_by=request.user,
                         transaction_type=SalesTransaction.TransactionType.PHYSICAL,
                         mode_of_payment=mode_of_payment,
-                        order_status=SalesTransaction.OrderStatus.COMPLETED,  # walk-in = done
+                        # A Cash sale is settled at the counter, so it is done. GCash
+                        # and Card have to clear as a separate, verified step first
+                        # (below), so those stay Pending until the payment is Paid.
+                        order_status=(
+                            SalesTransaction.OrderStatus.COMPLETED
+                            if mode_of_payment == SalesTransaction.ModeOfPayment.CASH
+                            else SalesTransaction.OrderStatus.PENDING
+                        ),
+                        # A Cash walk-in is Completed the instant it's created
+                        # here — it never passes through transaction_set_status,
+                        # which is the only other place completed_at is set.
+                        completed_at=(
+                            timezone.now()
+                            if mode_of_payment == SalesTransaction.ModeOfPayment.CASH
+                            else None
+                        ),
                         total_amount=total,
                         discount_type=discount_type,
                         discount_id_number=discount_id_number,
@@ -1331,7 +1704,15 @@ def transaction_add(request):
                         f'total is unchanged.'
                     )
                 else:
-                    messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
+                    if txn.order_status == SalesTransaction.OrderStatus.PENDING:
+                        messages.success(
+                            request,
+                            f'Sale {txn.order_number} recorded — ₱{total}. It stays '
+                            f'Pending until the {mode_of_payment} payment is recorded '
+                            f'and verified.'
+                        )
+                    else:
+                        messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
                 return redirect('transaction_detail', pk=txn.pk)
 
     # Rejected. Re-render the form with the header selections re-chosen and

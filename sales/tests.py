@@ -7,20 +7,22 @@ re-renders the form with the basket intact instead of redirecting and
 throwing it away.
 """
 import threading
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
+from decimal import Decimal
 from unittest import mock
 
 from django.db import connections
+from django.db.models import Sum
 from django.test import Client, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import BranchManagerProfile, StaffProfile, User
+from accounts.models import BranchManagerProfile, Notification, StaffProfile, User
 from billing.models import BillingRecord
 from branches.models import Branch
 from core.module_permissions import DEFAULT_STAFF_MODULES, SALES_POS
-from inventory.models import Inventory, Product
-from sales.models import OrderNumberSequence, SalesTransaction
+from inventory.models import Batch, Inventory, Product, StockMovement
+from sales.models import OrderNumberSequence, Refund, RefundItem, SalesItem, SalesTransaction
 
 
 class WalkInSaleFormTests(TestCase):
@@ -42,11 +44,42 @@ class WalkInSaleFormTests(TestCase):
         self.client.force_login(self.owner)
 
     def test_get_renders_the_walk_in_sale_page(self):
-        response = self.client.get(reverse('transaction_add'))
+        response = self.client.get(reverse('transaction_add'), {'branch': self.branch.pk})
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'sales/transaction_form.html')
         self.assertIn(self.product, list(response.context['pos_products']))
         self.assertContains(response, 'id="pos-form"')
+
+    def test_an_owner_sees_no_products_until_a_branch_is_chosen(self):
+        """An Owner isn't pinned to one branch, so the product dropdown has
+        nowhere to scope to until they pick one — showing every product in
+        the system here (possibly thousands) defeats the point of scoping
+        it at all. The Items card stays hidden entirely rather than offer
+        an unscoped list."""
+        response = self.client.get(reverse('transaction_add'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context['pos_products']), [])
+        self.assertIsNone(response.context['pos_effective_branch'])
+        self.assertNotContains(response, 'id="pos-item-rows"')
+        self.assertContains(response, 'Choose a branch above to start adding items')
+
+    def test_choosing_a_branch_scopes_the_product_list(self):
+        other_branch = Branch.objects.create(
+            branch_name='Other Branch', location='Baliuag', owner=self.owner,
+        )
+        other_product = Product.objects.create(
+            sku_code='SKU-OTHER', product_name='Only At Other Branch',
+            unit_price=50,
+        )
+        Inventory.objects.create(
+            product=other_product, branch=other_branch, quantity_on_hand=10,
+        )
+
+        response = self.client.get(reverse('transaction_add'), {'branch': self.branch.pk})
+
+        products = list(response.context['pos_products'])
+        self.assertIn(self.product, products)
+        self.assertNotIn(other_product, products)
 
     def test_console_links_to_the_walk_in_sale_page_for_a_user_who_may_sell(self):
         response = self.client.get(reverse('transaction_list'))
@@ -126,8 +159,32 @@ class WalkInSaleFormTests(TestCase):
         """posRecalc reads the ladder off the option's data-tiers, so the
         cashier sees the bulk price before the sale is recorded, not after."""
         self.product.price_tiers.create(min_quantity=10, unit_price=80)
-        response = self.client.get(reverse('transaction_add'))
+        response = self.client.get(reverse('transaction_add'), {'branch': self.branch.pk})
         self.assertContains(response, 'data-tiers="[[10, 80.0]]"')
+
+    def test_a_product_id_or_price_past_1000_is_not_comma_formatted(self):
+        """USE_THOUSAND_SEPARATOR (settings.py) localises every numeric
+        template variable by default, including a raw id or Decimal placed
+        straight into an HTML attribute — value="1,016" is not a valid
+        option value the row JS can match back to pos_stock_map, and
+        data-retail="1,270.00" stops parseFloat at the comma, pricing the
+        row at ₱1. See core.tests.test_price_over_1000_survives_an_edit for
+        the same bug on the product price input. Real once this store's
+        product/price numbers cross 1000, which a growing catalog will."""
+        big_id_product = Product.objects.create(
+            pk=1005, sku_code='SKU-1005', product_name='Past The Comma',
+            unit_price=Decimal('1270.00'),
+        )
+        Inventory.objects.create(
+            product=big_id_product, branch=self.branch, quantity_on_hand=5,
+        )
+
+        response = self.client.get(reverse('transaction_add'), {'branch': self.branch.pk})
+
+        self.assertContains(response, 'value="1005"')
+        self.assertNotContains(response, 'value="1,005"')
+        self.assertContains(response, 'data-retail="1270.00"')
+        self.assertNotContains(response, 'data-retail="1,270.00"')
 
     def test_no_branch_reopens_the_form_and_keeps_the_basket(self):
         response = self.client.post(reverse('transaction_add'), {
@@ -847,3 +904,673 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.get(branch=self.branch)
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertIsNone(new_order.replaces_id)
+
+
+class PaymentGatesOrderCompletionTests(TestCase):
+    """An order is only Completed once its payment is verified Paid. A walk-in
+    settled in Cash is done at the counter (Completed + Paid); a GCash or Card
+    walk-in stays Pending until its payment has been recorded and verified,
+    then can be completed like any other order."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='pg-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-PG', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100,
+        )
+        self.inventory = Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+        self.client.force_login(self.owner)
+
+    def _online_order(self, status='Preparing'):
+        return SalesTransaction.objects.create(
+            branch=self.branch, order_status=status, total_amount=100,
+            transaction_type=SalesTransaction.TransactionType.ONLINE,
+            mode_of_payment=SalesTransaction.ModeOfPayment.COD,
+        )
+
+    def _set_billing(self, txn, status):
+        BillingRecord.objects.filter(transaction=txn).update(status=status)
+
+    def _complete(self, txn):
+        return self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Completed'])
+        )
+
+    def _walk_in(self, method, qty='2', **extra):
+        payload = {
+            'branch': self.branch.pk, 'mode_of_payment': method,
+            'product_id': [str(self.product.pk)], 'quantity': [qty],
+        }
+        if method == 'Cash':
+            payload['amount_tendered'] = '1000'
+        payload.update(extra)
+        response = self.client.post(reverse('transaction_add'), payload)
+        return SalesTransaction.objects.latest('pk'), response
+
+    # -- the gate ---------------------------------------------------------------
+
+    def test_completing_is_refused_while_payment_is_pending(self):
+        txn = self._online_order()
+        response = self._complete(txn)
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Preparing')
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('verified as Paid' in m for m in messages_))
+
+    def test_completing_is_refused_while_payment_is_rejected(self):
+        txn = self._online_order()
+        self._set_billing(txn, BillingRecord.PaymentStatus.REJECTED)
+        self._complete(txn)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Preparing')
+
+    def test_completing_works_once_payment_is_paid(self):
+        txn = self._online_order()
+        self._set_billing(txn, BillingRecord.PaymentStatus.PAID)
+        self._complete(txn)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Completed')
+
+    def test_a_refused_completion_takes_no_stock(self):
+        txn = self._online_order()
+        from sales.models import SalesItem
+        SalesItem.objects.create(
+            transaction=txn, product=self.product, quantity_sold=5, unit_price=100,
+        )
+        self._complete(txn)
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 50)
+
+    def test_the_button_is_disabled_until_paid(self):
+        txn = self._online_order()
+        page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
+        self.assertContains(page, 'Payment must be verified as Paid first.')
+
+        self._set_billing(txn, BillingRecord.PaymentStatus.PAID)
+        page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
+        self.assertNotContains(page, 'Payment must be verified as Paid first.')
+
+    # -- walk-in sales ----------------------------------------------------------
+
+    def test_a_cash_walk_in_is_completed_and_paid_at_the_counter(self):
+        txn, _ = self._walk_in('Cash')
+
+        self.assertEqual(txn.order_status, 'Completed')
+        self.assertEqual(txn.billing_record.status, 'Paid')
+
+    def test_gcash_and_card_walk_ins_stay_pending_until_verified(self):
+        for method in ('GCash', 'Card'):
+            with self.subTest(method=method):
+                txn, response = self._walk_in(method)
+
+                self.assertEqual(txn.order_status, 'Pending')
+                self.assertEqual(txn.billing_record.status, 'Pending')
+                messages_ = [m.message for m in response.wsgi_request._messages]
+                self.assertTrue(any('stays Pending' in m for m in messages_))
+
+    def test_a_pending_walk_in_has_already_left_the_shelf(self):
+        self._walk_in('GCash', qty='2')
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 48)
+
+    def test_a_pending_walk_in_only_offers_complete_or_cancel(self):
+        txn, _ = self._walk_in('GCash')
+        page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertEqual(page.context['next_actions'], ['Completed', 'Cancelled'])
+
+    def test_a_pending_walk_in_completes_after_payment_is_verified_without_a_second_deduction(self):
+        txn, _ = self._walk_in('GCash', qty='2')
+
+        self._complete(txn)
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Pending')
+
+        self._set_billing(txn, BillingRecord.PaymentStatus.PAID)
+        self._complete(txn)
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Completed')
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 48)
+
+    @mock.patch('core.notifications.notify')
+    def test_cancelling_a_pending_walk_in_puts_its_stock_back(self, mock_notify):
+        txn, _ = self._walk_in('GCash', qty='2')
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 48)
+
+        self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Cancelled']),
+            {'cancel_reason': 'Customer never paid'},
+        )
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Cancelled')
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 50)
+
+
+class RefundTests(TestCase):
+    """Owner/Branch Manager only, on a Completed + Paid order, within
+    SalesTransaction.REFUND_WINDOW of completion. Distinct from voiding a
+    completed sale: a refund targets specific items and never touches order
+    status — the Refund/RefundItem rows are the itemized record. Billing
+    status DOES move (Paid -> Partially Refunded -> Refunded), so a refunded
+    order is visible from the Billing list without opening each one."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='rf-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.other_branch = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner
+        )
+        self.manager = User.objects.create_user(
+            username='rf-manager', password='pw', role=User.Role.BRANCH_MANAGER
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=self.manager, defaults={'manager_name': 'Manny', 'branch': self.branch}
+        )
+        self.staff = User.objects.create_user(
+            username='rf-staff', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=self.staff, defaults={'staff_name': 'Sam', 'branch': self.branch}
+        )
+        User.objects.filter(pk=self.staff.pk).update(allowed_modules=[SALES_POS])
+        self.product = Product.objects.create(
+            sku_code='SKU-RF', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100,
+        )
+        self.inventory = Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=50, reorder_level=5,
+        )
+        self.client.force_login(self.owner)
+
+    def _order(self, quantity=5, unit_price=Decimal('100'), completed_at=None, branch=None):
+        txn = SalesTransaction.objects.create(
+            branch=branch or self.branch,
+            order_status=SalesTransaction.OrderStatus.COMPLETED,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            total_amount=quantity * unit_price,
+            completed_at=completed_at or timezone.now(),
+        )
+        SalesItem.objects.create(
+            transaction=txn, product=self.product,
+            quantity_sold=quantity, unit_price=unit_price,
+        )
+        BillingRecord.objects.filter(transaction=txn).update(
+            status=BillingRecord.PaymentStatus.PAID
+        )
+        return txn
+
+    def _refund(self, txn, item, quantity, condition='Sellable',
+                reason='Customer changed mind', refund_method='Cash', client=None):
+        client = client or self.client
+        return client.post(reverse('transaction_refund', args=[txn.pk]), {
+            'item_id': [str(item.pk)],
+            f'quantity_{item.pk}': str(quantity),
+            f'condition_{item.pk}': condition,
+            'reason': reason,
+            'refund_method': refund_method,
+        })
+
+    def _detail(self, txn, client=None):
+        client = client or self.client
+        return client.get(reverse('transaction_detail', args=[txn.pk]))
+
+    # -- the happy path -----------------------------------------------------
+
+    @mock.patch('core.notifications.notify')
+    def test_owner_can_refund_part_of_an_order(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        response = self._refund(txn, item, 2)
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        refund = Refund.objects.get()
+        self.assertEqual(refund.transaction, txn)
+        self.assertEqual(refund.total_amount, Decimal('200.00'))
+        self.assertEqual(refund.refunded_by, self.owner)
+        line = refund.items.get()
+        self.assertEqual((line.sales_item, line.quantity, line.condition, line.amount),
+                         (item, 2, 'Sellable', Decimal('200.00')))
+
+    @mock.patch('core.notifications.notify')
+    def test_order_status_is_untouched_but_billing_moves_to_partially_refunded(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        self._refund(txn, item, 2)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Completed')
+        self.assertEqual(txn.billing_record.status, 'Partially Refunded')
+
+    @mock.patch('core.notifications.notify')
+    def test_refunding_every_unit_moves_billing_to_refunded(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        self._refund(txn, item, 5)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Completed')
+        self.assertEqual(txn.billing_record.status, 'Refunded')
+
+    @mock.patch('core.notifications.notify')
+    def test_a_partially_refunded_order_can_be_refunded_again(self, mock_notify):
+        """Partially Refunded must stay refundable for what's left — a
+        billing status change from Paid on the first refund must not lock
+        the order out of a second one for its remaining quantity."""
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        self._refund(txn, item, 2)
+        txn.refresh_from_db()
+        self.assertEqual(txn.billing_record.status, 'Partially Refunded')
+
+        response = self._refund(txn, item, 3)
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        self.assertEqual(Refund.objects.filter(transaction=txn).count(), 2)
+        txn.refresh_from_db()
+        self.assertEqual(txn.billing_record.status, 'Refunded')
+
+    @mock.patch('core.notifications.notify')
+    def test_a_fully_refunded_order_has_nothing_left_to_refund(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        self._refund(txn, item, 5)
+        txn.refresh_from_db()
+        self.assertEqual(txn.billing_record.status, 'Refunded')
+
+        response = self._refund(txn, item, 1)
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        self.assertEqual(Refund.objects.filter(transaction=txn).count(), 1)  # the second attempt did nothing
+
+    @mock.patch('core.notifications.notify')
+    def test_a_refunded_order_shows_up_on_the_billing_list_without_opening_it(self, mock_notify):
+        """The whole point: Billing (list, filters, report) previously had
+        no way to tell a refunded order from any other Paid one short of
+        opening it in Sales & Orders."""
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        self._refund(txn, item, 5)
+
+        response = self.client.get(reverse('billing_list'), {'status': 'Refunded'})
+
+        self.assertContains(response, txn.order_number)
+        self.assertEqual(response.context['counts']['refunded'], 1)
+
+    @mock.patch('core.notifications.notify')
+    def test_branch_manager_can_refund_their_own_branch(self, mock_notify):
+        self.client.force_login(self.manager)
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        self._refund(txn, item, 1)
+
+        self.assertEqual(Refund.objects.count(), 1)
+
+    # -- stock effects --------------------------------------------------------
+
+    @mock.patch('core.notifications.notify')
+    def test_sellable_condition_restocks_and_logs_a_customer_return(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        before = self.inventory.quantity_on_hand
+
+        self._refund(txn, item, 2, condition='Sellable')
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, before + 2)
+        movement = StockMovement.objects.get(movement_type='Customer Return')
+        self.assertEqual(movement.quantity_change, 2)
+        self.assertEqual(movement.reference_id, txn.pk)
+        self.assertTrue(Batch.objects.filter(
+            product=self.product, branch=self.branch, quantity=2, expiry_date=None,
+        ).exists())
+
+    @mock.patch('core.notifications.notify')
+    def test_damaged_condition_leaves_stock_untouched(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        before = self.inventory.quantity_on_hand
+
+        self._refund(txn, item, 2, condition='Damaged')
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, before)
+        self.assertFalse(StockMovement.objects.filter(movement_type='Customer Return').exists())
+
+    # -- quantity limits --------------------------------------------------------
+
+    def test_cannot_refund_more_than_was_sold(self):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        response = self._refund(txn, item, 6)
+
+        self.assertEqual(Refund.objects.count(), 0)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('can still be refunded' in m for m in messages_))
+
+    @mock.patch('core.notifications.notify')
+    def test_a_second_refund_cannot_exceed_what_is_left(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        self._refund(txn, item, 3)
+
+        response = self._refund(txn, item, 3)
+
+        self.assertEqual(RefundItem.objects.filter(refund__transaction=txn).count(), 1)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('Only 2 unit' in m for m in messages_))
+
+    @mock.patch('core.notifications.notify')
+    def test_two_partial_refunds_can_together_cover_the_whole_line(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        self._refund(txn, item, 3)
+
+        response = self._refund(txn, item, 2)
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        self.assertEqual(Refund.objects.filter(transaction=txn).count(), 2)
+        self.assertEqual(
+            RefundItem.objects.filter(sales_item=item).aggregate(total=Sum('quantity'))['total'],
+            5,
+        )
+
+    @mock.patch('core.notifications.notify')
+    def test_a_fully_refunded_item_no_longer_appears_as_refundable(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        self._refund(txn, item, 5)
+
+        page = self._detail(txn)
+
+        self.assertEqual(page.context['refundable_items'], [])
+        self.assertNotContains(page, 'Issue refund')
+
+    # -- eligibility ------------------------------------------------------------
+
+    def test_staff_never_sees_or_can_use_the_refund_form(self):
+        self.client.force_login(self.staff)
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        page = self._detail(txn)
+        self.assertEqual(page.context['refundable_items'], [])
+
+        response = self._refund(txn, item, 1)
+        self.assertEqual(Refund.objects.count(), 0)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('Only the Owner or a Branch Manager' in m for m in messages_))
+
+    def test_a_manager_cannot_refund_another_branchs_order(self):
+        self.client.force_login(self.manager)
+        txn = self._order(quantity=5, branch=self.other_branch)
+        item = txn.items.get()
+
+        response = self._refund(txn, item, 1)
+
+        self.assertEqual(Refund.objects.count(), 0)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('another branch' in m for m in messages_))
+
+    def test_a_pending_order_cannot_be_refunded(self):
+        txn = self._order(quantity=5)
+        txn.order_status = SalesTransaction.OrderStatus.PENDING
+        txn.save(update_fields=['order_status'])
+        item = txn.items.get()
+
+        response = self._refund(txn, item, 1)
+
+        self.assertEqual(Refund.objects.count(), 0)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('not eligible for a refund' in m for m in messages_))
+
+    def test_an_unpaid_order_cannot_be_refunded(self):
+        txn = self._order(quantity=5)
+        BillingRecord.objects.filter(transaction=txn).update(
+            status=BillingRecord.PaymentStatus.PENDING
+        )
+        item = txn.items.get()
+
+        self._refund(txn, item, 1)
+
+        self.assertEqual(Refund.objects.count(), 0)
+
+    def test_the_refund_window_blocks_an_old_order(self):
+        txn = self._order(quantity=5, completed_at=timezone.now() - timedelta(days=4))
+        item = txn.items.get()
+
+        page = self._detail(txn)
+        self.assertEqual(page.context['refundable_items'], [])
+
+        self._refund(txn, item, 1)
+        self.assertEqual(Refund.objects.count(), 0)
+
+    @mock.patch('core.notifications.notify')
+    def test_within_the_refund_window_still_works(self, mock_notify):
+        txn = self._order(quantity=5, completed_at=timezone.now() - timedelta(days=2))
+        item = txn.items.get()
+
+        self._refund(txn, item, 1)
+
+        self.assertEqual(Refund.objects.count(), 1)
+
+    def test_a_completed_order_with_no_completed_at_on_record_cannot_be_refunded(self):
+        """Orders from before completed_at existed, never backfilled (or any
+        other row with a null completion date) — no reliable window to
+        measure from, so refund_window_expired() treats it as expired rather
+        than guessing."""
+        txn = self._order(quantity=5)
+        SalesTransaction.objects.filter(pk=txn.pk).update(completed_at=None)
+        txn.refresh_from_db()
+        item = txn.items.get()
+
+        self._refund(txn, item, 1)
+
+        self.assertEqual(Refund.objects.count(), 0)
+
+    # -- form validation --------------------------------------------------------
+
+    def test_a_reason_is_required(self):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        self._refund(txn, item, 1, reason='')
+
+        self.assertEqual(Refund.objects.count(), 0)
+
+    def test_a_refund_method_is_required(self):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        self._refund(txn, item, 1, refund_method='')
+
+        self.assertEqual(Refund.objects.count(), 0)
+
+    def test_at_least_one_item_must_be_selected(self):
+        txn = self._order(quantity=5)
+
+        response = self.client.post(reverse('transaction_refund', args=[txn.pk]), {
+            'reason': 'Nothing selected', 'refund_method': 'Cash',
+        })
+
+        self.assertEqual(Refund.objects.count(), 0)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('Select at least one item' in m for m in messages_))
+
+    def test_get_is_refused_without_side_effects(self):
+        txn = self._order(quantity=5)
+
+        response = self.client.get(reverse('transaction_refund', args=[txn.pk]))
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        self.assertEqual(Refund.objects.count(), 0)
+
+    # -- amount + notification --------------------------------------------------
+
+    @mock.patch('core.notifications.notify')
+    def test_the_amount_uses_the_frozen_sale_price_not_the_current_listed_price(self, mock_notify):
+        txn = self._order(quantity=2, unit_price=Decimal('80'))  # a discounted-at-sale-time price
+        item = txn.items.get()
+        self.product.unit_price = Decimal('999')
+        self.product.save(update_fields=['unit_price'])
+
+        self._refund(txn, item, 2)
+
+        self.assertEqual(Refund.objects.get().total_amount, Decimal('160.00'))
+
+    @mock.patch('core.notifications.notify')
+    def test_a_refund_notifies_the_owner(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+
+        self._refund(txn, item, 2)
+
+        self.assertEqual(mock_notify.call_count, 1)
+        args, kwargs = mock_notify.call_args
+        self.assertTrue(args[2].startswith('Refund issued'))
+
+    @mock.patch('core.notifications.notify')
+    def test_refund_history_shows_on_the_order_page(self, mock_notify):
+        txn = self._order(quantity=5)
+        item = txn.items.get()
+        self._refund(txn, item, 2, reason='Wrong size')
+
+        page = self._detail(txn)
+
+        self.assertContains(page, 'Wrong size')
+        self.assertContains(page, '₱200.00')
+
+
+class DeletedProductOnAnOldSaleTests(TestCase):
+    """A Product can be hard-deleted from the catalog (inventory.views.
+    product_delete) long after it was sold — SalesItem.product is SET_NULL
+    precisely so the sale survives that. Voiding/cancelling or refunding an
+    order with such a line used to crash trying to identify an Inventory row
+    for a product that no longer exists (product is a required field on it).
+    Reproduces the exact live bug: cancelling a Completed walk-in order whose
+    product was deleted afterward raised IntegrityError."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='dp-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-DP', product_name='Discontinued Item',
+            unit_of_measure='Piece', unit_price=50,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=20, reorder_level=5,
+        )
+        self.client.force_login(self.owner)
+
+    def _completed_order_with_deleted_product(self, quantity=2):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, order_status=SalesTransaction.OrderStatus.COMPLETED,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            total_amount=quantity * 50, completed_at=timezone.now(),
+        )
+        SalesItem.objects.create(
+            transaction=txn, product=self.product,
+            quantity_sold=quantity, unit_price=Decimal('50'),
+        )
+        BillingRecord.objects.filter(transaction=txn).update(
+            status=BillingRecord.PaymentStatus.PAID
+        )
+        self.product.delete()  # SalesItem.product is now SET_NULL
+        return txn
+
+    @mock.patch('core.notifications.notify')
+    def test_voiding_a_completed_sale_does_not_crash_and_says_why(self, mock_notify):
+        txn = self._completed_order_with_deleted_product(quantity=2)
+
+        response = self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Cancelled']),
+            {'cancel_reason': 'Customer return, product discontinued'},
+        )
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Cancelled')
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('removed from the catalog' in m for m in messages_))
+
+    def test_viewing_the_order_does_not_crash(self):
+        txn = self._completed_order_with_deleted_product()
+
+        response = self.client.get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '(product removed)')
+
+    @mock.patch('core.notifications.notify')
+    def test_refunding_such_a_line_records_the_refund_without_crashing(self, mock_notify):
+        txn = self._completed_order_with_deleted_product(quantity=2)
+        item = txn.items.get()
+
+        response = self.client.post(reverse('transaction_refund', args=[txn.pk]), {
+            'item_id': [str(item.pk)],
+            f'quantity_{item.pk}': '2',
+            f'condition_{item.pk}': 'Sellable',
+            'reason': 'Discontinued item returned',
+            'refund_method': 'Cash',
+        })
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        self.assertEqual(Refund.objects.get().total_amount, Decimal('100.00'))
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('could not be added back to stock' in m for m in messages_))
+
+    def test_completing_an_online_order_with_a_deleted_product_line_fails_cleanly(self):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, order_status=SalesTransaction.OrderStatus.PREPARING,
+            transaction_type=SalesTransaction.TransactionType.ONLINE,
+            total_amount=100,
+        )
+        SalesItem.objects.create(
+            transaction=txn, product=self.product, quantity_sold=2, unit_price=Decimal('50'),
+        )
+        BillingRecord.objects.filter(transaction=txn).update(
+            status=BillingRecord.PaymentStatus.PAID
+        )
+        self.product.delete()
+
+        response = self.client.post(
+            reverse('transaction_set_status', args=[txn.pk, 'Completed'])
+        )
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, 'Preparing')  # refused, not crashed
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('Not enough stock for a product since removed' in m for m in messages_))

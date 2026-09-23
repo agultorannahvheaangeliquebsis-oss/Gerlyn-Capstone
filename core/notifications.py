@@ -34,7 +34,7 @@ running before those apps are ready.
 from decimal import Decimal
 
 from core.module_permissions import (
-    ALERTS, BILLING, DELIVERIES, FLOOR_STOCK, WAREHOUSE_STOCK,
+    ALERTS, BILLING, DELIVERIES, FLOOR_STOCK, PROCUREMENT, WAREHOUSE_STOCK,
 )
 
 CATEGORY_STAFF = 'staff'
@@ -53,9 +53,12 @@ EVENT_LOW_STOCK = 'low_stock'
 EVENT_NEAR_EXPIRY = 'near_expiry'
 EVENT_PO_APPROVED = 'po_approved'
 EVENT_INCOMING_DELIVERY = 'incoming_delivery'
+EVENT_PO_TERMS_FOR_BUYER = 'po_terms_for_buyer'
+EVENT_PO_TERMS_FOR_SUPPLIER = 'po_terms_for_supplier'
 EVENT_ORDER_DELIVERED = 'order_delivered'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
+EVENT_EXPIRY_WRITE_OFF = 'expiry_write_off'
 
 # Executable notification matrix.  ``internal`` means all active Owners plus
 # the branch's active Manager/Staff accounts that can access required_module.
@@ -87,7 +90,7 @@ EVENT_MATRIX = {
         'exclude_actor': False,
     },
     EVENT_PO_APPROVED: {
-        'when': 'The Owner authorizes a Draft purchase order into Ordered.',
+        'when': 'The Owner authorizes a Draft purchase order into Approved.',
         'recipients': 'The PO requester and supplier; never duplicate the approving actor.',
         'audiences': ('requester', 'supplier'),
         'category': CATEGORY_PROCUREMENT,
@@ -102,6 +105,27 @@ EVENT_MATRIX = {
         'category': CATEGORY_PROCUREMENT,
         'priority': PRIORITY_MEDIUM,
         'required_module': DELIVERIES,
+        'exclude_actor': True,
+    },
+    EVENT_PO_TERMS_FOR_BUYER: {
+        'when': 'The supplier submits a price/delivery-date offer or counter-offer '
+                'on an Approved purchase order — it is now the buyer\'s turn.',
+        'recipients': 'Owner; branch Manager/Staff with Procurement access.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': PROCUREMENT,
+        'exclude_actor': True,
+    },
+    EVENT_PO_TERMS_FOR_SUPPLIER: {
+        'when': 'The Owner/Manager counters or accepts the supplier\'s offer — '
+                'it is now the supplier\'s turn (respond, or give the final '
+                'confirmation once terms are agreed).',
+        'recipients': 'The supplier on this order.',
+        'audiences': ('supplier',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
         'exclude_actor': True,
     },
     EVENT_ORDER_DELIVERED: {
@@ -130,6 +154,23 @@ EVENT_MATRIX = {
         'priority': PRIORITY_HIGH,
         'required_module': BILLING,
         'exclude_actor': True,
+    },
+    EVENT_EXPIRY_WRITE_OFF: {
+        'when': 'The daily expiry sweep removes one or more due batches from '
+                'Floor or Warehouse Stock, unattended (no actor).',
+        'recipients': 'Owner; branch Manager/Staff with the affected Floor/Warehouse Stock access.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_HIGH,
+        'priority_note': 'High — stays unresolved until the Owner (or that '
+                          'branch\'s Manager/Staff) opens it, the same "needs '
+                          'confirming" treatment every other High-priority '
+                          'alert gets; there is no separate approval step '
+                          'before the write-off itself, which the unattended '
+                          'sweep has already applied by the time this fires.',
+        'required_module': FLOOR_STOCK,
+        'allowed_modules': (FLOOR_STOCK, WAREHOUSE_STOCK),
+        'exclude_actor': False,
     },
 }
 

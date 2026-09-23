@@ -71,14 +71,21 @@ one per row.
       {# ------------------------------------------------------- the form #}
       <form method="POST" action="{% url 'delivery_receive' receive_procurement.pk %}" id="receive-form">
         {% csrf_token %}
+        <div class="field mb-4" style="max-width:220px;">
+          <label for="actual-receipt-date">Actual Receipt Date</label>
+          <input id="actual-receipt-date" type="date" name="actual_receipt_date"
+                 value="{{ today|date:'Y-m-d' }}" required>
+        </div>
         <div class="table-wrap">
           <table class="gv-table" id="receive-table">
             <thead>
               <tr>
                 <th>Product</th>
                 <th class="num">Ordered</th>
-                <th class="num">Cost Price</th>
-                <th class="num">Quantity Received</th>
+                <th class="num">Previously Received</th>
+                <th class="num">Remaining</th>
+                <th class="num">Unit Cost Snapshot</th>
+                <th class="num">Received This Shipment</th>
                 <th>Expiry Date</th>
                 <th>Status</th>
               </tr>
@@ -86,7 +93,7 @@ one per row.
             <tbody>
               {% for item in receive_items %}
               <tr data-item-id="{{ item.pk }}"
-                  data-ordered="{{ item.quantity_ordered|unlocalize }}"
+                  data-ordered="{{ item.remaining_quantity|unlocalize }}"
                   data-unexpected="{% if item.is_unexpected %}1{% else %}0{% endif %}">
                 <td data-label="Product" class="strong">
                   {{ item.product.product_name }}
@@ -100,11 +107,15 @@ one per row.
                   <input type="hidden" name="item_id" value="{{ item.pk }}">
                 </td>
                 <td data-label="Ordered" class="num">{{ item.quantity_ordered }}</td>
-                <td data-label="Cost Price" class="num">₱{{ item.cost_price|floatformat:2 }}</td>
-                <td data-label="Quantity Received" class="num">
+                <td data-label="Previously Received" class="num">{{ item.quantity_received }}</td>
+                <td data-label="Remaining" class="num">{{ item.remaining_quantity }}</td>
+                <td data-label="Unit Cost Snapshot" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}—{% endif %}</td>
+                <td data-label="Received This Shipment" class="num">
                   {# unlocalize: "1,200" is not a valid number-input value #}
-                  <input type="number" name="quantity_received" min="0" class="qty-input"
-                         value="{% if item.is_unexpected %}0{% else %}{{ item.quantity_ordered|unlocalize }}{% endif %}"
+                  <input type="number" name="quantity_received" min="0"
+                         {% if not item.is_unexpected %}max="{{ item.remaining_quantity|unlocalize }}"{% endif %}
+                         class="qty-input"
+                         value="{% if item.is_unexpected %}0{% else %}{{ item.remaining_quantity|unlocalize }}{% endif %}"
                          style="max-width:120px; margin-left:auto;">
                 </td>
                 <td data-label="Expiry Date">

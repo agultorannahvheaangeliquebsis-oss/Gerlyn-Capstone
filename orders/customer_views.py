@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 from django.contrib import messages
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse, QueryDict
@@ -1140,14 +1141,33 @@ def checkout(request):
     # so a reference left in the box before switching to Cash on Delivery
     # rode along onto a row that has no reference by definition. Hence the
     # clear on the else branch.
+    #
+    # The same goes for the screenshot: a GCash payment now needs both on
+    # file before staff can verify it (BillingRecord.missing_payment_evidence),
+    # and only the shopper has the screenshot — so it is asked for here
+    # rather than leaving every online GCash order impossible to verify.
     reference_number = request.POST.get('reference_number', '').strip()
+    proof_of_payment = None
     if mode_of_payment == SalesTransaction.ModeOfPayment.GCASH:
-        if not reference_number:
+        from billing.models import BillingRecord
+        from billing.views import _validate_proof_of_payment
+
+        proof_of_payment = request.FILES.get('proof_of_payment')
+        missing = BillingRecord.missing_payment_evidence(
+            mode_of_payment, reference_number, bool(proof_of_payment)
+        )
+        if missing:
             messages.error(
                 request,
-                'Enter your GCash reference number, or choose another payment '
-                'method — we cannot match the payment to your order without it.'
+                f'Enter your GCash {" and ".join(missing)}, or choose another '
+                f'payment method — we cannot match the payment to your order '
+                f'without it.'
             )
+            return redirect('orders:cart')
+        try:
+            _validate_proof_of_payment(proof_of_payment)
+        except ValidationError as e:
+            messages.error(request, e.message)
             return redirect('orders:cart')
     else:
         reference_number = ''
@@ -1338,6 +1358,8 @@ def checkout(request):
             # blank for every other method. Not re-read from the POST here —
             # that is what let an unvalidated value onto the row.
             billing.reference_number = reference_number
+            if proof_of_payment:
+                billing.proof_of_payment = proof_of_payment
             billing.save()
 
     request.session['cart'] = {}
