@@ -137,9 +137,8 @@
   }
 
   // Styled tooltip (kpi-graph-tooltip in gerlyn.css) for the continuous-hover
-  // path only (Total Sales, entry.smooth) — see the hitarea mousemove
-  // handler below. The other three metrics keep their original native
-  // <title> per point instead (renderPoints), never this.
+  // path only (every KPI-rail panel, entry.condensed) — see the hitarea
+  // mousemove handler below.
   //
   // One shared guideline + hitarea, one tooltip — never a second hoverable
   // target for the dashed prior-period line. p.prevValue (set server-side,
@@ -207,12 +206,16 @@
     return nearest;
   }
 
-  // Continuous hover for the smoothed panel: no visible dot sits on the
-  // line at rest (renderPoints below draws none for entry.smooth), so this
-  // is what answers "what's the value right here" — wherever the cursor is
-  // over the plot, not only when it happens to land exactly on a point.
+  // Continuous hover for every condensed KPI-rail panel: no visible dot sits
+  // on the line at rest (renderPoints below draws none for entry.condensed),
+  // so this is what answers "what's the value right here" — wherever the
+  // cursor is over the plot, not only when it happens to land exactly on a
+  // point. Independent of entry.smooth (whether the LINE itself is curved
+  // or straight, reports/views.py::_kpi_graph_series) — condensed and
+  // curved are two separate flags even though every KPI-rail metric happens
+  // to be both today.
   function handleHitareaMove(evt) {
-    if (!currentEntry || !currentEntry.smooth || !currentEntry.points.length) return;
+    if (!currentEntry || !currentEntry.condensed || !currentEntry.points.length) return;
     var svgPt = svg.createSVGPoint();
     svgPt.x = evt.clientX;
     svgPt.y = evt.clientY;
@@ -231,14 +234,17 @@
     hitareaEl.addEventListener('mouseleave', hideTooltip);
   }
 
-  // Dots are drawn only for the other three (non-smoothed) metrics, whose
-  // per-point native <title> IS their only hover affordance — continuous
-  // hover (above) replaces dots + per-point listeners for Total Sales,
-  // which is also why "tuldok-tuldok" clutter on every real data point is
-  // gone specifically (and only) there.
+  // Dots are only ever drawn for a non-condensed metric — none exist on the
+  // KPI rail today, but Sales Trend by Branch and the Procurement daily-
+  // spend chart both still call _kpi_graph_series without condensed=True,
+  // so their own per-point native <title> stays each one's only hover
+  // affordance. Continuous hover (above) replaces dots + per-point
+  // listeners wherever entry.condensed is set instead, which is also why
+  // "tuldok-tuldok" clutter on every real data point is gone specifically
+  // (and only) there.
   function renderPoints(entry) {
     pointsEl.textContent = '';
-    if (entry.smooth) return;
+    if (entry.condensed) return;
     entry.points.forEach(function (p) {
       var circle = document.createElementNS(SVG_NS, 'circle');
       circle.setAttribute('cx', p.x);
@@ -357,19 +363,19 @@
 
     // The panel no longer restates the card's foot or delta pill — the card
     // is tinted .active while its panel is open, so it already says both.
-    // The label/value/peak block is dropped together for the smoothed Total
-    // Sales panel — the card above already states its name and value, and
-    // the range/legend row is the only thing this header needs then. The
-    // other three metrics keep all three. Both #kpi-graph-label and
-    // #kpi-graph-figure are always present server-side (just `hidden` on
-    // whichever the default card doesn't want — see dashboard.html), so
-    // this only ever toggles that attribute, never creates or removes
-    // anything.
+    // The label/value/peak block is dropped together for every condensed
+    // KPI-rail panel — the card above already states its name and value,
+    // and the range/legend row is the only thing this header needs then.
+    // Independent of entry.smooth — condensed and curved are two separate
+    // flags (reports/views.py::_dashboard_kpi_payload). Both #kpi-graph-label
+    // and #kpi-graph-figure are always present server-side (just `hidden` on
+    // whichever the default card doesn't want — see dashboard.html), so this
+    // only ever toggles that attribute, never creates or removes anything.
     if (labelEl) {
-      labelEl.hidden = entry.smooth;
+      labelEl.hidden = entry.condensed;
       labelEl.textContent = entry.label;
     }
-    if (figureEl) figureEl.hidden = entry.smooth;
+    if (figureEl) figureEl.hidden = entry.condensed;
     if (valueEl) valueEl.textContent = entry.valueDisplay;
     if (peakEl) peakEl.textContent = entry.peak;
   }

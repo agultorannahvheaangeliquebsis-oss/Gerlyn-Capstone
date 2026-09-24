@@ -1,5 +1,6 @@
 import csv
 import math
+import statistics
 
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
@@ -229,6 +230,22 @@ def _smooth_curve_commands(coords, y_min, y_max):
     boundary is forced to exactly 0 — a fully flattened tangent, sharper
     than plain axis-clamping ever produced. Reverted; see git history on
     this function if revisiting.)
+
+    A SEGMENT (the gap between one pair of consecutive points) is drawn as a
+    plain straight 'L' instead of a Catmull-Rom 'C' when its x-gap is more
+    than 4x the series' median gap. Avg. Transaction Value (this function's
+    one caller whose points are ever unevenly spaced — it omits inactive
+    days, see _kpi_graph_series' docstring) can have a run of points roughly
+    a week apart and then one point over a month past the last — drawing a
+    real curve across a gap that size swooped the curve wildly past both
+    endpoints (the same y_min/y_max clamp above bounds a control point's Y,
+    not how far the drawn curve travels in X, so a long-gap segment could
+    still overshoot visually even fully clamped). Evenly-spaced series
+    (every OTHER caller) never trip this — every gap sits within a few
+    tenths of a unit of the median, nowhere near 4x it — so this only ever
+    changes ATV's own rendering. Neighbouring segments still use the far
+    point's real coordinates as a Catmull-Rom tangent reference same as
+    before; only the oversized segment ITSELF stops being a curve.
     """
     n = len(coords)
     if n < 2:
@@ -237,12 +254,33 @@ def _smooth_curve_commands(coords, y_min, y_max):
         # A straight line is already the correct (and only sensible) curve
         # through two points — no tangents to derive from neighbours.
         return f'L{coords[1][0]},{coords[1][1]}'
+    gaps = [coords[i + 1][0] - coords[i][0] for i in range(n - 1)]
+    median_gap = statistics.median(gaps)
+    straight_gap_threshold = median_gap * 4 if median_gap > 0 else float('inf')
     segments = []
     for i in range(n - 1):
-        p0 = coords[i - 1] if i - 1 >= 0 else coords[i]
         p1 = coords[i]
         p2 = coords[i + 1]
-        p3 = coords[i + 2] if i + 2 < n else coords[i + 1]
+        if gaps[i] > straight_gap_threshold:
+            segments.append(f'L{p2[0]},{p2[1]}')
+            continue
+        # p0/p3 are only ever used as tangent REFERENCES, never drawn
+        # through — but a distant one still pulls that end's control point
+        # toward it (same construction as any other neighbour), which
+        # visibly hooked the curve right at the point bordering a
+        # since-straight-lined oversized gap even though this segment itself
+        # is a normal, safely-curved one. Falling back to this segment's OWN
+        # near endpoint — exactly the existing start/end-of-series fallback
+        # below — starves that one tangent of a neighbour to lean on instead
+        # of leaning it toward a point potentially hundreds of units away.
+        p0 = (
+            coords[i - 1] if i - 1 >= 0 and gaps[i - 1] <= straight_gap_threshold
+            else p1
+        )
+        p3 = (
+            coords[i + 2] if i + 2 < n and gaps[i + 1] <= straight_gap_threshold
+            else p2
+        )
         cp1x = p1[0] + (p2[0] - p0[0]) / 6
         cp1y = p1[1] + (p2[1] - p0[1]) / 6
         cp2x = p2[0] - (p3[0] - p1[0]) / 6
@@ -298,6 +336,20 @@ def _month_lane_x_fractions(day_labels):
     `day_labels` is assumed contiguous within each month (guaranteed by
     _dashboard_daily_series's own zero-fill), so a month's first/last
     day-of-month actually present fully describes its span here.
+
+    `within` divides by the day COUNT (hi - lo + 1), not the day SPAN
+    (hi - lo) — dividing by the span put a lane's last day at fraction
+    exactly 1.0, i.e. exactly the following lane's start (fraction 0 for
+    that lane's own first day), so two different calendar days with two
+    different values sat on the identical x-coordinate at every month
+    boundary. A degenerate/near-vertical segment folded into that point's
+    Catmull-Rom tangent either side of it — confirmed as the actual cause
+    of the sharp spike and flat-topped artifacts reported at month
+    boundaries on the KPI graphs, not a smoothing-quality difference
+    between metrics. Dividing by the count instead keeps a lane's last day
+    just short of its own boundary, so the next lane's first day (still
+    exactly fraction 0, unaffected — day==lo makes the numerator 0
+    regardless of denominator) never lands on top of it.
     """
     months = _month_lanes(day_labels)
     if not months:
@@ -314,7 +366,7 @@ def _month_lane_x_fractions(day_labels):
     for label in day_labels:
         key, day = label[:7], int(label[8:10])
         lo, hi = month_span[key]
-        within = (day - lo) / (hi - lo) if hi > lo else 0.0
+        within = (day - lo) / (hi - lo + 1)
         lane_index = months.index(key)
         fractions.append(lane_index * lane_width + within * lane_width)
     return fractions
@@ -470,13 +522,14 @@ def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24,
 
     'linePath' (an SVG <path> 'd' string) is always returned — straight
     'L' segments through the same coordinates as 'polyline' by default, or,
-    with `smooth=True`, a Catmull-Rom-smoothed curve through them instead,
-    with 'area' drawn from that same curve and 'axisLabels' populated. Only
-    the Total Sales entry of the dashboard's swappable KPI panel currently
-    passes smooth=True (_dashboard_kpi_payload) — its other three metrics,
-    the Sales Trend tab and the Procurement daily-spend chart all call this
-    with smooth left False, and 'polyline'/'area'/'points' are byte-for-byte
-    unaffected by anything added here for those callers.
+    with `smooth=True`, a Catmull-Rom-smoothed curve through them instead
+    (see _smooth_curve_commands — individual oversized-gap segments still
+    fall back to a straight line even here), with 'area' drawn from that
+    same curve and 'axisLabels' populated. All four entries of the
+    dashboard's swappable KPI panel pass smooth=True (_dashboard_kpi_payload)
+    — the Sales Trend tab and the Procurement daily-spend chart are the only
+    callers that still leave it False, and 'polyline'/'area'/'points' are
+    byte-for-byte unaffected by anything added here for those callers.
 
     `axis_labels`, given, is used verbatim instead of the default month-lane
     ticks below — the Total Sales panel's 'today' view passes its own hourly
@@ -939,6 +992,16 @@ KPI_AREA = 'var(--green-50)'
 # they carry the per-point tooltip, so they are the interactive target, and
 # shrinking them on the secondary metrics costs hit area to move the
 # marker-to-line ratio from 4:1 to 3.33:1 — not a difference anyone sees.
+#
+# The swappable KPI-rail panel (_dashboard_kpi_payload) puts all four of its
+# own entries on 'primary' now, by explicit request — a side-by-side
+# comparison read Procurement Cost/Total Transactions' 'secondary' weight as
+# "broken" rather than "secondary" once they were switched into the same
+# big single-panel view Total Sales/Avg. Transaction Value use, not the
+# small always-visible card sparkline this split was designed for. 'secondary'
+# stays defined rather than deleted — nothing calls it today, but it's a
+# real, considered token (the accessibility math above), not dead guesswork,
+# and the small-card context it fits could come back.
 KPI_TIERS = {
     'primary':   {'stroke_width': '2.5', 'area_opacity': '1'},
     'secondary': {'stroke_width': '1.5', 'area_opacity': '0.45'},
@@ -1193,7 +1256,7 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
         },
         {
             'key': 'procurement_cost', 'label': 'Procurement Cost', 'unit': 'currency',
-            'tier': 'secondary',
+            'tier': 'primary',
             'value_display': f'₱{totals["procurement_cost"]:,.2f}',
             'delta': _delta_pill(totals['procurement_cost'], prev['procurement_cost'], compare_label, prev_empty),
             'values': procurement_cost_values,
@@ -1205,7 +1268,7 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
         },
         {
             'key': 'total_transactions', 'label': 'Total Transactions', 'unit': 'count',
-            'tier': 'secondary',
+            'tier': 'primary',
             'value_display': f'{txn_count:,}',
             'delta': _delta_pill(txn_count, prev['txn_count'], compare_label, prev_empty),
             'values': total_transactions_values,
@@ -1219,6 +1282,25 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
 
     cards, graphs = [], {}
     for spec in specs:
+        # Every metric now gets a real smoothed curve, Avg. Transaction Value
+        # included. ATV's points omit inactive days (see the spec above), so
+        # consecutive points can sit very far apart in x (a real case: 14
+        # points across three weeks, then a single point over 400 user-units
+        # later with nothing between) — Catmull-Rom curving straight across
+        # a gap that size once produced a wildly exaggerated overshoot right
+        # at the transition. That's now handled INSIDE _smooth_curve_commands
+        # itself (only the one oversized segment falls back to a straight
+        # line; every normal-spaced segment, which is most of ATV's own
+        # line, still curves) rather than by disabling smoothing for the
+        # whole series the way this used to — the earlier all-or-nothing
+        # version traded the overshoot for a visibly straight/angular line
+        # even where the data had no gap problem at all, which is its own
+        # visual regression against Total Sales' curve. Total Sales/
+        # Procurement Cost/Total Transactions never trip the per-segment
+        # fallback in the first place: their zero-filled daily series
+        # (_kpi_metric_series) keeps every point evenly spaced, gap or no
+        # gap in the real data, so every one of their segments stays well
+        # under the 4x-median threshold and always curves.
         graph = _kpi_graph_series(
             spec['values'], spec['labels'], x_fractions=spec['x_fractions'],
             # 260, not the 220 every other _kpi_graph_series caller still
@@ -1228,14 +1310,6 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
             # to fill the vertical space freed by dropping the label/value/
             # peak block for every KPI-rail panel's own head (kpi-graph-head).
             height=260,
-            # All four KPI-rail panels are smoothed now (Catmull-Rom, not
-            # straight polyline segments) — this used to be Total Sales
-            # only (is_total_sales = spec['key'] == 'total_sales'), by
-            # explicit request while the treatment was still being
-            # confirmed. dashboard-kpi.js never branched on the metric's
-            # key at all (only on entry.smooth, already per-spec), so
-            # rolling this out needed no JS/CSS changes — see this
-            # function's rollout notes.
             smooth=True,
             prev_values=spec['prev_values'],
             axis_labels=spec['axis_labels'],
@@ -1271,6 +1345,16 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
             # Transaction Value never does.
             'rangeHeader': spec['range_header'],
             'showLegend': spec['show_legend'],
+            # Drives the condensed panel UI (hidden title/value/peak block,
+            # continuous-hover tooltip instead of per-point dots) in
+            # dashboard-kpi.js — ALL FOUR KPI-rail panels get this,
+            # independently of `graph['smooth']` above (all four are True
+            # now, but this flag existed before that and is kept separate on
+            # principle — the condensed UI and the curve are two different
+            # decisions). dashboard-kpi.js used to gate this off entry.smooth
+            # directly, which coupled "looks condensed" to "is curved" for no
+            # real reason — see its own comments.
+            'condensed': True,
             **graph,
         }
     return cards, graphs, compare_note
