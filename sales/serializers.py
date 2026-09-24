@@ -98,6 +98,15 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         return value
 
     def validate(self, data):
+        user = self.context['request'].user
+        # Channel is derived server-side, never taken on the client's word. A
+        # Customer submitting transactionType=Physical would otherwise reach
+        # the immediate-deduction branch below meant for the counter/console
+        # only — every Customer-created sale is Online, whatever the payload
+        # says.
+        if user.role == user.Role.CUSTOMER:
+            data['transactionType'] = SalesTransaction.TransactionType.ONLINE
+
         if data.get('transactionType') == SalesTransaction.TransactionType.ONLINE \
                 and not data.get('deliveryAddress', '').strip():
             raise serializers.ValidationError(
@@ -149,23 +158,48 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             #
             # Availability is checked on EVERY channel; stock is only DEDUCTED
             # on Physical ones — see the deduction loop below.
+            #
+            # A product's Inventory row is locked and fetched exactly ONCE
+            # here, however many item lines the payload split it across, and
+            # every one of those lines shares that same Python instance for
+            # the rest of create(). Two lines of the same product used to
+            # each run their own select_for_update() + .get(), producing two
+            # independent objects: the availability check on the second line
+            # compared its own qty against stock that looked untouched (the
+            # first line's pending deduction was only in the first object's
+            # memory), so two lines of 5 could each pass an 8-in-stock check
+            # that their 10-unit total should have failed. Deduction had the
+            # same split-brain problem in reverse — the second line's .save()
+            # clobbered the first line's decrement instead of building on it,
+            # so recorded sales and actual stock disagreed. Sharing one
+            # locked instance per product makes both the check and the
+            # in-memory decrement see every line that touches that product.
             cart_lines = []
             inventories = []
+            inv_by_product = {}
             for item in items_data:
                 product = Product.objects.prefetch_related('price_tiers').get(
                     id=item['productId']
                 )
                 qty = item['quantity']
-                unit_price = product.price_at(qty_by_product[item['productId']])
-                # available_qty nets out anything past its expiry_date — a
-                # POS or online sale must never draw down expired stock.
-                inv = Inventory.objects.select_for_update().sellable().filter(
-                    product=product, branch_id=branch_id
-                ).first()
-                if not inv or inv.available_qty < qty:
-                    raise serializers.ValidationError(
-                        {'items': f'Not enough stock for {product.product_name}.'}
-                    )
+                total_qty = qty_by_product[item['productId']]
+                unit_price = product.price_at(total_qty)
+
+                inv = inv_by_product.get(product.id)
+                if inv is None:
+                    # available_qty nets out anything past its expiry_date —
+                    # a POS or online sale must never draw down expired
+                    # stock. Checked against the FULL aggregated demand for
+                    # this product, not just this one line's quantity.
+                    inv = Inventory.objects.select_for_update().sellable().filter(
+                        product=product, branch_id=branch_id
+                    ).first()
+                    if not inv or inv.available_qty < total_qty:
+                        raise serializers.ValidationError(
+                            {'items': f'Not enough stock for {product.product_name}.'}
+                        )
+                    inv_by_product[product.id] = inv
+
                 cart_lines.append((product, qty, unit_price))
                 inventories.append(inv)
 

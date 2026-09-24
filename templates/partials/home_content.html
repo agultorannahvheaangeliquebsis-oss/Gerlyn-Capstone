@@ -20,7 +20,7 @@ nowhere to put a page title — the banner is the first thing, and its
 headline rotates, so none of the three can be the h1 without the page's
 heading changing every six seconds.
 {% endcomment %}
-<h1 class="sr-only">Gerlyn Variety Store — shop groceries online in Baliuag</h1>
+<h1 class="sr-only">GERLYN — shop online in Baliuag</h1>
 
 <!-- =========================== BANNER RAIL =========================== -->
 <div class="shop-wrap">
@@ -196,18 +196,24 @@ heading changing every six seconds.
     is the catalog's filter rail with worse ergonomics. The tile is a way in
     to the department; its shelves live in the mega-menu and the catalog rail.
 
-    The tile carries the category's initial on a tinted square, not an SVG
-    icon and no longer an emoji: categories are rows the owner types in, so
-    there is no fixed set to draw icons for, and the emoji map only knew
-    eight names — everything else fell back to the same 📦, which made a row
-    of categories look like a row of identical boxes. An initial always
-    exists and always differs. category_tint keys the colour off the id so
-    it survives a rename; see the .cat .ring rules in storefront.css.
+    A category with an uploaded photo (Manage Categories, inventory app)
+    shows that photo. Without one, the tile falls back to the category's
+    initial on a tinted square, not an SVG icon and no longer an emoji:
+    categories are rows the owner types in, so there is no fixed set to draw
+    icons for, and the emoji map only knew eight names — everything else fell
+    back to the same 📦, which made a row of categories look like a row of
+    identical boxes. An initial always exists and always differs.
+    category_tint keys the colour off the id so it survives a rename; see the
+    .cat .ring rules in storefront.css.
     {% endcomment %}
     <div class="cat-grid">
       {% for c in nav_categories %}
       <a class="cat" href="{% url 'orders:catalog' %}?category={{ c.id }}">
+        {% if c.image %}
+        <span class="ring" aria-hidden="true"><img src="{{ c.image.url }}" alt="" loading="lazy"></span>
+        {% else %}
         <span class="ring {{ c|category_tint }}" aria-hidden="true">{{ c.category_name|first|upper }}</span>
+        {% endif %}
         <span class="nm">{{ c.category_name }}</span>
       </a>
       {% endfor %}

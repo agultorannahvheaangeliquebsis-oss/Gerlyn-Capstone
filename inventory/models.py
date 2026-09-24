@@ -1,4 +1,7 @@
 
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import F
 from django.db.models.functions import Coalesce
@@ -13,6 +16,11 @@ class ProductCategory(models.Model):
 
     category_name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    image = models.ImageField(
+        upload_to='categories/', blank=True, null=True,
+        help_text="Shown on the storefront's Shop by Category tiles. "
+                   "Falls back to a tinted initial when left blank."
+    )
 
     def __str__(self):
         return self.category_name
@@ -52,7 +60,10 @@ class Product(models.Model):
     )
     unit_price = models.DecimalField(
         max_digits=10, decimal_places=2,
-        help_text="Retail price — what one unit costs below the first bulk tier"
+        validators=[MinValueValidator(Decimal('0.01'))],
+        help_text="Retail price — what one unit costs below the first bulk tier. "
+                  "Must be greater than zero; there is no valid product with a "
+                  "free or negative retail price."
     )
     description = models.TextField(blank=True)
 
@@ -123,6 +134,14 @@ class Product(models.Model):
             if suffix.isdigit():
                 max_num = max(max_num, int(suffix))
         return f'{prefix}{max_num + 1:03d}'
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(unit_price__gt=0),
+                name='product_unit_price_positive',
+            ),
+        ]
 
 
 class ProductPriceTier(models.Model):

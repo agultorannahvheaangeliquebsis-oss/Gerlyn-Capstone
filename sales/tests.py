@@ -9,11 +9,14 @@ throwing it away.
 import threading
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
+from importlib import import_module
 from unittest import mock
 
+from django.conf import settings
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.db import connections
 from django.db.models import Sum
-from django.test import Client, TestCase, TransactionTestCase
+from django.test import Client, RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -23,6 +26,9 @@ from branches.models import Branch
 from core.module_permissions import DEFAULT_STAFF_MODULES, SALES_POS
 from inventory.models import Batch, Inventory, Product, StockMovement
 from sales.models import OrderNumberSequence, Refund, RefundItem, SalesItem, SalesTransaction
+from sales.views import transaction_refund
+
+SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
 
 
 class WalkInSaleFormTests(TestCase):
@@ -1133,6 +1139,10 @@ class RefundTests(TestCase):
             'refund_method': refund_method,
         })
 
+    def _refund_raw(self, txn, payload, client=None):
+        client = client or self.client
+        return client.post(reverse('transaction_refund', args=[txn.pk]), payload)
+
     def _detail(self, txn, client=None):
         client = client or self.client
         return client.get(reverse('transaction_detail', args=[txn.pk]))
@@ -1274,6 +1284,49 @@ class RefundTests(TestCase):
         self.assertEqual(Refund.objects.count(), 0)
         messages_ = [m.message for m in response.wsgi_request._messages]
         self.assertTrue(any('can still be refunded' in m for m in messages_))
+
+    def test_a_duplicated_item_id_is_rejected(self):
+        """A crafted POST repeating the same item_id used to see the same
+        pre-loop 'remaining' figure twice — RefundItem rows for the request
+        aren't written until every line has passed — letting one submission
+        refund (and restock) more units than were ever sold."""
+        txn = self._order(quantity=3)
+        item = txn.items.get()
+        before = self.inventory.quantity_on_hand
+
+        response = self.client.post(reverse('transaction_refund', args=[txn.pk]), {
+            'item_id': [str(item.pk), str(item.pk)],
+            f'quantity_{item.pk}': '3',
+            f'condition_{item.pk}': 'Sellable',
+            'reason': 'Duplicate line attempt',
+            'refund_method': 'Cash',
+        })
+
+        self.assertEqual(Refund.objects.count(), 0)
+        self.assertEqual(RefundItem.objects.count(), 0)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('more than once' in m for m in messages_))
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, before)
+
+    def test_a_duplicated_item_id_cannot_push_a_refund_past_quantity_sold(self):
+        """Same defect, sized so that each duplicate individually looks
+        valid (half of quantity_sold) but the pair together exceeds it —
+        proving the rejection isn't just catching an oversized single line."""
+        txn = self._order(quantity=4)
+        item = txn.items.get()
+
+        response = self._refund_raw(txn, {
+            'item_id': [str(item.pk), str(item.pk)],
+            f'quantity_{item.pk}': '3',
+            f'condition_{item.pk}': 'Damaged',
+            'reason': 'Duplicate line attempt',
+            'refund_method': 'Cash',
+        })
+
+        self.assertEqual(Refund.objects.count(), 0)
+        messages_ = [m.message for m in response.wsgi_request._messages]
+        self.assertTrue(any('more than once' in m for m in messages_))
 
     @mock.patch('core.notifications.notify')
     def test_a_second_refund_cannot_exceed_what_is_left(self, mock_notify):
@@ -1466,6 +1519,126 @@ class RefundTests(TestCase):
 
         self.assertContains(page, 'Wrong size')
         self.assertContains(page, '₱200.00')
+
+
+class RefundConcurrencyTests(TransactionTestCase):
+    """Two racing refunds against the same line, each individually valid
+    (half of quantity_sold) but together exceeding it, must serialise to
+    exactly one accepted refund — the same shape as billing's D-1 and
+    sales' F-14 concurrency tests.
+
+    TransactionTestCase + RequestFactory, not the test Client: under plain
+    TestCase both threads share one uncommitted transaction so the second
+    can't see the first's lock; the test Client's handler isn't built for
+    concurrent use from threads. RequestFactory runs the real view body
+    directly. Skipped on sqlite, where SELECT ... FOR UPDATE takes no lock
+    and the race cannot be expressed; runs for real on MySQL/InnoDB.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.owner = User.objects.create_user(
+            username='rfc-owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='RFC Branch', location='Baliuag', owner=self.owner
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-RFC', product_name='Cooking Oil', unit_of_measure='Bottle',
+            unit_price=100,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=50, reorder_level=5,
+        )
+
+    def _fresh_paid_order(self, quantity=5):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch,
+            order_status=SalesTransaction.OrderStatus.COMPLETED,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            total_amount=quantity * 100,
+            completed_at=timezone.now(),
+        )
+        item = SalesItem.objects.create(
+            transaction=txn, product=self.product, quantity_sold=quantity, unit_price=100,
+        )
+        BillingRecord.objects.filter(transaction=txn).update(
+            status=BillingRecord.PaymentStatus.PAID
+        )
+        return txn, item
+
+    def _refund(self, pk, item_pk, quantity, results, index, barrier):
+        outcome = {'status_code': None, 'messages': [], 'error': None}
+        try:
+            request = self.factory.post(f'/sales/{pk}/refund/', {
+                'item_id': [str(item_pk)],
+                f'quantity_{item_pk}': str(quantity),
+                f'condition_{item_pk}': 'Damaged',
+                'reason': 'Racing refund',
+                'refund_method': 'Cash',
+            })
+            request.user = self.owner
+            request.session = SessionStore()
+            request._messages = FallbackStorage(request)
+            barrier.wait(timeout=10)          # both threads enter the view together
+            with mock.patch('core.notifications.notify'):
+                response = transaction_refund(request, pk)
+            outcome['status_code'] = response.status_code
+            outcome['messages'] = [str(m.message) for m in request._messages]
+        except Exception as exc:              # recorded, re-asserted on the main thread
+            outcome['error'] = repr(exc)
+        finally:
+            connections.close_all()
+        results[index] = outcome
+
+    def test_two_racing_refunds_cannot_together_exceed_quantity_sold(self):
+        if connections['default'].vendor == 'sqlite':
+            self.skipTest(
+                'sqlite takes no row lock for SELECT ... FOR UPDATE, so this '
+                'contention cannot be exercised. Runs for real on MySQL.'
+            )
+
+        # A single race can serialise by luck even with a broken lock; repeat.
+        for attempt in range(5):
+            txn, item = self._fresh_paid_order(quantity=5)
+            results = [None, None]
+            barrier = threading.Barrier(2)
+            threads = [
+                threading.Thread(
+                    target=self._refund, args=(txn.pk, item.pk, 3, results, i, barrier)
+                )
+                for i in range(2)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=30)
+
+            ctx = f'(attempt {attempt}) {results}'
+            self.assertNotIn(None, results, f'a refund thread never returned {ctx}')
+
+            # A loser may either be cleanly turned away by the remaining-
+            # quantity check (302 + message) or have InnoDB abort its whole
+            # transaction with a deadlock error (1213) — both are safe
+            # outcomes (nothing commits), so either is accepted here. What
+            # must never happen is two winners.
+            for r in results:
+                if r['error'] is not None:
+                    self.assertIn('1213', r['error'], f'unexpected error {ctx}')
+
+            # Exactly one racer's 3 units went through; the other, once the
+            # lock released (or its transaction was rolled back), never
+            # added to it.
+            total_refunded = RefundItem.objects.filter(
+                sales_item=item
+            ).aggregate(total=Sum('quantity'))['total'] or 0
+            self.assertEqual(total_refunded, 3, ctx)
+
+            successes = sum(
+                1 for r in results
+                if any('recorded for' in m for m in r['messages'])
+            )
+            self.assertEqual(successes, 1, ctx)
 
 
 class DeletedProductOnAnOldSaleTests(TestCase):

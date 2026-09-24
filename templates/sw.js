@@ -19,9 +19,10 @@ const APP_SHELL = [
   '/static/js/address-picker.js',
   '/static/js/pwa.js',
   // Both marks: logo.jpg is what the internal shell, the auth screens and
-  // the About page still point at; logo.png is the same artwork with the
-  // studio white keyed out, which is what the storefront header and footer
-  // use so the mark sits on the green band without a plate behind it.
+  // the About page still point at (the mark is solid white artwork, flattened
+  // onto a green square so it has something to sit on); logo.png is the same
+  // artwork with no fill behind it, which is what the storefront header and
+  // footer use so the mark sits straight on the green band.
   '/static/img/logo.jpg',
   '/static/img/logo.png',
   '/static/img/icons/icon-192.png',

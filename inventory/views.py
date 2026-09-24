@@ -370,6 +370,10 @@ def product_add(request):
         retail_for_tiers = Decimal(unit_price) if unit_price else None
     except DecimalException:
         retail_for_tiers = None
+        if unit_price:
+            errors.append('Retail price must be a valid number.')
+    if retail_for_tiers is not None and retail_for_tiers <= 0:
+        errors.append('Retail price must be more than ₱0.')
     price_tiers, tier_errors = _parse_price_tiers(request.POST, retail_for_tiers)
     errors.extend(tier_errors)
 
@@ -468,6 +472,10 @@ def product_edit(request, pk):
         retail_for_tiers = Decimal(unit_price) if unit_price else None
     except DecimalException:
         retail_for_tiers = None
+        if unit_price:
+            errors.append('Retail price must be a valid number.')
+    if retail_for_tiers is not None and retail_for_tiers <= 0:
+        errors.append('Retail price must be more than ₱0.')
     price_tiers, tier_errors = _parse_price_tiers(request.POST, retail_for_tiers)
     errors.extend(tier_errors)
 
@@ -799,8 +807,8 @@ def _parse_import_rows(path, mapping):
         else:
             try:
                 unit_price = _parse_decimal_cell(unit_price_raw, allow_currency=True)
-                if unit_price < 0:
-                    errors.append('Retail Price cannot be negative.')
+                if unit_price <= 0:
+                    errors.append('Retail Price must be greater than ₱0.')
             except (ValueError, TypeError, DecimalException):
                 errors.append(f'Retail Price "{unit_price_raw}" is not a number.')
 
@@ -1308,6 +1316,8 @@ def category_form(request, pk=None):
 
     name = request.POST.get('category_name', '').strip()
     description = request.POST.get('description', '').strip()
+    image = request.FILES.get('image')
+    remove_image = bool(request.POST.get('remove_image'))
 
     errors = []
     if not name:
@@ -1323,6 +1333,11 @@ def category_form(request, pk=None):
         target = category or ProductCategory()
         target.category_name = name
         target.description = description
+        if image:
+            target.image = image
+        elif remove_image and target.pk:
+            target.image.delete(save=False)
+            target.image = None
         target.save()
         verb = 'updated' if category else 'created'
         messages.success(request, f'Category "{name}" {verb}.')

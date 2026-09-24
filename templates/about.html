@@ -2,7 +2,7 @@
 {% load static %}
 {% load i18n_extra %}
 
-{% block title %}About Us — Gerlyn Variety Store{% endblock %}
+{% block title %}About Us — GERLYN{% endblock %}
 
 {% comment %}
 The storefront's public About page, in the shop nav beside Products.
@@ -39,7 +39,7 @@ never signed in sees, so it carries the storefront chrome instead.
       <img src="{% static 'img/logo.png' %}" alt="">
     </span>
     <span class="about-badge">{% t "Celebrating 10 years in 2026" %}</span>
-    <h1>{% t "Gerlyn Variety Store" %}</h1>
+    <h1>{% t "GERLYN" %}</h1>
     {% comment %}
     The lead, tagline and "Our story" below are Owner-editable
     (core.models.StoreSetting, on the internal Settings page). Left blank
@@ -60,10 +60,10 @@ never signed in sees, so it carries the storefront chrome instead.
       {{ store_settings.about_story|linebreaks }}
     {% else %}
     <p>
-      {% t "Gerlyn Variety Store started with one counter and one family. We stocked what the neighbours actually needed: rice, canned goods, soap, the late-night sachet. What kept people coming back was simple — we knew them, and we remembered what they buy." %}
+      {% t "GERLYN started with one counter and one family. We stocked what the neighbours actually needed: rice, canned goods, soap, the late-night sachet. What kept people coming back was simple — we knew them, and we remembered what they buy." %}
     </p>
     <p>
-      {% t "Ten years on, that one counter has grown into the branches listed below. Groceries, household goods, bulk supplies, rice by the sack — still family-run, still here in Baliuag." %}
+      {% t "Ten years on, that one counter has grown into the branches listed below. Wholesale, retail, and rice dealer — still family-run, still here in Baliuag." %}
     </p>
     {% endif %}
   </section>

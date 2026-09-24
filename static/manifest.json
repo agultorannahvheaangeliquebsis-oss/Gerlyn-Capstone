@@ -1,7 +1,7 @@
 {
-  "name": "Gerlyn Variety Store",
-  "short_name": "Gerlyn Store",
-  "description": "Shop online at Gerlyn Variety Store — Baliuag, Bulacan.",
+  "name": "GERLYN",
+  "short_name": "GERLYN",
+  "description": "Shop online at GERLYN — Baliuag, Bulacan.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

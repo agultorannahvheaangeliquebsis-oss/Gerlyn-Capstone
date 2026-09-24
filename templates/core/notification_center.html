@@ -6,10 +6,11 @@
 {% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
 
 {% block content %}
+<div class="notif-page">
 <div class="page-head">
   <div>
     <h1>Notifications</h1>
-    <p class="gv-meta">Staff, Procurement &amp; Inventory, Sales &amp; Financial, and System &amp; Security — everything raised for your account, ranked by priority. The topbar bell opens the same list as a quick popover; this page is its full view and its no-JS fallback.</p>
+    <p class="gv-meta">View and manage your account notifications.</p>
   </div>
   {% if unread_count %}
   <form method="post" action="{% url 'notification_mark_all_read' %}" style="margin:0;">
@@ -71,7 +72,7 @@ static/js/notification-tray.js's document-level submit listener (shared by
 both surfaces) keeps intercepting them here too.
 {% endcomment %}
 <div class="card table-wrap">
-  <table class="gv-table">
+  <table class="gv-table notif-table">
     <thead>
       <tr>
         <th>Notification</th>
@@ -91,7 +92,7 @@ both surfaces) keeps intercepting them here too.
           <div class="gv-meta">{{ n.message }}</div>
         </td>
         <td data-label="Category">{{ n.get_category_display }}</td>
-        <td data-label="Branch">{{ n.branch.branch_name|default:"—" }}</td>
+        <td data-label="Branch" class="gv-meta">{{ n.branch.branch_name|default:"—" }}</td>
         <td data-label="Time" class="gv-meta">{{ n.created_at|date:"M d, g:i A" }}</td>
         <td data-label="Priority">
           {% if n.priority == "critical" %}<span class="pill pill-danger">Critical</span>
@@ -117,7 +118,7 @@ both surfaces) keeps intercepting them here too.
             {% elif not n.is_read %}
             <form method="post" action="{% url 'notification_mark_read' n.pk %}" class="tray-read-form">
               {% csrf_token %}
-              <button type="submit" class="icon-btn" title="Dismiss" aria-label="Dismiss {{ n.title }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg></button>
+              <button type="submit" class="icon-btn" title="Mark as read" aria-label="Mark {{ n.title }} as read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg></button>
             </form>
             {% endif %}
           </span>
@@ -151,6 +152,7 @@ both surfaces) keeps intercepting them here too.
       </tr>
     </tbody>
   </table>
+</div>
 </div>
 {% endblock %}
 

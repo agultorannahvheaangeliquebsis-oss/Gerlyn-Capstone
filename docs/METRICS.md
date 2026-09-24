@@ -61,8 +61,11 @@ Length is computed by `_previous_window`.
 
 **Source:**
 - Dashboard: `_dashboard_metrics` → `_dashboard_range_totals` over
-  `revenue_sales(SalesTransaction)` (Completed orders only) and
-  `Procurement` (all statuses, by `order_date`).
+  `revenue_sales(SalesTransaction)` (Completed orders only) and `Procurement`
+  filtered to `reports.services.PROCUREMENT_COST_STATUSES` (every status
+  except Cancelled, by `order_date`) — see "Reporting metrics" below. This
+  used to sum every `Procurement` status including Cancelled; fixed as part
+  of the Unify Reporting/Net Revenue pass.
 - Reports → Sales: `reports_dashboard` computes the same ratio directly against
   `revenue_sales(sales_qs)`, scoped to the signed-in user's visible branches.
 
@@ -295,6 +298,86 @@ here to satisfy "every percentage on screen has a stated source," per the panel 
 | 8 | Cart free-delivery progress | cart_total/₱500 ×100, capped at 100 | No (fixed constant) | 0 on empty cart | None (threshold, not trend) | Session cart |
 | 9 | Tier discount badge | (retail−tier)/retail ×100 | Yes | 0 if retail ≤ 0 or tier ≥ retail | None (static price comparison) | `ProductPriceTier`, `Product` |
 | 10 | VAT / PWD-Senior rate | fixed constant ×100 | n/a | n/a | n/a (static rate) | `sales/pricing.py` |
+
+---
+
+## Reporting metrics: Gross Sales, Refund Value, Net Sales, Pipeline Value, Procurement Cost
+
+**What it answers:** the Dashboard and Reports pages, and their same-origin
+DRF mirrors under `/api/reports/`, used to each keep their own copy of
+"what counts as revenue" and drifted apart — the API summed every
+`order_status` into revenue (Pending and Cancelled included), never
+subtracted a recorded refund from a Completed order's total, read the
+stored (and potentially stale) `Inventory.restock` flag for low stock
+instead of a live query, and summed `Procurement.total_cost` across every
+status including Cancelled. `reports/services.py` is now the one place all
+five figures below are defined; `reports/views.py` and
+`reports/api_views.py` both import it rather than recomputing any of this
+themselves.
+
+**Definitions** (`reports/services.py`):
+
+| Metric | Formula | Notes |
+|---|---|---|
+| Gross Sales | `SUM(total_amount)` over `SalesTransaction` rows with `order_status = Completed` | A Pending/Approved/Preparing order has not been paid for or fulfilled; a Cancelled order is void. Neither counts. |
+| Refund Value | `SUM(Refund.total_amount)` for refunds against orders in scope | A refund never changes `order_status` (see `sales.models.Refund`), so a refunded order is still "Completed" and still inside Gross Sales — this is what has to be subtracted back out. |
+| Net Sales | Gross Sales − Refund Value | The realised-revenue figure rendered as "Total Sales" / "Total Revenue" on the Reports Sales tab (`reports_dashboard`) and the Billing Report (`billing_report`). |
+| Pipeline Value | `SUM(total_amount)` over `SalesTransaction` rows with `order_status` in Pending/Approved/Preparing | Committed but unfulfilled. Shown as its own figure, never added into Gross/Net Sales. |
+| Procurement Cost | `SUM(total_cost)` over `Procurement` rows excluding `status = Cancelled` | Draft counts (matches the existing "committed value" convention already used by `Procurement.OPEN_STATUSES`, the Dashboard's Pending POs count, and `procurement_report`'s `active_value`); only Cancelled — which never happened — is excluded. |
+| Low Stock count | `COUNT(*)` over `Inventory` rows where `quantity_on_hand <= reorder_level` | The same live predicate `inventory.alerts.low_stock_alerts()` ranks (`inventory.alerts.low_stock_filter`), never the stored `Inventory.restock` flag — that flag is only ever recomputed inside `Inventory.save()`, so a bulk update, fixture, or raw query can leave it stale with nothing to catch it. |
+
+**Aggregation:** every SUM above runs as a single Decimal SQL `SUM()` via
+`django.db.models.functions.Coalesce` (`reports/services.py::_decimal_sum`),
+not a Python-side loop — an empty/no-match queryset returns `Decimal('0.00')`
+from the database.
+
+**Branch/date scoping:** `reports/services.py::scoped_report_querysets` is
+the one function that resolves which branch(es) a user may see (Owner:
+all, or an explicit `?branch=` choice; Manager/Staff: their own branch
+only, failing closed for an unassigned account) — both `reports_dashboard`/
+`operational_dashboard` (via the `_scoped_querysets` alias) and
+`DashboardSummaryAPIView` call it, so a template view and its API mirror
+can never apply different branch rules to the same user. Date-range
+scoping (the shared §2e control — `range`, `date_from`, `date_to` via
+`core.timebounds.range_from_request`) is applied by each caller on top of
+that, identically on both sides for `DashboardSummaryAPIView` and
+`reports_dashboard`.
+
+**Where rendered:**
+- `reports_dashboard` (Reports → Sales tab): `total_sales` = Net Sales,
+  `avg_order_value` = Gross Sales ÷ order count (deliberately gross — an
+  average-order-size figure blended with refunds that don't line up
+  one-to-one with the window's own orders would be misleading),
+  `pipeline_total` = Pipeline Value. `gross_sales` / `refund_value` are
+  also carried in context (not yet rendered by the template) for
+  auditability and the parity tests below.
+- `billing_report` (Reports → Billing tab): `total_revenue` = Net Sales
+  for the completed billing records in range; the payment-method breakdown
+  table nets each row by that record's own transaction's refunds too, so
+  the rows keep summing to `total_revenue` exactly.
+- `operational_dashboard` (main Dashboard): the Procurement Cost KPI/trend
+  (`_dashboard_daily_series`) now filters to Procurement Cost's status set;
+  the Total Sales KPI stays Gross (not net of refunds) — a deliberate scope
+  boundary, not an oversight: netting the per-day trend would require
+  bucketing refunds by day too, a larger change to an already
+  invariant-heavy view (see DESIGN.md §2a). The reactive Low-Critical Items
+  count (`_dashboard_inventory_metrics`) and `inventory_report`'s own count
+  both now read the live low-stock predicate.
+- `DashboardSummaryAPIView` (`/api/reports/dashboard-summary/`): exposes
+  all five as `grossSales` / `refundValue` / `netSales` / `pipelineValue` /
+  `totalProcurementCost`, plus `lowStockCount`. `totalSales` and
+  `totalTransactions` are kept as field names for backward compatibility
+  but now mean Net Sales and the Completed-order count respectively, not
+  "every order_status".
+
+**Parity tests:** `reports/tests.py::WebApiReportingParityTests` builds a
+Completed order that is partially refunded, a Cancelled order, a Pending
+order, purchase orders in Received/Approved/Cancelled status, and one
+Inventory row with a deliberately wrong stored `restock` flag — then
+asserts `reports_dashboard`, `billing_report`, `procurement_report`,
+`inventory_report`/`operational_dashboard`, and `DashboardSummaryAPIView`
+all agree on Gross Sales, Refund Value, Net Sales, Pipeline Value,
+Procurement Cost, and the Low Stock count for the same user/scope.
 
 ---
 

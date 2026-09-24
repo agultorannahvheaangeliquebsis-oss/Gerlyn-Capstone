@@ -30,15 +30,15 @@ def send_staff_invite(user, request):
     url = _build_url(request, 'accounts:staff_invite_complete', token)
 
     send_mail(
-        subject="You've been added to Gerlyn Variety Store",
+        subject="You've been added to GERLYN",
         message=(
             f"Hi,\n\n"
-            f"An account has been created for you at Gerlyn Variety Store. "
+            f"An account has been created for you at GERLYN. "
             f"Click the link below to set up your username and password:\n\n"
             f"{url}\n\n"
             f"This link expires in {VerificationToken.EXPIRY_HOURS} hours. "
             f"If you weren't expecting this, you can ignore this email.\n\n"
-            f"— Gerlyn Variety Store"
+            f"— GERLYN"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -145,14 +145,14 @@ def send_verification_email(user, request):
     url = _build_url(request, 'accounts:verify_email', token)
 
     send_mail(
-        subject="Verify your Gerlyn Variety Store email",
+        subject="Verify your GERLYN email",
         message=(
             f"Hi {user.get_full_name() or user.username},\n\n"
             f"Click the link below to verify your email. "
             f"It expires in {VerificationToken.EXPIRY_HOURS} hours.\n\n"
             f"{url}\n\n"
             f"If you didn't create an account, ignore this email.\n\n"
-            f"— Gerlyn Variety Store"
+            f"— GERLYN"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -167,7 +167,7 @@ def send_login_otp(user, code, request):
     only confirms a password change by email and never gated login itself.
     """
     send_mail(
-        subject="Your Gerlyn Variety Store login code",
+        subject="Your GERLYN login code",
         message=(
             f"Hi {user.get_full_name() or user.username},\n\n"
             f"Your login code is: {code}\n\n"
@@ -175,7 +175,7 @@ def send_login_otp(user, code, request):
             f"in 10 minutes and can only be used once.\n\n"
             f"If you didn't try to log in, you can ignore this email — your "
             f"account is still safe.\n\n"
-            f"— Gerlyn Variety Store"
+            f"— GERLYN"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -198,7 +198,7 @@ def send_password_change_verification(user, request):
     url = _build_url(request, 'accounts:confirm_password_change', token)
 
     send_mail(
-        subject="Confirm your password change — Gerlyn Variety Store",
+        subject="Confirm your password change — GERLYN",
         message=(
             f"Hi {user.get_full_name() or user.username},\n\n"
             f"We received a request to change your account password. "
@@ -208,7 +208,7 @@ def send_password_change_verification(user, request):
             f"This link expires in {VerificationToken.EXPIRY_HOURS} hours and can "
             f"only be used once.\n\n"
             f"If you didn't request this, ignore this email — your password will not change.\n\n"
-            f"— Gerlyn Variety Store"
+            f"— GERLYN"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -232,7 +232,7 @@ def send_account_deactivation_verification(user, request):
     url = _build_url(request, 'accounts:confirm_account_deactivation', token)
 
     send_mail(
-        subject="Confirm account deactivation — Gerlyn Variety Store",
+        subject="Confirm account deactivation — GERLYN",
         message=(
             f"Hi {user.get_full_name() or user.username},\n\n"
             f"We received a request to deactivate your account. "
@@ -243,7 +243,7 @@ def send_account_deactivation_verification(user, request):
             f"only be used once. You'll still need to enter your password and "
             f"confirm again on that page before anything happens.\n\n"
             f"If you didn't request this, ignore this email — your account will stay active.\n\n"
-            f"— Gerlyn Variety Store"
+            f"— GERLYN"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
@@ -369,14 +369,14 @@ def send_email_change_verification(user, new_email, request):
     url = _build_url(request, 'accounts:verify_email_change', token)
 
     send_mail(
-        subject="Confirm your new email — Gerlyn Variety Store",
+        subject="Confirm your new email — GERLYN",
         message=(
             f"Hi {user.get_full_name() or user.username},\n\n"
             f"Click below to confirm {new_email} as your new email.\n"
             f"This link expires in {VerificationToken.EXPIRY_HOURS} hours.\n\n"
             f"{url}\n\n"
             f"If you didn't request this, ignore this email.\n\n"
-            f"— Gerlyn Variety Store"
+            f"— GERLYN"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[new_email],

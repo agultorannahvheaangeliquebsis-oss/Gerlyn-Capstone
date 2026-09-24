@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from branches.models import Branch
 from .models import (
@@ -105,7 +107,8 @@ class ProductWriteSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='product_name')
     unit = serializers.CharField(source='unit_of_measure')
     retailPrice = serializers.DecimalField(
-        source='unit_price', max_digits=10, decimal_places=2
+        source='unit_price', max_digits=10, decimal_places=2,
+        min_value=Decimal('0.01'),
     )
     categoryId = serializers.PrimaryKeyRelatedField(
         source='category', queryset=ProductCategory.objects.all()

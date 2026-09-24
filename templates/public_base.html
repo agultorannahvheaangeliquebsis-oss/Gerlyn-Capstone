@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="view-transition" content="same-origin">
-  <title>{% block title %}Gerlyn Variety Store{% endblock %}</title>
+  <title>{% block title %}GERLYN{% endblock %}</title>
   <link rel="manifest" href="{% static 'manifest.json' %}">
   <meta name="theme-color" content="#1E7A4F">
   <link rel="apple-touch-icon" href="{% static 'img/icons/apple-touch-icon-180.png' %}">
@@ -101,20 +101,15 @@ white-on-white.
 <header class="shop-header">
   <div class="shop-wrap shop-nav">
     <a class="shop-brand" href="/">
-      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="Gerlyn Variety Store"></span>
+      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="GERLYN"></span>
       {% comment %}
       Two lines, the way the reference stacks a wordmark over its trading
       name. The second line is the store's own description from the footer
       blurb, shortened — not a new claim.
-
-      "Variety Store" used to carry an inline color:var(--action). The header
-      band is that exact green, so the second half of the store's own name was
-      painting itself invisible — and an inline style cannot be overridden
-      from the stylesheet, so it stays off.
       {% endcomment %}
       <span class="shop-brand-text">
-        <span class="shop-brand-name"><strong>Gerlyn</strong> <strong>Variety Store</strong></span>
-        <span class="shop-brand-tag">{% t "Groceries · Household · Bulk supplies" %}</span>
+        <span class="shop-brand-name"><strong>GERLYN</strong></span>
+        <span class="shop-brand-tag">{% t "Wholesale · Retail · Rice Dealer" %}</span>
       </span>
     </a>
 
@@ -433,10 +428,10 @@ one task the page exists for.
     <div class="footer-brand">
       <a class="footer-mark" href="/">
         <img src="{% static 'img/logo.png' %}" alt="">
-        <span><strong>Gerlyn</strong> Variety Store</span>
+        <span><strong>GERLYN</strong></span>
       </a>
       <p class="footer-blurb">
-        {% t "Groceries, household goods and bulk supplies for Baliuag, Bulacan — order online, collect at a branch or have it delivered." %}
+        {% t "Wholesale, retail, and rice dealer for Baliuag, Bulacan — order online, collect at a branch or have it delivered." %}
       </p>
     </div>
 
@@ -485,7 +480,7 @@ one task the page exists for.
   </div>
 
   <div class="shop-wrap footer-legal">
-    <p>{% t "© 2026 Gerlyn Variety Store · Baliuag, Bulacan · All rights reserved." %}</p>
+    <p>{% t "© 2026 GERLYN · Baliuag, Bulacan · All rights reserved." %}</p>
   </div>
 </footer>
 {% endblock %}

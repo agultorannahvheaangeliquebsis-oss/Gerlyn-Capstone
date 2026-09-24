@@ -111,11 +111,12 @@ body.shop {
    on top of that with a white square of its own — so the logo arrived on the
    green band inside a white tile it never needed.
 
-   The source it points at is logo.png, not logo.jpg: the JPEG has the studio
-   white baked into its pixels, so no amount of CSS could have removed it.
-   logo.png is that file with the backdrop keyed out, and it is 901x595 —
-   object-fit:cover on a 42px SQUARE would have cropped the wordmark's ends
-   off, hence contain and an auto width. */
+   The source it points at is logo.png, not logo.jpg: the JPEG is the white
+   mark flattened onto a solid brand-green square (it's solid white artwork,
+   so flattening it onto white or transparent would erase it — green is
+   what gives it something to sit on). logo.png is the bare mark with no
+   fill behind it, and it is 1540x1200, not square, so object-fit:cover on
+   a 42px SQUARE would crop it unevenly, hence contain and an auto width. */
 .shop-brand .brand-mark {
   width: auto; height: auto; border-radius: 0;
   background: none; overflow: visible;
@@ -707,8 +708,13 @@ body.shop {
   display: flex; align-items: center; justify-content: center;
   font: 700 22px/1 var(--font-sans);
   transition: transform .18s ease;
+  overflow: hidden;
 }
 .cat:hover .ring { transform: translateY(-2px); }
+/* A category with an uploaded photo (Manage Categories) fills the same
+   tinted square the initial otherwise sits in, rather than getting a
+   different shape on the tile. */
+.cat .ring img { width: 100%; height: 100%; object-fit: cover; }
 .cat .nm { font: 400 13px/1.3 var(--font-sans); }
 
 /* Eight tints, assigned by category id. Each pairs a pale ground with its
@@ -1244,7 +1250,7 @@ body.shop {
      from the brand mark and the service row. */
   /* minmax(0, 1fr), not 1fr. A bare 1fr floors at min-content, and the
      brand name is nowrap — so the track refused to go below the full width
-     of "Gerlyn Variety Store", pushed the cart and account buttons past the
+     of the brand text, pushed the cart and account buttons past the
      right edge, and gave the whole page a horizontal scrollbar. */
   /* Two rows: identity and account controls above, the full-width search
      below. The account cluster stays a normal flex box in one cell rather
@@ -1828,14 +1834,6 @@ body.shop-auth {
 }
 
 @media (max-width: 480px) {
-  /* "Gerlyn Variety Store" does not fit beside the cart and the account
-     menu at this width — it was ellipsing to "Gerlyn Vari…", which reads as
-     a broken layout rather than an abbreviation. Dropping the second half
-     outright is cleaner, and the logo's alt text still carries the full
-     name for anyone not reading it visually. (Storefront header, not this
-     page's bar — that one folds separately, just below.) */
-  .shop-brand-name strong + strong { display: none; }
-
   .auth-topbar-inner { min-height: 60px; }
   .auth-topbar-brand { font-size: 16px; gap: 8px; }
   .auth-topbar-brand img { width: 30px; height: 30px; }
@@ -1885,7 +1883,8 @@ body.shop-auth {
    Both are unset here rather than in gerlyn.css so the pages that do want
    the tile keep it — the storefront header does the same thing at
    .shop-brand .brand-mark. Paired with logo.png (transparent) instead of
-   logo.jpg (baked-on white), so the mark sits straight on the hero wash. */
+   logo.jpg (baked onto a solid green square), so the mark sits straight on
+   the hero wash instead of carrying its own green tile. */
 .about-mark {
   width: auto; height: auto; border-radius: 0; background: none;
   overflow: visible; display: inline-flex; margin-bottom: 14px;

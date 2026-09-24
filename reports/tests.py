@@ -1,13 +1,15 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.test import Client, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
 from branches.models import Branch
 from inventory.models import Batch, Inventory, Product, ProductCategory
 from procurement.models import Procurement
-from sales.models import SalesItem, SalesTransaction
+from sales.models import Refund, SalesItem, SalesTransaction
 from reports.views import (
     NON_PERFORMING_SALES_WINDOW_DAYS,
     _dashboard_branch_breakdown,
@@ -140,6 +142,153 @@ class RevenueExcludesCancelledAndPendingTests(TestCase):
         self.assertEqual(dash, self.COMPLETED)
         self.assertEqual(billing, self.COMPLETED)
         self.assertEqual(dash, billing)
+
+
+class WebApiReportingParityTests(TestCase):
+    """Unify Reporting and Net Revenue (P1) — reports/views.py and
+    reports/api_views.py both read reports/services.py now instead of each
+    keeping its own copy of "what counts as revenue" / "what counts as
+    procurement cost" / "what counts as low stock". Before this:
+
+      - The API summed total_amount over every order_status (Pending and
+        Cancelled included) where the web Reports tab already summed
+        Completed only.
+      - Neither side subtracted recorded refunds from a Completed order's
+        total — a refund never changes order_status (sales.models.Refund),
+        so a refunded order stayed counted at its full original amount.
+      - The API's low-stock count read the stored Inventory.restock flag,
+        which is only ever recomputed inside Inventory.save() and so can go
+        stale; the web side (as of this fix) and the API both now read the
+        live quantity_on_hand <= reorder_level predicate instead.
+      - The API's procurement cost summed every status, Cancelled included.
+
+    These tests build one fixture with a Completed order that is partially
+    refunded, a Cancelled order, a Pending order, purchase orders in
+    Received/Approved/Cancelled status, and one Inventory row whose stored
+    restock flag is deliberately wrong — then assert the web view and the
+    API return the exact same numbers for it.
+    """
+
+    COMPLETED = Decimal('1500.00')
+    REFUNDED_AWAY = Decimal('200.00')       # part of COMPLETED, refunded back
+    CANCELLED_SALE = Decimal('700.00')      # must never count anywhere
+    PENDING = Decimal('400.00')             # pipeline only
+    RECEIVED_PO = Decimal('1000.00')
+    APPROVED_PO = Decimal('300.00')         # committed, not yet received
+    CANCELLED_PO = Decimal('9999.00')       # must never count — the "inappropriate status"
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='parity-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='Parity Branch', location='Baliuag', owner=cls.owner
+        )
+
+        cls.completed = cls._sale(cls.COMPLETED, SalesTransaction.OrderStatus.COMPLETED)
+        cls._sale(cls.CANCELLED_SALE, SalesTransaction.OrderStatus.CANCELLED)
+        cls._sale(cls.PENDING, SalesTransaction.OrderStatus.PENDING)
+
+        # order_status is deliberately left Completed — a refund never
+        # changes it (see sales.models.Refund's own docstring).
+        Refund.objects.create(
+            transaction=cls.completed, reason='Parity test refund',
+            refund_method=Refund.RefundMethod.CASH,
+            total_amount=cls.REFUNDED_AWAY, refunded_by=cls.owner,
+        )
+
+        today = timezone.localdate()
+        Procurement.objects.create(
+            branch=cls.branch, order_date=today,
+            total_cost=cls.RECEIVED_PO, status=Procurement.Status.RECEIVED,
+        )
+        Procurement.objects.create(
+            branch=cls.branch, order_date=today,
+            total_cost=cls.APPROVED_PO, status=Procurement.Status.APPROVED,
+        )
+        Procurement.objects.create(
+            branch=cls.branch, order_date=today,
+            total_cost=cls.CANCELLED_PO, status=Procurement.Status.CANCELLED,
+        )
+
+        category = ProductCategory.objects.create(category_name='Parity Category')
+        product = Product.objects.create(
+            category=category, sku_code='SKU-PARITY-001',
+            product_name='Parity Product', unit_price=10,
+        )
+        low = Inventory.objects.create(
+            branch=cls.branch, product=product,
+            quantity_on_hand=2, reorder_level=10,
+        )
+        # Force the stored flag stale/wrong via .update() (bypasses save(),
+        # which would otherwise recompute it to True) — proves the low-stock
+        # figure below reads the live predicate, not this flag.
+        Inventory.objects.filter(pk=low.pk).update(restock=False)
+
+    @classmethod
+    def _sale(cls, amount, order_status):
+        txn = SalesTransaction.objects.create(
+            branch=cls.branch, total_amount=amount,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        if txn.order_status != order_status:
+            txn.order_status = order_status
+            txn.save(update_fields=['order_status'])
+        return txn
+
+    def _client(self):
+        client = Client()
+        client.force_login(self.owner)
+        return client
+
+    def test_gross_refund_net_and_pipeline_match_between_web_and_api(self):
+        client = self._client()
+        web = client.get('/reports/').context
+        api = client.get('/api/reports/dashboard-summary/').json()
+
+        expected_net = self.COMPLETED - self.REFUNDED_AWAY
+
+        self.assertEqual(web['gross_sales'], self.COMPLETED)
+        self.assertEqual(web['refund_value'], self.REFUNDED_AWAY)
+        self.assertEqual(web['total_sales'], expected_net)
+        self.assertEqual(web['pipeline_total'], self.PENDING)
+
+        self.assertEqual(Decimal(str(api['grossSales'])), self.COMPLETED)
+        self.assertEqual(Decimal(str(api['refundValue'])), self.REFUNDED_AWAY)
+        self.assertEqual(Decimal(str(api['netSales'])), expected_net)
+        self.assertEqual(Decimal(str(api['totalSales'])), expected_net)
+        self.assertEqual(Decimal(str(api['pipelineValue'])), self.PENDING)
+
+        # The web/API pair, read side by side.
+        self.assertEqual(web['gross_sales'], Decimal(str(api['grossSales'])))
+        self.assertEqual(web['refund_value'], Decimal(str(api['refundValue'])))
+        self.assertEqual(web['total_sales'], Decimal(str(api['netSales'])))
+        self.assertEqual(web['pipeline_total'], Decimal(str(api['pipelineValue'])))
+
+    def test_procurement_cost_excludes_cancelled_and_matches_procurement_report(self):
+        client = self._client()
+        api = client.get('/api/reports/dashboard-summary/').json()
+        procurement_ctx = client.get('/reports/procurement/').context
+
+        expected = self.RECEIVED_PO + self.APPROVED_PO  # CANCELLED_PO excluded
+        web_total = procurement_ctx['received_value'] + procurement_ctx['active_value']
+
+        self.assertEqual(web_total, expected)
+        self.assertEqual(Decimal(str(api['totalProcurementCost'])), expected)
+        self.assertEqual(Decimal(str(api['totalProcurementCost'])), web_total)
+
+    def test_low_stock_count_reads_the_live_predicate_not_the_stale_flag(self):
+        client = self._client()
+        api = client.get('/api/reports/dashboard-summary/').json()
+        inventory_ctx = client.get('/reports/inventory/').context
+        dashboard_ctx = client.get(reverse('accounts:owner_dashboard')).context
+
+        self.assertEqual(api['lowStockCount'], 1)
+        self.assertEqual(inventory_ctx['low_critical_count'], 1)
+        self.assertEqual(dashboard_ctx['inventory_low_critical'], 1)
+        self.assertEqual(api['lowStockCount'], inventory_ctx['low_critical_count'])
 
 
 class BillingReportRowsLinkToBillingDetailTests(TestCase):

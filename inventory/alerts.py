@@ -99,6 +99,19 @@ def stock_risk(quantity_on_hand: int, reorder_level: int) -> str:
     return "OK"
 
 
+def low_stock_filter(qs):
+    """Apply the live low-stock predicate — quantity_on_hand <= reorder_level
+    — to an existing Inventory queryset. The canonical definition, used here,
+    by low_stock_alerts() below, and by reports/services.py's low_stock_count()
+    for any report/dashboard figure that used to read the stored
+    Inventory.restock flag instead: that flag is only ever recomputed inside
+    Inventory.save(), so any write that bypasses save() (bulk update, a data
+    import/fixture, a raw query) leaves it stale or wrong with nothing to
+    catch it. This filter can't drift out of sync with quantity_on_hand/
+    reorder_level because it reads them directly, every time."""
+    return qs.filter(quantity_on_hand__lte=F("reorder_level"))
+
+
 def low_stock_alerts(branch_ids=None):
     """
     Return low/critical-stock rows as dicts, ordered most-urgent first.
@@ -106,15 +119,8 @@ def low_stock_alerts(branch_ids=None):
     `branch_ids=None` -> all branches (Owner). Pass a list to scope to a
     manager/staff's branch (use core.scoping.branch_ids_for_user).
     """
-    # Computed live rather than filtered on the stored Inventory.restock flag
-    # — that flag is only ever recomputed inside Inventory.save(), so any
-    # write that bypasses save() (bulk update, a data import/fixture, a
-    # raw query) leaves it stale or wrong with nothing to catch it. This
-    # query can't drift out of sync with quantity_on_hand/reorder_level
-    # because it reads them directly, every time.
-    qs = (
-        Inventory.objects.filter(quantity_on_hand__lte=F("reorder_level"))
-        .select_related("product", "product__category", "branch")
+    qs = low_stock_filter(
+        Inventory.objects.select_related("product", "product__category", "branch")
     )
     if branch_ids is not None:
         qs = qs.filter(branch_id__in=branch_ids)

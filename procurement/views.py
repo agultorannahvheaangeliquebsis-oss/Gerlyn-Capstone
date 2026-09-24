@@ -629,7 +629,7 @@ def procurement_update_status(request, pk):
                 notify_supplier(
                     proc.supplier, PRIORITY_HIGH,
                     f'{proc.po_number} cancelled',
-                    f'Gerlyn Variety Store cancelled {proc.po_number}. No '
+                    f'GERLYN cancelled {proc.po_number}. No '
                     f'delivery is needed for this order.',
                     action_url=reverse('supplier_portal'),
                     action_label='View order',
@@ -1564,8 +1564,8 @@ def supplier_set_product_cost(request, link_pk):
     ).formfield(required=True)
     try:
         link.current_cost_price = form_field.clean(raw_cost)
-        if link.current_cost_price < 0:
-            raise ValidationError('Enter a cost of zero or more.')
+        if link.current_cost_price <= 0:
+            raise ValidationError('Enter a cost greater than zero.')
         link.full_clean(exclude=['supplier', 'product'])
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
