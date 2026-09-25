@@ -166,15 +166,29 @@ views can never drift apart.
   [Audit log](#audit-log) below.
 - **Payments are recorded, not processed** — no gateway is integrated, per the
   documented scope limitation. Staff confirm cash or a GCash reference.
-- **Refunds** — Owner/Branch Manager only, on a Completed + Paid order, within
-  `SalesTransaction.REFUND_WINDOW` (3 days) of completion. A refund targets specific
-  items and quantities (an order can be refunded more than once), records who
-  authorized it, how the money was given back, and each item's condition — Sellable
-  restocks the branch floor (a fresh, no-expiry batch, since a returned unit has no
-  traceable original lot), Damaged does not. Like billing, it only ever *records* that
-  money was returned; nothing moves. Order status and the billing record's Paid status
-  are left untouched — the `Refund`/`RefundItem` rows (`sales/models.py`) are the source
-  of truth. Action and history live on the order's own page (Sales & Orders).
+- **Refunds** — an approval workflow on a Completed + Paid order, within
+  `SalesTransaction.REFUND_WINDOW` (3 days) of completion. Anyone with access to the
+  order's branch (Staff included) can *request* a refund; it stays **Pending** until an
+  Owner or that branch's Manager **approves or rejects** it (a rejection needs a reason).
+  An Owner/Manager's own request is approved as it is submitted. Every request carries a
+  reason code (defective, wrong item, expired, not as described, pricing error, customer
+  changed mind, other — "other" needs a note), a refund method, and per-line quantities
+  and condition; whether it is a **Full** or **Partial** refund is decided by the server
+  from what it covers, and an order can be refunded more than once. A Pending request
+  reserves its units so they can't be requested twice; a rejection releases them.
+  **Approval** is the one moment anything moves, in a single locked transaction:
+  Sellable lines restock the branch floor (a fresh, no-expiry batch, with a
+  `Customer Return` stock movement), `SalesTransaction.refunded_amount` grows
+  (`net_amount` = `total_amount` − `refunded_amount`; `total_amount` is never edited),
+  and the billing record steps to Partially Refunded / Refunded. Damaged lines are
+  written off with no stock effect. An order with an approved refund can't be voided
+  (that would restock the same units twice); voiding an order closes its Pending
+  requests. Like billing, it only ever *records* that money was returned. Every step is
+  in the append-only `RefundEvent` log, and the order's lifecycle changes are in
+  `OrderStatusHistory` (orders that predate it have none) — both shown on the order's own
+  page (Sales & Orders) and served, to internal roles only, by `GET /api/sales/<id>/`.
+  The API mirrors the pages: `GET`/`POST /api/sales/<id>/refunds/` and
+  `POST /api/sales/refunds/<id>/approve|reject/`. The rules live in `sales/refunds.py`.
 
 ---
 

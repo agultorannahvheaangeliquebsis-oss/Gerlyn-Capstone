@@ -246,6 +246,24 @@ class SalesTransaction(models.Model):
     # constant instead of a bare "3" wherever the rule is checked.
     REFUND_WINDOW = timedelta(days=3)
 
+    # P14 — the running total of APPROVED refunds against this order, kept in
+    # step by sales.refunds.approve_refund under the same row lock that flips
+    # the Refund to Approved. total_amount is deliberately left alone: it is
+    # the frozen figure the customer was charged and the receipt prints, so
+    # what the order is worth NOW is net_amount below, never an edit to it.
+    # Pending and Rejected requests never touch this — only money that has
+    # actually been handed back does.
+    refunded_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        help_text="Sum of this order's approved refunds. total_amount is "
+                  "never reduced; net_amount is total_amount minus this."
+    )
+
+    @property
+    def net_amount(self):
+        """What this order is worth after approved refunds."""
+        return self.total_amount - self.refunded_amount
+
     def refund_window_expired(self):
         """True once REFUND_WINDOW has passed since this order was completed,
         or when there is no completion date to measure from at all (an order
@@ -418,49 +436,106 @@ class SalesItemBatchConsumption(models.Model):
 
 
 class Refund(models.Model):
-    """One refund event against a Completed, Paid order — a financial
-    correction after a legitimate sale, distinct from voiding a completed sale
+    """One refund against a Completed, Paid order — a financial correction
+    after a legitimate sale, distinct from voiding a completed sale
     (transaction_set_status's Completed -> Cancelled path): a void undoes the
     whole order because something was wrong with it; a refund hands back money
-    for specific items on an order that was otherwise correct. Owner/Branch
-    Manager only (sales.views.transaction_refund), within
-    SalesTransaction.REFUND_WINDOW of completion.
+    for specific items on an order that was otherwise correct.
+
+    P14 — a refund is a REQUEST first. Any internal user with access to the
+    order's branch may raise one (requested_by), and it sits Pending until an
+    Owner/Branch Manager approves or rejects it. Nothing moves until then:
+    approval (sales.refunds.approve_refund) is the single place that restocks
+    Sellable lines, adds to SalesTransaction.refunded_amount and steps the
+    billing record to Partially Refunded / Refunded, all in one transaction. A
+    Pending request only RESERVES its quantities, so the same units can't be
+    requested twice; a Rejected one gives them back. An Owner/Branch Manager
+    submitting a refund themselves is approved in the same step
+    (sales.refunds.SELF_APPROVE_ROLES) — the same trust A-1 gives them over
+    their own sales.
 
     No payment gateway is integrated (Chapter 1, Limitation 1), so exactly
-    like a payment being recorded rather than processed, this is a RECORD that
-    money was handed back — refund_method says how, but nothing here moves
-    anything. Order status and the billing record's Paid status are left
-    untouched; this row (and its RefundItems) is the only source of truth for
-    how much of an order has been refunded, which is why an order can carry
-    more than one — a customer bringing back 2 items today and 1 more next
-    week is two Refund rows, not an edit to the first one.
+    like a payment being recorded rather than processed, an Approved refund is
+    a RECORD that money was handed back — refund_method says how, but nothing
+    here moves anything. Order status is never changed by a refund; the
+    Refund/RefundItem rows (Approved ones) are the source of truth for how much
+    of an order has been refunded, which is why an order can carry more than
+    one — a customer bringing back 2 items today and 1 more next week is two
+    Refund rows, not an edit to the first one. Every transition is written to
+    RefundEvent, the append-only trail behind the order page's refund log.
     """
     class RefundMethod(models.TextChoices):
         CASH = 'Cash', 'Cash'
         GCASH = 'GCash', 'GCash'
         BANK_TRANSFER = 'Bank Transfer', 'Bank Transfer'
 
+    class Status(models.TextChoices):
+        PENDING = 'Pending', 'Pending approval'
+        APPROVED = 'Approved', 'Approved'
+        REJECTED = 'Rejected', 'Rejected'
+
+    class ReasonCode(models.TextChoices):
+        DEFECTIVE = 'Defective', 'Defective / damaged item'
+        WRONG_ITEM = 'Wrong Item', 'Wrong item supplied'
+        EXPIRED = 'Expired', 'Expired / spoiled'
+        NOT_AS_DESCRIBED = 'Not As Described', 'Not as described'
+        PRICING_ERROR = 'Pricing Error', 'Pricing / billing error'
+        CHANGED_MIND = 'Changed Mind', 'Customer changed mind'
+        OTHER = 'Other', 'Other (explain below)'
+
+    class RefundType(models.TextChoices):
+        # Decided by the server from what the request covers, never taken from
+        # the client: Full only when it returns every unit the order sold.
+        FULL = 'Full', 'Full refund'
+        PARTIAL = 'Partial', 'Partial refund'
+
+    # A request in one of these states holds its quantities against the order
+    # (see sales.refunds.refundable_lines); a Rejected one holds nothing.
+    RESERVING_STATUSES = ('Pending', 'Approved')
+
     transaction = models.ForeignKey(
         SalesTransaction, on_delete=models.CASCADE, related_name='refunds'
     )
-    reason = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING
+    )
+    reason_code = models.CharField(max_length=20, choices=ReasonCode.choices)
+    # The requester's own words. Required when reason_code is Other (enforced
+    # in sales.refunds, not here), optional detail otherwise.
+    reason = models.CharField(max_length=255, blank=True)
+    refund_type = models.CharField(max_length=7, choices=RefundType.choices)
     refund_method = models.CharField(max_length=20, choices=RefundMethod.choices)
     # The sum of this refund's RefundItem.amount, stored rather than summed on
     # every read — same reasoning as SalesTransaction.total_amount.
     total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    requested_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
+        related_name='refunds_requested',
+        help_text="Whoever raised this refund."
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+
+    # Set only on approval — who released the money and when. A rejection's
+    # actor and time live on its RefundEvent, with decision_note holding why.
     refunded_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER']},
         related_name='refunds_issued',
-        help_text="The Owner or Branch Manager who issued this refund."
+        help_text="The Owner or Branch Manager who approved this refund."
     )
-    refunded_at = models.DateTimeField(auto_now_add=True)
+    refunded_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(
+        max_length=255, blank=True,
+        help_text="Required when a request is rejected — why."
+    )
 
     def __str__(self):
         return f"Refund #{self.id} - {self.transaction.order_number} - ₱{self.total_amount}"
 
     class Meta:
-        ordering = ['-refunded_at']
+        ordering = ['-requested_at', '-id']
 
 
 class RefundItem(models.Model):
@@ -493,6 +568,65 @@ class RefundItem(models.Model):
     def __str__(self):
         return f"{self.sales_item.product.product_name} x{self.quantity} ({self.condition})"
 
+
+class RefundEvent(models.Model):
+    """Append-only log of a Refund's life: requested, approved, rejected.
+
+    Written by sales.refunds only, never edited — the same role StockMovement
+    plays for stock. The refund itself keeps just its current state; this is
+    who moved it there, when, and what they said. The approval event's note
+    also records the payment-status step the approval caused ("Payment: Paid
+    -> Partially Refunded"), so the order page's log reads end to end.
+    """
+    refund = models.ForeignKey(Refund, on_delete=models.CASCADE, related_name='events')
+    from_status = models.CharField(max_length=10, blank=True)
+    to_status = models.CharField(max_length=10, choices=Refund.Status.choices)
+    actor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='refund_events'
+    )
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+
+    def __str__(self):
+        return f"Refund #{self.refund_id}: {self.from_status or '—'} -> {self.to_status}"
+
+
+class OrderStatusHistory(models.Model):
+    """Append-only trail of an order's lifecycle status (Pending -> Approved
+    -> Preparing -> Completed / Cancelled).
+
+    SalesTransaction keeps only the current order_status. This is every step
+    that led there — who, when, and (for a cancellation or void) why — shown
+    on the order page and served by the sales API. The first row of an order
+    (from_status blank) is written when the order is created
+    (sales.signals.record_initial_status); every later one by
+    transaction_set_status. Orders that predate this table simply have no
+    rows; nothing is invented for them.
+    """
+    transaction = models.ForeignKey(
+        SalesTransaction, on_delete=models.CASCADE, related_name='status_history'
+    )
+    from_status = models.CharField(max_length=10, blank=True)
+    to_status = models.CharField(max_length=10, choices=SalesTransaction.OrderStatus.choices)
+    actor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='order_status_changes'
+    )
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        verbose_name_plural = "Order status history"
+
+    def __str__(self):
+        return f"{self.transaction_id}: {self.from_status or '—'} -> {self.to_status}"
+
+
 class OrderStatusChange(models.Model):
     """One move through the order lifecycle, written by
     sales.views.transaction_set_status in the same atomic block as the status
@@ -513,7 +647,7 @@ class OrderStatusChange(models.Model):
     reason = models.CharField(max_length=255, blank=True)
     changed_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='order_status_changes',
+        related_name='order_status_change_notes',
         help_text="Whoever moved the order. Kept nullable so removing an "
                   "account does not delete the order's history."
     )

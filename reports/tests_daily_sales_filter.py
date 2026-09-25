@@ -187,7 +187,7 @@ class DailySalesFixture(TestCase):
         )
         Refund.objects.create(
             transaction=cls.day_noon, reason='DS refund',
-            refund_method=Refund.RefundMethod.CASH,
+            refund_method=Refund.RefundMethod.CASH, status=Refund.Status.APPROVED,
             total_amount=Decimal('20.20'), refunded_by=cls.owner,
         )
 

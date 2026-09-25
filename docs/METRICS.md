@@ -320,7 +320,7 @@ themselves.
 | Metric | Formula | Notes |
 |---|---|---|
 | Gross Sales | `SUM(total_amount)` over `SalesTransaction` rows with `order_status = Completed` | A Pending/Approved/Preparing order has not been paid for or fulfilled; a Cancelled order is void. Neither counts. |
-| Refund Value | `SUM(Refund.total_amount)` for refunds against orders in scope | A refund never changes `order_status` (see `sales.models.Refund`), so a refunded order is still "Completed" and still inside Gross Sales — this is what has to be subtracted back out. |
+| Refund Value | `SUM(Refund.total_amount)` for **Approved** refunds against orders in scope (Pending and Rejected requests have moved no money, so they never count; equals `SUM(SalesTransaction.refunded_amount)`) | A refund never changes `order_status` (see `sales.models.Refund`), so a refunded order is still "Completed" and still inside Gross Sales — this is what has to be subtracted back out. |
 | Net Sales | Gross Sales − Refund Value | The realised-revenue figure rendered as "Total Sales" / "Total Revenue" on the Reports Sales tab (`reports_dashboard`) and the Billing Report (`billing_report`). |
 | Pipeline Value | `SUM(total_amount)` over `SalesTransaction` rows with `order_status` in Pending/Approved/Preparing | Committed but unfulfilled. Shown as its own figure, never added into Gross/Net Sales. |
 | Procurement Cost | `SUM(total_cost)` over `Procurement` rows excluding `status = Cancelled` | Draft counts (matches the existing "committed value" convention already used by `Procurement.OPEN_STATUSES`, the Dashboard's Pending POs count, and `procurement_report`'s `active_value`); only Cancelled — which never happened — is excluded. |

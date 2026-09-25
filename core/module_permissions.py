@@ -103,9 +103,14 @@ MODULE_REGISTRY = {
          # be registered here or a Staff account whose Owner revoked the
          # Order Console entirely could still reach it directly.
          'transaction_refund',
+         # P14 — the approve/reject decisions, same reason: the Owner/Manager
+         # role check lives in the view, the module gate has to be here too.
+         'transaction_refund_approve', 'transaction_refund_reject',
          # API (sales/api_urls.py) — list also serves POST (mirrors
-         # transaction_add); detail mirrors transaction_detail.
-         'api-sales-list', 'api-sales-detail'],
+         # transaction_add); detail mirrors transaction_detail. The refund
+         # endpoints mirror transaction_refund / _approve / _reject.
+         'api-sales-list', 'api-sales-detail',
+         'api-sales-refunds', 'api-sales-refund-approve', 'api-sales-refund-reject'],
     ),
     BILLING: (
         'Billing',
