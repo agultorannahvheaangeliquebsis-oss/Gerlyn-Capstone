@@ -10,6 +10,7 @@ from .serializers import UserSerializer, UserAdminSerializer, UserCreateSerializ
 from .models import User
 from .role_policy import USER_MANAGEMENT_ROLES
 from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
+from .services import VerificationEmailDeliveryError, send_verification_email
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
@@ -241,12 +242,27 @@ class RegisterCustomerView(APIView):
             profile.address = address
             profile.save()
 
+        # Match the server-rendered registration flow. Delivery remains
+        # synchronous, but an SMTP failure must not roll back the customer
+        # account that was already created successfully.
+        verification_email_sent = True
+        try:
+            send_verification_email(user, request)
+        except VerificationEmailDeliveryError:
+            verification_email_sent = False
+
         # Log them in immediately after registration
         login(request, user)
         serializer = UserSerializer(user)
         return Response({
             'user': serializer.data,
-            'detail': 'Account created successfully.',
+            'verificationEmailSent': verification_email_sent,
+            'detail': (
+                'Account created successfully.'
+                if verification_email_sent else
+                'Account created, but the verification email could not be sent. '
+                'Please retry from Settings.'
+            ),
         }, status=status.HTTP_201_CREATED)
 
 

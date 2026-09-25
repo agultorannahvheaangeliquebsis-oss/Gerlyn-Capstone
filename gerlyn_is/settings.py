@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -408,13 +410,41 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/profile/'
 
 # --- Email -------------------------------------------------------------------
-EMAIL_BACKEND       = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST          = 'smtp.gmail.com'
-EMAIL_PORT          = 587
-EMAIL_USE_TLS       = True
-EMAIL_HOST_USER     = os.environ.get('EMAIL_HOST_USER', '')
+# Development prints messages to the terminal by default. Production keeps
+# SMTP as its default, but every SMTP value can be supplied by the deployment
+# environment so the application is not tied to Gmail or committed secrets.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    (
+        'django.core.mail.backends.console.EmailBackend'
+        if DEBUG else 'django.core.mail.backends.smtp.EmailBackend'
+    ),
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL  = os.environ.get('EMAIL_HOST_USER', 'noreply@gerlynstore.com')
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
+DEFAULT_FROM_EMAIL = (
+    os.environ.get('DEFAULT_FROM_EMAIL', '').strip()
+    or EMAIL_HOST_USER
+    or 'noreply@localhost'
+)
+
+# A stable deployment origin prevents verification links from inheriting an
+# internal proxy hostname. Blank is safe for local development and falls back
+# to the current request's scheme/host.
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        'EMAIL_USE_TLS and EMAIL_USE_SSL are mutually exclusive. '
+        'Use TLS with port 587 or SSL with port 465, not both.'
+    )
+if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(('http://', 'https://')):
+    raise ImproperlyConfigured('PUBLIC_BASE_URL must start with http:// or https://.')
 
 # Avatar upload validation
 AVATAR_MAX_MB        = 2

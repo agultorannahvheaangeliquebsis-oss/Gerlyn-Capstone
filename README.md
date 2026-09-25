@@ -61,6 +61,39 @@ Open <http://127.0.0.1:8000/> — the storefront. Log in at `/login/` for the in
 `DJANGO_ALLOWED_HOSTS` in `.env`, then run
 `python manage.py runserver 0.0.0.0:8000`.
 
+### Email delivery
+
+Development uses Django's console email backend by default, so verification
+messages appear in the terminal without SMTP credentials. For a deployment,
+set these environment variables in the hosting service (never commit real
+values):
+
+```text
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_USE_SSL=False
+EMAIL_HOST_USER=the-sender@example.com
+EMAIL_HOST_PASSWORD=provider-app-password
+DEFAULT_FROM_EMAIL=the-sender@example.com
+PUBLIC_BASE_URL=https://your-public-domain.example
+```
+
+Use either TLS on port 587 or SSL on port 465, never both. Gmail requires an
+App Password when two-step verification is enabled, and the sender must be the
+authenticated account or an authorized alias. After setting deployment
+variables, verify delivery without creating an account:
+
+```bash
+python manage.py sendtestemail your-inbox@example.com
+```
+
+The command reports SMTP configuration/authentication failures to the operator;
+it does not print the configured password. After it succeeds, register a test
+customer and confirm that the received verification link starts with
+`PUBLIC_BASE_URL`.
+
 ---
 
 ## Day-to-day: `./run.sh`
