@@ -299,15 +299,17 @@
 
                     {% if address.is_default %}
                       <p class="gv-meta" style="margin-top:6px; font-size:12.5px;">
-                        {% t "This is your default delivery address. Add a new address and set it default to change it." %}
+                        {% t "This is your default delivery address." %}
                       </p>
-                    {% else %}
-                      <div class="address-card-actions">
+                    {% endif %}
+                    <div class="address-card-actions">
+                      {% if not address.is_default %}
                         <form method="post" action="{% url 'accounts:address_set_default' address.pk %}" style="margin:0;">
                           {% csrf_token %}
                           <button type="submit" class="address-set-default-link">{% t "Set as default" %}</button>
                         </form>
-                        <button type="button" class="address-set-default-link js-edit-address"
+                      {% endif %}
+                      <button type="button" class="address-set-default-link js-edit-address"
                           data-edit-url="{% url 'accounts:address_edit' address.pk %}"
                           data-type="{{ address.type }}"
                           data-region="{{ address.region }}"
@@ -315,11 +317,12 @@
                           data-city="{{ address.city }}"
                           data-barangay="{{ address.barangay }}"
                           data-street-detail="{{ address.street_detail }}"
-                          data-text="{{ address.text }}">
+                          data-text="{{ address.text }}"
+                          data-latitude="{{ address.latitude|default_if_none:'' }}"
+                          data-longitude="{{ address.longitude|default_if_none:'' }}">
                           {% t "Edit" %}
-                        </button>
-                      </div>
-                    {% endif %}
+                      </button>
+                    </div>
                   </div>
 
                   {% if not address.is_default %}
@@ -535,7 +538,9 @@ document.querySelectorAll('.js-edit-address').forEach(function (btn) {
         city: btn.dataset.city,
         barangay: btn.dataset.barangay,
         street_detail: btn.dataset.streetDetail,
-        text: btn.dataset.text
+        text: btn.dataset.text,
+        latitude: btn.dataset.latitude,
+        longitude: btn.dataset.longitude
       }
     });
   });

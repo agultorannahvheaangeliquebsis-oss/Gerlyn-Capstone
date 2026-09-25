@@ -3,4 +3,4 @@
 # deploy that changes any cached static asset — that's what makes the
 # Download page's "Update" button actually pull fresh files instead of
 # reporting "up to date" against a cache that never changed.
-APP_VERSION = "1.32.7"
+APP_VERSION = "1.32.8"

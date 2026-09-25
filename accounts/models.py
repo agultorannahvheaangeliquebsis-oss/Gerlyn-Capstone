@@ -279,14 +279,13 @@ class Address(models.Model):
         """Builds a human-readable address from the structured PSGC fields —
         the fallback used when the picker's text field is left untouched."""
         from . import geo
-        parts = [self.street_detail]
-        if self.barangay:
-            parts.append(f"Brgy. {geo.barangay_name(self.barangay)}")
-        if self.city:
-            parts.append(geo.city_name(self.city))
-        if self.province:
-            parts.append(geo.province_name(self.province))
-        return ", ".join(p for p in parts if p)
+        return geo.compose_address(
+            region=self.region,
+            province=self.province,
+            city=self.city,
+            barangay=self.barangay,
+            street_detail=self.street_detail,
+        )
 
 
 class NotificationPreference(models.Model):

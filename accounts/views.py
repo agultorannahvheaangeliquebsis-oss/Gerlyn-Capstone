@@ -914,7 +914,7 @@ def _register_form_values(request):
     keep = (
         'username', 'email', 'first_name', 'last_name', 'contact_number',
         'address', 'type', 'region', 'province', 'city', 'barangay',
-        'street_detail',
+        'street_detail', 'latitude', 'longitude',
     )
     return {k: request.POST.get(k, '') for k in keep}
 
@@ -975,7 +975,11 @@ def register_view(request):
         # only place (with Settings -> Addresses) an address is captured:
         # checkout shows it read-only and ships to it, so an account needs
         # one from the start. It can be changed later in Settings.
-        picker_fields = _address_fields_from_post(request)
+        try:
+            picker_fields = _address_fields_from_post(request)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
         if not address:
             messages.error(
                 request,
@@ -1736,6 +1740,11 @@ def _address_fields_from_post(request):
     if addr_type not in Address.Type.values:
         addr_type = Address.Type.HOME
 
+    from .geocoding import parse_coordinates
+
+    latitude, longitude = parse_coordinates(
+        request.POST.get('latitude'), request.POST.get('longitude')
+    )
     return {
         'type': addr_type,
         'region': request.POST.get('region', '').strip(),
@@ -1744,13 +1753,19 @@ def _address_fields_from_post(request):
         'barangay': request.POST.get('barangay', '').strip(),
         'street_detail': request.POST.get('street_detail', '').strip(),
         'text': request.POST.get('text', '').strip(),
+        'latitude': latitude,
+        'longitude': longitude,
     }
 
 
 @login_required(login_url='accounts:login')
 @require_POST
 def address_create(request):
-    fields = _address_fields_from_post(request)
+    try:
+        fields = _address_fields_from_post(request)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(_addresses_anchor())
 
     if not fields['text']:
         fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
@@ -1769,11 +1784,12 @@ def address_create(request):
 @require_POST
 def address_edit(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
-    if address.is_default:
-        messages.error(request, "Your default address can't be edited. Add a new address and set it as default instead.")
-        return redirect(_addresses_anchor())
 
-    fields = _address_fields_from_post(request)
+    try:
+        fields = _address_fields_from_post(request)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(_addresses_anchor())
 
     if not fields['text']:
         fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
