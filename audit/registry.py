@@ -112,6 +112,10 @@ REGISTRY = {
     'procurement.ProcurementItem': AuditConfig(
         'Purchase order item', branch_path='procurement.branch_id',
     ),
+    'procurement.DeliveryReceipt': AuditConfig(
+        'Delivery receipt', branch_path='procurement.branch_id',
+        mask=_f('delivered_by'),
+    ),
     'procurement.SupplierProduct': AuditConfig('Supplier product', branch_path=''),
     'procurement.SupplierProductRequest': AuditConfig(
         'Supplier product request', repr_field='product_name', branch_path='',

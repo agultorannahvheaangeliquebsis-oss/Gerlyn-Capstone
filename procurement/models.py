@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 from branches.models import Branch
 from inventory.models import Product
 from accounts.models import User
@@ -468,6 +469,46 @@ class SupplierProductRequest(models.Model):
 
     def __str__(self):
         return f"{self.product_name} requested by {self.supplier} ({self.status})"
+
+
+class DeliveryReceipt(models.Model):
+    """One recorded receiving event against a purchase order.
+
+    A PO can arrive in several shipments, so "who received it" is a fact about
+    each receipt, not about the order — this table keeps them all. received_by
+    is always the logged-in user who submitted the receive form (never typed,
+    so it can't be faked); delivered_by is the optional courier/driver name
+    from the loading bay. The stock itself is recorded separately as
+    StockMovement rows, which carry the same actor.
+    """
+
+    procurement = models.ForeignKey(
+        Procurement, on_delete=models.CASCADE, related_name='receipts',
+    )
+    received_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='delivery_receipts',
+    )
+    received_at = models.DateTimeField(default=timezone.now)
+    receipt_date = models.DateField(
+        null=True, blank=True,
+        help_text="The actual receipt date entered on the receive form.",
+    )
+    delivered_by = models.CharField(
+        max_length=100, blank=True,
+        help_text="Courier or driver who handed the goods over, if noted.",
+    )
+
+    class Meta:
+        ordering = ['received_at', 'id']
+
+    @property
+    def received_by_name(self):
+        from core.people import person_display_name
+        return person_display_name(self.received_by)
+
+    def __str__(self):
+        return f"{self.procurement} received by {self.received_by} at {self.received_at:%Y-%m-%d %H:%M}"
 
 
 class DeliveryScanLog(models.Model):

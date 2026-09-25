@@ -4,7 +4,7 @@ from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Procurement, ProcurementItem, SupplierProduct
+from .models import DeliveryReceipt, Procurement, ProcurementItem, SupplierProduct
 from .services import SupplierCostError, snapshot_supplier_costs
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
@@ -94,6 +94,7 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
     total            = serializers.DecimalField(source='total_cost', max_digits=12, decimal_places=2, read_only=True)
     receiptFlag      = serializers.CharField(source='receipt_flag', read_only=True)
     items            = ProcurementItemSerializer(many=True, read_only=True)
+    receipts         = serializers.SerializerMethodField()
 
     class Meta:
         model  = Procurement
@@ -112,6 +113,20 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
             'status',
             'receiptFlag',
             'items',
+            'receipts',
+        ]
+
+    def get_receipts(self, obj) -> list:
+        from core.people import person_display_name
+
+        return [
+            {
+                'receivedBy': person_display_name(r.received_by) or None,
+                'deliveredBy': r.delivered_by or None,
+                'receiptDate': r.receipt_date.isoformat() if r.receipt_date else None,
+                'recordedAt': r.received_at.isoformat(),
+            }
+            for r in obj.receipts.all()
         ]
 
     def get_branch(self, obj) -> str | None:
@@ -275,6 +290,10 @@ class ProcurementStatusSerializer(serializers.Serializer):
     # Optional: override delivery date when marking as received
     deliveryDate = serializers.DateField(required=False, allow_null=True)
     actualReceiptDate = serializers.DateField(required=False)
+    # Optional courier/driver name, recorded on the DeliveryReceipt.
+    deliveredBy = serializers.CharField(
+        required=False, allow_blank=True, max_length=100,
+    )
     # Optional per-item received quantities for a RECEIVED transition. If
     # omitted entirely, every item is assumed received in full — the same
     # assumption this endpoint always made, kept as the default for any
@@ -418,5 +437,13 @@ class ProcurementStatusSerializer(serializers.Serializer):
                 )
                 instance.actual_receipt_date = receipt_date
                 instance.save()
+                # Same record the template view writes: who took this
+                # shipment in. The API's actor is the authenticated user.
+                DeliveryReceipt.objects.create(
+                    procurement=instance,
+                    received_by=user,
+                    receipt_date=receipt_date,
+                    delivered_by=(validated_data.get('deliveredBy') or '').strip(),
+                )
 
         return instance

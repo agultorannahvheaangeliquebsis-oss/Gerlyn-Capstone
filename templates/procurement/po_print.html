@@ -327,6 +327,12 @@ it print too, so nobody signs a document with a broken figure.
     </div>
   </div>
 
+  {% if receipts %}
+  <p style="margin:14px 0 0; font-size:12px;">
+    {% for r in receipts %}Received into stock by {{ r.received_by_name|default:"—" }}{% if r.receipt_date %} on {{ r.receipt_date|date:"Y-m-d" }}{% endif %}{% if r.delivered_by %} (delivered by {{ r.delivered_by }}){% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}.
+  </p>
+  {% endif %}
+
   <div class="po-foot">
     <span>
       Goods are accepted only after receipt validation at the delivering branch.

@@ -445,6 +445,27 @@ card above deliberately excludes these statuses now.
   </div>
 </div>
 
+{% if receipts %}
+<div class="card table-wrap mb-4">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Receipt</th><th>Receipt date</th><th>Received by</th><th>Delivered by</th><th>Recorded</th></tr>
+    </thead>
+    <tbody>
+      {% for r in receipts %}
+      <tr>
+        <td data-label="Receipt" class="strong">#{{ forloop.counter }}</td>
+        <td data-label="Receipt date">{{ r.receipt_date|date:"Y-m-d"|default:"—" }}</td>
+        <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
+        <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
+        <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <div class="card table-wrap">
   <table class="gv-table">
     <thead>

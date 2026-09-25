@@ -243,5 +243,11 @@
   </tr>
 </table>
 
+{% if receipts %}
+<p style="margin-top:14px; font-size:9pt;">
+  {% for r in receipts %}Received into stock by {{ r.received_by_name|default:"-" }}{% if r.receipt_date %} on {{ r.receipt_date|date:"Y-m-d" }}{% endif %}{% if r.delivered_by %} (delivered by {{ r.delivered_by }}){% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}.
+</p>
+{% endif %}
+
 </body>
 </html>

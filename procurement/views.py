@@ -37,7 +37,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import (
     Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
-    DeliveryScanLog,
+    DeliveryReceipt, DeliveryScanLog,
 )
 from .services import (
     OfferReviewError, SupplierRemovalBlocked, SupplierTransferError,
@@ -182,7 +182,8 @@ def procurement_detail(request, pk):
 
     items = proc.items.select_related('product').all()
     return render(request, 'procurement/procurement_detail.html', {
-        'procurement': proc, 'items': items
+        'procurement': proc, 'items': items,
+        'receipts': proc.receipts.select_related('received_by'),
     })
 
 
@@ -219,6 +220,7 @@ def _procurement_document_context(proc, request):
         ),
         'printed_on': timezone.localdate(),
         'printed_by': person_display_name(request.user),
+        'receipts': proc.receipts.select_related('received_by'),
     }
 
 
@@ -1283,6 +1285,16 @@ def delivery_receive(request, pk):
                 locked_proc.save(update_fields=[
                     'status', 'receipt_flag', 'actual_receipt_date',
                 ])
+                # Who took this shipment in. Always the signed-in user; only
+                # the courier's name is typed. Inside the same atomic block as
+                # the stock writes, so a receipt row exists exactly when stock
+                # was actually received.
+                DeliveryReceipt.objects.create(
+                    procurement=locked_proc,
+                    received_by=request.user,
+                    receipt_date=receipt_date,
+                    delivered_by=request.POST.get('delivered_by', '').strip()[:100],
+                )
         except _DeliveryStatusError as e:
             messages.error(request, str(e))
             return redirect('procurement_detail', pk=pk)
@@ -2450,7 +2462,7 @@ class ProcurementListCreateAPIView(APIView):
             'owner', 'owner__owner_profile',
             'created_by', 'created_by__staff_profile',
             'created_by__manager_profile',
-        ).prefetch_related('items__product').order_by('-id')
+        ).prefetch_related('items__product', 'receipts__received_by').order_by('-id')
 
         # Role-based filtering — mirrors the original template view logic
         if user.role == User.Role.OWNER:
@@ -2499,7 +2511,7 @@ class ProcurementDetailAPIView(APIView):
                 'branch', 'supplier', 'supplier__supplier_profile',
                 'owner', 'owner__owner_profile',
                 'created_by', 'created_by__staff_profile',
-            ).prefetch_related('items__product'),
+            ).prefetch_related('items__product', 'receipts__received_by'),
             pk=pk
         )
 
