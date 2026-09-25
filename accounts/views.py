@@ -840,9 +840,11 @@ def home_view(request):
     # typing the domain) — for a logged-in staff/branch-manager/owner it
     # must not render the customer storefront, since that's not their
     # landing experience. CUSTOMER and anonymous visitors are unaffected:
-    # this page already *is* their correct landing page. (SUPPLIER is
-    # deliberately left alone here — see conversation notes: their portal
-    # has its own pre-existing bug unrelated to this fix.)
+    # this page already *is* their correct landing page. SUPPLIER is sent to
+    # their portal too: the storefront is a customer experience, and a supplier
+    # who lands on it (reopening the site, the PWA start_url) can't use any of
+    # its links — their role is confined to the portal — so they could not even
+    # reach Logout from there.
     # ?preview=1 is the one exception: the Owner edits the storefront hero on
     # the internal Settings page and needs to see the result with the staged
     # changes applied. Without this the "preview" link there would just bounce
@@ -854,6 +856,8 @@ def home_view(request):
     )
     previewing = is_internal and request.GET.get('preview') == '1'
     if is_internal and not previewing:
+        return redirect_by_role(request, request.user)
+    if request.user.is_authenticated and request.user.role == User.Role.SUPPLIER:
         return redirect_by_role(request, request.user)
 
     from core.models import HomeHeroSlide
