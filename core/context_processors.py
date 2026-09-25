@@ -1,4 +1,6 @@
 """Template context available on every page."""
+from django.conf import settings
+
 from core.module_permissions import module_access_map
 from core.permissions import INTERNAL_ROLES
 from core.scoping import branch_ids_for_user
@@ -7,6 +9,11 @@ from core.version import APP_VERSION
 
 def app_version(request):
     return {"APP_VERSION": APP_VERSION}
+
+
+def map_config(request):
+    """Public attribution text only; provider URLs and keys remain server-side."""
+    return {"MAP_TILE_ATTRIBUTION": settings.MAP_TILE_ATTRIBUTION}
 
 
 def store_settings(request):

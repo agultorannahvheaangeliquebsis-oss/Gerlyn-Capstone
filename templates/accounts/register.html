@@ -219,7 +219,7 @@ Region/Province/City/Barangay dropdowns.
               Enter your delivery address to continue.
             </p>
             <button type="button" class="btn btn-sm auth-address-btn"
-              onclick="AddressPicker.open({title: 'Set Delivery Address', onConfirm: applyRegisterAddress})">
+              onclick="openRegisterAddressPicker()">
               Set your delivery address
             </button>
 
@@ -230,6 +230,8 @@ Region/Province/City/Barangay dropdowns.
             <input type="hidden" name="barangay" id="reg-barangay" value="{{ form.barangay }}">
             <input type="hidden" name="street_detail" id="reg-street-detail" value="{{ form.street_detail }}">
             <input type="hidden" name="address" id="reg-address-text" value="{{ form.address }}">
+            <input type="hidden" name="latitude" id="reg-latitude" value="{{ form.latitude }}">
+            <input type="hidden" name="longitude" id="reg-longitude" value="{{ form.longitude }}">
           </div>
         </div>
 
@@ -264,6 +266,8 @@ function applyRegisterAddress(data) {
   document.getElementById('reg-barangay').value = data.barangay;
   document.getElementById('reg-street-detail').value = data.street_detail;
   document.getElementById('reg-address-text').value = data.text;
+  document.getElementById('reg-latitude').value = data.latitude;
+  document.getElementById('reg-longitude').value = data.longitude;
 
   var summary = document.getElementById('address-summary');
   summary.textContent = data.text;
@@ -272,6 +276,24 @@ function applyRegisterAddress(data) {
   summary.classList.add('is-set');
   summary.classList.remove('is-error');
   document.getElementById('address-error').hidden = true;
+}
+
+function openRegisterAddressPicker() {
+  AddressPicker.open({
+    title: 'Set Delivery Address',
+    onConfirm: applyRegisterAddress,
+    initial: {
+      type: document.getElementById('reg-address-type').value,
+      region: document.getElementById('reg-region').value,
+      province: document.getElementById('reg-province').value,
+      city: document.getElementById('reg-city').value,
+      barangay: document.getElementById('reg-barangay').value,
+      street_detail: document.getElementById('reg-street-detail').value,
+      text: document.getElementById('reg-address-text').value,
+      latitude: document.getElementById('reg-latitude').value,
+      longitude: document.getElementById('reg-longitude').value
+    }
+  });
 }
 
 /* The address is a required control with no native validity of its own — the

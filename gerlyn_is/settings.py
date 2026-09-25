@@ -186,6 +186,7 @@ TEMPLATES = [
                 'core.context_processors.active_nav',
                 'core.context_processors.alerts',
                 'core.context_processors.app_version',
+                'core.context_processors.map_config',
                 'core.context_processors.customer_nav',
                 'core.context_processors.detail_modal',
                 'core.context_processors.internal_notifications',
@@ -437,6 +438,27 @@ DEFAULT_FROM_EMAIL = (
 # internal proxy hostname. Blank is safe for local development and falls back
 # to the current request's scheme/host.
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+
+# Server-side, Nominatim-compatible geocoding. URLs are blank by default so a
+# deployment without an external provider keeps the manual-pin fallback.
+GEOCODING_SEARCH_URL = os.environ.get('GEOCODING_SEARCH_URL', '').strip()
+GEOCODING_REVERSE_URL = os.environ.get('GEOCODING_REVERSE_URL', '').strip()
+GEOCODING_API_KEY = os.environ.get('GEOCODING_API_KEY', '').strip()
+GEOCODING_API_KEY_PARAM = os.environ.get('GEOCODING_API_KEY_PARAM', 'key').strip()
+GEOCODING_USER_AGENT = os.environ.get(
+    'GEOCODING_USER_AGENT', 'GerlynPLUS/1.0 (server-side address picker)'
+).strip()
+GEOCODING_COUNTRY_CODE = os.environ.get('GEOCODING_COUNTRY_CODE', 'ph').strip()
+GEOCODING_TIMEOUT = int(os.environ.get('GEOCODING_TIMEOUT', '6'))
+GEOCODING_CACHE_SECONDS = int(os.environ.get('GEOCODING_CACHE_SECONDS', '86400'))
+GEOCODING_NEGATIVE_CACHE_SECONDS = int(os.environ.get('GEOCODING_NEGATIVE_CACHE_SECONDS', '900'))
+GEOCODING_CLIENT_MAX_REQUESTS = int(os.environ.get('GEOCODING_CLIENT_MAX_REQUESTS', '30'))
+GEOCODING_CLIENT_WINDOW_SECONDS = int(os.environ.get('GEOCODING_CLIENT_WINDOW_SECONDS', '60'))
+GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS = int(os.environ.get('GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS', '1'))
+MAP_TILE_URL_TEMPLATE = os.environ.get('MAP_TILE_URL_TEMPLATE', '').strip()
+MAP_TILE_API_KEY = os.environ.get('MAP_TILE_API_KEY', '').strip()
+MAP_TILE_ATTRIBUTION = os.environ.get('MAP_TILE_ATTRIBUTION', '').strip()
+MAP_TILE_CACHE_SECONDS = int(os.environ.get('MAP_TILE_CACHE_SECONDS', '604800'))
 
 if EMAIL_USE_TLS and EMAIL_USE_SSL:
     raise ImproperlyConfigured(

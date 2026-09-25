@@ -6,6 +6,7 @@ browser.
 """
 import re
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.conf import settings
@@ -452,6 +453,38 @@ class BranchModalFlowTests(TestCase):
         self.client.post(reverse('branch_add'), {'branch_name': 'Sneaky'})
         self.assertFalse(Branch.objects.filter(branch_name='Sneaky').exists())
 
+    def test_non_owner_cannot_edit_another_branch_location(self):
+        branch = Branch.objects.create(
+            branch_name='Protected', location='Original location', owner=self.owner,
+            latitude=Decimal('14.954000'), longitude=Decimal('120.901000'),
+        )
+        staff = User.objects.create_user(
+            username='branch-intruder', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(staff)
+
+        self.client.post(reverse('branch_edit', args=[branch.pk]), {
+            'branch_name': 'Protected', 'location': 'Changed location',
+            'latitude': '1.000000', 'longitude': '2.000000',
+        })
+
+        branch.refresh_from_db()
+        self.assertEqual(branch.location, 'Original location')
+        self.assertEqual(branch.latitude, Decimal('14.954000'))
+        self.assertEqual(branch.longitude, Decimal('120.901000'))
+
+    def test_branch_coordinates_persist_after_valid_save(self):
+        self.client.post(reverse('branch_add'), {
+            'branch_name': 'Mapped Branch',
+            'location': 'Poblacion, Baliuag, Bulacan',
+            'region': '03', 'province': '0314', 'city': '031403',
+            'barangay': '031403001', 'street_detail': 'Poblacion',
+            'latitude': '14.954321', 'longitude': '120.901234',
+        })
+        branch = Branch.objects.get(branch_name='Mapped Branch')
+        self.assertEqual(branch.latitude, Decimal('14.954321'))
+        self.assertEqual(branch.longitude, Decimal('120.901234'))
+
 
 class RegistrationVerificationEmailTests(TestCase):
     """register_view creates the account and logs the customer straight in
@@ -814,6 +847,15 @@ class SavedAddressTests(TestCase):
         self.assertEqual(address.barangay, '031403001')
         self.assertEqual(address.text, '9 Gil Carlos St, Baliuag, Bulacan')
 
+    def test_coordinates_persist_after_validation_and_save(self):
+        from accounts.models import Address
+
+        self._create(latitude='14.954321', longitude='120.901234')
+
+        address = Address.objects.get(user=self.user)
+        self.assertEqual(address.latitude, Decimal('14.954321'))
+        self.assertEqual(address.longitude, Decimal('120.901234'))
+
     def test_a_blank_address_with_no_dropdowns_is_refused(self):
         from django.contrib.messages import get_messages
 
@@ -839,6 +881,148 @@ class SavedAddressTests(TestCase):
         address = Address.objects.get(user=self.user)
         self.assertTrue(address.text)
         self.assertEqual(address.barangay, '031403001')
+
+    def test_invalid_manual_coordinates_do_not_overwrite_saved_coordinates(self):
+        from accounts.models import Address
+
+        address = Address.objects.create(
+            user=self.user, type='OTHER', text='Existing address',
+            latitude=Decimal('14.954321'), longitude=Decimal('120.901234'),
+        )
+        self.client.post(reverse('accounts:address_edit', args=[address.pk]), {
+            'type': 'OTHER', 'text': 'Changed address',
+            'latitude': '999', 'longitude': '120.000000',
+        })
+
+        address.refresh_from_db()
+        self.assertEqual(address.text, 'Existing address')
+        self.assertEqual(address.latitude, Decimal('14.954321'))
+        self.assertEqual(address.longitude, Decimal('120.901234'))
+
+    def test_manual_pin_coordinates_can_be_updated(self):
+        from accounts.models import Address
+
+        address = Address.objects.create(
+            user=self.user, type='OTHER', text='Existing address', is_default=True
+        )
+        self.client.post(reverse('accounts:address_edit', args=[address.pk]), {
+            'type': 'OTHER', 'text': 'Existing address',
+            'latitude': '14.955555', 'longitude': '120.922222',
+        })
+
+        address.refresh_from_db()
+        self.assertEqual(address.latitude, Decimal('14.955555'))
+        self.assertEqual(address.longitude, Decimal('120.922222'))
+
+    def test_user_cannot_edit_another_profiles_address_or_pin(self):
+        from accounts.models import Address
+
+        other = User.objects.create_user(username='other-address-user', password='pw')
+        address = Address.objects.create(
+            user=other, text='Other profile address',
+            latitude=Decimal('14.900000'), longitude=Decimal('120.900000'),
+        )
+        response = self.client.post(reverse('accounts:address_edit', args=[address.pk]), {
+            'type': 'HOME', 'text': 'Taken over',
+            'latitude': '1.000000', 'longitude': '2.000000',
+        })
+
+        self.assertEqual(response.status_code, 404)
+        address.refresh_from_db()
+        self.assertEqual(address.text, 'Other profile address')
+        self.assertEqual(address.latitude, Decimal('14.900000'))
+        self.assertEqual(address.longitude, Decimal('120.900000'))
+
+
+@override_settings(
+    GEOCODING_SEARCH_URL='https://geocoder.invalid/search',
+    GEOCODING_REVERSE_URL='https://geocoder.invalid/reverse',
+    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
+)
+class AddressGeocodingTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    @patch('accounts.geo_views.forward_geocode')
+    def test_successful_address_search_returns_coordinates_for_the_pin(self, mocked):
+        from accounts.geocoding import GeocodingResult
+
+        mocked.return_value = GeocodingResult(
+            Decimal('14.954321'), Decimal('120.901234'), 'Poblacion, Baliuag, Bulacan'
+        )
+        response = self.client.get(reverse('accounts:geo_search'), {
+            'region': '03', 'province': '0314', 'city': '031403',
+            'barangay': '031403001', 'street_detail': '9 Gil Carlos St',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'ok')
+        self.assertEqual(response.json()['result']['latitude'], '14.954321')
+        self.assertEqual(response.json()['result']['longitude'], '120.901234')
+        mocked.assert_called_once()
+        self.assertIn('9 Gil Carlos St', mocked.call_args.args[0])
+
+    @patch('accounts.geo_views.reverse_geocode', return_value='Pin address, Baliuag, Bulacan')
+    def test_pin_movement_reverse_lookup_returns_a_confirmation_candidate(self, mocked):
+        response = self.client.get(reverse('accounts:geo_reverse'), {
+            'lat': '14.955555', 'lon': '120.922222',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'status': 'ok', 'label': 'Pin address, Baliuag, Bulacan'})
+        mocked.assert_called_once_with('14.955555', '120.922222')
+
+    @patch('accounts.geo_views.forward_geocode', return_value=None)
+    def test_failed_search_does_not_write_or_remove_existing_coordinates(self, mocked):
+        from accounts.models import Address
+
+        user = User.objects.create_user(username='geo-user', password='pw')
+        address = Address.objects.create(
+            user=user, text='Saved location',
+            latitude=Decimal('14.954321'), longitude=Decimal('120.901234'),
+        )
+        response = self.client.get(reverse('accounts:geo_search'), {
+            'city': '031403', 'street_detail': 'Unknown place',
+        })
+
+        self.assertEqual(response.json()['status'], 'no_result')
+        address.refresh_from_db()
+        self.assertEqual(address.latitude, Decimal('14.954321'))
+        self.assertEqual(address.longitude, Decimal('120.901234'))
+
+    @patch('accounts.geo_views.forward_geocode')
+    def test_provider_rate_limit_has_a_distinct_state(self, mocked):
+        from accounts.geocoding import GeocodingRateLimited
+
+        mocked.side_effect = GeocodingRateLimited('Provider limit reached.', retry_after='30')
+        response = self.client.get(reverse('accounts:geo_search'), {'city': '031403'})
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json()['status'], 'rate_limited')
+        self.assertEqual(response.json()['retry_after'], '30')
+
+    @patch('accounts.geo_views.forward_geocode')
+    def test_provider_failure_has_a_service_error_state(self, mocked):
+        from accounts.geocoding import GeocodingError
+
+        mocked.side_effect = GeocodingError()
+        response = self.client.get(reverse('accounts:geo_search'), {'city': '031403'})
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()['status'], 'service_error')
+
+    @patch('accounts.geocoding._provider_get')
+    def test_forward_results_are_cached(self, provider):
+        from accounts.geocoding import forward_geocode
+
+        provider.return_value = [{
+            'lat': '14.954321', 'lon': '120.901234', 'display_name': 'Cached address'
+        }]
+        first = forward_geocode('Cached address, Philippines')
+        second = forward_geocode('Cached address, Philippines')
+
+        self.assertEqual(first, second)
+        provider.assert_called_once()
 
 
 class LoginLockoutCacheTests(TestCase):
