@@ -3,14 +3,16 @@
 {% block page_subtitle %}System &amp; Monitoring{% endblock %}
 
 {% block content %}
+<div class="bk-page">
+
 <div class="page-head">
   <div>
     <h1>Backups</h1>
-    <p class="gv-meta mb-0">
-      The database and uploaded files are backed up daily (03:00 Manila time), encrypted, to
-      Backblaze{% if next_run %} — next automatic backup {{ next_run|date:"Y-m-d H:i" }} Manila time{% endif %}.
-      Kept 14 days daily, 8 weeks weekly, 12 months monthly. Restore steps are in
-      <code>docs/backup-and-restore.md</code>.
+    <p class="bk-meta">
+      <span>Daily at 03:00 Manila time, encrypted, to Backblaze</span>
+      {% if next_run %}<span>Next: <strong>{{ next_run|date:"Y-m-d H:i" }}</strong></span>{% endif %}
+      <span>Kept 14 daily · 8 weekly · 12 monthly</span>
+      <span>Restore steps: <code>docs/backup-and-restore.md</code></span>
     </p>
   </div>
   <form method="POST" action="{% url 'backup_run_now' %}">
@@ -21,109 +23,119 @@
   </form>
 </div>
 
-<div class="grid-2 mb-4">
+<div class="bk-status">
   {% for s in summaries %}
-  <div class="card card-pad">
+  <div class="kpi-card{% if not s.last or s.overdue %} danger{% endif %}">
     <div class="row-between">
-      <h3>Last {{ s.label|lower }} backup</h3>
+      <span class="label">Last {{ s.label|lower }} backup</span>
       {% if not s.last %}<span class="pill pill-danger">Never run</span>
       {% elif s.overdue %}<span class="pill pill-danger">Overdue</span>
       {% else %}<span class="pill pill-ok">Up to date</span>{% endif %}
     </div>
     {% if s.last %}
-    <p class="gv-meta mb-0">
-      {{ s.last.finished_at|date:"Y-m-d H:i" }} · {{ s.last.size_bytes|filesizeformat }}
-    </p>
+    <span class="value">{{ s.last.finished_at|date:"Y-m-d H:i" }}</span>
+    <span class="bk-sub">{{ s.last.size_bytes|filesizeformat }} · {{ s.last.finished_at|timesince }} ago{% if s.overdue %} — over {{ stale_hours }} hours; check the setup below and the web service logs{% endif %}</span>
     {% else %}
-    <p class="gv-meta mb-0">No successful backup has been recorded yet.</p>
-    {% endif %}
-    {% if s.overdue and s.last %}
-    <p class="gv-meta mb-0">More than {{ stale_hours }} hours ago — check the setup below and the web service logs.</p>
+    <span class="value">No backup yet</span>
+    <span class="bk-sub">No successful backup has been recorded.</span>
     {% endif %}
   </div>
   {% endfor %}
 </div>
 
-<div class="card card-pad mb-4">
-  <h3 class="mb-2">Setup check</h3>
-  <table class="gv-table kv-table" style="border:0;">
-    <tbody>
-      {% for label, ok, detail in checks %}
-      <tr>
-        <td class="strong">{{ label }}</td>
-        <td>{% if ok %}<span class="pill pill-ok">OK</span>{% else %}<span class="pill pill-danger">Fix</span>{% endif %}</td>
-        <td class="gv-meta">{{ detail }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card bk-section">
+  <div class="bk-section-head">
+    <h3>Setup check</h3>
+    {% if setup_issues %}<span class="pill pill-danger">{{ setup_issues }} of {{ checks|length }} need fixing</span>
+    {% else %}<span class="pill pill-ok">All OK</span>{% endif %}
+  </div>
+  <ul class="bk-checks">
+    {% for label, ok, detail in checks %}
+    <li>
+      {% if ok %}<span class="pill pill-ok">OK</span>{% else %}<span class="pill pill-danger">Fix</span>{% endif %}
+      <span class="bk-check-name">{{ label }}</span>
+      <span class="bk-check-detail">{{ detail }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
 
-<div class="card table-wrap mb-4">
-  <table class="gv-table">
-    <thead>
-      <tr><th>Started</th><th>Part</th><th>Result</th><th>Size</th><th>Took</th><th>How</th></tr>
-    </thead>
-    <tbody>
-      {% for r in runs %}
-      <tr>
-        <td data-label="Started" class="gv-meta">{{ r.started_at|date:"Y-m-d H:i" }}</td>
-        <td data-label="Part" class="strong">{{ r.get_kind_display }}</td>
-        <td data-label="Result">
-          {% if r.status == 'success' %}<span class="pill pill-ok">Succeeded</span>
-          {% elif r.status == 'running' %}<span class="pill pill-info">Running</span>
-          {% else %}<span class="pill pill-danger">Failed</span>{% endif %}
-          {% if r.error %}<div class="gv-meta">{{ r.error|truncatechars:160 }}</div>{% endif %}
-        </td>
-        <td data-label="Size" class="gv-meta">{% if r.size_bytes %}{{ r.size_bytes|filesizeformat }}{% else %}—{% endif %}</td>
-        <td data-label="Took" class="gv-meta">{% if r.duration_seconds is not None %}{{ r.duration_seconds }}s{% else %}—{% endif %}</td>
-        <td data-label="How" class="gv-meta">{{ r.trigger|default:"—" }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="6"><div class="empty">
-        <h3>No backups yet</h3>
-        <p>Use "Run backup now" once the setup check above is all OK.</p>
-      </div></td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card bk-section">
+  <div class="bk-section-head">
+    <h3>Backup history</h3>
+    {% if runs %}<span class="gv-meta">Latest {{ runs|length }} runs</span>{% endif %}
+  </div>
+  {% if runs %}
+  <div class="table-wrap">
+    <table class="gv-table bk-table">
+      <thead>
+        <tr><th>Started</th><th>Part</th><th>Result</th><th>Size</th><th>Took</th><th>How</th></tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td data-label="Started" class="gv-meta">{{ r.started_at|date:"Y-m-d H:i" }}</td>
+          <td data-label="Part" class="strong">{{ r.get_kind_display }}</td>
+          <td data-label="Result">
+            {% if r.status == 'success' %}<span class="pill pill-ok">Succeeded</span>
+            {% elif r.status == 'running' %}<span class="pill pill-info">Running</span>
+            {% else %}<span class="pill pill-danger">Failed</span>{% endif %}
+            {% if r.error %}<div class="gv-meta">{{ r.error|truncatechars:160 }}</div>{% endif %}
+          </td>
+          <td data-label="Size" class="gv-meta">{% if r.size_bytes %}{{ r.size_bytes|filesizeformat }}{% else %}—{% endif %}</td>
+          <td data-label="Took" class="gv-meta">{% if r.duration_seconds is not None %}{{ r.duration_seconds }}s{% else %}—{% endif %}</td>
+          <td data-label="How" class="gv-meta">{{ r.trigger|default:"—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bk-empty">
+    <strong>No backups yet</strong>
+    Use “Run backup now” once the setup check above is all OK.
+  </div>
+  {% endif %}
+</section>
 
-<div class="card card-pad">
-  <div class="row-between mb-2">
+<section class="card bk-section">
+  <div class="bk-section-head">
     <h3>Restore tests</h3>
     {% if restore_overdue %}<span class="pill pill-warn">{% if restore_tests %}Due again{% else %}None recorded{% endif %}</span>{% endif %}
   </div>
-  <p class="gv-meta">
-    A backup that has never been restored is a guess. Test a restore at least every three months
-    (steps in the runbook), then record it here.
+  <p class="bk-note">
+    A backup that has never been restored is a guess. Test a restore at least every three months, then record it here.
   </p>
   {% if restore_tests %}
-  <table class="gv-table kv-table" style="border:0;">
-    <thead><tr><th>Date</th><th>Backup used</th><th>Result</th><th>By</th><th>Notes</th></tr></thead>
-    <tbody>
-      {% for t in restore_tests %}
-      <tr>
-        <td class="gv-meta">{{ t.tested_on|date:"Y-m-d" }}</td>
-        <td>{{ t.backup_used }}</td>
-        <td>{% if t.outcome == 'passed' %}<span class="pill pill-ok">Passed</span>{% else %}<span class="pill pill-danger">Failed</span>{% endif %}</td>
-        <td class="gv-meta">{{ t.recorded_by.username|default:"—" }}</td>
-        <td class="gv-meta">{{ t.notes|truncatechars:120 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table class="gv-table bk-table">
+      <thead><tr><th>Date</th><th>Backup used</th><th>Result</th><th>By</th><th>Notes</th></tr></thead>
+      <tbody>
+        {% for t in restore_tests %}
+        <tr>
+          <td data-label="Date" class="gv-meta">{{ t.tested_on|date:"Y-m-d" }}</td>
+          <td data-label="Backup used">{{ t.backup_used }}</td>
+          <td data-label="Result">{% if t.outcome == 'passed' %}<span class="pill pill-ok">Passed</span>{% else %}<span class="pill pill-danger">Failed</span>{% endif %}</td>
+          <td data-label="By" class="gv-meta">{{ t.recorded_by.username|default:"—" }}</td>
+          <td data-label="Notes" class="gv-meta">{{ t.notes|truncatechars:120 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% endif %}
 
-  <form method="POST" action="{% url 'backup_record_restore_test' %}" class="toolbar mt-4">
+  <form method="POST" action="{% url 'backup_record_restore_test' %}" class="bk-form">
     {% csrf_token %}
-    <input class="input" type="date" name="tested_on" value="{{ today }}" max="{{ today }}" required aria-label="Date of the restore test">
-    <input class="input" type="text" name="backup_used" placeholder="Backup used, e.g. 2026-09-22 daily" required aria-label="Backup used" maxlength="200">
+    <input class="input f-date" type="date" name="tested_on" value="{{ today }}" max="{{ today }}" required aria-label="Date of the restore test">
+    <input class="input f-backup" type="text" name="backup_used" placeholder="Backup used, e.g. 2026-09-22 daily" required aria-label="Backup used" maxlength="200">
     <select name="outcome" required aria-label="Result">
       {% for value, label in outcomes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
     </select>
-    <input class="input" type="text" name="notes" placeholder="Notes (optional)" aria-label="Notes" maxlength="2000">
+    <input class="input f-notes" type="text" name="notes" placeholder="Notes (optional)" aria-label="Notes" maxlength="2000">
     <button type="submit" class="btn">Record restore test</button>
   </form>
+</section>
+
 </div>
 {% endblock %}

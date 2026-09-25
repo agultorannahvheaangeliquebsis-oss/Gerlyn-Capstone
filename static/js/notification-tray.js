@@ -172,6 +172,17 @@
     if (group) group.classList.toggle('expanded');
   });
 
+  // Both actions leave a notification read (resolving also reads it), so the
+  // row's status becomes Read and its action forms are spent. Announced as an
+  // event so the page's View modal and tab tints can follow.
+  function settleRow(row) {
+    row.classList.add('is-read');
+    var status = row.querySelector('td[data-label="Status"]');
+    if (status) status.innerHTML = '<span class="pill pill-ok">Read</span>';
+    row.querySelectorAll('.tray-resolve-form, .tray-read-form').forEach(function (f) { f.remove(); });
+    document.dispatchEvent(new CustomEvent('notif:row-updated', { detail: { row: row } }));
+  }
+
   // Resolve/Dismiss: real <form> posts (see the partial) intercepted here so
   // they update in place instead of reloading the page. Delegated on
   // `document`, covering the tray and the full page with one listener —
@@ -182,6 +193,9 @@
     var isResolve = form.classList.contains('tray-resolve-form');
     var isRead = form.classList.contains('tray-read-form');
     if (!isResolve && !isRead) return;
+    // confirm-dialog.js (capture phase) has already stopped this submit to ask
+    // first; it re-submits on Confirm, and that second event is the one to act on.
+    if (e.defaultPrevented) return;
 
     e.preventDefault();
     var card = form.closest('.tray-ncard');
@@ -200,6 +214,17 @@
       .then(function (data) {
         setBadge(data.needs_action_count);
         if (!card) return;
+        if (card.tagName === 'TR') {
+          // Full-page table row: stay on the page and show the new state in
+          // place — vanishing would disagree with what a reload shows.
+          settleRow(card);
+          // Resolving happens in place, so nothing else says it worked:
+          // acknowledge it with the success modal.
+          if (isResolve && window.showFlashSheet) {
+            window.showFlashSheet(form.dataset.resolvedMessage || 'Marked as resolved.');
+          }
+          return;
+        }
         if (isResolve) {
           // Resolved: the card's job here is done, shrink it out.
           card.style.transition = 'opacity .18s ease, max-height .2s ease, margin .2s ease, padding .2s ease';

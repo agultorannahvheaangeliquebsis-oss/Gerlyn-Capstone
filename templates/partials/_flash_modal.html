@@ -1,0 +1,43 @@
+{% load flash %}{% comment %}
+The result of an action, as a modal — success, error, warning or info.
+
+Default: renders the Django messages for this request. Pass `flash_source` (a
+list of strings) and `level` to raise the same modal for something that is not
+in the messages framework, e.g. the errors a form re-render carries:
+
+  {% include "partials/_flash_modal.html" with flash_source=pos_errors level="error" %}
+
+The parameter is deliberately not called `items`: this partial is included from
+the base template on every page, and pages such as the order detail already
+put their own `items` (the order lines) in the context.
+
+One modal per include, however many messages there are: they are listed in it
+and headed by the most serious level, so a save that reports three things is
+one thing to dismiss, not three stacked dialogs. static/js/bottom-sheet.js
+opens it (data-autoshow), traps focus in it and removes it on dismiss.
+
+The panel is named with aria-label rather than aria-labelledby on purpose: a
+page can render this twice (messages plus its own errors), and two elements
+cannot share an id. Error takes role=alertdialog (interrupt: something needs
+fixing), everything else role=dialog.
+{% endcomment %}{% with flash_items=flash_source|default:messages %}{% if flash_items %}{% flash_summary flash_items level as flash %}
+<div class="bottom-sheet bottom-sheet--{{ flash.level }}" data-autoshow="1">
+  <div class="bottom-sheet-panel" role="{% if flash.level == 'error' %}alertdialog{% else %}dialog{% endif %}"
+       aria-modal="true" aria-label="{{ flash.title }}" tabindex="-1">
+    <span class="bottom-sheet-icon" aria-hidden="true">
+      {% if flash.level == 'success' %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>
+      {% elif flash.level == 'error' %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>
+      {% elif flash.level == 'warning' %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+      {% else %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      {% endif %}
+    </span>
+    <h2 class="bottom-sheet-title">{{ flash.title }}</h2>
+    {% for item in flash_items %}<p>{{ item }}</p>{% endfor %}
+    <button type="button" class="btn btn-primary" data-sheet-dismiss>{{ flash.button }}</button>
+  </div>
+</div>
+{% endif %}{% endwith %}

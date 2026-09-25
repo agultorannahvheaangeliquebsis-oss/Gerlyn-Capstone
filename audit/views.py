@@ -1,16 +1,14 @@
-from datetime import date, datetime, time, timedelta
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import redirect, render
-from django.utils import timezone
 
 from accounts.models import User
 from branches.models import Branch
 from core.querystrings import list_filter_querystring
+from core.timebounds import local_range_bounds, range_from_request
 
 from .models import AuditLog
 from .registry import REGISTRY, entity_choices, label_for
@@ -22,17 +20,6 @@ def can_view_audit_log(user):
     """Owner accounts (the project's admin accounts are Owners) and Django
     superusers. Not a module: there is nothing to grant per employee."""
     return user.is_authenticated and (user.role == User.Role.OWNER or user.is_superuser)
-
-
-def _parse_date(value):
-    try:
-        return date.fromisoformat(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _day_start(day):
-    return timezone.make_aware(datetime.combine(day, time.min))
 
 
 def _actor_label(actor_id, role, users):
@@ -67,27 +54,28 @@ def audit_log_list(request):
     q = params.get('q', '').strip()
     entity = params.get('entity', '')
     action = params.get('action', '')
-    actor = params.get('actor', '').strip()
-    date_from = _parse_date(params.get('from'))
-    date_to = _parse_date(params.get('to'))
+    # The shared back-office range control (_daterange.html), same as the
+    # Dashboard and Reports; `range_start` is None for "All time".
+    range_start, range_end, active_range = range_from_request(request)
 
     logs = AuditLog.objects.all()
     if q:
+        # The main search also matches the actor's username, so there is no
+        # separate actor box to fill in.
+        actor_ids = User.objects.filter(username__icontains=q).values_list('pk', flat=True)
         logs = logs.filter(
             Q(summary__icontains=q) | Q(record_repr__icontains=q) | Q(record_id=q)
+            | Q(actor_id__in=list(actor_ids))
         )
     if entity in REGISTRY:
         logs = logs.filter(entity=entity)
     if action in AuditLog.Action.values:
         logs = logs.filter(action=action)
-    if actor:
-        ids = list(User.objects.filter(username__icontains=actor).values_list('pk', flat=True))
-        logs = logs.filter(actor_id__in=ids)
-    if date_from:
-        logs = logs.filter(timestamp__gte=_day_start(date_from))
-    if date_to:
-        # Inclusive of the whole "to" day.
-        logs = logs.filter(timestamp__lt=_day_start(date_to) + timedelta(days=1))
+    # local_range_bounds is inclusive of the whole end day.
+    range_dt_start, range_dt_end = local_range_bounds(range_start or range_end, range_end)
+    if range_start:
+        logs = logs.filter(timestamp__gte=range_dt_start)
+    logs = logs.filter(timestamp__lt=range_dt_end)
 
     # One action (an HTTP request) can write several rows — grouping turns
     # matching ROWS into matching ACTIONS before paginating. Matches are
@@ -142,15 +130,25 @@ def audit_log_list(request):
             'process_count': len(members),
         })
 
-    filters = {
-        'q': q, 'entity': entity, 'action': action, 'actor': actor,
-        'from': params.get('from', ''), 'to': params.get('to', ''),
+    filters = {'q': q, 'entity': entity, 'action': action}
+    range_params = {
+        'range': active_range,
+        'date_from': range_start.isoformat() if range_start else '',
+        'date_to': range_end.isoformat(),
     }
     return render(request, 'audit/audit_log_list.html', {
         'groups': groups,
         'page': page,
         'filters': filters,
+        # Filters only: drives the "Clear" link and the empty-state wording.
         'querystring': list_filter_querystring(**filters),
+        # Filters plus the range, so a pagination link keeps both.
+        'page_querystring': list_filter_querystring(**filters, **range_params),
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [(k, v) for k, v in filters.items()],
         'entity_choices': entity_choices(),
         'action_choices': AuditLog.Action.choices,
     })

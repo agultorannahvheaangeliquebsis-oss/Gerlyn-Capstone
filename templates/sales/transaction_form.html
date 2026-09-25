@@ -89,14 +89,11 @@ form, not a shared component other pages should pick up automatically.
 
 {% if pos_errors %}
 {% comment %}
-role="alert": every other rejected action in the app goes through the
-shared internal_base.html message banner, which carries this so a screen
-reader announces it. This is a lookalike banner built locally for the
-form's own errors and had been silent to assistive tech.
+The rejected sale is re-rendered rather than redirected (the basket has to
+survive), so its errors never pass through the messages framework. They get
+the same modal every other rejected action gets from internal_base.html.
 {% endcomment %}
-<div class="banner banner-error" role="alert">
-  {% for err in pos_errors %}<div>{{ err }}</div>{% endfor %}
-</div>
+{% include "partials/_flash_modal.html" with flash_source=pos_errors level="error" %}
 {% endif %}
 
 <form method="POST" action="{% url 'transaction_add' %}" id="pos-form">

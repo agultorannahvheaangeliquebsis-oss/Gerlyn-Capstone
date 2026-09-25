@@ -320,53 +320,14 @@ DOM — it is off-screen until focused (see .skip-link).
     {% endcomment %}
     <main class="content" id="main" tabindex="-1">
       {% comment %}
-      level_tag, not tags: `tags` concatenates the level with any extra_tags
-      the view passed, so a message sent with extra_tags renders
-      class="banner banner-success undoable" and matches no rule at all.
-      level_tag is always exactly one of debug/info/success/warning/error.
-
-      role is what makes a result audible. A banner that appears after a
-      redirect is the only report that the action worked, and without a live
-      region a screen reader never announces it — the page just reloads. error
-      takes role=alert (interrupt: something needs fixing), everything else
-      takes role=status (polite: wait for a pause).
+      Every Django message is a modal, not an inline banner — a result that
+      appears after a redirect is easy to miss at the top of a long page, and a
+      dialog with focus in it is announced by a screen reader and has to be
+      acknowledged. partials/_flash_modal.html holds the markup (and the
+      level/title logic); static/js/bottom-sheet.js opens it. The old
+      extra_tags='sheet' opt-in is now a no-op: every message gets this.
       {% endcomment %}
-      {% if messages %}
-        {% for message in messages %}
-          {% if 'sheet' in message.tags %}
-          {% comment %}
-          Opt-in success sheet — any view can trigger it with
-          messages.success(..., extra_tags='sheet'), not just Deliveries.
-          Matched on `tags` deliberately: extra_tags is exactly what is being
-          tested for here, so this is the one place the concatenated string is
-          the right one to read.
-          {% endcomment %}
-          <div class="bottom-sheet" data-autoshow="1">
-            <div class="bottom-sheet-panel">
-              <span class="bottom-sheet-icon"><i data-lucide="check-circle"></i></span>
-              <p>{{ message }}</p>
-              <button type="button" class="btn btn-primary" data-sheet-dismiss>Done</button>
-            </div>
-          </div>
-          {% else %}
-          <div class="banner banner-{{ message.level_tag|default:'info' }}"
-               role="{% if message.level_tag == 'error' %}alert{% else %}status{% endif %}">
-            <span class="banner-icon" aria-hidden="true">
-              {% if message.level_tag == 'success' %}
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>
-              {% elif message.level_tag == 'error' %}
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>
-              {% elif message.level_tag == 'warning' %}
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
-              {% else %}
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
-              {% endif %}
-            </span>
-            <span class="banner-text">{{ message }}</span>
-          </div>
-          {% endif %}
-        {% endfor %}
-      {% endif %}
+      {% include "partials/_flash_modal.html" %}
 
       {% block content %}{% endblock %}
     </main>
@@ -458,7 +419,7 @@ until a row is clicked, and emptied again on close. See detail-modal.js.
 <script src="{% static 'js/sidebar.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/detail-modal.js' %}?v={{ APP_VERSION }}" defer></script>
-<script src="{% static 'js/bottom-sheet.js' %}" defer></script>
+<script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
