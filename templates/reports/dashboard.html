@@ -340,9 +340,13 @@ _sales_trend_by_branch_chart): a trend line narrowed to a single branch would
 have nothing left to compare it against, so this chart deliberately ignores
 the same selector the KPI rail above it obeys.
 
-Same geometry as the KPI graph panel (0 0 760 220, no y-axis) so it reads as
-the same chart family; the legend underneath carries the per-branch total
-since the lines alone don't label themselves.
+Same treatment as the KPI graph panel now — smoothed Catmull-Rom lines,
+zero-filled days, adaptive x-axis ticks, continuous-hover tooltip/guideline
+instead of per-point dots (static/js/dashboard-sales-trend.js) — EXCEPT no
+area fill: 2-3 branch lines are shown simultaneously here, never one at a
+time like the KPI rail, so filled areas would shade over each other rather
+than read as one chart. The legend underneath still carries the per-branch
+total since the lines alone don't label themselves.
 {% endcomment %}
 <div class="card mb-6">
   <div class="card-pad" style="border-bottom:1px solid var(--line);">
@@ -351,11 +355,17 @@ since the lines alone don't label themselves.
   </div>
   <div class="card-pad">
     {% if sales_trend_by_branch.lines %}
-    <svg viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none">
-      {% for line in sales_trend_by_branch.lines %}
-      <polyline points="{{ line.polyline }}" fill="none" stroke="{{ line.colour }}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      {% endfor %}
-    </svg>
+    <div class="kpi-graph-svg-wrap" id="trend-svg-wrap">
+      <svg viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none" id="trend-svg">
+        {% for line in sales_trend_by_branch.lines %}
+        <path d="{{ line.linePath }}" fill="none" stroke="{{ line.colour }}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        {% endfor %}
+        <g id="trend-axis"></g>
+        <line class="kpi-graph-guideline" id="trend-guideline" x1="0" y1="24" x2="0" y2="196" hidden></line>
+        <rect id="trend-hitarea" x="24" y="0" width="712" height="220" fill="transparent" style="cursor:crosshair;"/>
+      </svg>
+      <div class="kpi-graph-tooltip multi" id="trend-tooltip"></div>
+    </div>
     <p class="gv-meta kpi-graph-peak mb-0">{{ sales_trend_by_branch.peak }}</p>
     <ul class="pie-legend">
       {% for line in sales_trend_by_branch.lines %}
@@ -715,4 +725,6 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
 {% block extra_js %}
 {{ kpi_graphs|json_script:"dashboard-kpi-data" }}
 <script src="{% static 'js/dashboard-kpi.js' %}"></script>
+{{ sales_trend_by_branch|json_script:"sales-trend-data" }}
+<script src="{% static 'js/dashboard-sales-trend.js' %}"></script>
 {% endblock %}

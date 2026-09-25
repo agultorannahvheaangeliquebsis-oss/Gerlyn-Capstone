@@ -1,0 +1,66 @@
+{% load static %}<header class="portal-header">
+  <div class="portal-wrap portal-nav">
+    <span class="row" style="gap:10px;">
+      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="GERLYN"></span>
+      <span>
+        <span class="brand-name">GERLYN</span><br>
+        <span class="brand-sub">Supplier Portal</span>
+      </span>
+    </span>
+    <span class="row" style="gap:12px;">
+      {% comment %}
+        Same tray markup/JS as the internal Owner/Manager/Staff bell
+        (templates/internal_base.html + static/js/notification-tray.js),
+        pointed at the supplier's own endpoints (procurement/views.py:
+        supplier_notifications) instead — those are scoped to
+        request.user.notifications and check role == SUPPLIER on every
+        request, so this bell can only ever show orders placed with THIS
+        supplier, never another supplier's or the store's own internal
+        notifications. No search/category-pills here (unlike the internal
+        tray): every notification a supplier gets is the same "your
+        purchase order" kind, so filtering them would have nothing to do.
+      {% endcomment %}
+      <div class="notif-tray-anchor">
+        <a class="topbar-bell" href="{% url 'supplier_notifications' %}" id="notifBell"
+           aria-haspopup="true" aria-expanded="false" title="Notifications" aria-label="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          {% if notif_unread_count %}<span class="nav-badge" id="notifBadge">{{ notif_unread_count }}</span>{% endif %}
+        </a>
+        <div class="notif-tray" id="notifTray" role="dialog" aria-label="Notifications" aria-hidden="true">
+          <div class="notif-tray-head">
+            <h2>Notifications</h2>
+            <button type="button" class="notif-tray-markread" id="notifMarkAll"
+                    data-url="{% url 'supplier_notification_mark_all_read' %}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
+              Mark all read
+            </button>
+          </div>
+          <div class="notif-tray-list" id="notifList">
+            <div class="tray-empty">Loading…</div>
+          </div>
+          <div class="notif-tray-foot"><a href="{% url 'supplier_notifications' %}">See full list</a></div>
+        </div>
+        <div class="notif-tray-scrim" id="notifScrim"></div>
+      </div>
+      <span style="text-align:right;">
+        <span class="who-name">{{ profile.supplier_name|default:request.user.username }}</span><br>
+        <span class="who-role">Supplier</span>
+      </span>
+      {% comment %}
+        Account link — the one way into supplier_account.html from anywhere
+        else in the portal. `active_page` (passed by whichever page includes
+        this partial) is 'account' only on supplier_account.html itself,
+        where the link is redundant with the page you're already on, so it's
+        dropped there rather than left pointing at itself.
+      {% endcomment %}
+      {% if active_page != 'account' %}
+        <a class="account-link" href="{% url 'supplier_account' %}" title="Account">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Account
+        </a>
+      {% endif %}
+      <span class="portal-avatar">{{ profile.supplier_name|default:request.user.username|first|upper }}</span>
+      <a class="btn" href="{% url 'accounts:logout' %}">Logout</a>
+    </span>
+  </div>
+</header>

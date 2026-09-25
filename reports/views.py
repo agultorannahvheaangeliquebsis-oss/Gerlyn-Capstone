@@ -102,13 +102,18 @@ def _dashboard_inventory_metrics(inventory_qs):
     return total_value, total_units, low_critical_count
 
 
-def _sales_trend_by_branch_chart(sales_qs, branches, start, end,
+def _sales_trend_by_branch_chart(sales_qs, branches, start, end, active_range=None,
                                   width=760, height=220, pad_x=24, pad_y=24):
     """
-    One line per branch, daily sales over [start, end], sharing a single
-    Y-scale so the lines are actually comparable to each other — unlike the
-    KPI rail's per-metric graph, which only ever needs to compare a series
-    against itself.
+    One smoothed line per branch, daily sales over [start, end], sharing a
+    single Y-scale so the lines are actually comparable to each other —
+    unlike the KPI rail's per-metric graph, which only ever needs to compare
+    a series against itself. Same curve/axis treatment as the KPI rail
+    (_smooth_curve_commands, _month_lane_x_fractions, weekday-vs-month-lane
+    ticks) applied per line, but NOT that panel's area fill: 2-3 branches'
+    fills stacked simultaneously (this chart, unlike the KPI rail, always
+    shows every line at once, never one-at-a-time) would shade over each
+    other rather than read as one chart, so this stays lines-only.
 
     Always covers every branch the viewer can see (branch_ids_for_user),
     never the branch-selector's override — see the module note above and
@@ -116,6 +121,11 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end,
     `branches` is the matching list of Branch objects to draw one line each
     for, in the same order every time so a branch's colour and legend
     position never shift between requests.
+
+    `active_range` is the same dashboard-wide preset _dashboard_kpi_payload
+    already branches on — only used here to pick weekday-vs-month-lane axis
+    TICKS (see _kpi_metric_series' own docstring); point x-POSITIONS always
+    use month-lane fractions regardless, same split that function makes.
 
     Reuses _dashboard_daily_series per branch — there are at most a handful
     of branches, so N small queries stays cheap, and it keeps this chart's
@@ -136,32 +146,68 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end,
         all_values.extend(values)
 
     if not any(all_values):
-        return {'lines': [], 'labels': day_labels, 'peak': ''}
+        return {'lines': [], 'labels': day_labels, 'peak': '', 'points': [], 'axisLabels': []}
 
     lo, hi = min(all_values), max(all_values)
     span = hi - lo
     plot_width = width - 2 * pad_x
-    step = plot_width / (n_days - 1) if n_days > 1 else 0
+    baseline = height - pad_y
+    x_fractions = _month_lane_x_fractions(day_labels)
+    xs = [round(pad_x + f * plot_width, 1) for f in x_fractions]
 
     def y_for(v):
         if span == 0:
-            return height / 2
+            # All-zero (or all-tied) across every branch belongs at the
+            # baseline when that tied value is 0 — the same place a 0 lands
+            # within any normal series — and only falls back to the plot's
+            # midpoint for a flat but NON-zero tie, where there's no
+            # baseline-vs-zero meaning to preserve. Mirrors _kpi_graph_series'
+            # own y_for exactly.
+            return baseline if lo == 0 else height / 2
         return pad_y + (1 - (v - lo) / span) * (height - 2 * pad_y)
 
+    colours = [SALES_BRANCH_RAMP[i % len(SALES_BRANCH_RAMP)] for i in range(len(series_by_branch))]
+
     lines = []
-    for i, (name, values) in enumerate(series_by_branch):
-        coords = [(round(pad_x + j * step, 1), round(y_for(v), 1)) for j, v in enumerate(values)]
+    for (name, values), colour in zip(series_by_branch, colours):
+        coords = [(x, round(y_for(v), 1)) for x, v in zip(xs, values)]
+        curve_cmds = _smooth_curve_commands(coords, pad_y, baseline)
         lines.append({
             'name': name,
-            'colour': SALES_BRANCH_RAMP[i % len(SALES_BRANCH_RAMP)],
-            'polyline': ' '.join(f'{x},{y}' for x, y in coords),
+            'colour': colour,
+            'linePath': f'M{coords[0][0]},{coords[0][1]} {curve_cmds}',
             'total_display': _compact_peso(sum(values)),
         })
+
+    # One point per day, every branch's value at that day together — what
+    # the continuous-hover tooltip (dashboard.js) reads to show all branches
+    # at once under the cursor, the same "everything at this x" shape the
+    # KPI rail's own dual-value (this period/prior period) tooltip already
+    # uses, just generalized from 2 values to N branches.
+    points = [
+        {
+            'x': xs[j],
+            'date': day_labels[j],
+            'values': [
+                {'name': name, 'colour': colour, 'value': values[j]}
+                for (name, values), colour in zip(series_by_branch, colours)
+            ],
+        }
+        for j in range(n_days)
+    ]
+
+    axis_labels = (
+        _kpi_axis_labels_weekday(day_labels, x_fractions, width=width, pad_x=pad_x)
+        if active_range == '7' else
+        _kpi_axis_labels(day_labels, _month_lanes(day_labels), width=width, pad_x=pad_x)
+    )
 
     return {
         'lines': lines,
         'labels': day_labels,
         'peak': f'Peak day: {_compact_peso(hi)}',
+        'points': points,
+        'axisLabels': axis_labels,
     }
 
 
@@ -1812,7 +1858,7 @@ def operational_dashboard(request):
     # _dashboard_daily_series per branch, which already applies its own
     # local_range_bounds()-converted filter internally (see that function).
     sales_trend_by_branch = _sales_trend_by_branch_chart(
-        always_sales_qs, always_branches, range_start, range_end
+        always_sales_qs, always_branches, range_start, range_end, active_range=active_range
     )
 
     always_inventory_records = list(always_inventory_qs)

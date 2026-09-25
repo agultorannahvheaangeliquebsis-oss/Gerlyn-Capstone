@@ -29,6 +29,8 @@ urlpatterns = [
 
     # Supplier's own portal (role = SUPPLIER)
     path('portal/', views.supplier_portal, name='supplier_portal'),
+    path('portal/account/', views.supplier_account, name='supplier_account'),
+    path('portal/account/update/', views.supplier_account_update, name='supplier_account_update'),
     path('portal/<int:pk>/respond/', views.procurement_supplier_respond,
          name='procurement_supplier_respond'),
     path('portal/<int:pk>/confirm/', views.procurement_supplier_confirm,
