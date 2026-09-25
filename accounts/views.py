@@ -18,6 +18,7 @@ from .rate_limit import (
     clear_failed_logins, get_client_ip, is_login_locked_out,
     is_rate_limited, register_failed_login,
 )
+from .role_policy import USER_MANAGEMENT_ROLE_CHOICES, USER_MANAGEMENT_ROLES
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
@@ -332,14 +333,6 @@ from branches.models import Branch
 # explicitly, and every account is traceable to a branch.
 # =============================================================================
 
-INTERNAL_ROLE_CHOICES = [
-    (User.Role.OWNER, 'Owner'),
-    (User.Role.BRANCH_MANAGER, 'Branch Manager'),
-    (User.Role.STAFF, 'Store Staff'),
-    (User.Role.SUPPLIER, 'Supplier'),
-]
-
-
 def _profile_for(user):
     """The role-specific profile carrying the name/branch, if any."""
     return (
@@ -351,7 +344,7 @@ def _profile_for(user):
 
 @login_required(login_url='accounts:login')
 def _user_list_context(request):
-    users = User.objects.exclude(role=User.Role.CUSTOMER).select_related(
+    users = User.objects.filter(role__in=USER_MANAGEMENT_ROLES).select_related(
         'manager_profile__branch', 'staff_profile__branch', 'owner_profile',
         'supplier_profile',
     ).order_by('role', 'username')
@@ -402,11 +395,10 @@ def _user_list_context(request):
         # (partials/_branch_switch.html) to carry along — same idea as
         # _daterange.html's daterange_carry.
         'branch_switch_carry': [('q', search_query), ('role', role_filter)],
-        # The toolbar filters on every role a row can have; the Add/Edit modal
-        # may only ASSIGN an internal one. Two different lists on purpose —
-        # user_form has always validated against INTERNAL_ROLE_CHOICES.
-        'role_choices': User.Role.choices,
-        'form_role_choices': INTERNAL_ROLE_CHOICES,
+        # The toolbar filter and Add/Edit forms share the same policy-bound
+        # list. Customer accounts are handled by the dedicated module.
+        'role_choices': USER_MANAGEMENT_ROLE_CHOICES,
+        'form_role_choices': USER_MANAGEMENT_ROLE_CHOICES,
         'branches': branches,
         'active_count': users.filter(is_active=True).count(),
         # The module-access checkbox panel — only meaningful for Staff/
@@ -431,7 +423,9 @@ def user_list(request):
 
     edit_pk = request.GET.get('edit')
     if edit_pk:
-        target = User.objects.filter(pk=edit_pk).first()
+        target = User.objects.filter(
+            pk=edit_pk, role__in=USER_MANAGEMENT_ROLES
+        ).first()
         if target:
             profile = _profile_for(target)
             context.update({
@@ -449,7 +443,9 @@ def user_form(request, pk=None):
         messages.error(request, 'Only the Owner can manage users.')
         return redirect('accounts:home')
 
-    target = get_object_or_404(User, pk=pk) if pk else None
+    target = get_object_or_404(
+        User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
+    ) if pk else None
 
     if request.method != 'POST':
         flag = f'edit={pk}' if target else 'add=1'
@@ -474,7 +470,7 @@ def user_form(request, pk=None):
     # The same checks, collected rather than redirected — a redirect
     # discarded the whole form, and this one has several fields to retype.
     errors = []
-    if not username or role not in dict(INTERNAL_ROLE_CHOICES):
+    if not username or role not in USER_MANAGEMENT_ROLES:
         errors.append('A username and a valid role are required.')
 
     if password:
@@ -592,7 +588,7 @@ def _user_invite_submit(request):
     branch_id = request.POST.get('branch') or None
 
     errors = []
-    if role not in dict(INTERNAL_ROLE_CHOICES):
+    if role not in USER_MANAGEMENT_ROLES:
         errors.append('A valid role is required.')
     if not email:
         errors.append('An email address is required.')
@@ -716,7 +712,9 @@ def user_cancel_invite(request, pk):
         messages.error(request, 'Only the Owner can manage users.')
         return redirect('accounts:home')
 
-    target = get_object_or_404(User, pk=pk)
+    target = get_object_or_404(
+        User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
+    )
 
     if target.has_usable_password():
         messages.error(request, "That account has already been set up and can't be cancelled this way.")
@@ -742,7 +740,9 @@ def user_resend_invite(request, pk):
         messages.error(request, 'Only the Owner can manage users.')
         return redirect('accounts:home')
 
-    target = get_object_or_404(User, pk=pk)
+    target = get_object_or_404(
+        User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
+    )
 
     if target.has_usable_password():
         messages.info(request, f"{target.username} has already set up their account.")
@@ -1270,6 +1270,11 @@ def staff_invite_complete(request, token):
         return redirect('accounts:login')
 
     user = token_obj.user
+
+    if user.role not in USER_MANAGEMENT_ROLES:
+        token_obj.consume()
+        messages.error(request, "This invite is not valid for a customer account.")
+        return redirect('accounts:login')
 
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()

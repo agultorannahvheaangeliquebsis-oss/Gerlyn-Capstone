@@ -2,6 +2,7 @@ from django.contrib.auth import password_validation
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models import User
+from .role_policy import USER_MANAGEMENT_ROLE_CHOICES
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -119,7 +120,7 @@ class UserCreateSerializer(serializers.Serializer):
     username = serializers.CharField()
     email = serializers.EmailField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=User.Role.choices)
+    role = serializers.ChoiceField(choices=USER_MANAGEMENT_ROLE_CHOICES)
     fullName = serializers.CharField(required=False, allow_blank=True)
     contactNumber = serializers.CharField(required=False, allow_blank=True)
     branchId = serializers.IntegerField(required=False, allow_null=True)
@@ -155,22 +156,13 @@ class UserCreateSerializer(serializers.Serializer):
         contact_number = validated_data.get('contactNumber', '')
         branch_id = validated_data.get('branchId')
 
-        if role == User.Role.CUSTOMER:
-            parts = full_name.split(' ', 1)
-            profile = user.customer_profile
-            profile.first_name = parts[0] if parts and parts[0] else user.username
-            profile.last_name = parts[1] if len(parts) > 1 else ''
+        profile, name_field = _profile_for(user)
+        if profile:
+            setattr(profile, name_field, full_name or user.username)
             profile.contact_number = contact_number
-            profile.address = validated_data.get('address', '')
+            if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and branch_id:
+                profile.branch_id = branch_id
             profile.save()
-        else:
-            profile, name_field = _profile_for(user)
-            if profile:
-                setattr(profile, name_field, full_name or user.username)
-                profile.contact_number = contact_number
-                if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and branch_id:
-                    profile.branch_id = branch_id
-                profile.save()
 
         return user
 
