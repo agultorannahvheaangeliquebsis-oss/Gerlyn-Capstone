@@ -1,14 +1,46 @@
 # accounts/services.py
+import logging
+
 from django.core.mail import send_mail
 from django.conf import settings
+from django.db import transaction
 from django.urls import reverse
-from .models import VerificationToken, NotificationPreference
+from .models import User, VerificationToken, NotificationPreference
 from .role_policy import USER_MANAGEMENT_ROLES
+
+
+email_logger = logging.getLogger('accounts.email')
+
+
+class VerificationEmailDeliveryError(RuntimeError):
+    """Safe public exception for an operational verification-email failure."""
+
+
+class VerificationEmailRateLimited(RuntimeError):
+    def __init__(self, wait_seconds):
+        self.wait_seconds = wait_seconds
+        super().__init__('Verification email resend is rate-limited.')
 
 
 def _build_url(request, view_name, token):
     relative = reverse(view_name, kwargs={'token': str(token.token)})
+    if settings.PUBLIC_BASE_URL:
+        return f'{settings.PUBLIC_BASE_URL}{relative}'
     return request.build_absolute_uri(relative)
+
+
+def _log_verification_delivery_failure(user, operation, exc):
+    """Log actionable metadata without exception text or credentials."""
+    email_logger.error(
+        'Verification email delivery failed operation=%s user_id=%s '
+        'backend=%s smtp_host=%s smtp_port=%s error_type=%s',
+        operation,
+        user.pk,
+        settings.EMAIL_BACKEND,
+        settings.EMAIL_HOST,
+        settings.EMAIL_PORT,
+        type(exc).__name__,
+    )
 
 
 def send_staff_invite(user, request):
@@ -119,9 +151,8 @@ VERIFICATION_RESEND_COOLDOWN_SECONDS = 30 * 60
 def get_verification_resend_wait_seconds(user):
     """Seconds until `user` may request another verification email, or 0 if
     they can request one right now. Based on the most recent EMAIL_VERIFY
-    token's created_at, checked BEFORE send_verification_email's
-    delete-then-recreate — that call erases old tokens entirely, so this
-    must run first or the timestamp trail is gone."""
+    token's creation time. The send path checks this again while holding a
+    per-user database lock so concurrent resend requests cannot bypass it."""
     from django.utils import timezone
 
     last = VerificationToken.objects.filter(
@@ -134,34 +165,61 @@ def get_verification_resend_wait_seconds(user):
     return max(0, int(remaining))
 
 
-def send_verification_email(user, request):
+def send_verification_email(user, request, *, enforce_cooldown=False):
     """
     Sends initial email verification link after registration.
-    Deletes any existing unused tokens for this user first.
+    A resend may enforce the server-side cooldown. Token replacement and the
+    synchronous send share a transaction so an SMTP failure restores the old
+    valid token and does not start a cooldown for an email never delivered.
     """
-    VerificationToken.objects.filter(
-        user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY, is_used=False
-    ).delete()
+    operation = 'resend' if enforce_cooldown else 'registration'
+    try:
+        with transaction.atomic():
+            # Serialize requests for this user so two first-time resend clicks
+            # cannot both pass the cooldown check before either stores a token.
+            User.objects.select_for_update().only('pk').get(pk=user.pk)
 
-    token = VerificationToken.objects.create(
-        user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY
-    )
-    url = _build_url(request, 'accounts:verify_email', token)
+            if enforce_cooldown:
+                wait_seconds = get_verification_resend_wait_seconds(user)
+                if wait_seconds > 0:
+                    raise VerificationEmailRateLimited(wait_seconds)
 
-    send_mail(
-        subject="Verify your GERLYN email",
-        message=(
-            f"Hi {user.get_full_name() or user.username},\n\n"
-            f"Click the link below to verify your email. "
-            f"It expires in {VerificationToken.EXPIRY_HOURS} hours.\n\n"
-            f"{url}\n\n"
-            f"If you didn't create an account, ignore this email.\n\n"
-            f"— GERLYN"
-        ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
-    )
+            VerificationToken.objects.filter(
+                user=user,
+                purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+                is_used=False,
+            ).delete()
+
+            token = VerificationToken.objects.create(
+                user=user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY
+            )
+            url = _build_url(request, 'accounts:verify_email', token)
+
+            sent_count = send_mail(
+                subject="Verify your Gerlyn Variety Store email",
+                message=(
+                    f"Hi {user.get_full_name() or user.username},\n\n"
+                    f"Click the link below to verify your email. "
+                    f"It expires in {VerificationToken.EXPIRY_HOURS} hours.\n\n"
+                    f"{url}\n\n"
+                    f"If you didn't create an account, ignore this email.\n\n"
+                    f"— Gerlyn Variety Store"
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+            if sent_count != 1:
+                raise RuntimeError('Email backend did not confirm one delivery.')
+    except VerificationEmailRateLimited:
+        raise
+    except Exception as exc:
+        _log_verification_delivery_failure(user, operation, exc)
+        raise VerificationEmailDeliveryError(
+            'The verification email could not be delivered.'
+        ) from None
+
+    return token
 
 
 def send_login_otp(user, code, request):

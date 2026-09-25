@@ -5,12 +5,16 @@ writes themselves, so a regression in either shows up here rather than in a
 browser.
 """
 import re
+from datetime import timedelta
+from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.messages import get_messages
 from django.core import mail
 from django.core.cache import cache
-from django.test import Client, TestCase
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import BranchManagerProfile, User, VerificationToken
 from accounts.role_policy import USER_MANAGEMENT_ROLES
@@ -594,6 +598,197 @@ class RegistrationVerificationEmailTests(TestCase):
         self.assertFalse(User.objects.filter(username='newcustomer').exists())
         self.assertEqual(Address.objects.count(), 0)
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_smtp_failure_keeps_registration_and_does_not_leak_details(self):
+        secret = 'smtp-password-that-must-not-leak'
+
+        with patch(
+            'accounts.services.send_mail', side_effect=RuntimeError(secret)
+        ), self.assertLogs('accounts.email', level='ERROR') as captured:
+            response = self._register()
+
+        self.assertRedirects(response, reverse('accounts:customer_dashboard'))
+        self.assertTrue(User.objects.filter(username='newcustomer').exists())
+        self.assertFalse(
+            VerificationToken.objects.filter(
+                user__username='newcustomer',
+                purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+            ).exists()
+        )
+        user_messages = ' '.join(
+            str(message) for message in get_messages(response.wsgi_request)
+        )
+        self.assertIn("couldn't send the verification email", user_messages)
+        self.assertNotIn(secret, user_messages)
+        self.assertNotIn(secret, '\n'.join(captured.output))
+
+
+class VerificationEmailDeliveryTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='verify-customer', password='pw',
+            email='verify-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        self.request = RequestFactory().get('/', HTTP_HOST='testserver')
+
+    @override_settings(PUBLIC_BASE_URL='https://shop.example.com')
+    def test_email_uses_recipient_and_public_verification_url(self):
+        from accounts.services import send_verification_email
+
+        token = send_verification_email(self.user, self.request)
+
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
+        self.assertEqual(mail.outbox[0].from_email, settings.DEFAULT_FROM_EMAIL)
+        self.assertIn(
+            f'https://shop.example.com/verify-email/{token.token}/',
+            mail.outbox[0].body,
+        )
+
+    def test_smtp_failure_restores_previous_token_and_allows_retry(self):
+        from accounts.services import (
+            VerificationEmailDeliveryError, send_verification_email,
+        )
+
+        previous = VerificationToken.objects.create(
+            user=self.user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        VerificationToken.objects.filter(pk=previous.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
+
+        with patch(
+            'accounts.services.send_mail', side_effect=RuntimeError('smtp failed')
+        ), self.assertRaises(VerificationEmailDeliveryError):
+            send_verification_email(self.user, self.request)
+
+        self.assertTrue(
+            VerificationToken.objects.filter(pk=previous.pk, is_used=False).exists()
+        )
+        self.assertEqual(
+            VerificationToken.objects.filter(
+                user=self.user,
+                purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+                is_used=False,
+            ).count(),
+            1,
+        )
+
+    def test_token_is_single_use_and_expires(self):
+        active = VerificationToken.objects.create(
+            user=self.user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        self.assertTrue(active.is_valid)
+
+        first = self.client.get(
+            reverse('accounts:verify_email', args=[active.token])
+        )
+        self.assertRedirects(
+            first, reverse('accounts:login'), fetch_redirect_response=False
+        )
+        active.refresh_from_db()
+        self.assertTrue(active.is_used)
+        self.assertFalse(active.is_valid)
+
+        repeated = self.client.get(
+            reverse('accounts:verify_email', args=[active.token])
+        )
+        self.assertRedirects(
+            repeated, reverse('accounts:profile'), fetch_redirect_response=False
+        )
+
+        expired_user = User.objects.create_user(
+            username='expired-customer', password='pw',
+            email='expired-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        expired = VerificationToken.objects.create(
+            user=expired_user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        VerificationToken.objects.filter(pk=expired.pk).update(
+            expires_at=timezone.now() - timedelta(seconds=1)
+        )
+        expired.refresh_from_db()
+
+        second = self.client.get(
+            reverse('accounts:verify_email', args=[expired.token])
+        )
+        self.assertRedirects(
+            second, reverse('accounts:profile'), fetch_redirect_response=False
+        )
+        expired_user.refresh_from_db()
+        self.assertFalse(expired_user.is_email_verified)
+        self.assertFalse(expired.is_valid)
+
+    def test_resend_is_rate_limited_server_side(self):
+        from accounts.services import send_verification_email
+
+        original = send_verification_email(self.user, self.request)
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('accounts:resend_verification'))
+
+        self.assertRedirects(response, reverse('accounts:profile'))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(
+            VerificationToken.objects.filter(pk=original.pk, is_used=False).exists()
+        )
+
+    def test_successful_resend_replaces_the_previous_active_token(self):
+        previous = VerificationToken.objects.create(
+            user=self.user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        VerificationToken.objects.filter(pk=previous.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('accounts:resend_verification'))
+
+        self.assertRedirects(response, reverse('accounts:profile'))
+        self.assertFalse(VerificationToken.objects.filter(pk=previous.pk).exists())
+        active_tokens = VerificationToken.objects.filter(
+            user=self.user,
+            purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+            is_used=False,
+        )
+        self.assertEqual(active_tokens.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_anonymous_resend_does_not_disclose_email_existence(self):
+        response = self.client.post(
+            reverse('accounts:resend_verification'),
+            {'email': 'arbitrary@example.com'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('accounts:login'), response.url)
+        self.assertNotIn('arbitrary@example.com', response.url)
+
+    @override_settings(PUBLIC_BASE_URL='https://shop.example.com')
+    def test_api_registration_also_sends_verification_email(self):
+        response = self.client.post(
+            '/api/auth/register/',
+            {
+                'username': 'api-verify-customer',
+                'email': 'api-verify-customer@example.com',
+                'password': 'Str0ngPass!2026',
+                'fullName': 'API Verify Customer',
+                'contactNumber': '09171234567',
+                'address': '12 Real St, Baliuag, Bulacan',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()['verificationEmailSent'])
+        registered = User.objects.get(username='api-verify-customer')
+        token = VerificationToken.objects.get(
+            user=registered, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        self.assertEqual(mail.outbox[0].to, [registered.email])
+        self.assertIn(
+            f'https://shop.example.com/verify-email/{token.token}/',
+            mail.outbox[0].body,
+        )
 
 
 class RegisterInputValidationTests(TestCase):

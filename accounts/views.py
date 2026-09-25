@@ -1045,21 +1045,26 @@ def register_view(request):
         # turning on Two-Factor Authentication is), so a send failure must
         # not block account creation. The user can always retry from the
         # "Resend" banner on their Profile/Settings page.
+        verification_sent = True
         try:
             send_verification_email(user, request)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(
-                f"Verification email failed to send for new user {user.pk}: {e}", exc_info=True
-            )
+        except VerificationEmailDeliveryError:
+            verification_sent = False
 
         login(request, user)
-        messages.success(
-            request,
-            "Account created successfully. Welcome! We've also sent a "
-            "verification link to your email — you can verify it any time "
-            "from Settings."
-        )
+        messages.success(request, "Account created successfully. Welcome!")
+        if verification_sent:
+            messages.info(
+                request,
+                "A verification link was sent to your email. You can also "
+                "request another from Settings after the cooldown."
+            )
+        else:
+            messages.warning(
+                request,
+                "Your account is ready, but we couldn't send the verification "
+                "email right now. Please try again from Settings."
+            )
         return redirect('accounts:customer_dashboard')
 
     return render(request, 'accounts/register.html')
@@ -1076,6 +1081,7 @@ from .services import (
     send_password_change_verification, revoke_other_sessions,
     send_account_deactivation_verification, deactivate_account,
     get_active_sessions, get_verification_resend_wait_seconds,
+    VerificationEmailDeliveryError, VerificationEmailRateLimited,
 )
 
 
@@ -1415,26 +1421,24 @@ def resend_verification(request):
         messages.info(request, "Your email is already verified.")
         return _profile_redirect(user)
 
-    # Whole body wrapped so a second rapid click (or any DB/SMTP hiccup)
-    # always lands on a clean redirect + message, never a raw 500.
+    # The service repeats the cooldown check while holding a per-user DB lock,
+    # so rapid or concurrent requests cannot race past this server-side limit.
     try:
-        wait_seconds = get_verification_resend_wait_seconds(user)
-        if wait_seconds > 0:
-            wait_minutes = max(1, -(-wait_seconds // 60))  # ceil to whole minutes
-            messages.error(
-                request,
-                f"You can request another verification email in {wait_minutes} minute"
-                f"{'s' if wait_minutes != 1 else ''}."
-            )
-        else:
-            send_verification_email(user, request)
-            messages.success(request, "Verification email sent. Check your inbox.")
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(
-            f"Verification email resend failed for user {user.pk}: {e}", exc_info=True
+        send_verification_email(user, request, enforce_cooldown=True)
+        messages.success(request, "Verification email sent. Check your inbox.")
+    except VerificationEmailRateLimited as exc:
+        wait_minutes = max(1, -(-exc.wait_seconds // 60))  # ceil to whole minutes
+        messages.error(
+            request,
+            f"You can request another verification email in {wait_minutes} minute"
+            f"{'s' if wait_minutes != 1 else ''}."
         )
-        messages.error(request, "We couldn't send the verification email right now. Please try again shortly.")
+    except VerificationEmailDeliveryError:
+        messages.error(
+            request,
+            "We couldn't send the verification email right now. "
+            "Please try again shortly."
+        )
     return _profile_redirect(user)
 
 def _profile_redirect(user):
