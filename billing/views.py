@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 from .models import BillingRecord
 from .api_views import user_can_access_billing_record
+from .validators import clean_reference_number
 from sales.models import SalesTransaction
 from accounts.models import User
 from branches.models import Branch
@@ -363,6 +364,15 @@ def billing_create(request, transaction_id):
         # no reference by definition.
         if payment_method not in BillingRecord.REFERENCE_REQUIRED_METHODS:
             reference_number = ''
+        else:
+            # Length and characters — the column is VARCHAR(100), and an
+            # over-long value used to reach it and 500. Same rule as the API
+            # and checkout (billing.validators).
+            try:
+                reference_number = clean_reference_number(reference_number)
+            except ValidationError as e:
+                messages.error(request, e.messages[0])
+                return render(request, 'billing/billing_form.html', form_context)
         missing = BillingRecord.missing_payment_evidence(
             payment_method, reference_number,
             bool(proof_of_payment or (existing and existing.proof_of_payment)),
@@ -377,27 +387,30 @@ def billing_create(request, transaction_id):
             return render(request, 'billing/billing_form.html', form_context)
 
         if existing:
-            # Update the auto-created record with the actual payment details
-            existing.payment_method = payment_method
-            existing.reference_number = reference_number
-            if proof_of_payment:
-                existing.proof_of_payment = proof_of_payment
-            existing.save()
+            # Update the auto-created record with the actual payment details.
+            # Locked and re-checked as Pending inside the write, so a
+            # confirmation that landed since the read above isn't rolled back
+            # (BillingRecord.record_payment_details also syncs the sale).
+            try:
+                existing.record_payment_details(
+                    payment_method, reference_number, proof_of_payment
+                )
+            except ValidationError:
+                messages.info(request, 'A billing record already exists for this transaction.')
+                return redirect('billing_detail', pk=existing.pk)
             record = existing
         else:
             # Fallback: create fresh if somehow the signal didn't fire
-            record = BillingRecord.objects.create(
-                transaction=txn,
-                amount_due=txn.total_amount,
-                payment_method=payment_method,
-                reference_number=reference_number,
-                proof_of_payment=proof_of_payment,
-                status=BillingRecord.PaymentStatus.PENDING,
-            )
-
-        # X-2 — one definition shared with BillingPaymentSerializer.update,
-        # see BillingRecord.sync_payment_method_to_sale.
-        record.sync_payment_method_to_sale()
+            with transaction.atomic():
+                record = BillingRecord.objects.create(
+                    transaction=txn,
+                    amount_due=txn.total_amount,
+                    payment_method=payment_method,
+                    reference_number=reference_number,
+                    proof_of_payment=proof_of_payment,
+                    status=BillingRecord.PaymentStatus.PENDING,
+                )
+                record.sync_payment_method_to_sale()
 
         messages.success(request, 'Billing record saved.')
         return redirect('billing_detail', pk=record.pk)
