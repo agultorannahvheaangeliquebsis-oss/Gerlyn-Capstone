@@ -130,6 +130,10 @@ MODULE_REGISTRY = {
     PROCUREMENT: (
         'Procurement / Purchase Orders',
         ['procurement_list', 'procurement_detail', 'supplier_list',
+         # P17 — the returns list and detail pages. The write actions (raise,
+         # ship, credit, replacement, cancel) stay role-gated like the other
+         # procurement writes.
+         'supplier_return_list', 'supplier_return_detail',
          # API (procurement/api_urls.py) — suppliers mirrors supplier_list.
          'api-procurement-list', 'api-procurement-detail',
          'api-procurement-status', 'api-procurement-suppliers'],

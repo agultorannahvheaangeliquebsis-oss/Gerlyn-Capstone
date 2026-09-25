@@ -6,6 +6,9 @@ from core.notifications import (
     EVENT_PO_APPROVED,
     EVENT_PO_TERMS_FOR_BUYER,
     EVENT_PO_OVERDUE,
+    EVENT_SUPPLIER_RETURN_FOR_SUPPLIER,
+    EVENT_SUPPLIER_RETURN_RESPONSE,
+    PRIORITY_HIGH,
     EVENT_PO_OVERDUE_ESCALATED,
     EVENT_PO_TERMS_FOR_SUPPLIER,
     EVENT_SUPPLIER_OFFER_DECISION,
@@ -191,4 +194,43 @@ def notify_po_overdue_escalated(procurement, days_late):
         action_label='Review PO',
         reference_type='procurement',
         reference_id=procurement.pk,
+    )
+
+
+def notify_return_for_supplier(supplier_return, headline, actor):
+    """Tell the supplier something changed on a return they are party to."""
+    ret = supplier_return
+    return notify_event(
+        EVENT_SUPPLIER_RETURN_FOR_SUPPLIER,
+        f'{ret.return_number}: {headline}',
+        f'{ret.return_number} ({ret.procurement.po_number}, '
+        f'{ret.branch.branch_name if ret.branch else "GERLYN"}) — {headline}.',
+        branch=ret.branch,
+        actor=actor,
+        related_users={'supplier': ret.supplier},
+        action_url=reverse('supplier_portal'),
+        action_label='View return',
+        reference_type='supplier_return',
+        reference_id=ret.pk,
+    )
+
+
+def notify_return_response(supplier_return, *, acknowledged):
+    """The supplier answered — the store's turn to ship (or cancel)."""
+    ret = supplier_return
+    verdict = 'acknowledged' if acknowledged else 'rejected'
+    message = f'{ret.supplier} {verdict} {ret.return_number} ({ret.procurement.po_number}).'
+    if not acknowledged and ret.supplier_note:
+        message += f' Reason: {ret.supplier_note}'
+    return notify_event(
+        EVENT_SUPPLIER_RETURN_RESPONSE,
+        f'{ret.return_number} {verdict} by supplier',
+        message,
+        branch=ret.branch,
+        actor=ret.supplier,
+        action_url=reverse('supplier_return_detail', kwargs={'pk': ret.pk}),
+        action_label='View return',
+        reference_type='supplier_return',
+        reference_id=ret.pk,
+        priority=None if acknowledged else PRIORITY_HIGH,
     )

@@ -16,6 +16,8 @@ business record plus its action link.
 | Supplier offer decision | The Owner approves or rejects an offer or new-product request | The supplier who made it | Medium | Supplier; supplier portal |
 | PO overdue | An Incoming / Partially Received PO is still undelivered 1 day (`PO_OVERDUE_GRACE_DAYS`) after its delivery date; once, by the daily sweep | Owner; affected branch Manager/Staff with Deliveries access; the supplier | High | Procurement; PO detail / supplier portal |
 | PO overdue — escalated | Still undelivered 3 days (`PO_OVERDUE_ESCALATE_DAYS`) after its delivery date; once | Owner only | Critical | Procurement; PO detail |
+| Supplier return update | The store raises, ships, settles or cancels a return to a supplier | The supplier | Medium | SupplierReturn; supplier portal |
+| Supplier return response | The supplier acknowledges or rejects a return request | Owner; affected branch Manager/Staff with Procurement access | Medium (High if rejected) | SupplierReturn; return detail |
 | Order delivered | An online Delivery order moves to Completed | Customer who placed it | Low | SalesTransaction; customer order tracking |
 | Payment verified | Pending payment moves to Paid | Customer attached to the order | Low | BillingRecord; customer order tracking |
 | Payment rejected | Pending payment moves to Rejected | Customer; Owner; affected branch Manager/Staff with Billing access; deciding actor is excluded from matrix fan-out | High | BillingRecord; customer order tracking or internal billing detail |

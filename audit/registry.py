@@ -116,6 +116,12 @@ REGISTRY = {
         'Delivery receipt', branch_path='procurement.branch_id',
         mask=_f('delivered_by'),
     ),
+    'procurement.SupplierReturn': AuditConfig(
+        'Supplier return', repr_field='return_number',
+    ),
+    'procurement.SupplierReturnItem': AuditConfig(
+        'Supplier return item', branch_path='supplier_return.branch_id',
+    ),
     'procurement.SupplierProduct': AuditConfig('Supplier product', branch_path=''),
     'procurement.SupplierProductRequest': AuditConfig(
         'Supplier product request', repr_field='product_name', branch_path='',

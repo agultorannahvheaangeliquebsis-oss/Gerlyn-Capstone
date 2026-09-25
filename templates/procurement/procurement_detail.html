@@ -494,6 +494,31 @@ card above deliberately excludes these statuses now.
   </div>
 </div>
 
+{% if can_return_goods or supplier_returns %}
+<div class="card table-wrap mb-4">
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+    <h3>Returns to supplier</h3>
+    {% if can_return_goods %}<a class="btn btn-sm" href="{% url 'supplier_return_add' procurement.pk %}">Return goods</a>{% endif %}
+  </div>
+  <table class="gv-table">
+    <thead><tr><th>Return</th><th>Reason</th><th>Status</th><th>Raised</th><th class="end">Action</th></tr></thead>
+    <tbody>
+      {% for r in supplier_returns %}
+      <tr>
+        <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
+        <td data-label="Reason">{{ r.get_reason_display }}</td>
+        <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
+        <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
+        <td data-label="Action" class="end"><a class="btn btn-sm" href="{% url 'supplier_return_detail' r.pk %}">View</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><span class="gv-meta">No returns yet. If part of this delivery was damaged, wrong or short-dated, choose Return goods.</span></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 {% if receipts %}
 <div class="card table-wrap mb-4">
   <table class="gv-table">

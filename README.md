@@ -202,6 +202,23 @@ views can never drift apart.
   (`fulfillmentType`, `pwdDiscountRequest` on `POST /api/sales/`;
   `POST /api/sales/<id>/pwd-request/` to approve/reject). No ID image is stored — only
   the typed details, and the reviewer's name and time on the decision.
+- **Suppliers & purchase orders** —
+  *Categories:* a supplier has one category from a managed list (Procurement →
+  Suppliers → Supplier Categories, Owner-edited). *Offers:* a supplier's own "add a
+  product" is a **Proposed** offer with its cost; nothing is orderable until the Owner
+  approves it, and a product not yet on the master list is requested and only created on
+  approval. Suppliers can remove their own products, but not while one of their open
+  orders needs it. A PO can only list products the chosen supplier has an *approved*
+  offer for (web and API). *Funding:* every PO records where the money comes from
+  (Cash on Hand, Bank Transfer, GCash, Owner's Funds, or Other + note); editable until
+  the terms are agreed. *Receiving:* each shipment records who received it and,
+  optionally, the courier (`DeliveryReceipt`); stock is only added at that validated
+  receipt. *Returns:* goods can be sent back against a received PO — supplier
+  acknowledges, the store ships (units leave the **warehouse** exactly once, as
+  `Supplier Return` stock movements from that order's own lots), then it is settled by a
+  credit note or a replacement received into the warehouse. *Overdue:* see
+  [Notification operations](#notification-operations). The rules live in
+  `procurement/services.py`.
 
 ---
 

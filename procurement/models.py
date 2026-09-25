@@ -544,6 +544,12 @@ class DeliveryReceipt(models.Model):
         max_length=100, blank=True,
         help_text="Courier or driver who handed the goods over, if noted.",
     )
+    # Set when this receipt is a replacement delivered for a supplier return
+    # rather than a shipment against the original order.
+    supplier_return = models.ForeignKey(
+        'SupplierReturn', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='replacement_receipts',
+    )
 
     class Meta:
         ordering = ['received_at', 'id']
@@ -555,6 +561,140 @@ class DeliveryReceipt(models.Model):
 
     def __str__(self):
         return f"{self.procurement} received by {self.received_by} at {self.received_at:%Y-%m-%d %H:%M}"
+
+
+class SupplierReturn(models.Model):
+    """Goods sent back to the supplier that delivered them (P17).
+
+    Requested by the store against a PO that has been received, acknowledged
+    (or rejected) by the supplier, shipped by the store — which is the moment
+    the units leave warehouse stock — and finally settled by a credit note or
+    a replacement delivery.
+
+        Requested -> Acknowledged -> Shipped -> Settled
+        Requested -> Rejected (by the supplier)
+        Requested / Acknowledged / Rejected -> Cancelled (by the store)
+
+    Only the warehouse is touched: goods already moved onto the floor have to
+    come back through a stock withdrawal first, so this can never take units
+    out from under a sale.
+    """
+
+    class Status(models.TextChoices):
+        REQUESTED = 'Requested', 'Requested'
+        ACKNOWLEDGED = 'Acknowledged', 'Acknowledged'
+        REJECTED = 'Rejected', 'Rejected by supplier'
+        SHIPPED = 'Shipped', 'Shipped back'
+        SETTLED = 'Settled', 'Settled'
+        CANCELLED = 'Cancelled', 'Cancelled'
+
+    class Reason(models.TextChoices):
+        DAMAGED = 'Damaged', 'Damaged'
+        WRONG_ITEM = 'Wrong Item', 'Wrong item delivered'
+        EXPIRED = 'Expired', 'Expired / short-dated'
+        QUALITY = 'Quality', 'Quality issue'
+        OTHER = 'Other', 'Other'
+
+    class Resolution(models.TextChoices):
+        CREDIT = 'Credit Note', 'Credit note'
+        REPLACEMENT = 'Replacement', 'Replacement'
+
+    # A return can still be cancelled by the store until the goods leave.
+    CANCELLABLE_STATUSES = frozenset({Status.REQUESTED, Status.ACKNOWLEDGED, Status.REJECTED})
+    # Statuses that still hold a claim on the units (a rejected/cancelled
+    # return frees them to be requested again).
+    ACTIVE_STATUSES = frozenset({
+        Status.REQUESTED, Status.ACKNOWLEDGED, Status.SHIPPED, Status.SETTLED,
+    })
+
+    return_number = models.CharField(max_length=20, unique=True, blank=True)
+    procurement = models.ForeignKey(
+        Procurement, on_delete=models.CASCADE, related_name='supplier_returns',
+    )
+    supplier = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name='supplier_returns',
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, null=True, related_name='supplier_returns',
+    )
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    notes = models.CharField(max_length=300, blank=True)
+    status = models.CharField(
+        max_length=14, choices=Status.choices, default=Status.REQUESTED,
+    )
+    requested_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    supplier_note = models.CharField(
+        max_length=200, blank=True,
+        help_text="The supplier's reason when rejecting a return.",
+    )
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    shipped_at = models.DateTimeField(null=True, blank=True)
+    shipped_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    shipping_note = models.CharField(max_length=200, blank=True)
+
+    resolution = models.CharField(max_length=12, choices=Resolution.choices, blank=True)
+    credit_reference = models.CharField(max_length=60, blank=True)
+    credit_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    settled_at = models.DateTimeField(null=True, blank=True)
+    settled_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.return_number:
+            self.return_number = f"SR-{timezone.now().year}-{str(self.pk).zfill(3)}"
+            super().save(update_fields=['return_number'])
+
+    def __str__(self):
+        return f"{self.return_number or f'Return #{self.pk}'} - {self.status}"
+
+    @property
+    def total_quantity(self):
+        return sum(i.quantity_returned for i in self.items.all())
+
+
+class SupplierReturnItem(models.Model):
+    supplier_return = models.ForeignKey(
+        SupplierReturn, on_delete=models.CASCADE, related_name='items',
+    )
+    procurement_item = models.ForeignKey(
+        ProcurementItem, on_delete=models.CASCADE, related_name='return_items',
+    )
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='supplier_return_items',
+    )
+    quantity_returned = models.PositiveIntegerField()
+    quantity_replaced = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity_returned__gt=0),
+                name='supplierreturnitem_quantity_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product} x{self.quantity_returned} on {self.supplier_return}"
+
+    @property
+    def replacement_outstanding(self):
+        return max(self.quantity_returned - self.quantity_replaced, 0)
 
 
 class DeliveryScanLog(models.Model):

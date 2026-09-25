@@ -59,6 +59,8 @@ EVENT_SUPPLIER_OFFER_FOR_REVIEW = 'supplier_offer_for_review'
 EVENT_SUPPLIER_OFFER_DECISION = 'supplier_offer_decision'
 EVENT_PO_OVERDUE = 'po_overdue'
 EVENT_PO_OVERDUE_ESCALATED = 'po_overdue_escalated'
+EVENT_SUPPLIER_RETURN_FOR_SUPPLIER = 'supplier_return_for_supplier'
+EVENT_SUPPLIER_RETURN_RESPONSE = 'supplier_return_response'
 EVENT_ORDER_DELIVERED = 'order_delivered'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
@@ -172,6 +174,26 @@ EVENT_MATRIX = {
         'priority': PRIORITY_CRITICAL,
         'required_module': None,
         'exclude_actor': False,
+    },
+    EVENT_SUPPLIER_RETURN_FOR_SUPPLIER: {
+        'when': 'The store raises a return to the supplier, ships it back, '
+                'settles it, or cancels it.',
+        'recipients': 'The supplier the goods are being returned to.',
+        'audiences': ('supplier',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_SUPPLIER_RETURN_RESPONSE: {
+        'when': 'The supplier acknowledges or rejects a return request.',
+        'recipients': 'Owner; branch Manager/Staff with Procurement access.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'priority_note': 'High when the supplier rejects the return.',
+        'required_module': PROCUREMENT,
+        'exclude_actor': True,
     },
     EVENT_ORDER_DELIVERED: {
         'when': 'An online Delivery order moves to Completed.',

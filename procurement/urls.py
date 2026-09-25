@@ -18,6 +18,20 @@ urlpatterns = [
     path('<int:pk>/reschedule/', views.procurement_reschedule,
          name='procurement_reschedule'),
 
+    # Goods returned to the supplier (P17)
+    path('<int:pk>/return/', views.supplier_return_add, name='supplier_return_add'),
+    path('returns/', views.supplier_return_list, name='supplier_return_list'),
+    path('returns/<int:pk>/', views.supplier_return_detail, name='supplier_return_detail'),
+    path('returns/<int:pk>/cancel/', views.supplier_return_cancel,
+         name='supplier_return_cancel'),
+    path('returns/<int:pk>/ship/', views.supplier_return_ship, name='supplier_return_ship'),
+    path('returns/<int:pk>/credit/', views.supplier_return_credit,
+         name='supplier_return_credit'),
+    path('returns/<int:pk>/replacement/', views.supplier_return_replacement,
+         name='supplier_return_replacement'),
+    path('returns/<int:pk>/respond/', views.supplier_return_respond,
+         name='supplier_return_respond'),
+
     # Negotiation — price and delivery date, agreed between the buyer and
     # the supplier on an Approved PO. See procurement/views.py's own
     # NEGOTIATION section comment for the full state shape.

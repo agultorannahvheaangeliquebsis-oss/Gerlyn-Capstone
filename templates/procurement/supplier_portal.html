@@ -409,6 +409,51 @@
   </div>
   {% endif %}
 
+  {% comment %}
+  P17 - goods GERLYN is sending back. Acknowledge (you agree to take them
+  back) or reject with a reason; everything after that is the store's side.
+  {% endcomment %}
+  {% if supplier_returns %}
+  <div class="page-head">
+    <div>
+      <h1>Returns</h1>
+      <p class="gv-meta mb-0">Goods GERLYN wants to send back to you.</p>
+    </div>
+  </div>
+  <div class="card table-wrap mb-6">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Return</th><th>Order</th><th>Goods</th><th>Reason</th><th>Status</th><th class="end">Action</th></tr>
+      </thead>
+      <tbody>
+        {% for r in supplier_returns %}
+        <tr>
+          <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
+          <td data-label="Order" class="sku">{{ r.procurement.po_number }}<div class="gv-meta">{{ r.branch.branch_name }}</div></td>
+          <td data-label="Goods">{% for item in r.items.all %}{{ item.product.product_name }} &times; {{ item.quantity_returned }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+          <td data-label="Reason">{{ r.get_reason_display }}{% if r.notes %}<div class="gv-meta">{{ r.notes }}</div>{% endif %}</td>
+          <td data-label="Status">
+            {% include "partials/_return_status_pill.html" with status=r.status %}
+            {% if r.status == "Rejected" and r.supplier_note %}<div class="gv-meta">{{ r.supplier_note }}</div>{% endif %}
+            {% if r.status == "Settled" %}<div class="gv-meta">{{ r.resolution }}{% if r.credit_reference %} {{ r.credit_reference }}{% endif %}</div>{% endif %}
+          </td>
+          <td data-label="Action" class="end">
+            {% if r.status == "Requested" %}
+            <form method="POST" action="{% url 'supplier_return_respond' r.pk %}" class="row wrap" style="gap:8px; justify-content:flex-end;">
+              {% csrf_token %}
+              <input type="text" name="note" maxlength="200" placeholder="Reason, if rejecting" aria-label="Reason for rejecting {{ r.return_number }}" style="width:170px;">
+              <button type="submit" name="decision" value="acknowledge" class="btn btn-sm btn-primary">Acknowledge</button>
+              <button type="submit" name="decision" value="reject" class="btn btn-sm btn-danger">Reject</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   <div class="page-head">
     <div>
       <h1>Your Purchase Orders</h1>
