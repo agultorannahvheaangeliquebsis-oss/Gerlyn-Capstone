@@ -279,6 +279,13 @@ records one batch-linked `Expiry Write-off` movement per lot, and then sends
 near-expiry alerts. The command is idempotent. For an expiry-only manual run,
 use `python manage.py process_expired_stock`.
 
+The same job also sweeps overdue purchase-order deliveries
+(`python manage.py process_overdue_deliveries` to run just that): an Incoming or
+Partially Received order is flagged and the buyer and supplier notified once it
+is `PO_OVERDUE_GRACE_DAYS` (default 1) past its delivery date, and escalated to
+the Owner at `PO_OVERDUE_ESCALATE_DAYS` (default 3). Orders are never
+auto-cancelled; the Owner reschedules or cancels from the PO detail page.
+
 ## Scope limitations (per Chapter 1)
 
 The following are intentionally **out of scope**:

@@ -5,6 +5,7 @@ easy to get wrong, and both the single-product and bulk paths have to handle
 it identically.
 """
 
+import datetime as dt
 from decimal import Decimal
 
 from django.db import transaction
@@ -299,4 +300,108 @@ def set_funding(procurement, source, note):
         locked.funding_source = source
         locked.funding_note = note
         locked.save(update_fields=['funding_source', 'funding_note'])
+    return locked
+
+
+# ---------------------------------------------------------------------------
+# Overdue deliveries (P18)
+# ---------------------------------------------------------------------------
+
+class OverdueResult:
+    def __init__(self, flagged=0, escalated=0):
+        self.flagged = flagged
+        self.escalated = escalated
+
+
+def overdue_orders(branch_ids=None, today=None):
+    """Incoming / Partially Received orders past their delivery date, worst
+    first. branch_ids=None means every branch (Owner); a list scopes it."""
+    today = today or timezone.localdate()
+    qs = Procurement.objects.filter(
+        status__in=Procurement.AWAITING_DELIVERY_STATUSES,
+        delivery_date__lt=today,
+    ).select_related('branch', 'supplier', 'supplier__supplier_profile')
+    if branch_ids is not None:
+        qs = qs.filter(branch_id__in=branch_ids)
+    return qs.order_by('delivery_date', 'pk')
+
+
+def process_overdue_deliveries(today=None):
+    """The daily sweep: stamp and notify each stage exactly once.
+
+    Idempotent — running it twice in a day (or every hour) never repeats a
+    notification, because each stage is recorded on the order under a row lock
+    before it is sent. Never changes an order's status.
+    """
+    from django.conf import settings
+
+    from .notifications import notify_po_overdue, notify_po_overdue_escalated
+
+    today = today or timezone.localdate()
+    grace = settings.PO_OVERDUE_GRACE_DAYS
+    escalate = max(settings.PO_OVERDUE_ESCALATE_DAYS, grace)
+    result = OverdueResult()
+
+    candidate_ids = list(
+        overdue_orders(today=today)
+        .filter(delivery_date__lte=today - dt.timedelta(days=grace))
+        .values_list('pk', flat=True)
+    )
+    for pk in candidate_ids:
+        with transaction.atomic():
+            proc = (
+                Procurement.objects.select_for_update()
+                .select_related('branch', 'supplier').get(pk=pk)
+            )
+            days_late = proc.days_overdue(today)
+            # Re-check under the lock: it may have been received, cancelled or
+            # rescheduled since the id list was read.
+            if days_late < grace:
+                continue
+            now = timezone.now()
+            send_first = proc.overdue_flagged_at is None
+            send_second = (
+                days_late >= escalate and proc.overdue_escalated_at is None
+            )
+            if not send_first and not send_second:
+                continue
+            fields = []
+            if send_first:
+                proc.overdue_flagged_at = now
+                fields.append('overdue_flagged_at')
+            if send_second:
+                proc.overdue_escalated_at = now
+                fields.append('overdue_escalated_at')
+            proc.save(update_fields=fields)
+        if send_first:
+            notify_po_overdue(proc, days_late)
+            result.flagged += 1
+        if send_second:
+            notify_po_overdue_escalated(proc, days_late)
+            result.escalated += 1
+    return result
+
+
+class RescheduleError(Exception):
+    """The delivery date can't be changed (wrong status, or a past date)."""
+
+
+def reschedule_delivery(procurement, new_date, today=None):
+    """Move an awaiting-delivery order's delivery date and restart its overdue
+    tracking. Returns the locked, updated order."""
+    today = today or timezone.localdate()
+    if new_date is None or new_date < today:
+        raise RescheduleError('Choose a delivery date that is today or later.')
+    with transaction.atomic():
+        locked = Procurement.objects.select_for_update().get(pk=procurement.pk)
+        if locked.status not in Procurement.AWAITING_DELIVERY_STATUSES:
+            raise RescheduleError(
+                f'A {locked.status} order has no pending delivery to reschedule.'
+            )
+        locked.delivery_date = new_date
+        locked.overdue_flagged_at = None
+        locked.overdue_escalated_at = None
+        locked.save(update_fields=[
+            'delivery_date', 'overdue_flagged_at', 'overdue_escalated_at',
+        ])
     return locked

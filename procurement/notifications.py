@@ -5,6 +5,8 @@ from core.notifications import (
     EVENT_INCOMING_DELIVERY,
     EVENT_PO_APPROVED,
     EVENT_PO_TERMS_FOR_BUYER,
+    EVENT_PO_OVERDUE,
+    EVENT_PO_OVERDUE_ESCALATED,
     EVENT_PO_TERMS_FOR_SUPPLIER,
     EVENT_SUPPLIER_OFFER_DECISION,
     EVENT_SUPPLIER_OFFER_FOR_REVIEW,
@@ -142,4 +144,51 @@ def notify_offer_decision(supplier, product_name, actor, *, approved, note=''):
         action_label='View your products',
         reference_type='supplier',
         reference_id=supplier.pk,
+    )
+
+
+def notify_po_overdue(procurement, days_late):
+    """Stage one: the delivery is late — buyer side and supplier both told."""
+    plural = '' if days_late == 1 else 's'
+    return notify_event(
+        EVENT_PO_OVERDUE,
+        f'{procurement.po_number} is overdue',
+        f'{procurement.po_number} from {procurement.supplier} '
+        f'({procurement.branch.branch_name}) was due '
+        f'{procurement.delivery_date:%Y-%m-%d} and is {days_late} day{plural} late.',
+        branch=procurement.branch,
+        related_users={'supplier': procurement.supplier},
+        action_url=reverse('procurement_detail', kwargs={'pk': procurement.pk}),
+        action_label='View PO',
+        reference_type='procurement',
+        reference_id=procurement.pk,
+        audience_overrides={
+            'supplier': {
+                'title': f'{procurement.po_number} is overdue',
+                'message': (
+                    f'{procurement.po_number} was due {procurement.delivery_date:%Y-%m-%d} '
+                    f'at {procurement.branch.branch_name} and has not been fully '
+                    f'delivered. Please deliver it or contact GERLYN.'
+                ),
+                'action_url': reverse('supplier_portal'),
+                'action_label': 'View order',
+            },
+        },
+    )
+
+
+def notify_po_overdue_escalated(procurement, days_late):
+    """Stage two: still not delivered — the Owner decides (cancel or reschedule)."""
+    return notify_event(
+        EVENT_PO_OVERDUE_ESCALATED,
+        f'{procurement.po_number} is {days_late} days overdue',
+        f'{procurement.po_number} from {procurement.supplier} '
+        f'({procurement.branch.branch_name}) is still undelivered, {days_late} '
+        f'days past {procurement.delivery_date:%Y-%m-%d}. Reschedule it or '
+        f'cancel the order.',
+        branch=None,  # Owner only — no branch Manager/Staff fan-out
+        action_url=reverse('procurement_detail', kwargs={'pk': procurement.pk}),
+        action_label='Review PO',
+        reference_type='procurement',
+        reference_id=procurement.pk,
     )

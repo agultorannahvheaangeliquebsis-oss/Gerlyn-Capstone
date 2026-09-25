@@ -96,6 +96,18 @@ class Procurement(models.Model):
         Status.CANCELLED: set(),
     }
 
+    # Statuses in which goods are still expected from the supplier against a
+    # delivery_date the two sides already agreed.
+    AWAITING_DELIVERY_STATUSES = frozenset({Status.INCOMING, Status.PARTIALLY_RECEIVED})
+
+    def days_overdue(self, today=None):
+        """Whole days past the agreed delivery date; 0 when not late, not
+        awaiting delivery, or no date is set."""
+        if self.status not in self.AWAITING_DELIVERY_STATUSES or not self.delivery_date:
+            return 0
+        today = today or timezone.localdate()
+        return max((today - self.delivery_date).days, 0)
+
     @property
     def funding_locked(self):
         return self.status in self.FUNDING_LOCKED_STATUSES
@@ -179,6 +191,11 @@ class Procurement(models.Model):
         max_length=200, blank=True,
         help_text="Detail for the funding source; required when it is Other.",
     )
+
+    # Overdue handling (P18): stamped once by the daily sweep so each stage
+    # notifies exactly once; cleared when the delivery date is rescheduled.
+    overdue_flagged_at = models.DateTimeField(null=True, blank=True)
+    overdue_escalated_at = models.DateTimeField(null=True, blank=True)
 
     proposed_delivery_date = models.DateField(null=True, blank=True)
     # Who is waiting on a response — i.e. whoever did NOT submit the

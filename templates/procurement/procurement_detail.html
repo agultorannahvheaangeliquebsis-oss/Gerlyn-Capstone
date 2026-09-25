@@ -407,6 +407,29 @@ card above deliberately excludes these statuses now.
 </div>
 {% endif %}
 
+{% if days_overdue %}
+<div class="banner banner-error mb-4">
+  <strong>{{ days_overdue }} day{{ days_overdue|pluralize }} overdue.</strong>
+  This order was due {{ procurement.delivery_date|date:"Y-m-d" }} and has not been fully delivered.
+  Reschedule the delivery below, or cancel the order.
+</div>
+{% endif %}
+
+{% if can_reschedule %}
+<div class="card card-pad mb-4">
+  <h3 class="mb-4">Delivery date</h3>
+  <form method="POST" action="{% url 'procurement_reschedule' procurement.pk %}" class="row wrap" style="gap:12px; align-items:flex-end;">
+    {% csrf_token %}
+    <div class="field" style="margin:0;">
+      <label for="resched-date">New delivery date</label>
+      <input id="resched-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" value="{{ procurement.delivery_date|date:'Y-m-d' }}" required>
+    </div>
+    <button type="submit" class="btn">Reschedule</button>
+    <span class="gv-meta">The supplier is told, and overdue tracking starts over.</span>
+  </form>
+</div>
+{% endif %}
+
 <div class="grid-2 mb-4">
   <div class="card card-pad">
     <h3 class="mb-4">Order Details</h3>

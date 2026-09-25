@@ -40,8 +40,9 @@ from .models import (
     DeliveryReceipt, DeliveryScanLog,
 )
 from .services import (
-    FundingError, OfferReviewError, SupplierRemovalBlocked, SupplierTransferError,
-    apply_agreed_terms, clean_funding, remove_supplier_product, review_offer,
+    FundingError, OfferReviewError, RescheduleError, SupplierRemovalBlocked,
+    SupplierTransferError, apply_agreed_terms, clean_funding,
+    remove_supplier_product, reschedule_delivery, review_offer,
     review_product_request, set_funding, transfer_supplier_products,
 )
 from .serializers import (
@@ -182,6 +183,12 @@ def procurement_detail(request, pk):
 
     items = proc.items.select_related('product').all()
     return render(request, 'procurement/procurement_detail.html', {
+        'days_overdue': proc.days_overdue(),
+        'can_reschedule': (
+            request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and proc.status in Procurement.AWAITING_DELIVERY_STATUSES
+        ),
+        'today': timezone.localdate(),
         'funding_choices': Procurement.FundingSource.choices,
         'can_edit_funding': (
             request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
@@ -713,6 +720,44 @@ def procurement_set_funding(request, pk):
         messages.error(request, str(exc))
     else:
         messages.success(request, f'Funding source updated for {proc.po_number}.')
+    return redirect('procurement_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_reschedule(request, pk):
+    """Give an Incoming / Partially Received order a new delivery date — the
+    manual answer to an overdue delivery (the other is cancelling it). Clears
+    the overdue flags so the new date is tracked afresh, and tells the
+    supplier."""
+    from core.notifications import PRIORITY_MEDIUM, notify_supplier
+
+    if request.user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER):
+        messages.error(request, 'You do not have permission to reschedule deliveries.')
+        return redirect('procurement_list')
+
+    proc = get_object_or_404(Procurement, pk=pk)
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('procurement_list')
+
+    raw = request.POST.get('delivery_date', '').strip()
+    try:
+        updated = reschedule_delivery(proc, parse_date(raw) if raw else None)
+    except (RescheduleError, ValueError) as exc:
+        messages.error(request, str(exc) or 'Enter a valid delivery date.')
+        return redirect('procurement_detail', pk=pk)
+
+    notify_supplier(
+        updated.supplier, PRIORITY_MEDIUM,
+        f'{updated.po_number} — new delivery date',
+        f'GERLYN moved the delivery of {updated.po_number} to '
+        f'{updated.delivery_date:%Y-%m-%d}.',
+        action_url=reverse('supplier_portal'), action_label='View order',
+    )
+    messages.success(
+        request, f'{updated.po_number} rescheduled to {updated.delivery_date:%Y-%m-%d}.'
+    )
     return redirect('procurement_detail', pk=pk)
 
 

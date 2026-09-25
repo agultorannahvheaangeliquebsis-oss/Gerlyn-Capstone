@@ -189,6 +189,14 @@ BACKUP_MYSQL = os.environ.get('BACKUP_MYSQL', 'mysql')
 # The status page flags a backup as overdue after this many hours.
 BACKUP_STALE_HOURS = int(os.environ.get('BACKUP_STALE_HOURS', '26'))
 
+# Overdue purchase-order deliveries (procurement.services.process_overdue_deliveries,
+# run by dispatch_notifications): an Incoming / Partially Received order is
+# flagged and the buyer + supplier told this many days after its delivery date,
+# and escalated to the Owner after the second figure. Nothing is ever
+# auto-cancelled — the Owner cancels or reschedules by hand.
+PO_OVERDUE_GRACE_DAYS = int(os.environ.get('PO_OVERDUE_GRACE_DAYS', '1'))
+PO_OVERDUE_ESCALATE_DAYS = int(os.environ.get('PO_OVERDUE_ESCALATE_DAYS', '3'))
+
 # Trust the deployed origin for POSTs (set once the app has a real URL),
 # e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')

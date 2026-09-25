@@ -15,6 +15,8 @@ urlpatterns = [
          name='procurement_approve'),
     path('<int:pk>/funding/', views.procurement_set_funding,
          name='procurement_set_funding'),
+    path('<int:pk>/reschedule/', views.procurement_reschedule,
+         name='procurement_reschedule'),
 
     # Negotiation — price and delivery date, agreed between the buyer and
     # the supplier on an Approved PO. See procurement/views.py's own
