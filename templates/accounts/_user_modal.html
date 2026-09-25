@@ -13,10 +13,9 @@ Parameters:
   is_open       truthy when the server wants this one open on load
   submit_label  text on the primary button
 
-The role <select> is filled from form_role_choices (INTERNAL_ROLE_CHOICES),
-NOT the toolbar's role_choices: the filter above can filter by any role a row
-carries, while this form may only assign an internal one, and the view has
-always validated against that narrower list.
+The role <select> is filled from the shared User Management policy choices.
+Customer is intentionally absent: customer accounts are created through
+registration and managed in the dedicated Customer Accounts module.
 
 Add collects only email, role and branch — the invited person picks their
 own username and password on the link that email sends them, and starts

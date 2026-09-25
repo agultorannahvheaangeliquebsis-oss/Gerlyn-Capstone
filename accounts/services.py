@@ -3,6 +3,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.urls import reverse
 from .models import VerificationToken, NotificationPreference
+from .role_policy import USER_MANAGEMENT_ROLES
 
 
 def _build_url(request, view_name, token):
@@ -20,6 +21,9 @@ def send_staff_invite(user, request):
     invite for this account first, same pattern as the other verification
     emails, so an old link can't be used once a fresh one is sent.
     """
+    if user.role not in USER_MANAGEMENT_ROLES:
+        raise ValueError('Only internal and supplier accounts can receive staff invites.')
+
     VerificationToken.objects.filter(
         user=user, purpose=VerificationToken.PURPOSE_STAFF_INVITE, is_used=False
     ).delete()

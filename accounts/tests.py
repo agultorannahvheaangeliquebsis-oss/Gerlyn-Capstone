@@ -13,6 +13,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User, VerificationToken
+from accounts.role_policy import USER_MANAGEMENT_ROLES
 from accounts.rate_limit import (
     LOGIN_MAX_ATTEMPTS,
     clear_failed_logins,
@@ -132,6 +133,63 @@ class UserModalFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(User.objects.filter(email='shopper@example.com').exists())
 
+    def test_customer_is_absent_from_add_edit_and_filter_role_choices(self):
+        response = self.client.get(
+            reverse('accounts:user_list'), {'edit': self.owner.pk}
+        )
+
+        expected_roles = set(USER_MANAGEMENT_ROLES)
+        self.assertEqual(
+            {value for value, _label in response.context['role_choices']},
+            expected_roles,
+        )
+        self.assertEqual(
+            {value for value, _label in response.context['form_role_choices']},
+            expected_roles,
+        )
+        self.assertNotContains(response, '<option value="CUSTOMER"')
+
+    def test_customer_cannot_be_converted_through_internal_edit_url(self):
+        customer = User.objects.create_user(
+            username='existing-customer', password='pw',
+            role=User.Role.CUSTOMER,
+        )
+
+        response = self.client.post(
+            reverse('accounts:user_edit', args=[customer.pk]),
+            {
+                'username': customer.username,
+                'role': User.Role.STAFF,
+                'branch': self.branch.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+        customer.refresh_from_db()
+        self.assertEqual(customer.role, User.Role.CUSTOMER)
+
+    def test_forged_customer_role_edit_is_rejected(self):
+        staff = User.objects.create_user(
+            username='role-edit-staff', password='pw', role=User.Role.STAFF,
+        )
+
+        response = self.client.post(
+            reverse('accounts:user_edit', args=[staff.pk]),
+            {
+                'username': staff.username,
+                'role': User.Role.CUSTOMER,
+                'branch': self.branch.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'A username and a valid role are required.',
+            response.context['edit_errors'],
+        )
+        staff.refresh_from_db()
+        self.assertEqual(staff.role, User.Role.STAFF)
+
     def test_editing_without_a_password_keeps_the_old_one(self):
         staff = User.objects.create_user(
             username='ana', password='original', role=User.Role.STAFF
@@ -202,6 +260,119 @@ class UserModalFlowTests(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         self.assertFalse(User.objects.filter(username='sneaky').exists())
+
+
+class UserManagementApiRolePolicyTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='api-owner', password='pw', role=User.Role.OWNER
+        )
+        self.customer = User.objects.create_user(
+            username='api-customer', password='pw',
+            email='api-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        self.client.force_login(self.owner)
+
+    def test_internal_api_does_not_list_customers(self):
+        response = self.client.get('/api/auth/users/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(
+            User.Role.CUSTOMER,
+            {row['roleCode'] for row in response.json()},
+        )
+
+    def test_forged_customer_creation_is_rejected(self):
+        response = self.client.post(
+            '/api/auth/users/',
+            {
+                'username': 'forged-customer',
+                'email': 'forged-customer@example.com',
+                'password': 'Str0ngPass!2026',
+                'role': User.Role.CUSTOMER,
+                'fullName': 'Forged Customer',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('role', response.json())
+        self.assertFalse(User.objects.filter(username='forged-customer').exists())
+
+    def test_internal_api_still_creates_an_allowed_supplier(self):
+        response = self.client.post(
+            '/api/auth/users/',
+            {
+                'username': 'api-supplier',
+                'email': 'api-supplier@example.com',
+                'password': 'Str0ngPass!2026',
+                'role': User.Role.SUPPLIER,
+                'fullName': 'API Supplier',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            User.objects.filter(
+                username='api-supplier', role=User.Role.SUPPLIER,
+            ).exists()
+        )
+
+    def test_internal_api_cannot_update_a_customer(self):
+        response = self.client.patch(
+            f'/api/auth/users/{self.customer.pk}/',
+            {'isActive': False},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.is_active)
+
+    def test_customer_registration_api_still_creates_a_customer(self):
+        self.client.logout()
+        response = self.client.post(
+            '/api/auth/register/',
+            {
+                'username': 'registered-customer',
+                'email': 'registered-customer@example.com',
+                'password': 'Str0ngPass!2026',
+                'fullName': 'Registered Customer',
+                'contactNumber': '09171234567',
+                'address': '12 Real St, Baliuag, Bulacan',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        registered = User.objects.get(username='registered-customer')
+        self.assertEqual(registered.role, User.Role.CUSTOMER)
+        self.assertEqual(registered.customer_profile.first_name, 'Registered')
+
+
+class CustomerInviteBoundaryTests(TestCase):
+    def test_customer_staff_invite_token_cannot_be_completed(self):
+        customer = User.objects.create_user(
+            username='invite-customer', password='original-password',
+            email='invite-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        token = VerificationToken.objects.create(
+            user=customer, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+
+        response = self.client.get(
+            reverse('accounts:staff_invite_complete', args=[token.token])
+        )
+
+        self.assertRedirects(
+            response, reverse('accounts:login'), fetch_redirect_response=False
+        )
+        token.refresh_from_db()
+        customer.refresh_from_db()
+        self.assertTrue(token.is_used)
+        self.assertTrue(customer.check_password('original-password'))
+        self.assertEqual(customer.role, User.Role.CUSTOMER)
 
 
 class SupplierModalFlowTests(TestCase):
