@@ -43,6 +43,13 @@ urlpatterns = [
          name='supplier_set_product_cost'),
     path('portal/products/add/', views.supplier_product_self_add,
          name='supplier_product_self_add'),
+    path('portal/products/<int:link_pk>/remove/', views.supplier_product_self_remove,
+         name='supplier_product_self_remove'),
+    path('portal/products/request/', views.supplier_product_request_add,
+         name='supplier_product_request_add'),
+    path('portal/products/requests/<int:req_pk>/withdraw/',
+         views.supplier_product_request_withdraw,
+         name='supplier_product_request_withdraw'),
 
     # Suppliers (managed by the store)
     path('suppliers/', views.supplier_list, name='supplier_list'),
@@ -64,6 +71,10 @@ urlpatterns = [
          name='supplier_product_add'),
     path('suppliers/<int:pk>/products/<int:link_pk>/remove/',
          views.supplier_product_remove, name='supplier_product_remove'),
+    path('suppliers/<int:pk>/offers/<int:link_pk>/review/',
+         views.supplier_offer_review, name='supplier_offer_review'),
+    path('suppliers/<int:pk>/requests/<int:req_pk>/review/',
+         views.supplier_request_review, name='supplier_request_review'),
     path('suppliers/<int:pk>/products/transfer/', views.supplier_product_transfer,
          name='supplier_product_transfer'),
 ]

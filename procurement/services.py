@@ -9,7 +9,11 @@ from decimal import Decimal
 
 from django.db import transaction
 
-from .models import SupplierProduct
+from django.utils import timezone
+
+from inventory.models import Product
+
+from .models import Procurement, SupplierProduct, SupplierProductRequest
 
 
 class SupplierTransferError(Exception):
@@ -30,7 +34,7 @@ def snapshot_supplier_costs(procurement):
     product_ids = [item.product_id for item in items if item.product_id]
     links = {
         link.product_id: link
-        for link in SupplierProduct.objects.filter(
+        for link in SupplierProduct.objects.approved().filter(
             supplier=procurement.supplier,
             product_id__in=product_ids,
         )
@@ -106,7 +110,7 @@ def transfer_supplier_products(product_ids, from_supplier, to_supplier):
         )
 
     links = list(
-        SupplierProduct.objects.select_for_update()
+        SupplierProduct.objects.approved().select_for_update()
         .filter(supplier=from_supplier, product_id__in=product_ids)
         .select_related('product')
     )
@@ -114,12 +118,16 @@ def transfer_supplier_products(product_ids, from_supplier, to_supplier):
         raise SupplierTransferError('No matching products to transfer.')
 
     # One query for the collisions rather than a get_or_create per row.
-    already_there = set(
-        SupplierProduct.objects.filter(
+    # Any status counts as "already there": the (supplier, product) pair is
+    # unique, so a destination row that is only Proposed/Rejected would
+    # otherwise collide with the move.
+    already_there = {
+        link.product_id: link
+        for link in SupplierProduct.objects.filter(
             supplier=to_supplier,
             product_id__in=[l.product_id for l in links],
-        ).values_list('product_id', flat=True)
-    )
+        )
+    }
 
     moved = merged = 0
     for link in links:
@@ -130,6 +138,12 @@ def transfer_supplier_products(product_ids, from_supplier, to_supplier):
             # supplier, which is what "transfer" means to the user.
             link.delete()
             merged += 1
+            dest = already_there[link.product_id]
+            if dest.status != SupplierProduct.Status.APPROVED:
+                # The Owner is moving an approved product here on purpose —
+                # that is the approval the destination's own offer lacked.
+                dest.status = SupplierProduct.Status.APPROVED
+                dest.save(update_fields=['status'])
         else:
             link.supplier = to_supplier
             # supplier_sku and current_cost_price belong to the OLD supplier's
@@ -142,3 +156,111 @@ def transfer_supplier_products(product_ids, from_supplier, to_supplier):
             moved += 1
 
     return moved, merged
+
+
+class SupplierRemovalBlocked(Exception):
+    """A product can't leave a supplier's catalog while a live order needs it."""
+
+    def __init__(self, po_numbers):
+        self.po_numbers = po_numbers
+        super().__init__(
+            'It is on ' + ', '.join(po_numbers) + '. Finish or cancel '
+            f'{"that order" if len(po_numbers) == 1 else "those orders"} first.'
+        )
+
+
+def open_po_numbers(supplier, product):
+    """PO numbers of this supplier's committed, still-open orders (Approved
+    through Partially Received) that list the product. Drafts are excluded —
+    they commit nothing — and so are Received/Cancelled ones, whose price
+    snapshots are already frozen on the items."""
+    return list(
+        Procurement.objects.filter(
+            supplier=supplier,
+            status__in=Procurement.COMMITTED_OPEN_STATUSES,
+            items__product=product,
+            items__is_unexpected=False,
+        ).order_by('pk').values_list('po_number', flat=True).distinct()
+    )
+
+
+def remove_supplier_product(link):
+    """Delete one SupplierProduct link, refusing while an open PO needs it.
+
+    Approved links are the ones POs are raised against, so only they can be
+    blocked; withdrawing a Proposed/Rejected offer never affects an order.
+    Cost snapshots are read from the link when terms are confirmed, so
+    deleting it mid-negotiation would break that order.
+    """
+    with transaction.atomic():
+        link = SupplierProduct.objects.select_for_update().get(pk=link.pk)
+        if link.status == SupplierProduct.Status.APPROVED:
+            blocking = open_po_numbers(link.supplier, link.product)
+            if blocking:
+                raise SupplierRemovalBlocked(blocking)
+        link.delete()
+
+
+class OfferReviewError(Exception):
+    """The offer/request was already decided, or the input is unusable."""
+
+
+def review_offer(link, reviewer, *, approve, note=''):
+    """Approve or reject a supplier's Proposed offer on a master-list product."""
+    with transaction.atomic():
+        link = SupplierProduct.objects.select_for_update().get(pk=link.pk)
+        if link.status != SupplierProduct.Status.PROPOSED:
+            raise OfferReviewError('This offer was already decided.')
+        link.status = (
+            SupplierProduct.Status.APPROVED if approve
+            else SupplierProduct.Status.REJECTED
+        )
+        link.reviewed_by = reviewer
+        link.reviewed_at = timezone.now()
+        link.review_note = '' if approve else note[:200]
+        link.save(update_fields=[
+            'status', 'reviewed_by', 'reviewed_at', 'review_note',
+        ])
+    return link
+
+
+def review_product_request(req, reviewer, *, approve, note='',
+                           unit_price=None, category=None):
+    """Decide a supplier's request for a product not in the master list.
+
+    Approving creates the Product (Owner-chosen retail price and category,
+    supplier-proposed name and unit) and an Approved SupplierProduct at the
+    supplier's proposed cost, in one transaction. Returns the request.
+    """
+    with transaction.atomic():
+        req = SupplierProductRequest.objects.select_for_update().get(pk=req.pk)
+        if req.status != SupplierProductRequest.Status.PENDING:
+            raise OfferReviewError('This request was already decided.')
+
+        if approve:
+            if unit_price is None or unit_price <= 0:
+                raise OfferReviewError('Enter a retail price greater than zero.')
+            product = Product.objects.create(
+                category=category,
+                sku_code=Product.next_sku_code(),
+                product_name=req.product_name,
+                unit_of_measure=req.unit_of_measure,
+                unit_price=unit_price,
+                description=req.note,
+            )
+            SupplierProduct.objects.create(
+                supplier=req.supplier, product=product,
+                current_cost_price=req.proposed_cost,
+                lead_time_days=req.lead_time_days,
+                status=SupplierProduct.Status.APPROVED,
+                reviewed_by=reviewer, reviewed_at=timezone.now(),
+            )
+            req.created_product = product
+            req.status = SupplierProductRequest.Status.APPROVED
+        else:
+            req.status = SupplierProductRequest.Status.REJECTED
+            req.review_note = note[:200]
+        req.reviewed_by = reviewer
+        req.reviewed_at = timezone.now()
+        req.save()
+    return req

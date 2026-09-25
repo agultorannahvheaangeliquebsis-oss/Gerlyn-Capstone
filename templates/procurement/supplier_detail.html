@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load l10n %}
 {% block title %}{{ profile.supplier_name|default:supplier.username }}{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 
@@ -54,6 +55,67 @@ in the user's words, because "transfer" reads like it might rewrite history.
     {% endfor %}
   </div>
 </div>
+
+{% comment %}
+P01 — offers the supplier proposed and requests for products not yet in the
+master list. Nothing here can be put on a purchase order until approved.
+Owner-only controls; a Manager sees what is pending, read-only.
+{% endcomment %}
+{% if pending_offers or pending_requests %}
+<div class="card card-pad mb-4">
+  <h3 class="mb-4">Awaiting a decision</h3>
+
+  {% for link in pending_offers %}
+  <div class="row-between" style="padding:10px 0; border-bottom:1px solid var(--line); gap:12px; flex-wrap:wrap;">
+    <div>
+      <div class="strong">{{ link.product.product_name }}</div>
+      <div class="gv-meta">{{ link.product.sku_code }} · offered at ₱{{ link.current_cost_price|floatformat:2 }}{% if link.lead_time_days %} · {{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }} lead time{% endif %}</div>
+    </div>
+    {% if can_edit %}
+    <div class="row-actions">
+      <form method="POST" action="{% url 'supplier_offer_review' supplier.pk link.pk %}" style="display:inline;">
+        {% csrf_token %}
+        <input type="hidden" name="decision" value="approve">
+        <button type="submit" class="btn btn-sm btn-primary">Approve</button>
+      </form>
+      <form method="POST" action="{% url 'supplier_offer_review' supplier.pk link.pk %}" style="display:inline;" class="row" >
+        {% csrf_token %}
+        <input type="hidden" name="decision" value="reject">
+        <input type="text" name="note" maxlength="200" placeholder="Reason (shown to supplier)" aria-label="Rejection reason for {{ link.product.product_name }}" style="width:200px;">
+        <button type="submit" class="btn btn-sm btn-danger">Reject</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% for req in pending_requests %}
+  <div style="padding:10px 0; border-bottom:1px solid var(--line);">
+    <div class="strong">{{ req.product_name }} <span class="tag">New product</span></div>
+    <div class="gv-meta">{{ req.unit_of_measure }} · offered at ₱{{ req.proposed_cost|floatformat:2 }}{% if req.lead_time_days %} · {{ req.lead_time_days }} day{{ req.lead_time_days|pluralize }} lead time{% endif %}{% if req.note %} · {{ req.note }}{% endif %}</div>
+    {% if can_edit %}
+    <form method="POST" action="{% url 'supplier_request_review' supplier.pk req.pk %}" class="row wrap mt-2" style="gap:10px; align-items:flex-end;">
+      {% csrf_token %}
+      <div class="field" style="margin:0;">
+        <label for="rq-price-{{ req.pk|unlocalize }}">Retail price (₱)</label>
+        <input id="rq-price-{{ req.pk|unlocalize }}" type="number" name="unit_price" min="0.01" step="0.01" style="width:120px; text-align:right;">
+      </div>
+      <div class="field" style="margin:0;">
+        <label for="rq-cat-{{ req.pk|unlocalize }}">Category</label>
+        <select id="rq-cat-{{ req.pk|unlocalize }}" name="category">
+          <option value="">No category</option>
+          {% for pc in product_categories %}<option value="{{ pc.pk|unlocalize }}">{{ pc.category_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="submit" name="decision" value="approve" class="btn btn-sm btn-primary">Approve &amp; create product</button>
+      <input type="text" name="note" maxlength="200" placeholder="Reason if rejecting" aria-label="Rejection reason for {{ req.product_name }}" style="width:180px;">
+      <button type="submit" name="decision" value="reject" class="btn btn-sm btn-danger" formnovalidate>Reject</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <div class="page-head">
   <div>

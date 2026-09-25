@@ -12,6 +12,8 @@ business record plus its action link.
 | Near expiry | A positive batch enters the next 30 days before expiry | Owner; affected branch Manager/Staff with Alerts access | High | Batch; Expiring Soon tab |
 | PO approved | Owner authorizes a Draft PO, or creates an already-authorized PO | Requester and supplier; approving actor is excluded | Medium | Procurement; internal detail or supplier portal |
 | Incoming delivery | Supplier first confirms or changes a PO delivery date | Owner; affected branch Manager/Staff with Deliveries access | Medium | Procurement; Deliveries list |
+| Supplier offer for review | A supplier offers a master-list product or requests a new one | Owner only | Medium | Supplier; that supplier's detail page |
+| Supplier offer decision | The Owner approves or rejects an offer or new-product request | The supplier who made it | Medium | Supplier; supplier portal |
 | Order delivered | An online Delivery order moves to Completed | Customer who placed it | Low | SalesTransaction; customer order tracking |
 | Payment verified | Pending payment moves to Paid | Customer attached to the order | Low | BillingRecord; customer order tracking |
 | Payment rejected | Pending payment moves to Rejected | Customer; Owner; affected branch Manager/Staff with Billing access; deciding actor is excluded from matrix fan-out | High | BillingRecord; customer order tracking or internal billing detail |

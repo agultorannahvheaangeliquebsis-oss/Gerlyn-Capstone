@@ -309,6 +309,14 @@ class ProcurementItem(models.Model):
         ]
 
 
+class SupplierProductQuerySet(models.QuerySet):
+    def approved(self):
+        """Offers the store has accepted. Only these may appear on a purchase
+        order or have their cost snapshotted — a supplier's own proposal
+        means nothing to procurement until the Owner has approved it."""
+        return self.filter(status=SupplierProduct.Status.APPROVED)
+
+
 class SupplierProduct(models.Model):
     """Which products a supplier currently carries.
 
@@ -318,6 +326,13 @@ class SupplierProduct(models.Model):
     now". This one is the forward-looking mapping — it's what a supplier's
     product sub-view lists and what a transfer moves between suppliers.
     """
+    class Status(models.TextChoices):
+        APPROVED = 'Approved', 'Approved'
+        PROPOSED = 'Proposed', 'Proposed'
+        REJECTED = 'Rejected', 'Rejected'
+
+    objects = SupplierProductQuerySet.as_manager()
+
     def __init__(self, *args, **kwargs):
         if 'default_cost_price' in kwargs and 'current_cost_price' not in kwargs:
             kwargs['current_cost_price'] = kwargs.pop('default_cost_price')
@@ -354,6 +369,22 @@ class SupplierProduct(models.Model):
     )
     added_at = models.DateTimeField(auto_now_add=True)
 
+    # Offer workflow (P01). Default Approved so rows the Owner creates, and
+    # every row that existed before the workflow did, keep working untouched;
+    # only a supplier's own self-add starts as Proposed.
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.APPROVED,
+    )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_supplier_offers',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(
+        max_length=200, blank=True,
+        help_text="Why an offer was rejected, shown to the supplier.",
+    )
+
     class Meta:
         unique_together = ('supplier', 'product')
         ordering = ['product__product_name']
@@ -377,6 +408,66 @@ class SupplierProduct(models.Model):
     @default_cost_price.setter
     def default_cost_price(self, value):
         self.current_cost_price = value
+
+
+class SupplierProductRequest(models.Model):
+    """A supplier asking the store to start carrying a product that is not in
+    the Product Master List yet.
+
+    Separate from SupplierProduct because that row needs a real Product, and
+    only the Owner creates those: approving a request is what mints the
+    Product (SKU, retail price and category are the Owner's call) plus the
+    Approved SupplierProduct link at the supplier's proposed cost. Until then
+    the request can't be ordered or stocked. Pending -> Approved | Rejected, or
+    Withdrawn by the supplier.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'Pending', 'Pending'
+        APPROVED = 'Approved', 'Approved'
+        REJECTED = 'Rejected', 'Rejected'
+        WITHDRAWN = 'Withdrawn', 'Withdrawn'
+
+    supplier = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='product_requests',
+    )
+    product_name = models.CharField(max_length=150)
+    unit_of_measure = models.CharField(
+        max_length=20, choices=Product.UnitOfMeasure.choices,
+        default=Product.UnitOfMeasure.PIECE,
+    )
+    proposed_cost = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    lead_time_days = models.PositiveIntegerField(null=True, blank=True)
+    note = models.CharField(max_length=300, blank=True)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING,
+    )
+    created_product = models.ForeignKey(
+        Product, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+',
+    )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_product_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(proposed_cost__gt=0),
+                name='supplierproductrequest_proposed_cost_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product_name} requested by {self.supplier} ({self.status})"
 
 
 class DeliveryScanLog(models.Model):

@@ -6,6 +6,8 @@ from core.notifications import (
     EVENT_PO_APPROVED,
     EVENT_PO_TERMS_FOR_BUYER,
     EVENT_PO_TERMS_FOR_SUPPLIER,
+    EVENT_SUPPLIER_OFFER_DECISION,
+    EVENT_SUPPLIER_OFFER_FOR_REVIEW,
     notify_event,
 )
 
@@ -100,4 +102,44 @@ def notify_terms_for_supplier(procurement, actor, *, agreed):
         action_label='View order',
         reference_type='procurement',
         reference_id=procurement.pk,
+    )
+
+
+def _supplier_label(supplier):
+    profile = getattr(supplier, 'supplier_profile', None)
+    return (profile.supplier_name if profile else '') or supplier.username
+
+
+def notify_offer_for_review(supplier, product_name, *, new_product):
+    """A supplier offered (or requested) a product — the Owner's turn."""
+    what = 'requested a new product' if new_product else 'offered a product'
+    return notify_event(
+        EVENT_SUPPLIER_OFFER_FOR_REVIEW,
+        f'{_supplier_label(supplier)} {what}',
+        f'{_supplier_label(supplier)} {what}: {product_name}. '
+        f'Review it on their supplier page.',
+        actor=supplier,
+        action_url=reverse('supplier_detail', kwargs={'pk': supplier.pk}),
+        action_label='Review offer',
+        reference_type='supplier',
+        reference_id=supplier.pk,
+    )
+
+
+def notify_offer_decision(supplier, product_name, actor, *, approved, note=''):
+    """The Owner decided on a supplier's offer or request."""
+    verdict = 'approved' if approved else 'rejected'
+    message = f'Your offer for {product_name} was {verdict}.'
+    if note and not approved:
+        message += f' Reason: {note}'
+    return notify_event(
+        EVENT_SUPPLIER_OFFER_DECISION,
+        f'Product offer {verdict}: {product_name}',
+        message,
+        actor=actor,
+        related_users={'supplier': supplier},
+        action_url=reverse('supplier_portal'),
+        action_label='View your products',
+        reference_type='supplier',
+        reference_id=supplier.pk,
     )

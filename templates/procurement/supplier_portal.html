@@ -255,34 +255,93 @@
     </div>
   </div>
 
-  {% if available_products %}
-  <form method="POST" action="{% url 'supplier_product_self_add' %}" class="card card-pad mb-6 row wrap" style="gap:12px; align-items:flex-end;">
-    {% csrf_token %}
-    <div class="field grow" style="min-width:220px; margin:0;">
-      <label for="add-product">Add a product you carry</label>
-      <select id="add-product" name="product" required>
-        <option value="">Choose a product</option>
-        {% for p in available_products %}
-          <option value="{{ p.id }}">{{ p.product_name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <button type="submit" class="btn btn-primary">Add</button>
-  </form>
-  {% endif %}
+  {% comment %}
+  P01 — a supplier offers what it carries; nothing is orderable until Gerlyn
+  approves it. Two ways in: a product already on the master list (a Proposed
+  offer with your cost) or one that isn't there yet (a request the Owner turns
+  into a real product).
+  {% endcomment %}
+  <div class="card card-pad mb-6">
+    <h3 class="mb-4">Offer a product</h3>
+    {% if available_products %}
+    <form method="POST" action="{% url 'supplier_product_self_add' %}" class="row wrap" style="gap:12px; align-items:flex-end;">
+      {% csrf_token %}
+      <div class="field grow" style="min-width:220px; margin:0;">
+        <label for="add-product">Product</label>
+        <select id="add-product" name="product" required>
+          <option value="">Choose a product</option>
+          {% for p in available_products %}
+            <option value="{{ p.id|unlocalize }}">{{ p.product_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field" style="margin:0;">
+        <label for="add-cost">Your unit cost (₱)</label>
+        <input id="add-cost" type="number" name="current_cost_price" min="0.01" step="0.01" required style="width:130px; text-align:right;">
+      </div>
+      <div class="field" style="margin:0;">
+        <label for="add-lead">Lead time (days)</label>
+        <input id="add-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
+      </div>
+      <button type="submit" class="btn btn-primary">Offer</button>
+    </form>
+    {% if products_narrowed %}
+    <p class="gv-meta mt-2 mb-0">Showing products in your category. <a href="?all_products=1">Show all products</a></p>
+    {% endif %}
+    {% else %}
+    <p class="gv-meta mb-0">
+      {% if products_narrowed %}Nothing left in your category to offer. <a href="?all_products=1">Show all products</a>.
+      {% else %}Every product in the list is already on your catalog.{% endif %}
+    </p>
+    {% endif %}
+
+    <details class="mt-4">
+      <summary class="strong" style="cursor:pointer;">Not in the list? Request a new product</summary>
+      <form method="POST" action="{% url 'supplier_product_request_add' %}" class="row wrap mt-4" style="gap:12px; align-items:flex-end;">
+        {% csrf_token %}
+        <div class="field grow" style="min-width:220px; margin:0;">
+          <label for="req-name">Product name</label>
+          <input id="req-name" type="text" name="product_name" maxlength="150" required>
+        </div>
+        <div class="field" style="margin:0;">
+          <label for="req-unit">Unit</label>
+          <select id="req-unit" name="unit_of_measure" required>
+            {% for value, label in unit_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field" style="margin:0;">
+          <label for="req-cost">Your unit cost (₱)</label>
+          <input id="req-cost" type="number" name="proposed_cost" min="0.01" step="0.01" required style="width:130px; text-align:right;">
+        </div>
+        <div class="field" style="margin:0;">
+          <label for="req-lead">Lead time (days)</label>
+          <input id="req-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
+        </div>
+        <div class="field grow" style="min-width:220px; margin:0;">
+          <label for="req-note">Details <span class="gv-meta">— optional</span></label>
+          <input id="req-note" type="text" name="note" maxlength="300" placeholder="Brand, size, pack…">
+        </div>
+        <button type="submit" class="btn btn-primary">Send request</button>
+      </form>
+    </details>
+  </div>
 
   <div class="card table-wrap mb-6">
     <table class="gv-table">
       <thead>
-        <tr><th>Product</th><th>SKU</th><th class="num">Current Unit Cost</th><th class="end">Action</th></tr>
+        <tr><th>Product</th><th>SKU</th><th>Status</th><th class="num">Current Unit Cost</th><th class="end">Action</th></tr>
       </thead>
       <tbody>
         {% for link in catalog_links %}
         <tr>
           <td data-label="Product" class="strong">{{ link.product.product_name }}</td>
           <td data-label="SKU" class="sku">{{ link.supplier_sku|default:link.product.sku_code }}</td>
+          <td data-label="Status">
+            {% include "partials/_offer_status_pill.html" with status=link.status %}
+            {% if link.status == "Rejected" and link.review_note %}<div class="gv-meta">{{ link.review_note }}</div>{% endif %}
+          </td>
           <td data-label="Current Unit Cost" class="num">
-            <form method="POST" action="{% url 'supplier_set_product_cost' link.pk %}" id="cost-{{ link.pk }}">
+            <form method="POST" action="{% url 'supplier_set_product_cost' link.pk %}" id="cost-{{ link.pk|unlocalize }}">
               {% csrf_token %}
               <input type="number" name="current_cost_price" min="0" step="0.01" required
                      value="{{ link.current_cost_price|default_if_none:''|unlocalize }}"
@@ -291,18 +350,64 @@
             </form>
           </td>
           <td data-label="Action" class="end">
-            <button type="submit" form="cost-{{ link.pk }}" class="btn btn-sm btn-primary">Save Cost</button>
+            <span class="row-actions">
+              <button type="submit" form="cost-{{ link.pk|unlocalize }}" class="btn btn-sm btn-primary">Save Cost</button>
+              {% comment %}confirm-dialog.js draws the modal off data-confirm. A product on one of your open orders is refused server-side and comes back as an error toast.{% endcomment %}
+              <form method="POST" action="{% url 'supplier_product_self_remove' link.pk %}" style="display:inline;"
+                    data-confirm="{% if link.status == 'Approved' %}{{ link.product.product_name }} will no longer be on your catalog and can't be ordered from you. You can offer it again later.{% else %}This offer is withdrawn. You can offer the product again later.{% endif %}"
+                    data-confirm-title="{% if link.status == 'Approved' %}Remove this product?{% else %}Withdraw this offer?{% endif %}"
+                    data-confirm-variant="warn"
+                    data-confirm-ok="{% if link.status == 'Approved' %}Remove{% else %}Withdraw{% endif %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-danger" aria-label="Remove {{ link.product.product_name }}">{% if link.status == 'Approved' %}Remove{% else %}Withdraw{% endif %}</button>
+              </form>
+            </span>
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="4"><div class="empty">
+        <tr><td colspan="5"><div class="empty">
           <h3>No products yet</h3>
-          <p>Add what you carry above, or Gerlyn can assign it from their side.</p>
+          <p>Offer what you carry above, or Gerlyn can assign it from their side.</p>
         </div></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {% if product_requests %}
+  <div class="card table-wrap mb-6">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Requested product</th><th>Unit</th><th class="num">Your cost</th><th>Status</th><th class="end">Action</th></tr>
+      </thead>
+      <tbody>
+        {% for req in product_requests %}
+        <tr>
+          <td data-label="Requested product" class="strong">{{ req.product_name }}</td>
+          <td data-label="Unit">{{ req.unit_of_measure }}</td>
+          <td data-label="Your cost" class="num">₱{{ req.proposed_cost|floatformat:2 }}</td>
+          <td data-label="Status">
+            {% include "partials/_offer_status_pill.html" with status=req.status %}
+            {% if req.status == "Rejected" and req.review_note %}<div class="gv-meta">{{ req.review_note }}</div>{% endif %}
+          </td>
+          <td data-label="Action" class="end">
+            {% if req.status == "Pending" %}
+            <form method="POST" action="{% url 'supplier_product_request_withdraw' req.pk %}" style="display:inline;"
+                  data-confirm="Gerlyn will no longer see this request."
+                  data-confirm-title="Withdraw this request?"
+                  data-confirm-variant="warn"
+                  data-confirm-ok="Withdraw">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-danger">Withdraw</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
   <div class="page-head">
     <div>

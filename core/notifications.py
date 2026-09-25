@@ -55,6 +55,8 @@ EVENT_PO_APPROVED = 'po_approved'
 EVENT_INCOMING_DELIVERY = 'incoming_delivery'
 EVENT_PO_TERMS_FOR_BUYER = 'po_terms_for_buyer'
 EVENT_PO_TERMS_FOR_SUPPLIER = 'po_terms_for_supplier'
+EVENT_SUPPLIER_OFFER_FOR_REVIEW = 'supplier_offer_for_review'
+EVENT_SUPPLIER_OFFER_DECISION = 'supplier_offer_decision'
 EVENT_ORDER_DELIVERED = 'order_delivered'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
@@ -122,6 +124,26 @@ EVENT_MATRIX = {
                 'it is now the supplier\'s turn (respond, or give the final '
                 'confirmation once terms are agreed).',
         'recipients': 'The supplier on this order.',
+        'audiences': ('supplier',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_SUPPLIER_OFFER_FOR_REVIEW: {
+        'when': 'A supplier offers a product from the Product Master List, or '
+                "requests a brand-new one, and it needs the Owner's decision.",
+        'recipients': 'Owner only (no branch is involved, so no Manager/Staff).',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_SUPPLIER_OFFER_DECISION: {
+        'when': "The Owner approves or rejects a supplier's product offer or "
+                'new-product request.',
+        'recipients': 'The supplier who made the offer.',
         'audiences': ('supplier',),
         'category': CATEGORY_PROCUREMENT,
         'priority': PRIORITY_MEDIUM,

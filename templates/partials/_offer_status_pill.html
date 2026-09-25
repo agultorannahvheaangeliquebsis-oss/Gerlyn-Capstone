@@ -1,0 +1,10 @@
+{% comment %}
+Status pill for a supplier's product offer (SupplierProduct.status) or a new-
+product request (SupplierProductRequest.status).
+Usage: {% include "partials/_offer_status_pill.html" with status=link.status %}
+{% endcomment %}
+{% if status == "Approved" %}<span class="pill pill-ok">Approved</span>
+{% elif status == "Proposed" or status == "Pending" %}<span class="pill pill-warn">Awaiting approval</span>
+{% elif status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+{% elif status == "Withdrawn" %}<span class="pill pill-neutral">Withdrawn</span>
+{% else %}<span class="pill pill-neutral">{{ status }}</span>{% endif %}

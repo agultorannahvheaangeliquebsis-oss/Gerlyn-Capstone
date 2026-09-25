@@ -58,6 +58,9 @@
           {% else %}
             <span class="gv-meta">None</span>
           {% endif %}
+          {% if s.pending_offer_count or s.pending_request_count %}
+            <a class="pill pill-warn" href="{% url 'supplier_detail' s.pk %}" title="Offers and requests waiting for a decision">{{ s.pending_offer_count|add:s.pending_request_count }} pending</a>
+          {% endif %}
         </td>
         <td data-label="Contact Person">{{ s.supplier_profile.contact_person|default:"—" }}</td>
         <td data-label="Contact Number" class="num">{{ s.supplier_profile.contact_number|default:"—" }}</td>

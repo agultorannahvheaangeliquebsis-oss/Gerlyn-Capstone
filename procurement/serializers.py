@@ -202,7 +202,7 @@ class ProcurementWriteSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         product_ids = [item['productId'] for item in attrs.get('items', [])]
-        mapped_ids = set(SupplierProduct.objects.filter(
+        mapped_ids = set(SupplierProduct.objects.approved().filter(
             supplier_id=attrs.get('supplierId'),
             product_id__in=product_ids,
         ).values_list('product_id', flat=True))

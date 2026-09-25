@@ -36,17 +36,22 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from .models import (
-    Procurement, ProcurementItem, SupplierProduct, DeliveryScanLog,
+    Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
+    DeliveryScanLog,
 )
 from .services import (
-    SupplierTransferError, apply_agreed_terms, transfer_supplier_products,
+    OfferReviewError, SupplierRemovalBlocked, SupplierTransferError,
+    apply_agreed_terms, remove_supplier_product, review_offer,
+    review_product_request, transfer_supplier_products,
 )
 from .serializers import (
     ProcurementReadSerializer,
     ProcurementWriteSerializer,
     ProcurementStatusSerializer,
 )
-from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
+from inventory.models import (
+    Batch, Product, ProductCategory, StockMovement, Warehouse, WarehouseStock,
+)
 from accounts.models import Notification, SupplierCategory, User
 
 
@@ -313,7 +318,7 @@ def _procurement_form_context(user):
         suppliers = User.objects.filter(role=User.Role.SUPPLIER).none()
 
     supplier_catalog = {}
-    for link in SupplierProduct.objects.filter(
+    for link in SupplierProduct.objects.approved().filter(
         supplier__in=suppliers
     ).values('supplier_id', 'product_id', 'current_cost_price'):
         supplier_catalog.setdefault(str(link['supplier_id']), {})[
@@ -398,7 +403,7 @@ def procurement_add(request):
         })
         return render(request, 'procurement/procurement_list.html', context)
 
-    mapped_ids = set(SupplierProduct.objects.filter(
+    mapped_ids = set(SupplierProduct.objects.approved().filter(
         supplier_id=supplier_id,
         product_id__in=[product_id for product_id, _ in items],
     ).values_list('product_id', flat=True))
@@ -1525,15 +1530,34 @@ def supplier_portal(request):
         supplier=request.user
     ).select_related('product').order_by('product__product_name')
 
+    # The "Offer a product" picker — Product Master List minus what this
+    # supplier already has a row for (any status), so neither picker can
+    # bounce off the unique constraint. When the supplier's category is linked
+    # to product categories the list starts narrowed to those; ?all_products=1
+    # widens it. A convenience only: any master-list product may be offered.
+    profile = getattr(request.user, 'supplier_profile', None)
+    available_products = Product.objects.exclude(
+        pk__in=catalog_links.values_list('product_id', flat=True)
+    ).order_by('product_name')
+    suggested_category_ids = (
+        list(profile.category.product_categories.values_list('pk', flat=True))
+        if profile and profile.category_id else []
+    )
+    narrowed = bool(suggested_category_ids) and not request.GET.get('all_products')
+    if narrowed:
+        available_products = available_products.filter(
+            category_id__in=suggested_category_ids
+        )
+
     return render(request, 'procurement/supplier_portal.html', {
         'orders': orders,
         'catalog_links': catalog_links,
-        # The "Add a product" picker — Product Master List minus what this
-        # supplier already carries, same exclusion supplier_detail's own
-        # picker uses so neither can bounce off the unique constraint.
-        'available_products': Product.objects.exclude(
-            pk__in=catalog_links.values_list('product_id', flat=True)
-        ).order_by('product_name'),
+        'available_products': available_products,
+        'products_narrowed': narrowed,
+        'product_requests': request.user.product_requests.exclude(
+            status=SupplierProductRequest.Status.WITHDRAWN
+        )[:20],
+        'unit_choices': Product.UnitOfMeasure.choices,
         'counts': counts,
         'status_filter': status_filter,
         'open_count': len(open_orders),
@@ -1696,7 +1720,19 @@ def _supplier_list_context(request):
         # Drives the Products column, which links into the per-supplier
         # product sub-view. Annotated rather than counted per row in the
         # template, which would be one query per supplier.
-        product_count=Count('supplied_products', distinct=True)
+        product_count=Count(
+            'supplied_products', distinct=True,
+            filter=Q(supplied_products__status=SupplierProduct.Status.APPROVED),
+        ),
+        # Offers and new-product requests waiting on the Owner, flagged on the row.
+        pending_offer_count=Count(
+            'supplied_products', distinct=True,
+            filter=Q(supplied_products__status=SupplierProduct.Status.PROPOSED),
+        ),
+        pending_request_count=Count(
+            'product_requests', distinct=True,
+            filter=Q(product_requests__status=SupplierProductRequest.Status.PENDING),
+        ),
     ).order_by('supplier_profile__supplier_name')
 
     search_query = request.GET.get('q', '')
@@ -1947,15 +1983,19 @@ def supplier_detail(request, pk):
         pk=pk, role=User.Role.SUPPLIER,
     )
 
-    links = SupplierProduct.objects.filter(supplier=supplier).select_related(
+    all_links = SupplierProduct.objects.filter(supplier=supplier).select_related(
         'product', 'product__category'
     )
+    # The table below is what the store actually buys: approved offers only.
+    # Proposed ones wait in their own card until the Owner decides.
+    links = all_links.approved()
+    pending_offers = all_links.filter(status=SupplierProduct.Status.PROPOSED)
 
-    # Products this supplier doesn't already carry — the "Add Product" picker.
-    # Excluding the existing ones up front is what stops a user picking a
+    # Products this supplier doesn't already have a row for — the "Add Product"
+    # picker. Excluding every status up front is what stops a user picking a
     # product that would only bounce off the unique constraint.
     available = Product.objects.exclude(
-        pk__in=links.values_list('product_id', flat=True)
+        pk__in=all_links.values_list('product_id', flat=True)
     ).order_by('product_name')
 
     # Everyone else, for the transfer destination dropdown.
@@ -1969,6 +2009,11 @@ def supplier_detail(request, pk):
         'supplier': supplier,
         'profile': getattr(supplier, 'supplier_profile', None),
         'links': links,
+        'pending_offers': pending_offers,
+        'pending_requests': supplier.product_requests.filter(
+            status=SupplierProductRequest.Status.PENDING
+        ),
+        'product_categories': ProductCategory.objects.all(),
         'available_products': available,
         'other_suppliers': other_suppliers,
         'can_edit': request.user.role == User.Role.OWNER,
@@ -2013,21 +2058,41 @@ def supplier_product_add(request, pk):
 
     if created:
         messages.success(request, f'{product.product_name} added to this supplier.')
+    elif link.status != SupplierProduct.Status.APPROVED:
+        # The Owner adding a product the supplier had only offered (or had
+        # rejected) is a decision — approve it rather than saying "already".
+        link.status = SupplierProduct.Status.APPROVED
+        link.reviewed_by = request.user
+        link.reviewed_at = timezone.now()
+        link.review_note = ''
+        link.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_note'])
+        messages.success(request, f'{product.product_name} approved for this supplier.')
     else:
         messages.info(request, f'{product.product_name} is already on this supplier.')
     return redirect('supplier_detail', pk=pk)
 
 
+def _clean_offer_cost(raw):
+    """A supplier's quoted unit cost: a positive decimal, same rules as the
+    model field. Raises ValidationError with a user-facing message."""
+    field = SupplierProduct._meta.get_field('current_cost_price').formfield(required=True)
+    cost = field.clean((raw or '').strip())
+    if cost <= 0:
+        raise ValidationError('Enter a cost greater than zero.')
+    return cost
+
+
 @login_required(login_url='accounts:login')
 @require_POST
 def supplier_product_self_add(request):
-    """The supplier's own equivalent of supplier_product_add — a supplier
-    can now also say what it carries, not only the Owner. Kept as a
-    separate view (rather than widening the role check above) since this
-    one has no `pk` to look a target supplier up by — it always means
-    request.user — and redirects back to the portal, not supplier_detail,
-    which the Owner/Manager role check on that view would refuse a
-    supplier anyway."""
+    """A supplier offers a product from the Product Master List.
+
+    The offer starts Proposed with the supplier's cost and lead time; it can't
+    be put on a purchase order until the Owner approves it (see
+    supplier_offer_review). Re-offering a Rejected product re-opens it.
+    """
+    from .notifications import notify_offer_for_review
+
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
@@ -2038,17 +2103,220 @@ def supplier_product_self_add(request):
         return redirect('supplier_portal')
 
     product = get_object_or_404(Product, pk=product_id)
+    try:
+        cost = _clean_offer_cost(request.POST.get('current_cost_price'))
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
+        return redirect('supplier_portal')
+    lead = _safe_nonneg_int(request.POST.get('lead_time_days'))
 
-    link, created = SupplierProduct.objects.get_or_create(
-        supplier=request.user, product=product,
-    )
-    if created:
-        messages.success(
-            request, f'{product.product_name} added — set your cost for it below.'
+    with transaction.atomic():
+        link, created = SupplierProduct.objects.get_or_create(
+            supplier=request.user, product=product,
+            defaults={
+                'status': SupplierProduct.Status.PROPOSED,
+                'current_cost_price': cost,
+                'lead_time_days': lead,
+            },
         )
+        reopened = False
+        if not created and link.status == SupplierProduct.Status.REJECTED:
+            link.status = SupplierProduct.Status.PROPOSED
+            link.current_cost_price = cost
+            link.lead_time_days = lead
+            link.reviewed_by = None
+            link.reviewed_at = None
+            link.review_note = ''
+            link.save()
+            reopened = True
+
+    if created or reopened:
+        notify_offer_for_review(request.user, product.product_name, new_product=False)
+        messages.success(
+            request,
+            f'{product.product_name} offered — it can be ordered once Gerlyn approves it.',
+        )
+    elif link.status == SupplierProduct.Status.PROPOSED:
+        messages.info(request, f'{product.product_name} is already awaiting approval.')
     else:
         messages.info(request, f'{product.product_name} is already on your catalog.')
     return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_product_self_remove(request, link_pk):
+    """A supplier takes a product off its own catalog (or withdraws a
+    pending/rejected offer). Blocked while one of its open orders needs it."""
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    # Scoped to request.user: another supplier's link is a 404, not a refusal.
+    link = get_object_or_404(
+        SupplierProduct.objects.select_related('product'),
+        pk=link_pk, supplier=request.user,
+    )
+    name = link.product.product_name
+    try:
+        remove_supplier_product(link)
+    except SupplierRemovalBlocked as exc:
+        messages.error(request, f'Cannot remove {name}. {exc}')
+    except SupplierProduct.DoesNotExist:
+        pass  # double-submit: already gone
+    else:
+        messages.success(request, f'{name} removed from your catalog.')
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_product_request_add(request):
+    """A supplier asks the store to carry a product that isn't in the master
+    list. Only the Owner can turn it into a real product."""
+    from .notifications import notify_offer_for_review
+
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    name = request.POST.get('product_name', '').strip()
+    unit = request.POST.get('unit_of_measure', '')
+    if not name or len(name) > 150:
+        messages.error(request, 'Enter the product name (150 characters max).')
+        return redirect('supplier_portal')
+    if unit not in Product.UnitOfMeasure.values:
+        messages.error(request, 'Choose a unit for the product.')
+        return redirect('supplier_portal')
+    try:
+        cost = _clean_offer_cost(request.POST.get('proposed_cost'))
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
+        return redirect('supplier_portal')
+    if Product.objects.filter(product_name__iexact=name).exists():
+        messages.error(
+            request,
+            f'"{name}" is already in the product list — offer it from '
+            f'"Offer a product" instead.',
+        )
+        return redirect('supplier_portal')
+    if SupplierProductRequest.objects.filter(
+        supplier=request.user, product_name__iexact=name,
+        status=SupplierProductRequest.Status.PENDING,
+    ).exists():
+        messages.info(request, f'You already have a pending request for "{name}".')
+        return redirect('supplier_portal')
+
+    SupplierProductRequest.objects.create(
+        supplier=request.user, product_name=name, unit_of_measure=unit,
+        proposed_cost=cost,
+        lead_time_days=_safe_nonneg_int(request.POST.get('lead_time_days')),
+        note=request.POST.get('note', '').strip()[:300],
+    )
+    notify_offer_for_review(request.user, name, new_product=True)
+    messages.success(request, f'Request for "{name}" sent to Gerlyn for review.')
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_product_request_withdraw(request, req_pk):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+    with transaction.atomic():
+        req = get_object_or_404(
+            SupplierProductRequest.objects.select_for_update(),
+            pk=req_pk, supplier=request.user,
+        )
+        if req.status != SupplierProductRequest.Status.PENDING:
+            messages.error(request, 'That request was already decided.')
+            return redirect('supplier_portal')
+        req.status = SupplierProductRequest.Status.WITHDRAWN
+        req.save(update_fields=['status'])
+    messages.success(request, f'Request for "{req.product_name}" withdrawn.')
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_offer_review(request, pk, link_pk):
+    """Owner approves or rejects a supplier's Proposed offer."""
+    from .notifications import notify_offer_decision
+
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can review supplier offers.')
+        return redirect('supplier_detail', pk=pk)
+
+    link = get_object_or_404(
+        SupplierProduct.objects.select_related('product', 'supplier'),
+        pk=link_pk, supplier_id=pk,
+    )
+    approve = request.POST.get('decision') == 'approve'
+    note = request.POST.get('note', '').strip()
+    try:
+        link = review_offer(link, request.user, approve=approve, note=note)
+    except OfferReviewError as exc:
+        messages.error(request, str(exc))
+        return redirect('supplier_detail', pk=pk)
+
+    notify_offer_decision(
+        link.supplier, link.product.product_name, request.user,
+        approved=approve, note=note,
+    )
+    messages.success(
+        request,
+        f'{link.product.product_name} {"approved" if approve else "rejected"}.',
+    )
+    return redirect('supplier_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_request_review(request, pk, req_pk):
+    """Owner approves (creating the product) or rejects a new-product request."""
+    from .notifications import notify_offer_decision
+
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can review supplier requests.')
+        return redirect('supplier_detail', pk=pk)
+
+    req = get_object_or_404(
+        SupplierProductRequest.objects.select_related('supplier'),
+        pk=req_pk, supplier_id=pk,
+    )
+    approve = request.POST.get('decision') == 'approve'
+    note = request.POST.get('note', '').strip()
+    unit_price = category = None
+    if approve:
+        try:
+            unit_price = Decimal(request.POST.get('unit_price', '').strip())
+        except (InvalidOperation, ValueError):
+            messages.error(request, 'Enter a retail price greater than zero.')
+            return redirect('supplier_detail', pk=pk)
+        category_id = request.POST.get('category', '')
+        if category_id:
+            category = ProductCategory.objects.filter(
+                pk=category_id if category_id.isdigit() else 0
+            ).first()
+            if category is None:
+                messages.error(request, 'Choose a valid product category.')
+                return redirect('supplier_detail', pk=pk)
+    try:
+        req = review_product_request(
+            req, request.user, approve=approve, note=note,
+            unit_price=unit_price, category=category,
+        )
+    except OfferReviewError as exc:
+        messages.error(request, str(exc))
+        return redirect('supplier_detail', pk=pk)
+
+    notify_offer_decision(
+        req.supplier, req.product_name, request.user, approved=approve, note=note,
+    )
+    verdict = 'approved and added to the product list' if approve else 'rejected'
+    messages.success(request, f'"{req.product_name}" {verdict}.')
+    return redirect('supplier_detail', pk=pk)
 
 
 @login_required(login_url='accounts:login')
@@ -2067,7 +2335,13 @@ def supplier_product_remove(request, pk, link_pk):
         pk=link_pk, supplier_id=pk,
     )
     name = link.product.product_name
-    link.delete()
+    try:
+        remove_supplier_product(link)
+    except SupplierRemovalBlocked as exc:
+        messages.error(request, f'Cannot remove {name}. {exc}')
+        return redirect('supplier_detail', pk=pk)
+    except SupplierProduct.DoesNotExist:
+        pass  # double-submit: already gone
     messages.success(request, f'{name} removed from this supplier.')
     return redirect('supplier_detail', pk=pk)
 

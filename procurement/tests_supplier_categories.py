@@ -124,7 +124,6 @@ class SupplierCategoryDataMigrationTests(TransactionTestCase):
     """0024 turns each distinct free-text category into a SupplierCategory,
     collapsing case-only spelling differences, before dropping the column."""
 
-    serialized_rollback = True  # TransactionTestCase flushes the DB; restore migration-seeded rows
     before = [('accounts', '0023_merge_20260923_1856')]
     after = [('accounts', '0024_supplier_category_fk')]
 

@@ -113,6 +113,9 @@ REGISTRY = {
         'Purchase order item', branch_path='procurement.branch_id',
     ),
     'procurement.SupplierProduct': AuditConfig('Supplier product', branch_path=''),
+    'procurement.SupplierProductRequest': AuditConfig(
+        'Supplier product request', repr_field='product_name', branch_path='',
+    ),
     # --- sales ---------------------------------------------------------------
     'sales.SalesTransaction': AuditConfig(
         'Order', repr_field='order_number',

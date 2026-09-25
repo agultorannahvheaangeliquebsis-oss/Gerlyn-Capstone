@@ -1178,11 +1178,13 @@ class SupplierSelfServiceCatalogTests(ProcurementAuthorizationBase):
         product = self._other_product()
         self.client.force_login(self.supplier)
 
-        self.client.post(reverse('supplier_product_self_add'), {'product': product.pk})
+        self.client.post(reverse('supplier_product_self_add'), {
+            'product': product.pk, 'current_cost_price': '12.50',
+        })
 
-        self.assertTrue(
-            SupplierProduct.objects.filter(supplier=self.supplier, product=product).exists()
-        )
+        # P01: a self-add is an offer, not yet orderable.
+        link = SupplierProduct.objects.get(supplier=self.supplier, product=product)
+        self.assertEqual(link.status, SupplierProduct.Status.PROPOSED)
 
     def test_adding_the_same_product_twice_is_a_no_op_not_a_crash(self):
         self.client.force_login(self.supplier)
