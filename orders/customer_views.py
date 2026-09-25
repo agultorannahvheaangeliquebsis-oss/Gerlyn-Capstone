@@ -1150,9 +1150,19 @@ def checkout(request):
     proof_of_payment = None
     if mode_of_payment == SalesTransaction.ModeOfPayment.GCASH:
         from billing.models import BillingRecord
+        from billing.validators import clean_reference_number
         from billing.views import _validate_proof_of_payment
 
         proof_of_payment = request.FILES.get('proof_of_payment')
+        # Length and characters first — the column is VARCHAR(100), and an
+        # over-long reference used to reach it and 500 mid-checkout. The
+        # cleaned value is what is stored. billing.validators is the rule
+        # billing_create and the pay API apply too.
+        try:
+            reference_number = clean_reference_number(reference_number)
+        except ValidationError as e:
+            messages.error(request, e.messages[0])
+            return redirect('orders:cart')
         missing = BillingRecord.missing_payment_evidence(
             mode_of_payment, reference_number, bool(proof_of_payment)
         )

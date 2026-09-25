@@ -53,7 +53,7 @@
     {% endcomment %}
     <div class="field" id="reference_field" style="display:none;">
       <label for="reference_number">Reference Number <span class="gv-meta">— required</span></label>
-      <input id="reference_number" type="text" name="reference_number"
+      <input id="reference_number" type="text" name="reference_number" maxlength="100" autocomplete="off"
              value="{{ record.reference_number|default:'' }}" placeholder="e.g. GC-2026-0001">
     </div>
 

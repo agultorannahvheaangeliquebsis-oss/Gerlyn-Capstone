@@ -210,7 +210,7 @@ every panel in the app to fix one column.
         {% endcomment %}
         <div class="field" id="gcash_reference_field" style="display:none;">
           <label for="reference_number">GCash reference <span class="gv-meta">— required when paying by GCash</span></label>
-          <input id="reference_number" type="text" name="reference_number" placeholder="e.g. GC-2026-0001">
+          <input id="reference_number" type="text" name="reference_number" maxlength="100" autocomplete="off" placeholder="e.g. GC-2026-0001">
         </div>
         <div class="field" id="gcash_proof_field" style="display:none;">
           <label for="proof_of_payment">Proof of payment <span class="gv-meta">— required · screenshot of your GCash receipt</span></label>

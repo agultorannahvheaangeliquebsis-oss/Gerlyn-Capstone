@@ -1,7 +1,9 @@
-from django.db import models
+from django.core.exceptions import ValidationError
+from django.db import models, transaction as db_transaction
 from sales.models import SalesTransaction
 from accounts.models import User
 from .storage import PaymentProofStorage
+from .validators import REFERENCE_NUMBER_MAX_LENGTH, validate_reference_number
 
 
 payment_proof_storage = PaymentProofStorage()
@@ -124,6 +126,42 @@ class BillingRecord(models.Model):
             and self.transaction.staff_id == user.id
         )
 
+    def record_payment_details(self, payment_method, reference_number, proof_of_payment=None):
+        """Write the payment method / reference / proof onto this Pending
+        record — the one write path billing_create (web) and
+        BillingPaymentSerializer.update (API) share.
+
+        Both used to decide "still Pending" from a read taken before the
+        save and then write every column of that stale copy, so a
+        confirmation landing in between was rolled back to Pending while the
+        reference number was written over a verified record. The row is now
+        locked and its status re-read inside one transaction, only the
+        payment columns are written, and the sale's own method is synced in
+        the same transaction so the two can't disagree after a failure.
+
+        `reference_number` must already have been through
+        validators.clean_reference_number. Raises ValidationError when the
+        record is no longer Pending.
+        """
+        with db_transaction.atomic():
+            locked = BillingRecord.objects.select_for_update().get(pk=self.pk)
+            if locked.status != self.PaymentStatus.PENDING:
+                raise ValidationError('This billing record has already been processed.')
+
+            fields = ['payment_method', 'reference_number']
+            locked.payment_method = payment_method
+            locked.reference_number = reference_number
+            if proof_of_payment:
+                locked.proof_of_payment = proof_of_payment
+                fields.append('proof_of_payment')
+            locked.save(update_fields=fields)
+
+            # Leave the caller's instance showing what is now on the row.
+            for field in fields:
+                setattr(self, field, getattr(locked, field))
+            # X-2 — one definition, see sync_payment_method_to_sale.
+            self.sync_payment_method_to_sale()
+
     def sync_payment_method_to_sale(self):
         """X-2 — keep the sale's own mode_of_payment in step with what was
         just recorded on its bill. billing_create (web) and
@@ -158,7 +196,8 @@ class BillingRecord(models.Model):
         default=PaymentMethod.CASH
     )
     reference_number = models.CharField(
-        max_length=100, blank=True,
+        max_length=REFERENCE_NUMBER_MAX_LENGTH, blank=True,
+        validators=[validate_reference_number],
         help_text="GCash/bank reference number, if applicable"
     )
     proof_of_payment = models.ImageField(
