@@ -134,7 +134,8 @@
       <div class="doc-title">PURCHASE ORDER</div>
       <div class="doc-meta">
         <strong>{{ procurement.po_number }}</strong><br/>
-        Order date: {{ procurement.order_date|date:"d M Y" }}
+        Order date: {{ procurement.order_date|date:"d M Y" }}{% if procurement.funding_source %}<br/>
+        Funding: {{ procurement.funding_source }}{% if procurement.funding_note %} ({{ procurement.funding_note }}){% endif %}{% endif %}
       </div>
     </td>
   </tr>

@@ -57,6 +57,7 @@ class FilteredPoItemsTests(TestCase):
         return self.client.post(reverse('procurement_add'), {
             'branch': self.branch.pk, 'supplier': supplier.pk,
             'order_date': '2026-01-01',
+            'funding_source': 'Cash on Hand',
             'product_id': [str(p.pk) for p in products],
             'quantity_ordered': ['1'] * len(products),
         })
@@ -118,6 +119,7 @@ class FilteredPoItemsTests(TestCase):
             data=json.dumps({
                 'branchId': self.branch.pk, 'supplierId': supplier.pk,
                 'orderDate': '2026-01-01',
+                'fundingSource': 'Cash on Hand',
                 'items': [{'productId': product.pk, 'quantityOrdered': 1}],
             }),
             content_type='application/json')

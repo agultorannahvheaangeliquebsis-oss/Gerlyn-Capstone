@@ -418,6 +418,8 @@ card above deliberately excludes these statuses now.
         <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
         <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Funding source</td><td style="text-align:right;">
+          {% if procurement.funding_source %}<span class="tag">{{ procurement.funding_source }}</span>{% if procurement.funding_note %}<div class="gv-meta">{{ procurement.funding_note }}</div>{% endif %}{% else %}<span class="gv-meta">Not recorded</span>{% endif %}</td></tr>
         <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
           {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">
@@ -429,6 +431,30 @@ card above deliberately excludes these statuses now.
       </tbody>
     </table>
   </div>
+
+  {% if can_edit_funding %}
+  <div class="card card-pad">
+    <h3 class="mb-4">Funding source</h3>
+    <form method="POST" action="{% url 'procurement_set_funding' procurement.pk %}">
+      {% csrf_token %}
+      <div class="field">
+        <label for="fund-source">Where the money comes from</label>
+        <select id="fund-source" name="funding_source" required>
+          <option value="">Choose…</option>
+          {% for value, label in funding_choices %}
+            <option value="{{ value }}"{% if procurement.funding_source == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="fund-note">Note <span class="gv-meta">— required for Other</span></label>
+        <input id="fund-note" type="text" name="funding_note" maxlength="200" value="{{ procurement.funding_note }}">
+      </div>
+      <button type="submit" class="btn btn-primary">Save funding source</button>
+      <p class="gv-meta mt-2 mb-0">Can be changed until the supplier and buyer agree terms.</p>
+    </form>
+  </div>
+  {% endif %}
 
   <div class="card card-pad card-fill">
     <h3 class="mb-4">Delivery</h3>

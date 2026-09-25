@@ -264,3 +264,39 @@ def review_product_request(req, reviewer, *, approve, note='',
         req.reviewed_at = timezone.now()
         req.save()
     return req
+
+
+class FundingError(Exception):
+    """The funding source is missing, unknown, or locked."""
+
+
+def clean_funding(source, note):
+    """Validate a (funding_source, funding_note) pair; returns the cleaned
+    pair. Other needs a note saying what it is; a note on any other source is
+    kept as-is (e.g. which bank account)."""
+    source = (source or '').strip()
+    note = (note or '').strip()
+    if source not in Procurement.FundingSource.values:
+        raise FundingError('Choose where the money for this order comes from.')
+    if len(note) > 200:
+        raise FundingError('The funding note is too long (200 characters max).')
+    if source == Procurement.FundingSource.OTHER and not note:
+        raise FundingError('Describe the funding source when you choose Other.')
+    return source, note
+
+
+def set_funding(procurement, source, note):
+    """Change a purchase order's funding source while its terms are still open.
+    Locks the row so a concurrent status change can't slip past the guard."""
+    source, note = clean_funding(source, note)
+    with transaction.atomic():
+        locked = Procurement.objects.select_for_update().get(pk=procurement.pk)
+        if locked.funding_locked:
+            raise FundingError(
+                f'The funding source can no longer be changed — this order is '
+                f'{locked.status}.'
+            )
+        locked.funding_source = source
+        locked.funding_note = note
+        locked.save(update_fields=['funding_source', 'funding_note'])
+    return locked

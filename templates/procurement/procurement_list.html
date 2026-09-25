@@ -232,6 +232,21 @@ function poRecalc() {
     : poPeso(total);
 }
 
+// A funding source of Other has to say what it is.
+(function () {
+  var source = document.getElementById('po-funding-source');
+  var note = document.getElementById('po-funding-note');
+  var hint = document.getElementById('po-funding-note-hint');
+  if (!source || !note) return;
+  function sync() {
+    var other = source.value === 'Other';
+    note.required = other;
+    hint.textContent = other ? '\u2014 required for Other' : '\u2014 optional';
+  }
+  source.addEventListener('change', sync);
+  sync();
+})();
+
 poSupplier.addEventListener('change', function () {
   poRows.querySelectorAll('.js-product').forEach(poFilterProducts);
   poSyncCatalogNotice();

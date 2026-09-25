@@ -40,9 +40,9 @@ from .models import (
     DeliveryReceipt, DeliveryScanLog,
 )
 from .services import (
-    OfferReviewError, SupplierRemovalBlocked, SupplierTransferError,
-    apply_agreed_terms, remove_supplier_product, review_offer,
-    review_product_request, transfer_supplier_products,
+    FundingError, OfferReviewError, SupplierRemovalBlocked, SupplierTransferError,
+    apply_agreed_terms, clean_funding, remove_supplier_product, review_offer,
+    review_product_request, set_funding, transfer_supplier_products,
 )
 from .serializers import (
     ProcurementReadSerializer,
@@ -182,6 +182,11 @@ def procurement_detail(request, pk):
 
     items = proc.items.select_related('product').all()
     return render(request, 'procurement/procurement_detail.html', {
+        'funding_choices': Procurement.FundingSource.choices,
+        'can_edit_funding': (
+            request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and not proc.funding_locked
+        ),
         'procurement': proc, 'items': items,
         'receipts': proc.receipts.select_related('received_by'),
     })
@@ -332,6 +337,7 @@ def _procurement_form_context(user):
 
     suppliers = suppliers.select_related('supplier_profile', 'supplier_profile__category')
     return {
+        'funding_choices': Procurement.FundingSource.choices,
         'products': Product.objects.all(),
         # Every product, by id and name, for the modal's JS to rebuild each
         # item row's dropdown from (see _po_modal.html).
@@ -386,6 +392,25 @@ def procurement_add(request):
     order_date   = request.POST.get('order_date')
     product_ids  = request.POST.getlist('product_id')
     quantities   = request.POST.getlist('quantity_ordered')
+
+    # Where the money comes from is required up front (P19) — checked before
+    # anything else so a missing source can't be masked by a different error.
+    try:
+        funding_source, funding_note = clean_funding(
+            request.POST.get('funding_source'), request.POST.get('funding_note'),
+        )
+    except FundingError as exc:
+        context = _procurement_list_context(request)
+        context.update({
+            'show_po_modal': True,
+            'po_errors': [str(exc)],
+            'po_form_data': request.POST,
+            'po_restore_rows': [
+                {'product_id': pid, 'quantity': qty}
+                for pid, qty in zip(product_ids, quantities) if pid
+            ],
+        })
+        return render(request, 'procurement/procurement_list.html', context)
 
     # Neither cost nor delivery date is accepted from this form — both are
     # negotiated with the supplier after the order is raised (see
@@ -463,6 +488,8 @@ def procurement_add(request):
             total_cost=0,
             status=Procurement.Status.APPROVED if is_owner else Procurement.Status.DRAFT,
             authorized_at=timezone.now() if is_owner else None,
+            funding_source=funding_source,
+            funding_note=funding_note,
         )
 
         for product_id, qty in items:
@@ -661,6 +688,31 @@ def procurement_update_status(request, pk):
             # closed out. The bottom-sheet above still confirms the result.
             return redirect(f"{reverse('procurement_list')}?status={Procurement.Status.CANCELLED}")
 
+    return redirect('procurement_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_set_funding(request, pk):
+    """Change where a PO's money comes from, until its terms are agreed.
+    Owner, or the Branch Manager of the PO's own branch."""
+    if request.user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER):
+        messages.error(request, 'You do not have permission to change this.')
+        return redirect('procurement_list')
+
+    proc = get_object_or_404(Procurement, pk=pk)
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('procurement_list')
+
+    try:
+        set_funding(
+            proc, request.POST.get('funding_source'), request.POST.get('funding_note'),
+        )
+    except FundingError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f'Funding source updated for {proc.po_number}.')
     return redirect('procurement_detail', pk=pk)
 
 

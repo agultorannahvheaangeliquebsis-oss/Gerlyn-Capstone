@@ -93,6 +93,8 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
     )
     total            = serializers.DecimalField(source='total_cost', max_digits=12, decimal_places=2, read_only=True)
     receiptFlag      = serializers.CharField(source='receipt_flag', read_only=True)
+    fundingSource    = serializers.CharField(source='funding_source', read_only=True)
+    fundingNote      = serializers.CharField(source='funding_note', read_only=True)
     items            = ProcurementItemSerializer(many=True, read_only=True)
     receipts         = serializers.SerializerMethodField()
 
@@ -112,6 +114,8 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
             'total',
             'status',
             'receiptFlag',
+            'fundingSource',
+            'fundingNote',
             'items',
             'receipts',
         ]
@@ -189,6 +193,8 @@ class ProcurementWriteSerializer(serializers.Serializer):
     supplierId       = serializers.IntegerField()
     orderDate        = serializers.DateField()
     expectedDelivery = serializers.DateField(required=False, allow_null=True)
+    fundingSource    = serializers.ChoiceField(choices=Procurement.FundingSource.choices)
+    fundingNote      = serializers.CharField(required=False, allow_blank=True, max_length=200)
     items            = ProcurementItemWriteSerializer(many=True, min_length=1)
 
     def validate_branchId(self, value):
@@ -216,6 +222,12 @@ class ProcurementWriteSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
+        # Same rule as the web form: Other has to say what it is.
+        if (attrs['fundingSource'] == Procurement.FundingSource.OTHER
+                and not (attrs.get('fundingNote') or '').strip()):
+            raise serializers.ValidationError({
+                'fundingNote': 'Describe the funding source when you choose Other.'
+            })
         product_ids = [item['productId'] for item in attrs.get('items', [])]
         mapped_ids = set(SupplierProduct.objects.approved().filter(
             supplier_id=attrs.get('supplierId'),
@@ -245,6 +257,8 @@ class ProcurementWriteSerializer(serializers.Serializer):
                 delivery_date=validated_data.get('expectedDelivery'),
                 status=Procurement.Status.DRAFT,
                 total_cost=0,
+                funding_source=validated_data['fundingSource'],
+                funding_note=(validated_data.get('fundingNote') or '').strip(),
             )
 
             for item_data in items_data:

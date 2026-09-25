@@ -31,6 +31,21 @@ class Procurement(models.Model):
         RECEIVED = 'Received', 'Received'
         CANCELLED = 'Cancelled', 'Cancelled'
 
+    class FundingSource(models.TextChoices):
+        CASH = 'Cash on Hand', 'Cash on Hand'
+        BANK = 'Bank Transfer', 'Bank Transfer'
+        GCASH = 'GCash', 'GCash'
+        OWNER_FUNDS = "Owner's Funds", "Owner's Funds"
+        OTHER = 'Other', 'Other'
+
+    # Once the buyer and supplier have agreed terms the spend is committed, so
+    # where the money comes from stops being editable. Cancelled is locked too:
+    # a closed order's paperwork shouldn't change.
+    FUNDING_LOCKED_STATUSES = frozenset({
+        Status.TERMS_AGREED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
+        Status.RECEIVED, Status.CANCELLED,
+    })
+
     class ReceiptFlag(models.TextChoices):      # <-- new
         NONE = 'None', 'None'
         PARTIAL = 'Partial', 'Partial'
@@ -80,6 +95,10 @@ class Procurement(models.Model):
         Status.RECEIVED: set(),
         Status.CANCELLED: set(),
     }
+
+    @property
+    def funding_locked(self):
+        return self.status in self.FUNDING_LOCKED_STATUSES
 
     def can_transition_to(self, new_status):
         """True when a status view may move this order to `new_status`."""
@@ -151,6 +170,16 @@ class Procurement(models.Model):
     # record via the audit log (Procurement is audit-tracked), so nothing
     # here needs to remember prior rounds itself. Copied onto delivery_date
     # only by the supplier's final confirmation (procurement_supplier_confirm).
+    # Where the money for this order comes from (P19). Blank only on orders
+    # raised before the field existed; every new order must name a source.
+    funding_source = models.CharField(
+        max_length=20, choices=FundingSource.choices, blank=True, default='',
+    )
+    funding_note = models.CharField(
+        max_length=200, blank=True,
+        help_text="Detail for the funding source; required when it is Other.",
+    )
+
     proposed_delivery_date = models.DateField(null=True, blank=True)
     # Who is waiting on a response — i.e. whoever did NOT submit the
     # currently-pending proposed_delivery_date/ProcurementItem.proposed_unit_cost.

@@ -86,7 +86,8 @@ class OfferTests(OfferBase):
         self.client.force_login(self.owner)
         response = self.client.post(reverse('procurement_add'), {
             'branch': self.branch.pk, 'supplier': self.supplier.pk,
-            'order_date': '2026-01-01', 'product_id': [str(self.rice.pk)],
+            'order_date': '2026-01-01', 'funding_source': 'Cash on Hand',
+            'product_id': [str(self.rice.pk)],
             'quantity_ordered': ['10'], 'cost_price': ['50'],
         })
         self.assertContains(response, 'does not carry')

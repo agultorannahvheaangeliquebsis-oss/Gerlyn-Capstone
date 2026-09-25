@@ -428,6 +428,7 @@ class ProcurementAddAuthorizationTests(ProcurementAuthorizationBase):
             'branch': branch.pk,
             'supplier': self.supplier.pk,
             'order_date': '2026-01-01',
+            'funding_source': 'Cash on Hand',
             'product_id': [str(self.product.pk)],
             'quantity_ordered': ['10'],
             'cost_price': ['50'],
@@ -825,6 +826,7 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
             'branch': self.home_branch.pk,
             'supplier': self.supplier.pk,
             'order_date': '2026-01-01',
+            'funding_source': 'Cash on Hand',
             'product_id': [str(self.product.pk)],
             'quantity_ordered': ['2'],
             # A stale or malicious client may still submit this legacy key;
@@ -923,6 +925,7 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
                 'branchId': self.home_branch.pk,
                 'supplierId': self.supplier.pk,
                 'orderDate': '2026-01-01',
+                'fundingSource': 'Cash on Hand',
                 'items': [{
                     'productId': self.product.pk,
                     'quantityOrdered': 3,

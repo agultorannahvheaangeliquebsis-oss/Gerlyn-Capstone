@@ -467,6 +467,8 @@ class Command(BaseCommand):
                     if status == "Received" else None
                 ),
                 status=status, total_cost=D(total),
+                funding_source=Procurement.FundingSource.BANK,
+                funding_note='Demo data',
             )
             for sku, qty, cost in items:
                 ProcurementItem.objects.create(
