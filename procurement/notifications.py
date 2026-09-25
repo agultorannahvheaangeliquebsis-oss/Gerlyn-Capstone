@@ -5,7 +5,14 @@ from core.notifications import (
     EVENT_INCOMING_DELIVERY,
     EVENT_PO_APPROVED,
     EVENT_PO_TERMS_FOR_BUYER,
+    EVENT_PO_OVERDUE,
+    EVENT_SUPPLIER_RETURN_FOR_SUPPLIER,
+    EVENT_SUPPLIER_RETURN_RESPONSE,
+    PRIORITY_HIGH,
+    EVENT_PO_OVERDUE_ESCALATED,
     EVENT_PO_TERMS_FOR_SUPPLIER,
+    EVENT_SUPPLIER_OFFER_DECISION,
+    EVENT_SUPPLIER_OFFER_FOR_REVIEW,
     notify_event,
 )
 
@@ -100,4 +107,130 @@ def notify_terms_for_supplier(procurement, actor, *, agreed):
         action_label='View order',
         reference_type='procurement',
         reference_id=procurement.pk,
+    )
+
+
+def _supplier_label(supplier):
+    profile = getattr(supplier, 'supplier_profile', None)
+    return (profile.supplier_name if profile else '') or supplier.username
+
+
+def notify_offer_for_review(supplier, product_name, *, new_product):
+    """A supplier offered (or requested) a product — the Owner's turn."""
+    what = 'requested a new product' if new_product else 'offered a product'
+    return notify_event(
+        EVENT_SUPPLIER_OFFER_FOR_REVIEW,
+        f'{_supplier_label(supplier)} {what}',
+        f'{_supplier_label(supplier)} {what}: {product_name}. '
+        f'Review it on their supplier page.',
+        actor=supplier,
+        action_url=reverse('supplier_detail', kwargs={'pk': supplier.pk}),
+        action_label='Review offer',
+        reference_type='supplier',
+        reference_id=supplier.pk,
+    )
+
+
+def notify_offer_decision(supplier, product_name, actor, *, approved, note=''):
+    """The Owner decided on a supplier's offer or request."""
+    verdict = 'approved' if approved else 'rejected'
+    message = f'Your offer for {product_name} was {verdict}.'
+    if note and not approved:
+        message += f' Reason: {note}'
+    return notify_event(
+        EVENT_SUPPLIER_OFFER_DECISION,
+        f'Product offer {verdict}: {product_name}',
+        message,
+        actor=actor,
+        related_users={'supplier': supplier},
+        action_url=reverse('supplier_portal'),
+        action_label='View your products',
+        reference_type='supplier',
+        reference_id=supplier.pk,
+    )
+
+
+def notify_po_overdue(procurement, days_late):
+    """Stage one: the delivery is late — buyer side and supplier both told."""
+    plural = '' if days_late == 1 else 's'
+    return notify_event(
+        EVENT_PO_OVERDUE,
+        f'{procurement.po_number} is overdue',
+        f'{procurement.po_number} from {procurement.supplier} '
+        f'({procurement.branch.branch_name}) was due '
+        f'{procurement.delivery_date:%Y-%m-%d} and is {days_late} day{plural} late.',
+        branch=procurement.branch,
+        related_users={'supplier': procurement.supplier},
+        action_url=reverse('procurement_detail', kwargs={'pk': procurement.pk}),
+        action_label='View PO',
+        reference_type='procurement',
+        reference_id=procurement.pk,
+        audience_overrides={
+            'supplier': {
+                'title': f'{procurement.po_number} is overdue',
+                'message': (
+                    f'{procurement.po_number} was due {procurement.delivery_date:%Y-%m-%d} '
+                    f'at {procurement.branch.branch_name} and has not been fully '
+                    f'delivered. Please deliver it or contact GERLYN.'
+                ),
+                'action_url': reverse('supplier_portal'),
+                'action_label': 'View order',
+            },
+        },
+    )
+
+
+def notify_po_overdue_escalated(procurement, days_late):
+    """Stage two: still not delivered — the Owner decides (cancel or reschedule)."""
+    return notify_event(
+        EVENT_PO_OVERDUE_ESCALATED,
+        f'{procurement.po_number} is {days_late} days overdue',
+        f'{procurement.po_number} from {procurement.supplier} '
+        f'({procurement.branch.branch_name}) is still undelivered, {days_late} '
+        f'days past {procurement.delivery_date:%Y-%m-%d}. Reschedule it or '
+        f'cancel the order.',
+        branch=None,  # Owner only — no branch Manager/Staff fan-out
+        action_url=reverse('procurement_detail', kwargs={'pk': procurement.pk}),
+        action_label='Review PO',
+        reference_type='procurement',
+        reference_id=procurement.pk,
+    )
+
+
+def notify_return_for_supplier(supplier_return, headline, actor):
+    """Tell the supplier something changed on a return they are party to."""
+    ret = supplier_return
+    return notify_event(
+        EVENT_SUPPLIER_RETURN_FOR_SUPPLIER,
+        f'{ret.return_number}: {headline}',
+        f'{ret.return_number} ({ret.procurement.po_number}, '
+        f'{ret.branch.branch_name if ret.branch else "GERLYN"}) — {headline}.',
+        branch=ret.branch,
+        actor=actor,
+        related_users={'supplier': ret.supplier},
+        action_url=reverse('supplier_portal'),
+        action_label='View return',
+        reference_type='supplier_return',
+        reference_id=ret.pk,
+    )
+
+
+def notify_return_response(supplier_return, *, acknowledged):
+    """The supplier answered — the store's turn to ship (or cancel)."""
+    ret = supplier_return
+    verdict = 'acknowledged' if acknowledged else 'rejected'
+    message = f'{ret.supplier} {verdict} {ret.return_number} ({ret.procurement.po_number}).'
+    if not acknowledged and ret.supplier_note:
+        message += f' Reason: {ret.supplier_note}'
+    return notify_event(
+        EVENT_SUPPLIER_RETURN_RESPONSE,
+        f'{ret.return_number} {verdict} by supplier',
+        message,
+        branch=ret.branch,
+        actor=ret.supplier,
+        action_url=reverse('supplier_return_detail', kwargs={'pk': ret.pk}),
+        action_label='View return',
+        reference_type='supplier_return',
+        reference_id=ret.pk,
+        priority=None if acknowledged else PRIORITY_HIGH,
     )

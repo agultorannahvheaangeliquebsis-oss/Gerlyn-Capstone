@@ -329,6 +329,36 @@ class UserSession(models.Model):
         return describe_user_agent(self.user_agent)
 
 
+class SupplierCategory(models.Model):
+    """What kind of goods a supplier sells — a managed list the Owner
+    maintains, replacing the free-text field SupplierProfile used to carry
+    (which produced "Canned Goods" / "canned goods" / "Cans" as three
+    different categories).
+
+    product_categories optionally maps this supplier category onto the
+    storefront's ProductCategory rows; the supplier's own "add a product"
+    picker starts narrowed to those so a canned-goods supplier isn't scrolling
+    the whole catalog. It is a convenience filter, never a permission —
+    what a supplier may be ordered from is decided by its approved offers."""
+
+    name = models.CharField(max_length=100, unique=True)
+    product_categories = models.ManyToManyField(
+        'inventory.ProductCategory', blank=True, related_name='supplier_categories',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Inactive categories stay on existing suppliers but can't "
+                  "be picked for new ones.",
+    )
+
+    class Meta:
+        verbose_name_plural = 'Supplier categories'
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class SupplierProfile(models.Model):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='supplier_profile'
@@ -343,7 +373,10 @@ class SupplierProfile(models.Model):
     supplier_name     = models.CharField(max_length=100)
     contact_number    = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
     address           = models.TextField(blank=True)
-    supplier_category = models.CharField(max_length=100, blank=True)
+    category          = models.ForeignKey(
+        SupplierCategory, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='suppliers',
+    )
     contact_person    = models.CharField(max_length=100, blank=True)
 
     def __str__(self):

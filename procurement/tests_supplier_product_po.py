@@ -65,6 +65,7 @@ class SupplierProductPOBase(TestCase):
             'branch': str(cls.branch.pk),
             'supplier': str(cls.supplier.pk),
             'order_date': dt.date(2026, 9, 20).isoformat(),
+            'funding_source': 'Cash on Hand',
             'product_id': [str(product.pk)],
             'quantity_ordered': ['2'],
             'cost_price': ['42.50'],
@@ -76,6 +77,7 @@ class SupplierProductPOBase(TestCase):
             'branchId': cls.branch.pk,
             'supplierId': (supplier or cls.supplier).pk,
             'orderDate': '2026-09-20',
+            'fundingSource': 'Cash on Hand',
             'items': [{
                 'productId': product.pk,
                 'quantityOrdered': 2,

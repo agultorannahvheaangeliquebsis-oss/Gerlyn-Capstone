@@ -1410,7 +1410,16 @@ def alerts_center(request):
     branch_ids = [int(branch_filter)] if branch_filter else branch_ids_for_user(request.user)
     summary = alert_summary(branch_ids)
 
+    # Purchase orders past their delivery date (P18). Imported here because
+    # procurement already depends on inventory, not the other way round.
+    from procurement.services import overdue_orders
+    overdue_deliveries = list(overdue_orders(branch_ids))
+    today = timezone.localdate()
+    for po in overdue_deliveries:
+        po.late_days = (today - po.delivery_date).days
+
     return render(request, 'inventory/alerts_center.html', {
+        'overdue_deliveries': overdue_deliveries,
         'critical_count': summary['critical_count'],
         'low_count': summary['low_count'],
         'warehouse_critical_count': summary['warehouse_critical_count'],

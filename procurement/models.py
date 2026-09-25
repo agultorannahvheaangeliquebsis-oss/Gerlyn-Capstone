@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 from branches.models import Branch
 from inventory.models import Product
 from accounts.models import User
@@ -29,6 +30,21 @@ class Procurement(models.Model):
         PARTIALLY_RECEIVED = 'Partially Received', 'Partially Received'
         RECEIVED = 'Received', 'Received'
         CANCELLED = 'Cancelled', 'Cancelled'
+
+    class FundingSource(models.TextChoices):
+        CASH = 'Cash on Hand', 'Cash on Hand'
+        BANK = 'Bank Transfer', 'Bank Transfer'
+        GCASH = 'GCash', 'GCash'
+        OWNER_FUNDS = "Owner's Funds", "Owner's Funds"
+        OTHER = 'Other', 'Other'
+
+    # Once the buyer and supplier have agreed terms the spend is committed, so
+    # where the money comes from stops being editable. Cancelled is locked too:
+    # a closed order's paperwork shouldn't change.
+    FUNDING_LOCKED_STATUSES = frozenset({
+        Status.TERMS_AGREED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
+        Status.RECEIVED, Status.CANCELLED,
+    })
 
     class ReceiptFlag(models.TextChoices):      # <-- new
         NONE = 'None', 'None'
@@ -79,6 +95,22 @@ class Procurement(models.Model):
         Status.RECEIVED: set(),
         Status.CANCELLED: set(),
     }
+
+    # Statuses in which goods are still expected from the supplier against a
+    # delivery_date the two sides already agreed.
+    AWAITING_DELIVERY_STATUSES = frozenset({Status.INCOMING, Status.PARTIALLY_RECEIVED})
+
+    def days_overdue(self, today=None):
+        """Whole days past the agreed delivery date; 0 when not late, not
+        awaiting delivery, or no date is set."""
+        if self.status not in self.AWAITING_DELIVERY_STATUSES or not self.delivery_date:
+            return 0
+        today = today or timezone.localdate()
+        return max((today - self.delivery_date).days, 0)
+
+    @property
+    def funding_locked(self):
+        return self.status in self.FUNDING_LOCKED_STATUSES
 
     def can_transition_to(self, new_status):
         """True when a status view may move this order to `new_status`."""
@@ -150,6 +182,21 @@ class Procurement(models.Model):
     # record via the audit log (Procurement is audit-tracked), so nothing
     # here needs to remember prior rounds itself. Copied onto delivery_date
     # only by the supplier's final confirmation (procurement_supplier_confirm).
+    # Where the money for this order comes from (P19). Blank only on orders
+    # raised before the field existed; every new order must name a source.
+    funding_source = models.CharField(
+        max_length=20, choices=FundingSource.choices, blank=True, default='',
+    )
+    funding_note = models.CharField(
+        max_length=200, blank=True,
+        help_text="Detail for the funding source; required when it is Other.",
+    )
+
+    # Overdue handling (P18): stamped once by the daily sweep so each stage
+    # notifies exactly once; cleared when the delivery date is rescheduled.
+    overdue_flagged_at = models.DateTimeField(null=True, blank=True)
+    overdue_escalated_at = models.DateTimeField(null=True, blank=True)
+
     proposed_delivery_date = models.DateField(null=True, blank=True)
     # Who is waiting on a response — i.e. whoever did NOT submit the
     # currently-pending proposed_delivery_date/ProcurementItem.proposed_unit_cost.
@@ -309,6 +356,14 @@ class ProcurementItem(models.Model):
         ]
 
 
+class SupplierProductQuerySet(models.QuerySet):
+    def approved(self):
+        """Offers the store has accepted. Only these may appear on a purchase
+        order or have their cost snapshotted — a supplier's own proposal
+        means nothing to procurement until the Owner has approved it."""
+        return self.filter(status=SupplierProduct.Status.APPROVED)
+
+
 class SupplierProduct(models.Model):
     """Which products a supplier currently carries.
 
@@ -318,6 +373,13 @@ class SupplierProduct(models.Model):
     now". This one is the forward-looking mapping — it's what a supplier's
     product sub-view lists and what a transfer moves between suppliers.
     """
+    class Status(models.TextChoices):
+        APPROVED = 'Approved', 'Approved'
+        PROPOSED = 'Proposed', 'Proposed'
+        REJECTED = 'Rejected', 'Rejected'
+
+    objects = SupplierProductQuerySet.as_manager()
+
     def __init__(self, *args, **kwargs):
         if 'default_cost_price' in kwargs and 'current_cost_price' not in kwargs:
             kwargs['current_cost_price'] = kwargs.pop('default_cost_price')
@@ -354,6 +416,22 @@ class SupplierProduct(models.Model):
     )
     added_at = models.DateTimeField(auto_now_add=True)
 
+    # Offer workflow (P01). Default Approved so rows the Owner creates, and
+    # every row that existed before the workflow did, keep working untouched;
+    # only a supplier's own self-add starts as Proposed.
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.APPROVED,
+    )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_supplier_offers',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(
+        max_length=200, blank=True,
+        help_text="Why an offer was rejected, shown to the supplier.",
+    )
+
     class Meta:
         unique_together = ('supplier', 'product')
         ordering = ['product__product_name']
@@ -377,6 +455,246 @@ class SupplierProduct(models.Model):
     @default_cost_price.setter
     def default_cost_price(self, value):
         self.current_cost_price = value
+
+
+class SupplierProductRequest(models.Model):
+    """A supplier asking the store to start carrying a product that is not in
+    the Product Master List yet.
+
+    Separate from SupplierProduct because that row needs a real Product, and
+    only the Owner creates those: approving a request is what mints the
+    Product (SKU, retail price and category are the Owner's call) plus the
+    Approved SupplierProduct link at the supplier's proposed cost. Until then
+    the request can't be ordered or stocked. Pending -> Approved | Rejected, or
+    Withdrawn by the supplier.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'Pending', 'Pending'
+        APPROVED = 'Approved', 'Approved'
+        REJECTED = 'Rejected', 'Rejected'
+        WITHDRAWN = 'Withdrawn', 'Withdrawn'
+
+    supplier = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='product_requests',
+    )
+    product_name = models.CharField(max_length=150)
+    unit_of_measure = models.CharField(
+        max_length=20, choices=Product.UnitOfMeasure.choices,
+        default=Product.UnitOfMeasure.PIECE,
+    )
+    proposed_cost = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    lead_time_days = models.PositiveIntegerField(null=True, blank=True)
+    note = models.CharField(max_length=300, blank=True)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING,
+    )
+    created_product = models.ForeignKey(
+        Product, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+',
+    )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_product_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(proposed_cost__gt=0),
+                name='supplierproductrequest_proposed_cost_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product_name} requested by {self.supplier} ({self.status})"
+
+
+class DeliveryReceipt(models.Model):
+    """One recorded receiving event against a purchase order.
+
+    A PO can arrive in several shipments, so "who received it" is a fact about
+    each receipt, not about the order — this table keeps them all. received_by
+    is always the logged-in user who submitted the receive form (never typed,
+    so it can't be faked); delivered_by is the optional courier/driver name
+    from the loading bay. The stock itself is recorded separately as
+    StockMovement rows, which carry the same actor.
+    """
+
+    procurement = models.ForeignKey(
+        Procurement, on_delete=models.CASCADE, related_name='receipts',
+    )
+    received_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='delivery_receipts',
+    )
+    received_at = models.DateTimeField(default=timezone.now)
+    receipt_date = models.DateField(
+        null=True, blank=True,
+        help_text="The actual receipt date entered on the receive form.",
+    )
+    delivered_by = models.CharField(
+        max_length=100, blank=True,
+        help_text="Courier or driver who handed the goods over, if noted.",
+    )
+    # Set when this receipt is a replacement delivered for a supplier return
+    # rather than a shipment against the original order.
+    supplier_return = models.ForeignKey(
+        'SupplierReturn', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='replacement_receipts',
+    )
+
+    class Meta:
+        ordering = ['received_at', 'id']
+
+    @property
+    def received_by_name(self):
+        from core.people import person_display_name
+        return person_display_name(self.received_by)
+
+    def __str__(self):
+        return f"{self.procurement} received by {self.received_by} at {self.received_at:%Y-%m-%d %H:%M}"
+
+
+class SupplierReturn(models.Model):
+    """Goods sent back to the supplier that delivered them (P17).
+
+    Requested by the store against a PO that has been received, acknowledged
+    (or rejected) by the supplier, shipped by the store — which is the moment
+    the units leave warehouse stock — and finally settled by a credit note or
+    a replacement delivery.
+
+        Requested -> Acknowledged -> Shipped -> Settled
+        Requested -> Rejected (by the supplier)
+        Requested / Acknowledged / Rejected -> Cancelled (by the store)
+
+    Only the warehouse is touched: goods already moved onto the floor have to
+    come back through a stock withdrawal first, so this can never take units
+    out from under a sale.
+    """
+
+    class Status(models.TextChoices):
+        REQUESTED = 'Requested', 'Requested'
+        ACKNOWLEDGED = 'Acknowledged', 'Acknowledged'
+        REJECTED = 'Rejected', 'Rejected by supplier'
+        SHIPPED = 'Shipped', 'Shipped back'
+        SETTLED = 'Settled', 'Settled'
+        CANCELLED = 'Cancelled', 'Cancelled'
+
+    class Reason(models.TextChoices):
+        DAMAGED = 'Damaged', 'Damaged'
+        WRONG_ITEM = 'Wrong Item', 'Wrong item delivered'
+        EXPIRED = 'Expired', 'Expired / short-dated'
+        QUALITY = 'Quality', 'Quality issue'
+        OTHER = 'Other', 'Other'
+
+    class Resolution(models.TextChoices):
+        CREDIT = 'Credit Note', 'Credit note'
+        REPLACEMENT = 'Replacement', 'Replacement'
+
+    # A return can still be cancelled by the store until the goods leave.
+    CANCELLABLE_STATUSES = frozenset({Status.REQUESTED, Status.ACKNOWLEDGED, Status.REJECTED})
+    # Statuses that still hold a claim on the units (a rejected/cancelled
+    # return frees them to be requested again).
+    ACTIVE_STATUSES = frozenset({
+        Status.REQUESTED, Status.ACKNOWLEDGED, Status.SHIPPED, Status.SETTLED,
+    })
+
+    return_number = models.CharField(max_length=20, unique=True, blank=True)
+    procurement = models.ForeignKey(
+        Procurement, on_delete=models.CASCADE, related_name='supplier_returns',
+    )
+    supplier = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name='supplier_returns',
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, null=True, related_name='supplier_returns',
+    )
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    notes = models.CharField(max_length=300, blank=True)
+    status = models.CharField(
+        max_length=14, choices=Status.choices, default=Status.REQUESTED,
+    )
+    requested_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    supplier_note = models.CharField(
+        max_length=200, blank=True,
+        help_text="The supplier's reason when rejecting a return.",
+    )
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    shipped_at = models.DateTimeField(null=True, blank=True)
+    shipped_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    shipping_note = models.CharField(max_length=200, blank=True)
+
+    resolution = models.CharField(max_length=12, choices=Resolution.choices, blank=True)
+    credit_reference = models.CharField(max_length=60, blank=True)
+    credit_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    settled_at = models.DateTimeField(null=True, blank=True)
+    settled_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.return_number:
+            self.return_number = f"SR-{timezone.now().year}-{str(self.pk).zfill(3)}"
+            super().save(update_fields=['return_number'])
+
+    def __str__(self):
+        return f"{self.return_number or f'Return #{self.pk}'} - {self.status}"
+
+    @property
+    def total_quantity(self):
+        return sum(i.quantity_returned for i in self.items.all())
+
+
+class SupplierReturnItem(models.Model):
+    supplier_return = models.ForeignKey(
+        SupplierReturn, on_delete=models.CASCADE, related_name='items',
+    )
+    procurement_item = models.ForeignKey(
+        ProcurementItem, on_delete=models.CASCADE, related_name='return_items',
+    )
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='supplier_return_items',
+    )
+    quantity_returned = models.PositiveIntegerField()
+    quantity_replaced = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity_returned__gt=0),
+                name='supplierreturnitem_quantity_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product} x{self.quantity_returned} on {self.supplier_return}"
+
+    @property
+    def replacement_outstanding(self):
+        return max(self.quantity_returned - self.quantity_replaced, 0)
 
 
 class DeliveryScanLog(models.Model):

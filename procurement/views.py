@@ -19,7 +19,7 @@ from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 
 from xhtml2pdf import pisa
 
@@ -36,13 +36,17 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from .models import (
-    Procurement, ProcurementItem, SupplierProduct, DeliveryScanLog,
+    Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
+    SupplierReturn, DeliveryReceipt, DeliveryScanLog,
 )
 from .services import (
-    active_supplier_product_links,
-    apply_agreed_terms,
-    SupplierTransferError,
-    transfer_supplier_products,
+    FundingError, OfferReviewError, RescheduleError, ReturnError,
+    SupplierRemovalBlocked, SupplierTransferError,
+    active_supplier_product_links, apply_agreed_terms,
+    cancel_return, clean_funding, create_supplier_return,
+    receive_replacement, remove_supplier_product, reschedule_delivery,
+    respond_to_return, returnable_lines, review_offer, review_product_request,
+    set_funding, settle_with_credit, ship_return, transfer_supplier_products,
     unassigned_product_ids,
 )
 from .serializers import (
@@ -50,8 +54,10 @@ from .serializers import (
     ProcurementWriteSerializer,
     ProcurementStatusSerializer,
 )
-from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
-from accounts.models import Notification, User
+from inventory.models import (
+    Batch, Product, ProductCategory, StockMovement, Warehouse, WarehouseStock,
+)
+from accounts.models import Notification, SupplierCategory, User
 
 
 # =============================================================================
@@ -181,7 +187,26 @@ def procurement_detail(request, pk):
 
     items = proc.items.select_related('product').all()
     return render(request, 'procurement/procurement_detail.html', {
-        'procurement': proc, 'items': items
+        'supplier_returns': proc.supplier_returns.select_related('supplier'),
+        'can_return_goods': (
+            request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and proc.status in (
+                Procurement.Status.RECEIVED, Procurement.Status.PARTIALLY_RECEIVED,
+            )
+        ),
+        'days_overdue': proc.days_overdue(),
+        'can_reschedule': (
+            request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and proc.status in Procurement.AWAITING_DELIVERY_STATUSES
+        ),
+        'today': timezone.localdate(),
+        'funding_choices': Procurement.FundingSource.choices,
+        'can_edit_funding': (
+            request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and not proc.funding_locked
+        ),
+        'procurement': proc, 'items': items,
+        'receipts': proc.receipts.select_related('received_by'),
     })
 
 
@@ -218,6 +243,7 @@ def _procurement_document_context(proc, request):
         ),
         'printed_on': timezone.localdate(),
         'printed_by': person_display_name(request.user),
+        'receipts': proc.receipts.select_related('received_by'),
     }
 
 
@@ -336,7 +362,7 @@ def _procurement_form_context(user):
     # default cost belongs to a supplier/product pair. These are the only
     # options the PO JavaScript will put in a product selector.
     links = list(
-        SupplierProduct.objects.filter(supplier__in=suppliers)
+        SupplierProduct.objects.approved().filter(supplier__in=suppliers)
         .select_related('product')
         .prefetch_related('product__price_tiers')
         .order_by('supplier_id', 'product__product_name')
@@ -357,7 +383,7 @@ def _procurement_form_context(user):
     ]
 
     supplier_catalog = {}
-    for link in SupplierProduct.objects.filter(
+    for link in SupplierProduct.objects.approved().filter(
         supplier__in=suppliers
     ).values('supplier_id', 'product_id', 'current_cost_price'):
         supplier_catalog.setdefault(str(link['supplier_id']), {})[
@@ -367,9 +393,23 @@ def _procurement_form_context(user):
             if link['current_cost_price'] is not None else None
         )
 
+    suppliers = suppliers.select_related('supplier_profile', 'supplier_profile__category')
     return {
+        'funding_choices': Procurement.FundingSource.choices,
         'products': Product.objects.all(),
+        # Every product, by id and name, for the modal's JS to rebuild each
+        # item row's dropdown from (see _po_modal.html).
+        'product_options': [
+            {'id': str(pid), 'name': name}
+            for pid, name in Product.objects.order_by('product_name').values_list(
+                'pk', 'product_name')
+        ],
         'suppliers': suppliers,
+        # The optional "Supplier category" filter above the supplier dropdown:
+        # only categories at least one selectable supplier is filed under.
+        'supplier_categories': SupplierCategory.objects.filter(
+            suppliers__user__in=suppliers
+        ).distinct(),
         'supplier_catalog': supplier_catalog,
         'supplier_product_options': supplier_product_options,
         'branches': branches,
@@ -411,6 +451,25 @@ def procurement_add(request):
     order_date   = request.POST.get('order_date')
     product_ids  = request.POST.getlist('product_id')
     quantities   = request.POST.getlist('quantity_ordered')
+
+    # Where the money comes from is required up front (P19) — checked before
+    # anything else so a missing source can't be masked by a different error.
+    try:
+        funding_source, funding_note = clean_funding(
+            request.POST.get('funding_source'), request.POST.get('funding_note'),
+        )
+    except FundingError as exc:
+        context = _procurement_list_context(request)
+        context.update({
+            'show_po_modal': True,
+            'po_errors': [str(exc)],
+            'po_form_data': request.POST,
+            'po_restore_rows': [
+                {'product_id': pid, 'quantity': qty}
+                for pid, qty in zip(product_ids, quantities) if pid
+            ],
+        })
+        return render(request, 'procurement/procurement_list.html', context)
 
     # Neither cost nor delivery date is accepted from this form — both are
     # negotiated with the supplier after the order is raised (see
@@ -513,6 +572,8 @@ def procurement_add(request):
             total_cost=0,
             status=Procurement.Status.APPROVED if is_owner else Procurement.Status.DRAFT,
             authorized_at=timezone.now() if is_owner else None,
+            funding_source=funding_source,
+            funding_note=funding_note,
         )
 
         for product_id, qty in items:
@@ -711,6 +772,69 @@ def procurement_update_status(request, pk):
             # closed out. The bottom-sheet above still confirms the result.
             return redirect(f"{reverse('procurement_list')}?status={Procurement.Status.CANCELLED}")
 
+    return redirect('procurement_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_set_funding(request, pk):
+    """Change where a PO's money comes from, until its terms are agreed.
+    Owner, or the Branch Manager of the PO's own branch."""
+    if request.user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER):
+        messages.error(request, 'You do not have permission to change this.')
+        return redirect('procurement_list')
+
+    proc = get_object_or_404(Procurement, pk=pk)
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('procurement_list')
+
+    try:
+        set_funding(
+            proc, request.POST.get('funding_source'), request.POST.get('funding_note'),
+        )
+    except FundingError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f'Funding source updated for {proc.po_number}.')
+    return redirect('procurement_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_reschedule(request, pk):
+    """Give an Incoming / Partially Received order a new delivery date — the
+    manual answer to an overdue delivery (the other is cancelling it). Clears
+    the overdue flags so the new date is tracked afresh, and tells the
+    supplier."""
+    from core.notifications import PRIORITY_MEDIUM, notify_supplier
+
+    if request.user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER):
+        messages.error(request, 'You do not have permission to reschedule deliveries.')
+        return redirect('procurement_list')
+
+    proc = get_object_or_404(Procurement, pk=pk)
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('procurement_list')
+
+    raw = request.POST.get('delivery_date', '').strip()
+    try:
+        updated = reschedule_delivery(proc, parse_date(raw) if raw else None)
+    except (RescheduleError, ValueError) as exc:
+        messages.error(request, str(exc) or 'Enter a valid delivery date.')
+        return redirect('procurement_detail', pk=pk)
+
+    notify_supplier(
+        updated.supplier, PRIORITY_MEDIUM,
+        f'{updated.po_number} — new delivery date',
+        f'GERLYN moved the delivery of {updated.po_number} to '
+        f'{updated.delivery_date:%Y-%m-%d}.',
+        action_url=reverse('supplier_portal'), action_label='View order',
+    )
+    messages.success(
+        request, f'{updated.po_number} rescheduled to {updated.delivery_date:%Y-%m-%d}.'
+    )
     return redirect('procurement_detail', pk=pk)
 
 
@@ -1335,6 +1459,16 @@ def delivery_receive(request, pk):
                 locked_proc.save(update_fields=[
                     'status', 'receipt_flag', 'actual_receipt_date',
                 ])
+                # Who took this shipment in. Always the signed-in user; only
+                # the courier's name is typed. Inside the same atomic block as
+                # the stock writes, so a receipt row exists exactly when stock
+                # was actually received.
+                DeliveryReceipt.objects.create(
+                    procurement=locked_proc,
+                    received_by=request.user,
+                    receipt_date=receipt_date,
+                    delivered_by=request.POST.get('delivered_by', '').strip()[:100],
+                )
         except _DeliveryStatusError as e:
             messages.error(request, str(e))
             return redirect('procurement_detail', pk=pk)
@@ -1595,15 +1729,37 @@ def supplier_portal(request):
         supplier=request.user
     ).select_related('product').order_by('product__product_name')
 
+    # The "Offer a product" picker — Product Master List minus what this
+    # supplier already has a row for (any status), so neither picker can
+    # bounce off the unique constraint. When the supplier's category is linked
+    # to product categories the list starts narrowed to those; ?all_products=1
+    # widens it. A convenience only: any master-list product may be offered.
+    profile = getattr(request.user, 'supplier_profile', None)
+    available_products = Product.objects.exclude(
+        pk__in=catalog_links.values_list('product_id', flat=True)
+    ).order_by('product_name')
+    suggested_category_ids = (
+        list(profile.category.product_categories.values_list('pk', flat=True))
+        if profile and profile.category_id else []
+    )
+    narrowed = bool(suggested_category_ids) and not request.GET.get('all_products')
+    if narrowed:
+        available_products = available_products.filter(
+            category_id__in=suggested_category_ids
+        )
+
     return render(request, 'procurement/supplier_portal.html', {
         'orders': orders,
         'catalog_links': catalog_links,
-        # The "Add a product" picker — Product Master List minus what this
-        # supplier already carries, same exclusion supplier_detail's own
-        # picker uses so neither can bounce off the unique constraint.
-        'available_products': Product.objects.exclude(
-            pk__in=catalog_links.values_list('product_id', flat=True)
-        ).order_by('product_name'),
+        'available_products': available_products,
+        'products_narrowed': narrowed,
+        'supplier_returns': request.user.supplier_returns.select_related(
+            'procurement', 'branch',
+        ).prefetch_related('items__product')[:20],
+        'product_requests': request.user.product_requests.exclude(
+            status=SupplierProductRequest.Status.WITHDRAWN
+        )[:20],
+        'unit_choices': Product.UnitOfMeasure.choices,
         'counts': counts,
         'status_filter': status_filter,
         'open_count': len(open_orders),
@@ -1761,12 +1917,24 @@ def _supplier_list_context(request):
     from django.db.models import Count
 
     suppliers = User.objects.filter(role=User.Role.SUPPLIER).select_related(
-        'supplier_profile'
+        'supplier_profile', 'supplier_profile__category'
     ).annotate(
         # Drives the Products column, which links into the per-supplier
         # product sub-view. Annotated rather than counted per row in the
         # template, which would be one query per supplier.
-        product_count=Count('supplied_products', distinct=True)
+        product_count=Count(
+            'supplied_products', distinct=True,
+            filter=Q(supplied_products__status=SupplierProduct.Status.APPROVED),
+        ),
+        # Offers and new-product requests waiting on the Owner, flagged on the row.
+        pending_offer_count=Count(
+            'supplied_products', distinct=True,
+            filter=Q(supplied_products__status=SupplierProduct.Status.PROPOSED),
+        ),
+        pending_request_count=Count(
+            'product_requests', distinct=True,
+            filter=Q(product_requests__status=SupplierProductRequest.Status.PENDING),
+        ),
     ).order_by('supplier_profile__supplier_name')
 
     search_query = request.GET.get('q', '')
@@ -1784,6 +1952,9 @@ def _supplier_list_context(request):
         # every branch). Without this the modal's select renders empty and a
         # saved edit would blank the assignment the list column shows.
         'branches': Branch.objects.all(),
+        # Inactive categories are hidden from the picker; the modal adds the
+        # supplier's current one back itself so editing never blanks it.
+        'supplier_categories': SupplierCategory.objects.filter(is_active=True),
     }
 
 
@@ -1839,6 +2010,17 @@ def supplier_form(request, pk=None):
     elif supplier is None and User.objects.filter(username=username).exists():
         errors.append(f'Username "{username}" is already taken.')
 
+    # A category is picked from the managed list, never typed. A blank choice
+    # clears it; a retired (inactive) one is only accepted if the supplier
+    # already had it, so editing an old supplier doesn't force a change.
+    category = None
+    category_id = request.POST.get('category', '').strip()
+    if category_id:
+        category = SupplierCategory.objects.filter(pk=category_id).first()             if category_id.isdigit() else None
+        current_id = profile.category_id if profile else None
+        if category is None or (not category.is_active and category.pk != current_id):
+            errors.append('Choose a category from the list.')
+
     if not errors:
         with transaction.atomic():
             if supplier is None:
@@ -1860,7 +2042,7 @@ def supplier_form(request, pk=None):
             profile.supplier_name = name
             profile.contact_person = request.POST.get('contact_person', '')
             profile.contact_number = request.POST.get('contact_number', '')
-            profile.supplier_category = request.POST.get('supplier_category', '')
+            profile.category = category
             profile.address = request.POST.get('address', '')
             profile.branch_id = request.POST.get('branch') or None
             profile.save()
@@ -1887,6 +2069,104 @@ def supplier_form(request, pk=None):
 
 
 # -----------------------------------------------------------------------------
+# SUPPLIER CATEGORIES — the managed list the supplier form's dropdown reads.
+#
+# Owner-only, like every other supplier write. Kept on one small page (add
+# form + a row per category) rather than the modal pattern: a category is just
+# a name, a flag and a set of product categories.
+# -----------------------------------------------------------------------------
+
+def _supplier_category_context():
+    from inventory.models import ProductCategory
+    return {
+        'categories': SupplierCategory.objects.prefetch_related(
+            'product_categories'
+        ).annotate(supplier_count=Count('suppliers')),
+        'product_categories': ProductCategory.objects.all(),
+    }
+
+
+@login_required(login_url='accounts:login')
+def supplier_category_list(request):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+    context = _supplier_category_context()
+    context['can_edit'] = request.user.role == User.Role.OWNER
+    return render(request, 'procurement/supplier_category_list.html', context)
+
+
+@login_required(login_url='accounts:login')
+def supplier_category_save(request, pk=None):
+    """Create or update one supplier category (Owner only, POST only)."""
+    from inventory.models import ProductCategory
+
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage supplier categories.')
+        return redirect('supplier_category_list')
+    if request.method != 'POST':
+        return redirect('supplier_category_list')
+
+    category = get_object_or_404(SupplierCategory, pk=pk) if pk else None
+    name = request.POST.get('name', '').strip()
+    if not name:
+        messages.error(request, 'Category name is required.')
+        return redirect('supplier_category_list')
+    if len(name) > 100:
+        messages.error(request, 'Category name is too long (100 characters max).')
+        return redirect('supplier_category_list')
+    clash = SupplierCategory.objects.filter(name__iexact=name)
+    if category:
+        clash = clash.exclude(pk=category.pk)
+    if clash.exists():
+        messages.error(request, f'A supplier category called "{name}" already exists.')
+        return redirect('supplier_category_list')
+
+    product_ids = [
+        int(v) for v in request.POST.getlist('product_categories') if v.isdigit()
+    ]
+    with transaction.atomic():
+        target = category or SupplierCategory()
+        target.name = name
+        if category:
+            # The row form only posts the checkbox when ticked; a create form
+            # has no such field, so a new category starts active.
+            target.is_active = bool(request.POST.get('is_active'))
+        target.save()
+        target.product_categories.set(ProductCategory.objects.filter(pk__in=product_ids))
+    messages.success(
+        request, f'Supplier category "{name}" {"updated" if category else "added"}.'
+    )
+    return redirect('supplier_category_list')
+
+
+@login_required(login_url='accounts:login')
+def supplier_category_delete(request, pk):
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage supplier categories.')
+        return redirect('supplier_category_list')
+    if request.method != 'POST':
+        return redirect('supplier_category_list')
+
+    category = get_object_or_404(SupplierCategory, pk=pk)
+    in_use = category.suppliers.count()
+    if in_use:
+        # Deleting would silently un-categorise these suppliers (SET_NULL);
+        # make the Owner move them first, or retire the category instead.
+        messages.error(
+            request,
+            f'Cannot delete "{category.name}" — {in_use} supplier'
+            f'{"s use" if in_use != 1 else " uses"} it. Reassign them, or mark '
+            f'the category inactive instead.',
+        )
+        return redirect('supplier_category_list')
+    name = category.name
+    category.delete()
+    messages.success(request, f'Supplier category "{name}" deleted.')
+    return redirect('supplier_category_list')
+
+
+# -----------------------------------------------------------------------------
 # SUPPLIER DETAIL — the per-supplier product sub-view.
 #
 # Which products a supplier carries used to be answerable only by reading back
@@ -1905,15 +2185,19 @@ def supplier_detail(request, pk):
         pk=pk, role=User.Role.SUPPLIER,
     )
 
-    links = SupplierProduct.objects.filter(supplier=supplier).select_related(
+    all_links = SupplierProduct.objects.filter(supplier=supplier).select_related(
         'product', 'product__category'
     )
+    # The table below is what the store actually buys: approved offers only.
+    # Proposed ones wait in their own card until the Owner decides.
+    links = all_links.approved()
+    pending_offers = all_links.filter(status=SupplierProduct.Status.PROPOSED)
 
-    # Products this supplier doesn't already carry — the "Add Product" picker.
-    # Excluding the existing ones up front is what stops a user picking a
+    # Products this supplier doesn't already have a row for — the "Add Product"
+    # picker. Excluding every status up front is what stops a user picking a
     # product that would only bounce off the unique constraint.
     available = Product.objects.exclude(
-        pk__in=links.values_list('product_id', flat=True)
+        pk__in=all_links.values_list('product_id', flat=True)
     ).order_by('product_name')
 
     # Everyone else, for the transfer destination dropdown.
@@ -1927,6 +2211,11 @@ def supplier_detail(request, pk):
         'supplier': supplier,
         'profile': getattr(supplier, 'supplier_profile', None),
         'links': links,
+        'pending_offers': pending_offers,
+        'pending_requests': supplier.product_requests.filter(
+            status=SupplierProductRequest.Status.PENDING
+        ),
+        'product_categories': ProductCategory.objects.all(),
         'available_products': available,
         'other_suppliers': other_suppliers,
         'can_edit': request.user.role == User.Role.OWNER,
@@ -1971,21 +2260,41 @@ def supplier_product_add(request, pk):
 
     if created:
         messages.success(request, f'{product.product_name} added to this supplier.')
+    elif link.status != SupplierProduct.Status.APPROVED:
+        # The Owner adding a product the supplier had only offered (or had
+        # rejected) is a decision — approve it rather than saying "already".
+        link.status = SupplierProduct.Status.APPROVED
+        link.reviewed_by = request.user
+        link.reviewed_at = timezone.now()
+        link.review_note = ''
+        link.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_note'])
+        messages.success(request, f'{product.product_name} approved for this supplier.')
     else:
         messages.info(request, f'{product.product_name} is already on this supplier.')
     return redirect('supplier_detail', pk=pk)
 
 
+def _clean_offer_cost(raw):
+    """A supplier's quoted unit cost: a positive decimal, same rules as the
+    model field. Raises ValidationError with a user-facing message."""
+    field = SupplierProduct._meta.get_field('current_cost_price').formfield(required=True)
+    cost = field.clean((raw or '').strip())
+    if cost <= 0:
+        raise ValidationError('Enter a cost greater than zero.')
+    return cost
+
+
 @login_required(login_url='accounts:login')
 @require_POST
 def supplier_product_self_add(request):
-    """The supplier's own equivalent of supplier_product_add — a supplier
-    can now also say what it carries, not only the Owner. Kept as a
-    separate view (rather than widening the role check above) since this
-    one has no `pk` to look a target supplier up by — it always means
-    request.user — and redirects back to the portal, not supplier_detail,
-    which the Owner/Manager role check on that view would refuse a
-    supplier anyway."""
+    """A supplier offers a product from the Product Master List.
+
+    The offer starts Proposed with the supplier's cost and lead time; it can't
+    be put on a purchase order until the Owner approves it (see
+    supplier_offer_review). Re-offering a Rejected product re-opens it.
+    """
+    from .notifications import notify_offer_for_review
+
     if request.user.role != User.Role.SUPPLIER:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
@@ -1996,17 +2305,220 @@ def supplier_product_self_add(request):
         return redirect('supplier_portal')
 
     product = get_object_or_404(Product, pk=product_id)
+    try:
+        cost = _clean_offer_cost(request.POST.get('current_cost_price'))
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
+        return redirect('supplier_portal')
+    lead = _safe_nonneg_int(request.POST.get('lead_time_days'))
 
-    link, created = SupplierProduct.objects.get_or_create(
-        supplier=request.user, product=product,
-    )
-    if created:
-        messages.success(
-            request, f'{product.product_name} added — set your cost for it below.'
+    with transaction.atomic():
+        link, created = SupplierProduct.objects.get_or_create(
+            supplier=request.user, product=product,
+            defaults={
+                'status': SupplierProduct.Status.PROPOSED,
+                'current_cost_price': cost,
+                'lead_time_days': lead,
+            },
         )
+        reopened = False
+        if not created and link.status == SupplierProduct.Status.REJECTED:
+            link.status = SupplierProduct.Status.PROPOSED
+            link.current_cost_price = cost
+            link.lead_time_days = lead
+            link.reviewed_by = None
+            link.reviewed_at = None
+            link.review_note = ''
+            link.save()
+            reopened = True
+
+    if created or reopened:
+        notify_offer_for_review(request.user, product.product_name, new_product=False)
+        messages.success(
+            request,
+            f'{product.product_name} offered — it can be ordered once Gerlyn approves it.',
+        )
+    elif link.status == SupplierProduct.Status.PROPOSED:
+        messages.info(request, f'{product.product_name} is already awaiting approval.')
     else:
         messages.info(request, f'{product.product_name} is already on your catalog.')
     return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_product_self_remove(request, link_pk):
+    """A supplier takes a product off its own catalog (or withdraws a
+    pending/rejected offer). Blocked while one of its open orders needs it."""
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    # Scoped to request.user: another supplier's link is a 404, not a refusal.
+    link = get_object_or_404(
+        SupplierProduct.objects.select_related('product'),
+        pk=link_pk, supplier=request.user,
+    )
+    name = link.product.product_name
+    try:
+        remove_supplier_product(link)
+    except SupplierRemovalBlocked as exc:
+        messages.error(request, f'Cannot remove {name}. {exc}')
+    except SupplierProduct.DoesNotExist:
+        pass  # double-submit: already gone
+    else:
+        messages.success(request, f'{name} removed from your catalog.')
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_product_request_add(request):
+    """A supplier asks the store to carry a product that isn't in the master
+    list. Only the Owner can turn it into a real product."""
+    from .notifications import notify_offer_for_review
+
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    name = request.POST.get('product_name', '').strip()
+    unit = request.POST.get('unit_of_measure', '')
+    if not name or len(name) > 150:
+        messages.error(request, 'Enter the product name (150 characters max).')
+        return redirect('supplier_portal')
+    if unit not in Product.UnitOfMeasure.values:
+        messages.error(request, 'Choose a unit for the product.')
+        return redirect('supplier_portal')
+    try:
+        cost = _clean_offer_cost(request.POST.get('proposed_cost'))
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
+        return redirect('supplier_portal')
+    if Product.objects.filter(product_name__iexact=name).exists():
+        messages.error(
+            request,
+            f'"{name}" is already in the product list — offer it from '
+            f'"Offer a product" instead.',
+        )
+        return redirect('supplier_portal')
+    if SupplierProductRequest.objects.filter(
+        supplier=request.user, product_name__iexact=name,
+        status=SupplierProductRequest.Status.PENDING,
+    ).exists():
+        messages.info(request, f'You already have a pending request for "{name}".')
+        return redirect('supplier_portal')
+
+    SupplierProductRequest.objects.create(
+        supplier=request.user, product_name=name, unit_of_measure=unit,
+        proposed_cost=cost,
+        lead_time_days=_safe_nonneg_int(request.POST.get('lead_time_days')),
+        note=request.POST.get('note', '').strip()[:300],
+    )
+    notify_offer_for_review(request.user, name, new_product=True)
+    messages.success(request, f'Request for "{name}" sent to Gerlyn for review.')
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_product_request_withdraw(request, req_pk):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+    with transaction.atomic():
+        req = get_object_or_404(
+            SupplierProductRequest.objects.select_for_update(),
+            pk=req_pk, supplier=request.user,
+        )
+        if req.status != SupplierProductRequest.Status.PENDING:
+            messages.error(request, 'That request was already decided.')
+            return redirect('supplier_portal')
+        req.status = SupplierProductRequest.Status.WITHDRAWN
+        req.save(update_fields=['status'])
+    messages.success(request, f'Request for "{req.product_name}" withdrawn.')
+    return redirect('supplier_portal')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_offer_review(request, pk, link_pk):
+    """Owner approves or rejects a supplier's Proposed offer."""
+    from .notifications import notify_offer_decision
+
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can review supplier offers.')
+        return redirect('supplier_detail', pk=pk)
+
+    link = get_object_or_404(
+        SupplierProduct.objects.select_related('product', 'supplier'),
+        pk=link_pk, supplier_id=pk,
+    )
+    approve = request.POST.get('decision') == 'approve'
+    note = request.POST.get('note', '').strip()
+    try:
+        link = review_offer(link, request.user, approve=approve, note=note)
+    except OfferReviewError as exc:
+        messages.error(request, str(exc))
+        return redirect('supplier_detail', pk=pk)
+
+    notify_offer_decision(
+        link.supplier, link.product.product_name, request.user,
+        approved=approve, note=note,
+    )
+    messages.success(
+        request,
+        f'{link.product.product_name} {"approved" if approve else "rejected"}.',
+    )
+    return redirect('supplier_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_request_review(request, pk, req_pk):
+    """Owner approves (creating the product) or rejects a new-product request."""
+    from .notifications import notify_offer_decision
+
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can review supplier requests.')
+        return redirect('supplier_detail', pk=pk)
+
+    req = get_object_or_404(
+        SupplierProductRequest.objects.select_related('supplier'),
+        pk=req_pk, supplier_id=pk,
+    )
+    approve = request.POST.get('decision') == 'approve'
+    note = request.POST.get('note', '').strip()
+    unit_price = category = None
+    if approve:
+        try:
+            unit_price = Decimal(request.POST.get('unit_price', '').strip())
+        except (InvalidOperation, ValueError):
+            messages.error(request, 'Enter a retail price greater than zero.')
+            return redirect('supplier_detail', pk=pk)
+        category_id = request.POST.get('category', '')
+        if category_id:
+            category = ProductCategory.objects.filter(
+                pk=category_id if category_id.isdigit() else 0
+            ).first()
+            if category is None:
+                messages.error(request, 'Choose a valid product category.')
+                return redirect('supplier_detail', pk=pk)
+    try:
+        req = review_product_request(
+            req, request.user, approve=approve, note=note,
+            unit_price=unit_price, category=category,
+        )
+    except OfferReviewError as exc:
+        messages.error(request, str(exc))
+        return redirect('supplier_detail', pk=pk)
+
+    notify_offer_decision(
+        req.supplier, req.product_name, request.user, approved=approve, note=note,
+    )
+    verdict = 'approved and added to the product list' if approve else 'rejected'
+    messages.success(request, f'"{req.product_name}" {verdict}.')
+    return redirect('supplier_detail', pk=pk)
 
 
 @login_required(login_url='accounts:login')
@@ -2025,7 +2537,13 @@ def supplier_product_remove(request, pk, link_pk):
         pk=link_pk, supplier_id=pk,
     )
     name = link.product.product_name
-    link.delete()
+    try:
+        remove_supplier_product(link)
+    except SupplierRemovalBlocked as exc:
+        messages.error(request, f'Cannot remove {name}. {exc}')
+        return redirect('supplier_detail', pk=pk)
+    except SupplierProduct.DoesNotExist:
+        pass  # double-submit: already gone
     messages.success(request, f'{name} removed from this supplier.')
     return redirect('supplier_detail', pk=pk)
 
@@ -2121,7 +2639,7 @@ class ProcurementListCreateAPIView(APIView):
             'owner', 'owner__owner_profile',
             'created_by', 'created_by__staff_profile',
             'created_by__manager_profile',
-        ).prefetch_related('items__product').order_by('-id')
+        ).prefetch_related('items__product', 'receipts__received_by').order_by('-id')
 
         # Role-based filtering — mirrors the original template view logic
         if user.role == User.Role.OWNER:
@@ -2170,7 +2688,7 @@ class ProcurementDetailAPIView(APIView):
                 'branch', 'supplier', 'supplier__supplier_profile',
                 'owner', 'owner__owner_profile',
                 'created_by', 'created_by__staff_profile',
-            ).prefetch_related('items__product'),
+            ).prefetch_related('items__product', 'receipts__received_by'),
             pk=pk
         )
 
@@ -2329,6 +2847,286 @@ class SupplierListAPIView(APIView):
             for s in suppliers
         ]
         return Response(data)
+
+
+# =============================================================================
+# SUPPLIER RETURNS (P17)
+# Goods sent back to the supplier that delivered them. The store side is
+# Owner / Branch Manager (branch-scoped) to act, and anyone with Procurement
+# access to read; the supplier sees and answers its own returns from the
+# portal. The rules live in procurement.services — these views only gate who
+# may ask and turn a refusal into a message.
+# =============================================================================
+
+_RETURN_MANAGERS = (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+
+
+def _store_returns(user):
+    """The returns a back-office user may see (Owner: all; others: their branch)."""
+    return scope_queryset(
+        SupplierReturn.objects.select_related(
+            'procurement', 'supplier', 'supplier__supplier_profile', 'branch',
+            'requested_by',
+        ),
+        user,
+    )
+
+
+@login_required(login_url='accounts:login')
+def supplier_return_list(request):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    returns = _store_returns(request.user).prefetch_related('items__product')
+    counts = {status: 0 for status in SupplierReturn.Status.values}
+    for status in returns.values_list('status', flat=True):
+        counts[status] = counts.get(status, 0) + 1
+
+    status_filter = request.GET.get('status', '')
+    if status_filter in SupplierReturn.Status.values:
+        returns = returns.filter(status=status_filter)
+    else:
+        status_filter = ''
+
+    return render(request, 'procurement/supplier_return_list.html', {
+        'returns': returns,
+        'counts': counts,
+        'total_count': sum(counts.values()),
+        'status_filter': status_filter,
+        'status_tabs': [
+            (value, label, counts.get(value, 0))
+            for value, label in SupplierReturn.Status.choices
+        ],
+        'can_manage': request.user.role in _RETURN_MANAGERS,
+    })
+
+
+def _return_form_context(proc, posted=None):
+    lines = returnable_lines(proc)
+    for row in lines:
+        # Re-fill what was typed after a rejected submit.
+        row['posted_qty'] = (posted or {}).get(f"qty_{row['item'].pk}", '')
+    return {
+        'procurement': proc,
+        'lines': lines,
+        'reasons': SupplierReturn.Reason.choices,
+        'posted': posted or {},
+    }
+
+
+@login_required(login_url='accounts:login')
+def supplier_return_add(request, pk):
+    """Raise a return against a received purchase order."""
+    if request.user.role not in _RETURN_MANAGERS:
+        messages.error(request, 'You do not have permission to return goods to a supplier.')
+        return redirect('procurement_list')
+
+    proc = get_object_or_404(
+        Procurement.objects.select_related('branch', 'supplier'), pk=pk,
+    )
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('procurement_list')
+    if proc.status not in (
+        Procurement.Status.RECEIVED, Procurement.Status.PARTIALLY_RECEIVED,
+    ):
+        messages.error(request, 'Only an order that has been received can be returned.')
+        return redirect('procurement_detail', pk=pk)
+
+    if request.method != 'POST':
+        return render(
+            request, 'procurement/supplier_return_form.html', _return_form_context(proc)
+        )
+
+    quantities = {}
+    for key, value in request.POST.items():
+        if key.startswith('qty_') and key[4:].isdigit():
+            qty = _safe_nonneg_int(value)
+            if qty:
+                quantities[int(key[4:])] = qty
+    try:
+        ret = create_supplier_return(
+            proc, request.user,
+            reason=request.POST.get('reason', ''),
+            notes=request.POST.get('notes', ''),
+            quantities=quantities,
+        )
+    except ReturnError as exc:
+        messages.error(request, str(exc))
+        return render(
+            request, 'procurement/supplier_return_form.html',
+            _return_form_context(proc, posted=request.POST),
+        )
+
+    from .notifications import notify_return_for_supplier
+    notify_return_for_supplier(ret, 'return requested', request.user)
+    messages.success(request, f'{ret.return_number} sent to the supplier.')
+    return redirect('supplier_return_detail', pk=ret.pk)
+
+
+@login_required(login_url='accounts:login')
+def supplier_return_detail(request, pk):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    ret = get_object_or_404(_store_returns(request.user), pk=pk)
+    can_manage = request.user.role in _RETURN_MANAGERS
+    S = SupplierReturn.Status
+    return render(request, 'procurement/supplier_return_detail.html', {
+        'ret': ret,
+        'items': ret.items.select_related('product', 'procurement_item'),
+        'receipts': ret.replacement_receipts.select_related('received_by'),
+        'can_manage': can_manage,
+        'can_cancel': can_manage and ret.status in SupplierReturn.CANCELLABLE_STATUSES,
+        'can_ship': can_manage and ret.status == S.ACKNOWLEDGED,
+        'can_settle': can_manage and ret.status == S.SHIPPED,
+        'today': timezone.localdate(),
+    })
+
+
+def _managed_return_or_redirect(request, pk):
+    """Shared gate for the store-side POST actions: Owner/Branch Manager, on a
+    return inside their branch scope. Returns (ret, None) or (None, redirect)."""
+    if request.user.role not in _RETURN_MANAGERS:
+        messages.error(request, 'You do not have permission to change supplier returns.')
+        return None, redirect('supplier_return_list')
+    ret = get_object_or_404(_store_returns(request.user), pk=pk)
+    return ret, None
+
+
+def _run_return_action(request, ret, action, success, *, notify=None):
+    """Run a service call, turning ReturnError into a message. Returns True on
+    success. `notify` is called with the updated return after it commits."""
+    try:
+        updated = action()
+    except ReturnError as exc:
+        messages.error(request, str(exc))
+        return False
+    if notify:
+        notify(updated)
+    messages.success(request, success)
+    return True
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_return_cancel(request, pk):
+    from .notifications import notify_return_for_supplier
+    ret, bounce = _managed_return_or_redirect(request, pk)
+    if bounce:
+        return bounce
+    _run_return_action(
+        request, ret, lambda: cancel_return(ret), f'{ret.return_number} cancelled.',
+        notify=lambda r: notify_return_for_supplier(r, 'return cancelled', request.user),
+    )
+    return redirect('supplier_return_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_return_ship(request, pk):
+    from .notifications import notify_return_for_supplier
+    ret, bounce = _managed_return_or_redirect(request, pk)
+    if bounce:
+        return bounce
+    _run_return_action(
+        request, ret,
+        lambda: ship_return(ret, request.user, note=request.POST.get('shipping_note', '')),
+        f'{ret.return_number} shipped back. Warehouse stock updated.',
+        notify=lambda r: notify_return_for_supplier(r, 'goods shipped back', request.user),
+    )
+    return redirect('supplier_return_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_return_credit(request, pk):
+    from .notifications import notify_return_for_supplier
+    ret, bounce = _managed_return_or_redirect(request, pk)
+    if bounce:
+        return bounce
+    _run_return_action(
+        request, ret,
+        lambda: settle_with_credit(
+            ret, request.user,
+            reference=request.POST.get('credit_reference', ''),
+            amount=request.POST.get('credit_amount', ''),
+        ),
+        f'{ret.return_number} settled with a credit note.',
+        notify=lambda r: notify_return_for_supplier(r, 'settled with a credit note', request.user),
+    )
+    return redirect('supplier_return_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_return_replacement(request, pk):
+    """Receive replacement goods for a shipped return (adds warehouse stock)."""
+    from .notifications import notify_return_for_supplier
+    ret, bounce = _managed_return_or_redirect(request, pk)
+    if bounce:
+        return bounce
+
+    lines = {}
+    for key, value in request.POST.items():
+        if key.startswith('qty_') and key[4:].isdigit():
+            qty = _safe_nonneg_int(value)
+            if qty:
+                expiry_raw = request.POST.get(f'expiry_{key[4:]}', '').strip()
+                expiry = parse_date(expiry_raw) if expiry_raw else None
+                if expiry_raw and expiry is None:
+                    messages.error(request, 'Enter a valid expiry date.')
+                    return redirect('supplier_return_detail', pk=pk)
+                lines[int(key[4:])] = (qty, expiry)
+
+    def _notify(r):
+        headline = (
+            'replacement received — settled' if r.status == SupplierReturn.Status.SETTLED
+            else 'replacement partly received'
+        )
+        notify_return_for_supplier(r, headline, request.user)
+
+    _run_return_action(
+        request, ret,
+        lambda: receive_replacement(
+            ret, request.user, lines=lines,
+            delivered_by=request.POST.get('delivered_by', ''),
+        ),
+        f'Replacement recorded for {ret.return_number}. Warehouse stock updated.',
+        notify=_notify,
+    )
+    return redirect('supplier_return_detail', pk=pk)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_return_respond(request, pk):
+    """The supplier acknowledges or rejects a return raised against them."""
+    from .notifications import notify_return_response
+
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    # Scoped to request.user: another supplier's return is a 404.
+    ret = get_object_or_404(SupplierReturn, pk=pk, supplier=request.user)
+    acknowledge = request.POST.get('decision') == 'acknowledge'
+    try:
+        updated = respond_to_return(
+            ret, acknowledge=acknowledge, note=request.POST.get('note', ''),
+        )
+    except ReturnError as exc:
+        messages.error(request, str(exc))
+        return redirect('supplier_portal')
+
+    notify_return_response(updated, acknowledged=acknowledge)
+    messages.success(
+        request,
+        f'{updated.return_number} {"acknowledged" if acknowledge else "rejected"}.',
+    )
+    return redirect('supplier_portal')
 
 
 class SupplierProductListAPIView(APIView):

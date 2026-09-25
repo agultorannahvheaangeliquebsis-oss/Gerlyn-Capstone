@@ -1,0 +1,53 @@
+{% extends "internal_base.html" %}
+{% block title %}Supplier Returns{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Supplier Returns</h1>
+    <p class="gv-meta">Goods sent back to the supplier that delivered them. Start a return from a received purchase order.</p>
+  </div>
+</div>
+
+<div class="filter-tabs">
+  <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">All <span class="count">{{ total_count }}</span></a>
+  {% for value, label, n in status_tabs %}
+  <a class="filter-tab {% if status_filter == value %}active{% endif %}" href="?status={{ value|urlencode }}">{{ label }} <span class="count">{{ n }}</span></a>
+  {% endfor %}
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr>
+        <th>Return</th><th>Purchase order</th><th>Branch</th><th>Supplier</th>
+        <th>Reason</th><th class="num">Units</th><th>Status</th><th>Raised</th><th class="end">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in returns %}
+      <tr>
+        <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
+        <td data-label="Purchase order" class="sku">{{ r.procurement.po_number }}</td>
+        <td data-label="Branch">{{ r.branch.branch_name|default:"—" }}</td>
+        <td data-label="Supplier">{% if r.supplier %}{{ r.supplier.supplier_profile.supplier_name|default:r.supplier.username }}{% else %}—{% endif %}</td>
+        <td data-label="Reason">{{ r.get_reason_display }}</td>
+        <td data-label="Units" class="num">{{ r.total_quantity }}</td>
+        <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
+        <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
+        <td data-label="Action" class="end">
+          <a class="btn btn-sm" href="{% url 'supplier_return_detail' r.pk %}">View</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9"><div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
+        <h3>No supplier returns</h3>
+        <p>When a delivery arrives damaged, wrong or short-dated, open the received purchase order and choose <strong>Return goods</strong>.</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

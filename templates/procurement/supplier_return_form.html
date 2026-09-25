@@ -1,0 +1,71 @@
+{% extends "internal_base.html" %}
+{% load l10n %}
+{% block title %}Return goods — {{ procurement.po_number }}{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'procurement_detail' procurement.pk %}">{{ procurement.po_number }}</a>
+    <h1 class="mt-2">Return goods to {{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}</h1>
+    <p class="gv-meta">Only stock from this order that is still in the {{ procurement.branch.branch_name }} warehouse can be sent back. Units already moved to the shop floor are not listed.</p>
+  </div>
+</div>
+
+<form method="POST" action="{% url 'supplier_return_add' procurement.pk %}">
+  {% csrf_token %}
+
+  <div class="card table-wrap mb-4">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Product</th><th class="num">Received</th><th class="num">Already returned</th>
+            <th class="num">In warehouse</th><th class="num">Return now</th></tr>
+      </thead>
+      <tbody>
+        {% for row in lines %}
+        <tr>
+          <td data-label="Product" class="strong">{{ row.item.product.product_name }}</td>
+          <td data-label="Received" class="num">{{ row.received }}</td>
+          <td data-label="Already returned" class="num">{{ row.claimed }}</td>
+          <td data-label="In warehouse" class="num">{{ row.in_warehouse }}</td>
+          <td data-label="Return now" class="num">
+            {% if row.max %}
+            <input type="number" name="qty_{{ row.item.pk|unlocalize }}" min="0" max="{{ row.max|unlocalize }}" step="1"
+                   value="{{ row.posted_qty }}"
+                   aria-label="Units of {{ row.item.product.product_name }} to return (up to {{ row.max }})"
+                   style="width:100px; text-align:right;">
+            <div class="gv-meta">up to {{ row.max }}</div>
+            {% else %}<span class="gv-meta">Nothing returnable</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><div class="empty"><h3>Nothing on this order can be returned</h3></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card card-pad mb-4">
+    <div class="grid-2">
+      <div class="field">
+        <label for="return-reason">Reason</label>
+        <select id="return-reason" name="reason" required>
+          <option value="">Choose a reason</option>
+          {% for value, label in reasons %}
+          <option value="{{ value }}"{% if posted.reason == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="return-notes">Notes <span class="gv-meta">— required for Other</span></label>
+        <input id="return-notes" type="text" name="notes" maxlength="300" value="{{ posted.notes|default:'' }}"
+               placeholder="What was wrong with the goods?">
+      </div>
+    </div>
+    <p class="gv-meta mb-0">The supplier is asked to acknowledge the return. Stock only leaves your warehouse once you ship it.</p>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Send return request</button>
+  <a class="btn" href="{% url 'procurement_detail' procurement.pk %}">Cancel</a>
+</form>
+{% endblock %}

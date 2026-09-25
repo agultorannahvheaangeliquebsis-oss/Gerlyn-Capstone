@@ -1,0 +1,91 @@
+{% extends "internal_base.html" %}
+{% load l10n %}
+{% block title %}Supplier Categories{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Supplier Categories</h1>
+    <p class="gv-meta">The list shown in a supplier's Category dropdown. Linking product categories narrows what a supplier of that kind is offered when adding products.</p>
+  </div>
+  <a class="btn" href="{% url 'supplier_list' %}">Back to Suppliers</a>
+</div>
+
+{% if can_edit %}
+<div class="card card-pad mb-4">
+  <h3 class="mb-4">Add a category</h3>
+  <form method="POST" action="{% url 'supplier_category_add' %}">
+    {% csrf_token %}
+    <div class="field">
+      <label for="new-category-name">Name</label>
+      <input id="new-category-name" type="text" name="name" required maxlength="100" placeholder="Canned Goods">
+    </div>
+    {% if product_categories %}
+    <div class="field">
+      <label>Product categories <span class="gv-meta">— optional</span></label>
+      <div class="row-actions" style="flex-wrap:wrap; gap:6px 16px;">
+        {% for pc in product_categories %}
+        <label style="font-weight:400;"><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"> {{ pc.category_name }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Add category</button>
+  </form>
+</div>
+{% endif %}
+
+{% for c in categories %}
+<div class="card card-pad mb-4">
+  <div class="row-between mb-4">
+    <h3>{{ c.name }}
+      {% if not c.is_active %}<span class="tag">Inactive</span>{% endif %}
+    </h3>
+    <span class="gv-meta">{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }}</span>
+  </div>
+  {% if can_edit %}
+  <form method="POST" action="{% url 'supplier_category_edit' c.pk %}">
+    {% csrf_token %}
+    <div class="field">
+      <label for="cat-name-{{ c.pk|unlocalize }}">Name</label>
+      <input id="cat-name-{{ c.pk|unlocalize }}" type="text" name="name" value="{{ c.name }}" required maxlength="100">
+    </div>
+    {% if product_categories %}
+    <div class="field">
+      <label>Product categories</label>
+      <div class="row-actions" style="flex-wrap:wrap; gap:6px 16px;">
+        {% for pc in product_categories %}
+        <label style="font-weight:400;"><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"{% if pc in c.product_categories.all %} checked{% endif %}> {{ pc.category_name }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <div class="field">
+      <label style="font-weight:400;"><input type="checkbox" name="is_active"{% if c.is_active %} checked{% endif %}> Active — can be picked for suppliers</label>
+    </div>
+    <button type="submit" class="btn btn-primary">Save</button>
+  </form>
+  <form method="POST" action="{% url 'supplier_category_delete' c.pk %}" style="display:inline; margin-top:8px;"
+        data-confirm="{% if c.supplier_count %}{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }} still use{{ c.supplier_count|pluralize:'s,' }} this category, so it can't be deleted. Mark it inactive instead.{% else %}Nothing uses this category, so it is removed for good.{% endif %}"
+        data-confirm-title="Delete this category?"
+        data-confirm-variant="danger"
+        data-confirm-ok="Delete category">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Delete</button>
+  </form>
+  {% else %}
+  <div>
+    {% for pc in c.product_categories.all %}<span class="tag">{{ pc.category_name }}</span> {% empty %}<span class="gv-meta">No product categories linked.</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% empty %}
+<div class="card card-pad">
+  <div class="empty">
+    <h3>No supplier categories yet</h3>
+    <p>{% if can_edit %}Add the first one above.{% else %}The Owner adds these.{% endif %}</p>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

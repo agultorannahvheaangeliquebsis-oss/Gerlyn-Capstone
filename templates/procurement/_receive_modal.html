@@ -71,10 +71,20 @@ one per row.
       {# ------------------------------------------------------- the form #}
       <form method="POST" action="{% url 'delivery_receive' receive_procurement.pk %}" id="receive-form">
         {% csrf_token %}
-        <div class="field mb-4" style="max-width:220px;">
-          <label for="actual-receipt-date">Actual Receipt Date</label>
-          <input id="actual-receipt-date" type="date" name="actual_receipt_date"
-                 value="{{ today|date:'Y-m-d' }}" required>
+        <div class="row wrap mb-4" style="gap:16px; align-items:flex-end;">
+          <div class="field" style="max-width:220px; margin:0;">
+            <label for="actual-receipt-date">Actual Receipt Date</label>
+            <input id="actual-receipt-date" type="date" name="actual_receipt_date"
+                   value="{{ today|date:'Y-m-d' }}" required>
+          </div>
+          <div class="field" style="max-width:260px; margin:0;">
+            <label for="delivered-by">Delivered by <span class="gv-meta">— courier or driver, optional</span></label>
+            <input id="delivered-by" type="text" name="delivered_by" maxlength="100" autocomplete="off">
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Received by</label>
+            <div class="field-static">{{ request.user.get_full_name|default:request.user.username }}</div>
+          </div>
         </div>
         <div class="table-wrap">
           <table class="gv-table" id="receive-table">

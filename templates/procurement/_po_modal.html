@@ -1,3 +1,4 @@
+{% load l10n %}
 {% comment %}
 Create Purchase Order, as a modal on the Purchase Orders list. It was its own
 page (procurement_form.html); the fields, their names and the item-row JS
@@ -90,10 +91,19 @@ account reaching a control it can't use.
           </div>
         {% endif %}
         <div class="field">
+          {% if supplier_categories %}
+          <label for="po-supplier-category">Supplier category <span class="gv-meta">— optional filter</span></label>
+          <select id="po-supplier-category" style="margin-bottom:8px;">
+            <option value="">All categories</option>
+            {% for c in supplier_categories %}
+              <option value="{{ c.pk|unlocalize }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
           <label for="po-supplier">Supplier</label>
           <select id="po-supplier" name="supplier" required>
             {% for s in suppliers %}
-              <option value="{{ s.id }}" {% if po_form_data.supplier == s.id|stringformat:"s" %}selected{% endif %}>{{ s.supplier_profile.supplier_name|default:s.username }}</option>
+              <option value="{{ s.id }}" data-category="{{ s.supplier_profile.category_id|default_if_none:''|unlocalize }}" {% if po_form_data.supplier == s.id|stringformat:"s" %}selected{% endif %}>{{ s.supplier_profile.supplier_name|default:s.username }}</option>
             {% endfor %}
           </select>
         </div>
@@ -103,11 +113,39 @@ account reaching a control it can't use.
           <input id="po-order-date" type="date" name="order_date" value="{% firstof po_form_data.order_date today|date:'Y-m-d' %}" required>
         </div>
       </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="po-funding-source">Funding source</label>
+          <select id="po-funding-source" name="funding_source" required>
+            <option value="">Where does the money come from?</option>
+            {% for value, label in funding_choices %}
+              <option value="{{ value }}" {% if po_form_data.funding_source == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="po-funding-note">Funding note <span class="gv-meta" id="po-funding-note-hint">— optional</span></label>
+          <input id="po-funding-note" type="text" name="funding_note" maxlength="200"
+                 value="{{ po_form_data.funding_note|default:'' }}" placeholder="e.g. BDO account ending 1234">
+        </div>
+      </div>
+
       {% comment %}
       No Expected Delivery Date field here — the supplier proposes it (and
       the price) once this order is Approved; a Manager/Owner raising the
       order has neither to give. See procurement.views' NEGOTIATION section.
       {% endcomment %}
+
+      {% comment %}
+      P21 - shown when the chosen supplier has no approved products: nothing
+      can be ordered from them yet, so the submit button steps aside instead
+      of offering an empty dropdown.
+      {% endcomment %}
+      <div class="banner banner-warn" id="po-no-catalog" hidden>
+        This supplier has no approved products yet, so there is nothing to order from them.
+        Ask them to offer products in their portal, or add them on their
+        <a href="{% url 'supplier_list' %}">supplier page</a>.
+      </div>
 
       <div class="row-between">
         <h3>Items</h3>
@@ -165,3 +203,5 @@ normal case.
 {% endcomment %}
 {% if po_restore_rows %}{{ po_restore_rows|json_script:"po-restore-rows" }}{% endif %}
 {{ supplier_catalog|json_script:"po-supplier-catalog" }}
+{% comment %}Full product list for the JS to rebuild each row's dropdown from: option[hidden] is ignored by several mobile browsers, so a filtered row only ever contains the supplier's own products.{% endcomment %}
+{{ product_options|json_script:"po-all-products" }}

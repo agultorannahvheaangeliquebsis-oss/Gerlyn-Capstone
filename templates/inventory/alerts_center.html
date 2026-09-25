@@ -57,7 +57,34 @@ opens instead of standing alone as a figure that double-counts its neighbour.
     <span class="label">Approaching Expiry (90d)</span>
     <span class="value">{{ approaching_expiry_count }}</span>
   </div>
+  <div class="kpi-card{% if overdue_deliveries %} danger{% endif %}">
+    <span class="label">Overdue Deliveries</span>
+    <span class="value">{{ overdue_deliveries|length }}</span>
+  </div>
 </div>
+
+{% if overdue_deliveries %}
+<div class="card table-wrap mb-4">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Overdue deliveries</h3></div>
+  <table class="gv-table">
+    <thead>
+      <tr><th>PO</th><th>Branch</th><th>Supplier</th><th>Was due</th><th class="num">Days late</th><th class="end">Action</th></tr>
+    </thead>
+    <tbody>
+      {% for po in overdue_deliveries %}
+      <tr>
+        <td data-label="PO" class="sku strong">{{ po.po_number }}</td>
+        <td data-label="Branch">{{ po.branch.branch_name }}</td>
+        <td data-label="Supplier">{{ po.supplier.supplier_profile.supplier_name|default:po.supplier.username }}</td>
+        <td data-label="Was due" class="gv-meta">{{ po.delivery_date|date:"Y-m-d" }}</td>
+        <td data-label="Days late" class="num strong" style="color:var(--danger-fg);">{{ po.late_days }}</td>
+        <td data-label="Action" class="end"><a class="btn btn-sm" href="{% url 'delivery_list' %}">Deliveries</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <div class="filter-tabs">
   {% comment %}
