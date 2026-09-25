@@ -24,6 +24,10 @@ from inventory.stats import (
 )
 from sales.models import SalesItem, SalesTransaction
 from sales.pricing import price_cart
+from sales.pwd_requests import (
+    new_request_fields, notify_pwd_request_submitted, request_can_reach_cart,
+    validate_pwd_details,
+)
 
 # Cap on how many rows the live-search dropdown shows at once.
 SEARCH_SUGGESTION_LIMIT = 8
@@ -1260,6 +1264,34 @@ def checkout(request):
     #
     # This matches the API write path next door, which has always passed
     # discount_type=None for the same reason (SalesTransactionWriteSerializer).
+    #
+    # P15 — the customer MAY now ask for the PWD discount on an order they
+    # collect in store (Pickup, which is also the only fulfilment Pay at Store
+    # is allowed with). That is a request, not a claim: it records the ID
+    # details they typed and changes no price. The order is still written
+    # undiscounted below, and staff approve or reject the request when the
+    # customer arrives (sales.pwd_requests, transaction_pwd_request_review);
+    # billing will not mark it Paid until they have. The discount_type field
+    # and the discount_id_number / discount_holder_name inputs stay ignored,
+    # exactly as above — the request has its own, differently named fields.
+    pwd_request = None
+    if request.POST.get('request_pwd_discount'):
+        if fulfillment_type != SalesTransaction.FulfillmentType.PICKUP:
+            messages.error(
+                request,
+                'A PWD discount can only be requested for orders you pick up '
+                'at the branch — staff have to see your ID in person. Choose '
+                'pickup, or place the order without the request.'
+            )
+            return redirect('orders:cart')
+        pwd_id, pwd_name, pwd_errors = validate_pwd_details(
+            request.POST.get('pwd_id_number'), request.POST.get('pwd_holder_name')
+        )
+        if pwd_errors:
+            for error in pwd_errors:
+                messages.error(request, error)
+            return redirect('orders:cart')
+        pwd_request = (pwd_id, pwd_name)
 
     with transaction.atomic():
         # Validate availability WITHOUT deducting: an online order only leaves
@@ -1317,8 +1349,21 @@ def checkout(request):
         # and could not honour a wholesale tier. price_cart owns the VAT
         # arithmetic; the only decision made out here is the price TIER.
         #
+        # A request that could not move the total is refused rather than
+        # left Pending for staff to chase — PWD eligibility is per product.
+        if pwd_request and not request_can_reach_cart(p for p, _ in planned):
+            messages.error(
+                request,
+                'None of the items in your cart are eligible for the PWD '
+                'discount, so there is nothing to request. Place the order '
+                'without the request.'
+            )
+            transaction.set_rollback(True)
+            return redirect('orders:cart')
+
         # No discount_type is passed — not None-by-omission but None on
-        # purpose: customer checkout never discounts (F-04).
+        # purpose: customer checkout never discounts (F-04). A PWD request
+        # (P15) does not change that: it is priced at full below.
         priced = price_cart(
             [(product, qty, product.price_at(qty)) for product, qty in planned],
             discount_type=None,
@@ -1343,6 +1388,7 @@ def checkout(request):
             total_amount=total,
             total_vat_amount=priced['total_vat_amount'],
             total_discount_amount=priced['total_discount_amount'],
+            **(new_request_fields(*pwd_request) if pwd_request else {}),
         )
 
         for line in priced['lines']:
@@ -1372,8 +1418,18 @@ def checkout(request):
                 billing.proof_of_payment = proof_of_payment
             billing.save()
 
+    if pwd_request:
+        notify_pwd_request_submitted(sale)
+
     request.session['cart'] = {}
     messages.success(request, f'Order {sale.order_number} placed!')
+    if pwd_request:
+        messages.info(
+            request,
+            'Your PWD discount request is pending. Bring your PWD ID when you '
+            'collect the order — the store checks it there, and the discount '
+            'is applied to your bill once it is verified.'
+        )
     return redirect('orders:confirmation', transaction_id=sale.id)
 
 

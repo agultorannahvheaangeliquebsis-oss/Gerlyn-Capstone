@@ -299,6 +299,19 @@ class PrivacyTests(TestCase):
         for secret in ('7 private lane', 'osca-99887766', 'lola basyang'):
             self.assertNotIn(secret, blob)
 
+    def test_the_customers_pwd_request_details_are_masked(self):
+        """P15 — the ID number and name typed at checkout are the same
+        private data as the verified discount_* pair."""
+        owner = User.objects.create_user(username='r-owner', password='pw', role=User.Role.OWNER)
+        branch = Branch.objects.create(branch_name='B', location='L', owner=owner)
+        SalesTransaction.objects.create(
+            branch=branch, total_amount=100, pwd_request_status='Pending',
+            pwd_request_id_number='PWD-77665544', pwd_request_holder_name='Ka Ruping',
+        )
+        blob = _everything_written()
+        for secret in ('pwd-77665544', 'ka ruping'):
+            self.assertNotIn(secret, blob)
+
 
 class ActorTests(TestCase):
     def setUp(self):

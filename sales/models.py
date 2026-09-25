@@ -209,6 +209,38 @@ class SalesTransaction(models.Model):
     total_discount_amount = models.DecimalField(
         max_digits=12, decimal_places=2, default=0
     )
+
+    # --- customer PWD discount REQUEST (online Pickup / Pay at Store) -------
+    # A request is not a claim. F-04 removed self-service discounts because a
+    # typed ID number proves nothing, so this records only what the customer
+    # SAYS — the order stays priced in full and every discount_* field above
+    # stays empty — until a staff member has seen the card at pick-up and
+    # approves it (sales.pwd_requests.approve_pwd_request), which then applies
+    # the discount through the same path staff already use. The customer's
+    # submitted details are kept apart from discount_id_number /
+    # discount_holder_name, which hold what the approver actually verified.
+    class PwdRequestStatus(models.TextChoices):
+        NONE = 'None', 'None'
+        PENDING = 'Pending', 'Pending verification'
+        APPROVED = 'Approved', 'Approved'
+        REJECTED = 'Rejected', 'Not approved'
+
+    pwd_request_status = models.CharField(
+        max_length=10, choices=PwdRequestStatus.choices,
+        default=PwdRequestStatus.NONE,
+    )
+    pwd_request_id_number = models.CharField(max_length=50, blank=True)
+    pwd_request_holder_name = models.CharField(max_length=150, blank=True)
+    pwd_requested_at = models.DateTimeField(null=True, blank=True)
+    pwd_request_reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
+        related_name='reviewed_pwd_requests',
+        help_text="Who approved or rejected the customer's PWD request."
+    )
+    pwd_request_reviewed_at = models.DateTimeField(null=True, blank=True)
+    pwd_request_reject_reason = models.CharField(max_length=255, blank=True)
+
     total_vat_amount = models.DecimalField(
         max_digits=12, decimal_places=2, default=0,
         help_text="VAT actually embedded across all lines, summed. Recorded "
@@ -295,6 +327,24 @@ class SalesTransaction(models.Model):
         if self.transaction_type == self.TransactionType.PHYSICAL:
             return True
         return self.fulfillment_type == self.FulfillmentType.PICKUP
+
+    def can_request_pwd_discount(self):
+        """Whether a customer may ask for the PWD discount on this order.
+
+        Only an Online order the customer collects in store. Pay at Store is
+        only ever offered with Pickup (checkout refuses it for Delivery), so
+        "Pay at Store or Pickup" reduces to this one test. It is narrower than
+        can_apply_pwd_senior_discount on purpose: a walk-in has no customer
+        account to make a request from — the cashier applies it directly.
+        """
+        return (
+            self.transaction_type == self.TransactionType.ONLINE
+            and self.fulfillment_type == self.FulfillmentType.PICKUP
+        )
+
+    @property
+    def has_pending_pwd_request(self):
+        return self.pwd_request_status == self.PwdRequestStatus.PENDING
 
     def save(self, *args, **kwargs):
         # Existing row, or a caller that set order_number explicitly: nothing

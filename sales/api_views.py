@@ -9,6 +9,10 @@ from django.shortcuts import get_object_or_404
 
 from . import refunds as refund_service
 from .models import Refund, SalesTransaction
+from .pwd_requests import (
+    DiscountError, approve_pwd_request, notify_pwd_request_submitted,
+    reject_pwd_request,
+)
 from .serializers import (
     RefundDecisionWriteSerializer, RefundRequestWriteSerializer, RefundSerializer,
     SalesTransactionSerializer, SalesTransactionWriteSerializer,
@@ -43,7 +47,8 @@ class SalesTransactionListCreateAPIView(APIView):
 
     def get(self, request):
         qs = SalesTransaction.objects.select_related(
-            'branch', 'staff', 'customer', 'billing_record'
+            'branch', 'staff', 'customer', 'billing_record',
+            'pwd_request_reviewed_by'
         ).prefetch_related(*TRANSACTION_READ_PREFETCH).all()
 
         if request.user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
@@ -78,6 +83,9 @@ class SalesTransactionListCreateAPIView(APIView):
         )
         if serializer.is_valid():
             txn = serializer.save()
+            if txn.has_pending_pwd_request:
+                # Same heads-up the storefront checkout sends the branch.
+                notify_pwd_request_submitted(txn)
             return Response(
                 SalesTransactionSerializer(txn, context={'request': request}).data,
                 status=status.HTTP_201_CREATED,
@@ -222,3 +230,50 @@ class SalesRefundDecisionAPIView(APIView):
         except refund_service.RefundError as e:
             return _refund_error_response(e)
         return Response(_refund_payload(refund.pk, outcome))
+
+
+class SalesPwdRequestReviewAPIView(APIView):
+    """
+    POST /api/sales/<pk>/pwd-request/ — API twin of
+    transaction_pwd_request_review: approve or reject a customer's PWD
+    discount request once the ID has been seen at pick-up.
+
+    Body: {"decision": "approve", "idNumber": ..., "holderName": ...}
+       or {"decision": "reject", "reason": ...}
+    """
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def post(self, request, pk):
+        # Customers can read their own order but must never decide their own
+        # request; Suppliers have no business here at all.
+        if request.user.role not in [
+            User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+        ]:
+            return Response(
+                {'detail': 'You do not have permission to review PWD discount requests.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        txn = get_object_or_404(SalesTransaction, pk=pk)
+        # 404, not 403 — same convention as every other view in this file:
+        # don't confirm the order exists to a caller outside their branch.
+        if not user_can_access_branch(request.user, txn.branch_id):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        decision = request.data.get('decision')
+        try:
+            if decision == 'approve':
+                approve_pwd_request(
+                    pk, request.user,
+                    request.data.get('idNumber', ''),
+                    request.data.get('holderName', ''),
+                )
+            elif decision == 'reject':
+                reject_pwd_request(pk, request.user, request.data.get('reason', ''))
+            else:
+                raise DiscountError("decision must be 'approve' or 'reject'.")
+        except DiscountError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        txn.refresh_from_db()
+        return Response(SalesTransactionSerializer(txn, context={'request': request}).data)

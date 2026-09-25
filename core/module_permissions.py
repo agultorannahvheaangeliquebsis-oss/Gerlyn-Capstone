@@ -95,6 +95,9 @@ MODULE_REGISTRY = {
          # gated at all, so leaving it off would let a Staff account whose
          # Owner revoked the Order Console still re-price an order.
          'transaction_apply_discount',
+         # Approving / rejecting a customer's PWD request (P15) grants the
+         # same discount, so it is gated by the same section.
+         'transaction_pwd_request_review',
          # Printable receipt for the same reason — same section, same gap
          # class as the discount action above.
          'transaction_receipt',
@@ -110,7 +113,9 @@ MODULE_REGISTRY = {
          # transaction_add); detail mirrors transaction_detail. The refund
          # endpoints mirror transaction_refund / _approve / _reject.
          'api-sales-list', 'api-sales-detail',
-         'api-sales-refunds', 'api-sales-refund-approve', 'api-sales-refund-reject'],
+         'api-sales-refunds', 'api-sales-refund-approve', 'api-sales-refund-reject',
+         # API twin of transaction_pwd_request_review (P15).
+         'api-sales-pwd-request'],
     ),
     BILLING: (
         'Billing',

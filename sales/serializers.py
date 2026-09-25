@@ -8,6 +8,7 @@ from .models import (
     SalesItemBatchConsumption, SalesTransaction,
 )
 from .pricing import price_cart
+from .pwd_requests import new_request_fields, request_can_reach_cart, validate_pwd_details
 from core.scoping import user_can_access_branch
 from inventory.models import Product, Inventory, Batch, StockMovement
 from branches.models import Branch
@@ -141,6 +142,12 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     modeOfPayment = serializers.CharField(source='mode_of_payment', read_only=True)
     orderStatus = serializers.CharField(source='order_status', read_only=True)
     deliveryAddress = serializers.CharField(source='delivery_address', read_only=True)
+    fulfillmentType = serializers.CharField(source='fulfillment_type', read_only=True)
+    discountType = serializers.CharField(source='discount_type', read_only=True)
+    totalDiscountAmount = serializers.DecimalField(
+        source='total_discount_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    pwdRequest = serializers.SerializerMethodField()
     items = SalesItemSerializer(many=True, read_only=True)
     # P14 — totalAmount stays the frozen charged figure; these say what
     # approved refunds have done to it. netAmount = totalAmount - refundedAmount.
@@ -161,7 +168,8 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'orderNumber', 'branch', 'staff', 'customer',
             'transactionDate', 'totalAmount', 'transactionType', 'modeOfPayment',
-            'orderStatus', 'deliveryAddress', 'items',
+            'orderStatus', 'deliveryAddress', 'fulfillmentType', 'discountType',
+            'totalDiscountAmount', 'pwdRequest', 'items',
             'refundedAmount', 'netAmount', 'paymentStatus', 'statusHistory', 'refunds',
         ]
 
@@ -185,6 +193,23 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     def get_paymentStatus(self, obj):
         billing = getattr(obj, 'billing_record', None)
         return billing.status if billing else None
+
+    def get_pwdRequest(self, obj):
+        """The customer's PWD discount request, or None when there was none.
+        Same audience as the order itself (its customer and the branch's
+        staff — the view scopes who can read the order at all)."""
+        if obj.pwd_request_status == SalesTransaction.PwdRequestStatus.NONE:
+            return None
+        reviewer = obj.pwd_request_reviewed_by
+        return {
+            'status': obj.pwd_request_status,
+            'idNumber': obj.pwd_request_id_number,
+            'holderName': obj.pwd_request_holder_name,
+            'requestedAt': obj.pwd_requested_at,
+            'reviewedBy': (reviewer.get_full_name() or reviewer.username) if reviewer else None,
+            'reviewedAt': obj.pwd_request_reviewed_at,
+            'rejectReason': obj.pwd_request_reject_reason,
+        }
 
     def get_staff(self, obj):
         if obj.staff:
@@ -215,11 +240,30 @@ class SalesItemWriteSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
 
 
+class PwdDiscountRequestWriteSerializer(serializers.Serializer):
+    """The ID details a customer submits with a PWD discount request. Format
+    checks are sales.pwd_requests.validate_pwd_details — the same function the
+    storefront checkout calls — run in the parent's validate()."""
+    idNumber = serializers.CharField(max_length=50)
+    holderName = serializers.CharField(max_length=150)
+
+
 class SalesTransactionWriteSerializer(serializers.Serializer):
     branchId = serializers.IntegerField(required=False)
     transactionType = serializers.ChoiceField(choices=SalesTransaction.TransactionType.choices)
     modeOfPayment = serializers.ChoiceField(choices=SalesTransaction.ModeOfPayment.choices)
     deliveryAddress = serializers.CharField(required=False, allow_blank=True)
+    # Optional, and an Online order without it is still a Delivery — the only
+    # thing this endpoint could create before. 'Pickup' is what makes an
+    # Online order eligible for a PWD request, mirroring the storefront's
+    # explicit delivery/pickup choice.
+    fulfillmentType = serializers.ChoiceField(
+        choices=SalesTransaction.FulfillmentType.choices, required=False
+    )
+    # P15 — a REQUEST for the PWD discount (see sales.pwd_requests): recorded
+    # for staff to verify at pick-up, never applied here. The order is priced
+    # in full regardless of this field.
+    pwdDiscountRequest = PwdDiscountRequestWriteSerializer(required=False)
     items = SalesItemWriteSerializer(many=True, min_length=1)
 
     def validate_items(self, value):
@@ -239,11 +283,51 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         if user.role == user.Role.CUSTOMER:
             data['transactionType'] = SalesTransaction.TransactionType.ONLINE
 
-        if data.get('transactionType') == SalesTransaction.TransactionType.ONLINE \
+        is_online = (
+            data.get('transactionType') == SalesTransaction.TransactionType.ONLINE
+        )
+        Fulfillment = SalesTransaction.FulfillmentType
+        if is_online:
+            # Delivery unless the client explicitly says Pickup — unchanged
+            # behaviour for every existing caller.
+            fulfillment = data.get('fulfillmentType') or Fulfillment.DELIVERY
+        else:
+            if data.get('fulfillmentType') == Fulfillment.DELIVERY:
+                raise serializers.ValidationError(
+                    {'fulfillmentType': 'A walk-in sale is handed over at the counter.'}
+                )
+            fulfillment = Fulfillment.PICKUP
+
+        if is_online and fulfillment == Fulfillment.DELIVERY \
                 and not data.get('deliveryAddress', '').strip():
             raise serializers.ValidationError(
                 {'deliveryAddress': 'Delivery address is required for online orders.'}
             )
+        # Pickup never carries an address, whatever the payload says (F-11).
+        if fulfillment == Fulfillment.PICKUP:
+            data['deliveryAddress'] = ''
+        data['fulfillmentType'] = fulfillment
+
+        pwd = data.pop('pwdDiscountRequest', None)
+        if pwd:
+            # Same rule as checkout: a customer, on an order they collect in
+            # store — staff cannot see an ID for a delivery, and staff-rung
+            # sales apply the discount directly rather than by request.
+            if not (
+                user.role == user.Role.CUSTOMER
+                and is_online
+                and fulfillment == Fulfillment.PICKUP
+            ):
+                raise serializers.ValidationError({
+                    'pwdDiscountRequest': 'A PWD discount can only be requested '
+                    'by a customer, on an online order they pick up at the branch.'
+                })
+            id_number, holder_name, errors = validate_pwd_details(
+                pwd['idNumber'], pwd['holderName']
+            )
+            if errors:
+                raise serializers.ValidationError({'pwdDiscountRequest': errors})
+            data['pwdDiscountRequest'] = (id_number, holder_name)
         return data
 
     def create(self, validated_data):
@@ -343,6 +427,19 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             # and customer-facing checkout, where nobody has presented a PWD
             # or OSCA card to a cashier. Accepting a claim over the wire would
             # mean granting a statutory discount on an unverified assertion.
+            #
+            # P15 — a PWD discount REQUEST is accepted (validate()) but is
+            # only recorded on the order below; the pricing stays at full.
+            # PWD eligibility is per product, so a request that could not
+            # move the total is refused, same as the storefront checkout.
+            pwd_request = validated_data.get('pwdDiscountRequest')
+            if pwd_request and not request_can_reach_cart(
+                line[0] for line in cart_lines
+            ):
+                raise serializers.ValidationError({
+                    'pwdDiscountRequest': 'None of the items in this order are '
+                    'eligible for the PWD discount.'
+                })
             priced = price_cart(cart_lines, discount_type=None)
             total = priced['total_amount']
 
@@ -362,23 +459,19 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 customer=user if user.role == user.Role.CUSTOMER else None,
                 transaction_type=validated_data['transactionType'],
                 mode_of_payment=validated_data['modeOfPayment'],
-                # This endpoint's validate() already refuses an Online order
-                # with a blank deliveryAddress, so an Online sale here is
-                # always a Delivery and a Physical one is always handed over
-                # at the counter. Set explicitly rather than left on the
-                # model default: fulfillment_type gates who may apply the
-                # statutory discount (F-04), and defaulting an addressed
-                # online order to Pickup would open exactly the in-person
-                # verification hole that gate exists to close.
-                fulfillment_type=(
-                    SalesTransaction.FulfillmentType.DELIVERY
-                    if validated_data['transactionType']
-                    == SalesTransaction.TransactionType.ONLINE
-                    else SalesTransaction.FulfillmentType.PICKUP
-                ),
+                # validate() resolves this: an Online order is a Delivery
+                # (which must carry an address) unless the client said Pickup,
+                # and a Physical one is always handed over at the counter.
+                # Set explicitly rather than left on the model default:
+                # fulfillment_type gates who may apply the statutory discount
+                # (F-04), and defaulting an addressed online order to Pickup
+                # would open exactly the in-person verification hole that
+                # gate exists to close.
+                fulfillment_type=validated_data['fulfillmentType'],
                 delivery_address=validated_data.get('deliveryAddress', ''),
                 total_amount=total,
                 total_vat_amount=priced['total_vat_amount'],
+                **(new_request_fields(*pwd_request) if pwd_request else {}),
             )
 
             # An Online order has not left the shelf yet — it is Pending

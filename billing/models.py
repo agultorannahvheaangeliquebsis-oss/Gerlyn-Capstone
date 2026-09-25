@@ -103,6 +103,28 @@ class BillingRecord(models.Model):
         """True when billing_confirm may move this record to `new_status`."""
         return new_status in self.ALLOWED_STATUS_TRANSITIONS.get(self.status, set())
 
+    def pwd_review_block_message(self):
+        """Why this record may not be marked Paid yet, or '' when nothing is
+        in the way.
+
+        An online order carrying a PWD discount request has an amount due that
+        is not final until staff have looked at the ID at pick-up. Marking it
+        Paid first would settle the full price and leave the request with
+        nothing to apply against (a Paid bill can no longer be re-priced), so
+        the customer would lose a discount they were owed. billing_confirm and
+        BillingConfirmSerializer both ask this — one definition, like
+        can_transition_to. Only Paid is gated: rejecting a payment or
+        re-opening one settles nothing.
+        """
+        txn = self.transaction
+        if txn.has_pending_pwd_request:
+            return (
+                f'{txn.order_number} has a PWD discount request waiting for '
+                f'verification — approve or reject it on the order before '
+                f'confirming payment, so the amount due is final.'
+            )
+        return ''
+
     def is_self_confirmation(self, user):
         """True when `user` recorded this sale and must not confirm its payment.
 

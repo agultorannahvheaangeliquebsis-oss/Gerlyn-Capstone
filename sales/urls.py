@@ -15,6 +15,9 @@ urlpatterns = [
     # Delivery order is refused server-side.
     path('<int:pk>/discount/', views.transaction_apply_discount,
          name='transaction_apply_discount'),
+    # Approve or reject the customer's PWD discount request at pick-up (P15).
+    path('<int:pk>/pwd-request/', views.transaction_pwd_request_review,
+         name='transaction_pwd_request_review'),
     # Request a refund of some or all items of a Completed, Paid order, within
     # SalesTransaction.REFUND_WINDOW of completion. Anyone with the branch may
     # ask; an Owner/Branch Manager's own request is approved as it is sent.

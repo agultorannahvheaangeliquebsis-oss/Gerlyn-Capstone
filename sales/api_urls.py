@@ -1,7 +1,8 @@
 from django.urls import path
 from .api_views import (
-    SalesTransactionListCreateAPIView, SalesTransactionDetailAPIView,
-    SalesRefundListCreateAPIView, SalesRefundDecisionAPIView,
+    SalesPwdRequestReviewAPIView, SalesRefundDecisionAPIView,
+    SalesRefundListCreateAPIView, SalesTransactionDetailAPIView,
+    SalesTransactionListCreateAPIView,
 )
 
 urlpatterns = [
@@ -14,4 +15,6 @@ urlpatterns = [
          SalesRefundDecisionAPIView.as_view(approve=True), name='api-sales-refund-approve'),
     path('refunds/<int:pk>/reject/',
          SalesRefundDecisionAPIView.as_view(approve=False), name='api-sales-refund-reject'),
+    path('<int:pk>/pwd-request/', SalesPwdRequestReviewAPIView.as_view(),
+         name='api-sales-pwd-request'),
 ]
