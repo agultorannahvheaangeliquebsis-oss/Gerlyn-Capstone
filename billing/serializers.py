@@ -120,6 +120,11 @@ class BillingConfirmSerializer(serializers.Serializer):
         # outbound edge from it), so what the method requires —
         # BillingRecord.missing_payment_evidence — has to be on record first.
         if record is not None and value == BillingRecord.PaymentStatus.PAID:
+            # P15 — same PWD-review gate billing_confirm applies.
+            blocked = record.pwd_review_block_message()
+            if blocked:
+                raise serializers.ValidationError(blocked)
+
             missing = BillingRecord.missing_payment_evidence(
                 record.payment_method, record.reference_number,
                 bool(record.proof_of_payment),

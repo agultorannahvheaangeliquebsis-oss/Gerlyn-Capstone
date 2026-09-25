@@ -21,6 +21,10 @@ from inventory.models import Batch, Inventory, Product, StockMovement
 
 from .models import Refund, RefundItem, SalesItem, SalesItemBatchConsumption, SalesTransaction
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
+from .pwd_requests import (
+    DISCOUNT_BLOCKED_BILLING_STATUSES, DiscountError, apply_discount,
+    approve_pwd_request, reject_pwd_request,
+)
 
 
 def _pos_discount_choices():
@@ -421,6 +425,9 @@ def transaction_detail(request, pk):
         # method the view enforces so the two cannot drift apart.
         'can_apply_discount': _can_offer_discount(txn, billing),
         'discount_choices': _pos_discount_choices(),
+        # The customer's own PWD request, awaiting a look at their ID.
+        # transaction_pwd_request_review re-checks this against locked rows.
+        'can_review_pwd_request': _can_review_pwd_request(txn, billing),
         # Owner/Branch Manager only, within the refund window — see
         # _can_offer_refund's own comment for why this is asked here too,
         # not just enforced in transaction_refund.
@@ -783,15 +790,10 @@ def transaction_set_status(request, pk, new_status):
 
 # Once money has actually changed hands (Paid, or refunded from having been
 # Paid) a NEW discount claim has nothing left to apply against — the price
-# was already settled at the counter. Shared by _can_offer_discount (what
-# the Order Console draws) and transaction_apply_discount's own two checks
-# (the pre-lock read and the re-check against the locked row) so the three
-# can't drift apart on which statuses count as "already settled".
-_DISCOUNT_BLOCKED_BILLING_STATUSES = {
-    BillingRecord.PaymentStatus.PAID,
-    BillingRecord.PaymentStatus.PARTIALLY_REFUNDED,
-    BillingRecord.PaymentStatus.REFUNDED,
-}
+# was already settled at the counter. The set lives in sales.pwd_requests so
+# the pre-lock check here, the re-check against the locked row there, and
+# what the Order Console draws all read one definition.
+_DISCOUNT_BLOCKED_BILLING_STATUSES = DISCOUNT_BLOCKED_BILLING_STATUSES
 
 
 def _can_offer_discount(txn, billing):
@@ -800,10 +802,26 @@ def _can_offer_discount(txn, billing):
     Kept beside the view that enforces the same conditions so the two are
     read together. `billing` is passed in rather than looked up again — the
     detail page already has it.
+
+    Not while the customer's own PWD request is Pending: that has its own
+    review panel, and two forms that both grant the discount would invite
+    applying around the request.
     """
     return (
         txn.can_apply_pwd_senior_discount()
         and txn.discount_type == SalesTransaction.DiscountType.NONE
+        and txn.order_status != SalesTransaction.OrderStatus.CANCELLED
+        and not txn.has_pending_pwd_request
+        and not (billing and billing.status in _DISCOUNT_BLOCKED_BILLING_STATUSES)
+    )
+
+
+def _can_review_pwd_request(txn, billing):
+    """Whether the Order Console should show the approve / reject panel for
+    the customer's PWD request. transaction_pwd_request_review re-checks all
+    of it against locked rows; this only decides what to draw."""
+    return (
+        txn.has_pending_pwd_request
         and txn.order_status != SalesTransaction.OrderStatus.CANCELLED
         and not (billing and billing.status in _DISCOUNT_BLOCKED_BILLING_STATUSES)
     )
@@ -910,75 +928,17 @@ def transaction_apply_discount(request, pk):
             messages.error(request, error)
         return redirect('transaction_detail', pk=pk)
 
-    with transaction.atomic():
-        # Re-fetch under lock so two staff applying a discount to the same
-        # order at once cannot both pass the "no discount yet" check against
-        # the same stale read and compound the reduction — the pattern
-        # billing_confirm (D-1) and transaction_set_status already use.
-        locked = SalesTransaction.objects.select_for_update().get(pk=pk)
-
-        if locked.discount_type != SalesTransaction.DiscountType.NONE:
-            messages.error(
-                request,
-                f'{locked.order_number} already carries a '
-                f'{locked.get_discount_type_display()} discount.'
-            )
-            return redirect('transaction_detail', pk=pk)
-
-        # Re-fetch and lock the billing record too (shadowing the `billing`
-        # read before this block opened), and re-check "already paid"
-        # against THIS read. billing_confirm takes its own select_for_update
-        # on this same row (D-1); without locking it here too, a payment
-        # confirmed in the gap between the pre-block check above and this
-        # save() would be silently overwritten by billing.save() below,
-        # using this view's stale, unlocked field values.
-        billing = BillingRecord.objects.select_for_update().filter(
-            transaction=locked
-        ).first()
-        if billing and billing.status in _DISCOUNT_BLOCKED_BILLING_STATUSES:
-            messages.error(
-                request,
-                f'{locked.order_number} is already paid — the amount due '
-                f'cannot be changed. Reverse the payment first if this '
-                f'discount is owed.'
-            )
-            return redirect('transaction_detail', pk=pk)
-
-        # Every line on an undiscounted order was stored at its original
-        # tier price, so SalesItem.unit_price is exactly the listed,
-        # VAT-inclusive figure price_cart expects. Passing it back in
-        # re-prices the frozen lines without re-deriving the tier, so a
-        # wholesale order stays at wholesale.
-        items = list(locked.items.select_related('product').all())
-        priced = price_cart(
-            [(i.product, i.quantity_sold, i.unit_price) for i in items],
-            discount_type=discount_type,
+    # The lock-and-recheck, the re-pricing (VAT stripped first, then 20% off
+    # the exclusive base — RA 10754 / RA 9994) and the audit trail all live in
+    # sales.pwd_requests.apply_discount, shared with the customer-request
+    # approval below so the two grant a discount by the exact same code.
+    try:
+        priced = apply_discount(
+            pk, request.user, discount_type, id_number, holder_name
         )
-
-        for item, line in zip(items, priced['lines']):
-            item.unit_price = line['unit_price']
-            item.is_vat_exempt_line = line['is_vat_exempt_line']
-            item.vat_amount = line['vat_amount']
-            item.discount_amount = line['discount_amount']
-            item.save()
-
-        locked.discount_type = discount_type
-        locked.discount_id_number = id_number
-        locked.discount_holder_name = holder_name
-        locked.total_amount = priced['total_amount']
-        locked.total_vat_amount = priced['total_vat_amount']
-        locked.total_discount_amount = priced['total_discount_amount']
-        # The audit trail: who granted this, and when. Same shape as
-        # BillingRecord.confirmed_by / date_confirmed (A-1).
-        locked.discount_applied_by = request.user
-        locked.discount_applied_at = timezone.now()
-        locked.save()
-
-        if billing:
-            # The bill has to follow the total, or the customer is asked for
-            # the pre-discount amount.
-            billing.amount_due = priced['total_amount']
-            billing.save()
+    except DiscountError as e:
+        messages.error(request, str(e))
+        return redirect('transaction_detail', pk=pk)
 
     if priced['total_discount_amount'] == Decimal('0'):
         # Recorded, but nothing moved: PWD and Senior are separate statutes
@@ -996,6 +956,70 @@ def transaction_apply_discount(request, pk):
             f'{discount_type} discount applied to {txn.order_number} — '
             f'₱{priced["total_discount_amount"]} off, now '
             f'₱{priced["total_amount"]}.'
+        )
+    return redirect('transaction_detail', pk=pk)
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transaction_pwd_request_review(request, pk):
+    """Approve or reject a customer's PWD discount request at pick-up.
+
+    The customer asked for the discount at checkout (orders.customer_views.
+    checkout) but nothing was granted — the order is still at full price. This
+    is the verification step: a staff member looks at the card as the
+    customer collects the order, then approves (the order is re-priced and the
+    bill follows) or rejects with a reason (nothing changes but the record).
+    Billing will not mark the order Paid while the request is Pending, so this
+    always happens before payment is confirmed.
+
+    The domain rules — and the API twin, SalesPwdRequestReviewAPIView — live in
+    sales.pwd_requests. This view only maps the form onto them.
+    """
+    txn = get_object_or_404(SalesTransaction, pk=pk)
+
+    if not user_can_access_branch(request.user, txn.branch_id):
+        messages.error(request, 'That order belongs to another branch.')
+        return redirect('transaction_list')
+
+    if request.method != 'POST':
+        return redirect('transaction_detail', pk=pk)
+
+    decision = request.POST.get('decision', '')
+    try:
+        if decision == 'approve':
+            priced = approve_pwd_request(
+                pk, request.user,
+                request.POST.get('discount_id_number', ''),
+                request.POST.get('discount_holder_name', ''),
+            )
+        elif decision == 'reject':
+            reject_pwd_request(pk, request.user, request.POST.get('reject_reason', ''))
+        else:
+            raise DiscountError('Choose whether to approve or reject the request.')
+    except DiscountError as e:
+        messages.error(request, str(e))
+        return redirect('transaction_detail', pk=pk)
+
+    if decision == 'reject':
+        messages.success(
+            request,
+            f'PWD request on {txn.order_number} not approved — the order stays '
+            f'at the full price. You can now confirm its payment.'
+        )
+    elif priced['total_discount_amount'] == Decimal('0'):
+        # Approved, but PWD eligibility is per product and nothing on the
+        # order carries it (a product can lose the flag after checkout).
+        messages.warning(
+            request,
+            f'PWD request on {txn.order_number} approved, but no item on it is '
+            f'eligible for the discount — the total is unchanged.'
+        )
+    else:
+        messages.success(
+            request,
+            f'PWD discount approved on {txn.order_number} — '
+            f'₱{priced["total_discount_amount"]} off, now ₱{priced["total_amount"]}. '
+            f'You can now confirm its payment.'
         )
     return redirect('transaction_detail', pk=pk)
 

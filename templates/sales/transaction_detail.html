@@ -174,6 +174,70 @@
 </div>
 {% endif %}
 
+{# ---- customer's PWD discount request: verify at pick-up (P15) ---- #}
+{% comment %}
+The customer asked for the PWD discount at checkout, but nothing was granted —
+the order is still at full price and billing will not mark it Paid until this
+is resolved. can_review_pwd_request comes from sales.views._can_review_pwd_request;
+transaction_pwd_request_review re-checks it against locked rows on POST, so
+hiding the panel is convenience, not the guard. The ID number and name start
+from what the customer typed but are editable: what is saved as the verified ID
+is what the reviewer confirms against the card.
+{% endcomment %}
+{% if can_review_pwd_request %}
+<div class="card card-pad mb-4">
+  <h3>PWD discount request — verify the ID</h3>
+  <p class="gv-meta">
+    The customer asked for the PWD discount when placing this order. Check their
+    PWD ID as they collect it, then approve or reject <strong>before confirming payment</strong>.
+    Approving takes 20% off the VAT-exclusive price of the eligible items, makes them
+    VAT-exempt, and updates the amount due. Your name is recorded against it.
+  </p>
+  <table class="gv-table kv-table" style="border:0;">
+    <tbody>
+      <tr><td class="gv-meta">ID number given</td><td style="text-align:right;">{{ transaction.pwd_request_id_number }}</td></tr>
+      <tr><td class="gv-meta">Name given</td><td style="text-align:right;">{{ transaction.pwd_request_holder_name }}</td></tr>
+      <tr><td class="gv-meta">Requested</td><td style="text-align:right;">{{ transaction.pwd_requested_at|date:"j M Y, g:i a" }}</td></tr>
+    </tbody>
+  </table>
+  <form method="post" action="{% url 'transaction_pwd_request_review' transaction.pk %}" class="stack mt-4"
+        data-confirm="This re-prices {{ transaction.order_number }} and updates the amount due. Only approve it if the ID you are holding matches."
+        data-confirm-title="Approve PWD discount?"
+        data-confirm-ok="Approve discount"
+        data-confirm-dismiss="Not yet">
+    {% csrf_token %}
+    <input type="hidden" name="decision" value="approve">
+    <div class="grid-2">
+      <div class="field">
+        <label for="review_id_number">ID number on the card</label>
+        <input type="text" id="review_id_number" name="discount_id_number" maxlength="50"
+               value="{{ transaction.pwd_request_id_number }}" required>
+      </div>
+      <div class="field">
+        <label for="review_holder_name">Name on the card</label>
+        <input type="text" id="review_holder_name" name="discount_holder_name" maxlength="150"
+               value="{{ transaction.pwd_request_holder_name }}" required>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Approve discount</button>
+  </form>
+  <form method="post" action="{% url 'transaction_pwd_request_review' transaction.pk %}" class="stack mt-4"
+        data-confirm="The order stays at the full price and the customer is told the discount was not approved."
+        data-confirm-title="Reject PWD request?"
+        data-confirm-variant="danger"
+        data-confirm-ok="Reject request">
+    {% csrf_token %}
+    <input type="hidden" name="decision" value="reject">
+    <div class="field">
+      <label for="review_reject_reason">Reason for not approving</label>
+      <input type="text" id="review_reject_reason" name="reject_reason" maxlength="255"
+             placeholder="e.g. No PWD ID presented" required>
+    </div>
+    <button type="submit" class="btn btn-danger">Reject request</button>
+  </form>
+</div>
+{% endif %}
+
 {# ---- apply PWD / Senior discount (walk-in or pickup only) ---- #}
 {% comment %}
 F-04. This is the only place the statutory discount can be granted:
@@ -380,6 +444,23 @@ of these itself, so a forged POST is still refused server-side.
           <div class="gv-meta">{{ transaction.discount_applied_at|date:"j M Y, g:i a" }}</div>
           {% endif %}</td></tr>
         {% endif %}
+        {% endif %}
+        {% comment %}
+        The customer's request and how it was decided (P15). A Pending one is
+        drawn with its own review card above, so it is only summarised here
+        when that card is not showing. An Approved one is already visible as
+        the discount rows above.
+        {% endcomment %}
+        {% if transaction.pwd_request_status == 'Rejected' %}
+        <tr><td class="gv-meta">PWD request</td><td style="text-align:right;">
+          <span class="tag">Not approved</span>
+          {% if transaction.pwd_request_reject_reason %}<div class="gv-meta">{{ transaction.pwd_request_reject_reason }}</div>{% endif %}
+          {% if transaction.pwd_request_reviewed_by %}<div class="gv-meta">
+            {{ transaction.pwd_request_reviewed_by.get_full_name|default:transaction.pwd_request_reviewed_by.username }}
+            · {{ transaction.pwd_request_reviewed_at|date:"j M Y, g:i a" }}</div>{% endif %}</td></tr>
+        {% elif transaction.pwd_request_status == 'Pending' and not can_review_pwd_request %}
+        <tr><td class="gv-meta">PWD request</td><td style="text-align:right;">
+          <span class="tag">Pending</span></td></tr>
         {% endif %}
         {% if transaction.total_vat_amount %}
         <tr><td class="gv-meta">VAT (included)</td>

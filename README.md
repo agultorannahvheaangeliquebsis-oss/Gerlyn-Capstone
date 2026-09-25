@@ -175,6 +175,19 @@ views can never drift apart.
   money was returned; nothing moves. Order status and the billing record's Paid status
   are left untouched — the `Refund`/`RefundItem` rows (`sales/models.py`) are the source
   of truth. Action and history live on the order's own page (Sales & Orders).
+- **PWD discount requests (online pickup)** — a customer checking out for *Pickup* (which
+  is also the only fulfilment *Pay at Store* allows) can tick "request the PWD discount"
+  and enter the ID number and name on the card. This is a *request*, not a claim: the
+  order is still priced in full until a staff member sees the ID at pick-up and
+  approves it on the order's page (Sales & Orders), which re-prices the order through
+  the same VAT-first, 20% engine as the walk-in discount (`sales/pwd_requests.py`) and
+  updates the amount due. Rejecting needs a reason and leaves the price alone. Billing
+  refuses to mark the order *Paid* while a request is pending, and an order can only be
+  *Completed* once Paid, so the ID is always checked before payment is confirmed. A
+  delivery order can never carry a request. The REST API mirrors all of it
+  (`fulfillmentType`, `pwdDiscountRequest` on `POST /api/sales/`;
+  `POST /api/sales/<id>/pwd-request/` to approve/reject). No ID image is stored — only
+  the typed details, and the reviewer's name and time on the decision.
 
 ---
 

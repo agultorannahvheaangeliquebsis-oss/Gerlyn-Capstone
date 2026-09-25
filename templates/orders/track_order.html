@@ -86,6 +86,7 @@
         {% else %}
         <tr><td class="gv-meta">Collection</td><td style="text-align:right;">Pick up at {{ sale.branch.branch_name }}</td></tr>
         {% endif %}
+        {% include "partials/_pwd_request_row.html" %}
       </tbody>
     </table>
   </div>

@@ -217,6 +217,36 @@ every panel in the app to fix one column.
           <input id="proof_of_payment" type="file" name="proof_of_payment" accept="image/*" style="padding-top:10px;">
         </div>
 
+        {% comment %}
+        P15 — a PWD discount REQUEST, offered only for pickup (which is also
+        the only fulfilment Pay at Store is allowed with). It changes nothing
+        about the total shown above: the store checks the ID in person when
+        the order is collected and applies the discount then. Hidden AND
+        disabled off-pickup so a Delivery submit never carries it (disabled
+        controls are not sent); checkout() refuses it for a Delivery order
+        regardless of this script.
+        {% endcomment %}
+        <div id="pwd_request_block" style="display:none;">
+          <div class="field">
+            <label style="display:flex; gap:8px; align-items:center; font-weight:600;">
+              <input type="checkbox" id="request_pwd_discount" name="request_pwd_discount" value="1" disabled>
+              I have a PWD ID and want to request the PWD discount
+            </label>
+            <span class="gv-meta">The store verifies your ID when you pick up the order — bring the card.
+              The discount is applied to your bill after that; your total above stays the same until then.</span>
+          </div>
+          <div id="pwd_request_fields" style="display:none;">
+            <div class="field">
+              <label for="pwd_id_number">PWD ID number <span class="gv-meta">— as printed on the card</span></label>
+              <input id="pwd_id_number" type="text" name="pwd_id_number" maxlength="50" autocomplete="off" disabled>
+            </div>
+            <div class="field">
+              <label for="pwd_holder_name">Name on the PWD ID</label>
+              <input id="pwd_holder_name" type="text" name="pwd_holder_name" maxlength="150" autocomplete="off" disabled>
+            </div>
+          </div>
+        </div>
+
         <div class="banner banner-info">
           We record your payment method — payment itself happens on delivery or in store.
         </div>
@@ -272,6 +302,11 @@ Delivery, independent of anything this script does.
     var gcashProofField = document.getElementById('gcash_proof_field');
     var gcashProofInput = document.getElementById('proof_of_payment');
     var conflictBanner = document.getElementById('payment_delivery_conflict');
+    var pwdBlock = document.getElementById('pwd_request_block');
+    var pwdCheckbox = document.getElementById('request_pwd_discount');
+    var pwdFields = document.getElementById('pwd_request_fields');
+    var pwdIdInput = document.getElementById('pwd_id_number');
+    var pwdNameInput = document.getElementById('pwd_holder_name');
     if (!paymentSelect || !fulfillmentSelect) return;
 
     // Same fixtures the field toggle above already hides/shows on a Pickup
@@ -303,6 +338,19 @@ Delivery, independent of anything this script does.
       if (gcashProofField) gcashProofField.style.display = isGCash ? '' : 'none';
       if (gcashProofInput) gcashProofInput.required = isGCash;
 
+      // PWD request: only for an explicit Pickup choice (not the unchosen
+      // placeholder). Inputs are disabled unless they will actually be sent.
+      var isPickup = fulfillmentSelect.value === 'Pickup';
+      var wantsPwd = isPickup && pwdCheckbox && pwdCheckbox.checked;
+      if (pwdBlock) pwdBlock.style.display = isPickup ? '' : 'none';
+      if (pwdCheckbox) pwdCheckbox.disabled = !isPickup;
+      if (pwdFields) pwdFields.style.display = wantsPwd ? '' : 'none';
+      [pwdIdInput, pwdNameInput].forEach(function (input) {
+        if (!input) return;
+        input.disabled = !wantsPwd;
+        input.required = wantsPwd;
+      });
+
       if (conflictBanner) conflictBanner.style.display = isPayAtStoreDelivery ? '' : 'none';
       // Native validation, not a disabled submit button — a disabled button
       // fights the double-submit guard's own pageshow handler (which
@@ -322,6 +370,7 @@ Delivery, independent of anything this script does.
 
     paymentSelect.addEventListener('change', sync);
     fulfillmentSelect.addEventListener('change', sync);
+    if (pwdCheckbox) pwdCheckbox.addEventListener('change', sync);
     sync();
   })();
 

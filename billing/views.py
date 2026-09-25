@@ -479,6 +479,14 @@ def billing_confirm(request, pk):
             # that rule existed can still be short, which is why it is
             # re-checked here and not only when the payment is saved.
             if new_status == BillingRecord.PaymentStatus.PAID:
+                # P15 — the amount due is not final while a PWD discount
+                # request is unresolved. `locked.transaction` came from the
+                # same locking query, so this is the current status.
+                blocked = locked.pwd_review_block_message()
+                if blocked:
+                    messages.error(request, blocked)
+                    return redirect('billing_detail', pk=pk)
+
                 missing = BillingRecord.missing_payment_evidence(
                     locked.payment_method, locked.reference_number,
                     bool(locked.proof_of_payment),

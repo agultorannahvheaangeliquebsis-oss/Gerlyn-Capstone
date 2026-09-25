@@ -113,7 +113,10 @@ REGISTRY = {
     # --- sales ---------------------------------------------------------------
     'sales.SalesTransaction': AuditConfig(
         'Order', repr_field='order_number',
-        mask=_f('delivery_address', 'discount_id_number', 'discount_holder_name'),
+        # pwd_request_* is what the customer typed at checkout (P15) — the
+        # same ID number and name as discount_*, and just as private.
+        mask=_f('delivery_address', 'discount_id_number', 'discount_holder_name',
+                'pwd_request_id_number', 'pwd_request_holder_name'),
     ),
     'sales.SalesItem': AuditConfig('Order item', branch_path='transaction.branch_id'),
     'sales.Refund': AuditConfig('Refund', branch_path='transaction.branch_id'),

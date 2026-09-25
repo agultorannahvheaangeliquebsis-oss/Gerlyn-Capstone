@@ -1,0 +1,20 @@
+{% comment %}
+A customer-facing "PWD discount" row for an order's details table. Renders
+nothing when the order never carried a request. Expects `sale`. P15 — the
+wording says what happens next, because Pending is the state a shopper will
+sit in until they collect the order.
+{% endcomment %}
+{% if sale.pwd_request_status == 'Pending' %}
+<tr><td class="gv-meta">PWD discount</td><td style="text-align:right;">
+  <span class="tag">Pending verification</span>
+  <div class="gv-meta">Bring your PWD ID when you collect the order.</div></td></tr>
+{% elif sale.pwd_request_status == 'Approved' %}
+<tr><td class="gv-meta">PWD discount</td><td style="text-align:right;">
+  <span class="tag">Approved</span>
+  <div class="gv-meta">−₱{{ sale.total_discount_amount|floatformat:2 }} applied to your total.</div></td></tr>
+{% elif sale.pwd_request_status == 'Rejected' %}
+<tr><td class="gv-meta">PWD discount</td><td style="text-align:right;">
+  <span class="tag">Not approved</span>
+  {% if sale.pwd_request_reject_reason %}<div class="gv-meta">{{ sale.pwd_request_reject_reason }}</div>{% endif %}
+  <div class="gv-meta">Your order stays at the full price.</div></td></tr>
+{% endif %}
