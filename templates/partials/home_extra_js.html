@@ -7,67 +7,79 @@
    depends on this script to be usable.
 
    Autoplay is off entirely under prefers-reduced-motion — pausing a
-   cross-fade is not the same as not moving the page under someone. */
+   cross-fade is not the same as not moving the page under someone.
+
+   UIUX-002 — runs against every [data-hero-rotator] rail on the page
+   independently, not just one hardcoded #banner-rotator: desktop's rail and
+   the mobile hero's own rail (templates/home.html) both carry this
+   attribute now, each with its own slide count, its own dots and its own
+   timer, so one rail rotating never touches the other's state. */
 (function () {
-  var rail = document.getElementById('banner-rotator');
-  if (!rail) return;
-
-  var slides = rail.querySelectorAll('[data-slide]');
-  var dots = rail.querySelectorAll('[data-dot]');
-  if (slides.length < 2 || dots.length !== slides.length) return;
-
-  var INTERVAL_MS = 6000;
-  var index = 0;
-  var timer = null;
-
-  function show(next) {
-    index = (next + slides.length) % slides.length;
-    for (var i = 0; i < slides.length; i++) {
-      var on = i === index;
-      slides[i].classList.toggle('is-active', on);
-      dots[i].setAttribute('aria-selected', on ? 'true' : 'false');
-      /* The off-screen slides are links. Left in the tab order they would
-         send a keyboard user to a destination they cannot see. */
-      slides[i].tabIndex = on ? 0 : -1;
-    }
-  }
+  var rails = document.querySelectorAll('[data-hero-rotator]');
+  if (!rails.length) return;
 
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var INTERVAL_MS = 6000;
 
-  function start() {
-    if (reduced.matches || timer) return;
-    timer = setInterval(function () { show(index + 1); }, INTERVAL_MS);
-  }
-  function stop() {
-    clearInterval(timer);
-    timer = null;
+  for (var r = 0; r < rails.length; r++) {
+    initRotator(rails[r]);
   }
 
-  for (var d = 0; d < dots.length; d++) {
-    (function (i) {
-      dots[i].addEventListener('click', function () {
-        stop();
-        show(i);
-        start();
-      });
-    })(d);
-  }
+  function initRotator(rail) {
+    var slides = rail.querySelectorAll('[data-slide]');
+    var dots = rail.querySelectorAll('[data-dot]');
+    if (slides.length < 2 || dots.length !== slides.length) return;
 
-  /* Hovering or tabbing into the rail means the visitor is reading it. */
-  rail.addEventListener('mouseenter', stop);
-  rail.addEventListener('mouseleave', start);
-  rail.addEventListener('focusin', stop);
-  rail.addEventListener('focusout', start);
-  /* A rotator advancing in a background tab is wasted work and lands the
-     visitor on a different slide than the one they left. */
-  document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { stop(); } else { start(); }
-  });
-  if (reduced.addEventListener) {
-    reduced.addEventListener('change', function () { stop(); start(); });
-  }
+    var index = 0;
+    var timer = null;
 
-  show(0);
-  start();
+    function show(next) {
+      index = (next + slides.length) % slides.length;
+      for (var i = 0; i < slides.length; i++) {
+        var on = i === index;
+        slides[i].classList.toggle('is-active', on);
+        dots[i].setAttribute('aria-selected', on ? 'true' : 'false');
+        /* The off-screen slides are links. Left in the tab order they would
+           send a keyboard user to a destination they cannot see. */
+        slides[i].tabIndex = on ? 0 : -1;
+      }
+    }
+
+    function start() {
+      if (reduced.matches || timer) return;
+      timer = setInterval(function () { show(index + 1); }, INTERVAL_MS);
+    }
+    function stop() {
+      clearInterval(timer);
+      timer = null;
+    }
+
+    for (var d = 0; d < dots.length; d++) {
+      (function (i) {
+        dots[i].addEventListener('click', function () {
+          stop();
+          show(i);
+          start();
+        });
+      })(d);
+    }
+
+    /* Hovering or tabbing into the rail means the visitor is reading it. */
+    rail.addEventListener('mouseenter', stop);
+    rail.addEventListener('mouseleave', start);
+    rail.addEventListener('focusin', stop);
+    rail.addEventListener('focusout', start);
+    /* A rotator advancing in a background tab is wasted work and lands the
+       visitor on a different slide than the one they left. */
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { stop(); } else { start(); }
+    });
+    if (reduced.addEventListener) {
+      reduced.addEventListener('change', function () { stop(); start(); });
+    }
+
+    show(0);
+    start();
+  }
 })();
 </script>

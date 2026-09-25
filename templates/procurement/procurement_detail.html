@@ -206,6 +206,12 @@
 {% endif %}
 
 {% comment %}
+UIUX-006 — every option this card can ever offer a Supplier viewer
+(Received, Cancelled) is one procurement_update_status already refuses them:
+Drafts are never visible to a Supplier (see supplier_portal), so on their own
+Ordered PO this card would show nothing they're actually allowed to submit.
+Hiding it here matches the backend guard rather than leaving a dead-end form.
+
 Restricted to the three statuses where a plain status bump still makes
 unambiguous sense: Draft (cancel only — approval is the Approve card
 above), and Incoming/Partially Received (record a receipt, or cancel).
@@ -215,6 +221,7 @@ including its own Cancel action — Incoming is reachable only through the
 supplier's own final confirmation once Terms Agreed, never a bare status
 POST here (that used to be a way to skip negotiation entirely).
 {% endcomment %}
+{% if user.role != "SUPPLIER" %}
 {% if procurement.status == "Draft" or procurement.status == "Incoming" or procurement.status == "Partially Received" %}
 <div class="card card-pad mb-4">
   <div class="status-update-block">
@@ -276,6 +283,7 @@ POST here (that used to be a way to skip negotiation entirely).
     </form>
   </div>
 </div>
+{% endif %}
 {% endif %}
 
 {% comment %}

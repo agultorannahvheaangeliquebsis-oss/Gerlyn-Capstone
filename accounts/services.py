@@ -385,3 +385,43 @@ def send_email_change_verification(user, new_email, request):
 
     user.pending_email = new_email
     user.save(update_fields=['pending_email'])
+
+
+def contact_number_taken(number, exclude_user=None):
+    """True if `number` is already saved on another role profile — checked
+    across all five profile tables since a contact number isn't scoped to
+    one role. `exclude_user` leaves the caller's own profile out (self-edit
+    and admin-edit), left as None for a brand-new registration where no
+    profile owns it yet."""
+    from .models import (
+        BranchManagerProfile, CustomerProfile, OwnerProfile,
+        StaffProfile, SupplierProfile,
+    )
+    querysets = [
+        BranchManagerProfile.objects.filter(contact_number=number),
+        StaffProfile.objects.filter(contact_number=number),
+        CustomerProfile.objects.filter(contact_number=number),
+        OwnerProfile.objects.filter(contact_number=number),
+        SupplierProfile.objects.filter(contact_number=number),
+    ]
+    if exclude_user is not None:
+        querysets = [qs.exclude(user=exclude_user) for qs in querysets]
+    return any(qs.exists() for qs in querysets)
+
+
+def set_contact_number(role_profile, new_number, owner):
+    """Validates (PH mobile format + cross-profile uniqueness) and saves
+    `new_number` onto `role_profile.contact_number`. Raises
+    django.core.exceptions.ValidationError with a user-facing message on
+    either failure, otherwise saves and returns None. `owner` is the User
+    the uniqueness check excludes (their own existing number isn't a
+    conflict with itself)."""
+    from django.core.exceptions import ValidationError
+    from .validators import validate_ph_mobile_number
+
+    validate_ph_mobile_number(new_number)
+    if contact_number_taken(new_number, exclude_user=owner):
+        raise ValidationError("That contact number is already in use.")
+
+    role_profile.contact_number = new_number
+    role_profile.save(update_fields=['contact_number'])

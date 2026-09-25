@@ -535,6 +535,16 @@ def procurement_update_status(request, pk):
                 return redirect('procurement_detail', pk=pk)
             return redirect('delivery_receive', pk=pk)
 
+        # UIUX-006 — a Supplier's writes here are view + confirm-delivery-date
+        # only (see the SUPPLIER PORTAL block's own docstring above
+        # supplier_set_delivery_date): they deliberately cannot self-confirm
+        # Received, and cancelling their own order is the same class of
+        # self-serving write — it would let a supplier back out of a
+        # commitment the store, not the supplier, is meant to control.
+        if new_status == Procurement.Status.CANCELLED and request.user.role == User.Role.SUPPLIER:
+            messages.error(request, 'You do not have permission to cancel this order.')
+            return redirect('procurement_detail', pk=pk)
+
         # Every other target: validate against the LOCKED record's current
         # status. This view used to write request.POST['status'] straight onto
         # the row with no check — a Received PO could be forced back to Ordered,

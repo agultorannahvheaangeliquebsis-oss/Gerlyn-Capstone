@@ -77,6 +77,19 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       {% endif %}
     </button>
     {% endfor %}
+    {% comment %}
+    Low / Critical Items — moved up from the Inventory row below (still the
+    same query/count, reports/views.py::_dashboard_inventory_metrics; not
+    wired into kpi_cards/dashboard-kpi.js on purpose, since it has no daily
+    series to plot into the graph panel the other four tab into). A plain
+    .kpi-card, not a .stat-hero button, so it's not clickable and not a tab
+    — the shared .kpi-row grid and .stat-hero/.kpi-card box-shell CSS make
+    it sit flush with the other four regardless.
+    {% endcomment %}
+    <div class="kpi-card{% if inventory_low_critical %} danger{% endif %}">
+      <span class="label">Low / Critical Items</span>
+      <span class="value">{{ inventory_low_critical }}</span>
+    </div>
   </div>
   {% if kpi_compare_note %}
   <p class="kpi-compare-note">{{ kpi_compare_note }}</p>
@@ -108,33 +121,113 @@ real content before dashboard-kpi.js runs; the script only swaps it on click.
   the chart has no y-axis, so nothing else gives the line a magnitude.
   {% endcomment %}
   {% comment %}
-  Three stacked lines became two. The label was an 18px/600 h3 sitting on a
-  20px/700 value — near enough in weight and size that neither led, so the
-  block read as a list of three equal things and the eye had to pick the
-  figure out of it. The value now carries the size (30px), which is the only
-  thing in this header anyone is looking for, and the peak moves up onto its
-  baseline instead of taking a third full-width line of its own.
+  Three stacked lines became two, then — for the smoothed Total Sales panel
+  specifically — became none. The label (h3) and peak subtitle are dropped
+  together with the value for that one panel: the card above already states
+  its metric name and value, tinted .active while this panel is open, so
+  repeating either here added nothing, and the range/legend row below is
+  the only thing in this header that panel needs to say. The other three
+  metrics (smooth=False — see _dashboard_kpi_payload) keep all three:
+  dashboard-kpi.js shows/hides this whole block to match on every card
+  switch, rather than two panels existing side by side.
 
-  The h3 keeps its size and stays an h3: it is this panel's heading, and it
-  sits level with "Sales by Branch" in the card beside it, so shrinking it
-  would fix one panel by breaking the pair.
+  The h3 keeps its 18px/600 size on the metrics that do show it: it is
+  their panel's heading, and sits level with "Sales by Branch" in the card
+  beside it, so shrinking it would fix one panel by breaking the pair.
   {% endcomment %}
   <div class="card-pad kpi-graph-head" style="border-bottom:1px solid var(--line);"
        aria-live="polite" aria-atomic="true">
-    <h3 id="kpi-graph-label">{{ default_kpi_graph.label }}</h3>
-    <div class="kpi-graph-figure">
+    {% comment %}
+    Present but `hidden` (never omitted) on the smooth branch, not absent —
+    dashboard-kpi.js's activate() looks these ids up once by
+    document.getElementById and keeps the reference; if Total Sales (smooth)
+    is ever the server-rendered default, an absent element here would leave
+    labelEl/valueEl/peakEl/figureEl null forever, breaking the non-smooth
+    metrics' own label/value/peak the first time a card switch tries to
+    un-hide them.
+    {% endcomment %}
+    <h3 id="kpi-graph-label" {% if default_kpi_graph.smooth %}hidden{% endif %}>{{ default_kpi_graph.label }}</h3>
+    <div class="kpi-graph-figure" id="kpi-graph-figure" {% if default_kpi_graph.smooth %}hidden{% endif %}>
       <p class="kpi-graph-value mb-0" id="kpi-graph-value">{{ default_kpi_graph.valueDisplay }}</p>
       <p class="gv-meta kpi-graph-peak mb-0" id="kpi-graph-peak">{{ default_kpi_graph.peak }}</p>
     </div>
+    {% comment %}
+    Range/overlay descriptor, one row above the chart: plain text on the
+    left ("Last 7 days — overlaid with the 7 days before"), the This
+    period/Prior period legend right-aligned on the SAME row — only Total
+    Sales' entry ever has showLegend True (built in
+    reports/views.py::_dashboard_kpi_payload), since it's the only metric
+    with a rendered prevLinePath below for the legend to label. 'All time'
+    (no fixed-length previous window to overlay) states the range alone.
+    {% endcomment %}
+    <div class="kpi-graph-range-row">
+      <span class="kpi-graph-range-text" id="kpi-graph-range-header">{{ default_kpi_graph.rangeHeader }}</span>
+      <div class="kpi-graph-legend" id="kpi-graph-legend" {% if not default_kpi_graph.showLegend %}hidden{% endif %}>
+        <span class="kpi-legend-item"><span class="kpi-legend-swatch kpi-legend-swatch--solid"></span>This period</span>
+        <span class="kpi-legend-item"><span class="kpi-legend-swatch kpi-legend-swatch--dashed"></span>Prior period</span>
+      </div>
+    </div>
   </div>
-  <div class="card-pad">
-    <svg id="kpi-graph-svg" viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none"
+  <div class="card-pad kpi-graph-svg-wrap" id="kpi-graph-svg-wrap">
+    {% comment %}
+    Height bumped 220 -> 260 (viewBox, height=, the guideline's y2 and the
+    hitarea's own height below all move with it — see reports/views.py's
+    _kpi_graph_series `height=260` default, which must match): the label/
+    value/peak block above is now hidden for the smoothed Total Sales panel
+    (see kpi-graph-head), freeing roughly that much vertical space, and
+    without a matching bump here the chart would just leave it blank rather
+    than growing into it.
+    {% endcomment %}
+    <svg id="kpi-graph-svg" viewBox="0 0 760 260" width="100%" height="260" preserveAspectRatio="none"
          {% if not default_kpi_graph.points %}hidden{% endif %}>
       {# colours come from the payload, so the server-rendered first paint and the JS swap cannot disagree #}
       <path id="kpi-graph-area" d="{{ default_kpi_graph.area }}" fill="{{ default_kpi_graph.fill }}" fill-opacity="{{ default_kpi_graph.areaOpacity }}" stroke="none"/>
-      <polyline id="kpi-graph-line" points="{{ default_kpi_graph.polyline }}" fill="none" stroke="{{ default_kpi_graph.stroke }}" stroke-width="{{ default_kpi_graph.strokeWidth }}" stroke-linecap="round" stroke-linejoin="round"/>
+      {% comment %}
+      Prior-period overlay (reports/views.py::_kpi_graph_series' prevLinePath)
+      — drawn under the current-period line so the active period stays the
+      visually primary one. Dashed, same "dashed = secondary" convention as
+      #kpi-graph-guideline below. Empty/hidden whenever the selected metric
+      has no overlay (every metric but Total Sales, and Total Sales itself
+      on 'All time' — see showLegend above, which tracks the same condition).
+      {% endcomment %}
+      <path id="kpi-graph-prev-line" d="{{ default_kpi_graph.prevLinePath }}" fill="none"
+            stroke="var(--ink-500)" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="round"
+            {% if not default_kpi_graph.prevLinePath %}hidden{% endif %}/>
+      <path id="kpi-graph-line" d="{{ default_kpi_graph.linePath }}" fill="none" stroke="{{ default_kpi_graph.stroke }}" stroke-width="{{ default_kpi_graph.strokeWidth }}" stroke-linecap="round" stroke-linejoin="round"/>
       <g id="kpi-graph-points"></g>
+      {% comment %}
+      X-axis date labels — real per-point dates from the server (day_labels),
+      thinned to at most a handful so they stay legible (_kpi_axis_labels).
+      {% endcomment %}
+      <g id="kpi-graph-axis">
+        {% for tick in default_kpi_graph.axisLabels %}
+        <text x="{{ tick.x }}" y="254" text-anchor="{{ tick.anchor }}" class="kpi-graph-axis-label">{{ tick.text }}</text>
+        {% endfor %}
+      </g>
+      {% comment %}
+      Vertical guideline for continuous hover (dashboard-kpi.js) — Total
+      Sales (smooth=True) only. Hidden until the first mousemove; positioned
+      at the nearest real data point's x, never at the raw cursor x, so it
+      always lines up with an actual date instead of floating between two.
+      {% endcomment %}
+      <line id="kpi-graph-guideline" class="kpi-graph-guideline" x1="0" y1="0" x2="0" y2="260" hidden/>
+      {% comment %}
+      Transparent hit-area spanning the plot, last in the SVG so it paints
+      (and receives pointer events) above the line/area/points — continuous
+      hover needs mousemove wherever the cursor is over the chart, not just
+      when it happens to land on a rendered element.
+      {% endcomment %}
+      <rect id="kpi-graph-hitarea" x="24" y="0" width="712" height="260" fill="transparent"/>
     </svg>
+    {% comment %}
+    Styled hover tooltip for the points above (dashboard-kpi.js positions and
+    fills this on pointer move) — Total Sales (smooth=True) only, for now.
+    Its points get no native SVG <title> at all: the two firing together was
+    the original bug report here, two different-looking tooltips open at
+    once for the same point. The other three metrics are untouched and keep
+    only their original native <title>, no custom bubble.
+    {% endcomment %}
+    <div class="kpi-graph-tooltip" id="kpi-graph-tooltip" aria-hidden="true"></div>
     {% comment %}
     Shown when the selected metric has nothing to plot — Avg. Transaction
     Value over a range with no transactions omits every day rather than
@@ -237,10 +330,6 @@ collapsing them lost information rather than simplifying it.
   <div class="kpi-card">
     <span class="label">Total Units</span>
     <span class="value">{{ inventory_units }}</span>
-  </div>
-  <div class="kpi-card{% if inventory_low_critical %} danger{% endif %}">
-    <span class="label">Low / Critical Items</span>
-    <span class="value">{{ inventory_low_critical }}</span>
   </div>
 </div>
 

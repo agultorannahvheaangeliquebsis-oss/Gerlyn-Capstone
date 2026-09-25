@@ -34,7 +34,7 @@ heading changing every six seconds.
     (partials/home_extra_js.html) takes any slide count — it just stays
     static below two.
     {% endcomment %}
-    <div class="banner-main" id="banner-rotator">
+    <div class="banner-main" id="banner-rotator" data-hero-rotator>
       {% if hero_slides %}
         {% for s in hero_slides %}
         <a class="banner-slide{% if forloop.first %} is-active{% endif %}" href="{{ s.cta_url }}" data-slide {% if not forloop.first %}tabindex="-1"{% endif %}>

@@ -30,7 +30,9 @@ every panel in the app to fix one column.
   <div class="section-head">
     <div>
       <h2>Your Cart</h2>
-      {% if branch %}<p class="gv-meta mb-0">Collecting from {{ branch.branch_name }}</p>{% endif %}
+      {% if branch %}<p class="gv-meta mb-0" id="cart-fulfillment-note">
+        <span id="pickup-note">Collecting from {{ branch.branch_name }}</span><span id="delivery-note" style="display:none;">Delivering from {{ branch.branch_name }}</span>
+      </p>{% endif %}
     </div>
   </div>
 
@@ -93,7 +95,7 @@ every panel in the app to fix one column.
       one figure behind all of them (orders.customer_views.FREE_DELIVERY_OVER),
       so it is printed from the context rather than typed in again here.
       {% endcomment %}
-      <div class="cart-meter">
+      <div class="cart-meter" id="cart-meter">
         {% if qualifies %}
           <p class="free-delivery-note">✓ You've unlocked free delivery within Baliuag</p>
           <div class="meter"><span style="width:100%;"></span></div>
@@ -114,14 +116,14 @@ every panel in the app to fix one column.
       isn't one of. What actually happens below ₱500 is that the branch
       settles delivery with the customer, so that is what it now says.
       {% endcomment %}
-      <div class="summary-line"><span class="gv-meta">Delivery</span>
+      <div class="summary-line" id="delivery-summary-line"><span class="gv-meta">Delivery</span>
         <span class="num">{% if qualifies %}Free{% else %}Arranged with the branch{% endif %}</span></div>
       <div class="summary-total">
         <span class="gv-label">Total</span>
         <span class="gv-metric" style="color:var(--action);">₱{{ total|floatformat:2 }}</span>
       </div>
       {% if not qualifies %}
-      <p class="gv-meta mt-2">Under ₱{{ free_delivery_over|floatformat:0 }} no delivery fee is added
+      <p class="gv-meta mt-2" id="delivery-fee-note">Under ₱{{ free_delivery_over|floatformat:0 }} no delivery fee is added
         here — the total above is what we record for this order. The branch will
         confirm delivery with you, or you can collect it yourself.</p>
       {% endif %}
@@ -153,6 +155,7 @@ every panel in the app to fix one column.
         <div class="field">
           <label for="fulfillment_type">How would you like this order?</label>
           <select id="fulfillment_type" name="fulfillment_type" required>
+            <option value="" selected disabled>Choose one…</option>
             <option value="Delivery">Deliver to my address</option>
             <option value="Pickup">I'll pick it up at the branch</option>
           </select>
@@ -271,6 +274,16 @@ Delivery, independent of anything this script does.
     var conflictBanner = document.getElementById('payment_delivery_conflict');
     if (!paymentSelect || !fulfillmentSelect) return;
 
+    // Same fixtures the field toggle above already hides/shows on a Pickup
+    // order: the free-delivery meter, the Delivery line in the summary and
+    // its explanatory note, and the "Collecting from…" / "Delivering
+    // from…" heading — none of them apply once nothing is being delivered.
+    var meter = document.getElementById('cart-meter');
+    var deliveryLine = document.getElementById('delivery-summary-line');
+    var deliveryFeeNote = document.getElementById('delivery-fee-note');
+    var pickupNote = document.getElementById('pickup-note');
+    var deliveryNote = document.getElementById('delivery-note');
+
     function sync() {
       var isDelivery = fulfillmentSelect.value === 'Delivery';
       var isGCash = paymentSelect.value === 'GCash';
@@ -280,7 +293,9 @@ Delivery, independent of anything this script does.
       // flex }`, and an author rule outranks the UA stylesheet's
       // `[hidden] { display: none }`, so the block would stay visible. The
       // shared .field component is used across the whole app and must not
-      // be edited to suit this one page.
+      // be edited to suit this one page. Same reasoning applies to
+      // .cart-meter and .summary-line below — both carry an author
+      // `display` rule of their own.
       if (addressField) addressField.style.display = isDelivery ? '' : 'none';
 
       if (gcashField) gcashField.style.display = isGCash ? '' : 'none';
@@ -297,10 +312,35 @@ Delivery, independent of anything this script does.
       paymentSelect.setCustomValidity(
         isPayAtStoreDelivery ? 'Pay at Store isn’t available for delivery orders.' : ''
       );
+
+      if (meter) meter.style.display = isDelivery ? '' : 'none';
+      if (deliveryLine) deliveryLine.style.display = isDelivery ? '' : 'none';
+      if (deliveryFeeNote) deliveryFeeNote.style.display = isDelivery ? '' : 'none';
+      if (pickupNote) pickupNote.style.display = isDelivery ? 'none' : '';
+      if (deliveryNote) deliveryNote.style.display = isDelivery ? '' : 'none';
     }
 
     paymentSelect.addEventListener('change', sync);
     fulfillmentSelect.addEventListener('change', sync);
+    sync();
+  })();
+
+  {% comment %}
+  Same pattern as the delivery-address toggle above, keyed off
+  mode_of_payment instead of fulfillment_type: show the GCash reference
+  field only when GCash is selected, so it doesn't sit open and typeable
+  for Cash on Delivery or Pay at Store.
+  {% endcomment %}
+  (function () {
+    var select = document.getElementById('mode_of_payment');
+    var field = document.getElementById('gcash_reference_field');
+    if (!select || !field) return;
+
+    function sync() {
+      field.style.display = select.value === 'GCash' ? '' : 'none';
+    }
+
+    select.addEventListener('change', sync);
     sync();
   })();
 </script>

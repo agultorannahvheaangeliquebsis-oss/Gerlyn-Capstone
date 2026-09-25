@@ -677,6 +677,41 @@ def transaction_set_status(request, pk, new_status):
 
                 notify_order_delivered(locked_txn, request.user)
 
+            # UIUX-001 — the customer-facing counterpart to the internal
+            # notify() call below. Fires for every transition this view can
+            # reach (Approved/Preparing/Completed/Cancelled), not just
+            # Cancelled, since a customer cares about all of them. Reuses
+            # orders.customer_views' own STATUS_BLURB text so this
+            # notification says the same thing Track Order already tells
+            # the customer for the same status (deferred import — mirrors
+            # the notify() import a few lines down, and avoids a
+            # module-load-time import between the sales and orders apps).
+            #
+            # Skipped for the exact Completed+Online+Delivery combination
+            # above: notify_order_delivered already sends that customer a
+            # more specific, delivery-framed notice for this same event.
+            # Do NOT remove this guard to "restore" coverage here — doing so
+            # would double-notify the customer for one transition instead of
+            # closing a gap.
+            if not (
+                new_status == SalesTransaction.OrderStatus.COMPLETED
+                and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE
+                and locked_txn.fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
+            ):
+                from orders.customer_views import STATUS_BLURB
+
+                from core.notifications import notify_customer
+
+                notify_customer(
+                    locked_txn.customer,
+                    f'Order {locked_txn.order_number}: {new_status}',
+                    STATUS_BLURB.get(new_status, f'Your order is now {new_status}.'),
+                    action_url=reverse(
+                        'orders:track_order', kwargs={'transaction_id': locked_txn.pk}
+                    ),
+                    action_label='Track Order',
+                )
+
             if new_status == SalesTransaction.OrderStatus.CANCELLED:
                 # Keep billing in step — this is the one field
                 # transaction_set_status doesn't already own, so it used to

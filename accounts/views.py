@@ -18,6 +18,8 @@ from .rate_limit import (
     clear_failed_logins, get_client_ip, is_login_locked_out,
     is_rate_limited, register_failed_login,
 )
+from .services import contact_number_taken, set_contact_number
+from .validators import validate_ph_mobile_number
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
@@ -470,6 +472,7 @@ def user_form(request, pk=None):
     first_name = request.POST.get('first_name', '').strip()
     last_name = request.POST.get('last_name', '').strip()
     password = request.POST.get('password', '').strip()
+    new_contact_number = request.POST.get('contact_number', '').strip()
     # Filtered against the real registry so a tampered POST can't smuggle an
     # unknown code into the field — it'd be harmless (nothing gates on an
     # unrecognized code) but there's no reason to store it either.
@@ -488,6 +491,22 @@ def user_form(request, pk=None):
             password_validation.validate_password(password, user=target)
         except ValidationError as e:
             errors.extend(e.messages)
+
+    # Checked upfront (format + cross-profile uniqueness) rather than at
+    # save time below, so a bad number is caught before any other field on
+    # `target` is written — same collected-not-redirected reasoning as the
+    # rest of this block. Blank is valid here (unlike the required
+    # username/role above): the Owner may be clearing a number, not just
+    # leaving it untouched — see _user_modal.html's contact_number field,
+    # which is always prefilled from the current value.
+    if new_contact_number:
+        try:
+            validate_ph_mobile_number(new_contact_number)
+        except ValidationError as e:
+            errors.append(e.messages[0])
+        else:
+            if contact_number_taken(new_contact_number, exclude_user=target):
+                errors.append('That contact number is already in use.')
 
     if target.pk == request.user.pk and role != target.role:
         errors.append("You can't change your own role.")
@@ -528,19 +547,23 @@ def user_form(request, pk=None):
             profile, _ = BranchManagerProfile.objects.get_or_create(user=target)
             profile.manager_name = full_name
             profile.branch_id = branch_id
+            profile.contact_number = new_contact_number
             profile.save()
         elif role == User.Role.STAFF:
             profile, _ = StaffProfile.objects.get_or_create(user=target)
             profile.staff_name = full_name
             profile.branch_id = branch_id
+            profile.contact_number = new_contact_number
             profile.save()
         elif role == User.Role.OWNER:
             profile, _ = OwnerProfile.objects.get_or_create(user=target)
             profile.owner_name = full_name
+            profile.contact_number = new_contact_number
             profile.save()
         elif role == User.Role.SUPPLIER:
             profile, _ = SupplierProfile.objects.get_or_create(user=target)
             profile.supplier_name = full_name
+            profile.contact_number = new_contact_number
             profile.save()
 
         # Module access only ever means anything for Staff/Manager (Owner is
@@ -962,6 +985,19 @@ def register_view(request):
             )
             return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
+        # Contact number is optional at sign-up (unlike the self-edit and
+        # admin-edit paths, which only ever see it once a profile already
+        # exists) — validated only when the visitor actually typed one.
+        if contact_number:
+            try:
+                validate_ph_mobile_number(contact_number)
+            except ValidationError as e:
+                messages.error(request, e.messages[0])
+                return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+            if contact_number_taken(contact_number):
+                messages.error(request, 'That contact number is already in use.')
+                return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+
         if password1 != password2:
             messages.error(request, 'Passwords do not match.')
             return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
@@ -1177,24 +1213,10 @@ def update_profile(request):
     if new_phone:
         role_profile = user.get_or_create_role_profile()
         if role_profile and hasattr(role_profile, 'contact_number'):
-            # Check uniqueness across all profile tables
-            phone_taken = any([
-                BranchManagerProfile.objects.filter(contact_number=new_phone)
-                    .exclude(user=user).exists(),
-                StaffProfile.objects.filter(contact_number=new_phone)
-                    .exclude(user=user).exists(),
-                CustomerProfile.objects.filter(contact_number=new_phone)
-                    .exclude(user=user).exists(),
-                OwnerProfile.objects.filter(contact_number=new_phone)
-                    .exclude(user=user).exists(),
-                SupplierProfile.objects.filter(contact_number=new_phone)
-                    .exclude(user=user).exists(),
-            ])
-            if phone_taken:
-                errors['contact_number'] = "That contact number is already in use."
-            else:
-                role_profile.contact_number = new_phone
-                role_profile.save(update_fields=['contact_number'])
+            try:
+                set_contact_number(role_profile, new_phone, user)
+            except ValidationError as e:
+                errors['contact_number'] = e.messages[0]
 
     if errors:
         from core.permissions import INTERNAL_ROLES

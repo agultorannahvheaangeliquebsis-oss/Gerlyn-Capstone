@@ -152,7 +152,7 @@ authorised), so it should not be a second thing to learn.
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/vendor/html5-qrcode.min.js' %}"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script>
 (function () {

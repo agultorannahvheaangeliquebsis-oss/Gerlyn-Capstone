@@ -281,7 +281,7 @@ def notify_near_expiry(batch):
     location = 'floor' if batch.location == Batch.Location.FLOOR else 'warehouse'
     return notify_event(
         EVENT_NEAR_EXPIRY,
-        f'{batch.product.product_name} expires in {days} day{"" if days == 1 else "s"}',
+        f'Expiry Alert: {batch.product.product_name} expires in {days} day{"" if days == 1 else "s"}',
         f'{batch.quantity} unit{"" if batch.quantity == 1 else "s"} of '
         f'{batch.product.product_name} at {batch.branch.branch_name} '
         f'({location}) expires on {batch.expiry_date:%Y-%m-%d}.',

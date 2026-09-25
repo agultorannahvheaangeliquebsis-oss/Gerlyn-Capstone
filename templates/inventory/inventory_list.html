@@ -429,7 +429,7 @@ across the full width leave the default block padding as empty card.
 {% block extra_js %}
 {% comment %}Top-bar branch switcher's outside-click/Escape close now lives in
 sidebar.js, shared by every page that includes partials/_branch_switch.html.{% endcomment %}
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'js/vendor/html5-qrcode.min.js' %}"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script>
 (function () {

@@ -292,6 +292,36 @@ def notify_supplier(supplier, priority, title, message,
     return 1
 
 
+def notify_customer(customer, title, message, action_url='', action_label=''):
+    """
+    One notification straight to a specific CUSTOMER account — the
+    customer-facing counterpart to notify_supplier() above. A
+    SalesTransaction has exactly one customer, so there's no fan-out to
+    compute, same reasoning as notify_supplier().
+
+    category/priority/branch/requires_action are left at the Notification
+    model's own defaults (blank/LOW/None/False): those fields back the Owner
+    Notification Center (see notify() above and the model's own docstring),
+    not a customer's order-update inbox, which only ever reads title/
+    message/action_url/action_label/is_read.
+
+    No-ops (returns 0) if `customer` is None or not an active CUSTOMER
+    account — SalesTransaction.customer is nullable (SET_NULL), so a
+    deleted/deactivated customer must not silently raise here.
+    """
+    from accounts.models import Notification
+    from core.permissions import CUSTOMER
+
+    if customer is None or customer.role != CUSTOMER or not customer.is_active:
+        return 0
+
+    Notification.objects.create(
+        user=customer, title=title, message=message,
+        action_url=action_url, action_label=action_label,
+    )
+    return 1
+
+
 def notify_event(event_type, title, message, *, branch=None, actor=None,
                  related_users=None, action_url='', action_label='',
                  reference_type='', reference_id='', audience_overrides=None,

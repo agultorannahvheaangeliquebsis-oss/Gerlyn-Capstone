@@ -34,7 +34,7 @@ def notify_payment_decision(record, actor, *, include_internal=True):
     if record.status == BillingRecord.PaymentStatus.REJECTED:
         return notify_event(
             EVENT_PAYMENT_REJECTED,
-            f'Payment rejected: {txn.order_number}',
+            f'Payment Alert: {txn.order_number} rejected',
             f'Payment for {txn.order_number} ({txn.branch.branch_name}, '
             f'\u20b1{txn.total_amount}) was rejected by {actor.username}.',
             branch=txn.branch,

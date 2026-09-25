@@ -29,6 +29,13 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
   <input type="hidden" name="status" value="{{ status_filter }}">
 </form>
 
+<div class="kpi-row compact">
+  <div class="kpi-card{% if outstanding %} danger{% endif %}">
+    <span class="label">Outstanding</span>
+    <span class="value">₱{{ outstanding|floatformat:2 }}</span>
+  </div>
+</div>
+
 <div class="filter-tabs">
   {# Badge tints and glyphs mirror the Status column below: Pending/Partially Refunded warn, Paid ok, Rejected danger, Refunded info, Cancelled neutral. #}
   {% comment %}

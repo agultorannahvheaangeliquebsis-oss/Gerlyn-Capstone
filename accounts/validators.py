@@ -25,3 +25,18 @@ class StrongPasswordValidator:
             "Your password must contain at least one uppercase letter, one number, "
             "and one special character (e.g. Juan2000-)."
         )
+
+
+# 11-digit local form (09XXXXXXXXX) or +63 international form
+# (+639XXXXXXXXX) — separators are stripped before matching, so
+# "0917-123-4567" and "+63 917 123 4567" validate the same as "09171234567".
+_PH_MOBILE_RE = re.compile(r'^(?:\+63|0)9\d{9}$')
+
+
+def validate_ph_mobile_number(value):
+    stripped = re.sub(r'[\s-]', '', value or '')
+    if not _PH_MOBILE_RE.match(stripped):
+        raise ValidationError(
+            'Enter a valid PH mobile number, e.g. 0917 123 4567 or +63 917 123 4567.',
+            code='invalid_ph_mobile',
+        )
