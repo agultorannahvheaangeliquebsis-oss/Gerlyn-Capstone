@@ -130,7 +130,10 @@ def refund_value_total(sales_qs, start=None, end=None):
     ever refunded against these orders", matching how Gross Sales for that
     same scope already ignores when a sale was refunded.
     """
-    refunds = Refund.objects.filter(transaction__in=sales_qs)
+    # Approved only — a Pending or Rejected request (P14) has moved no money.
+    refunds = Refund.objects.filter(
+        transaction__in=sales_qs, status=Refund.Status.APPROVED
+    )
     if start is not None:
         refunds = refunds.filter(refunded_at__gte=start)
     if end is not None:

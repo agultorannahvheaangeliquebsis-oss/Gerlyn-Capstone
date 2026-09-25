@@ -226,27 +226,40 @@ this form is forged, so hiding the control is convenience, not the guard.
 </div>
 {% endif %}
 
-{# ---- refund (Owner / Branch Manager only, within the refund window) ---- #}
+{# ---- refund request (P14) ---- #}
 {% comment %}
-refundable_items comes from sales.views._can_offer_refund /
-_refundable_items — Owner/Branch Manager only, order Completed, billing
-Paid, within SalesTransaction.REFUND_WINDOW of completion, and only items
-that still have unrefunded quantity. transaction_refund re-checks every one
-of these itself, so a forged POST is still refused server-side.
+refundable_items comes from sales.refunds.can_request_refund /
+refundable_lines: any internal user with this branch, order Completed,
+billing Paid or Partially Refunded, within SalesTransaction.REFUND_WINDOW, and
+only items with quantity nobody has claimed (a request awaiting a decision
+holds its units). sales.refunds.request_refund re-checks every one of these
+against locked rows, so a forged POST is still refused server-side. Owner and
+Branch Manager requests are approved as they are submitted; Staff's wait.
 {% endcomment %}
 {% if refundable_items %}
 <div class="card card-pad mb-4">
-  <h3>Refund</h3>
+  <h3>{% if can_decide_refunds %}Refund{% else %}Request a refund{% endif %}</h3>
   <p class="gv-meta">
     Select what the customer returned. Sellable items go back onto {{ transaction.branch.branch_name }}'s
-    floor stock; Damaged items are written off. Nothing here moves money —
-    the system only records that it was given back.
+    floor stock once the refund is approved; Damaged items are written off.
+    {% if can_decide_refunds %}
+    You can approve refunds, so this one is approved and recorded as soon as you submit it.
+    {% else %}
+    An Owner or Branch Manager has to approve it before any stock or money changes.
+    {% endif %}
+    Nothing here moves money — the system only records that it was given back.
   </p>
   <form method="post" action="{% url 'transaction_refund' transaction.pk %}" class="stack"
-        data-confirm="This records a refund on {{ transaction.order_number }}. It cannot be undone."
+        {% if can_decide_refunds %}
+        data-confirm="This records a refund on {{ transaction.order_number }} and puts any Sellable items back in stock. It cannot be undone."
         data-confirm-title="Issue this refund?"
         data-confirm-variant="danger"
-        data-confirm-ok="Issue refund">
+        data-confirm-ok="Issue refund"
+        {% else %}
+        data-confirm="This sends a refund request for {{ transaction.order_number }} to the Owner or a Branch Manager. Nothing changes until it is approved."
+        data-confirm-title="Send refund request?"
+        data-confirm-ok="Send request"
+        {% endif %}>
     {% csrf_token %}
     <table class="gv-table" style="border:0;">
       <thead>
@@ -273,10 +286,23 @@ of these itself, so a forged POST is still refused server-side.
         {% endfor %}
       </tbody>
     </table>
+    <label class="row" style="gap:8px; align-items:center;">
+      <input type="checkbox" name="refund_all" value="1">
+      <span>Refund everything still refundable on this order (full refund) — ignores the selection and quantities above, but uses each line's condition.</span>
+    </label>
     <div class="grid-2">
       <div class="field">
-        <label for="refund_reason">Reason</label>
-        <input type="text" id="refund_reason" name="reason" placeholder="Why this is being refunded" required>
+        <label for="refund_reason_code">Reason</label>
+        <select id="refund_reason_code" name="reason_code" required>
+          <option value="">Select…</option>
+          {% for value, label in refund_reason_choices %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="refund_reason">Note <span class="gv-meta">(required for "Other")</span></label>
+        <input type="text" id="refund_reason" name="reason" maxlength="255" placeholder="What happened">
       </div>
       <div class="field">
         <label for="refund_method">How the money was given back</label>
@@ -288,21 +314,33 @@ of these itself, so a forged POST is still refused server-side.
         </select>
       </div>
     </div>
-    <button type="submit" class="btn btn-danger">Issue refund</button>
+    <button type="submit" class="btn {% if can_decide_refunds %}btn-danger{% else %}btn-primary{% endif %}">
+      {% if can_decide_refunds %}Issue refund{% else %}Request refund{% endif %}
+    </button>
   </form>
 </div>
 {% endif %}
 
-{# ---- refund history ---- #}
+{# ---- refund log ---- #}
+{% comment %}
+Every refund on this order, newest first, with its lines and the full event
+log behind it (RefundEvent — who requested, who decided, when, why). Pending
+requests carry the Approve / Reject controls for whoever may decide
+(can_decide_refunds); transaction_refund_approve / _reject re-check the role
+and branch server-side.
+{% endcomment %}
 {% if refunds %}
 <div class="card card-pad mb-4">
-  <h3 class="mb-2">Refund History</h3>
+  <h3 class="mb-2">Refund Log</h3>
   <table class="gv-table kv-table" style="border:0;">
-    <thead><tr><th>When</th><th>Items</th><th class="num">Amount</th><th>Method</th><th>Reason</th><th>By</th></tr></thead>
+    <thead><tr><th>Requested</th><th>Refund</th><th>Items</th><th class="num">Amount</th><th>Reason</th><th>Status</th></tr></thead>
     <tbody>
       {% for r in refunds %}
       <tr>
-        <td data-label="When" class="gv-meta">{{ r.refunded_at|date:"j M Y, g:i a" }}</td>
+        <td data-label="Requested" class="gv-meta">{{ r.requested_at|date:"j M Y, g:i a" }}
+          <div>{{ r.requested_by.username|default:"—" }}</div></td>
+        <td data-label="Refund">#{{ r.pk }}
+          <div class="gv-meta">{{ r.get_refund_type_display }} · {{ r.refund_method }}</div></td>
         <td data-label="Items">
           {% for i in r.items.all %}
           <div>{{ i.sales_item.product.product_name|default:"(product removed)" }} x{{ i.quantity }}
@@ -310,15 +348,85 @@ of these itself, so a forged POST is still refused server-side.
           {% endfor %}
         </td>
         <td data-label="Amount" class="num strong">₱{{ r.total_amount|floatformat:2 }}</td>
-        <td data-label="Method">{{ r.refund_method }}</td>
-        <td data-label="Reason" class="gv-meta">{{ r.reason }}</td>
-        <td data-label="By" class="gv-meta">{{ r.refunded_by.username|default:"—" }}</td>
+        <td data-label="Reason">{{ r.get_reason_code_display }}
+          {% if r.reason %}<div class="gv-meta">{{ r.reason }}</div>{% endif %}</td>
+        <td data-label="Status">
+          {% if r.status == "Approved" %}<span class="pill pill-ok">Approved</span>
+          {% elif r.status == "Rejected" %}<span class="pill pill-danger">Rejected</span>
+          {% else %}<span class="pill pill-warn">Pending approval</span>{% endif %}
+          {% if r.status == "Approved" %}
+          <div class="gv-meta">{{ r.refunded_by.username|default:"—" }} · {{ r.refunded_at|date:"j M Y, g:i a" }}</div>
+          {% elif r.status == "Rejected" %}
+          <div class="gv-meta">{{ r.decision_note }}</div>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td colspan="6" style="padding-top:0;">
+          <details>
+            <summary class="gv-meta">Log ({{ r.events.all|length }})</summary>
+            <ul class="gv-meta" style="margin:6px 0 0 18px;">
+              {% for e in r.events.all %}
+              <li>{{ e.created_at|date:"j M Y, g:i a" }} — <strong>{{ e.to_status }}</strong>
+                by {{ e.actor.username|default:"—" }}{% if e.note %}: {{ e.note }}{% endif %}</li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% if r.status == "Pending" and can_decide_refunds %}
+          <div class="row wrap mt-2" style="gap:8px; align-items:center;">
+            <form method="post" action="{% url 'transaction_refund_approve' r.pk %}"
+                  data-confirm="Approving records ₱{{ r.total_amount|floatformat:2 }} as refunded on {{ transaction.order_number }} and puts any Sellable items back in stock. It cannot be undone."
+                  data-confirm-title="Approve this refund?"
+                  data-confirm-ok="Approve refund">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-primary">Approve</button>
+            </form>
+            <form method="post" action="{% url 'transaction_refund_reject' r.pk %}" class="row"
+                  style="gap:8px; align-items:center;"
+                  data-confirm="Nothing on {{ transaction.order_number }} will change, and the items become refundable again."
+                  data-confirm-title="Reject this refund?"
+                  data-confirm-variant="danger"
+                  data-confirm-ok="Reject refund"
+                  data-confirm-dismiss="Keep pending">
+              {% csrf_token %}
+              <input type="text" name="decision_note" maxlength="255" placeholder="Reason for rejecting" required
+                     style="width:220px;">
+              <button type="submit" class="btn btn-danger">Reject</button>
+            </form>
+          </div>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+
+{# ---- order status history ---- #}
+<div class="card card-pad mb-4">
+  <h3 class="mb-2">Status History</h3>
+  {% if status_history %}
+  <table class="gv-table kv-table" style="border:0;">
+    <thead><tr><th>When</th><th>Change</th><th>By</th><th>Note</th></tr></thead>
+    <tbody>
+      {% for h in status_history %}
+      <tr>
+        <td data-label="When" class="gv-meta">{{ h.created_at|date:"j M Y, g:i a" }}</td>
+        <td data-label="Change">
+          {% if h.from_status %}{{ h.from_status }} &rarr; <strong>{{ h.to_status }}</strong>
+          {% else %}Created as <strong>{{ h.to_status }}</strong>{% endif %}
+        </td>
+        <td data-label="By" class="gv-meta">{{ h.actor.username|default:"—" }}</td>
+        <td data-label="Note" class="gv-meta">{{ h.note|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="gv-meta mb-0">No status changes were recorded for this order — it predates status history.</p>
+  {% endif %}
+</div>
 
 <div class="grid-2 mb-4">
   <!-- Order info -->
@@ -387,6 +495,12 @@ of these itself, so a forged POST is still refused server-side.
         {% endif %}
         <tr><td class="gv-meta">Total</td>
             <td class="num" style="text-align:right;"><span class="gv-metric" style="color:var(--action);">₱{{ transaction.total_amount|floatformat:2 }}</span></td></tr>
+        {% if transaction.refunded_amount %}
+        <tr><td class="gv-meta">Less: refunded</td>
+            <td class="num" style="text-align:right; color:var(--ok-fg);">−₱{{ transaction.refunded_amount|floatformat:2 }}</td></tr>
+        <tr><td class="gv-meta">Net after refunds</td>
+            <td class="num strong" style="text-align:right;">₱{{ transaction.net_amount|floatformat:2 }}</td></tr>
+        {% endif %}
         {% if transaction.amount_tendered is not None %}
         <tr><td class="gv-meta">Amount tendered</td>
             <td class="num" style="text-align:right;">₱{{ transaction.amount_tendered|floatformat:2 }}</td></tr>

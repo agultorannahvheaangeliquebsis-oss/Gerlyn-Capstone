@@ -19,7 +19,11 @@ from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, u
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
-from .models import Refund, RefundItem, SalesItem, SalesItemBatchConsumption, SalesTransaction
+from . import refunds as refund_service
+from .models import (
+    OrderStatusHistory, Refund, RefundItem, SalesItem, SalesItemBatchConsumption,
+    SalesTransaction,
+)
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
@@ -421,18 +425,23 @@ def transaction_detail(request, pk):
         # method the view enforces so the two cannot drift apart.
         'can_apply_discount': _can_offer_discount(txn, billing),
         'discount_choices': _pos_discount_choices(),
-        # Owner/Branch Manager only, within the refund window — see
-        # _can_offer_refund's own comment for why this is asked here too,
-        # not just enforced in transaction_refund.
+        # Refunds (P14). Asked here so the form is only drawn when
+        # sales.refunds would accept it — request_refund re-checks against
+        # locked rows, so a forged POST is refused server-side regardless.
+        'can_request_refund': refund_service.can_request_refund(txn, billing, request.user),
         'refundable_items': (
-            _refundable_items(txn)
-            if _can_offer_refund(txn, billing, request.user) else []
+            refund_service.refundable_lines(txn)
+            if refund_service.can_request_refund(txn, billing, request.user) else []
         ),
+        'can_decide_refunds': refund_service.can_decide_refund(request.user, txn),
         'refund_method_choices': Refund.RefundMethod.choices,
         'refund_condition_choices': RefundItem.Condition.choices,
-        'refunds': txn.refunds.select_related('refunded_by').prefetch_related(
-            'items__sales_item__product'
+        'refund_reason_choices': Refund.ReasonCode.choices,
+        'refunds': txn.refunds.select_related('requested_by', 'refunded_by').prefetch_related(
+            'items__sales_item__product', 'events__actor'
         ),
+        # Order lifecycle trail — every step, who took it and why.
+        'status_history': txn.status_history.select_related('actor'),
     })
 
 
@@ -652,6 +661,22 @@ def transaction_set_status(request, pk, new_status):
                     raise _OrderActionError(
                         'Only the Owner or a Branch Manager can void a completed sale.'
                     )
+                # P14 — a refunded order cannot also be voided. _reverse_stock
+                # credits back the FULL quantity sold, so voiding after a
+                # Sellable refund would restock those units a second time;
+                # and the money side (refunded_amount, Partially Refunded)
+                # would have nothing coherent to reverse to. Refund whatever
+                # is left instead. Requests still waiting for a decision are
+                # closed here — the goods are being reversed wholesale, so
+                # there is nothing left for anyone to approve.
+                if refund_service.has_approved_refunds(locked_txn):
+                    raise _OrderActionError(
+                        f'{locked_txn.order_number} has already been refunded, so it cannot '
+                        f'be voided — refund the remaining items instead.'
+                    )
+                refund_service.reject_pending_refunds(
+                    locked_txn, request.user, 'Order was voided before this refund was decided.'
+                )
                 skipped_products += _reverse_stock(locked_txn, request.user)
 
             # Deduct stock once, when an online order is completed.
@@ -659,7 +684,13 @@ def transaction_set_status(request, pk, new_status):
                     and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE):
                 _deduct_stock(locked_txn, request.user)
 
+            previous_status = locked_txn.order_status
             locked_txn.order_status = new_status
+            OrderStatusHistory.objects.create(
+                transaction=locked_txn, from_status=previous_status, to_status=new_status,
+                actor=request.user,
+                note=cancel_reason if new_status == SalesTransaction.OrderStatus.CANCELLED else '',
+            )
             if new_status == SalesTransaction.OrderStatus.CANCELLED:
                 locked_txn.cancel_reason = cancel_reason
             if new_status == SalesTransaction.OrderStatus.COMPLETED:
@@ -1000,13 +1031,10 @@ def transaction_apply_discount(request, pk):
     return redirect('transaction_detail', pk=pk)
 
 
-def _item_label(item):
-    """A SalesItem's product name, safe against a product that was hard-
-    deleted from the catalog since the sale (inventory.views.product_delete
-    — Product.product FK is on_delete=SET_NULL precisely so the sale itself
-    survives that; this is the one place downstream code used to assume it
-    never happened and crashed reading .product.product_name off None)."""
-    return item.product.product_name if item.product_id else 'a product since removed from the catalog'
+# A SalesItem's product name, safe against a product hard-deleted from the
+# catalog since the sale. One definition, in sales.refunds, shared with the
+# refund workflow.
+_item_label = refund_service.item_label
 
 
 def _deduct_stock(txn, user):
@@ -1163,236 +1191,135 @@ def _create_void_reversal_batch(product, txn, quantity):
 # ─────────────────────────────────────────────
 # REFUNDS
 # A financial correction on a Completed, Paid order — distinct from voiding
-# a completed sale (which cancels the whole order). Owner/Branch Manager
-# only, within SalesTransaction.REFUND_WINDOW of completion. No payment
-# gateway is integrated, so this only ever records that money went back —
-# see Refund's own docstring in sales/models.py.
+# a completed sale (which cancels the whole order). P14: a refund is a
+# request that an Owner/Branch Manager approves or rejects; every rule lives
+# in sales.refunds so these views and the DRF endpoints share it. No payment
+# gateway is integrated, so an approved refund only ever records that money
+# went back — see Refund's own docstring in sales/models.py.
 # ─────────────────────────────────────────────
 
-def _can_offer_refund(txn, billing, user):
-    """Whether `user` may refund `txn` right now — the single definition
-    transaction_detail asks to decide what to draw, and transaction_refund
-    re-asks (against a freshly locked read) to decide what to allow, so the
-    control shown and the control permitted can never drift apart."""
-    return (
-        user.role in (OWNER, BRANCH_MANAGER)
-        and txn.order_status == SalesTransaction.OrderStatus.COMPLETED
-        and billing is not None
-        # Partially Refunded still has refundable quantity left on it (that's
-        # exactly what distinguishes it from Refunded, which doesn't) — an
-        # order already refunded once must stay refundable for what's left.
-        and billing.status in (
-            BillingRecord.PaymentStatus.PAID, BillingRecord.PaymentStatus.PARTIALLY_REFUNDED,
-        )
-        and not txn.refund_window_expired()
-    )
+def _refund_request_from_post(post):
+    """The refund form's untrusted fields, shaped for sales.refunds.
 
-
-def _refundable_items(txn):
-    """This order's items that still have unrefunded quantity, each paired
-    with how much of it remains — an order can be refunded more than once,
-    so "remaining" is quantity_sold minus everything already refunded on it,
-    not quantity_sold itself."""
-    items = txn.items.select_related('product').annotate(
-        already_refunded=dj_models.Sum('refund_items__quantity')
-    )
-    rows = []
-    for item in items:
-        remaining = item.quantity_sold - (item.already_refunded or 0)
-        if remaining > 0:
-            rows.append({'item': item, 'remaining': remaining, 'product_label': _item_label(item)})
-    return rows
-
-
-def _restock_refunded_item(sales_item, txn, quantity, user):
-    """The stock side of a Sellable-condition refund line: back onto the
-    branch's floor. A fresh, no-expiry batch — the same honestly-unknown-
-    provenance fallback _create_void_reversal_batch uses — since a unit that
-    has left the store and come back has no traceable original lot to credit,
-    and once it has changed hands its true remaining shelf life isn't
-    something this system can claim to know.
-
-    Callers must not call this for a line whose product has since been
-    deleted from the catalog (sales_item.product_id is None) — there is no
-    Inventory row to identify (product is a required field on it). See
-    transaction_refund, which checks this before calling in.
-    """
-    inv, _ = Inventory.objects.select_for_update().get_or_create(
-        product=sales_item.product, branch=txn.branch,
-        defaults={'quantity_on_hand': 0, 'reorder_level': 0},
-    )
-    before = inv.quantity_on_hand
-    inv.quantity_on_hand += quantity
-    inv.save()
-    batch = Batch.objects.create(
-        product=sales_item.product, branch=txn.branch, location=Batch.Location.FLOOR,
-        quantity=quantity, received_date=timezone.localdate(), expiry_date=None,
-        notes=f'Customer return for {txn.order_number} — refunded, marked sellable.',
-    )
-    StockMovement.objects.create(
-        inventory=inv,
-        location_type=StockMovement.LocationType.FLOOR,
-        movement_type=StockMovement.MovementType.CUSTOMER_RETURN,
-        quantity_change=inv.quantity_on_hand - before,
-        quantity_before=before,
-        quantity_after=inv.quantity_on_hand,
-        reference_id=txn.pk,
-        batch=batch,
-        notes=f'Refund on {txn.order_number} — {_item_label(sales_item)} returned sellable.',
-        created_by=user,
-    )
+    Nothing is validated here beyond parsing — an unparsable quantity goes
+    through as None and is refused by request_refund with the item's name."""
+    lines = []
+    for raw_id in post.getlist('item_id'):
+        qty_raw = post.get(f'quantity_{raw_id}', '').strip()
+        lines.append({
+            'item_id': int(raw_id) if raw_id.isdigit() else None,
+            'quantity': int(qty_raw) if qty_raw.isdigit() else None,
+            'condition': post.get(f'condition_{raw_id}', ''),
+        })
+    conditions = {
+        key[len('condition_'):]: value for key, value in post.items()
+        if key.startswith('condition_')
+    }
+    return lines, post.get('refund_all') == '1', conditions
 
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
 def transaction_refund(request, pk):
-    """Refund some or all of a Completed, Paid order's items. Module-gated
-    (SALES_POS) the same as every other order action, but the role check
-    below is what actually restricts this to Owner/Branch Manager — Staff
-    never reaches past it, matching who may void a completed sale."""
+    """Request a refund on some or all of a Completed, Paid order's items.
+    Module-gated (SALES_POS) like every other order action. Any internal user
+    with access to the branch may ask; an Owner/Branch Manager's own request
+    is approved as it is submitted, while Staff's waits for one of them
+    (transaction_refund_approve / transaction_refund_reject)."""
     txn = get_object_or_404(SalesTransaction, pk=pk)
 
     if not user_can_access_branch(request.user, txn.branch_id):
         messages.error(request, 'That order belongs to another branch.')
         return redirect('transaction_list')
 
-    if request.user.role not in (OWNER, BRANCH_MANAGER):
-        messages.error(request, 'Only the Owner or a Branch Manager can issue a refund.')
-        return redirect('transaction_detail', pk=pk)
-
     if request.method != 'POST':
         return redirect('transaction_detail', pk=pk)
 
+    lines, refund_all, conditions = _refund_request_from_post(request.POST)
     try:
-        with transaction.atomic():
-            # Re-fetch and lock so two refunds racing the same order can't
-            # both pass the remaining-quantity check against the same stale,
-            # pre-lock read — the pattern billing_confirm (D-1) and
-            # transaction_set_status already use.
-            locked_txn = SalesTransaction.objects.select_for_update().get(pk=pk)
-            billing = BillingRecord.objects.select_for_update().filter(
-                transaction=locked_txn
-            ).first()
-
-            if not _can_offer_refund(locked_txn, billing, request.user):
-                raise _OrderActionError(
-                    f'{locked_txn.order_number} is not eligible for a refund '
-                    f'right now — it must be Completed, Paid, and within '
-                    f'{locked_txn.REFUND_WINDOW.days} days of completion.'
-                )
-
-            reason = request.POST.get('reason', '').strip()
-            refund_method = request.POST.get('refund_method', '')
-            if not reason:
-                raise _OrderActionError('Enter a reason for this refund.')
-            if refund_method not in Refund.RefundMethod.values:
-                raise _OrderActionError('Choose how the money was given back.')
-
-            item_ids = request.POST.getlist('item_id')
-            if not item_ids:
-                raise _OrderActionError('Select at least one item to refund.')
-            if len(item_ids) != len(set(item_ids)):
-                # Each duplicate would re-read the same pre-loop "remaining"
-                # figure (RefundItem rows for this submission aren't written
-                # until after every line passes), letting the same units be
-                # refunded and restocked more than once in a single request.
-                raise _OrderActionError(
-                    'That item was selected more than once — refund it in a single line.'
-                )
-
-            sales_items = {
-                str(i.pk): i for i in
-                SalesItem.objects.select_for_update().select_related('product')
-                .filter(transaction=locked_txn)
-            }
-            lines = []
-            total = Decimal('0')
-            for item_id in item_ids:
-                sales_item = sales_items.get(item_id)
-                if sales_item is None:
-                    raise _OrderActionError('That item does not belong to this order.')
-
-                qty_raw = request.POST.get(f'quantity_{item_id}', '').strip()
-                condition = request.POST.get(f'condition_{item_id}', '')
-                if not qty_raw.isdigit() or int(qty_raw) <= 0:
-                    raise _OrderActionError(
-                        f'Enter a valid quantity for {_item_label(sales_item)}.'
-                    )
-                if condition not in RefundItem.Condition.values:
-                    raise _OrderActionError(
-                        f'Choose a condition for {_item_label(sales_item)}.'
-                    )
-
-                quantity = int(qty_raw)
-                already_refunded = sales_item.refund_items.aggregate(
-                    total=dj_models.Sum('quantity')
-                )['total'] or 0
-                remaining = sales_item.quantity_sold - already_refunded
-                if quantity > remaining:
-                    raise _OrderActionError(
-                        f'Only {remaining} unit(s) of {_item_label(sales_item)} '
-                        f'can still be refunded on this order.'
-                    )
-
-                lines.append((sales_item, quantity, condition))
-                total += quantity * sales_item.unit_price
-
-            refund = Refund.objects.create(
-                transaction=locked_txn, reason=reason, refund_method=refund_method,
-                total_amount=total, refunded_by=request.user,
-            )
-            unrestockable = 0
-            for sales_item, quantity, condition in lines:
-                RefundItem.objects.create(
-                    refund=refund, sales_item=sales_item, quantity=quantity,
-                    condition=condition, amount=quantity * sales_item.unit_price,
-                )
-                if condition == RefundItem.Condition.SELLABLE:
-                    # A line whose product was since deleted from the catalog
-                    # has nowhere to be restocked to (Inventory requires a
-                    # product) — the refund itself is still recorded (the
-                    # money was genuinely paid), just not the stock movement.
-                    if sales_item.product_id is None:
-                        unrestockable += quantity
-                    else:
-                        _restock_refunded_item(sales_item, locked_txn, quantity, request.user)
-
-            # Billing (list, filters, report) otherwise has no way to show
-            # which orders were refunded short of opening each one here —
-            # Refunded once nothing on the order is left to refund,
-            # Partially Refunded while _refundable_items still finds some.
-            new_billing_status = (
-                BillingRecord.PaymentStatus.REFUNDED
-                if not _refundable_items(locked_txn)
-                else BillingRecord.PaymentStatus.PARTIALLY_REFUNDED
-            )
-            if billing.can_transition_to(new_billing_status):
-                billing.status = new_billing_status
-                billing.save(update_fields=['status'])
-    except _OrderActionError as e:
+        outcome = refund_service.request_refund(
+            pk, request.user,
+            reason_code=request.POST.get('reason_code', ''),
+            reason=request.POST.get('reason', ''),
+            refund_method=request.POST.get('refund_method', ''),
+            lines=lines, refund_all=refund_all, conditions=conditions,
+        )
+    except refund_service.RefundError as e:
         messages.error(request, str(e))
         return redirect('transaction_detail', pk=pk)
 
-    from core.module_permissions import SALES_POS
-    from core.notifications import CATEGORY_SALES, PRIORITY_MEDIUM, notify
-
-    notify(
-        CATEGORY_SALES, PRIORITY_MEDIUM,
-        f'Refund issued — {txn.order_number}',
-        f'₱{total} refunded on {txn.order_number} ({txn.branch.branch_name}) '
-        f'by {request.user.username}.',
-        branch=txn.branch,
-        action_url=reverse('transaction_detail', kwargs={'pk': txn.pk}),
-        action_label='View Order',
-        required_module=SALES_POS,
-    )
-    messages.success(request, f'Refund of ₱{total} recorded for {txn.order_number}.')
-    if unrestockable:
-        messages.warning(
+    refund = outcome.refund
+    if outcome.approved:
+        messages.success(
+            request, f'Refund of ₱{refund.total_amount} recorded for {txn.order_number}.'
+        )
+        if outcome.unrestockable:
+            messages.warning(
+                request,
+                f'{outcome.unrestockable} unit(s) marked Sellable could not be added back to '
+                f'stock — the product has since been removed from the catalog.'
+            )
+    else:
+        messages.success(
             request,
-            f'{unrestockable} unit(s) marked Sellable could not be added back to stock — '
-            f'the product has since been removed from the catalog.'
+            f'Refund request of ₱{refund.total_amount} submitted for {txn.order_number}. '
+            f'Nothing changes until the Owner or a Branch Manager approves it.'
         )
     return redirect('transaction_detail', pk=pk)
+
+
+def _decide_refund(request, refund_pk, approve):
+    refund = get_object_or_404(Refund.objects.select_related('transaction'), pk=refund_pk)
+    txn = refund.transaction
+
+    if not user_can_access_branch(request.user, txn.branch_id):
+        messages.error(request, 'That order belongs to another branch.')
+        return redirect('transaction_list')
+
+    if request.user.role not in refund_service.DECIDER_ROLES:
+        messages.error(request, 'Only the Owner or a Branch Manager can approve or reject a refund.')
+        return redirect('transaction_detail', pk=txn.pk)
+
+    if request.method != 'POST':
+        return redirect('transaction_detail', pk=txn.pk)
+
+    note = request.POST.get('decision_note', '')
+    try:
+        if approve:
+            outcome = refund_service.approve_refund(refund.pk, request.user, note)
+        else:
+            outcome = refund_service.reject_refund(refund.pk, request.user, note)
+    except refund_service.RefundError as e:
+        messages.error(request, str(e))
+        return redirect('transaction_detail', pk=txn.pk)
+
+    if approve:
+        messages.success(
+            request,
+            f'Refund #{refund.pk} approved — ₱{outcome.refund.total_amount} recorded for '
+            f'{txn.order_number}.'
+        )
+        if outcome.unrestockable:
+            messages.warning(
+                request,
+                f'{outcome.unrestockable} unit(s) marked Sellable could not be added back to '
+                f'stock — the product has since been removed from the catalog.'
+            )
+    else:
+        messages.success(request, f'Refund #{refund.pk} rejected. Nothing was changed on {txn.order_number}.')
+    return redirect('transaction_detail', pk=txn.pk)
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transaction_refund_approve(request, refund_pk):
+    """Approve a Pending refund — restocks Sellable lines, adds to the order's
+    refunded_amount and steps the billing record, all in one transaction."""
+    return _decide_refund(request, refund_pk, approve=True)
+
+
+@role_required(OWNER, BRANCH_MANAGER, STAFF)
+def transaction_refund_reject(request, refund_pk):
+    """Reject a Pending refund. A reason is required; nothing else changes."""
+    return _decide_refund(request, refund_pk, approve=False)
 
 
 # ─────────────────────────────────────────────

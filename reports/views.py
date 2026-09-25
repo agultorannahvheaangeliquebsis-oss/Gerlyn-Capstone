@@ -2971,7 +2971,9 @@ def billing_report(request):
     # counting its original amount_due as revenue forever.
     refunds_by_transaction = dict(
         Refund.objects.filter(
-            transaction_id__in=[r.transaction_id for r in completed_records]
+            transaction_id__in=[r.transaction_id for r in completed_records],
+            # Approved only — Pending/Rejected requests (P14) moved no money.
+            status=Refund.Status.APPROVED,
         ).values('transaction_id').annotate(total=Sum('total_amount')).values_list('transaction_id', 'total')
     )
     refund_value = sum(refunds_by_transaction.values())

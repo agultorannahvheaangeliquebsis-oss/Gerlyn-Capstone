@@ -3,7 +3,10 @@
 from rest_framework import serializers
 from django.db import transaction
 
-from .models import SalesTransaction, SalesItem, SalesItemBatchConsumption
+from .models import (
+    OrderStatusHistory, Refund, RefundEvent, RefundItem, SalesItem,
+    SalesItemBatchConsumption, SalesTransaction,
+)
 from .pricing import price_cart
 from core.scoping import user_can_access_branch
 from inventory.models import Product, Inventory, Batch, StockMovement
@@ -30,6 +33,100 @@ class SalesItemSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
+# REFUNDS + STATUS HISTORY (READ)
+# =============================================================================
+
+def _username(user):
+    return user.username if user else None
+
+
+class RefundItemSerializer(serializers.ModelSerializer):
+    salesItemId = serializers.PrimaryKeyRelatedField(source='sales_item', read_only=True)
+    productName = serializers.CharField(
+        source='sales_item.product.product_name', read_only=True, allow_null=True
+    )
+    condition = serializers.CharField(read_only=True)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = RefundItem
+        fields = ['id', 'salesItemId', 'productName', 'quantity', 'condition', 'amount']
+
+
+class RefundEventSerializer(serializers.ModelSerializer):
+    fromStatus = serializers.CharField(source='from_status', read_only=True)
+    toStatus = serializers.CharField(source='to_status', read_only=True)
+    actor = serializers.SerializerMethodField()
+    createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+    class Meta:
+        model = RefundEvent
+        fields = ['id', 'fromStatus', 'toStatus', 'actor', 'note', 'createdAt']
+
+    def get_actor(self, obj):
+        return _username(obj.actor)
+
+
+class RefundSerializer(serializers.ModelSerializer):
+    """One refund with its lines and its full event log."""
+    orderNumber = serializers.CharField(source='transaction.order_number', read_only=True)
+    reasonCode = serializers.CharField(source='reason_code', read_only=True)
+    refundType = serializers.CharField(source='refund_type', read_only=True)
+    refundMethod = serializers.CharField(source='refund_method', read_only=True)
+    totalAmount = serializers.DecimalField(
+        source='total_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    requestedBy = serializers.SerializerMethodField()
+    requestedAt = serializers.DateTimeField(source='requested_at', read_only=True)
+    approvedBy = serializers.SerializerMethodField()
+    approvedAt = serializers.DateTimeField(source='refunded_at', read_only=True)
+    decisionNote = serializers.CharField(source='decision_note', read_only=True)
+    items = RefundItemSerializer(many=True, read_only=True)
+    events = RefundEventSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Refund
+        fields = [
+            'id', 'orderNumber', 'status', 'reasonCode', 'reason', 'refundType',
+            'refundMethod', 'totalAmount', 'requestedBy', 'requestedAt',
+            'approvedBy', 'approvedAt', 'decisionNote', 'items', 'events',
+        ]
+
+    def get_requestedBy(self, obj):
+        return _username(obj.requested_by)
+
+    def get_approvedBy(self, obj):
+        return _username(obj.refunded_by)
+
+
+class OrderStatusHistorySerializer(serializers.ModelSerializer):
+    fromStatus = serializers.CharField(source='from_status', read_only=True)
+    toStatus = serializers.CharField(source='to_status', read_only=True)
+    actor = serializers.SerializerMethodField()
+    createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+    class Meta:
+        model = OrderStatusHistory
+        fields = ['id', 'fromStatus', 'toStatus', 'actor', 'note', 'createdAt']
+
+    def get_actor(self, obj):
+        return _username(obj.actor)
+
+
+# Prefetches that keep a list of orders from issuing a query per order for the
+# refund log and status trail — used by the sales API's list and detail views.
+TRANSACTION_READ_PREFETCH = (
+    'items__product',
+    'status_history__actor',
+    'refunds__items__sales_item__product',
+    'refunds__events__actor',
+    'refunds__requested_by',
+    'refunds__refunded_by',
+    'refunds__transaction',
+)
+
+
+# =============================================================================
 # SALES TRANSACTION (READ)
 # =============================================================================
 
@@ -45,6 +142,19 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     orderStatus = serializers.CharField(source='order_status', read_only=True)
     deliveryAddress = serializers.CharField(source='delivery_address', read_only=True)
     items = SalesItemSerializer(many=True, read_only=True)
+    # P14 — totalAmount stays the frozen charged figure; these say what
+    # approved refunds have done to it. netAmount = totalAmount - refundedAmount.
+    refundedAmount = serializers.DecimalField(
+        source='refunded_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    netAmount = serializers.DecimalField(
+        source='net_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    paymentStatus = serializers.SerializerMethodField()
+    statusHistory = OrderStatusHistorySerializer(
+        source='status_history', many=True, read_only=True
+    )
+    refunds = RefundSerializer(many=True, read_only=True)
 
     class Meta:
         model = SalesTransaction
@@ -52,7 +162,29 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             'id', 'orderNumber', 'branch', 'staff', 'customer',
             'transactionDate', 'totalAmount', 'transactionType', 'modeOfPayment',
             'orderStatus', 'deliveryAddress', 'items',
+            'refundedAmount', 'netAmount', 'paymentStatus', 'statusHistory', 'refunds',
         ]
+
+    # The status trail and refund log name internal staff and carry approval
+    # notes, so they are served to internal roles only — never to the
+    # Customer who owns the order, and never when there is no requesting user
+    # to judge (fail closed).
+    INTERNAL_ONLY_FIELDS = ('statusHistory', 'refunds')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not (user and user.is_authenticated and user.role in (
+            user.Role.OWNER, user.Role.BRANCH_MANAGER, user.Role.STAFF
+        )):
+            for field in self.INTERNAL_ONLY_FIELDS:
+                data.pop(field, None)
+        return data
+
+    def get_paymentStatus(self, obj):
+        billing = getattr(obj, 'billing_record', None)
+        return billing.status if billing else None
 
     def get_staff(self, obj):
         if obj.staff:
@@ -323,3 +455,44 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 billing.save()
 
         return txn
+
+
+# =============================================================================
+# REFUND (WRITE)
+# POST /api/sales/<pk>/refunds/ mirrors sales.views.transaction_refund;
+# POST /api/sales/refunds/<pk>/approve|reject/ mirror the decision views. The
+# rules themselves live in sales.refunds — these only shape and bound input.
+# =============================================================================
+
+class RefundLineWriteSerializer(serializers.Serializer):
+    itemId = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+    condition = serializers.ChoiceField(choices=RefundItem.Condition.choices)
+
+
+class RefundRequestWriteSerializer(serializers.Serializer):
+    reasonCode = serializers.ChoiceField(choices=Refund.ReasonCode.choices)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    refundMethod = serializers.ChoiceField(choices=Refund.RefundMethod.choices)
+    # fullRefund refunds every remaining unit on the order in `condition`;
+    # otherwise `items` names the lines. Whether it ends up Full or Partial is
+    # decided by the server from what was actually covered.
+    fullRefund = serializers.BooleanField(required=False, default=False)
+    condition = serializers.ChoiceField(choices=RefundItem.Condition.choices, required=False)
+    items = RefundLineWriteSerializer(many=True, required=False)
+
+    def validate(self, data):
+        if data.get('fullRefund'):
+            if not data.get('condition'):
+                raise serializers.ValidationError(
+                    {'condition': 'Required with fullRefund — Sellable or Damaged.'}
+                )
+        elif not data.get('items'):
+            raise serializers.ValidationError(
+                {'items': 'Name at least one item, or set fullRefund.'}
+            )
+        return data
+
+
+class RefundDecisionWriteSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True, max_length=255)
