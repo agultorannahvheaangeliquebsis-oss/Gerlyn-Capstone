@@ -328,9 +328,22 @@ def _procurement_form_context(user):
             if link['current_cost_price'] is not None else None
         )
 
+    suppliers = suppliers.select_related('supplier_profile', 'supplier_profile__category')
     return {
         'products': Product.objects.all(),
+        # Every product, by id and name, for the modal's JS to rebuild each
+        # item row's dropdown from (see _po_modal.html).
+        'product_options': [
+            {'id': str(pid), 'name': name}
+            for pid, name in Product.objects.order_by('product_name').values_list(
+                'pk', 'product_name')
+        ],
         'suppliers': suppliers,
+        # The optional "Supplier category" filter above the supplier dropdown:
+        # only categories at least one selectable supplier is filed under.
+        'supplier_categories': SupplierCategory.objects.filter(
+            suppliers__user__in=suppliers
+        ).distinct(),
         'supplier_catalog': supplier_catalog,
         'branches': branches,
         'user_branch': user_branch,
