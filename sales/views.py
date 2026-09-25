@@ -19,7 +19,10 @@ from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, u
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
-from .models import Refund, RefundItem, SalesItem, SalesItemBatchConsumption, SalesTransaction
+from .models import (
+    OrderStatusChange, Refund, RefundItem, SalesItem, SalesItemBatchConsumption,
+    SalesTransaction,
+)
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 
 
@@ -403,14 +406,22 @@ def transaction_detail(request, pk):
         messages.error(request, 'That order belongs to another branch.')
         return redirect('transaction_list')
 
-    items = txn.items.select_related('product').all()
+    items = list(txn.items.select_related('product'))
     billing = getattr(txn, 'billing_record', None)
+    next_actions = _next_actions(txn, request.user)
+    confirmations = _status_confirmations(txn, billing, items, next_actions)
 
     return render(request, 'sales/transaction_detail.html', {
         'transaction': txn,
         'items': items,
         'billing': billing,
-        'next_actions': _next_actions(txn, request.user),
+        'next_actions': next_actions,
+        # The same actions, each paired with what its confirmation dialog
+        # shows (None for the routine steps that don't stop for one).
+        'next_action_items': [
+            {'status': a, 'confirm': confirmations.get(a)} for a in next_actions
+        ],
+        'status_changes': txn.status_changes.select_related('changed_by'),
         # The Mark Completed button is only live once the payment is Paid
         # (transaction_set_status enforces it; this just keeps the UI honest).
         'payment_is_paid': bool(billing and billing.status == BillingRecord.PaymentStatus.PAID),
@@ -559,6 +570,115 @@ def _order_progress(txn):
     }
 
 
+# The steps that stop for the confirmation dialog on Order Detail. Approved and
+# Preparing are the routine forward path a cashier walks all day and stay one
+# click; these two either move stock and start the refund window (Completed)
+# or close the order for good and reverse what it did (Cancelled).
+HIGH_IMPACT_STATUSES = (
+    SalesTransaction.OrderStatus.COMPLETED,
+    SalesTransaction.OrderStatus.CANCELLED,
+)
+
+# The optional note (and Cancelled's required reason) is stored on
+# OrderStatusChange.reason and, for Cancelled, SalesTransaction.cancel_reason —
+# both 255. Checked here rather than left to the database, which would raise
+# instead of truncating.
+STATUS_REASON_MAX_LENGTH = OrderStatusChange._meta.get_field('reason').max_length
+
+
+def _status_confirmations(txn, billing, items, actions):
+    """What the confirmation dialog shows for each high-impact step in
+    `actions`: the order summary, the impact notice, and whether a reason is
+    required.
+
+    Text lives here, next to _FLOW and transaction_set_status, so the notice
+    describing what a step does is written beside the code that does it. It is
+    display only — transaction_set_status re-derives and enforces every rule
+    itself, so a stale or forged dialog changes nothing.
+    """
+    Status = SalesTransaction.OrderStatus
+    branch = txn.branch.branch_name
+    is_online = txn.transaction_type == SalesTransaction.TransactionType.ONLINE
+    was_completed = txn.order_status == Status.COMPLETED
+    paid = bool(billing and billing.status == BillingRecord.PaymentStatus.PAID)
+
+    summary = {
+        'order_number': txn.order_number,
+        'branch': branch,
+        'channel': 'Online' if is_online else 'In-Store',
+        'fulfillment': txn.get_fulfillment_type_display() if is_online else '',
+        'customer': (
+            (txn.customer.get_full_name() or txn.customer.username)
+            if txn.customer_id else 'Walk-in'
+        ),
+        'lines': len(items),
+        'units': sum(i.quantity_sold for i in items),
+        'total': txn.total_amount,
+        'payment': billing.status if billing else 'No billing record',
+        'current': txn.order_status,
+    }
+
+    result = {}
+    for target in actions:
+        if target not in HIGH_IMPACT_STATUSES:
+            continue
+        notes = []
+
+        if target == Status.CANCELLED:
+            if was_completed:
+                notes.append(f"This voids a completed sale — the stock it took from {branch} is put back.")
+            elif txn.transaction_type == SalesTransaction.TransactionType.PHYSICAL:
+                notes.append(f"This walk-in sale already took its stock from {branch} — it is put back.")
+            else:
+                notes.append("No stock has been deducted for this order yet, so there is nothing to put back.")
+            if billing and billing.can_transition_to(BillingRecord.PaymentStatus.CANCELLED):
+                notes.append(
+                    f"Its payment record ({billing.status}) is marked Cancelled. Nothing is refunded "
+                    f"through the system — any money already collected is handled outside it."
+                )
+            if txn.customer_id:
+                notes.append("The customer is notified.")
+            notes.append("A cancelled order cannot be moved to another status.")
+            config = {
+                'title': 'Void this completed sale?' if was_completed else 'Cancel this order?',
+                'ok': 'Void sale' if was_completed else 'Cancel order',
+                'dismiss': 'Keep order',
+                'variant': 'danger',
+                'reason_required': True,
+                'reason_label': 'Reason for cancelling',
+                'reason_help': 'Required. Kept on the order as its cancellation record.',
+            }
+        else:
+            if not paid:
+                notes.append("Payment must be verified as Paid before this order can be completed.")
+            if is_online:
+                notes.append(f"Stock for this order is deducted from {branch}.")
+            else:
+                notes.append("Stock was already deducted when this walk-in sale was rung up — nothing more is deducted.")
+            notes.append(f"Starts the {txn.REFUND_WINDOW.days}-day refund window.")
+            if txn.customer_id:
+                notes.append("The customer is notified.")
+            notes.append("Only an Owner or Branch Manager can undo a completed order, by voiding it.")
+            config = {
+                'title': 'Mark this order as Completed?',
+                'ok': 'Mark completed',
+                'dismiss': 'Not yet',
+                'variant': 'warn',
+                'reason_required': False,
+                'reason_label': 'Note',
+                'reason_help': 'Optional. Recorded in the order\'s status history.',
+            }
+
+        result[target] = {
+            **config,
+            'target': target,
+            'summary': summary,
+            'notes': notes,
+            'reason_max': STATUS_REASON_MAX_LENGTH,
+        }
+    return result
+
+
 class _OrderActionError(Exception):
     """Raised inside an atomic block (invalid transition, or _deduct_stock
     hitting insufficient stock) so the whole block rolls back — including
@@ -586,6 +706,20 @@ def transaction_set_status(request, pk, new_status):
             # _deduct_stock for the same order.
             locked_txn = SalesTransaction.objects.select_for_update().get(pk=pk)
 
+            # The confirmation dialog sends the status the order was in when
+            # the summary was drawn. If someone else moved it since, what the
+            # person just confirmed is no longer what would happen — refuse
+            # and let them re-read the order. Optional: a request without it
+            # (no JavaScript, the routine one-click steps) is judged on the
+            # transition check below alone.
+            expected_status = request.POST.get('expected_status', '').strip()
+            if expected_status and expected_status != locked_txn.order_status:
+                raise _OrderActionError(
+                    f'{locked_txn.order_number} is now {locked_txn.order_status}, not '
+                    f'{expected_status} — it changed while you were reviewing it. '
+                    f'Check the order and try again.'
+                )
+
             # Without the user, _next_actions falls back to its role-blind
             # default set and would let a Staff request through the "void a
             # completed sale" transition here — the check a few lines below
@@ -606,9 +740,21 @@ def transaction_set_status(request, pk, new_status):
             # required here, not left to convention, since a blank reason on
             # a voided or unfulfilled order is exactly the gap an audit asks
             # about later.
-            cancel_reason = request.POST.get('cancel_reason', '').strip()
-            if new_status == SalesTransaction.OrderStatus.CANCELLED and not cancel_reason:
+            #
+            # `reason` is what the confirmation dialog posts; `cancel_reason`
+            # is the field name the inline input used before it, still read so
+            # an older form or client keeps working. Only Cancelled requires
+            # one — for the other steps it is an optional note.
+            reason = (
+                request.POST.get('reason', '') or request.POST.get('cancel_reason', '')
+            ).strip()
+            if new_status == SalesTransaction.OrderStatus.CANCELLED and not reason:
                 raise _OrderActionError('Enter a reason for cancelling this order.')
+            if len(reason) > STATUS_REASON_MAX_LENGTH:
+                raise _OrderActionError(
+                    f'Keep the reason to {STATUS_REASON_MAX_LENGTH} characters or fewer '
+                    f'(it is {len(reason)}).'
+                )
 
             # An order is only Completed once its payment is verified Paid.
             # The billing row is read fresh and locked, same as the
@@ -659,14 +805,20 @@ def transaction_set_status(request, pk, new_status):
                     and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE):
                 _deduct_stock(locked_txn, request.user)
 
+            previous_status = locked_txn.order_status
             locked_txn.order_status = new_status
             if new_status == SalesTransaction.OrderStatus.CANCELLED:
-                locked_txn.cancel_reason = cancel_reason
+                locked_txn.cancel_reason = reason
             if new_status == SalesTransaction.OrderStatus.COMPLETED:
                 # The refund window (SalesTransaction.refund_window_expired)
                 # counts from here, not from when the order was placed.
                 locked_txn.completed_at = timezone.now()
             locked_txn.save()
+
+            OrderStatusChange.objects.create(
+                transaction=locked_txn, from_status=previous_status,
+                to_status=new_status, reason=reason, changed_by=request.user,
+            )
 
             if (
                 new_status == SalesTransaction.OrderStatus.COMPLETED
