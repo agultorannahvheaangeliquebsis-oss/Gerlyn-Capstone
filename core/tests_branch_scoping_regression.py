@@ -99,7 +99,9 @@ class UnassignedAccountFailsClosedTests(TestCase):
         self._unassign('carlo')
         response = self.login('carlo').get('/api/reports/sales-report/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+        body = response.json()
+        self.assertEqual(body['results'], [])
+        self.assertEqual(body['count'], 0)
 
     def test_unassigned_manager_dashboard_summary_api_totals_are_zero(self):
         self._unassign('carlo')

@@ -20,15 +20,15 @@ from rest_framework.permissions import IsAuthenticated
 from core.permissions import HasModuleAccess
 from django.db.models import Sum, Count, F
 
-from sales.models import SalesTransaction, SalesItem
+from sales.models import SalesItem
 from inventory.models import Inventory, Product
 from procurement.models import Procurement
 from accounts.models import User
-from core.timebounds import local_range_bounds, range_from_request
+from core.timebounds import local_range_bounds, range_from_request, range_problem
 from reports.services import (
     gross_sales_total, low_stock_count, pipeline_sales, pipeline_value_total,
     procurement_cost_total, refund_value_total, revenue_sales,
-    scoped_report_querysets,
+    sales_range_totals, scoped_report_querysets, scoped_sales_in_range,
 )
 
 
@@ -62,6 +62,12 @@ class DashboardSummaryAPIView(APIView):
         denied = check_report_access(request)
         if denied:
             return denied
+
+        # Same reason as SalesReportAPIView: a range this request names but
+        # cannot be honoured must not be answered with 30 days of figures.
+        bad_range = range_problem(request)
+        if bad_range:
+            return Response({'detail': bad_range}, status=status.HTTP_400_BAD_REQUEST)
 
         branch_filter = request.GET.get('branch') or None
         sales_qs, procurement_qs, inventory_qs, _warehouse_qs, _effective_branch = (
@@ -157,7 +163,28 @@ class DashboardSummaryAPIView(APIView):
 
 
 class SalesReportAPIView(APIView):
-    """GET /api/reports/sales-report/ — mirrors sales_report."""
+    """GET /api/reports/sales-report/ — mirrors sales_report.
+
+    Daily-sales filtering, same params as the page (see
+    core.timebounds.range_from_request): `range` = today | yesterday | 7 | 30 |
+    all | day | custom, `date=YYYY-MM-DD` for one day, `date_from`/`date_to`
+    for a range (each implies its `range` when that is omitted), plus `branch`
+    for an Owner. Day boundaries are local (Asia/Manila) 00:00:00 through
+    23:59:59.999999, both ends inclusive. An unusable range answers 400
+    instead of a silently different period.
+
+    Response: `totals` and `count` come from reports.services — the same
+    functions the page prints — and `results` is the transaction list:
+
+        {"activeRange", "rangeStart", "rangeEnd", "count",
+         "totals": {"transactions", "orders", "grossSales", "refundValue",
+                    "netSales", "avgOrderValue", "pipelineValue",
+                    "pipelineCount"},
+         "results": [...]}
+
+    Money is a Decimal string, like every other figure in this API.
+    NOTE: this used to return a bare, unfiltered list of every transaction.
+    """
     permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def get(self, request):
@@ -165,11 +192,35 @@ class SalesReportAPIView(APIView):
         if denied:
             return denied
 
-        qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer').all()
-        qs = scope_queryset(qs, request.user, 'branch').order_by('-transaction_date')
+        bad_range = range_problem(request)
+        if bad_range:
+            return Response({'detail': bad_range}, status=status.HTTP_400_BAD_REQUEST)
+
+        range_start, range_end, active_range = range_from_request(request)
+        qs = scoped_sales_in_range(
+            request.user, range_start, range_end,
+            branch_id=request.GET.get('branch') or None,
+        )
+        totals = sales_range_totals(qs)
 
         from sales.serializers import SalesTransactionSerializer
-        return Response(SalesTransactionSerializer(qs, many=True).data)
+        return Response({
+            'activeRange': active_range,
+            'rangeStart': range_start,
+            'rangeEnd': range_end,
+            'count': totals['transactions'],
+            'totals': {
+                'transactions': totals['transactions'],
+                'orders': totals['orders'],
+                'grossSales': totals['gross_sales'],
+                'refundValue': totals['refund_value'],
+                'netSales': totals['net_sales'],
+                'avgOrderValue': totals['avg_order_value'],
+                'pipelineValue': totals['pipeline_value'],
+                'pipelineCount': totals['pipeline_count'],
+            },
+            'results': SalesTransactionSerializer(qs, many=True).data,
+        })
 
 
 class InventoryReportAPIView(APIView):

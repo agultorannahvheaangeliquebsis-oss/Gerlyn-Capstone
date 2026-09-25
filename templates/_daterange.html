@@ -28,8 +28,10 @@ That matches the existing component rather than introducing a new behaviour.
     </svg>
     <span class="daterange-label">
       {% if active_range == 'today' %}Today
+      {% elif active_range == 'yesterday' %}Yesterday
       {% elif active_range == '7' %}Last 7 days
       {% elif active_range == 'all' %}All time
+      {% elif active_range == 'day' %}{{ range_end|date:"Y-m-d" }}
       {% elif active_range == 'custom' %}{{ range_start|date:"Y-m-d" }} – {{ range_end|date:"Y-m-d" }}
       {% else %}Last 30 days{% endif %}
     </span>
@@ -44,12 +46,25 @@ That matches the existing component rather than introducing a new behaviour.
 
     <button type="submit" name="range" value="today"
             class="daterange-preset{% if active_range == 'today' %} is-active{% endif %}">Today</button>
+    <button type="submit" name="range" value="yesterday"
+            class="daterange-preset{% if active_range == 'yesterday' %} is-active{% endif %}">Yesterday</button>
     <button type="submit" name="range" value="7"
             class="daterange-preset{% if active_range == '7' %} is-active{% endif %}">Last 7 days</button>
     <button type="submit" name="range" value="30"
             class="daterange-preset{% if active_range == '30' %} is-active{% endif %}">Last 30 days</button>
     <button type="submit" name="range" value="all"
             class="daterange-preset{% if active_range == 'all' %} is-active{% endif %}">All time</button>
+
+    {# A single calendar day. Seeded with the range's last day so it opens on #}
+    {# something meaningful; only read when range=day is what gets submitted. #}
+    <div class="daterange-custom">
+      <span class="daterange-custom-head">Single day</span>
+      <label class="daterange-field">
+        <span>Date</span>
+        <input type="date" name="date" value="{{ range_end|date:'Y-m-d' }}">
+      </label>
+      <button type="submit" name="range" value="day" class="btn btn-primary">Apply</button>
+    </div>
 
     <div class="daterange-custom">
       <span class="daterange-custom-head">Custom range</span>
