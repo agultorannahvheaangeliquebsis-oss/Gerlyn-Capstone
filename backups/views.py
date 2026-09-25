@@ -74,8 +74,13 @@ def backup_status(request):
             'overdue': service.is_overdue(kind, now),
         })
 
+    # Failing checks first (False sorts before True; sorted() is stable), so the
+    # top of the list answers "is anything broken?".
+    checks = sorted(service.setup_checks(), key=lambda check: check[1])
+
     return render(request, 'backups/backup_status.html', {
-        'checks': service.setup_checks(),
+        'checks': checks,
+        'setup_issues': sum(1 for check in checks if not check[1]),
         'summaries': summaries,
         'runs': BackupRun.objects.all()[:40],
         'running': service.active_run_exists(now),

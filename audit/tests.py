@@ -468,7 +468,7 @@ class AuditLogViewTests(TestCase):
         by_text = self.client.get(self.url, {'q': 'Bulacan'})
         self.assertContains(by_text, 'location Baliuag -&gt; Bulacan')
 
-    def test_filter_by_actor_username(self):
+    def test_search_matches_the_actor_username(self):
         AuditLog.objects.create(
             action='update', entity='branches.Branch', record_id='1',
             actor_id=self.owner.pk, actor_role='OWNER', summary='Owner did this',
@@ -478,28 +478,44 @@ class AuditLogViewTests(TestCase):
             actor_id=None, summary='System did this',
         )
 
-        response = self.client.get(self.url, {'actor': 'view-owner'})
+        response = self.client.get(self.url, {'q': 'view-owner'})
 
         self.assertContains(response, 'Owner did this')
         self.assertNotContains(response, 'System did this')
 
-    def test_filter_by_date_range_is_inclusive_of_the_whole_end_day(self):
+    def test_date_range_presets_and_custom_range(self):
         today = timezone.localdate()
-        old = AuditLog.objects.create(
+        AuditLog.objects.create(
             action='create', entity='branches.Branch', record_id='9', summary='Ancient entry',
-            timestamp=timezone.now() - timedelta(days=30),
+            timestamp=timezone.now() - timedelta(days=45),
         )
 
-        recent = self.client.get(self.url, {'from': today.isoformat(), 'to': today.isoformat()})
-        self.assertContains(recent, 'Created Branch Tarcan')
-        self.assertNotContains(recent, 'Ancient entry')
+        default = self.client.get(self.url)  # Last 30 days
+        self.assertContains(default, 'Created Branch Tarcan')
+        self.assertNotContains(default, 'Ancient entry')
 
-        past = self.client.get(self.url, {'to': (today - timedelta(days=10)).isoformat()})
+        everything = self.client.get(self.url, {'range': 'all'})
+        self.assertContains(everything, 'Ancient entry')
+        self.assertContains(everything, 'Created Branch Tarcan')
+
+        # The custom "to" day is inclusive, and a range ending before today
+        # leaves today's entry out.
+        past = self.client.get(self.url, {
+            'range': 'custom',
+            'date_from': (today - timedelta(days=60)).isoformat(),
+            'date_to': (today - timedelta(days=10)).isoformat(),
+        })
         self.assertContains(past, 'Ancient entry')
         self.assertNotContains(past, 'Created Branch Tarcan')
 
-    def test_an_unparseable_date_is_ignored_not_a_crash(self):
-        response = self.client.get(self.url, {'from': 'not-a-date', 'to': '2026-99-99'})
+        just_today = self.client.get(self.url, {'range': 'today'})
+        self.assertContains(just_today, 'Created Branch Tarcan')
+        self.assertNotContains(just_today, 'Ancient entry')
+
+    def test_an_unparseable_custom_range_falls_back_not_a_crash(self):
+        response = self.client.get(self.url, {
+            'range': 'custom', 'date_from': 'not-a-date', 'date_to': '2026-99-99',
+        })
 
         self.assertEqual(response.status_code, 200)
 

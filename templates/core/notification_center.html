@@ -86,7 +86,7 @@ both surfaces) keeps intercepting them here too.
     </thead>
     <tbody id="notifFeed">
       {% for n in all_notifications %}
-      <tr class="tray-ncard{% if n.is_read %} is-read{% endif %}" id="notif-{{ n.pk }}" data-cat="{{ n.category }} {{ n.priority }}">
+      <tr class="tray-ncard{% if n.is_read %} is-read{% endif %}" id="notif-{{ n.pk }}" data-cat="{{ n.category }} {{ n.priority }}" data-action-url="{{ n.action_url }}" data-action-label="{{ n.action_label|default:'Open record' }}">
         <td data-label="Notification">
           <div class="strong">{{ n.title }}</div>
           <div class="gv-meta">{{ n.message }}</div>
@@ -107,11 +107,16 @@ both surfaces) keeps intercepting them here too.
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            {% if n.action_url %}
-            <a class="icon-btn icon-btn-action" href="{{ n.action_url }}" title="{{ n.action_label|default:'View' }}" aria-label="{{ n.action_label|default:'View' }} — {{ n.title }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
-            {% endif %}
+            {% comment %}
+            "View" opens the notification in the modal below instead of
+            navigating to its record, so the reader never leaves this page.
+            A button, not a link: it has nowhere to go. The record itself is
+            reachable from the modal's footer (row's data-action-url).
+            {% endcomment %}
+            <button type="button" class="icon-btn icon-btn-action" data-notif-view title="View" aria-label="View — {{ n.title }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
             {% if n.requires_action and not n.resolved_at %}
-            <form method="post" action="{% url 'notification_resolve' n.pk %}" class="tray-resolve-form">
+            <form method="post" action="{% url 'notification_resolve' n.pk %}" class="tray-resolve-form"
+                  data-resolved-message="{{ n.title }} was marked as resolved.">
               {% csrf_token %}
               <button type="submit" class="icon-btn icon-btn-action" title="Resolve" aria-label="Resolve {{ n.title }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg></button>
             </form>
@@ -153,6 +158,57 @@ both surfaces) keeps intercepting them here too.
     </tbody>
   </table>
 </div>
+
+{% comment %}
+The "View" modal. Empty shell, filled from the clicked row's own cells
+(see the script below) so it can never disagree with the table, and refilled
+when an action changes the row while it is open. Its Resolve / Mark as read
+buttons submit that row's real form, so they go through the same in-place
+update and success modal as the row's own icons.
+{% endcomment %}
+<div class="modal-overlay" id="notifModal" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="notifModalTitle" tabindex="-1">
+    <div class="modal-head">
+      <h2 id="notifModalTitle">Notification</h2>
+      <button type="button" class="modal-close" data-notif-close aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="notif-modal-callout" id="notifModalCallout">
+        <span class="notif-modal-callout-icon" aria-hidden="true">
+          <svg class="ico-info" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+          <svg class="ico-cancel" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg>
+        </span>
+        <div>
+          <p class="notif-modal-kind" id="notifModalKind">Details</p>
+          <p class="notif-modal-msg" id="notifModalMsg"></p>
+        </div>
+      </div>
+      <dl class="notif-modal-facts">
+        <div><dt>Status</dt><dd id="notifModalStatus"></dd></div>
+        <div><dt>Priority</dt><dd id="notifModalPriority"></dd></div>
+        <div><dt>Time</dt><dd id="notifModalTime"></dd></div>
+        <div><dt>Category</dt><dd id="notifModalCategory"></dd></div>
+        <div><dt>Branch</dt><dd id="notifModalBranch"></dd></div>
+      </dl>
+    </div>
+    {% comment %}
+    Footer hierarchy: the record link is the one solid primary and Mark as
+    read is a quiet text button parked on the left. There is no footer Close:
+    the header X, Escape and a backdrop click all close the modal. Resolve is only primary when there is no record link to compete with
+    (see fill()); otherwise it is outlined so the footer never has two solids.
+    {% endcomment %}
+    <div class="modal-foot">
+      <button type="button" class="btn btn-quiet" id="notifModalRead" hidden>Mark as read</button>
+      <button type="button" class="btn btn-outline" id="notifModalResolve" hidden>Mark as resolved</button>
+      <a class="btn btn-primary" id="notifModalRecord" href="#" hidden></a>
+    </div>
+  </div>
+</div>
 </div>
 {% endblock %}
 
@@ -190,6 +246,120 @@ both surfaces) keeps intercepting them here too.
 
     var searchEl = document.getElementById('notifPageSearch');
     if (searchEl) searchEl.addEventListener('input', applyNotifPageFilters);
+
+    // Tab counts are tinted danger while their category still holds an
+    // unresolved Needs-Action row. Resolving happens in place, so re-derive
+    // the tint from the rows instead of leaving it as the server rendered it.
+    function refreshTabTints() {
+      var rows = Array.prototype.slice.call(document.querySelectorAll('#notifFeed .tray-ncard'));
+      document.querySelectorAll('.filter-tabs .filter-tab').forEach(function (tab) {
+        var cat = tab.dataset.cat;
+        var count = tab.querySelector('.count');
+        if (!count) return;
+        var open = rows.some(function (row) {
+          var inCat = cat === 'all' || (row.dataset.cat || '').indexOf(cat) !== -1;
+          return inCat && row.querySelector('td[data-label="Status"] .pill-danger');
+        });
+        count.classList.toggle('count-danger', open);
+        count.classList.toggle('count-neutral', !open);
+      });
+    }
+    document.addEventListener('notif:row-updated', refreshTabTints);
+
+    // ---- View modal -------------------------------------------------------
+    var modal = document.getElementById('notifModal');
+    if (!modal) return;
+    var card = modal.querySelector('.modal-card');
+    var recordLink = document.getElementById('notifModalRecord');
+    var readBtn = document.getElementById('notifModalRead');
+    var resolveBtn = document.getElementById('notifModalResolve');
+    var openRow = null;
+    var lastFocused = null;
+
+    function cellOf(row, label) { return row.querySelector('td[data-label="' + label + '"]'); }
+
+    function fill(row) {
+      var head = cellOf(row, 'Notification');
+      document.getElementById('notifModalTitle').textContent = head.querySelector('.strong').textContent.trim();
+      document.getElementById('notifModalMsg').textContent = head.querySelector('.gv-meta').textContent.trim();
+      // Presentation only: a cancellation gets the danger-tinted callout.
+      var cancelled = /cancel/i.test(document.getElementById('notifModalTitle').textContent);
+      document.getElementById('notifModalCallout').classList.toggle('is-cancelled', cancelled);
+      document.getElementById('notifModalKind').textContent = cancelled ? 'Cancelled' : 'Details';
+      document.getElementById('notifModalCategory').textContent = cellOf(row, 'Category').textContent.trim();
+      document.getElementById('notifModalBranch').textContent = cellOf(row, 'Branch').textContent.trim();
+      document.getElementById('notifModalTime').textContent = cellOf(row, 'Time').textContent.trim();
+      // Pills are server-rendered markup from this same page, not user input.
+      document.getElementById('notifModalPriority').innerHTML = cellOf(row, 'Priority').innerHTML;
+      document.getElementById('notifModalStatus').innerHTML = cellOf(row, 'Status').innerHTML;
+
+      // Only offer what the row itself still offers: a resolved or already-read
+      // notification has neither form.
+      resolveBtn.hidden = !row.querySelector('.tray-resolve-form');
+      readBtn.hidden = !row.querySelector('.tray-read-form');
+
+      var url = row.dataset.actionUrl;
+      recordLink.hidden = !url;
+      if (url) {
+        recordLink.href = url;
+        recordLink.textContent = row.dataset.actionLabel || 'Open record';
+      }
+      // One solid primary: Resolve only takes it when there is no record link.
+      resolveBtn.classList.toggle('btn-primary', recordLink.hidden);
+      resolveBtn.classList.toggle('btn-outline', !recordLink.hidden);
+    }
+
+    function openModal(row, trigger) {
+      openRow = row;
+      lastFocused = trigger;
+      fill(row);
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      card.focus();
+    }
+
+    function closeModal() {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+      openRow = null;
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
+      lastFocused = null;
+    }
+
+    function submitRowForm(selector) {
+      var form = openRow && openRow.querySelector(selector);
+      if (!form) return;
+      if (typeof form.requestSubmit === 'function') form.requestSubmit();
+      else form.submit();
+    }
+
+    document.getElementById('notifFeed').addEventListener('click', function (e) {
+      var trigger = e.target.closest('[data-notif-view]');
+      if (!trigger) return;
+      openModal(trigger.closest('.tray-ncard'), trigger);
+    });
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal || e.target.closest('[data-notif-close]')) closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !modal.classList.contains('is-open')) return;
+      // A dialog stacked above this one (e.g. the resolved confirmation)
+      // takes Escape first.
+      if (document.querySelector('.modal-overlay.is-open:not(#notifModal), .bottom-sheet.is-open')) return;
+      closeModal();
+    });
+
+    resolveBtn.addEventListener('click', function () { submitRowForm('.tray-resolve-form'); });
+    readBtn.addEventListener('click', function () { submitRowForm('.tray-read-form'); });
+
+    // An action on the open notification (from here or from the row) changes
+    // its status: show the new state rather than a stale one.
+    document.addEventListener('notif:row-updated', function (e) {
+      if (openRow && e.detail && e.detail.row === openRow) fill(openRow);
+    });
   })();
 </script>
 {% endblock %}

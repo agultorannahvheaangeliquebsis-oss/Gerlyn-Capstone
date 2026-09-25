@@ -56,11 +56,7 @@
 
 <main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
+  {% include "partials/_flash_modal.html" %}
 
   <div class="page-head">
     <div>
@@ -87,5 +83,6 @@
   </div>
 </main>
 
+<script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
 </body>
 </html>

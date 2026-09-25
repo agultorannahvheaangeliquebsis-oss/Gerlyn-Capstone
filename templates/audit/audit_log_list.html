@@ -7,10 +7,21 @@
   <div>
     <h1>Audit Log</h1>
   </div>
+  {% include "_daterange.html" %}
 </div>
 
-<form method="GET" class="toolbar">
-  <input class="input" type="search" name="q" value="{{ filters.q }}" placeholder="Search summary, record or ID…" aria-label="Search the audit log">
+<form method="GET" class="toolbar toolbar-search">
+  {# Keep the chosen range when the filters are submitted. #}
+  <input type="hidden" name="range" value="{{ active_range }}">
+  <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+  <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search the audit log">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search summary, record, ID or actor…" autocomplete="off" aria-label="Search by summary, record, ID or actor username">
+  </div>
+  <div class="search-filters">
   <select name="entity" aria-label="Filter by record type">
     <option value="">All record types</option>
     {% for key, label in entity_choices %}
@@ -23,11 +34,9 @@
       <option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
-  <input class="input" type="text" name="actor" value="{{ filters.actor }}" placeholder="Actor username" aria-label="Filter by actor">
-  <input class="input" type="date" name="from" value="{{ filters.from }}" aria-label="From date">
-  <input class="input" type="date" name="to" value="{{ filters.to }}" aria-label="To date">
   <button type="submit" class="btn btn-primary">Filter</button>
   {% if querystring %}<a class="btn" href="{% url 'audit_log_list' %}">Clear</a>{% endif %}
+  </div>
 </form>
 
 {% comment %}
@@ -89,8 +98,8 @@ audit.views.audit_log_list's second, unfiltered fetch.
 <div class="row-between mt-4">
   <span class="gv-meta">Page {{ page.number }} of {{ page.paginator.num_pages }} · {{ page.paginator.count }} action{{ page.paginator.count|pluralize }}</span>
   <div class="row">
-    {% if page.has_previous %}<a class="btn" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
-    {% if page.has_next %}<a class="btn" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+    {% if page.has_previous %}<a class="btn" href="?{{ page_querystring }}&amp;page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    {% if page.has_next %}<a class="btn" href="?{{ page_querystring }}&amp;page={{ page.next_page_number }}">Next</a>{% endif %}
   </div>
 </div>
 {% endif %}

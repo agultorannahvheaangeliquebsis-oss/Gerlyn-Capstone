@@ -566,6 +566,26 @@ class StatusPageTests(TestCase):
         self.assertContains(response, 'Never run')
         self.assertContains(response, 'None recorded')
 
+    def test_the_setup_check_lists_failures_first_and_counts_them(self):
+        checks = [('Good one', True, 'fine.'), ('Bad one', False, 'broken.'),
+                  ('Good two', True, 'fine.'), ('Bad two', False, 'broken too.')]
+        with mock.patch('backups.service.setup_checks', return_value=checks):
+            response = self.client.get(self.url)
+        self.assertEqual([c[0] for c in response.context['checks']],
+                         ['Bad one', 'Bad two', 'Good one', 'Good two'])
+        self.assertEqual(response.context['setup_issues'], 2)
+        self.assertContains(response, '2 of 4 need fixing')
+
+        with mock.patch('backups.service.setup_checks', return_value=[('Good', True, 'fine.')]):
+            response = self.client.get(self.url)
+        self.assertContains(response, 'All OK')
+        self.assertNotContains(response, 'need fixing')
+
+    def test_an_empty_history_shows_a_compact_empty_state(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, 'No backups yet')
+        self.assertNotContains(response, 'Latest 0 runs')
+
     def test_it_lists_runs_and_shows_freshness(self):
         BackupRun.objects.create(
             run_id='a', kind='database', status='success', size_bytes=2048,
