@@ -492,3 +492,35 @@ class RefundItem(models.Model):
 
     def __str__(self):
         return f"{self.sales_item.product.product_name} x{self.quantity} ({self.condition})"
+
+class OrderStatusChange(models.Model):
+    """One move through the order lifecycle, written by
+    sales.views.transaction_set_status in the same atomic block as the status
+    change itself — so a rolled-back transition leaves no row, and a row
+    always describes a change that really happened.
+
+    Exists to keep the optional note the confirmation dialog collects for the
+    high-impact steps (Completed, Cancelled). SalesTransaction.cancel_reason
+    only ever holds the *last* cancellation's reason and has no equivalent for
+    Completed; this is the per-transition record. Cancelled rows carry the
+    same text cancel_reason does.
+    """
+    transaction = models.ForeignKey(
+        SalesTransaction, on_delete=models.CASCADE, related_name='status_changes'
+    )
+    from_status = models.CharField(max_length=10, choices=SalesTransaction.OrderStatus.choices)
+    to_status = models.CharField(max_length=10, choices=SalesTransaction.OrderStatus.choices)
+    reason = models.CharField(max_length=255, blank=True)
+    changed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='order_status_changes',
+        help_text="Whoever moved the order. Kept nullable so removing an "
+                  "account does not delete the order's history."
+    )
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.transaction.order_number}: {self.from_status} -> {self.to_status}"
+
+    class Meta:
+        ordering = ['changed_at', 'pk']

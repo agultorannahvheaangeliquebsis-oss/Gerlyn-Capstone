@@ -37,6 +37,24 @@
   .order-progress-step.current::before { background: var(--brand); }
   .order-progress-label { font: 600 13px/1.3 var(--font-sans); color: var(--ink-600); }
   .order-progress-step.current .order-progress-label { color: var(--action-700); }
+
+  {% comment %}
+  Status-change dialog (order-status-confirm.js). Reuses .modal-overlay /
+  .confirm-card; only the summary grid and the notice list are this page's.
+  {% endcomment %}
+  .status-confirm-card { max-width: 520px; }
+  .status-confirm-body { display: flex; flex-direction: column; gap: var(--s4); overflow-y: auto; }
+  .status-confirm-summary {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3) var(--s4); margin: 0;
+  }
+  .status-confirm-summary dt { font: 600 12px/1.3 var(--font-sans); color: var(--ink-600); text-transform: uppercase; letter-spacing: .04em; }
+  .status-confirm-summary dd { margin: 2px 0 0; font-size: 14.5px; color: var(--ink-900); }
+  .status-confirm-notes { margin: 6px 0 0; padding-left: 18px; }
+  .status-confirm-notes li + li { margin-top: 4px; }
+  .status-confirm-error { margin: 0; }
+  .status-confirm-body textarea { width: 100%; }
+  @media (max-width: 480px) { .status-confirm-summary { grid-template-columns: 1fr; } }
 </style>
 {% endblock %}
 
@@ -107,47 +125,36 @@
       </p>
     </div>
     <div class="row wrap">
-      {% for action in next_actions %}
+      {% for item in next_action_items %}
+        {% with action=item.status %}
         {% comment %}
-        Cancelling is the only one of these that stops for a question. The
-        forward steps (Mark Paid, Mark Completed) are the routine path a
-        cashier walks all day, and a dialog on each would be a click that
-        never changes anyone's mind.
+        Completed and Cancelled stop for order-status-confirm.js's dialog —
+        the order summary, what the step does to stock and payment, and a
+        reason (required for Cancelled, optional for Completed). The dialog
+        markup sits inside this form so the reason posts with it.
+        Approved / Preparing are the routine path a cashier walks all day and
+        stay one click. expected_status lets the server refuse the request if
+        the order moved on after this page was drawn.
         {% endcomment %}
         <form method="post" action="{% url 'transaction_set_status' transaction.pk action %}"
               class="row" style="gap:8px; align-items:center;"
-              {% if action == 'Cancelled' %}
-              data-confirm="{{ transaction.order_number }} will be closed as cancelled. It cannot be moved back from this screen."
-              data-confirm-title="Cancel this order?"
-              data-confirm-variant="danger"
-              data-confirm-ok="Cancel order"
-              data-confirm-dismiss="Keep order"
-              {% endif %}>
+              {% if item.confirm %}data-status-confirm{% endif %}>
           {% csrf_token %}
-          {% comment %}
-          Line items can't be edited once an order exists (see cancel_reason's
-          own comment in transaction_set_status) — this is the only way to
-          correct a mistake, so the reason is what makes the record say why,
-          not just that. Plain visible input rather than folding it into the
-          confirm-dialog popup: that component is shared by every other
-          confirm() on the site and doesn't carry its own form fields.
-          {% endcomment %}
-          {% if action == 'Cancelled' %}
-          <input type="text" name="cancel_reason" placeholder="Reason for cancelling" required
-                 style="width:220px;">
-          {% endif %}
+          <input type="hidden" name="expected_status" value="{{ transaction.order_status }}">
           {% comment %}
           Completing is locked until the payment is Paid — the view refuses it
           otherwise; disabling the button here just says so before the click.
           {% endcomment %}
           <button type="submit" class="btn {% if action == 'Cancelled' %}btn-danger{% else %}btn-primary{% endif %}"
                   {% if action == 'Completed' and not payment_is_paid %}disabled title="Verify the payment as Paid first"{% endif %}>
-            {% if action == 'Cancelled' %}Cancel Order{% else %}Mark {{ action }}{% endif %}
+            {% if action == 'Cancelled' %}{% if transaction.order_status == "Completed" %}Void Sale{% else %}Cancel Order{% endif %}{% else %}Mark {{ action }}{% endif %}
           </button>
           {% if action == 'Completed' and not payment_is_paid %}
           <span class="gv-meta">Payment must be verified as Paid first.</span>
           {% endif %}
+          {% if item.confirm %}{% include "partials/_order_status_confirm.html" with c=item.confirm %}{% endif %}
         </form>
+        {% endwith %}
       {% endfor %}
     </div>
   </div>
@@ -171,6 +178,26 @@
   </p>
   {% endif %}
   {% endwith %}
+</div>
+{% endif %}
+
+{# ---- status history (every move made through Order Detail, with its note) ---- #}
+{% if status_changes %}
+<div class="card card-pad mb-4">
+  <h3 class="mb-2">Status History</h3>
+  <table class="gv-table kv-table" style="border:0;">
+    <thead><tr><th>When</th><th>Change</th><th>By</th><th>Reason / note</th></tr></thead>
+    <tbody>
+      {% for s in status_changes %}
+      <tr>
+        <td data-label="When" class="gv-meta">{{ s.changed_at|date:"j M Y, g:i a" }}</td>
+        <td data-label="Change">{{ s.from_status }} → {{ s.to_status }}</td>
+        <td data-label="By" class="gv-meta">{{ s.changed_by.username|default:"—" }}</td>
+        <td data-label="Reason / note" class="gv-meta">{{ s.reason|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endif %}
 
