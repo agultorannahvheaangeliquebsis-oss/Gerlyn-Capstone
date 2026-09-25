@@ -32,7 +32,7 @@ in the user's words, because "transfer" reads like it might rewrite history.
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
         <tr><td class="gv-meta">Category</td><td style="text-align:right;">
-          {% if profile.supplier_category %}<span class="tag">{{ profile.supplier_category }}</span>{% else %}—{% endif %}</td></tr>
+          {% if profile.category %}<span class="tag">{{ profile.category.name }}</span>{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Contact person</td><td style="text-align:right;">{{ profile.contact_person|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Contact number</td><td class="num" style="text-align:right;">{{ profile.contact_number|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Email</td><td style="text-align:right;">{{ supplier.email|default:"—" }}</td></tr>

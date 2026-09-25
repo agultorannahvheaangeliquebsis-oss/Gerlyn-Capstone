@@ -77,6 +77,8 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     # Procurement
     "supplier_list": "suppliers", "supplier_add": "suppliers",
     "supplier_edit": "suppliers", "supplier_delete": "suppliers",
+    "supplier_category_list": "suppliers", "supplier_category_add": "suppliers",
+    "supplier_category_edit": "suppliers", "supplier_category_delete": "suppliers",
     "procurement_list": "procurement", "procurement_add": "procurement",
     "procurement_detail": "procurement", "procurement_update_status": "procurement",
     "delivery_list": "deliveries", "delivery_receive": "deliveries",

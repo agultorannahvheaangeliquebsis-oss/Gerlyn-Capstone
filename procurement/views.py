@@ -19,7 +19,7 @@ from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 
 from xhtml2pdf import pisa
 
@@ -47,7 +47,7 @@ from .serializers import (
     ProcurementStatusSerializer,
 )
 from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
-from accounts.models import Notification, User
+from accounts.models import Notification, SupplierCategory, User
 
 
 # =============================================================================
@@ -1691,7 +1691,7 @@ def _supplier_list_context(request):
     from django.db.models import Count
 
     suppliers = User.objects.filter(role=User.Role.SUPPLIER).select_related(
-        'supplier_profile'
+        'supplier_profile', 'supplier_profile__category'
     ).annotate(
         # Drives the Products column, which links into the per-supplier
         # product sub-view. Annotated rather than counted per row in the
@@ -1714,6 +1714,9 @@ def _supplier_list_context(request):
         # every branch). Without this the modal's select renders empty and a
         # saved edit would blank the assignment the list column shows.
         'branches': Branch.objects.all(),
+        # Inactive categories are hidden from the picker; the modal adds the
+        # supplier's current one back itself so editing never blanks it.
+        'supplier_categories': SupplierCategory.objects.filter(is_active=True),
     }
 
 
@@ -1769,6 +1772,17 @@ def supplier_form(request, pk=None):
     elif supplier is None and User.objects.filter(username=username).exists():
         errors.append(f'Username "{username}" is already taken.')
 
+    # A category is picked from the managed list, never typed. A blank choice
+    # clears it; a retired (inactive) one is only accepted if the supplier
+    # already had it, so editing an old supplier doesn't force a change.
+    category = None
+    category_id = request.POST.get('category', '').strip()
+    if category_id:
+        category = SupplierCategory.objects.filter(pk=category_id).first()             if category_id.isdigit() else None
+        current_id = profile.category_id if profile else None
+        if category is None or (not category.is_active and category.pk != current_id):
+            errors.append('Choose a category from the list.')
+
     if not errors:
         with transaction.atomic():
             if supplier is None:
@@ -1790,7 +1804,7 @@ def supplier_form(request, pk=None):
             profile.supplier_name = name
             profile.contact_person = request.POST.get('contact_person', '')
             profile.contact_number = request.POST.get('contact_number', '')
-            profile.supplier_category = request.POST.get('supplier_category', '')
+            profile.category = category
             profile.address = request.POST.get('address', '')
             profile.branch_id = request.POST.get('branch') or None
             profile.save()
@@ -1814,6 +1828,104 @@ def supplier_form(request, pk=None):
             'add_form_data': request.POST,
         })
     return render(request, 'procurement/supplier_list.html', context)
+
+
+# -----------------------------------------------------------------------------
+# SUPPLIER CATEGORIES — the managed list the supplier form's dropdown reads.
+#
+# Owner-only, like every other supplier write. Kept on one small page (add
+# form + a row per category) rather than the modal pattern: a category is just
+# a name, a flag and a set of product categories.
+# -----------------------------------------------------------------------------
+
+def _supplier_category_context():
+    from inventory.models import ProductCategory
+    return {
+        'categories': SupplierCategory.objects.prefetch_related(
+            'product_categories'
+        ).annotate(supplier_count=Count('suppliers')),
+        'product_categories': ProductCategory.objects.all(),
+    }
+
+
+@login_required(login_url='accounts:login')
+def supplier_category_list(request):
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+    context = _supplier_category_context()
+    context['can_edit'] = request.user.role == User.Role.OWNER
+    return render(request, 'procurement/supplier_category_list.html', context)
+
+
+@login_required(login_url='accounts:login')
+def supplier_category_save(request, pk=None):
+    """Create or update one supplier category (Owner only, POST only)."""
+    from inventory.models import ProductCategory
+
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage supplier categories.')
+        return redirect('supplier_category_list')
+    if request.method != 'POST':
+        return redirect('supplier_category_list')
+
+    category = get_object_or_404(SupplierCategory, pk=pk) if pk else None
+    name = request.POST.get('name', '').strip()
+    if not name:
+        messages.error(request, 'Category name is required.')
+        return redirect('supplier_category_list')
+    if len(name) > 100:
+        messages.error(request, 'Category name is too long (100 characters max).')
+        return redirect('supplier_category_list')
+    clash = SupplierCategory.objects.filter(name__iexact=name)
+    if category:
+        clash = clash.exclude(pk=category.pk)
+    if clash.exists():
+        messages.error(request, f'A supplier category called "{name}" already exists.')
+        return redirect('supplier_category_list')
+
+    product_ids = [
+        int(v) for v in request.POST.getlist('product_categories') if v.isdigit()
+    ]
+    with transaction.atomic():
+        target = category or SupplierCategory()
+        target.name = name
+        if category:
+            # The row form only posts the checkbox when ticked; a create form
+            # has no such field, so a new category starts active.
+            target.is_active = bool(request.POST.get('is_active'))
+        target.save()
+        target.product_categories.set(ProductCategory.objects.filter(pk__in=product_ids))
+    messages.success(
+        request, f'Supplier category "{name}" {"updated" if category else "added"}.'
+    )
+    return redirect('supplier_category_list')
+
+
+@login_required(login_url='accounts:login')
+def supplier_category_delete(request, pk):
+    if request.user.role != User.Role.OWNER:
+        messages.error(request, 'Only the Owner can manage supplier categories.')
+        return redirect('supplier_category_list')
+    if request.method != 'POST':
+        return redirect('supplier_category_list')
+
+    category = get_object_or_404(SupplierCategory, pk=pk)
+    in_use = category.suppliers.count()
+    if in_use:
+        # Deleting would silently un-categorise these suppliers (SET_NULL);
+        # make the Owner move them first, or retire the category instead.
+        messages.error(
+            request,
+            f'Cannot delete "{category.name}" — {in_use} supplier'
+            f'{"s use" if in_use != 1 else " uses"} it. Reassign them, or mark '
+            f'the category inactive instead.',
+        )
+        return redirect('supplier_category_list')
+    name = category.name
+    category.delete()
+    messages.success(request, f'Supplier category "{name}" deleted.')
+    return redirect('supplier_category_list')
 
 
 # -----------------------------------------------------------------------------

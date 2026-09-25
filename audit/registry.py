@@ -62,6 +62,9 @@ REGISTRY = {
         'Supplier profile',
         mask=_f('supplier_name', 'contact_number', 'contact_person', 'address'),
     ),
+    'accounts.SupplierCategory': AuditConfig(
+        'Supplier category', repr_field='name', branch_path='',
+    ),
     'accounts.CustomerProfile': AuditConfig(
         'Customer profile',
         mask=_f('first_name', 'last_name', 'contact_number', 'address'),

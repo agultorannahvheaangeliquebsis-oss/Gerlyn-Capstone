@@ -1,3 +1,4 @@
+{% load l10n %}
 {% comment %}
 One set of supplier fields, used by both the Add and Edit modals on the
 supplier list — the two differ only in heading, POST target and button label,
@@ -71,9 +72,17 @@ stored, so the same expression falls through to empty.
       <div class="grid-2">
         <div class="field">
           <label for="{{ which }}-supplier-category">Category</label>
-          <input id="{{ which }}-supplier-category" type="text" name="supplier_category"
-                 value="{% firstof form_data.supplier_category profile.supplier_category '' %}"
-                 placeholder="Canned Goods">
+          {% firstof form_data.category profile.category_id '' as selected_category %}
+          <select id="{{ which }}-supplier-category" name="category">
+            <option value="">No category</option>
+            {% for c in supplier_categories %}
+            <option value="{{ c.pk|unlocalize }}"{% if c.pk|stringformat:"s" == selected_category|stringformat:"s" %} selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+            {% comment %}A retired category the supplier already has stays selectable so an edit doesn't blank it.{% endcomment %}
+            {% if profile.category and not profile.category.is_active %}
+            <option value="{{ profile.category_id|unlocalize }}"{% if profile.category_id|stringformat:"s" == selected_category|stringformat:"s" %} selected{% endif %}>{{ profile.category.name }} (inactive)</option>
+            {% endif %}
+          </select>
         </div>
         <div class="field">
           <label for="{{ which }}-supplier-email">Email</label>

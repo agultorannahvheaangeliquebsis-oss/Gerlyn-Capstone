@@ -26,6 +26,7 @@ from accounts.models import (
     Notification,
     OwnerProfile,
     StaffProfile,
+    SupplierCategory,
     SupplierProfile,
     User,
 )
@@ -242,12 +243,13 @@ class Command(BaseCommand):
                 username, User.Role.SUPPLIER,
                 email=f"{username}@supplier.ph", first_name=name.split()[0],
             )
+            category, _ = SupplierCategory.objects.get_or_create(name=cat)
             SupplierProfile.objects.update_or_create(
                 user=u,
                 defaults={
                     "supplier_name": name,
                     "contact_number": contact,
-                    "supplier_category": cat,
+                    "category": category,
                     "contact_person": person,
                 },
             )
