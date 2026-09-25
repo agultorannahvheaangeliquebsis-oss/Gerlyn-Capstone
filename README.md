@@ -61,6 +61,58 @@ Open <http://127.0.0.1:8000/> — the storefront. Log in at `/login/` for the in
 `DJANGO_ALLOWED_HOSTS` in `.env`, then run
 `python manage.py runserver 0.0.0.0:8000`.
 
+### Email delivery
+
+Development uses Django's console email backend by default, so verification
+messages appear in the terminal without SMTP credentials. For a deployment,
+set these environment variables in the hosting service (never commit real
+values):
+
+```text
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_USE_SSL=False
+EMAIL_HOST_USER=the-sender@example.com
+EMAIL_HOST_PASSWORD=provider-app-password
+DEFAULT_FROM_EMAIL=the-sender@example.com
+PUBLIC_BASE_URL=https://your-public-domain.example
+```
+
+Use either TLS on port 587 or SSL on port 465, never both. Gmail requires an
+App Password when two-step verification is enabled, and the sender must be the
+authenticated account or an authorized alias. After setting deployment
+variables, verify delivery without creating an account:
+
+```bash
+python manage.py sendtestemail your-inbox@example.com
+```
+
+The command reports SMTP configuration/authentication failures to the operator;
+it does not print the configured password. After it succeeds, register a test
+customer and confirm that the received verification link starts with
+`PUBLIC_BASE_URL`.
+
+### Address maps and geocoding
+
+The address picker uses the bundled Philippine PSGC data for its cascading
+Region/Province/City/Barangay fields. Automatic pin placement is optional and
+is performed server-side through a Nominatim-compatible provider; the browser
+never receives the provider URL or key. Configure `GEOCODING_SEARCH_URL`,
+`GEOCODING_REVERSE_URL`, and an identifying `GEOCODING_USER_AGENT` in `.env`.
+Set `GEOCODING_API_KEY` and `GEOCODING_API_KEY_PARAM` only when the selected
+provider requires them.
+
+For map imagery, configure `MAP_TILE_URL_TEMPLATE` with `{z}`, `{x}`, and `{y}`
+placeholders (plus `{api_key}` when needed) and keep the key in
+`MAP_TILE_API_KEY`. Both geocoder results and tiles are cached. With these
+settings blank or while a provider is unavailable, the coordinate grid,
+manual coordinate entry, and draggable pin remain available.
+Set `MAP_TILE_ATTRIBUTION` to the credit line required by the chosen tile
+provider. The default provider-wide geocoding interval is one second and can
+be adjusted with `GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS` to match policy.
+
 ---
 
 ## Day-to-day: `./run.sh`

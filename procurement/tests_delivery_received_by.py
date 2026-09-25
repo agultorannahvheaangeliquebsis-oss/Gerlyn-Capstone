@@ -115,6 +115,7 @@ class ReceiptBackfillMigrationTests(TransactionTestCase):
     # The other apps are pinned at their newest migration so the historical
     # models below match the real table shapes (e.g. User's NOT NULL columns).
     _others = [('accounts', '0024_supplier_category_fk'),
+               ('branches', '0002_branch_structured_location'),
                ('inventory', '0027_enforce_positive_prices')]
     before = [('procurement', '0009_supplier_offer_workflow')] + _others
     after = [('procurement', '0010_delivery_receipt')] + _others

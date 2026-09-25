@@ -100,7 +100,7 @@ class FilteredPoItemsTests(TestCase):
 
     def test_web_rejects_another_suppliers_product(self):
         response = self._post_form(self.canned_supplier, self.cola)
-        self.assertContains(response, 'does not carry')
+        self.assertContains(response, 'assigned to the selected supplier')
         self.assertFalse(Procurement.objects.exists())
 
     def test_web_rejects_a_mixed_order_and_creates_nothing(self):
@@ -110,7 +110,7 @@ class FilteredPoItemsTests(TestCase):
 
     def test_web_rejects_an_offer_still_awaiting_approval(self):
         response = self._post_form(self.canned_supplier, self.beans)
-        self.assertContains(response, 'does not carry')
+        self.assertContains(response, 'assigned to the selected supplier')
         self.assertFalse(Procurement.objects.exists())
 
     def _api_post(self, supplier, product):

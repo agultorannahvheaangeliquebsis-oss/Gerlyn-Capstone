@@ -83,6 +83,9 @@ class OfferTests(OfferBase):
 
     def test_proposed_offer_cannot_go_on_a_purchase_order(self):
         self.offer(self.rice)
+        # Some supplier must have an approved product or the modal shows its
+        # "nothing orderable yet" state instead of the form and its errors.
+        self.link(supplier=self.other_supplier, product=self.sugar)
         self.client.force_login(self.owner)
         response = self.client.post(reverse('procurement_add'), {
             'branch': self.branch.pk, 'supplier': self.supplier.pk,
@@ -90,7 +93,7 @@ class OfferTests(OfferBase):
             'product_id': [str(self.rice.pk)],
             'quantity_ordered': ['10'], 'cost_price': ['50'],
         })
-        self.assertContains(response, 'does not carry')
+        self.assertContains(response, 'assigned to the selected supplier')
         self.assertFalse(Procurement.objects.exists())
 
     def test_proposed_offer_is_absent_from_the_po_catalog_until_approved(self):

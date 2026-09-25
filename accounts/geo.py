@@ -80,3 +80,13 @@ def city_name(code):
 
 def barangay_name(code):
     return _barangay_index().get(code, '')
+
+
+def compose_address(region='', province='', city='', barangay='', street_detail=''):
+    """Human-readable address assembled from the bundled PSGC snapshot."""
+    from .geocoding import normalized_address
+
+    return normalized_address(
+        region=region, province=province, city=city,
+        barangay=barangay, street_detail=street_detail,
+    )

@@ -93,6 +93,42 @@ def apply_agreed_terms(procurement):
     return total
 
 
+def active_supplier_product_links(supplier):
+    """Return the current, orderable catalog for one active supplier.
+
+    ``SupplierProduct`` rows are the lifecycle boundary for a catalog
+    assignment: adding a row activates the product for that supplier and
+    removing it takes the product out of future purchase orders without
+    rewriting historical ``ProcurementItem`` rows.  A deactivated supplier
+    must not remain orderable merely because its catalog rows still exist.
+    """
+    supplier_id = getattr(supplier, 'pk', supplier)
+    return SupplierProduct.objects.approved().filter(
+        supplier_id=supplier_id,
+        supplier__is_active=True,
+    )
+
+
+def unassigned_product_ids(supplier, product_ids, *, lock=False):
+    """Return requested product IDs outside ``supplier``'s active catalog.
+
+    Both the server-rendered PO form and the DRF serializer call this helper,
+    so a client cannot bypass the filtered picker by posting a different
+    product ID.  ``lock`` is used immediately before order creation to close
+    the validation/write race with a concurrent catalog removal.
+    """
+    requested = {int(product_id) for product_id in product_ids}
+    links = active_supplier_product_links(supplier)
+    if lock:
+        links = links.select_for_update()
+    assigned = set(
+        links.filter(product_id__in=requested).values_list(
+            'product_id', flat=True
+        )
+    )
+    return requested - assigned
+
+
 @transaction.atomic
 def transfer_supplier_products(product_ids, from_supplier, to_supplier):
     """Move products from one supplier's catalog to another's.
