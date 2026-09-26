@@ -113,6 +113,24 @@ Set `MAP_TILE_ATTRIBUTION` to the credit line required by the chosen tile
 provider. The default provider-wide geocoding interval is one second and can
 be adjusted with `GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS` to match policy.
 
+### Automatic fulfillment branch
+
+The storefront assigns one active branch to the complete cart; it never
+splits an order. When the customer explicitly presses **Use current
+location**, the browser's Geolocation API supplies coordinates for a
+straight-line Haversine comparison. These coordinates stay only in the
+server-side session, expire after 30 minutes, and are cleared after checkout.
+Saved address coordinates are reused when available. Without coordinates,
+the resolver tries matching branch city/barangay service areas, preserves a
+valid automatic cart assignment, then uses `DEFAULT_FULFILLMENT_BRANCH_ID`
+or the lowest active branch ID as a deterministic fallback.
+
+Set `DEFAULT_FULFILLMENT_BRANCH_ID` in `.env` to an active Branch database ID
+when a specific store should be the fallback. Owners maintain branch active
+status and coordinates under **Administration → Branches** (or Django admin).
+Distance is approximate straight-line distance, not road distance or a
+delivery-time quote; no third-party routing service is used.
+
 ---
 
 ## Day-to-day: `./run.sh`

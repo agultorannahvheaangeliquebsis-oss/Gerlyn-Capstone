@@ -521,6 +521,24 @@ MAP_TILE_API_KEY = os.environ.get('MAP_TILE_API_KEY', '').strip()
 MAP_TILE_ATTRIBUTION = os.environ.get('MAP_TILE_ATTRIBUTION', '').strip()
 MAP_TILE_CACHE_SECONDS = int(os.environ.get('MAP_TILE_CACHE_SECONDS', '604800'))
 
+# Customer fulfillment fallback when browser/address coordinates are absent.
+# Blank keeps the deterministic lowest-id active branch fallback. When set,
+# this branch follows service-area matching and any still-valid automatic cart
+# assignment, keeping fallback behavior stable across requests.
+_default_fulfillment_branch = os.environ.get('DEFAULT_FULFILLMENT_BRANCH_ID', '').strip()
+try:
+    DEFAULT_FULFILLMENT_BRANCH_ID = (
+        int(_default_fulfillment_branch) if _default_fulfillment_branch else None
+    )
+except ValueError as exc:
+    raise ImproperlyConfigured(
+        'DEFAULT_FULFILLMENT_BRANCH_ID must be a positive integer or blank.'
+    ) from exc
+if DEFAULT_FULFILLMENT_BRANCH_ID is not None and DEFAULT_FULFILLMENT_BRANCH_ID < 1:
+    raise ImproperlyConfigured(
+        'DEFAULT_FULFILLMENT_BRANCH_ID must be a positive integer or blank.'
+    )
+
 if EMAIL_USE_TLS and EMAIL_USE_SSL:
     raise ImproperlyConfigured(
         'EMAIL_USE_TLS and EMAIL_USE_SSL are mutually exclusive. '

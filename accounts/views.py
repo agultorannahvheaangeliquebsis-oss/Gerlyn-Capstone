@@ -878,7 +878,7 @@ def home_view(request):
             .prefetch_related('images')[:12]
         ),
     )
-    branches = Branch.objects.all()
+    branches = Branch.objects.filter(is_active=True)
     categories = ProductCategory.objects.all()
     return render(request, 'home.html', {
         'products': products,
@@ -1724,6 +1724,12 @@ def _addresses_anchor():
     return reverse('accounts:profile') + '#addresses'
 
 
+def _address_changed(request):
+    """Force the cart to resolve again after a saved-address mutation."""
+    request.session.pop('fulfillment_location', None)
+    request.session.pop('fulfillment_assignment', None)
+
+
 @login_required(login_url='accounts:login')
 def addresses_view(request):
     """
@@ -1780,6 +1786,7 @@ def address_create(request):
 
     is_first = not request.user.addresses.exists()
     Address.objects.create(user=request.user, is_default=is_first, **fields)
+    _address_changed(request)
     messages.success(request, "Address added.")
     return redirect(_addresses_anchor())
 
@@ -1805,6 +1812,7 @@ def address_edit(request, pk):
     for key, value in fields.items():
         setattr(address, key, value)
     address.save()
+    _address_changed(request)
     messages.success(request, "Address updated.")
     return redirect(_addresses_anchor())
 
@@ -1817,6 +1825,7 @@ def address_delete(request, pk):
         messages.error(request, "You can't delete your default address. Set a different one as default first.")
         return redirect(_addresses_anchor())
     address.delete()
+    _address_changed(request)
     messages.success(request, "Address deleted.")
     return redirect(_addresses_anchor())
 
@@ -1826,6 +1835,7 @@ def address_delete(request, pk):
 def address_set_default(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
     address.set_as_default()
+    _address_changed(request)
     messages.success(request, "Default address updated.")
     return redirect(_addresses_anchor())
 

@@ -9,7 +9,20 @@ class BranchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Branch
-        fields = ['id', 'ownerId', 'ownerName', 'name', 'location']
+        fields = [
+            'id', 'ownerId', 'ownerName', 'name', 'location', 'is_active',
+            'region', 'province', 'city', 'barangay', 'street_detail',
+            'latitude', 'longitude',
+        ]
+
+    def validate(self, attrs):
+        latitude = attrs.get('latitude', getattr(self.instance, 'latitude', None))
+        longitude = attrs.get('longitude', getattr(self.instance, 'longitude', None))
+        if (latitude is None) != (longitude is None):
+            raise serializers.ValidationError(
+                'Latitude and longitude must be provided together.'
+            )
+        return attrs
 
     def get_ownerName(self, obj):
         if not obj.owner:

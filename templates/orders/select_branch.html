@@ -1,50 +1,89 @@
 {% extends "public_base.html" %}
-{% block title %}Choose a branch — GERLYN{% endblock %}
+{% block title %}Fulfillment location — GERLYN{% endblock %}
 
 {% block content %}
 <div class="shop-wrap section" style="max-width:640px;">
   <div class="section-head">
     <div>
-      <h2>Choose your branch</h2>
+      <h2>Find your fulfillment branch</h2>
       <p class="gv-meta mb-0">
-        Stock differs per branch, so we ask first — that way what you see is what's really on the shelf.
+        We use your location only to find the nearest active branch that can
+        fulfill your whole cart. One order always stays with one branch.
       </p>
     </div>
   </div>
 
-  <form method="POST" class="stack">
-    {% csrf_token %}
-    <div class="card card-pad stack">
-      {% for b in branches %}
-      <label class="row" style="gap:12px; cursor:pointer; padding:12px; border:1px solid var(--line); border-radius:var(--r-card);">
-        <input type="radio" name="branch_id" value="{{ b.id }}" required
-               style="width:auto; min-height:auto;" {% if forloop.first %}checked{% endif %}>
-        <span>
-          <span style="font-weight:600;">{{ b.branch_name }}</span><br>
-          <span class="gv-meta">{{ b.location }}</span>
-        </span>
-      </label>
-      {% empty %}
-      <div class="empty"><h3>No branches available</h3></div>
-      {% endfor %}
-    </div>
-    {% if cart_preview and cart_preview.items %}
-    <div class="banner banner-info">
-      <p class="mb-0">
-        Picking a different branch will clear your cart
-        {% if cart_preview.branch_name %} at {{ cart_preview.branch_name }}{% endif %} —
-        stock and prices are set per branch. You'll lose:
-      </p>
-      <ul class="mb-0" style="padding-left:20px;">
-        {% for item in cart_preview.items %}
-        <li>{{ item.product.product_name }} &times;{{ item.quantity }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% else %}
-    <div class="banner banner-info">Changing branch empties your cart, since stock is per branch.</div>
-    {% endif %}
-    <button type="submit" class="btn btn-primary">Shop this branch</button>
-  </form>
+  {% if current_branch %}
+  <div class="banner banner-info">
+    <span>Currently fulfilled by <strong>{{ current_branch.branch_name }}</strong>{% if assignment_distance != None %}, approximately {{ assignment_distance|floatformat:1 }} km away{% endif %}.</span>
+  </div>
+  {% endif %}
+
+  <div class="card card-pad stack">
+    <h3>Use current location</h3>
+    <p class="gv-meta mb-0">
+      Your browser will ask permission only after you press the button. The
+      coordinates stay in your private session for this cart, are never saved
+      on the order, and expire after 30 minutes.
+    </p>
+    <form method="POST" id="fulfillment-location-form">
+      {% csrf_token %}
+      <input type="hidden" name="location_status" id="fulfillment-location-status" value="">
+      <input type="hidden" name="latitude" id="fulfillment-latitude" value="">
+      <input type="hidden" name="longitude" id="fulfillment-longitude" value="">
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <button type="button" class="btn btn-primary" id="use-current-location">Use current location</button>
+      <button type="submit" class="btn" name="location_status" value="fallback">
+        Continue without sharing location
+      </button>
+    </form>
+    <p class="gv-meta mb-0" id="fulfillment-location-feedback" role="status" aria-live="polite">
+      If permission is denied or unavailable, we use your saved address's
+      city/barangay, then the configured store fallback. Checkout remains available.
+    </p>
+  </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+  var button = document.getElementById('use-current-location');
+  var form = document.getElementById('fulfillment-location-form');
+  var status = document.getElementById('fulfillment-location-status');
+  var latitude = document.getElementById('fulfillment-latitude');
+  var longitude = document.getElementById('fulfillment-longitude');
+  var feedback = document.getElementById('fulfillment-location-feedback');
+  if (!button || !form) return;
+
+  function useFallback(message) {
+    status.value = 'denied';
+    if (feedback) feedback.textContent = message + ' Using your saved address or the store fallback.';
+    form.submit();
+  }
+
+  button.addEventListener('click', function () {
+    // Consent boundary: geolocation is never requested on page load.
+    if (!navigator.geolocation) {
+      useFallback('This browser does not provide location access.');
+      return;
+    }
+    button.disabled = true;
+    if (feedback) feedback.textContent = 'Waiting for location permission…';
+    navigator.geolocation.getCurrentPosition(function (position) {
+      status.value = 'granted';
+      latitude.value = position.coords.latitude.toFixed(6);
+      longitude.value = position.coords.longitude.toFixed(6);
+      form.submit();
+    }, function () {
+      useFallback('Location permission was denied or the location could not be read.');
+    }, {
+      enableHighAccuracy: false,
+      timeout: 10000,
+      maximumAge: 300000
+    });
+  });
+})();
+</script>
 {% endblock %}

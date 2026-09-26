@@ -227,7 +227,7 @@ def nav_branches(request):
     """
     from branches.models import Branch
 
-    return {"nav_branches": Branch.objects.all()}
+    return {"nav_branches": Branch.objects.filter(is_active=True)}
 
 
 ALERT_COUNT_CACHE_SECONDS = 30
@@ -337,7 +337,16 @@ def nav_selected_branch(request):
     try:
         from branches.models import Branch
 
-        return {"nav_selected_branch": Branch.objects.filter(pk=branch_id).first()}
+        branch = Branch.objects.filter(pk=branch_id, is_active=True).first()
+        assignment = request.session.get('fulfillment_assignment') or {}
+        distance = (
+            assignment.get('distance_km')
+            if branch and assignment.get('branch_id') == branch.pk else None
+        )
+        return {
+            "nav_selected_branch": branch,
+            "nav_branch_distance": distance,
+        }
     except Exception:
         return {}
 

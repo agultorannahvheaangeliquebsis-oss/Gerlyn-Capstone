@@ -256,9 +256,9 @@ class Address(models.Model):
     barangay      = models.CharField(max_length=15, blank=True)
     street_detail = models.CharField(max_length=255, blank=True)
 
-    # Legacy pin coordinates. No longer captured — the map picker was
-    # dropped as out of scope — but kept nullable so existing rows are
-    # untouched. Nothing reads these.
+    # Nullable so a typed address without a map pin remains valid. Automatic
+    # fulfillment uses the pair when present and falls back to the structured
+    # city/barangay fields when it is absent.
     latitude  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 

@@ -123,6 +123,10 @@ def branch_form(request, pk=None):
         'street_detail': request.POST.get('street_detail', '').strip(),
         'latitude': latitude,
         'longitude': longitude,
+        'is_active': (
+            request.POST.get('is_active') == 'on'
+            if branch is not None or 'is_active' in request.POST else True
+        ),
     }
 
     errors = []
