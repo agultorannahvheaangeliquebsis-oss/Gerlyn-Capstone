@@ -16,7 +16,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from django.db.models import Q
 
@@ -50,6 +50,8 @@ from .serializers import (
 )
 from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
 from accounts.models import Notification, User
+from accounts.forms import SupplierSelfProfileForm
+from accounts.services import send_email_change_verification
 
 
 # =============================================================================
@@ -1215,6 +1217,75 @@ def delivery_add_unexpected(request, pk):
 # mark an order Received: that is the store's receipt validation (business
 # rule 13), and letting a supplier self-confirm would defeat the control.
 # =============================================================================
+
+
+def _supplier_profile_context(request, *, form=None, editing=False):
+    """Build the supplier's self-service profile without exposing owner writes."""
+    profile = request.user.get_or_create_role_profile()
+    catalog = list(
+        SupplierProduct.objects.filter(supplier=request.user).select_related(
+            'product', 'product__category'
+        )
+    )
+    category_names = sorted({
+        link.product.category.category_name
+        for link in catalog
+        if link.product.category_id
+    })
+    return {
+        'profile': profile,
+        'catalog': catalog,
+        'catalog_count': len(catalog),
+        'catalog_categories': category_names,
+        'form': form,
+        'editing': editing,
+    }
+
+
+@role_required(SUPPLIER)
+@require_GET
+def supplier_profile(request):
+    return render(
+        request,
+        'procurement/supplier_profile.html',
+        _supplier_profile_context(request),
+    )
+
+
+@role_required(SUPPLIER)
+@require_http_methods(['GET', 'POST'])
+def supplier_profile_edit(request):
+    form = SupplierSelfProfileForm(request.POST or None, user=request.user)
+    if request.method == 'POST' and form.is_valid():
+        new_email = form.cleaned_data['email']
+        email_changed = new_email.lower() != (request.user.email or '').lower()
+        if email_changed:
+            try:
+                # The current address remains active until the supplier follows
+                # the established account-verification link sent to the new one.
+                send_email_change_verification(request.user, new_email, request)
+            except Exception:
+                form.add_error(
+                    'email',
+                    'Failed to send the verification email. Please try again.',
+                )
+
+        if not form.errors:
+            form.save()
+            if email_changed:
+                messages.info(
+                    request,
+                    f'A verification link has been sent to {new_email}. '
+                    "Your email won't change until you click it.",
+                )
+            messages.success(request, 'Supplier profile updated.')
+            return redirect('supplier_profile')
+
+    return render(
+        request,
+        'procurement/supplier_profile.html',
+        _supplier_profile_context(request, form=form, editing=True),
+    )
 
 @login_required(login_url='accounts:login')
 def supplier_portal(request):

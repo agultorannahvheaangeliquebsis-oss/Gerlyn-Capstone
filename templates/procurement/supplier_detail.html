@@ -37,6 +37,9 @@ in the user's words, because "transfer" reads like it might rewrite history.
         <tr><td class="gv-meta">Contact number</td><td class="num" style="text-align:right;">{{ profile.contact_number|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Email</td><td style="text-align:right;">{{ supplier.email|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Address</td><td style="text-align:right;">{{ profile.address|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Account status</td><td style="text-align:right;">
+          {% if supplier.is_active %}<span class="pill pill-ok">Active</span>
+          {% else %}<span class="pill pill-danger">Inactive</span>{% endif %}</td></tr>
       </tbody>
     </table>
   </div>

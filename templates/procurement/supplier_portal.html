@@ -52,6 +52,12 @@
       color: #fff; border-radius: 7px;
     }
     .portal-header .btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+    .portal-header .portal-link {
+      color: rgba(255,255,255,.88); padding: 8px 10px; border-radius: 7px;
+      font-weight: 600; font-size: 14px;
+    }
+    .portal-header .portal-link:hover { color:#fff; background:rgba(255,255,255,.14); }
+    .portal-header img.portal-avatar { display:block; object-fit:cover; }
 
     /* Notification bell: same .topbar-bell/.notif-tray the internal
        Owner/Manager/Staff chrome uses (static/js/notification-tray.js is
@@ -200,6 +206,7 @@
       </span>
     </span>
     <span class="row" style="gap:12px;">
+      <a class="portal-link" href="{% url 'supplier_profile' %}">Profile</a>
       {% comment %}
         Same tray markup/JS as the internal Owner/Manager/Staff bell
         (templates/internal_base.html + static/js/notification-tray.js),
@@ -238,7 +245,11 @@
         <span class="who-name">{{ profile.supplier_name|default:request.user.username }}</span><br>
         <span class="who-role">Supplier</span>
       </span>
+      {% if request.user.avatar %}
+      <img class="portal-avatar" src="{{ request.user.avatar.url }}" alt="{{ profile.supplier_name }} logo">
+      {% else %}
       <span class="portal-avatar">{{ profile.supplier_name|default:request.user.username|first|upper }}</span>
+      {% endif %}
       <a class="btn" href="{% url 'accounts:logout' %}">Logout</a>
     </span>
   </div>

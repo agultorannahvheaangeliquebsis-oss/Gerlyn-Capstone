@@ -23,6 +23,9 @@ urlpatterns = [
 
     # Supplier's own portal (role = SUPPLIER)
     path('portal/', views.supplier_portal, name='supplier_portal'),
+    path('portal/profile/', views.supplier_profile, name='supplier_profile'),
+    path('portal/profile/edit/', views.supplier_profile_edit,
+         name='supplier_profile_edit'),
     path('portal/<int:pk>/delivery-date/', views.supplier_set_delivery_date,
          name='supplier_set_delivery_date'),
     path('portal/notifications/', views.supplier_notifications,

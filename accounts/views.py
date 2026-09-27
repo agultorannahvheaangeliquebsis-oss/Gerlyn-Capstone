@@ -1123,6 +1123,8 @@ def _internal_settings_context(request):
 
 @login_required(login_url='accounts:login')
 def profile_view(request):
+    if request.user.role == User.Role.SUPPLIER:
+        return redirect('supplier_profile')
     return render(request, 'accounts/profile.html', _profile_context(request.user))
 
 
@@ -1130,6 +1132,10 @@ def profile_view(request):
 @require_POST
 def update_profile(request):
     user   = request.user
+    if user.role == User.Role.SUPPLIER:
+        messages.error(request, 'Use the supplier profile page to update your details.')
+        return redirect('supplier_profile_edit')
+
     errors = {}
 
     new_username   = request.POST.get('username', '').strip()
@@ -1379,7 +1385,7 @@ def verify_email_change(request, token):
     user.save(update_fields=['email', 'pending_email'])
 
     messages.success(request, f"Email updated to {user.email}.")
-    return redirect('accounts:profile')
+    return _profile_redirect(user)
 
 
 @login_required(login_url='accounts:login')
@@ -1419,6 +1425,8 @@ def _profile_redirect(user):
     from core.permissions import INTERNAL_ROLES
     if user.role in INTERNAL_ROLES:
         return redirect('internal_settings')
+    if user.role == User.Role.SUPPLIER:
+        return redirect('supplier_profile')
     return redirect('accounts:profile')
 
 
