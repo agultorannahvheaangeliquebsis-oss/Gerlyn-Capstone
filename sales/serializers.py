@@ -3,8 +3,12 @@
 from rest_framework import serializers
 from django.db import transaction
 
-from .models import SalesTransaction, SalesItem, SalesItemBatchConsumption
+from .models import (
+    OrderStatusHistory, Refund, RefundEvent, RefundItem, SalesItem,
+    SalesItemBatchConsumption, SalesTransaction,
+)
 from .pricing import price_cart
+from .pwd_requests import new_request_fields, request_can_reach_cart, validate_pwd_details
 from core.scoping import user_can_access_branch
 from inventory.models import Product, Inventory, Batch, StockMovement
 from branches.models import Branch
@@ -30,6 +34,100 @@ class SalesItemSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
+# REFUNDS + STATUS HISTORY (READ)
+# =============================================================================
+
+def _username(user):
+    return user.username if user else None
+
+
+class RefundItemSerializer(serializers.ModelSerializer):
+    salesItemId = serializers.PrimaryKeyRelatedField(source='sales_item', read_only=True)
+    productName = serializers.CharField(
+        source='sales_item.product.product_name', read_only=True, allow_null=True
+    )
+    condition = serializers.CharField(read_only=True)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = RefundItem
+        fields = ['id', 'salesItemId', 'productName', 'quantity', 'condition', 'amount']
+
+
+class RefundEventSerializer(serializers.ModelSerializer):
+    fromStatus = serializers.CharField(source='from_status', read_only=True)
+    toStatus = serializers.CharField(source='to_status', read_only=True)
+    actor = serializers.SerializerMethodField()
+    createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+    class Meta:
+        model = RefundEvent
+        fields = ['id', 'fromStatus', 'toStatus', 'actor', 'note', 'createdAt']
+
+    def get_actor(self, obj):
+        return _username(obj.actor)
+
+
+class RefundSerializer(serializers.ModelSerializer):
+    """One refund with its lines and its full event log."""
+    orderNumber = serializers.CharField(source='transaction.order_number', read_only=True)
+    reasonCode = serializers.CharField(source='reason_code', read_only=True)
+    refundType = serializers.CharField(source='refund_type', read_only=True)
+    refundMethod = serializers.CharField(source='refund_method', read_only=True)
+    totalAmount = serializers.DecimalField(
+        source='total_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    requestedBy = serializers.SerializerMethodField()
+    requestedAt = serializers.DateTimeField(source='requested_at', read_only=True)
+    approvedBy = serializers.SerializerMethodField()
+    approvedAt = serializers.DateTimeField(source='refunded_at', read_only=True)
+    decisionNote = serializers.CharField(source='decision_note', read_only=True)
+    items = RefundItemSerializer(many=True, read_only=True)
+    events = RefundEventSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Refund
+        fields = [
+            'id', 'orderNumber', 'status', 'reasonCode', 'reason', 'refundType',
+            'refundMethod', 'totalAmount', 'requestedBy', 'requestedAt',
+            'approvedBy', 'approvedAt', 'decisionNote', 'items', 'events',
+        ]
+
+    def get_requestedBy(self, obj):
+        return _username(obj.requested_by)
+
+    def get_approvedBy(self, obj):
+        return _username(obj.refunded_by)
+
+
+class OrderStatusHistorySerializer(serializers.ModelSerializer):
+    fromStatus = serializers.CharField(source='from_status', read_only=True)
+    toStatus = serializers.CharField(source='to_status', read_only=True)
+    actor = serializers.SerializerMethodField()
+    createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+    class Meta:
+        model = OrderStatusHistory
+        fields = ['id', 'fromStatus', 'toStatus', 'actor', 'note', 'createdAt']
+
+    def get_actor(self, obj):
+        return _username(obj.actor)
+
+
+# Prefetches that keep a list of orders from issuing a query per order for the
+# refund log and status trail — used by the sales API's list and detail views.
+TRANSACTION_READ_PREFETCH = (
+    'items__product',
+    'status_history__actor',
+    'refunds__items__sales_item__product',
+    'refunds__events__actor',
+    'refunds__requested_by',
+    'refunds__refunded_by',
+    'refunds__transaction',
+)
+
+
+# =============================================================================
 # SALES TRANSACTION (READ)
 # =============================================================================
 
@@ -44,15 +142,74 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     modeOfPayment = serializers.CharField(source='mode_of_payment', read_only=True)
     orderStatus = serializers.CharField(source='order_status', read_only=True)
     deliveryAddress = serializers.CharField(source='delivery_address', read_only=True)
+    fulfillmentType = serializers.CharField(source='fulfillment_type', read_only=True)
+    discountType = serializers.CharField(source='discount_type', read_only=True)
+    totalDiscountAmount = serializers.DecimalField(
+        source='total_discount_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    pwdRequest = serializers.SerializerMethodField()
     items = SalesItemSerializer(many=True, read_only=True)
+    # P14 — totalAmount stays the frozen charged figure; these say what
+    # approved refunds have done to it. netAmount = totalAmount - refundedAmount.
+    refundedAmount = serializers.DecimalField(
+        source='refunded_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    netAmount = serializers.DecimalField(
+        source='net_amount', max_digits=12, decimal_places=2, read_only=True
+    )
+    paymentStatus = serializers.SerializerMethodField()
+    statusHistory = OrderStatusHistorySerializer(
+        source='status_history', many=True, read_only=True
+    )
+    refunds = RefundSerializer(many=True, read_only=True)
 
     class Meta:
         model = SalesTransaction
         fields = [
             'id', 'orderNumber', 'branch', 'staff', 'customer',
             'transactionDate', 'totalAmount', 'transactionType', 'modeOfPayment',
-            'orderStatus', 'deliveryAddress', 'items',
+            'orderStatus', 'deliveryAddress', 'fulfillmentType', 'discountType',
+            'totalDiscountAmount', 'pwdRequest', 'items',
+            'refundedAmount', 'netAmount', 'paymentStatus', 'statusHistory', 'refunds',
         ]
+
+    # The status trail and refund log name internal staff and carry approval
+    # notes, so they are served to internal roles only — never to the
+    # Customer who owns the order, and never when there is no requesting user
+    # to judge (fail closed).
+    INTERNAL_ONLY_FIELDS = ('statusHistory', 'refunds')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not (user and user.is_authenticated and user.role in (
+            user.Role.OWNER, user.Role.BRANCH_MANAGER, user.Role.STAFF
+        )):
+            for field in self.INTERNAL_ONLY_FIELDS:
+                data.pop(field, None)
+        return data
+
+    def get_paymentStatus(self, obj):
+        billing = getattr(obj, 'billing_record', None)
+        return billing.status if billing else None
+
+    def get_pwdRequest(self, obj):
+        """The customer's PWD discount request, or None when there was none.
+        Same audience as the order itself (its customer and the branch's
+        staff — the view scopes who can read the order at all)."""
+        if obj.pwd_request_status == SalesTransaction.PwdRequestStatus.NONE:
+            return None
+        reviewer = obj.pwd_request_reviewed_by
+        return {
+            'status': obj.pwd_request_status,
+            'idNumber': obj.pwd_request_id_number,
+            'holderName': obj.pwd_request_holder_name,
+            'requestedAt': obj.pwd_requested_at,
+            'reviewedBy': (reviewer.get_full_name() or reviewer.username) if reviewer else None,
+            'reviewedAt': obj.pwd_request_reviewed_at,
+            'rejectReason': obj.pwd_request_reject_reason,
+        }
 
     def get_staff(self, obj):
         if obj.staff:
@@ -83,11 +240,30 @@ class SalesItemWriteSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
 
 
+class PwdDiscountRequestWriteSerializer(serializers.Serializer):
+    """The ID details a customer submits with a PWD discount request. Format
+    checks are sales.pwd_requests.validate_pwd_details — the same function the
+    storefront checkout calls — run in the parent's validate()."""
+    idNumber = serializers.CharField(max_length=50)
+    holderName = serializers.CharField(max_length=150)
+
+
 class SalesTransactionWriteSerializer(serializers.Serializer):
     branchId = serializers.IntegerField(required=False)
     transactionType = serializers.ChoiceField(choices=SalesTransaction.TransactionType.choices)
     modeOfPayment = serializers.ChoiceField(choices=SalesTransaction.ModeOfPayment.choices)
     deliveryAddress = serializers.CharField(required=False, allow_blank=True)
+    # Optional, and an Online order without it is still a Delivery — the only
+    # thing this endpoint could create before. 'Pickup' is what makes an
+    # Online order eligible for a PWD request, mirroring the storefront's
+    # explicit delivery/pickup choice.
+    fulfillmentType = serializers.ChoiceField(
+        choices=SalesTransaction.FulfillmentType.choices, required=False
+    )
+    # P15 — a REQUEST for the PWD discount (see sales.pwd_requests): recorded
+    # for staff to verify at pick-up, never applied here. The order is priced
+    # in full regardless of this field.
+    pwdDiscountRequest = PwdDiscountRequestWriteSerializer(required=False)
     items = SalesItemWriteSerializer(many=True, min_length=1)
 
     def validate_items(self, value):
@@ -107,11 +283,51 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         if user.role == user.Role.CUSTOMER:
             data['transactionType'] = SalesTransaction.TransactionType.ONLINE
 
-        if data.get('transactionType') == SalesTransaction.TransactionType.ONLINE \
+        is_online = (
+            data.get('transactionType') == SalesTransaction.TransactionType.ONLINE
+        )
+        Fulfillment = SalesTransaction.FulfillmentType
+        if is_online:
+            # Delivery unless the client explicitly says Pickup — unchanged
+            # behaviour for every existing caller.
+            fulfillment = data.get('fulfillmentType') or Fulfillment.DELIVERY
+        else:
+            if data.get('fulfillmentType') == Fulfillment.DELIVERY:
+                raise serializers.ValidationError(
+                    {'fulfillmentType': 'A walk-in sale is handed over at the counter.'}
+                )
+            fulfillment = Fulfillment.PICKUP
+
+        if is_online and fulfillment == Fulfillment.DELIVERY \
                 and not data.get('deliveryAddress', '').strip():
             raise serializers.ValidationError(
                 {'deliveryAddress': 'Delivery address is required for online orders.'}
             )
+        # Pickup never carries an address, whatever the payload says (F-11).
+        if fulfillment == Fulfillment.PICKUP:
+            data['deliveryAddress'] = ''
+        data['fulfillmentType'] = fulfillment
+
+        pwd = data.pop('pwdDiscountRequest', None)
+        if pwd:
+            # Same rule as checkout: a customer, on an order they collect in
+            # store — staff cannot see an ID for a delivery, and staff-rung
+            # sales apply the discount directly rather than by request.
+            if not (
+                user.role == user.Role.CUSTOMER
+                and is_online
+                and fulfillment == Fulfillment.PICKUP
+            ):
+                raise serializers.ValidationError({
+                    'pwdDiscountRequest': 'A PWD discount can only be requested '
+                    'by a customer, on an online order they pick up at the branch.'
+                })
+            id_number, holder_name, errors = validate_pwd_details(
+                pwd['idNumber'], pwd['holderName']
+            )
+            if errors:
+                raise serializers.ValidationError({'pwdDiscountRequest': errors})
+            data['pwdDiscountRequest'] = (id_number, holder_name)
         return data
 
     def create(self, validated_data):
@@ -120,7 +336,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         items_data = validated_data.pop('items')
 
         branch_id = validated_data.get('branchId') or self.context.get('user_branch_id')
-        if not branch_id:
+        if not branch_id and user.role != user.Role.CUSTOMER:
             raise serializers.ValidationError({'branchId': 'No branch assigned to your account.'})
 
         # Staff/Manager are pinned to their own branch everywhere else in the
@@ -148,6 +364,46 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             )
 
         with transaction.atomic():
+            if user.role == user.Role.CUSTOMER:
+                # Customer API writes follow the same automatic whole-cart
+                # assignment as the server-rendered checkout. Lock all
+                # candidate rows first so another checkout cannot promise the
+                # same units while this one is resolving.
+                from orders.services import (
+                    customer_fulfillment_location,
+                    remember_assignment,
+                    resolve_nearest_branch,
+                )
+
+                list(
+                    Inventory.objects.select_for_update()
+                    .filter(
+                        branch__is_active=True,
+                        product_id__in=qty_by_product,
+                    )
+                    .order_by('branch_id', 'product_id')
+                )
+                location = customer_fulfillment_location(user, request.session)
+                resolution = resolve_nearest_branch(
+                    location['latitude'], location['longitude'], qty_by_product,
+                    city=location['city'], barangay=location['barangay'],
+                    preferred_branch_id=request.session.get('branch_id'),
+                )
+                if not resolution.branch:
+                    raise serializers.ValidationError({
+                        'items': 'No single branch can fulfill every item in this order.'
+                    })
+                branch_id = resolution.branch.pk
+                remember_assignment(request.session, resolution)
+
+            from orders.services import fulfillable_quantities
+            available_by_product = {
+                product_id: quantity
+                for (_branch_id, product_id), quantity in fulfillable_quantities(
+                    [branch_id], qty_by_product
+                ).items()
+            }
+
             # Lock stock and validate availability before writing anything, so
             # total_amount can be set at creation time (billing.signals reads
             # it then — creating with 0 and updating afterward left the
@@ -194,7 +450,10 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     inv = Inventory.objects.select_for_update().sellable().filter(
                         product=product, branch_id=branch_id
                     ).first()
-                    if not inv or inv.available_qty < total_qty:
+                    if (
+                        not inv
+                        or available_by_product.get(product.id, 0) < total_qty
+                    ):
                         raise serializers.ValidationError(
                             {'items': f'Not enough stock for {product.product_name}.'}
                         )
@@ -211,6 +470,19 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             # and customer-facing checkout, where nobody has presented a PWD
             # or OSCA card to a cashier. Accepting a claim over the wire would
             # mean granting a statutory discount on an unverified assertion.
+            #
+            # P15 — a PWD discount REQUEST is accepted (validate()) but is
+            # only recorded on the order below; the pricing stays at full.
+            # PWD eligibility is per product, so a request that could not
+            # move the total is refused, same as the storefront checkout.
+            pwd_request = validated_data.get('pwdDiscountRequest')
+            if pwd_request and not request_can_reach_cart(
+                line[0] for line in cart_lines
+            ):
+                raise serializers.ValidationError({
+                    'pwdDiscountRequest': 'None of the items in this order are '
+                    'eligible for the PWD discount.'
+                })
             priced = price_cart(cart_lines, discount_type=None)
             total = priced['total_amount']
 
@@ -230,23 +502,19 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 customer=user if user.role == user.Role.CUSTOMER else None,
                 transaction_type=validated_data['transactionType'],
                 mode_of_payment=validated_data['modeOfPayment'],
-                # This endpoint's validate() already refuses an Online order
-                # with a blank deliveryAddress, so an Online sale here is
-                # always a Delivery and a Physical one is always handed over
-                # at the counter. Set explicitly rather than left on the
-                # model default: fulfillment_type gates who may apply the
-                # statutory discount (F-04), and defaulting an addressed
-                # online order to Pickup would open exactly the in-person
-                # verification hole that gate exists to close.
-                fulfillment_type=(
-                    SalesTransaction.FulfillmentType.DELIVERY
-                    if validated_data['transactionType']
-                    == SalesTransaction.TransactionType.ONLINE
-                    else SalesTransaction.FulfillmentType.PICKUP
-                ),
+                # validate() resolves this: an Online order is a Delivery
+                # (which must carry an address) unless the client said Pickup,
+                # and a Physical one is always handed over at the counter.
+                # Set explicitly rather than left on the model default:
+                # fulfillment_type gates who may apply the statutory discount
+                # (F-04), and defaulting an addressed online order to Pickup
+                # would open exactly the in-person verification hole that
+                # gate exists to close.
+                fulfillment_type=validated_data['fulfillmentType'],
                 delivery_address=validated_data.get('deliveryAddress', ''),
                 total_amount=total,
                 total_vat_amount=priced['total_vat_amount'],
+                **(new_request_fields(*pwd_request) if pwd_request else {}),
             )
 
             # An Online order has not left the shelf yet — it is Pending
@@ -255,9 +523,10 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             # (_deduct_stock). Deducting here as well took the stock twice for
             # one sale: 5 units at creation, 5 more at completion. Availability
             # was still validated above, exactly like the storefront checkout
-            # (orders.customer_views.checkout) does — reserve nothing, promise
-            # nothing that isn't on the shelf, and let completion be the one
-            # place stock moves.
+            # (orders.customer_views.checkout) does. Pending/approved/preparing
+            # lines are counted as commitments by the shared fulfillment
+            # service, while completion remains the one place the physical
+            # quantity_on_hand value moves.
             #
             # A Physical sale over this endpoint IS the moment of sale (there
             # is no console step to wait for, the way there is none for the
@@ -322,4 +591,48 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 billing.payment_method = validated_data['modeOfPayment']
                 billing.save()
 
+        if user.role == user.Role.CUSTOMER:
+            request.session.pop('fulfillment_location', None)
+            request.session.pop('fulfillment_assignment', None)
         return txn
+
+
+# =============================================================================
+# REFUND (WRITE)
+# POST /api/sales/<pk>/refunds/ mirrors sales.views.transaction_refund;
+# POST /api/sales/refunds/<pk>/approve|reject/ mirror the decision views. The
+# rules themselves live in sales.refunds — these only shape and bound input.
+# =============================================================================
+
+class RefundLineWriteSerializer(serializers.Serializer):
+    itemId = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+    condition = serializers.ChoiceField(choices=RefundItem.Condition.choices)
+
+
+class RefundRequestWriteSerializer(serializers.Serializer):
+    reasonCode = serializers.ChoiceField(choices=Refund.ReasonCode.choices)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    refundMethod = serializers.ChoiceField(choices=Refund.RefundMethod.choices)
+    # fullRefund refunds every remaining unit on the order in `condition`;
+    # otherwise `items` names the lines. Whether it ends up Full or Partial is
+    # decided by the server from what was actually covered.
+    fullRefund = serializers.BooleanField(required=False, default=False)
+    condition = serializers.ChoiceField(choices=RefundItem.Condition.choices, required=False)
+    items = RefundLineWriteSerializer(many=True, required=False)
+
+    def validate(self, data):
+        if data.get('fullRefund'):
+            if not data.get('condition'):
+                raise serializers.ValidationError(
+                    {'condition': 'Required with fullRefund — Sellable or Damaged.'}
+                )
+        elif not data.get('items'):
+            raise serializers.ValidationError(
+                {'items': 'Name at least one item, or set fullRefund.'}
+            )
+        return data
+
+
+class RefundDecisionWriteSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True, max_length=255)

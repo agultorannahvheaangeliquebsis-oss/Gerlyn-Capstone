@@ -62,6 +62,9 @@ REGISTRY = {
         'Supplier profile',
         mask=_f('supplier_name', 'contact_number', 'contact_person', 'address'),
     ),
+    'accounts.SupplierCategory': AuditConfig(
+        'Supplier category', repr_field='name', branch_path='',
+    ),
     'accounts.CustomerProfile': AuditConfig(
         'Customer profile',
         mask=_f('first_name', 'last_name', 'contact_number', 'address'),
@@ -109,11 +112,27 @@ REGISTRY = {
     'procurement.ProcurementItem': AuditConfig(
         'Purchase order item', branch_path='procurement.branch_id',
     ),
+    'procurement.DeliveryReceipt': AuditConfig(
+        'Delivery receipt', branch_path='procurement.branch_id',
+        mask=_f('delivered_by'),
+    ),
+    'procurement.SupplierReturn': AuditConfig(
+        'Supplier return', repr_field='return_number',
+    ),
+    'procurement.SupplierReturnItem': AuditConfig(
+        'Supplier return item', branch_path='supplier_return.branch_id',
+    ),
     'procurement.SupplierProduct': AuditConfig('Supplier product', branch_path=''),
+    'procurement.SupplierProductRequest': AuditConfig(
+        'Supplier product request', repr_field='product_name', branch_path='',
+    ),
     # --- sales ---------------------------------------------------------------
     'sales.SalesTransaction': AuditConfig(
         'Order', repr_field='order_number',
-        mask=_f('delivery_address', 'discount_id_number', 'discount_holder_name'),
+        # pwd_request_* is what the customer typed at checkout (P15) — the
+        # same ID number and name as discount_*, and just as private.
+        mask=_f('delivery_address', 'discount_id_number', 'discount_holder_name',
+                'pwd_request_id_number', 'pwd_request_holder_name'),
     ),
     'sales.SalesItem': AuditConfig('Order item', branch_path='transaction.branch_id'),
     'sales.Refund': AuditConfig('Refund', branch_path='transaction.branch_id'),

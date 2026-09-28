@@ -39,7 +39,9 @@ def on_hand_by_product(product_ids=None, branch_id=None):
     sellable()'s available_qty nets out anything past its expiry_date — the
     storefront must never count or offer expired stock as available.
     """
-    rows = Inventory.objects.sellable().values('product_id')
+    rows = Inventory.objects.sellable().filter(
+        branch__is_active=True
+    ).values('product_id')
     if branch_id:
         rows = rows.filter(branch_id=branch_id)
     if product_ids is not None:

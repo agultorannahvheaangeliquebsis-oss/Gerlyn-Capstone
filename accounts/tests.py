@@ -5,14 +5,20 @@ writes themselves, so a regression in either shows up here rather than in a
 browser.
 """
 import re
+from datetime import timedelta
+from decimal import Decimal
+from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.messages import get_messages
 from django.core import mail
 from django.core.cache import cache
-from django.test import Client, TestCase
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import BranchManagerProfile, User, VerificationToken
+from accounts.role_policy import USER_MANAGEMENT_ROLES
 from accounts.rate_limit import (
     LOGIN_MAX_ATTEMPTS,
     clear_failed_logins,
@@ -132,6 +138,63 @@ class UserModalFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(User.objects.filter(email='shopper@example.com').exists())
 
+    def test_customer_is_absent_from_add_edit_and_filter_role_choices(self):
+        response = self.client.get(
+            reverse('accounts:user_list'), {'edit': self.owner.pk}
+        )
+
+        expected_roles = set(USER_MANAGEMENT_ROLES)
+        self.assertEqual(
+            {value for value, _label in response.context['role_choices']},
+            expected_roles,
+        )
+        self.assertEqual(
+            {value for value, _label in response.context['form_role_choices']},
+            expected_roles,
+        )
+        self.assertNotContains(response, '<option value="CUSTOMER"')
+
+    def test_customer_cannot_be_converted_through_internal_edit_url(self):
+        customer = User.objects.create_user(
+            username='existing-customer', password='pw',
+            role=User.Role.CUSTOMER,
+        )
+
+        response = self.client.post(
+            reverse('accounts:user_edit', args=[customer.pk]),
+            {
+                'username': customer.username,
+                'role': User.Role.STAFF,
+                'branch': self.branch.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+        customer.refresh_from_db()
+        self.assertEqual(customer.role, User.Role.CUSTOMER)
+
+    def test_forged_customer_role_edit_is_rejected(self):
+        staff = User.objects.create_user(
+            username='role-edit-staff', password='pw', role=User.Role.STAFF,
+        )
+
+        response = self.client.post(
+            reverse('accounts:user_edit', args=[staff.pk]),
+            {
+                'username': staff.username,
+                'role': User.Role.CUSTOMER,
+                'branch': self.branch.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'A username and a valid role are required.',
+            response.context['edit_errors'],
+        )
+        staff.refresh_from_db()
+        self.assertEqual(staff.role, User.Role.STAFF)
+
     def test_editing_without_a_password_keeps_the_old_one(self):
         staff = User.objects.create_user(
             username='ana', password='original', role=User.Role.STAFF
@@ -202,6 +265,119 @@ class UserModalFlowTests(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         self.assertFalse(User.objects.filter(username='sneaky').exists())
+
+
+class UserManagementApiRolePolicyTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='api-owner', password='pw', role=User.Role.OWNER
+        )
+        self.customer = User.objects.create_user(
+            username='api-customer', password='pw',
+            email='api-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        self.client.force_login(self.owner)
+
+    def test_internal_api_does_not_list_customers(self):
+        response = self.client.get('/api/auth/users/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(
+            User.Role.CUSTOMER,
+            {row['roleCode'] for row in response.json()},
+        )
+
+    def test_forged_customer_creation_is_rejected(self):
+        response = self.client.post(
+            '/api/auth/users/',
+            {
+                'username': 'forged-customer',
+                'email': 'forged-customer@example.com',
+                'password': 'Str0ngPass!2026',
+                'role': User.Role.CUSTOMER,
+                'fullName': 'Forged Customer',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('role', response.json())
+        self.assertFalse(User.objects.filter(username='forged-customer').exists())
+
+    def test_internal_api_still_creates_an_allowed_supplier(self):
+        response = self.client.post(
+            '/api/auth/users/',
+            {
+                'username': 'api-supplier',
+                'email': 'api-supplier@example.com',
+                'password': 'Str0ngPass!2026',
+                'role': User.Role.SUPPLIER,
+                'fullName': 'API Supplier',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            User.objects.filter(
+                username='api-supplier', role=User.Role.SUPPLIER,
+            ).exists()
+        )
+
+    def test_internal_api_cannot_update_a_customer(self):
+        response = self.client.patch(
+            f'/api/auth/users/{self.customer.pk}/',
+            {'isActive': False},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.is_active)
+
+    def test_customer_registration_api_still_creates_a_customer(self):
+        self.client.logout()
+        response = self.client.post(
+            '/api/auth/register/',
+            {
+                'username': 'registered-customer',
+                'email': 'registered-customer@example.com',
+                'password': 'Str0ngPass!2026',
+                'fullName': 'Registered Customer',
+                'contactNumber': '09171234567',
+                'address': '12 Real St, Baliuag, Bulacan',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        registered = User.objects.get(username='registered-customer')
+        self.assertEqual(registered.role, User.Role.CUSTOMER)
+        self.assertEqual(registered.customer_profile.first_name, 'Registered')
+
+
+class CustomerInviteBoundaryTests(TestCase):
+    def test_customer_staff_invite_token_cannot_be_completed(self):
+        customer = User.objects.create_user(
+            username='invite-customer', password='original-password',
+            email='invite-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        token = VerificationToken.objects.create(
+            user=customer, purpose=VerificationToken.PURPOSE_STAFF_INVITE,
+        )
+
+        response = self.client.get(
+            reverse('accounts:staff_invite_complete', args=[token.token])
+        )
+
+        self.assertRedirects(
+            response, reverse('accounts:login'), fetch_redirect_response=False
+        )
+        token.refresh_from_db()
+        customer.refresh_from_db()
+        self.assertTrue(token.is_used)
+        self.assertTrue(customer.check_password('original-password'))
+        self.assertEqual(customer.role, User.Role.CUSTOMER)
 
 
 class SupplierModalFlowTests(TestCase):
@@ -345,6 +521,38 @@ class BranchModalFlowTests(TestCase):
         self.client.post(reverse('branch_add'), {'branch_name': 'Sneaky'})
         self.assertFalse(Branch.objects.filter(branch_name='Sneaky').exists())
 
+    def test_non_owner_cannot_edit_another_branch_location(self):
+        branch = Branch.objects.create(
+            branch_name='Protected', location='Original location', owner=self.owner,
+            latitude=Decimal('14.954000'), longitude=Decimal('120.901000'),
+        )
+        staff = User.objects.create_user(
+            username='branch-intruder', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(staff)
+
+        self.client.post(reverse('branch_edit', args=[branch.pk]), {
+            'branch_name': 'Protected', 'location': 'Changed location',
+            'latitude': '1.000000', 'longitude': '2.000000',
+        })
+
+        branch.refresh_from_db()
+        self.assertEqual(branch.location, 'Original location')
+        self.assertEqual(branch.latitude, Decimal('14.954000'))
+        self.assertEqual(branch.longitude, Decimal('120.901000'))
+
+    def test_branch_coordinates_persist_after_valid_save(self):
+        self.client.post(reverse('branch_add'), {
+            'branch_name': 'Mapped Branch',
+            'location': 'Poblacion, Baliuag, Bulacan',
+            'region': '03', 'province': '0314', 'city': '031403',
+            'barangay': '031403001', 'street_detail': 'Poblacion',
+            'latitude': '14.954321', 'longitude': '120.901234',
+        })
+        branch = Branch.objects.get(branch_name='Mapped Branch')
+        self.assertEqual(branch.latitude, Decimal('14.954321'))
+        self.assertEqual(branch.longitude, Decimal('120.901234'))
+
 
 class RegistrationVerificationEmailTests(TestCase):
     """register_view creates the account and logs the customer straight in
@@ -423,6 +631,197 @@ class RegistrationVerificationEmailTests(TestCase):
         self.assertFalse(User.objects.filter(username='newcustomer').exists())
         self.assertEqual(Address.objects.count(), 0)
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_smtp_failure_keeps_registration_and_does_not_leak_details(self):
+        secret = 'smtp-password-that-must-not-leak'
+
+        with patch(
+            'accounts.services.send_mail', side_effect=RuntimeError(secret)
+        ), self.assertLogs('accounts.email', level='ERROR') as captured:
+            response = self._register()
+
+        self.assertRedirects(response, reverse('accounts:customer_dashboard'))
+        self.assertTrue(User.objects.filter(username='newcustomer').exists())
+        self.assertFalse(
+            VerificationToken.objects.filter(
+                user__username='newcustomer',
+                purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+            ).exists()
+        )
+        user_messages = ' '.join(
+            str(message) for message in get_messages(response.wsgi_request)
+        )
+        self.assertIn("couldn't send the verification email", user_messages)
+        self.assertNotIn(secret, user_messages)
+        self.assertNotIn(secret, '\n'.join(captured.output))
+
+
+class VerificationEmailDeliveryTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='verify-customer', password='pw',
+            email='verify-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        self.request = RequestFactory().get('/', HTTP_HOST='testserver')
+
+    @override_settings(PUBLIC_BASE_URL='https://shop.example.com')
+    def test_email_uses_recipient_and_public_verification_url(self):
+        from accounts.services import send_verification_email
+
+        token = send_verification_email(self.user, self.request)
+
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
+        self.assertEqual(mail.outbox[0].from_email, settings.DEFAULT_FROM_EMAIL)
+        self.assertIn(
+            f'https://shop.example.com/verify-email/{token.token}/',
+            mail.outbox[0].body,
+        )
+
+    def test_smtp_failure_restores_previous_token_and_allows_retry(self):
+        from accounts.services import (
+            VerificationEmailDeliveryError, send_verification_email,
+        )
+
+        previous = VerificationToken.objects.create(
+            user=self.user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        VerificationToken.objects.filter(pk=previous.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
+
+        with patch(
+            'accounts.services.send_mail', side_effect=RuntimeError('smtp failed')
+        ), self.assertRaises(VerificationEmailDeliveryError):
+            send_verification_email(self.user, self.request)
+
+        self.assertTrue(
+            VerificationToken.objects.filter(pk=previous.pk, is_used=False).exists()
+        )
+        self.assertEqual(
+            VerificationToken.objects.filter(
+                user=self.user,
+                purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+                is_used=False,
+            ).count(),
+            1,
+        )
+
+    def test_token_is_single_use_and_expires(self):
+        active = VerificationToken.objects.create(
+            user=self.user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        self.assertTrue(active.is_valid)
+
+        first = self.client.get(
+            reverse('accounts:verify_email', args=[active.token])
+        )
+        self.assertRedirects(
+            first, reverse('accounts:login'), fetch_redirect_response=False
+        )
+        active.refresh_from_db()
+        self.assertTrue(active.is_used)
+        self.assertFalse(active.is_valid)
+
+        repeated = self.client.get(
+            reverse('accounts:verify_email', args=[active.token])
+        )
+        self.assertRedirects(
+            repeated, reverse('accounts:profile'), fetch_redirect_response=False
+        )
+
+        expired_user = User.objects.create_user(
+            username='expired-customer', password='pw',
+            email='expired-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        expired = VerificationToken.objects.create(
+            user=expired_user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        VerificationToken.objects.filter(pk=expired.pk).update(
+            expires_at=timezone.now() - timedelta(seconds=1)
+        )
+        expired.refresh_from_db()
+
+        second = self.client.get(
+            reverse('accounts:verify_email', args=[expired.token])
+        )
+        self.assertRedirects(
+            second, reverse('accounts:profile'), fetch_redirect_response=False
+        )
+        expired_user.refresh_from_db()
+        self.assertFalse(expired_user.is_email_verified)
+        self.assertFalse(expired.is_valid)
+
+    def test_resend_is_rate_limited_server_side(self):
+        from accounts.services import send_verification_email
+
+        original = send_verification_email(self.user, self.request)
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('accounts:resend_verification'))
+
+        self.assertRedirects(response, reverse('accounts:profile'))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(
+            VerificationToken.objects.filter(pk=original.pk, is_used=False).exists()
+        )
+
+    def test_successful_resend_replaces_the_previous_active_token(self):
+        previous = VerificationToken.objects.create(
+            user=self.user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        VerificationToken.objects.filter(pk=previous.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('accounts:resend_verification'))
+
+        self.assertRedirects(response, reverse('accounts:profile'))
+        self.assertFalse(VerificationToken.objects.filter(pk=previous.pk).exists())
+        active_tokens = VerificationToken.objects.filter(
+            user=self.user,
+            purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+            is_used=False,
+        )
+        self.assertEqual(active_tokens.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_anonymous_resend_does_not_disclose_email_existence(self):
+        response = self.client.post(
+            reverse('accounts:resend_verification'),
+            {'email': 'arbitrary@example.com'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('accounts:login'), response.url)
+        self.assertNotIn('arbitrary@example.com', response.url)
+
+    @override_settings(PUBLIC_BASE_URL='https://shop.example.com')
+    def test_api_registration_also_sends_verification_email(self):
+        response = self.client.post(
+            '/api/auth/register/',
+            {
+                'username': 'api-verify-customer',
+                'email': 'api-verify-customer@example.com',
+                'password': 'Str0ngPass!2026',
+                'fullName': 'API Verify Customer',
+                'contactNumber': '09171234567',
+                'address': '12 Real St, Baliuag, Bulacan',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()['verificationEmailSent'])
+        registered = User.objects.get(username='api-verify-customer')
+        token = VerificationToken.objects.get(
+            user=registered, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        self.assertEqual(mail.outbox[0].to, [registered.email])
+        self.assertIn(
+            f'https://shop.example.com/verify-email/{token.token}/',
+            mail.outbox[0].body,
+        )
 
 
 class RegisterInputValidationTests(TestCase):
@@ -577,6 +976,15 @@ class SavedAddressTests(TestCase):
         self.assertEqual(address.barangay, '031403001')
         self.assertEqual(address.text, '9 Gil Carlos St, Baliuag, Bulacan')
 
+    def test_coordinates_persist_after_validation_and_save(self):
+        from accounts.models import Address
+
+        self._create(latitude='14.954321', longitude='120.901234')
+
+        address = Address.objects.get(user=self.user)
+        self.assertEqual(address.latitude, Decimal('14.954321'))
+        self.assertEqual(address.longitude, Decimal('120.901234'))
+
     def test_a_blank_address_with_no_dropdowns_is_refused(self):
         from django.contrib.messages import get_messages
 
@@ -602,6 +1010,148 @@ class SavedAddressTests(TestCase):
         address = Address.objects.get(user=self.user)
         self.assertTrue(address.text)
         self.assertEqual(address.barangay, '031403001')
+
+    def test_invalid_manual_coordinates_do_not_overwrite_saved_coordinates(self):
+        from accounts.models import Address
+
+        address = Address.objects.create(
+            user=self.user, type='OTHER', text='Existing address',
+            latitude=Decimal('14.954321'), longitude=Decimal('120.901234'),
+        )
+        self.client.post(reverse('accounts:address_edit', args=[address.pk]), {
+            'type': 'OTHER', 'text': 'Changed address',
+            'latitude': '999', 'longitude': '120.000000',
+        })
+
+        address.refresh_from_db()
+        self.assertEqual(address.text, 'Existing address')
+        self.assertEqual(address.latitude, Decimal('14.954321'))
+        self.assertEqual(address.longitude, Decimal('120.901234'))
+
+    def test_manual_pin_coordinates_can_be_updated(self):
+        from accounts.models import Address
+
+        address = Address.objects.create(
+            user=self.user, type='OTHER', text='Existing address', is_default=True
+        )
+        self.client.post(reverse('accounts:address_edit', args=[address.pk]), {
+            'type': 'OTHER', 'text': 'Existing address',
+            'latitude': '14.955555', 'longitude': '120.922222',
+        })
+
+        address.refresh_from_db()
+        self.assertEqual(address.latitude, Decimal('14.955555'))
+        self.assertEqual(address.longitude, Decimal('120.922222'))
+
+    def test_user_cannot_edit_another_profiles_address_or_pin(self):
+        from accounts.models import Address
+
+        other = User.objects.create_user(username='other-address-user', password='pw')
+        address = Address.objects.create(
+            user=other, text='Other profile address',
+            latitude=Decimal('14.900000'), longitude=Decimal('120.900000'),
+        )
+        response = self.client.post(reverse('accounts:address_edit', args=[address.pk]), {
+            'type': 'HOME', 'text': 'Taken over',
+            'latitude': '1.000000', 'longitude': '2.000000',
+        })
+
+        self.assertEqual(response.status_code, 404)
+        address.refresh_from_db()
+        self.assertEqual(address.text, 'Other profile address')
+        self.assertEqual(address.latitude, Decimal('14.900000'))
+        self.assertEqual(address.longitude, Decimal('120.900000'))
+
+
+@override_settings(
+    GEOCODING_SEARCH_URL='https://geocoder.invalid/search',
+    GEOCODING_REVERSE_URL='https://geocoder.invalid/reverse',
+    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
+)
+class AddressGeocodingTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    @patch('accounts.geo_views.forward_geocode')
+    def test_successful_address_search_returns_coordinates_for_the_pin(self, mocked):
+        from accounts.geocoding import GeocodingResult
+
+        mocked.return_value = GeocodingResult(
+            Decimal('14.954321'), Decimal('120.901234'), 'Poblacion, Baliuag, Bulacan'
+        )
+        response = self.client.get(reverse('accounts:geo_search'), {
+            'region': '03', 'province': '0314', 'city': '031403',
+            'barangay': '031403001', 'street_detail': '9 Gil Carlos St',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'ok')
+        self.assertEqual(response.json()['result']['latitude'], '14.954321')
+        self.assertEqual(response.json()['result']['longitude'], '120.901234')
+        mocked.assert_called_once()
+        self.assertIn('9 Gil Carlos St', mocked.call_args.args[0])
+
+    @patch('accounts.geo_views.reverse_geocode', return_value='Pin address, Baliuag, Bulacan')
+    def test_pin_movement_reverse_lookup_returns_a_confirmation_candidate(self, mocked):
+        response = self.client.get(reverse('accounts:geo_reverse'), {
+            'lat': '14.955555', 'lon': '120.922222',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'status': 'ok', 'label': 'Pin address, Baliuag, Bulacan'})
+        mocked.assert_called_once_with('14.955555', '120.922222')
+
+    @patch('accounts.geo_views.forward_geocode', return_value=None)
+    def test_failed_search_does_not_write_or_remove_existing_coordinates(self, mocked):
+        from accounts.models import Address
+
+        user = User.objects.create_user(username='geo-user', password='pw')
+        address = Address.objects.create(
+            user=user, text='Saved location',
+            latitude=Decimal('14.954321'), longitude=Decimal('120.901234'),
+        )
+        response = self.client.get(reverse('accounts:geo_search'), {
+            'city': '031403', 'street_detail': 'Unknown place',
+        })
+
+        self.assertEqual(response.json()['status'], 'no_result')
+        address.refresh_from_db()
+        self.assertEqual(address.latitude, Decimal('14.954321'))
+        self.assertEqual(address.longitude, Decimal('120.901234'))
+
+    @patch('accounts.geo_views.forward_geocode')
+    def test_provider_rate_limit_has_a_distinct_state(self, mocked):
+        from accounts.geocoding import GeocodingRateLimited
+
+        mocked.side_effect = GeocodingRateLimited('Provider limit reached.', retry_after='30')
+        response = self.client.get(reverse('accounts:geo_search'), {'city': '031403'})
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json()['status'], 'rate_limited')
+        self.assertEqual(response.json()['retry_after'], '30')
+
+    @patch('accounts.geo_views.forward_geocode')
+    def test_provider_failure_has_a_service_error_state(self, mocked):
+        from accounts.geocoding import GeocodingError
+
+        mocked.side_effect = GeocodingError()
+        response = self.client.get(reverse('accounts:geo_search'), {'city': '031403'})
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()['status'], 'service_error')
+
+    @patch('accounts.geocoding._provider_get')
+    def test_forward_results_are_cached(self, provider):
+        from accounts.geocoding import forward_geocode
+
+        provider.return_value = [{
+            'lat': '14.954321', 'lon': '120.901234', 'display_name': 'Cached address'
+        }]
+        first = forward_geocode('Cached address, Philippines')
+        second = forward_geocode('Cached address, Philippines')
+
+        self.assertEqual(first, second)
+        provider.assert_called_once()
 
 
 class LoginLockoutCacheTests(TestCase):

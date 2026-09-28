@@ -225,27 +225,12 @@
    The person glyph was doing duty for both Full Name and Username, which is
    the tell — an icon that stands for two different things stands for
    neither, and the four labels were legible without any of them. */
-.info-field .val,
-.info-subsection .val {
+.info-field .val {
   font: 500 15px/1.4 var(--font-sans);
   color: var(--ink-900);
   overflow-wrap: anywhere;
 }
 
-/* ── Personal Information: Delivery Address subsection ────────────
-   Sits a step below the card title (16px) and a step above the field
-   labels (12px uppercase) so it reads as a grouped subsection of Personal
-   Information rather than just another field in the grid. */
-.info-subsection {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line-soft);
-}
-.info-subsection-title {
-  font: 650 13.5px/1.2 var(--font-sans);
-  color: var(--ink-700);
-  margin: 0 0 8px;
-}
 /* .verified-badge / .unverified-badge are gone. Whether an email is verified
    is a binary status on a record, which is what .pill is for, and these two
    were the last binary status in the app still drawn as bare coloured text
@@ -491,6 +476,51 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 
 /* ── Address picker ───────────────────────────────────────────────── */
 .ap-street-field { margin-top: 14px; }
+.ap-modal-card { max-width: 720px; }
+.ap-modal-card .modal-close svg { width: 18px; height: 18px; }
+.ap-locate-row { display: flex; align-items: center; gap: 12px; }
+.ap-status { margin: 0; color: var(--ink-500); font-size: 12.5px; line-height: 1.4; }
+.ap-status[data-state="loading"] { color: var(--action); }
+.ap-status[data-state="success"] { color: var(--success-fg, #166534); }
+.ap-status[data-state="no_result"],
+.ap-status[data-state="rate_limited"] { color: var(--warning-fg, #92400e); }
+.ap-status[data-state="service_error"],
+.ap-status[data-state="unavailable"] { color: var(--danger-fg, #9a1c12); }
+.ap-map {
+  position: relative; height: 280px; overflow: hidden; isolation: isolate;
+  border: 1px solid var(--line); border-radius: var(--r-input, 4px);
+  background-color: #e9efe9;
+  background-image: linear-gradient(rgba(45, 87, 60, .08) 1px, transparent 1px), linear-gradient(90deg, rgba(45, 87, 60, .08) 1px, transparent 1px);
+  background-size: 32px 32px; cursor: crosshair; touch-action: none; user-select: none;
+}
+.ap-tile-pane { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.ap-map-tile { position: absolute; width: 256px; height: 256px; max-width: none; user-select: none; }
+.ap-marker {
+  position: absolute; z-index: 3; width: 34px; height: 44px; padding: 0;
+  transform: translate(-50%, -100%); border: 0; background: transparent; cursor: grab;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); touch-action: none;
+}
+.ap-marker:active { cursor: grabbing; }
+.ap-marker span {
+  display: block; width: 28px; height: 28px; margin: 0 auto; border: 3px solid #fff;
+  border-radius: 50% 50% 50% 0; background: var(--action, #166534); transform: rotate(-45deg);
+}
+.ap-marker span::after { content: ""; display: block; width: 7px; height: 7px; margin: 7px; border-radius: 50%; background: #fff; }
+.ap-map-controls { position: absolute; z-index: 4; top: 10px; right: 10px; display: grid; gap: 4px; }
+.ap-map-controls button { width: 34px; height: 34px; border: 1px solid var(--line); background: var(--surface, #fff); color: var(--ink-900); font-size: 20px; cursor: pointer; }
+.ap-map-fallback { position: absolute; z-index: 0; inset: auto 12px 10px; margin: 0; text-align: center; color: var(--ink-500); font-size: 11.5px; }
+.ap-map-help { margin: -6px 0 0; }
+.ap-map-attribution { margin: -8px 0 0; font-size: 11px; }
+.ap-coordinate-grid { gap: 10px; }
+.ap-reverse-confirm { padding: 10px 12px; border: 1px solid var(--line); background: var(--surface-soft, #f8faf8); }
+.ap-reverse-confirm p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.45; }
+.ap-reverse-confirm p:last-child { margin: 7px 0 0; }
+.ap-full-address-field { margin-top: 2px; }
+.ap-error { margin: 0 20px; color: var(--danger-fg, #9a1c12); font-size: 12.5px; line-height: 1.45; }
+@media (max-width: 640px) {
+  .ap-map { height: 235px; }
+  .ap-locate-row { align-items: flex-start; flex-direction: column; }
+}
 
 /* ── Responsive ────────────────────────────────────────────────── */
 @media (max-width: 760px) {
@@ -581,7 +611,11 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .order-row-meta { margin-top: 5px; font: 400 13px/1.5 var(--font-sans); color: var(--ink-600); }
 .order-row-side { text-align: right; flex: none; }
 .order-row-total { font: 700 19px/1.2 var(--font-sans); color: var(--action); }
-.order-row-side .btn { margin-top: 7px; }
+/* The whole card is the link to the order's details, so it needs to read as
+   clickable: no underline, inherited ink, and a hover/focus lift. */
+.order-row-link { display: block; color: inherit; text-decoration: none; }
+.order-row-link:hover { border-color: var(--action); }
+.order-row-link:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 
 /* Five tabs now (All · In progress · To receive · Completed · Cancelled)
    instead of three, in a column narrower than the internal tables this

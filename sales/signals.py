@@ -5,7 +5,7 @@ from django.urls import reverse
 from core.module_permissions import SALES_POS
 from core.notifications import CATEGORY_SALES, LARGE_ORDER_THRESHOLD, PRIORITY_HIGH, notify
 
-from .models import SalesTransaction
+from .models import OrderStatusHistory, SalesTransaction
 
 
 @receiver(post_save, sender=SalesTransaction)
@@ -38,4 +38,19 @@ def notify_large_order(sender, instance, created, update_fields, **kwargs):
         action_url=reverse('transaction_detail', kwargs={'pk': instance.pk}),
         action_label='View Order',
         required_module=SALES_POS,
+    )
+
+
+@receiver(post_save, sender=SalesTransaction)
+def record_initial_status(sender, instance, created, **kwargs):
+    """First row of the order's status history: the status it was created in
+    (Pending for an online order, Completed for a paid walk-in). Every later
+    step is written by sales.views.transaction_set_status. The actor is
+    whoever operated the till, or the customer for an online order."""
+    if not created:
+        return
+    OrderStatusHistory.objects.create(
+        transaction=instance, from_status='', to_status=instance.order_status,
+        actor=instance.recorded_by or instance.customer,
+        note='Order created.',
     )

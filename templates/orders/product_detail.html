@@ -94,8 +94,6 @@ honest placeholder rather than being left out.
         {% endcomment %}
         <p class="pdp-note">You are signed in to a staff account. The shop cart is for
         customer accounts — staff sales go through the POS.</p>
-      {% elif not selected_branch_id %}
-        <a class="btn btn-primary" href="{% url 'orders:select_branch' %}">Choose a branch to buy</a>
       {% elif product.on_hand == 0 %}
         {% comment %}
         product_detail no longer renders a .pdp-chips stock indicator up top
@@ -110,6 +108,9 @@ honest placeholder rather than being left out.
           <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock{% if selected_branch %} at {{ selected_branch.branch_name }}{% endif %}</span>
         </p>
       {% else %}
+        {% if not selected_branch_id %}
+        <p class="pdp-note">Choose a branch to buy? You no longer have to — we automatically assign one branch that can fulfill your whole cart.</p>
+        {% endif %}
         {% comment %}
         One <form>, two submits, differing only in where the shopper lands:
 
@@ -242,7 +243,7 @@ honest placeholder rather than being left out.
         <li><span class="avail-branch">No branches recorded.</span></li>
         {% endfor %}
       </ul>
-      <p class="avail-note">Stock is counted per branch. Pick the branch you will collect from, or have it delivered.</p>
+      <p class="avail-note">Stock is counted per branch. We automatically assign one branch that can fulfill your entire cart.</p>
     </section>
   </div>
 

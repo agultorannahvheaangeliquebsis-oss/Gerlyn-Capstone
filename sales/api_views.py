@@ -7,8 +7,17 @@ from rest_framework.permissions import IsAuthenticated
 from core.permissions import HasModuleAccess
 from django.shortcuts import get_object_or_404
 
-from .models import SalesTransaction
-from .serializers import SalesTransactionSerializer, SalesTransactionWriteSerializer
+from . import refunds as refund_service
+from .models import Refund, SalesTransaction
+from .pwd_requests import (
+    DiscountError, approve_pwd_request, notify_pwd_request_submitted,
+    reject_pwd_request,
+)
+from .serializers import (
+    RefundDecisionWriteSerializer, RefundRequestWriteSerializer, RefundSerializer,
+    SalesTransactionSerializer, SalesTransactionWriteSerializer,
+    TRANSACTION_READ_PREFETCH,
+)
 from accounts.models import User
 
 
@@ -38,8 +47,9 @@ class SalesTransactionListCreateAPIView(APIView):
 
     def get(self, request):
         qs = SalesTransaction.objects.select_related(
-            'branch', 'staff', 'customer'
-        ).prefetch_related('items__product').all()
+            'branch', 'staff', 'customer', 'billing_record',
+            'pwd_request_reviewed_by'
+        ).prefetch_related(*TRANSACTION_READ_PREFETCH).all()
 
         if request.user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
             # X-4 — the shared, fail-closed helper, not a fourth hand-rolled
@@ -52,7 +62,9 @@ class SalesTransactionListCreateAPIView(APIView):
             # Suppliers have no business in the store's sales data at all.
             qs = qs.none()
 
-        serializer = SalesTransactionSerializer(qs.order_by('-transaction_date'), many=True)
+        serializer = SalesTransactionSerializer(
+            qs.order_by('-transaction_date'), many=True, context={'request': request}
+        )
         return Response(serializer.data)
 
     def post(self, request):
@@ -71,7 +83,13 @@ class SalesTransactionListCreateAPIView(APIView):
         )
         if serializer.is_valid():
             txn = serializer.save()
-            return Response(SalesTransactionSerializer(txn).data, status=status.HTTP_201_CREATED)
+            if txn.has_pending_pwd_request:
+                # Same heads-up the storefront checkout sends the branch.
+                notify_pwd_request_submitted(txn)
+            return Response(
+                SalesTransactionSerializer(txn, context={'request': request}).data,
+                status=status.HTTP_201_CREATED,
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -82,10 +100,180 @@ class SalesTransactionDetailAPIView(APIView):
     def get(self, request, pk):
         txn = get_object_or_404(
             SalesTransaction.objects.select_related(
-                'branch', 'staff', 'customer'
-            ).prefetch_related('items__product'),
+                'branch', 'staff', 'customer', 'billing_record'
+            ).prefetch_related(*TRANSACTION_READ_PREFETCH),
             pk=pk
         )
         if not _can_access_transaction(request.user, txn):
             return Response(status=status.HTTP_404_NOT_FOUND)
-        return Response(SalesTransactionSerializer(txn).data)
+        return Response(SalesTransactionSerializer(txn, context={'request': request}).data)
+
+
+# =============================================================================
+# REFUNDS (P14) — the DRF twin of sales.views.transaction_refund / _approve /
+# _reject. Every rule (roles, branch scope, quantities, locking, stock and
+# money effects) is sales.refunds; these only translate its errors to HTTP.
+# =============================================================================
+
+INTERNAL_ROLES = (User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF)
+
+
+def _refund_queryset():
+    return Refund.objects.select_related(
+        'transaction', 'requested_by', 'refunded_by'
+    ).prefetch_related('items__sales_item__product', 'events__actor')
+
+
+def _refund_error_response(error):
+    code = (
+        status.HTTP_403_FORBIDDEN
+        if isinstance(error, refund_service.RefundForbidden)
+        else status.HTTP_400_BAD_REQUEST
+    )
+    return Response({'detail': str(error)}, status=code)
+
+
+def _refund_payload(refund_id, outcome=None):
+    data = RefundSerializer(_refund_queryset().get(pk=refund_id)).data
+    if outcome is not None and outcome.unrestockable:
+        data['unrestockableUnits'] = outcome.unrestockable
+    return data
+
+
+class SalesRefundListCreateAPIView(APIView):
+    """
+    GET  /api/sales/<pk>/refunds/  → the order's refunds, each with its lines
+                                     and event log. Internal roles only.
+    POST /api/sales/<pk>/refunds/  → request a refund (mirrors
+                                     transaction_refund). An Owner/Branch
+                                     Manager's own request is approved as it
+                                     is sent; Staff's waits for a decision.
+    """
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def _order(self, request, pk):
+        if request.user.role not in INTERNAL_ROLES:
+            return None, Response(
+                {'detail': 'Refunds are managed by staff only.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        txn = get_object_or_404(SalesTransaction, pk=pk)
+        if not user_can_access_branch(request.user, txn.branch_id):
+            return None, Response(status=status.HTTP_404_NOT_FOUND)
+        return txn, None
+
+    def get(self, request, pk):
+        txn, error = self._order(request, pk)
+        if error:
+            return error
+        return Response(RefundSerializer(_refund_queryset().filter(transaction=txn), many=True).data)
+
+    def post(self, request, pk):
+        txn, error = self._order(request, pk)
+        if error:
+            return error
+        serializer = RefundRequestWriteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        try:
+            outcome = refund_service.request_refund(
+                txn.pk, request.user,
+                reason_code=data['reasonCode'],
+                reason=data.get('reason', ''),
+                refund_method=data['refundMethod'],
+                lines=[
+                    {'item_id': line['itemId'], 'quantity': line['quantity'],
+                     'condition': line['condition']}
+                    for line in data.get('items', [])
+                ],
+                refund_all=data.get('fullRefund', False),
+                default_condition=data.get('condition'),
+            )
+        except refund_service.RefundError as e:
+            return _refund_error_response(e)
+        return Response(
+            _refund_payload(outcome.refund.pk, outcome), status=status.HTTP_201_CREATED
+        )
+
+
+class SalesRefundDecisionAPIView(APIView):
+    """
+    POST /api/sales/refunds/<pk>/approve/  → approve a Pending refund
+    POST /api/sales/refunds/<pk>/reject/   → reject it (`note` required)
+
+    Owner/Branch Manager only, and only for their own branch. `approve` is set
+    per route in api_urls.py.
+    """
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+    approve = None
+
+    def post(self, request, pk):
+        if request.user.role not in refund_service.DECIDER_ROLES:
+            return Response(
+                {'detail': 'Only the Owner or a Branch Manager can decide a refund.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        refund = get_object_or_404(Refund.objects.select_related('transaction'), pk=pk)
+        if not user_can_access_branch(request.user, refund.transaction.branch_id):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer = RefundDecisionWriteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        note = serializer.validated_data.get('note', '')
+        try:
+            if self.approve:
+                outcome = refund_service.approve_refund(refund.pk, request.user, note)
+            else:
+                outcome = refund_service.reject_refund(refund.pk, request.user, note)
+        except refund_service.RefundError as e:
+            return _refund_error_response(e)
+        return Response(_refund_payload(refund.pk, outcome))
+
+
+class SalesPwdRequestReviewAPIView(APIView):
+    """
+    POST /api/sales/<pk>/pwd-request/ — API twin of
+    transaction_pwd_request_review: approve or reject a customer's PWD
+    discount request once the ID has been seen at pick-up.
+
+    Body: {"decision": "approve", "idNumber": ..., "holderName": ...}
+       or {"decision": "reject", "reason": ...}
+    """
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def post(self, request, pk):
+        # Customers can read their own order but must never decide their own
+        # request; Suppliers have no business here at all.
+        if request.user.role not in [
+            User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF
+        ]:
+            return Response(
+                {'detail': 'You do not have permission to review PWD discount requests.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        txn = get_object_or_404(SalesTransaction, pk=pk)
+        # 404, not 403 — same convention as every other view in this file:
+        # don't confirm the order exists to a caller outside their branch.
+        if not user_can_access_branch(request.user, txn.branch_id):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        decision = request.data.get('decision')
+        try:
+            if decision == 'approve':
+                approve_pwd_request(
+                    pk, request.user,
+                    request.data.get('idNumber', ''),
+                    request.data.get('holderName', ''),
+                )
+            elif decision == 'reject':
+                reject_pwd_request(pk, request.user, request.data.get('reason', ''))
+            else:
+                raise DiscountError("decision must be 'approve' or 'reject'.")
+        except DiscountError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        txn.refresh_from_db()
+        return Response(SalesTransactionSerializer(txn, context={'request': request}).data)

@@ -67,7 +67,7 @@ class WalkInSaleFormTests(TestCase):
         self.assertEqual(list(response.context['pos_products']), [])
         self.assertIsNone(response.context['pos_effective_branch'])
         self.assertNotContains(response, 'id="pos-item-rows"')
-        self.assertContains(response, 'Choose a branch above to start adding items')
+        self.assertContains(response, 'Choose a branch in the Order Summary to start adding items')
 
     def test_choosing_a_branch_scopes_the_product_list(self):
         other_branch = Branch.objects.create(
@@ -86,6 +86,27 @@ class WalkInSaleFormTests(TestCase):
         products = list(response.context['pos_products'])
         self.assertIn(self.product, products)
         self.assertNotIn(other_product, products)
+
+    def test_menu_renders_a_card_and_a_category_tab_per_carried_product(self):
+        """The Walk-in Sale menu is a card grid with category tabs. Each
+        card carries the product id and pricing flags the cart JS reads, and
+        the tabs list only categories this branch actually has a product in."""
+        from inventory.models import ProductCategory
+        grains = ProductCategory.objects.create(category_name='Grains')
+        ProductCategory.objects.create(category_name='Never Stocked Here')
+        self.product.category = grains
+        self.product.save(update_fields=['category'])
+
+        response = self.client.get(reverse('transaction_add'), {'branch': self.branch.pk})
+
+        self.assertEqual(
+            [c.category_name for c in response.context['pos_categories']], ['Grains'],
+        )
+        self.assertContains(response, f'data-cat="{grains.pk}"')
+        self.assertNotContains(response, 'Never Stocked Here')
+        self.assertContains(response, f'data-product-id="{self.product.pk}"')
+        self.assertContains(response, 'data-retail="100.00"')
+        self.assertContains(response, 'id="pos-item-rows"')
 
     def test_console_links_to_the_walk_in_sale_page_for_a_user_who_may_sell(self):
         response = self.client.get(reverse('transaction_list'))
@@ -187,8 +208,9 @@ class WalkInSaleFormTests(TestCase):
 
         response = self.client.get(reverse('transaction_add'), {'branch': self.branch.pk})
 
-        self.assertContains(response, 'value="1005"')
-        self.assertNotContains(response, 'value="1,005"')
+        # The menu card carries the id the cart posts back as product_id.
+        self.assertContains(response, 'data-product-id="1005"')
+        self.assertNotContains(response, 'data-product-id="1,005"')
         self.assertContains(response, 'data-retail="1270.00"')
         self.assertNotContains(response, 'data-retail="1,270.00"')
 
@@ -1129,12 +1151,14 @@ class RefundTests(TestCase):
         return txn
 
     def _refund(self, txn, item, quantity, condition='Sellable',
-                reason='Customer changed mind', refund_method='Cash', client=None):
+                reason='Customer changed mind', refund_method='Cash', client=None,
+                reason_code='Changed Mind'):
         client = client or self.client
         return client.post(reverse('transaction_refund', args=[txn.pk]), {
             'item_id': [str(item.pk)],
             f'quantity_{item.pk}': str(quantity),
             f'condition_{item.pk}': condition,
+            'reason_code': reason_code,
             'reason': reason,
             'refund_method': refund_method,
         })
@@ -1298,6 +1322,7 @@ class RefundTests(TestCase):
             'item_id': [str(item.pk), str(item.pk)],
             f'quantity_{item.pk}': '3',
             f'condition_{item.pk}': 'Sellable',
+            'reason_code': 'Changed Mind',
             'reason': 'Duplicate line attempt',
             'refund_method': 'Cash',
         })
@@ -1320,6 +1345,7 @@ class RefundTests(TestCase):
             'item_id': [str(item.pk), str(item.pk)],
             f'quantity_{item.pk}': '3',
             f'condition_{item.pk}': 'Damaged',
+            'reason_code': 'Changed Mind',
             'reason': 'Duplicate line attempt',
             'refund_method': 'Cash',
         })
@@ -1368,18 +1394,29 @@ class RefundTests(TestCase):
 
     # -- eligibility ------------------------------------------------------------
 
-    def test_staff_never_sees_or_can_use_the_refund_form(self):
+    @mock.patch('core.notifications.notify')
+    def test_staff_can_request_but_never_approve_their_own_refund(self, mock_notify):
+        """P14 — Staff see the request form and can raise a refund, but it
+        sits Pending: nothing is restocked, no money is recorded and billing
+        is untouched until an Owner/Branch Manager approves it."""
         self.client.force_login(self.staff)
         txn = self._order(quantity=5)
         item = txn.items.get()
+        before = self.inventory.quantity_on_hand
 
         page = self._detail(txn)
-        self.assertEqual(page.context['refundable_items'], [])
+        self.assertEqual(len(page.context['refundable_items']), 1)
+        self.assertFalse(page.context['can_decide_refunds'])
 
-        response = self._refund(txn, item, 1)
-        self.assertEqual(Refund.objects.count(), 0)
-        messages_ = [m.message for m in response.wsgi_request._messages]
-        self.assertTrue(any('Only the Owner or a Branch Manager' in m for m in messages_))
+        self._refund(txn, item, 1)
+
+        refund = Refund.objects.get()
+        self.assertEqual(refund.status, Refund.Status.PENDING)
+        self.assertEqual(refund.requested_by, self.staff)
+        self.assertIsNone(refund.refunded_by)
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, before)
+        self.assertEqual(txn.billing_record.__class__.objects.get(transaction=txn).status, 'Paid')
 
     def test_a_manager_cannot_refund_another_branchs_order(self):
         self.client.force_login(self.manager)
@@ -1450,11 +1487,11 @@ class RefundTests(TestCase):
 
     # -- form validation --------------------------------------------------------
 
-    def test_a_reason_is_required(self):
+    def test_a_reason_code_is_required(self):
         txn = self._order(quantity=5)
         item = txn.items.get()
 
-        self._refund(txn, item, 1, reason='')
+        self._refund(txn, item, 1, reason_code='')
 
         self.assertEqual(Refund.objects.count(), 0)
 
@@ -1470,7 +1507,7 @@ class RefundTests(TestCase):
         txn = self._order(quantity=5)
 
         response = self.client.post(reverse('transaction_refund', args=[txn.pk]), {
-            'reason': 'Nothing selected', 'refund_method': 'Cash',
+            'reason_code': 'Changed Mind', 'reason': 'Nothing selected', 'refund_method': 'Cash',
         })
 
         self.assertEqual(Refund.objects.count(), 0)
@@ -1574,6 +1611,7 @@ class RefundConcurrencyTests(TransactionTestCase):
                 'item_id': [str(item_pk)],
                 f'quantity_{item_pk}': str(quantity),
                 f'condition_{item_pk}': 'Damaged',
+                'reason_code': 'Changed Mind',
                 'reason': 'Racing refund',
                 'refund_method': 'Cash',
             })
@@ -1715,6 +1753,7 @@ class DeletedProductOnAnOldSaleTests(TestCase):
             'item_id': [str(item.pk)],
             f'quantity_{item.pk}': '2',
             f'condition_{item.pk}': 'Sellable',
+            'reason_code': 'Changed Mind',
             'reason': 'Discontinued item returned',
             'refund_method': 'Cash',
         })

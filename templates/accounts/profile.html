@@ -191,21 +191,6 @@
               <div class="val">@{{ username }}</div>
             </div>
           </div>
-
-          <!-- Delivery address subsection -->
-          <div class="info-subsection">
-            <h3 class="info-subsection-title">{% t "Delivery Address" %}</h3>
-            {% if default_address %}
-              <div class="val">{{ default_address.text }}</div>
-            {% else %}
-              <div class="val" style="color:var(--ink-400);">{% t "No address saved — add one so your orders can be delivered." %}</div>
-            {% endif %}
-            <button type="button" class="btn btn-sm btn-quiet" style="margin-top:10px; color:var(--action); gap:4px;"
-              onclick="AddressPicker.open({formAction: '{% url 'accounts:address_create' %}', title: '{% t "Add Address" %}'})">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              {% if default_address %}{% t "Add another address" %}{% else %}{% t "Add your delivery address" %}{% endif %}
-            </button>
-          </div>
         </div>
 
         <!-- Edit form (toggle) -->
@@ -299,15 +284,17 @@
 
                     {% if address.is_default %}
                       <p class="gv-meta" style="margin-top:6px; font-size:12.5px;">
-                        {% t "This is your default delivery address. Add a new address and set it default to change it." %}
+                        {% t "This is your default delivery address." %}
                       </p>
-                    {% else %}
-                      <div class="address-card-actions">
+                    {% endif %}
+                    <div class="address-card-actions">
+                      {% if not address.is_default %}
                         <form method="post" action="{% url 'accounts:address_set_default' address.pk %}" style="margin:0;">
                           {% csrf_token %}
                           <button type="submit" class="address-set-default-link">{% t "Set as default" %}</button>
                         </form>
-                        <button type="button" class="address-set-default-link js-edit-address"
+                      {% endif %}
+                      <button type="button" class="address-set-default-link js-edit-address"
                           data-edit-url="{% url 'accounts:address_edit' address.pk %}"
                           data-type="{{ address.type }}"
                           data-region="{{ address.region }}"
@@ -315,11 +302,12 @@
                           data-city="{{ address.city }}"
                           data-barangay="{{ address.barangay }}"
                           data-street-detail="{{ address.street_detail }}"
-                          data-text="{{ address.text }}">
+                          data-text="{{ address.text }}"
+                          data-latitude="{{ address.latitude|default_if_none:'' }}"
+                          data-longitude="{{ address.longitude|default_if_none:'' }}">
                           {% t "Edit" %}
-                        </button>
-                      </div>
-                    {% endif %}
+                      </button>
+                    </div>
                   </div>
 
                   {% if not address.is_default %}
@@ -338,7 +326,7 @@
               {% endfor %}
             </div>
           {% else %}
-            <p class="account-empty">{% t "No saved addresses yet. Add your first delivery address above." %}</p>
+            <p class="account-empty">{% t "No address saved — add one so your orders can be delivered." %}</p>
           {% endif %}
         </div>
       </div>
@@ -535,7 +523,9 @@ document.querySelectorAll('.js-edit-address').forEach(function (btn) {
         city: btn.dataset.city,
         barangay: btn.dataset.barangay,
         street_detail: btn.dataset.streetDetail,
-        text: btn.dataset.text
+        text: btn.dataset.text,
+        latitude: btn.dataset.latitude,
+        longitude: btn.dataset.longitude
       }
     });
   });

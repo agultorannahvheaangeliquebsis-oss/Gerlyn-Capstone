@@ -1,6 +1,8 @@
 {% extends "internal_base.html" %}
 {% block title %}Sales Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -9,9 +11,40 @@
     <h1 class="mt-2">Sales Report</h1>
   </div>
   <div class="row no-print">
-    <a class="btn" href="{% url 'export_csv' 'sales' %}">Export CSV</a>
+    {% include "_daterange.html" %}
+    <a class="btn" href="{% url 'export_csv' 'sales' %}?{{ export_query }}">Export CSV</a>
     <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
   </div>
+</div>
+
+{% comment %}
+Totals for the rows below, from reports.services.sales_range_totals — the same
+function the JSON mirror prints, so page and API cannot disagree. Money is
+Completed orders only; a Cancelled or still-pending row in the list is not
+revenue (see reports/services.py).
+{% endcomment %}
+<div class="mb-6">
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <span class="label">Total Orders</span>
+      <span class="value">{{ totals.orders }}</span>
+    </div>
+    <div class="kpi-card">
+      <span class="label">Gross Sales</span>
+      <span class="value">₱{{ totals.gross_sales|floatformat:2 }}</span>
+    </div>
+    <div class="kpi-card">
+      <span class="label">Refunds</span>
+      <span class="value">₱{{ totals.refund_value|floatformat:2 }}</span>
+    </div>
+    <div class="kpi-card">
+      <span class="label">Net Sales</span>
+      <span class="value">₱{{ totals.net_sales|floatformat:2 }}</span>
+    </div>
+  </div>
+  {% if totals.pipeline_value %}
+  <p class="kpi-compare-note">Plus ₱{{ totals.pipeline_value|floatformat:2 }} committed in {{ totals.pipeline_count }} unfulfilled order{{ totals.pipeline_count|pluralize }} (pending, approved or preparing) — not counted as sales until completed.</p>
+  {% endif %}
 </div>
 
 <div class="card table-wrap">
@@ -38,7 +71,7 @@
       {% empty %}
       <tr><td colspan="7"><div class="empty">
         <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span><h3>No sales recorded</h3>
-        <p>Sales appear here once orders are completed.</p></div></td></tr>
+        <p>No sales fall in this period. Pick another day or range above.</p></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

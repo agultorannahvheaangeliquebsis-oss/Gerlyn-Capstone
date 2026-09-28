@@ -408,6 +408,29 @@ card above deliberately excludes these statuses now.
 </div>
 {% endif %}
 
+{% if days_overdue %}
+<div class="banner banner-error mb-4">
+  <strong>{{ days_overdue }} day{{ days_overdue|pluralize }} overdue.</strong>
+  This order was due {{ procurement.delivery_date|date:"Y-m-d" }} and has not been fully delivered.
+  Reschedule the delivery below, or cancel the order.
+</div>
+{% endif %}
+
+{% if can_reschedule %}
+<div class="card card-pad mb-4">
+  <h3 class="mb-4">Delivery date</h3>
+  <form method="POST" action="{% url 'procurement_reschedule' procurement.pk %}" class="row wrap" style="gap:12px; align-items:flex-end;">
+    {% csrf_token %}
+    <div class="field" style="margin:0;">
+      <label for="resched-date">New delivery date</label>
+      <input id="resched-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" value="{{ procurement.delivery_date|date:'Y-m-d' }}" required>
+    </div>
+    <button type="submit" class="btn">Reschedule</button>
+    <span class="gv-meta">The supplier is told, and overdue tracking starts over.</span>
+  </form>
+</div>
+{% endif %}
+
 <div class="grid-2 mb-4">
   <div class="card card-pad">
     <h3 class="mb-4">Order Details</h3>
@@ -419,6 +442,8 @@ card above deliberately excludes these statuses now.
         <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
         <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Funding source</td><td style="text-align:right;">
+          {% if procurement.funding_source %}<span class="tag">{{ procurement.funding_source }}</span>{% if procurement.funding_note %}<div class="gv-meta">{{ procurement.funding_note }}</div>{% endif %}{% else %}<span class="gv-meta">Not recorded</span>{% endif %}</td></tr>
         <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
           {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">
@@ -430,6 +455,30 @@ card above deliberately excludes these statuses now.
       </tbody>
     </table>
   </div>
+
+  {% if can_edit_funding %}
+  <div class="card card-pad">
+    <h3 class="mb-4">Funding source</h3>
+    <form method="POST" action="{% url 'procurement_set_funding' procurement.pk %}">
+      {% csrf_token %}
+      <div class="field">
+        <label for="fund-source">Where the money comes from</label>
+        <select id="fund-source" name="funding_source" required>
+          <option value="">Choose…</option>
+          {% for value, label in funding_choices %}
+            <option value="{{ value }}"{% if procurement.funding_source == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="fund-note">Note <span class="gv-meta">— required for Other</span></label>
+        <input id="fund-note" type="text" name="funding_note" maxlength="200" value="{{ procurement.funding_note }}">
+      </div>
+      <button type="submit" class="btn btn-primary">Save funding source</button>
+      <p class="gv-meta mt-2 mb-0">Can be changed until the supplier and buyer agree terms.</p>
+    </form>
+  </div>
+  {% endif %}
 
   <div class="card card-pad card-fill">
     <h3 class="mb-4">Delivery</h3>
@@ -445,6 +494,52 @@ card above deliberately excludes these statuses now.
     </div>
   </div>
 </div>
+
+{% if can_return_goods or supplier_returns %}
+<div class="card table-wrap mb-4">
+  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+    <h3>Returns to supplier</h3>
+    {% if can_return_goods %}<a class="btn btn-sm" href="{% url 'supplier_return_add' procurement.pk %}">Return goods</a>{% endif %}
+  </div>
+  <table class="gv-table">
+    <thead><tr><th>Return</th><th>Reason</th><th>Status</th><th>Raised</th><th class="end">Action</th></tr></thead>
+    <tbody>
+      {% for r in supplier_returns %}
+      <tr>
+        <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
+        <td data-label="Reason">{{ r.get_reason_display }}</td>
+        <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
+        <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
+        <td data-label="Action" class="end"><a class="btn btn-sm" href="{% url 'supplier_return_detail' r.pk %}">View</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><span class="gv-meta">No returns yet. If part of this delivery was damaged, wrong or short-dated, choose Return goods.</span></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if receipts %}
+<div class="card table-wrap mb-4">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Receipt</th><th>Receipt date</th><th>Received by</th><th>Delivered by</th><th>Recorded</th></tr>
+    </thead>
+    <tbody>
+      {% for r in receipts %}
+      <tr>
+        <td data-label="Receipt" class="strong">#{{ forloop.counter }}</td>
+        <td data-label="Receipt date">{{ r.receipt_date|date:"Y-m-d"|default:"—" }}</td>
+        <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
+        <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
+        <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <div class="card table-wrap">
   <table class="gv-table">

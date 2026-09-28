@@ -111,16 +111,17 @@ DOM — it is off-screen until focused (see .skip-link).
       {% if module_access.procurement or module_access.deliveries %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-procurement" title="Procurement"
-          aria-expanded="{% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' or active_page == 'returns' %}true{% else %}false{% endif %}">
           <i data-lucide="truck"></i>
           <span class="sb-label">Procurement</span>
           <i class="sb-chevron" data-lucide="chevron-right"></i>
         </button>
-        <ul class="sb-tree {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' %}open{% endif %}" id="tree-procurement">
+        <ul class="sb-tree {% if active_page == 'suppliers' or active_page == 'procurement' or active_page == 'deliveries' or active_page == 'returns' %}open{% endif %}" id="tree-procurement">
           <li class="sb-tree-inner">
             {% if module_access.procurement %}
             <a class="sb-tree-file {% if active_page == 'suppliers' %}sb-tree-file--active{% endif %}" href="{% url 'supplier_list' %}"><span class="sb-label">Suppliers</span></a>
             <a class="sb-tree-file {% if active_page == 'procurement' %}sb-tree-file--active{% endif %}" href="{% url 'procurement_list' %}"><span class="sb-label">Purchase Orders</span></a>
+            <a class="sb-tree-file {% if active_page == 'returns' %}sb-tree-file--active{% endif %}" href="{% url 'supplier_return_list' %}"><span class="sb-label">Supplier Returns</span></a>
             {% endif %}
             {% if module_access.deliveries %}
             <a class="sb-tree-file {% if active_page == 'deliveries' %}sb-tree-file--active{% endif %}" href="{% url 'delivery_list' %}"><span class="sb-label">Deliveries</span></a>
@@ -418,6 +419,8 @@ until a row is clicked, and emptied again on close. See detail-modal.js.
 
 <script src="{% static 'js/sidebar.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/order-status-confirm.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/order-detail.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/detail-modal.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>

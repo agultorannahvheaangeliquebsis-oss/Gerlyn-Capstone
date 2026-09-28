@@ -428,6 +428,7 @@ class ProcurementAddAuthorizationTests(ProcurementAuthorizationBase):
             'branch': branch.pk,
             'supplier': self.supplier.pk,
             'order_date': '2026-01-01',
+            'funding_source': 'Cash on Hand',
             'product_id': [str(self.product.pk)],
             'quantity_ordered': ['10'],
             'cost_price': ['50'],
@@ -825,6 +826,7 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
             'branch': self.home_branch.pk,
             'supplier': self.supplier.pk,
             'order_date': '2026-01-01',
+            'funding_source': 'Cash on Hand',
             'product_id': [str(self.product.pk)],
             'quantity_ordered': ['2'],
             # A stale or malicious client may still submit this legacy key;
@@ -923,6 +925,7 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
                 'branchId': self.home_branch.pk,
                 'supplierId': self.supplier.pk,
                 'orderDate': '2026-01-01',
+                'fundingSource': 'Cash on Hand',
                 'items': [{
                     'productId': self.product.pk,
                     'quantityOrdered': 3,
@@ -1178,11 +1181,13 @@ class SupplierSelfServiceCatalogTests(ProcurementAuthorizationBase):
         product = self._other_product()
         self.client.force_login(self.supplier)
 
-        self.client.post(reverse('supplier_product_self_add'), {'product': product.pk})
+        self.client.post(reverse('supplier_product_self_add'), {
+            'product': product.pk, 'current_cost_price': '12.50',
+        })
 
-        self.assertTrue(
-            SupplierProduct.objects.filter(supplier=self.supplier, product=product).exists()
-        )
+        # P01: a self-add is an offer, not yet orderable.
+        link = SupplierProduct.objects.get(supplier=self.supplier, product=product)
+        self.assertEqual(link.status, SupplierProduct.Status.PROPOSED)
 
     def test_adding_the_same_product_twice_is_a_no_op_not_a_crash(self):
         self.client.force_login(self.supplier)

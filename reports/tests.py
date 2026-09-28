@@ -194,9 +194,22 @@ class WebApiReportingParityTests(TestCase):
         # changes it (see sales.models.Refund's own docstring).
         Refund.objects.create(
             transaction=cls.completed, reason='Parity test refund',
+            reason_code=Refund.ReasonCode.OTHER, refund_type=Refund.RefundType.PARTIAL,
+            status=Refund.Status.APPROVED, requested_by=cls.owner,
             refund_method=Refund.RefundMethod.CASH,
             total_amount=cls.REFUNDED_AWAY, refunded_by=cls.owner,
+            refunded_at=timezone.now(),
         )
+        # P14 — a request still awaiting a decision, and one that was turned
+        # down, have moved no money: neither may reach Refund Value on the web
+        # or the API.
+        for status in (Refund.Status.PENDING, Refund.Status.REJECTED):
+            Refund.objects.create(
+                transaction=cls.completed, reason='Not counted', status=status,
+                reason_code=Refund.ReasonCode.OTHER, refund_type=Refund.RefundType.PARTIAL,
+                requested_by=cls.owner, refund_method=Refund.RefundMethod.CASH,
+                total_amount=Decimal('75.00'),
+            )
 
         today = timezone.localdate()
         Procurement.objects.create(

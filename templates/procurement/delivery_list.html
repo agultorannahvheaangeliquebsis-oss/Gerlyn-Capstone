@@ -138,7 +138,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
         <td data-label="Expected Delivery" class="gv-meta">
           {% if p.delivery_date %}
             {% if p.delivery_date < today and p.status != 'Received' and p.status != 'Cancelled' %}
-              <span style="color:var(--danger-fg); font-weight:600;">{{ p.delivery_date|date:"Y-m-d" }} · overdue</span>
+              <span style="color:var(--danger-fg); font-weight:600;">{{ p.delivery_date|date:"Y-m-d" }} · {% if p.days_overdue %}{{ p.days_overdue }} day{{ p.days_overdue|pluralize }} {% endif %}overdue</span>
             {% else %}{{ p.delivery_date|date:"Y-m-d" }}{% endif %}
           {% else %}—{% endif %}
         </td>

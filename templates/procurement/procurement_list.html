@@ -125,7 +125,7 @@ not a status, so it keeps the unclassed neutral default.
 })();
 </script>
 {% endif %}
-{% if can_create and suppliers and products %}
+{% if can_create and suppliers and supplier_catalog %}
 <script>
 // Global, not scoped: the template's rows are cloned with inline
 // onchange/oninput/onclick handlers, which resolve against window. po-
@@ -138,18 +138,53 @@ var poCatalog = JSON.parse(document.getElementById('po-supplier-catalog').textCo
 function poSupplierProducts() {
   return poCatalog[poSupplier.value] || {};
 }
+var poAllProducts = JSON.parse(document.getElementById('po-all-products').textContent);
+// Rebuild the row's dropdown from scratch so it holds only this supplier's
+// approved products. Hiding options is not enough: option[hidden] is ignored
+// by several mobile browsers, which would show (and let you pick) the rest.
 function poFilterProducts(select) {
   var available = poSupplierProducts();
-  Array.from(select.options).forEach(function (option) {
-    if (!option.value) return;
-    var allowed = Object.prototype.hasOwnProperty.call(available, option.value);
-    option.hidden = !allowed;
-    option.disabled = !allowed;
+  var keep = select.value;
+  while (select.options.length > 1) select.remove(1);
+  poAllProducts.forEach(function (p) {
+    if (!Object.prototype.hasOwnProperty.call(available, p.id)) return;
+    var option = document.createElement('option');
+    option.value = p.id;
+    option.textContent = p.name;
+    select.appendChild(option);
   });
-  if (select.value && !Object.prototype.hasOwnProperty.call(available, select.value)) {
-    select.value = '';
-  }
+  select.value = Object.prototype.hasOwnProperty.call(available, keep) ? keep : '';
 }
+// Nothing orderable from the chosen supplier: say so and stand the form down.
+function poSyncCatalogNotice() {
+  var empty = Object.keys(poSupplierProducts()).length === 0;
+  document.getElementById('po-no-catalog').hidden = !empty;
+  var submit = document.querySelector('button[type=submit][form=po-form]');
+  if (submit) submit.disabled = empty;
+}
+// Optional category filter: narrow the supplier dropdown to one supplier
+// category, then let the normal supplier-change path refilter the items.
+var poCategory = document.getElementById('po-supplier-category');
+var poSupplierOptions = Array.from(poSupplier.options).map(function (o) {
+  return {value: o.value, label: o.textContent, category: o.dataset.category || ''};
+});
+function poFilterSuppliers() {
+  var wanted = poCategory ? poCategory.value : '';
+  var current = poSupplier.value;
+  while (poSupplier.options.length) poSupplier.remove(0);
+  poSupplierOptions.forEach(function (s) {
+    if (wanted && s.category !== wanted) return;
+    var option = document.createElement('option');
+    option.value = s.value;
+    option.textContent = s.label;
+    option.dataset.category = s.category;
+    poSupplier.appendChild(option);
+  });
+  var stillThere = Array.from(poSupplier.options).some(function (o) { return o.value === current; });
+  if (stillThere) poSupplier.value = current;
+  poSupplier.dispatchEvent(new Event('change'));
+}
+if (poCategory) poCategory.addEventListener('change', poFilterSuppliers);
 
 function poAddRow() {
   poRows.appendChild(poTpl.content.cloneNode(true));
@@ -197,8 +232,24 @@ function poRecalc() {
     : poPeso(total);
 }
 
+// A funding source of Other has to say what it is.
+(function () {
+  var source = document.getElementById('po-funding-source');
+  var note = document.getElementById('po-funding-note');
+  var hint = document.getElementById('po-funding-note-hint');
+  if (!source || !note) return;
+  function sync() {
+    var other = source.value === 'Other';
+    note.required = other;
+    hint.textContent = other ? '\u2014 required for Other' : '\u2014 optional';
+  }
+  source.addEventListener('change', sync);
+  sync();
+})();
+
 poSupplier.addEventListener('change', function () {
   poRows.querySelectorAll('.js-product').forEach(poFilterProducts);
+  poSyncCatalogNotice();
   poRecalc();
 });
 
@@ -217,6 +268,7 @@ poSupplier.addEventListener('change', function () {
   } else {
     poAddRow();
   }
+  poSyncCatalogNotice();
   poRecalc();
 })();
 </script>

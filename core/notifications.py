@@ -55,6 +55,12 @@ EVENT_PO_APPROVED = 'po_approved'
 EVENT_INCOMING_DELIVERY = 'incoming_delivery'
 EVENT_PO_TERMS_FOR_BUYER = 'po_terms_for_buyer'
 EVENT_PO_TERMS_FOR_SUPPLIER = 'po_terms_for_supplier'
+EVENT_SUPPLIER_OFFER_FOR_REVIEW = 'supplier_offer_for_review'
+EVENT_SUPPLIER_OFFER_DECISION = 'supplier_offer_decision'
+EVENT_PO_OVERDUE = 'po_overdue'
+EVENT_PO_OVERDUE_ESCALATED = 'po_overdue_escalated'
+EVENT_SUPPLIER_RETURN_FOR_SUPPLIER = 'supplier_return_for_supplier'
+EVENT_SUPPLIER_RETURN_RESPONSE = 'supplier_return_response'
 EVENT_ORDER_DELIVERED = 'order_delivered'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
@@ -126,6 +132,67 @@ EVENT_MATRIX = {
         'category': CATEGORY_PROCUREMENT,
         'priority': PRIORITY_MEDIUM,
         'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_SUPPLIER_OFFER_FOR_REVIEW: {
+        'when': 'A supplier offers a product from the Product Master List, or '
+                "requests a brand-new one, and it needs the Owner's decision.",
+        'recipients': 'Owner only (no branch is involved, so no Manager/Staff).',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_SUPPLIER_OFFER_DECISION: {
+        'when': "The Owner approves or rejects a supplier's product offer or "
+                'new-product request.',
+        'recipients': 'The supplier who made the offer.',
+        'audiences': ('supplier',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_PO_OVERDUE: {
+        'when': 'An Incoming or Partially Received purchase order is still '
+                'undelivered PO_OVERDUE_GRACE_DAYS (default 1) after its '
+                'delivery date; fires once, by the daily sweep.',
+        'recipients': 'Owner; branch Manager/Staff with Deliveries access; the supplier on the order.',
+        'audiences': ('internal', 'supplier'),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_HIGH,
+        'required_module': DELIVERIES,
+        'exclude_actor': False,
+    },
+    EVENT_PO_OVERDUE_ESCALATED: {
+        'when': 'The same order is still undelivered PO_OVERDUE_ESCALATE_DAYS '
+                '(default 3) after its delivery date; fires once, by the daily sweep.',
+        'recipients': 'Owner only.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_CRITICAL,
+        'required_module': None,
+        'exclude_actor': False,
+    },
+    EVENT_SUPPLIER_RETURN_FOR_SUPPLIER: {
+        'when': 'The store raises a return to the supplier, ships it back, '
+                'settles it, or cancels it.',
+        'recipients': 'The supplier the goods are being returned to.',
+        'audiences': ('supplier',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_SUPPLIER_RETURN_RESPONSE: {
+        'when': 'The supplier acknowledges or rejects a return request.',
+        'recipients': 'Owner; branch Manager/Staff with Procurement access.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'priority_note': 'High when the supplier rejects the return.',
+        'required_module': PROCUREMENT,
         'exclude_actor': True,
     },
     EVENT_ORDER_DELIVERED: {

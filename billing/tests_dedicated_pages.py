@@ -5,7 +5,8 @@ from django.test import Client, TestCase
 from accounts.models import User
 from billing.models import BillingRecord
 from branches.models import Branch
-from sales.models import SalesTransaction
+from inventory.models import Product
+from sales.models import SalesItem, SalesTransaction
 
 
 class BillingDedicatedPagesTests(TestCase):
@@ -113,6 +114,43 @@ class BillingDedicatedPagesTests(TestCase):
         html = self._get(record)
         self.assertIn('View Order', html)
         self.assertIn(f'/sales/{record.transaction.pk}/', html)
+
+    def test_view_order_action_tags_the_link_as_opened_from_billing(self):
+        record = self._record(BillingRecord.PaymentStatus.PENDING, customer=self.customer)
+        html = self._get(record)
+        self.assertIn(f'/sales/{record.transaction.pk}/?from=billing', html)
+
+    def test_order_opened_from_billing_lists_items_instead_of_payment_status(self):
+        record = self._record(BillingRecord.PaymentStatus.PENDING, customer=self.customer)
+        product = Product.objects.create(
+            product_name='Billing Modal Widget', sku_code='BMW-1', unit_price=Decimal('50.00'),
+        )
+        SalesItem.objects.create(
+            transaction=record.transaction, product=product,
+            quantity_sold=2, unit_price=Decimal('50.00'), subtotal=Decimal('100.00'),
+        )
+        client = Client()
+        client.force_login(self.owner)
+        response = client.get(f'/sales/{record.transaction.pk}/?from=billing&modal=1')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'View order items')
+        # Once, not twice: the full-width items table is skipped in this view.
+        self.assertContains(response, 'Billing Modal Widget', count=1)
+        self.assertNotContains(response, 'Payment Status')
+        self.assertNotContains(response, 'View billing record')
+
+    def test_order_opened_on_its_own_shows_the_billing_record_inline(self):
+        record = self._record(BillingRecord.PaymentStatus.PENDING, customer=self.customer)
+        client = Client()
+        client.force_login(self.owner)
+        response = client.get(f'/sales/{record.transaction.pk}/?modal=1')
+        self.assertEqual(response.status_code, 200)
+        # The record is read on the order itself — there is no link out to it.
+        self.assertNotContains(response, 'View billing record')
+        self.assertNotContains(response, f'href="/billing/{record.pk}/"')
+        self.assertContains(response, 'Payment Status')
+        self.assertContains(response, f'#{record.pk}')
+        self.assertContains(response, 'View order items')
 
     def test_record_payment_page_is_a_dedicated_page_not_the_detail_page(self):
         txn = SalesTransaction.objects.create(

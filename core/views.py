@@ -42,7 +42,9 @@ def about_view(request):
     """
     from branches.models import Branch
 
-    return render(request, 'about.html', {'branches': Branch.objects.all()})
+    return render(request, 'about.html', {
+        'branches': Branch.objects.filter(is_active=True),
+    })
 
 
 def download_view(request):

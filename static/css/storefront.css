@@ -1099,7 +1099,9 @@ body.shop {
 .cart-thumb {
   width: 72px; height: 72px; border-radius: var(--r-input); background: var(--green-50);
   display: flex; align-items: center; justify-content: center; font-size: 32px;
+  overflow: hidden;
 }
+.cart-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* The category glyph that stands in for a product photo — shop_extras'
    product_icon, drawn at 1em so the three containers that hold it keep
@@ -1116,6 +1118,14 @@ body.shop {
    SVG aligns to the baseline by default and hangs a third of its height
    below the text it accompanies. */
 .prod-glyph { color: var(--action-700); vertical-align: -.18em; flex: none; }
+/* Order-confirmation item thumbnail: the product's real photo (or the
+   category glyph when it has none) in a small rounded tile beside the name. */
+.order-item-thumb {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+  width: 40px; height: 40px; margin-right: 12px; overflow: hidden;
+  border-radius: var(--r-input); background: var(--green-50); font-size: 20px;
+}
+.order-item-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .qty-stepper { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
 .qty-stepper form { margin: 0; }
 .qty-btn {

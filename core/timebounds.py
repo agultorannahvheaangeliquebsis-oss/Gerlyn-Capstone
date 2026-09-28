@@ -79,7 +79,11 @@ def local_range_bounds(start_day, end_day):
 
 
 # Shared across Dashboard/Reports (DESIGN.md Section 2, #2e).
-DATE_RANGE_PRESETS = ('today', '7', '30', 'all', 'custom')
+#
+# 'yesterday' and 'day' (one chosen calendar date, passed as `date`) serve the
+# daily-sales views; both resolve to a single-day [d, d] pair, so every caller
+# that already handles a bounded range handles them with no new branch.
+DATE_RANGE_PRESETS = ('today', 'yesterday', '7', '30', 'all', 'day', 'custom')
 
 
 def resolve_date_range(preset, date_from=None, date_to=None, today=None):
@@ -90,8 +94,9 @@ def resolve_date_range(preset, date_from=None, date_to=None, today=None):
     `preset` is one of DATE_RANGE_PRESETS. For 'custom', `date_from`/
     `date_to` must already be parsed `datetime.date` objects — this function
     does not parse request strings, callers do that first so a parse error
-    is theirs to handle. Falls back to the last 30 days for any other
-    preset value, including 'custom' with a missing or inverted bound.
+    is theirs to handle. 'day' is one calendar date, read from `date_from`.
+    Falls back to the last 30 days for any other preset value, including
+    'custom' with a missing or inverted bound and 'day' with no date.
 
     Returns (start, end, preset) — `preset` echoes back the preset actually
     applied, so a caller can tell when a bad 'custom' request fell back.
@@ -106,6 +111,11 @@ def resolve_date_range(preset, date_from=None, date_to=None, today=None):
 
     if preset == 'today':
         return today, today, 'today'
+    if preset == 'yesterday':
+        yesterday = today - timedelta(days=1)
+        return yesterday, yesterday, 'yesterday'
+    if preset == 'day' and date_from:
+        return date_from, date_from, 'day'
     if preset == 'all':
         return None, today, 'all'
     if preset == '7':
@@ -157,13 +167,77 @@ def month_as_range(value):
         return None
 
 
+def _explicit_range_params(params):
+    """
+    The range a query string asks for, and what is wrong with it.
+
+    Returns (preset, date_from, date_to, problem). `problem` is a message for
+    a request that names a range but cannot be honoured (unknown preset, or a
+    malformed / missing / inverted date for the preset that needs one), else
+    ''. Params that the chosen preset does not use are never a problem — the
+    shared control submits `date_from`/`date_to` with every preset click.
+
+    `date` is the single-day input. With no `range`, the dates themselves
+    imply one: `date` means 'day', `date_from`/`date_to` mean 'custom'. Before
+    this, an API caller sending only dates was silently answered with the
+    default 30 days.
+    """
+    preset = params.get('range') or ''
+    raw_day, raw_from, raw_to = (
+        params.get('date') or '', params.get('date_from') or '', params.get('date_to') or '',
+    )
+    day, date_from, date_to = (
+        parse_iso_date(raw_day), parse_iso_date(raw_from), parse_iso_date(raw_to),
+    )
+
+    if not preset:
+        if raw_day:
+            preset = 'day'
+        elif raw_from or raw_to:
+            preset = 'custom'
+
+    problem = ''
+    if preset and preset not in DATE_RANGE_PRESETS:
+        problem = f"Unknown range '{preset}'. Use one of: {', '.join(DATE_RANGE_PRESETS)}."
+    elif preset == 'day':
+        # `date_from` is accepted too: the audit log's hidden inputs (and any
+        # link built from a 'day' range's own resolved dates) carry the day as
+        # a from/to pair.
+        if raw_day and not day:
+            problem = "'date' must be a valid YYYY-MM-DD date."
+        elif not (day or date_from):
+            problem = "range=day needs a 'date' (YYYY-MM-DD)."
+        date_from = day or date_from
+    elif preset == 'custom':
+        if (raw_from and not date_from) or (raw_to and not date_to):
+            problem = "'date_from' and 'date_to' must be valid YYYY-MM-DD dates."
+        elif not (date_from and date_to):
+            problem = "range=custom needs both 'date_from' and 'date_to'."
+        elif date_from > date_to:
+            problem = "'date_from' must not be after 'date_to'."
+    return preset, date_from, date_to, problem
+
+
+def range_problem(request):
+    """
+    Why the request's explicit range cannot be honoured, or ''.
+
+    range_from_request never raises — it falls back to the last 30 days, which
+    is right for a page (the control shows what was applied) but wrong for an
+    API client, whose figures would quietly describe a different period than
+    the one asked for. API views call this first and answer 400.
+    """
+    return _explicit_range_params(request.GET)[3]
+
+
 def range_from_request(request, today=None):
     """
     Resolve the shared date range for a request (DESIGN.md §2e).
 
     Precedence, deliberately in this order:
-      1. URL params (`range`, plus `date_from`/`date_to` for custom) — so a
-         copied link always reproduces exactly what the sender saw.
+      1. URL params (`range`, plus `date_from`/`date_to` for custom, or `date`
+         for a single day) — so a copied link always reproduces exactly what
+         the sender saw.
       2. Legacy `?month=YYYY-MM`, mapped onto its equivalent custom range.
       3. The session's last selection, so the choice survives navigation.
       4. resolve_date_range's own fallback (last 30 days).
@@ -177,9 +251,7 @@ def range_from_request(request, today=None):
     None for 'all', and callers must drop their lower-bound term rather than
     substituting a date.
     """
-    preset = request.GET.get('range')
-    date_from = parse_iso_date(request.GET.get('date_from'))
-    date_to = parse_iso_date(request.GET.get('date_to'))
+    preset, date_from, date_to, _problem = _explicit_range_params(request.GET)
 
     if not preset:
         legacy = month_as_range(request.GET.get('month'))

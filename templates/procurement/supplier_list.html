@@ -7,12 +7,15 @@
   <div>
     <h1>Suppliers</h1>
   </div>
+  <div class="row-actions">
+  <a class="btn" href="{% url 'supplier_category_list' %}">Supplier Categories</a>
   {% if can_edit %}
   <button type="button" class="btn btn-primary" id="open-add-supplier-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Add Supplier
   </button>
   {% endif %}
+  </div>
 </div>
 
 <form method="GET" class="toolbar toolbar-search" data-live-filter="#supplier-table tbody tr[data-filter-text]" data-filter-empty-target="#supplier-no-matches">
@@ -44,8 +47,8 @@
           {% endif %}
         </td>
         <td data-label="Category">
-          {% if s.supplier_profile.supplier_category %}
-            <span class="tag">{{ s.supplier_profile.supplier_category }}</span>
+          {% if s.supplier_profile.category %}
+            <span class="tag">{{ s.supplier_profile.category.name }}</span>
           {% else %}—{% endif %}
         </td>
         {# Links into the supplier's product sub-view — the same place the row's name goes. #}
@@ -54,6 +57,9 @@
             <a href="{% url 'supplier_detail' s.pk %}">{{ s.product_count }}</a>
           {% else %}
             <span class="gv-meta">None</span>
+          {% endif %}
+          {% if s.pending_offer_count or s.pending_request_count %}
+            <a class="pill pill-warn" href="{% url 'supplier_detail' s.pk %}" title="Offers and requests waiting for a decision">{{ s.pending_offer_count|add:s.pending_request_count }} pending</a>
           {% endif %}
         </td>
         <td data-label="Contact Person">{{ s.supplier_profile.contact_person|default:"—" }}</td>

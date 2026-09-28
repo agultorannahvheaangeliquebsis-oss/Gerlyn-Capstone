@@ -8,6 +8,7 @@ from django.contrib import messages
 from django.db.models import Min, Sum
 from django.http import HttpResponse
 from django.urls import reverse
+from django.utils.http import urlencode
 from django.utils import timezone
 from datetime import date, datetime, timedelta
 
@@ -23,13 +24,13 @@ from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.timebounds import (
     local_day_bounds, local_month_bounds, local_range_bounds,
-    parse_iso_date, range_from_request, resolve_date_range,
+    parse_iso_date, range_from_request, range_problem, resolve_date_range,
 )
 from reports.services import (
     PIPELINE_ORDER_STATUSES, PROCUREMENT_COST_STATUSES, REVENUE_ORDER_STATUSES,
     gross_sales_total, low_stock_count, net_sales_total, pipeline_sales,
     pipeline_value_total, refund_value_total, revenue_sales,
-    scoped_report_querysets,
+    sales_range_totals, scoped_report_querysets, scoped_sales_in_range,
 )
 
 
@@ -975,10 +976,12 @@ def _range_carry(active_range, range_start, range_end):
     """(name, value) pairs for the §2e range control, for the topbar branch
     switcher (partials/_branch_switch.html) to carry along — the reverse of
     _daterange.html's own daterange_carry, which carries branch INTO a range
-    change. `date_from`/`date_to` only matter for a 'custom' range; any other
-    preset is fully named by `range` alone."""
+    change. `date_from`/`date_to` only matter for a 'custom' range and `date`
+    for a single 'day'; any other preset is fully named by `range` alone."""
     carry = [('range', active_range)]
-    if active_range == 'custom':
+    if active_range == 'day':
+        carry.append(('date', range_end.strftime('%Y-%m-%d')))
+    elif active_range == 'custom':
         carry += [
             ('date_from', range_start.strftime('%Y-%m-%d') if range_start else ''),
             ('date_to', range_end.strftime('%Y-%m-%d') if range_end else ''),
@@ -1076,10 +1079,14 @@ def _range_label(active_range, start, end):
     be built server-side without duplicating this string in the template."""
     if active_range == 'today':
         return 'Today'
+    if active_range == 'yesterday':
+        return 'Yesterday'
     if active_range == '7':
         return 'Last 7 days'
     if active_range == 'all':
         return 'All time'
+    if active_range == 'day':
+        return f'{end:%Y-%m-%d}'
     if active_range == 'custom':
         return f'{start:%Y-%m-%d} – {end:%Y-%m-%d}'
     return 'Last 30 days'
@@ -1250,7 +1257,11 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
     if active_range == 'all':
         range_header, show_legend = range_label, False
     elif period_days == 1:
-        range_header, show_legend = f'{range_label} — overlaid with yesterday', True
+        # Only 'today' overlays *yesterday* (hourly); any other single day is
+        # compared with the day before it, and saying "yesterday" of a chosen
+        # 2026-09-01 would be wrong.
+        before = 'yesterday' if active_range == 'today' else 'the day before'
+        range_header, show_legend = f'{range_label} — overlaid with {before}', True
     else:
         range_header, show_legend = (
             f'{range_label} — overlaid with the {period_days} days before', True
@@ -2207,6 +2218,11 @@ def reports_dashboard(request):
         # change too, or picking a branch would silently reset it to Last 30
         # days.
         'branch_switch_carry': _range_carry(active_range, range_start, range_end),
+        # So Export CSV downloads the rows this page is showing, not everything.
+        'export_query': urlencode(
+            _range_carry(active_range, range_start, range_end)
+            + ([('branch', branch_filter)] if branch_filter else [])
+        ),
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
         'active_page': 'reports',
@@ -2879,6 +2895,20 @@ def export_csv(request, kind):
     user_branch = get_user_branch(request.user)
     today = timezone.localtime().date()
 
+    # The sales export follows the daily-sales range when the link names one
+    # (the Sales Report and the Reports hub both do). Only an EXPLICIT range
+    # narrows it: falling back to the session's last selection, as the pages
+    # do, would quietly shrink a bulk export a caller expected to be complete.
+    sales_range = None
+    if kind == 'sales' and any(
+        key in request.GET for key in ('range', 'date', 'date_from', 'date_to', 'month')
+    ):
+        problem = range_problem(request)
+        if problem:
+            messages.error(request, f'Could not export: {problem}')
+            return redirect('sales_report')
+        sales_range = range_from_request(request)[:2]
+
     response = HttpResponse(content_type='text/csv')
     scope = user_branch.branch_name.replace(' ', '-') if user_branch else 'all-branches'
     response['Content-Disposition'] = (
@@ -2887,11 +2917,18 @@ def export_csv(request, kind):
     writer = _SafeCSVWriter(csv.writer(response))
 
     if kind == 'sales':
-        qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer')
-        # scope_queryset fails closed. `if user_branch:` did not, and this is a
-        # bulk export: an unassigned Branch Manager got every branch's rows in
-        # one download.
-        qs = scope_queryset(qs, request.user, 'branch')
+        if sales_range:
+            # scoped_report_querysets fails closed too, and an Owner's `branch`
+            # narrows the export the same way it narrows the page.
+            qs = scoped_sales_in_range(
+                request.user, *sales_range, branch_id=request.GET.get('branch') or None,
+            )
+        else:
+            qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer')
+            # scope_queryset fails closed. `if user_branch:` did not, and this is a
+            # bulk export: an unassigned Branch Manager got every branch's rows in
+            # one download.
+            qs = scope_queryset(qs, request.user, 'branch')
         writer.writerow([
             'Order Number', 'Date', 'Branch', 'Customer', 'Recorded By',
             'Channel', 'Payment Method', 'Order Status', 'Total (PHP)',
@@ -3017,7 +3054,9 @@ def billing_report(request):
     # counting its original amount_due as revenue forever.
     refunds_by_transaction = dict(
         Refund.objects.filter(
-            transaction_id__in=[r.transaction_id for r in completed_records]
+            transaction_id__in=[r.transaction_id for r in completed_records],
+            # Approved only — Pending/Rejected requests (P14) moved no money.
+            status=Refund.Status.APPROVED,
         ).values('transaction_id').annotate(total=Sum('total_amount')).values_list('transaction_id', 'total')
     )
     refund_value = sum(refunds_by_transaction.values())
@@ -3062,17 +3101,59 @@ def billing_report(request):
 
 @login_required(login_url='accounts:login')
 def sales_report(request):
+    """
+    The daily Sales Report: every transaction in the chosen day / date range
+    (the shared §2e control — Today, Yesterday, Last 7 days, a single day or a
+    custom range), with the range's totals printed above the list.
+
+    Rows and totals both come from reports.services (scoped_sales_in_range /
+    sales_range_totals), the same functions the JSON mirror at
+    /api/reports/sales-report/ reads, so the two always agree.
+    """
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'You do not have permission to view this report.')
         return render(request, 'reports/no_access.html')
 
-    sales_qs = SalesTransaction.objects.select_related('branch', 'staff', 'customer').all()
-    # scope_queryset, not `if user_branch:` — the latter showed every branch to
-    # a Manager/Staff whose profile branch is NULL.
-    sales_qs = scope_queryset(sales_qs, request.user, 'branch')
+    user_branch = get_user_branch(request.user)
+    show_branch_filter = branch_ids_for_user(request.user) is None  # Owner only
+    branch_filter = request.GET.get('branch', '') if show_branch_filter else ''
 
-    sales_qs = sales_qs.order_by('-transaction_date')
-    return render(request, 'reports/sales_report.html', {'transactions': sales_qs})
+    # A range that cannot be honoured falls back to the last 30 days, and the
+    # control then shows "Last 30 days" — say why rather than letting the
+    # reader take those figures for the period they asked for.
+    problem = range_problem(request)
+    if problem:
+        messages.warning(request, f'{problem} Showing the last 30 days instead.')
+    range_start, range_end, active_range = range_from_request(request)
+
+    # scope_queryset semantics live in scoped_report_querysets: fails CLOSED for
+    # a Manager/Staff whose profile branch is NULL (an `if user_branch:` guard
+    # showed them every branch). Owner-only `branch` is ignored for anyone else.
+    transactions = scoped_sales_in_range(
+        request.user, range_start, range_end, branch_id=branch_filter or None,
+    )
+    totals = sales_range_totals(transactions)
+
+    return render(request, 'reports/sales_report.html', {
+        'transactions': transactions,
+        'totals': totals,
+        'branches': Branch.objects.all() if show_branch_filter else [],
+        'show_branch_filter': show_branch_filter,
+        'branch_filter': branch_filter,
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
+        'user_branch': user_branch,
+        'range_start': range_start,
+        'range_end': range_end,
+        'active_range': active_range,
+        'daterange_carry': [('branch', branch_filter)],
+        'branch_switch_carry': _range_carry(active_range, range_start, range_end),
+        # The export must download the rows on screen, so it carries the range
+        # (and branch) the page resolved rather than the session's.
+        'export_query': urlencode(
+            _range_carry(active_range, range_start, range_end)
+            + ([('branch', branch_filter)] if branch_filter else [])
+        ),
+    })
 
 
 @login_required(login_url='accounts:login')

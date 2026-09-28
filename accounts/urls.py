@@ -62,6 +62,9 @@ urlpatterns = [
     path('geo/provinces/', geo_views.geo_provinces, name='geo_provinces'),
     path('geo/cities/', geo_views.geo_cities, name='geo_cities'),
     path('geo/barangays/', geo_views.geo_barangays, name='geo_barangays'),
+    path('geo/search/', geo_views.geo_search, name='geo_search'),
+    path('geo/reverse/', geo_views.geo_reverse, name='geo_reverse'),
+    path('geo/tiles/<int:zoom>/<int:x>/<int:y>/', geo_views.geo_tile, name='geo_tile'),
 
     # --- New: Notification Preferences ---
     path('profile/notification-preferences/', views.notification_preferences_view, name='notification_preferences'),

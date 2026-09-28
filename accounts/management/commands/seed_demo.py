@@ -26,6 +26,7 @@ from accounts.models import (
     Notification,
     OwnerProfile,
     StaffProfile,
+    SupplierCategory,
     SupplierProfile,
     User,
 )
@@ -39,7 +40,7 @@ from inventory.models import (
     Warehouse,
     WarehouseStock,
 )
-from procurement.models import Procurement, ProcurementItem
+from procurement.models import Procurement, ProcurementItem, SupplierProduct
 from sales.models import SalesItem, SalesTransaction
 
 PASSWORD = "demo1234"
@@ -75,6 +76,7 @@ class Command(BaseCommand):
         customers = self._customers()
         categories = self._categories()
         products = self._products(categories)
+        self._supplier_products(suppliers, products)
         self._warehouses(branches)
         self._inventory_and_batches(products, branches)
 
@@ -102,6 +104,7 @@ class Command(BaseCommand):
         BillingRecord.objects.all().delete()
         SalesTransaction.objects.all().delete()
         ProcurementItem.objects.all().delete()
+        SupplierProduct.objects.all().delete()
         Batch.objects.all().delete()
         Procurement.objects.all().delete()
         Inventory.objects.all().delete()
@@ -131,6 +134,7 @@ class Command(BaseCommand):
             m._meta.db_table
             for m in (
                 SalesItem, BillingRecord, SalesTransaction, ProcurementItem,
+                SupplierProduct,
                 Batch, Procurement, Inventory, WarehouseStock, Warehouse,
                 Product, ProductCategory, Branch, Notification,
             )
@@ -242,12 +246,13 @@ class Command(BaseCommand):
                 username, User.Role.SUPPLIER,
                 email=f"{username}@supplier.ph", first_name=name.split()[0],
             )
+            category, _ = SupplierCategory.objects.get_or_create(name=cat)
             SupplierProfile.objects.update_or_create(
                 user=u,
                 defaults={
                     "supplier_name": name,
                     "contact_number": contact,
-                    "supplier_category": cat,
+                    "category": category,
                     "contact_person": person,
                 },
             )
@@ -332,6 +337,44 @@ class Command(BaseCommand):
                 )
             products[sku] = p
         return products
+
+    def _supplier_products(self, suppliers, products):
+        """Populate the current supplier catalogs used by Create PO.
+
+        Several products deliberately have more than one source so the demo
+        exercises the many-to-many relationship instead of looking like a
+        disguised product.supplier foreign key.
+        """
+        catalogs = {
+            "century": [
+                "SKU-001", "SKU-002", "SKU-003", "SKU-005", "SKU-012",
+            ],
+            "monde": ["SKU-004"],
+            "luckyme": ["SKU-004"],
+            "nestle": ["SKU-007", "SKU-008", "SKU-015"],
+            "sanmiguel": [
+                "SKU-005", "SKU-006", "SKU-012",
+            ],
+            "delmonte": ["SKU-009", "SKU-014"],
+            "unilever": [
+                "SKU-009", "SKU-011", "SKU-013", "SKU-014",
+            ],
+            "pg": ["SKU-010"],
+        }
+        supplier_by_username = {
+            supplier.username: supplier for supplier in suppliers.values()
+        }
+        for username, skus in catalogs.items():
+            supplier = supplier_by_username[username]
+            for sku in skus:
+                product = products[sku]
+                SupplierProduct.objects.get_or_create(
+                    supplier=supplier,
+                    product=product,
+                    defaults={
+                        'default_cost_price': product.bulk_floor_price,
+                    },
+                )
 
     def _warehouses(self, branches):
         for name, b in branches.items():
@@ -465,6 +508,8 @@ class Command(BaseCommand):
                     if status == "Received" else None
                 ),
                 status=status, total_cost=D(total),
+                funding_source=Procurement.FundingSource.BANK,
+                funding_note='Demo data',
             )
             for sku, qty, cost in items:
                 ProcurementItem.objects.create(

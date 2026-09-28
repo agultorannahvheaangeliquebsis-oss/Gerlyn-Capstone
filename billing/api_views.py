@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
@@ -102,7 +103,14 @@ class BillingPaymentAPIView(APIView):
 
         serializer = BillingPaymentSerializer(record, data=request.data)
         if serializer.is_valid():
-            updated = serializer.save()
+            try:
+                updated = serializer.save()
+            except DjangoValidationError as e:
+                # Confirmed/rejected by someone else between the status
+                # check above and the locked write.
+                return Response(
+                    {'detail': e.messages[0]}, status=status.HTTP_400_BAD_REQUEST
+                )
             return Response(BillingRecordSerializer(updated).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

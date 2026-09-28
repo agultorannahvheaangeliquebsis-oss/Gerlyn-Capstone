@@ -1,0 +1,60 @@
+{% comment %}
+Confirmation dialog for one high-impact order status step. Rendered INSIDE the
+status <form> on Order Detail and hidden by CSS until static/js/order-status-
+confirm.js opens it — so `reason` is an ordinary control of that form.
+
+Usage: {% include "partials/_order_status_confirm.html" with c=item.confirm %}
+
+`c` comes from sales.views._status_confirmations. Everything here is display:
+transaction_set_status re-validates the transition, the payment gate and the
+reason server-side.
+{% endcomment %}
+<div class="modal-overlay" data-status-modal aria-hidden="true">
+  <div class="modal-card confirm-card status-confirm-card" role="alertdialog" aria-modal="true"
+       aria-labelledby="status-confirm-title-{{ c.target }}" aria-describedby="status-confirm-notes-{{ c.target }}">
+    <div class="modal-head">
+      <h2 id="status-confirm-title-{{ c.target }}">{{ c.title }}</h2>
+      <button type="button" class="modal-close" data-status-close aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="confirm-body status-confirm-body">
+      <dl class="status-confirm-summary">
+        <div><dt>Order</dt><dd class="strong">{{ c.summary.order_number }}</dd></div>
+        <div><dt>Branch</dt><dd>{{ c.summary.branch }}</dd></div>
+        <div><dt>Channel</dt><dd>{{ c.summary.channel }}{% if c.summary.fulfillment %} · {{ c.summary.fulfillment }}{% endif %}</dd></div>
+        <div><dt>Customer</dt><dd>{{ c.summary.customer }}</dd></div>
+        <div><dt>Items</dt><dd>{{ c.summary.lines }} line{{ c.summary.lines|pluralize }} · {{ c.summary.units }} unit{{ c.summary.units|pluralize }}</dd></div>
+        <div><dt>Total</dt><dd class="strong">₱{{ c.summary.total|floatformat:2 }}</dd></div>
+        <div><dt>Payment</dt><dd>{{ c.summary.payment }}</dd></div>
+        <div><dt>Status</dt><dd>
+          {% include "partials/_order_status_pill_staff.html" with status=c.summary.current %}
+          <span aria-hidden="true">→</span>
+          <span class="sr-only">to</span>
+          {% include "partials/_order_status_pill_staff.html" with status=c.target %}
+        </dd></div>
+      </dl>
+
+      <div class="banner {% if c.variant == 'danger' %}banner-error{% else %}banner-warning{% endif %}">
+        <div class="banner-text" id="status-confirm-notes-{{ c.target }}">
+          <strong>What this does</strong>
+          <ul class="status-confirm-notes">
+            {% for note in c.notes %}<li>{{ note }}</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="status-reason-{{ c.target }}">{{ c.reason_label }}{% if not c.reason_required %} <span class="gv-meta">(optional)</span>{% endif %}</label>
+        <textarea id="status-reason-{{ c.target }}" name="reason" rows="3" maxlength="{{ c.reason_max }}"
+                  {% if c.reason_required %}data-reason-required aria-required="true"{% endif %}></textarea>
+        <span class="gv-meta">{{ c.reason_help }}</span>
+        <span class="field-error status-confirm-error" data-reason-error role="alert" hidden></span>
+      </div>
+    </div>
+    <div class="confirm-foot">
+      <button type="button" class="btn" data-status-cancel>{{ c.dismiss }}</button>
+      <button type="submit" class="btn {% if c.variant == 'danger' %}btn-danger-solid{% else %}btn-primary{% endif %}" data-status-ok>{{ c.ok }}</button>
+    </div>
+  </div>
+</div>

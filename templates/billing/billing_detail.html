@@ -11,7 +11,7 @@
     </h1>
   </div>
   <div class="row" style="gap:var(--s2);">
-    <a class="btn" data-detail-modal="Order" href="{% url 'transaction_detail' record.transaction.pk %}">View Order</a>
+    <a class="btn" data-detail-modal="Order" href="{% url 'transaction_detail' record.transaction.pk %}?from=billing">View Order</a>
   </div>
 </div>
 
@@ -25,11 +25,23 @@
         The system records payment only — funds move outside it. Confirm once you have
         seen the cash or checked the reference number.
       </p>
+      {% if record.transaction.has_pending_pwd_request %}
+      <div class="banner banner-warning mt-2">
+        <span>This order has a PWD discount request waiting for verification, so the amount due
+          isn't final. <a href="{% url 'transaction_detail' record.transaction.pk %}">Approve or reject it on the order</a>
+          before verifying payment.</span>
+      </div>
+      {% endif %}
     </div>
     <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
       {% csrf_token %}
       <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
+      {% if record.transaction.has_pending_pwd_request %}
+      {# P15 — the amount due is not final yet. billing_confirm refuses Paid regardless; this only keeps the button honest. #}
+      <button type="button" class="btn btn-primary" disabled>Verify Payment</button>
+      {% else %}
       <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
+      {% endif %}
     </form>
   </div>
 </div>

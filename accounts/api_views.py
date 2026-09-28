@@ -8,7 +8,9 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from .serializers import UserSerializer, UserAdminSerializer, UserCreateSerializer, UserUpdateSerializer
 from .models import User
+from .role_policy import USER_MANAGEMENT_ROLES
 from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
+from .services import VerificationEmailDeliveryError, send_verification_email
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
@@ -240,12 +242,27 @@ class RegisterCustomerView(APIView):
             profile.address = address
             profile.save()
 
+        # Match the server-rendered registration flow. Delivery remains
+        # synchronous, but an SMTP failure must not roll back the customer
+        # account that was already created successfully.
+        verification_email_sent = True
+        try:
+            send_verification_email(user, request)
+        except VerificationEmailDeliveryError:
+            verification_email_sent = False
+
         # Log them in immediately after registration
         login(request, user)
         serializer = UserSerializer(user)
         return Response({
             'user': serializer.data,
-            'detail': 'Account created successfully.',
+            'verificationEmailSent': verification_email_sent,
+            'detail': (
+                'Account created successfully.'
+                if verification_email_sent else
+                'Account created, but the verification email could not be sent. '
+                'Please retry from Settings.'
+            ),
         }, status=status.HTTP_201_CREATED)
 
 
@@ -264,8 +281,11 @@ def check_owner(request):
 
 class UserListCreateAPIView(APIView):
     """
-    GET  /api/auth/users/   → list every account, all roles
-    POST /api/auth/users/   → create a new account + role-specific profile
+    GET  /api/auth/users/   → list internal and supplier accounts
+    POST /api/auth/users/   → create an internal or supplier account
+
+    Customer accounts are handled by customer registration and the dedicated
+    Customer Accounts module, not this administration API.
     """
     permission_classes = [IsAuthenticated]
 
@@ -273,7 +293,9 @@ class UserListCreateAPIView(APIView):
         denied = check_owner(request)
         if denied:
             return denied
-        users = User.objects.all().order_by('role', 'username')
+        users = User.objects.filter(
+            role__in=USER_MANAGEMENT_ROLES
+        ).order_by('role', 'username')
         return Response(UserAdminSerializer(users, many=True).data)
 
     def post(self, request):
@@ -299,7 +321,9 @@ class UserDetailAPIView(APIView):
         denied = check_owner(request)
         if denied:
             return denied
-        user = get_object_or_404(User, pk=pk)
+        user = get_object_or_404(
+            User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
+        )
         serializer = UserUpdateSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
             updated = serializer.save()

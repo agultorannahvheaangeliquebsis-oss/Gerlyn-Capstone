@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -189,6 +191,14 @@ BACKUP_MYSQL = os.environ.get('BACKUP_MYSQL', 'mysql')
 # The status page flags a backup as overdue after this many hours.
 BACKUP_STALE_HOURS = int(os.environ.get('BACKUP_STALE_HOURS', '26'))
 
+# Overdue purchase-order deliveries (procurement.services.process_overdue_deliveries,
+# run by dispatch_notifications): an Incoming / Partially Received order is
+# flagged and the buyer + supplier told this many days after its delivery date,
+# and escalated to the Owner after the second figure. Nothing is ever
+# auto-cancelled — the Owner cancels or reschedules by hand.
+PO_OVERDUE_GRACE_DAYS = int(os.environ.get('PO_OVERDUE_GRACE_DAYS', '1'))
+PO_OVERDUE_ESCALATE_DAYS = int(os.environ.get('PO_OVERDUE_ESCALATE_DAYS', '3'))
+
 # Trust the deployed origin for POSTs (set once the app has a real URL),
 # e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
@@ -237,6 +247,7 @@ TEMPLATES = [
                 'core.context_processors.active_nav',
                 'core.context_processors.alerts',
                 'core.context_processors.app_version',
+                'core.context_processors.map_config',
                 'core.context_processors.customer_nav',
                 'core.context_processors.detail_modal',
                 'core.context_processors.internal_notifications',
@@ -461,13 +472,80 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/profile/'
 
 # --- Email -------------------------------------------------------------------
-EMAIL_BACKEND       = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST          = 'smtp.gmail.com'
-EMAIL_PORT          = 587
-EMAIL_USE_TLS       = True
-EMAIL_HOST_USER     = os.environ.get('EMAIL_HOST_USER', '')
+# Development prints messages to the terminal by default. Production keeps
+# SMTP as its default, but every SMTP value can be supplied by the deployment
+# environment so the application is not tied to Gmail or committed secrets.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    (
+        'django.core.mail.backends.console.EmailBackend'
+        if DEBUG else 'django.core.mail.backends.smtp.EmailBackend'
+    ),
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL  = os.environ.get('EMAIL_HOST_USER', 'noreply@gerlynstore.com')
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
+DEFAULT_FROM_EMAIL = (
+    os.environ.get('DEFAULT_FROM_EMAIL', '').strip()
+    or EMAIL_HOST_USER
+    or 'noreply@localhost'
+)
+
+# A stable deployment origin prevents verification links from inheriting an
+# internal proxy hostname. Blank is safe for local development and falls back
+# to the current request's scheme/host.
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+
+# Server-side, Nominatim-compatible geocoding. URLs are blank by default so a
+# deployment without an external provider keeps the manual-pin fallback.
+GEOCODING_SEARCH_URL = os.environ.get('GEOCODING_SEARCH_URL', '').strip()
+GEOCODING_REVERSE_URL = os.environ.get('GEOCODING_REVERSE_URL', '').strip()
+GEOCODING_API_KEY = os.environ.get('GEOCODING_API_KEY', '').strip()
+GEOCODING_API_KEY_PARAM = os.environ.get('GEOCODING_API_KEY_PARAM', 'key').strip()
+GEOCODING_USER_AGENT = os.environ.get(
+    'GEOCODING_USER_AGENT', 'GerlynPLUS/1.0 (server-side address picker)'
+).strip()
+GEOCODING_COUNTRY_CODE = os.environ.get('GEOCODING_COUNTRY_CODE', 'ph').strip()
+GEOCODING_TIMEOUT = int(os.environ.get('GEOCODING_TIMEOUT', '6'))
+GEOCODING_CACHE_SECONDS = int(os.environ.get('GEOCODING_CACHE_SECONDS', '86400'))
+GEOCODING_NEGATIVE_CACHE_SECONDS = int(os.environ.get('GEOCODING_NEGATIVE_CACHE_SECONDS', '900'))
+GEOCODING_CLIENT_MAX_REQUESTS = int(os.environ.get('GEOCODING_CLIENT_MAX_REQUESTS', '30'))
+GEOCODING_CLIENT_WINDOW_SECONDS = int(os.environ.get('GEOCODING_CLIENT_WINDOW_SECONDS', '60'))
+GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS = int(os.environ.get('GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS', '1'))
+MAP_TILE_URL_TEMPLATE = os.environ.get('MAP_TILE_URL_TEMPLATE', '').strip()
+MAP_TILE_API_KEY = os.environ.get('MAP_TILE_API_KEY', '').strip()
+MAP_TILE_ATTRIBUTION = os.environ.get('MAP_TILE_ATTRIBUTION', '').strip()
+MAP_TILE_CACHE_SECONDS = int(os.environ.get('MAP_TILE_CACHE_SECONDS', '604800'))
+
+# Customer fulfillment fallback when browser/address coordinates are absent.
+# Blank keeps the deterministic lowest-id active branch fallback. When set,
+# this branch follows service-area matching and any still-valid automatic cart
+# assignment, keeping fallback behavior stable across requests.
+_default_fulfillment_branch = os.environ.get('DEFAULT_FULFILLMENT_BRANCH_ID', '').strip()
+try:
+    DEFAULT_FULFILLMENT_BRANCH_ID = (
+        int(_default_fulfillment_branch) if _default_fulfillment_branch else None
+    )
+except ValueError as exc:
+    raise ImproperlyConfigured(
+        'DEFAULT_FULFILLMENT_BRANCH_ID must be a positive integer or blank.'
+    ) from exc
+if DEFAULT_FULFILLMENT_BRANCH_ID is not None and DEFAULT_FULFILLMENT_BRANCH_ID < 1:
+    raise ImproperlyConfigured(
+        'DEFAULT_FULFILLMENT_BRANCH_ID must be a positive integer or blank.'
+    )
+
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        'EMAIL_USE_TLS and EMAIL_USE_SSL are mutually exclusive. '
+        'Use TLS with port 587 or SSL with port 465, not both.'
+    )
+if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(('http://', 'https://')):
+    raise ImproperlyConfigured('PUBLIC_BASE_URL must start with http:// or https://.')
 
 # Avatar upload validation
 AVATAR_MAX_MB        = 2

@@ -17,6 +17,13 @@ class BranchViewSet(viewsets.ModelViewSet):
     serializer_class = BranchSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if not user.is_authenticated or user.role != User.Role.OWNER:
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [AllowAny()]

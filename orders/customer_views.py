@@ -1,4 +1,5 @@
 import uuid
+import time
 from decimal import Decimal
 from functools import wraps
 from urllib.parse import quote
@@ -24,6 +25,16 @@ from inventory.stats import (
 )
 from sales.models import SalesItem, SalesTransaction
 from sales.pricing import price_cart
+from sales.pwd_requests import (
+    new_request_fields, notify_pwd_request_submitted, request_can_reach_cart,
+    validate_pwd_details,
+)
+from .services import (
+    customer_fulfillment_location,
+    fulfillable_quantities,
+    remember_assignment,
+    resolve_nearest_branch,
+)
 
 # Cap on how many rows the live-search dropdown shows at once.
 SEARCH_SUGGESTION_LIMIT = 8
@@ -38,6 +49,12 @@ FREE_DELIVERY_OVER = Decimal('500')
 # the cart, so in practice this is only reachable by a session that predates
 # that guarantee.
 PICK_BRANCH_TO_CHECK_OUT = 'Pick a branch to check out.'
+
+NO_SINGLE_BRANCH = (
+    'No single branch can fulfill every item in your cart right now. '
+    'We will not split one order across branches; reduce a quantity or remove '
+    'an item and try again.'
+)
 
 # Catalog sort orders. The dict is the single source of truth for both the
 # <select> the template renders and the validation of ?sort= — an unknown or
@@ -156,6 +173,36 @@ def _safe_referer(request):
     return None
 
 
+def _resolve_cart_branch(request, cart=None, *, notify_change=False):
+    cart = request.session.get('cart', {}) if cart is None else cart
+    previous_id = request.session.get('branch_id')
+    location = customer_fulfillment_location(request.user, request.session)
+    resolution = resolve_nearest_branch(
+        location['latitude'],
+        location['longitude'],
+        cart,
+        city=location['city'],
+        barangay=location['barangay'],
+        preferred_branch_id=previous_id,
+    )
+    if resolution.branch:
+        remember_assignment(request.session, resolution)
+        if notify_change and previous_id and previous_id != resolution.branch.pk:
+            messages.info(
+                request,
+                f'Your fulfillment branch changed to {resolution.branch.branch_name}. '
+                'Every cart item was rechecked there.',
+            )
+    return resolution
+
+
+def _assignment_distance(request, branch):
+    assignment = request.session.get('fulfillment_assignment') or {}
+    if branch and assignment.get('branch_id') == branch.pk:
+        return assignment.get('distance_km')
+    return None
+
+
 def _cart_items(request):
     """Resolve the session cart into rows + total. Drops stale entries.
 
@@ -191,10 +238,17 @@ def _cart_items(request):
         return [], Decimal('0'), []
     items, total, dropped = [], Decimal('0'), []
     changed = False
+    available_by_product = {
+        product_id: quantity
+        for (resolved_branch_id, product_id), quantity in fulfillable_quantities(
+            [branch_id], cart.keys()
+        ).items()
+        if resolved_branch_id == branch_id
+    }
 
     for product_id, qty in list(cart.items()):
         inv = Inventory.objects.sellable().select_related('product').prefetch_related(
-            'product__price_tiers'
+            'product__price_tiers', 'product__images'
         ).filter(
             product_id=product_id, branch_id=branch_id
         ).first()
@@ -213,6 +267,7 @@ def _cart_items(request):
             cart.pop(product_id, None)
             changed = True
             continue
+        available_qty = available_by_product.get(inv.product_id, 0)
         unit_price = inv.product.price_at(qty)
         subtotal = unit_price * qty
         total += subtotal
@@ -224,12 +279,12 @@ def _cart_items(request):
             # off the product and undo the tier.
             'unit_price': unit_price,
             'subtotal': subtotal,
-            'in_stock': inv.available_qty,
-            'short': qty > inv.available_qty,
+            'in_stock': available_qty,
+            'short': qty > available_qty,
             # Same tiering the Floor/Warehouse Stock lists use (S-4) — no
             # more hardcoded "<= 10" in the template disagreeing with what
             # Inventory's own reorder_level says is actually low.
-            'stock_status': stock_status(inv.available_qty, inv.reorder_level),
+            'stock_status': stock_status(available_qty, inv.reorder_level),
         })
 
     if changed:
@@ -248,7 +303,7 @@ def _catalog_stock(branch_filters, search_query):
     what each category would contain under the current branch/search scope,
     not only the categories that are already selected.
     """
-    stock = Inventory.objects.sellable()
+    stock = Inventory.objects.sellable().filter(branch__is_active=True)
     if branch_filters:
         stock = stock.filter(branch_id__in=branch_filters)
     if search_query:
@@ -257,7 +312,7 @@ def _catalog_stock(branch_filters, search_query):
 
 
 def product_catalog(request):
-    branches = Branch.objects.all()
+    branches = Branch.objects.filter(is_active=True)
 
     # The Filters rail's Branch checklist is a BROWSE filter and nothing more:
     # multi-select, exactly like the Category checklist beside it. Tick any
@@ -487,7 +542,7 @@ def product_detail(request, product_id):
     # The per-branch table underneath is unaffected: it reads its own
     # Inventory rows and still breaks the whole store down, branch by branch.
     attach_storefront_counts([product], branch_id=branch_id)
-    branches = Branch.objects.all()
+    branches = Branch.objects.filter(is_active=True)
 
     branch_stock = []
     for branch in branches:
@@ -542,7 +597,6 @@ def product_detail(request, product_id):
     can_buy = bool(
         request.user.is_authenticated
         and request.user.role == 'CUSTOMER'
-        and branch_id
         and product.on_hand > 0
     )
 
@@ -704,74 +758,54 @@ def _active_chips(search_query, active_categories, branches, branch_filters):
     return chips
 
 
-def _start_shopping_at(request, branch):
-    """
-    Point the session at a branch and start a fresh cart, saying so.
-
-    Switching branches empties the cart — stock and prices are per-branch, so
-    the old lines cannot be carried across. This used to happen in silence,
-    which from the shopper's side is indistinguishable from the cart having
-    lost itself. The wording only mentions the clearing when there was
-    actually something to clear.
-
-    Reached only from select_branch (the branch page's POST) — the catalog's
-    Branch checklist is a browse filter now and no longer routes here.
-    """
-    had_items = bool(request.session.get('cart'))
-    request.session['branch_id'] = branch.pk
-    request.session['cart'] = {}
-    if had_items:
-        messages.info(
-            request,
-            f'Now shopping at {branch.branch_name}. Your cart was cleared — '
-            f'stock and prices are set per branch.'
-        )
-    else:
-        messages.success(request, f'Now shopping at {branch.branch_name}.')
-
-
 def select_branch(request):
-    branches = Branch.objects.all()
+    """Consent screen for location-assisted automatic branch assignment.
+
+    A posted ``branch_id`` is intentionally ignored. The server always
+    resolves one branch for the complete cart.
+    """
     if request.method == 'POST':
-        # request.POST['branch_id'] with a bare int() was a KeyError or a
-        # ValueError away from a 500 on a submit with nothing chosen — which
-        # is a rejection the shopper should be told about, not a crash. The
-        # int() has to happen before the query too: a non-numeric pk raises
-        # out of the ORM rather than simply matching nothing.
-        try:
-            branch_id = int(request.POST.get('branch_id', ''))
-        except (TypeError, ValueError):
-            branch_id = None
-        branch = Branch.objects.filter(pk=branch_id).first() if branch_id else None
-        if branch is None:
-            messages.error(request, 'Choose a branch to continue.')
-            return redirect('orders:select_branch')
-        _start_shopping_at(request, branch)
-        return redirect('orders:catalog')
-    cart_preview = None
-    if request.session.get('cart') and request.session.get('branch_id'):
-        # S-9 — _start_shopping_at only announces the clearing after the
-        # fact, on the page the shopper lands on next. Arriving here with a
-        # branch already set and a cart already in it — the nav's "Change"
-        # link, a card's "Choose a branch" button — deserves the same
-        # warning up front, before a choice that cannot be undone. Naming
-        # the actual items (not just "your cart") is what turns that warning
-        # into something the shopper can act on — decide it's fine to lose
-        # these three, or back out and check out first.
-        current_branch = Branch.objects.filter(pk=request.session['branch_id']).first()
-        items, _total, _dropped = _cart_items(request)
-        cart_preview = {
-            'branch_name': current_branch.branch_name if current_branch else None,
-            'items': items,
-        }
-        messages.info(
-            request,
-            'Choosing a branch here will clear your cart — stock and '
-            'prices are set per branch.'
-        )
+        status = request.POST.get('location_status', '')
+        if status == 'granted':
+            from accounts.geocoding import parse_coordinates
+
+            try:
+                latitude, longitude = parse_coordinates(
+                    request.POST.get('latitude'), request.POST.get('longitude')
+                )
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                return redirect('orders:select_branch')
+            request.session['fulfillment_location'] = {
+                'latitude': str(latitude),
+                'longitude': str(longitude),
+                'captured_at': time.time(),
+            }
+        else:
+            request.session.pop('fulfillment_location', None)
+
+        resolution = _resolve_cart_branch(request, notify_change=True)
+        if not resolution.branch:
+            messages.error(request, NO_SINGLE_BRANCH)
+        elif status == 'granted':
+            messages.success(
+                request, f'Fulfillment updated to {resolution.branch.branch_name}.'
+            )
+        else:
+            messages.info(
+                request,
+                f'Location was not shared. Using {resolution.branch.branch_name} '
+                'from your saved address or the store fallback.',
+            )
+        return redirect(_safe_next(request) or 'orders:cart')
+
+    current_branch = Branch.objects.filter(
+        pk=request.session.get('branch_id'), is_active=True
+    ).first()
     return render(request, 'orders/select_branch.html', {
-        'branches': branches,
-        'cart_preview': cart_preview,
+        'current_branch': current_branch,
+        'assignment_distance': _assignment_distance(request, current_branch),
+        'next': request.GET.get('next', ''),
     })
 
 
@@ -781,11 +815,6 @@ def select_branch(request):
 
 @customer_required
 def add_to_cart(request, product_id):
-    branch_id = request.session.get('branch_id')
-    if not branch_id:
-        messages.info(request, 'Choose a branch first so we can check stock.')
-        return redirect('orders:select_branch')
-
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
     back = _safe_next(request)
 
@@ -807,37 +836,46 @@ def add_to_cart(request, product_id):
         messages.error(request, error)
         return redirect(back or 'orders:catalog')
 
-    # Not get_object_or_404: the home page's discover grid is not
-    # branch-scoped, so it can legitimately offer a product the chosen branch
-    # has never stocked (no Inventory row at all, which is different from a
-    # row reading zero). That is a normal shopping outcome, not a broken URL —
-    # a 404 page would also break the AJAX path, which expects JSON back.
+    product = get_object_or_404(Product, pk=product_id)
+    cart = request.session.get('cart', {})
+    already = cart.get(str(product_id), 0)
+    proposed_cart = dict(cart)
+    proposed_cart[str(product_id)] = already + qty
+    resolution = _resolve_cart_branch(
+        request, proposed_cart, notify_change=True
+    )
+    if not resolution.branch:
+        error = NO_SINGLE_BRANCH
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': error}, status=409)
+        messages.error(request, error)
+        return redirect(back or 'orders:catalog')
+
+    branch_id = resolution.branch.pk
     inv = Inventory.objects.sellable().filter(
         product_id=product_id, branch_id=branch_id
     ).select_related('product', 'branch').first()
     if inv is None:
-        product = get_object_or_404(Product, pk=product_id)
-        error = f'{product.product_name} is not carried at your selected branch.'
+        error = f'{product.product_name} is not currently available for fulfillment.'
         if is_ajax:
             return JsonResponse({'ok': False, 'error': error}, status=409)
         messages.error(request, error)
         return redirect(back or 'orders:catalog')
 
-    cart = request.session.get('cart', {})
-    already = cart.get(str(product_id), 0)
-
-    if already + qty > inv.available_qty:
-        if inv.available_qty == 0:
-            error = f'{inv.product.product_name} is out of stock at your selected branch.'
+    available = fulfillable_quantities([branch_id], [product_id]).get(
+        (branch_id, product_id), 0
+    )
+    if already + qty > available:
+        if available == 0:
+            error = f'{inv.product.product_name} is out of stock for fulfillment.'
         else:
-            error = f'Only {inv.available_qty} of {inv.product.product_name} left at this branch.'
+            error = f'Only {available} of {inv.product.product_name} left for fulfillment.'
         if is_ajax:
             return JsonResponse({'ok': False, 'error': error}, status=409)
         messages.error(request, error)
         return redirect(back or 'orders:catalog')
 
-    cart[str(product_id)] = already + qty
-    request.session['cart'] = cart
+    request.session['cart'] = proposed_cart
     # Remember exactly what we just added so the toast's "Undo" can reverse it.
     request.session['last_added'] = {'id': str(product_id), 'qty': qty}
     success = f'Added {inv.product.product_name} to your cart.'
@@ -853,7 +891,7 @@ def add_to_cart(request, product_id):
         return JsonResponse({
             'ok': True,
             'message': success,
-            'cart_count': len(cart),
+            'cart_count': len(proposed_cart),
         })
     messages.success(request, success, extra_tags='undoable')
     return redirect(back or 'orders:catalog')
@@ -901,43 +939,42 @@ def update_cart(request, product_id):
     if request.method != 'POST':
         return redirect('orders:cart')
 
-    branch_id = request.session.get('branch_id')
     cart = request.session.get('cart', {})
     key = str(product_id)
     if key not in cart:
         messages.info(request, 'That item is no longer in your cart.')
         return redirect('orders:cart')
 
-    inv = Inventory.objects.sellable().select_related('product').filter(
-        product_id=product_id, branch_id=branch_id
-    ).first()
-    if not inv:
-        # This one silently DELETED a line and redirected to a cart that had
-        # quietly changed under the shopper — the worst of the three silent
-        # exits, because they had asked for the opposite (one more of it).
-        cart.pop(key, None)
-        request.session['cart'] = cart
-        messages.error(
-            request,
-            'That item is no longer stocked at this branch, so it came out of your cart.'
-        )
-        return redirect('orders:cart')
-
     # Every branch below says what it did or why it declined. The refusals
     # already spoke; the successes and the floor did not, and a + or − that
     # changes a number without a word is the same to read as one that failed
     # to register — especially the floor, where nothing on screen moves.
-    name = inv.product.product_name
+    product = Product.objects.filter(pk=product_id).first()
+    if not product:
+        cart.pop(key, None)
+        request.session['cart'] = cart
+        _resolve_cart_branch(request, cart, notify_change=True)
+        messages.error(request, 'That item is no longer available, so it came out of your cart.')
+        return redirect('orders:cart')
+    name = product.product_name
     action = request.POST.get('action')
     if action == 'increase':
-        if cart[key] >= inv.available_qty:
-            messages.error(
-                request,
-                f'Only {inv.available_qty} of {name} left at this branch.'
-            )
-        else:
-            cart[key] += 1
-            messages.success(request, f'{name} — {cart[key]} in your cart.')
+        proposed_cart = dict(cart)
+        proposed_cart[key] += 1
+        resolution = _resolve_cart_branch(request, proposed_cart, notify_change=True)
+        if not resolution.branch:
+            current_branch_id = request.session.get('branch_id')
+            if current_branch_id:
+                available = fulfillable_quantities(
+                    [current_branch_id], [product_id]
+                ).get((current_branch_id, product_id), 0)
+                messages.error(
+                    request, f'Only {available} of {name} left at this branch.'
+                )
+            messages.error(request, NO_SINGLE_BRANCH)
+            return redirect('orders:cart')
+        cart = proposed_cart
+        messages.success(request, f'{name} — {cart[key]} in your cart.')
     elif action == 'decrease':
         # Minimum of 1 — Remove is what clears the line entirely, and at the
         # floor that has to be said rather than silently doing nothing.
@@ -948,6 +985,7 @@ def update_cart(request, product_id):
             )
         else:
             cart[key] -= 1
+            _resolve_cart_branch(request, cart, notify_change=True)
             messages.success(request, f'{name} — {cart[key]} in your cart.')
     else:
         # Neither button — a malformed or tampered POST. Nothing changed, so
@@ -968,6 +1006,7 @@ def remove_from_cart(request, product_id):
     cart = request.session.get('cart', {})
     if cart.pop(str(product_id), None) is not None:
         request.session['cart'] = cart
+        _resolve_cart_branch(request, cart, notify_change=True)
         messages.info(request, 'Removed from your cart.')
     else:
         # S-9 — a second tab, a stale page, a double-click: the line was
@@ -989,6 +1028,9 @@ def view_cart(request):
         messages.error(request, PICK_BRANCH_TO_CHECK_OUT)
         return redirect('orders:select_branch')
 
+    resolution = _resolve_cart_branch(request, notify_change=True)
+    if request.session.get('cart') and not resolution.branch:
+        messages.error(request, NO_SINGLE_BRANCH)
     items, total, dropped_items = _cart_items(request)
     if dropped_items:
         # S-1 — say what happened rather than leaving the shopper to notice
@@ -1004,6 +1046,9 @@ def view_cart(request):
     # (no checkout attempt in between) doesn't rotate it out from under a
     # form the shopper already has open in another tab.
     request.session.setdefault('checkout_token', uuid.uuid4().hex)
+    branch = Branch.objects.filter(
+        id=request.session.get('branch_id'), is_active=True
+    ).first()
     return render(request, 'orders/cart.html', {
         'items': items,
         'total': total,
@@ -1012,7 +1057,8 @@ def view_cart(request):
         'remaining_for_free': remaining,
         'qualifies': total >= FREE_DELIVERY_OVER,
         'progress_pct': min(int((total / FREE_DELIVERY_OVER) * 100), 100) if total else 0,
-        'branch': Branch.objects.filter(id=request.session.get('branch_id')).first(),
+        'branch': branch,
+        'assignment_distance': _assignment_distance(request, branch),
         # The one saved address a Delivery order ships to. Shown read-only in
         # the checkout form; the shopper changes it in Settings -> Addresses,
         # never here. checkout() re-reads the same row.
@@ -1089,6 +1135,20 @@ def checkout(request):
     # order once this one succeeds.
     request.session['checkout_token'] = uuid.uuid4().hex
 
+    displayed_branch_id = branch_id
+    resolution = _resolve_cart_branch(request, cart, notify_change=True)
+    if not resolution.branch:
+        messages.error(request, NO_SINGLE_BRANCH)
+        return redirect('orders:cart')
+    branch_id = resolution.branch.pk
+    if branch_id != displayed_branch_id:
+        messages.info(
+            request,
+            'Your fulfillment branch changed after your location or address '
+            'was updated. Review the revalidated cart before placing the order.',
+        )
+        return redirect('orders:cart')
+
     # S-1 — resolve the cart through the same helper the cart page itself
     # renders from, and let it prune any line that can no longer be priced at
     # all (delisted, out at this branch, its last lot expired) BEFORE the rest
@@ -1150,9 +1210,19 @@ def checkout(request):
     proof_of_payment = None
     if mode_of_payment == SalesTransaction.ModeOfPayment.GCASH:
         from billing.models import BillingRecord
+        from billing.validators import clean_reference_number
         from billing.views import _validate_proof_of_payment
 
         proof_of_payment = request.FILES.get('proof_of_payment')
+        # Length and characters first — the column is VARCHAR(100), and an
+        # over-long reference used to reach it and 500 mid-checkout. The
+        # cleaned value is what is stored. billing.validators is the rule
+        # billing_create and the pay API apply too.
+        try:
+            reference_number = clean_reference_number(reference_number)
+        except ValidationError as e:
+            messages.error(request, e.messages[0])
+            return redirect('orders:cart')
         missing = BillingRecord.missing_payment_evidence(
             mode_of_payment, reference_number, bool(proof_of_payment)
         )
@@ -1250,8 +1320,64 @@ def checkout(request):
     #
     # This matches the API write path next door, which has always passed
     # discount_type=None for the same reason (SalesTransactionWriteSerializer).
+    #
+    # P15 — the customer MAY now ask for the PWD discount on an order they
+    # collect in store (Pickup, which is also the only fulfilment Pay at Store
+    # is allowed with). That is a request, not a claim: it records the ID
+    # details they typed and changes no price. The order is still written
+    # undiscounted below, and staff approve or reject the request when the
+    # customer arrives (sales.pwd_requests, transaction_pwd_request_review);
+    # billing will not mark it Paid until they have. The discount_type field
+    # and the discount_id_number / discount_holder_name inputs stay ignored,
+    # exactly as above — the request has its own, differently named fields.
+    pwd_request = None
+    if request.POST.get('request_pwd_discount'):
+        if fulfillment_type != SalesTransaction.FulfillmentType.PICKUP:
+            messages.error(
+                request,
+                'A PWD discount can only be requested for orders you pick up '
+                'at the branch — staff have to see your ID in person. Choose '
+                'pickup, or place the order without the request.'
+            )
+            return redirect('orders:cart')
+        pwd_id, pwd_name, pwd_errors = validate_pwd_details(
+            request.POST.get('pwd_id_number'), request.POST.get('pwd_holder_name')
+        )
+        if pwd_errors:
+            for error in pwd_errors:
+                messages.error(request, error)
+            return redirect('orders:cart')
+        pwd_request = (pwd_id, pwd_name)
 
     with transaction.atomic():
+        # Lock every relevant active-branch stock row in a stable order before
+        # the final resolution. A concurrent checkout for any of these units
+        # must wait, then sees this order's newly committed SalesItems before
+        # it can promise the same stock.
+        list(
+            Inventory.objects.select_for_update()
+            .filter(
+                branch__is_active=True,
+                product_id__in=[int(product_id) for product_id in cart],
+            )
+            .order_by('branch_id', 'product_id')
+        )
+        locked_resolution = _resolve_cart_branch(request, cart)
+        if not locked_resolution.branch:
+            messages.error(request, NO_SINGLE_BRANCH)
+            transaction.set_rollback(True)
+            return redirect('orders:cart')
+        if locked_resolution.branch.pk != branch_id:
+            remember_assignment(request.session, locked_resolution)
+            messages.info(
+                request,
+                f'Availability changed while you were checking out. Your cart '
+                f'is now fulfilled by {locked_resolution.branch.branch_name}; '
+                'review it before placing the order.',
+            )
+            transaction.set_rollback(True)
+            return redirect('orders:cart')
+
         # Validate availability WITHOUT deducting: an online order only leaves
         # the shelf when staff mark it Completed in the Order Console.
         planned = []
@@ -1265,6 +1391,13 @@ def checkout(request):
         # session cart here instead of being allowed to block checkout
         # forever on an item nobody can see any more.
         stale_ids = []
+        available_by_product = {
+            product_id: quantity
+            for (available_branch_id, product_id), quantity in fulfillable_quantities(
+                [branch_id], cart.keys()
+            ).items()
+            if available_branch_id == branch_id
+        }
         for product_id, qty in cart.items():
             inv = Inventory.objects.select_for_update().sellable().select_related(
                 'product'
@@ -1275,10 +1408,11 @@ def checkout(request):
             # available_qty already nets out anything expired since this
             # was added to the cart — it may be less than the row's raw
             # quantity_on_hand, which still counts expired stock.
-            if inv.available_qty < qty:
+            available_qty = available_by_product.get(inv.product_id, 0)
+            if available_qty < qty:
                 messages.error(
                     request,
-                    f'Sorry — only {inv.available_qty} of {inv.product.product_name} left.'
+                    f'Sorry — only {available_qty} of {inv.product.product_name} left.'
                 )
                 transaction.set_rollback(True)
                 return redirect('orders:cart')
@@ -1307,8 +1441,21 @@ def checkout(request):
         # and could not honour a wholesale tier. price_cart owns the VAT
         # arithmetic; the only decision made out here is the price TIER.
         #
+        # A request that could not move the total is refused rather than
+        # left Pending for staff to chase — PWD eligibility is per product.
+        if pwd_request and not request_can_reach_cart(p for p, _ in planned):
+            messages.error(
+                request,
+                'None of the items in your cart are eligible for the PWD '
+                'discount, so there is nothing to request. Place the order '
+                'without the request.'
+            )
+            transaction.set_rollback(True)
+            return redirect('orders:cart')
+
         # No discount_type is passed — not None-by-omission but None on
-        # purpose: customer checkout never discounts (F-04).
+        # purpose: customer checkout never discounts (F-04). A PWD request
+        # (P15) does not change that: it is priced at full below.
         priced = price_cart(
             [(product, qty, product.price_at(qty)) for product, qty in planned],
             discount_type=None,
@@ -1333,6 +1480,7 @@ def checkout(request):
             total_amount=total,
             total_vat_amount=priced['total_vat_amount'],
             total_discount_amount=priced['total_discount_amount'],
+            **(new_request_fields(*pwd_request) if pwd_request else {}),
         )
 
         for line in priced['lines']:
@@ -1362,8 +1510,20 @@ def checkout(request):
                 billing.proof_of_payment = proof_of_payment
             billing.save()
 
+    if pwd_request:
+        notify_pwd_request_submitted(sale)
+
     request.session['cart'] = {}
+    request.session.pop('fulfillment_location', None)
+    request.session.pop('fulfillment_assignment', None)
     messages.success(request, f'Order {sale.order_number} placed!')
+    if pwd_request:
+        messages.info(
+            request,
+            'Your PWD discount request is pending. Bring your PWD ID when you '
+            'collect the order — the store checks it there, and the discount '
+            'is applied to your bill once it is verified.'
+        )
     return redirect('orders:confirmation', transaction_id=sale.id)
 
 
@@ -1471,6 +1631,6 @@ def order_confirmation(request, transaction_id):
     )
     return render(request, 'orders/confirmation.html', {
         'sale': sale,
-        'items': sale.items.select_related('product').all(),
+        'items': sale.items.select_related('product').prefetch_related('product__images'),
         'billing': getattr(sale, 'billing_record', None),
     })

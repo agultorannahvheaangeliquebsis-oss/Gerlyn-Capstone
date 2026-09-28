@@ -1,8 +1,10 @@
 # billing/serializers.py
 
 from rest_framework import serializers
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.urls import reverse
 from .models import BillingRecord
+from .validators import clean_reference_number
 
 class BillingRecordSerializer(serializers.ModelSerializer):
     transactionId = serializers.PrimaryKeyRelatedField(source='transaction', read_only=True)
@@ -54,11 +56,17 @@ class BillingPaymentSerializer(serializers.Serializer):
         # X-2 — what each method needs is BillingRecord.missing_payment_
         # evidence, the same rule billing_create enforces on the web form.
         # A proof already on the record counts. Anything not required is
-        # cleared.
+        # cleared, unchecked — same as the web form. What is kept goes
+        # through the length/character rule billing_create and checkout
+        # share; an over-long value used to reach the VARCHAR(100) column
+        # and 500.
         method = data.get('paymentMethod')
-        reference = data.get('referenceNumber', '').strip()
-        if method not in BillingRecord.REFERENCE_REQUIRED_METHODS:
-            reference = ''
+        reference = ''
+        if method in BillingRecord.REFERENCE_REQUIRED_METHODS:
+            try:
+                reference = clean_reference_number(data.get('referenceNumber', ''))
+            except DjangoValidationError as e:
+                raise serializers.ValidationError({'referenceNumber': e.messages})
         has_proof = bool(
             data.get('proofOfPayment')
             or (self.instance is not None and self.instance.proof_of_payment)
@@ -73,16 +81,15 @@ class BillingPaymentSerializer(serializers.Serializer):
         return data
 
     def update(self, instance, validated_data):
-        instance.payment_method = validated_data['paymentMethod']
-        instance.reference_number = validated_data.get('referenceNumber', '')
-        if validated_data.get('proofOfPayment'):
-            instance.proof_of_payment = validated_data['proofOfPayment']
-        instance.save()
-
-        # X-2 — one definition shared with billing.views.billing_create, see
-        # BillingRecord.sync_payment_method_to_sale.
-        instance.sync_payment_method_to_sale()
-
+        # One locked, Pending-only write shared with billing.views.
+        # billing_create, which also syncs the sale's payment method — see
+        # BillingRecord.record_payment_details. Raises ValidationError if the
+        # record was confirmed since this serializer read it.
+        instance.record_payment_details(
+            validated_data['paymentMethod'],
+            validated_data.get('referenceNumber', ''),
+            validated_data.get('proofOfPayment'),
+        )
         return instance
 
 
@@ -120,6 +127,11 @@ class BillingConfirmSerializer(serializers.Serializer):
         # outbound edge from it), so what the method requires —
         # BillingRecord.missing_payment_evidence — has to be on record first.
         if record is not None and value == BillingRecord.PaymentStatus.PAID:
+            # P15 — same PWD-review gate billing_confirm applies.
+            blocked = record.pwd_review_block_message()
+            if blocked:
+                raise serializers.ValidationError(blocked)
+
             missing = BillingRecord.missing_payment_evidence(
                 record.payment_method, record.reference_number,
                 bool(record.proof_of_payment),

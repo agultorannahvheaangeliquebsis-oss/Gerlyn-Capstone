@@ -320,7 +320,7 @@ themselves.
 | Metric | Formula | Notes |
 |---|---|---|
 | Gross Sales | `SUM(total_amount)` over `SalesTransaction` rows with `order_status = Completed` | A Pending/Approved/Preparing order has not been paid for or fulfilled; a Cancelled order is void. Neither counts. |
-| Refund Value | `SUM(Refund.total_amount)` for refunds against orders in scope | A refund never changes `order_status` (see `sales.models.Refund`), so a refunded order is still "Completed" and still inside Gross Sales — this is what has to be subtracted back out. |
+| Refund Value | `SUM(Refund.total_amount)` for **Approved** refunds against orders in scope (Pending and Rejected requests have moved no money, so they never count; equals `SUM(SalesTransaction.refunded_amount)`) | A refund never changes `order_status` (see `sales.models.Refund`), so a refunded order is still "Completed" and still inside Gross Sales — this is what has to be subtracted back out. |
 | Net Sales | Gross Sales − Refund Value | The realised-revenue figure rendered as "Total Sales" / "Total Revenue" on the Reports Sales tab (`reports_dashboard`) and the Billing Report (`billing_report`). |
 | Pipeline Value | `SUM(total_amount)` over `SalesTransaction` rows with `order_status` in Pending/Approved/Preparing | Committed but unfulfilled. Shown as its own figure, never added into Gross/Net Sales. |
 | Procurement Cost | `SUM(total_cost)` over `Procurement` rows excluding `status = Cancelled` | Draft counts (matches the existing "committed value" convention already used by `Procurement.OPEN_STATUSES`, the Dashboard's Pending POs count, and `procurement_report`'s `active_value`); only Cancelled — which never happened — is excluded. |
@@ -369,6 +369,26 @@ that, identically on both sides for `DashboardSummaryAPIView` and
   `totalTransactions` are kept as field names for backward compatibility
   but now mean Net Sales and the Completed-order count respectively, not
   "every order_status".
+
+**Daily Sales Report (P13):** the plain Sales Report page (`/reports/sales/`,
+`sales_report`), its JSON mirror `SalesReportAPIView`
+(`/api/reports/sales-report/`) and the sales CSV export all read
+`reports.services.scoped_sales_in_range` for rows and
+`sales_range_totals` for figures, so page, API and export cannot list or
+total different rows. Filters: `range` = `today | yesterday | 7 | 30 | all |
+day | custom`, `date=YYYY-MM-DD` for one day (implies `range=day`),
+`date_from`/`date_to` for a range (imply `range=custom`), and `branch` for
+an Owner. A day is the local (Asia/Manila) span 00:00:00 through
+23:59:59.999999, judged as a half-open comparison on aware datetimes. A
+range the request names but that cannot be honoured (unknown preset, missing
+/ malformed / inverted date) answers **400** on both reports APIs, and shows a
+warning + the 30-day fallback on the page; the CSV redirects with an error.
+The CSV is narrowed only by an *explicit* range in the URL — never by the
+session's last selection — so a bare `/reports/export/sales.csv` is still the
+full export. Response shape: `{activeRange, rangeStart, rangeEnd, count,
+totals{transactions, orders, grossSales, refundValue, netSales,
+avgOrderValue, pipelineValue, pipelineCount}, results[]}` (Decimals as
+strings). Tests: `reports/tests_daily_sales_filter.py`.
 
 **Parity tests:** `reports/tests.py::WebApiReportingParityTests` builds a
 Completed order that is partially refunded, a Cancelled order, a Pending

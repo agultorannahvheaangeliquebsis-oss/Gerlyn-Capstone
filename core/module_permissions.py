@@ -95,6 +95,9 @@ MODULE_REGISTRY = {
          # gated at all, so leaving it off would let a Staff account whose
          # Owner revoked the Order Console still re-price an order.
          'transaction_apply_discount',
+         # Approving / rejecting a customer's PWD request (P15) grants the
+         # same discount, so it is gated by the same section.
+         'transaction_pwd_request_review',
          # Printable receipt for the same reason — same section, same gap
          # class as the discount action above.
          'transaction_receipt',
@@ -103,9 +106,16 @@ MODULE_REGISTRY = {
          # be registered here or a Staff account whose Owner revoked the
          # Order Console entirely could still reach it directly.
          'transaction_refund',
+         # P14 — the approve/reject decisions, same reason: the Owner/Manager
+         # role check lives in the view, the module gate has to be here too.
+         'transaction_refund_approve', 'transaction_refund_reject',
          # API (sales/api_urls.py) — list also serves POST (mirrors
-         # transaction_add); detail mirrors transaction_detail.
-         'api-sales-list', 'api-sales-detail'],
+         # transaction_add); detail mirrors transaction_detail. The refund
+         # endpoints mirror transaction_refund / _approve / _reject.
+         'api-sales-list', 'api-sales-detail',
+         'api-sales-refunds', 'api-sales-refund-approve', 'api-sales-refund-reject',
+         # API twin of transaction_pwd_request_review (P15).
+         'api-sales-pwd-request'],
     ),
     BILLING: (
         'Billing',
@@ -120,6 +130,10 @@ MODULE_REGISTRY = {
     PROCUREMENT: (
         'Procurement / Purchase Orders',
         ['procurement_list', 'procurement_detail', 'supplier_list',
+         # P17 — the returns list and detail pages. The write actions (raise,
+         # ship, credit, replacement, cancel) stay role-gated like the other
+         # procurement writes.
+         'supplier_return_list', 'supplier_return_detail',
          # API (procurement/api_urls.py) — suppliers mirrors supplier_list.
          'api-procurement-list', 'api-procurement-detail',
          'api-procurement-status', 'api-procurement-suppliers'],

@@ -20,6 +20,7 @@ from .rate_limit import (
 )
 from .services import contact_number_taken, set_contact_number
 from .validators import validate_ph_mobile_number
+from .role_policy import USER_MANAGEMENT_ROLE_CHOICES, USER_MANAGEMENT_ROLES
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
@@ -340,14 +341,6 @@ from branches.models import Branch
 # explicitly, and every account is traceable to a branch.
 # =============================================================================
 
-INTERNAL_ROLE_CHOICES = [
-    (User.Role.OWNER, 'Owner'),
-    (User.Role.BRANCH_MANAGER, 'Branch Manager'),
-    (User.Role.STAFF, 'Store Staff'),
-    (User.Role.SUPPLIER, 'Supplier'),
-]
-
-
 def _profile_for(user):
     """The role-specific profile carrying the name/branch, if any."""
     return (
@@ -359,7 +352,7 @@ def _profile_for(user):
 
 @login_required(login_url='accounts:login')
 def _user_list_context(request):
-    users = User.objects.exclude(role=User.Role.CUSTOMER).select_related(
+    users = User.objects.filter(role__in=USER_MANAGEMENT_ROLES).select_related(
         'manager_profile__branch', 'staff_profile__branch', 'owner_profile',
         'supplier_profile',
     ).order_by('role', 'username')
@@ -410,11 +403,10 @@ def _user_list_context(request):
         # (partials/_branch_switch.html) to carry along — same idea as
         # _daterange.html's daterange_carry.
         'branch_switch_carry': [('q', search_query), ('role', role_filter)],
-        # The toolbar filters on every role a row can have; the Add/Edit modal
-        # may only ASSIGN an internal one. Two different lists on purpose —
-        # user_form has always validated against INTERNAL_ROLE_CHOICES.
-        'role_choices': User.Role.choices,
-        'form_role_choices': INTERNAL_ROLE_CHOICES,
+        # The toolbar filter and Add/Edit forms share the same policy-bound
+        # list. Customer accounts are handled by the dedicated module.
+        'role_choices': USER_MANAGEMENT_ROLE_CHOICES,
+        'form_role_choices': USER_MANAGEMENT_ROLE_CHOICES,
         'branches': branches,
         'active_count': users.filter(is_active=True).count(),
         # The module-access checkbox panel — only meaningful for Staff/
@@ -439,7 +431,9 @@ def user_list(request):
 
     edit_pk = request.GET.get('edit')
     if edit_pk:
-        target = User.objects.filter(pk=edit_pk).first()
+        target = User.objects.filter(
+            pk=edit_pk, role__in=USER_MANAGEMENT_ROLES
+        ).first()
         if target:
             profile = _profile_for(target)
             context.update({
@@ -457,7 +451,9 @@ def user_form(request, pk=None):
         messages.error(request, 'Only the Owner can manage users.')
         return redirect('accounts:home')
 
-    target = get_object_or_404(User, pk=pk) if pk else None
+    target = get_object_or_404(
+        User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
+    ) if pk else None
 
     if request.method != 'POST':
         flag = f'edit={pk}' if target else 'add=1'
@@ -483,7 +479,7 @@ def user_form(request, pk=None):
     # The same checks, collected rather than redirected — a redirect
     # discarded the whole form, and this one has several fields to retype.
     errors = []
-    if not username or role not in dict(INTERNAL_ROLE_CHOICES):
+    if not username or role not in USER_MANAGEMENT_ROLES:
         errors.append('A username and a valid role are required.')
 
     if password:
@@ -621,7 +617,7 @@ def _user_invite_submit(request):
     branch_id = request.POST.get('branch') or None
 
     errors = []
-    if role not in dict(INTERNAL_ROLE_CHOICES):
+    if role not in USER_MANAGEMENT_ROLES:
         errors.append('A valid role is required.')
     if not email:
         errors.append('An email address is required.')
@@ -752,7 +748,9 @@ def user_cancel_invite(request, pk):
         messages.error(request, 'Only the Owner can manage users.')
         return redirect('accounts:home')
 
-    target = get_object_or_404(User, pk=pk)
+    target = get_object_or_404(
+        User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
+    )
 
     if target.has_usable_password():
         messages.error(request, "That account has already been set up and can't be cancelled this way.")
@@ -778,7 +776,9 @@ def user_resend_invite(request, pk):
         messages.error(request, 'Only the Owner can manage users.')
         return redirect('accounts:home')
 
-    target = get_object_or_404(User, pk=pk)
+    target = get_object_or_404(
+        User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
+    )
 
     if target.has_usable_password():
         messages.info(request, f"{target.username} has already set up their account.")
@@ -840,9 +840,11 @@ def home_view(request):
     # typing the domain) — for a logged-in staff/branch-manager/owner it
     # must not render the customer storefront, since that's not their
     # landing experience. CUSTOMER and anonymous visitors are unaffected:
-    # this page already *is* their correct landing page. (SUPPLIER is
-    # deliberately left alone here — see conversation notes: their portal
-    # has its own pre-existing bug unrelated to this fix.)
+    # this page already *is* their correct landing page. SUPPLIER is sent to
+    # their portal too: the storefront is a customer experience, and a supplier
+    # who lands on it (reopening the site, the PWA start_url) can't use any of
+    # its links — their role is confined to the portal — so they could not even
+    # reach Logout from there.
     # ?preview=1 is the one exception: the Owner edits the storefront hero on
     # the internal Settings page and needs to see the result with the staged
     # changes applied. Without this the "preview" link there would just bounce
@@ -854,6 +856,8 @@ def home_view(request):
     )
     previewing = is_internal and request.GET.get('preview') == '1'
     if is_internal and not previewing:
+        return redirect_by_role(request, request.user)
+    if request.user.is_authenticated and request.user.role == User.Role.SUPPLIER:
         return redirect_by_role(request, request.user)
 
     from core.models import HomeHeroSlide
@@ -874,7 +878,7 @@ def home_view(request):
             .prefetch_related('images')[:12]
         ),
     )
-    branches = Branch.objects.all()
+    branches = Branch.objects.filter(is_active=True)
     categories = ProductCategory.objects.all()
     return render(request, 'home.html', {
         'products': products,
@@ -914,7 +918,7 @@ def _register_form_values(request):
     keep = (
         'username', 'email', 'first_name', 'last_name', 'contact_number',
         'address', 'type', 'region', 'province', 'city', 'barangay',
-        'street_detail',
+        'street_detail', 'latitude', 'longitude',
     )
     return {k: request.POST.get(k, '') for k in keep}
 
@@ -975,7 +979,11 @@ def register_view(request):
         # only place (with Settings -> Addresses) an address is captured:
         # checkout shows it read-only and ships to it, so an account needs
         # one from the start. It can be changed later in Settings.
-        picker_fields = _address_fields_from_post(request)
+        try:
+            picker_fields = _address_fields_from_post(request)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
         if not address:
             messages.error(
                 request,
@@ -1045,21 +1053,26 @@ def register_view(request):
         # turning on Two-Factor Authentication is), so a send failure must
         # not block account creation. The user can always retry from the
         # "Resend" banner on their Profile/Settings page.
+        verification_sent = True
         try:
             send_verification_email(user, request)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(
-                f"Verification email failed to send for new user {user.pk}: {e}", exc_info=True
-            )
+        except VerificationEmailDeliveryError:
+            verification_sent = False
 
         login(request, user)
-        messages.success(
-            request,
-            "Account created successfully. Welcome! We've also sent a "
-            "verification link to your email — you can verify it any time "
-            "from Settings."
-        )
+        messages.success(request, "Account created successfully. Welcome!")
+        if verification_sent:
+            messages.info(
+                request,
+                "A verification link was sent to your email. You can also "
+                "request another from Settings after the cooldown."
+            )
+        else:
+            messages.warning(
+                request,
+                "Your account is ready, but we couldn't send the verification "
+                "email right now. Please try again from Settings."
+            )
         return redirect('accounts:customer_dashboard')
 
     return render(request, 'accounts/register.html')
@@ -1076,6 +1089,7 @@ from .services import (
     send_password_change_verification, revoke_other_sessions,
     send_account_deactivation_verification, deactivate_account,
     get_active_sessions, get_verification_resend_wait_seconds,
+    VerificationEmailDeliveryError, VerificationEmailRateLimited,
 )
 
 
@@ -1122,7 +1136,6 @@ def _profile_context(user):
         'role'              : user.get_role_display(),
         'two_factor_enabled': user.two_factor_enabled,
         'addresses'         : user.addresses.all(),
-        'default_address'   : user.addresses.filter(is_default=True).first(),
         'active_page'       : 'profile',
     }
 
@@ -1306,6 +1319,11 @@ def staff_invite_complete(request, token):
 
     user = token_obj.user
 
+    if user.role not in USER_MANAGEMENT_ROLES:
+        token_obj.consume()
+        messages.error(request, "This invite is not valid for a customer account.")
+        return redirect('accounts:login')
+
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         first_name = request.POST.get('first_name', '').strip()
@@ -1410,26 +1428,24 @@ def resend_verification(request):
         messages.info(request, "Your email is already verified.")
         return _profile_redirect(user)
 
-    # Whole body wrapped so a second rapid click (or any DB/SMTP hiccup)
-    # always lands on a clean redirect + message, never a raw 500.
+    # The service repeats the cooldown check while holding a per-user DB lock,
+    # so rapid or concurrent requests cannot race past this server-side limit.
     try:
-        wait_seconds = get_verification_resend_wait_seconds(user)
-        if wait_seconds > 0:
-            wait_minutes = max(1, -(-wait_seconds // 60))  # ceil to whole minutes
-            messages.error(
-                request,
-                f"You can request another verification email in {wait_minutes} minute"
-                f"{'s' if wait_minutes != 1 else ''}."
-            )
-        else:
-            send_verification_email(user, request)
-            messages.success(request, "Verification email sent. Check your inbox.")
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(
-            f"Verification email resend failed for user {user.pk}: {e}", exc_info=True
+        send_verification_email(user, request, enforce_cooldown=True)
+        messages.success(request, "Verification email sent. Check your inbox.")
+    except VerificationEmailRateLimited as exc:
+        wait_minutes = max(1, -(-exc.wait_seconds // 60))  # ceil to whole minutes
+        messages.error(
+            request,
+            f"You can request another verification email in {wait_minutes} minute"
+            f"{'s' if wait_minutes != 1 else ''}."
         )
-        messages.error(request, "We couldn't send the verification email right now. Please try again shortly.")
+    except VerificationEmailDeliveryError:
+        messages.error(
+            request,
+            "We couldn't send the verification email right now. "
+            "Please try again shortly."
+        )
     return _profile_redirect(user)
 
 def _profile_redirect(user):
@@ -1714,6 +1730,12 @@ def _addresses_anchor():
     return reverse('accounts:profile') + '#addresses'
 
 
+def _address_changed(request):
+    """Force the cart to resolve again after a saved-address mutation."""
+    request.session.pop('fulfillment_location', None)
+    request.session.pop('fulfillment_assignment', None)
+
+
 @login_required(login_url='accounts:login')
 def addresses_view(request):
     """
@@ -1734,6 +1756,11 @@ def _address_fields_from_post(request):
     if addr_type not in Address.Type.values:
         addr_type = Address.Type.HOME
 
+    from .geocoding import parse_coordinates
+
+    latitude, longitude = parse_coordinates(
+        request.POST.get('latitude'), request.POST.get('longitude')
+    )
     return {
         'type': addr_type,
         'region': request.POST.get('region', '').strip(),
@@ -1742,13 +1769,19 @@ def _address_fields_from_post(request):
         'barangay': request.POST.get('barangay', '').strip(),
         'street_detail': request.POST.get('street_detail', '').strip(),
         'text': request.POST.get('text', '').strip(),
+        'latitude': latitude,
+        'longitude': longitude,
     }
 
 
 @login_required(login_url='accounts:login')
 @require_POST
 def address_create(request):
-    fields = _address_fields_from_post(request)
+    try:
+        fields = _address_fields_from_post(request)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(_addresses_anchor())
 
     if not fields['text']:
         fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
@@ -1759,6 +1792,7 @@ def address_create(request):
 
     is_first = not request.user.addresses.exists()
     Address.objects.create(user=request.user, is_default=is_first, **fields)
+    _address_changed(request)
     messages.success(request, "Address added.")
     return redirect(_addresses_anchor())
 
@@ -1767,11 +1801,12 @@ def address_create(request):
 @require_POST
 def address_edit(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
-    if address.is_default:
-        messages.error(request, "Your default address can't be edited. Add a new address and set it as default instead.")
-        return redirect(_addresses_anchor())
 
-    fields = _address_fields_from_post(request)
+    try:
+        fields = _address_fields_from_post(request)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(_addresses_anchor())
 
     if not fields['text']:
         fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
@@ -1783,6 +1818,7 @@ def address_edit(request, pk):
     for key, value in fields.items():
         setattr(address, key, value)
     address.save()
+    _address_changed(request)
     messages.success(request, "Address updated.")
     return redirect(_addresses_anchor())
 
@@ -1795,6 +1831,7 @@ def address_delete(request, pk):
         messages.error(request, "You can't delete your default address. Set a different one as default first.")
         return redirect(_addresses_anchor())
     address.delete()
+    _address_changed(request)
     messages.success(request, "Address deleted.")
     return redirect(_addresses_anchor())
 
@@ -1804,6 +1841,7 @@ def address_delete(request, pk):
 def address_set_default(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
     address.set_as_default()
+    _address_changed(request)
     messages.success(request, "Default address updated.")
     return redirect(_addresses_anchor())
 

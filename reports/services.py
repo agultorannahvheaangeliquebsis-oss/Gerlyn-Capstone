@@ -39,7 +39,7 @@ django.db.models.functions.Coalesce) rather than a Python-side loop, so an
 empty queryset returns Decimal('0.00') from the database and the work stays
 server-side.
 """
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db.models import DecimalField, Sum
 from django.db.models.functions import Coalesce
@@ -47,6 +47,7 @@ from django.db.models.functions import Coalesce
 from accounts.models import User
 from branches.models import Branch
 from core.scoping import branch_for_user, scope_queryset
+from core.timebounds import local_range_bounds
 from inventory.alerts import low_stock_filter
 from inventory.models import Inventory, WarehouseStock
 from procurement.models import Procurement
@@ -130,7 +131,10 @@ def refund_value_total(sales_qs, start=None, end=None):
     ever refunded against these orders", matching how Gross Sales for that
     same scope already ignores when a sale was refunded.
     """
-    refunds = Refund.objects.filter(transaction__in=sales_qs)
+    # Approved only — a Pending or Rejected request (P14) has moved no money.
+    refunds = Refund.objects.filter(
+        transaction__in=sales_qs, status=Refund.Status.APPROVED
+    )
     if start is not None:
         refunds = refunds.filter(refunded_at__gte=start)
     if end is not None:
@@ -141,6 +145,52 @@ def refund_value_total(sales_qs, start=None, end=None):
 def net_sales_total(sales_qs, start=None, end=None):
     """Net Sales — Gross Sales minus Refund Value for the same scope."""
     return gross_sales_total(sales_qs) - refund_value_total(sales_qs, start, end)
+
+
+def sales_in_range(sales_qs, start, end):
+    """Narrow `sales_qs` to transactions dated within the local calendar days
+    [start, end], both inclusive: 00:00:00 on `start` through 23:59:59.999999
+    on `end` (a half-open [start 00:00, end+1 00:00) comparison, so no row at
+    the day's last instant is dropped and none at the next midnight is
+    picked up). `start=None` is 'All time' — no lower bound at all.
+
+    Range comparison on aware datetimes, never `__date` — see core/timebounds
+    for why that lookup silently matches nothing on this deployment."""
+    period_start, period_end = local_range_bounds(start or end, end)
+    sales_qs = sales_qs.filter(transaction_date__lt=period_end)
+    if start is not None:
+        sales_qs = sales_qs.filter(transaction_date__gte=period_start)
+    return sales_qs
+
+
+def sales_range_totals(sales_qs):
+    """The figures a daily-sales view prints, for one already-scoped and
+    already-ranged queryset — the single source both the Sales Report page
+    and its JSON mirror read, so their totals cannot disagree.
+
+    `orders` and every money figure are Completed-only (see the module
+    docstring); `transactions` is every row in scope, Cancelled and pipeline
+    included, which is what the listing beneath the totals shows.
+    `avg_order_value` is Gross Sales per Completed order, rounded half-up to
+    centavos so the JSON and the page's floatformat:2 print the same digits.
+    """
+    orders = revenue_sales(sales_qs).count()
+    gross = gross_sales_total(sales_qs)
+    refunds = refund_value_total(sales_qs)
+    average = (
+        (gross / orders).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        if orders else Decimal('0.00')
+    )
+    return {
+        'transactions': sales_qs.count(),
+        'orders': orders,
+        'gross_sales': gross,
+        'refund_value': refunds,
+        'net_sales': gross - refunds,
+        'avg_order_value': average,
+        'pipeline_value': pipeline_value_total(sales_qs),
+        'pipeline_count': pipeline_sales(sales_qs).count(),
+    }
 
 
 # --- Procurement: what counts as committed cost ----------------------------
@@ -205,3 +255,16 @@ def scoped_report_querysets(user, override_branch_id=None):
     warehouse_qs = scope_queryset(warehouse_qs, user, 'warehouse__branch')
 
     return sales_qs, procurement_qs, inventory_qs, warehouse_qs, effective_branch
+
+
+def scoped_sales_in_range(user, start, end, branch_id=None):
+    """The daily-sales row set: `user`'s branch-scoped sales (an Owner may
+    narrow to `branch_id`; anyone else's own branch wins, and an unassigned
+    account gets nothing — see scoped_report_querysets) within the local
+    calendar days [start, end], newest first.
+
+    The one path the Sales Report page, its JSON mirror and its CSV export
+    all read, so the three cannot list or total different rows."""
+    sales_qs = scoped_report_querysets(user, override_branch_id=branch_id)[0]
+    sales_qs = sales_qs.select_related('branch', 'staff', 'customer')
+    return sales_in_range(sales_qs, start, end).order_by('-transaction_date')
