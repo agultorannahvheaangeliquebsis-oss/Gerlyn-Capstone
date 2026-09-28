@@ -111,7 +111,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        queryset = Product.objects.select_related(
+        queryset = Product.objects.filter(is_active=True).select_related(
             'category'
         ).prefetch_related(
             'inventory_records__branch'
@@ -186,7 +186,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         denied = self.check_write_permission(request)
         if denied:
             return denied
-        return super().destroy(request, *args, **kwargs)
+        product = self.get_object()
+        product.is_active = False
+        product.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def check_owner_or_manager(request):

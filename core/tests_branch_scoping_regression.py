@@ -65,19 +65,19 @@ class UnassignedAccountFailsClosedTests(TestCase):
 
     # -- reports: the CSV bulk export (the worst site) ----------------
 
-    def test_unassigned_manager_sales_csv_export_is_header_only(self):
+    def test_unassigned_manager_sales_csv_export_is_denied(self):
         self._unassign('carlo')
-        body = self.login('carlo').get(
+        response = self.login('carlo').get(
             reverse('export_csv', args=['sales'])
-        ).content
-        self.assertEqual(body.count(b'\n'), 1, body[:400])
+        )
+        self.assertEqual(response.status_code, 302)
 
-    def test_unassigned_manager_inventory_csv_export_is_header_only(self):
+    def test_unassigned_manager_inventory_csv_export_is_denied(self):
         self._unassign('carlo')
-        body = self.login('carlo').get(
+        response = self.login('carlo').get(
             reverse('export_csv', args=['inventory'])
-        ).content
-        self.assertEqual(body.count(b'\n'), 1, body[:400])
+        )
+        self.assertEqual(response.status_code, 302)
 
     def test_assigned_manager_sales_csv_export_still_has_rows(self):
         body = self.login('carlo').get(
@@ -87,33 +87,29 @@ class UnassignedAccountFailsClosedTests(TestCase):
 
     # -- reports: the HTML sales report ---------------------------
 
-    def test_unassigned_manager_sales_report_page_lists_nothing(self):
+    def test_unassigned_manager_sales_report_page_is_denied(self):
         self._unassign('carlo')
         response = self.login('carlo').get(reverse('sales_report'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(list(response.context['transactions']), [])
+        self.assertEqual(response.status_code, 302)
 
     # -- reports API --------------------------------------------
 
-    def test_unassigned_manager_sales_report_api_is_empty(self):
+    def test_unassigned_manager_sales_report_api_is_denied(self):
         self._unassign('carlo')
         response = self.login('carlo').get('/api/reports/sales-report/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+        self.assertEqual(response.status_code, 403)
 
-    def test_unassigned_manager_dashboard_summary_api_totals_are_zero(self):
+    def test_unassigned_manager_dashboard_summary_api_is_denied(self):
         self._unassign('carlo')
         response = self.login('carlo').get('/api/reports/dashboard-summary/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['totalTransactions'], 0)
+        self.assertEqual(response.status_code, 403)
 
     # -- inventory API -----------------------------------------
 
-    def test_unassigned_manager_inventory_api_is_empty(self):
+    def test_unassigned_manager_inventory_api_is_denied(self):
         self._unassign('carlo')
         response = self.login('carlo').get('/api/inventory/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+        self.assertEqual(response.status_code, 403)
 
     def test_assigned_manager_inventory_api_still_has_rows(self):
         response = self.login('carlo').get('/api/inventory/')
@@ -122,11 +118,10 @@ class UnassignedAccountFailsClosedTests(TestCase):
 
     # -- inventory views -------------------------------------
 
-    def test_unassigned_manager_floor_stock_list_shows_no_rows(self):
+    def test_unassigned_manager_floor_stock_list_is_denied(self):
         self._unassign('carlo')
         response = self.login('carlo').get(reverse('inventory_list'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(list(response.context['rows']), [])
+        self.assertEqual(response.status_code, 302)
 
     def test_unassigned_manager_cannot_adjust_stock_at_a_named_branch(self):
         """stock_adjustment_add is a WRITE — an unassigned Branch Manager used

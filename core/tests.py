@@ -16,6 +16,7 @@ from django.test import Client, TestCase
 
 from accounts.models import Address, User
 from branches.models import Branch
+from core.module_permissions import WITHDRAWALS
 from core.scoping import scope_queryset
 from inventory.models import (
     Inventory, Product, StockMovement, StockTransfer, StockTransferItem,
@@ -204,6 +205,9 @@ class AcceptanceTests(TestCase):
             quantity_requested=40, quantity_approved=40,
         )
 
+        ben = User.objects.get(username='ben')
+        ben.allowed_modules = [*ben.allowed_modules, WITHDRAWALS]
+        ben.save(update_fields=['allowed_modules'])
         self.login('ben').post(f'/inventory/withdrawals/{transfer.pk}/flag/', {
             'received_qty': 30, 'flag_reason': '10 damaged in transit',
         })
@@ -714,8 +718,4 @@ class FloorStockScopeBarTests(TestCase):
         carlo.manager_profile.save(update_fields=['branch'])
 
         response = self.login('carlo').get('/inventory/stock/')
-        html = response.content.decode()
-
-        self.assertNotIn('class="seg"', html)
-        self.assertEqual(len(response.context['rows']), 0)
-        self.assertIn('No branch is assigned to your account', html)
+        self.assertEqual(response.status_code, 302)

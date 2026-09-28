@@ -187,7 +187,7 @@
         {% endif %}
       </p>
     </div>
-    {% if user.role == "OWNER" %}
+    {% if user.role == "OWNER" and action_access.procurement.edit %}
     <form method="POST" action="{% url 'procurement_approve' procurement.pk %}" class="row"
           data-confirm="{{ procurement.po_number }} will be approved and moved to Ordered, committing the order to the supplier."
           data-confirm-title="Approve this purchase order?"
@@ -201,7 +201,7 @@
 </div>
 {% endif %}
 
-{% if procurement.status != "Received" and procurement.status != "Cancelled" %}
+{% if action_access.procurement.edit and procurement.status != "Received" and procurement.status != "Cancelled" %}
 <div class="card card-pad mb-4">
   <div class="status-update-block">
     <div>

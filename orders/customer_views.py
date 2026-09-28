@@ -205,7 +205,7 @@ def _cart_items(request):
             # checkout() reads directly and would otherwise refuse forever
             # with "0 left" for an item the shopper can no longer even see
             # to remove.
-            product = Product.objects.filter(pk=product_id).first()
+            product = Product.objects.filter(pk=product_id, is_active=True).first()
             dropped.append(product.product_name if product else 'An item')
             cart.pop(product_id, None)
             changed = True
@@ -444,7 +444,7 @@ def search_suggestions(request):
     # in-stock gate as the listings — otherwise the one place a shopper can
     # still reach an unavailable product is the search box.
     products = (
-        Product.objects.select_related('category')
+        Product.objects.filter(is_active=True).select_related('category')
         .filter(Q(product_name__icontains=query) | Q(sku_code__icontains=query))
         .filter(id__in=in_stock_product_ids(request.session.get('branch_id')))
         .order_by('product_name')[:SEARCH_SUGGESTION_LIMIT]
@@ -464,7 +464,7 @@ def search_suggestions(request):
 
 
 def product_detail(request, product_id):
-    product = get_object_or_404(Product, id=product_id)
+    product = get_object_or_404(Product, id=product_id, is_active=True)
     branch_id = request.session.get('branch_id')
     # Same treatment the grid cards get, so the detail page can show the
     # "In stock · N sold" line instead of making the shopper infer both from
@@ -520,7 +520,7 @@ def product_detail(request, product_id):
         p.id: p
         for p in attach_storefront_counts(
             list(
-                Product.objects.filter(id__in=recent_ids)
+                Product.objects.filter(id__in=recent_ids, is_active=True)
                 .filter(id__in=in_stock_ids)
                 .select_related('category')
                 .prefetch_related('images')
@@ -557,7 +557,7 @@ def product_detail(request, product_id):
         # click. Same gate the catalog and home grids use.
         'related': attach_storefront_counts(
             list(
-                Product.objects.filter(category=product.category)
+                Product.objects.filter(category=product.category, is_active=True)
                 .exclude(id=product.id)
                 .filter(id__in=in_stock_ids)
                 .select_related('category')
@@ -808,10 +808,10 @@ def add_to_cart(request, product_id):
     # row reading zero). That is a normal shopping outcome, not a broken URL —
     # a 404 page would also break the AJAX path, which expects JSON back.
     inv = Inventory.objects.sellable().filter(
-        product_id=product_id, branch_id=branch_id
+        product_id=product_id, product__is_active=True, branch_id=branch_id
     ).select_related('product', 'branch').first()
     if inv is None:
-        product = get_object_or_404(Product, pk=product_id)
+        product = get_object_or_404(Product, pk=product_id, is_active=True)
         error = f'{product.product_name} is not carried at your selected branch.'
         if is_ajax:
             return JsonResponse({'ok': False, 'error': error}, status=409)

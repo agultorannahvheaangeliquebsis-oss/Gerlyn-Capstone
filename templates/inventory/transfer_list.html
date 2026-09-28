@@ -89,10 +89,10 @@ of the movement) — see transfer_list's movement_branch_ids.
     <h1>Stock Adjustments</h1>
     <p class="gv-meta mb-0">Withdrawal slips, plus a complete log of every stock movement across the branch</p>
   </div>
-  <button type="button" class="btn btn-primary" id="open-create-modal">
+  {% if action_access.withdrawals.add %}<button type="button" class="btn btn-primary" id="open-create-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     New Stock Adjustment
-  </button>
+  </button>{% endif %}
 </div>
 
 {% comment %}
@@ -176,7 +176,7 @@ across the full width leave the default block padding as empty card.
           <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
           <span class="tag">{{ t.purpose }}</span>
         </div>
-        <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
+        {% if action_access.withdrawals.edit %}<form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
           {% csrf_token %}
           <label class="gv-meta" for="qty-{{ t.pk }}">Received</label>
           <input id="qty-{{ t.pk }}" type="number" name="received_qty" min="0" inputmode="numeric">
@@ -187,7 +187,7 @@ across the full width leave the default block padding as empty card.
           <input type="number" name="received_qty" min="0" placeholder="Qty" inputmode="numeric" aria-label="Quantity actually received">
           <input type="text" name="flag_reason" placeholder="Reason" aria-label="Reason for the discrepancy">
           <button class="btn btn-danger btn-sm" type="submit">Flag discrepancy</button>
-        </form>
+        </form>{% endif %}
       </div>
     {% endif %}{% endfor %}
   </div>
@@ -240,7 +240,7 @@ across the full width leave the default block padding as empty card.
               <span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span>
               <h3>No withdrawal slips yet</h3>
               <p>A withdrawal records stock leaving the shelf — damaged, expired, spoiled or on display — and stays open until the branch confirms what left.</p>
-              <button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('open-create-modal').click()">New Stock Adjustment</button>
+              {% if action_access.withdrawals.add %}<button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('open-create-modal').click()">New Stock Adjustment</button>{% endif %}
             </div>
           </td>
         </tr>
@@ -301,7 +301,7 @@ The item form's "Change" link drops ?branch= but keeps open_create=1,
 landing back on this same picker step — see _branch_scoped_modal_target and
 _transfer_list_context in inventory/views.py.
 {% endcomment %}
-<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
+{% if action_access.withdrawals.add %}<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" style="max-width:640px;">
     <div class="modal-head">
       <h2 id="create-modal-title">New Stock Adjustment</h2>
@@ -396,7 +396,7 @@ _transfer_list_context in inventory/views.py.
     </div>
     {% endif %}
   </div>
-</div>
+</div>{% endif %}
 {% endblock %}
 
 {% block extra_js %}

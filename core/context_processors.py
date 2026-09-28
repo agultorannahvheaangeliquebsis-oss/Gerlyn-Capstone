@@ -1,7 +1,7 @@
 """Template context available on every page."""
 from django.conf import settings
 
-from core.module_permissions import module_access_map
+from core.module_permissions import action_access_map, module_access_map
 from core.permissions import INTERNAL_ROLES
 from core.scoping import branch_ids_for_user
 from core.version import APP_VERSION
@@ -58,7 +58,10 @@ def module_access(request):
     user = getattr(request, "user", None)
     if not user or not user.is_authenticated:
         return {}
-    return {"module_access": module_access_map(user)}
+    return {
+        "module_access": module_access_map(user),
+        "action_access": action_access_map(user),
+    }
 
 
 # Maps the resolved URL name of the current request to the sidebar's

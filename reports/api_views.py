@@ -31,7 +31,11 @@ from core.scoping import scope_queryset  # noqa: E402
 
 
 def check_report_access(request):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    # Keep API parity with every server-rendered report view: Staff may read
+    # their own branch when the Reports/View action is granted.
+    if request.user.role not in [
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
+    ]:
         return Response(
             {'detail': 'You do not have permission to view reports.'},
             status=status.HTTP_403_FORBIDDEN

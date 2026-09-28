@@ -52,6 +52,13 @@ class User(AbstractUser):
         help_text="Which internal sections this account can see, on top of "
                   "its role. Owner is exempt and always sees everything."
     )
+    action_permissions = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Per-module view/add/edit/delete grants. Role and branch "
+                  "restrictions are always applied in addition to these grants."
+    )
 
     # Set only by accounts.services.hard_delete_personal_data — a deliberate,
     # Owner-triggered erasure of this account's identity fields in response
@@ -72,6 +79,22 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
+
+    def save(self, *args, **kwargs):
+        """Keep legacy ``allowed_modules`` writes effective during migration.
+
+        Older integrations update that JSON field directly. When they name it
+        in ``update_fields``, translate the change into the new action matrix
+        rather than silently leaving stale grants behind.
+        """
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'allowed_modules' in update_fields \
+                and 'action_permissions' not in update_fields:
+            from core.module_permissions import grants_for_modules
+            self.action_permissions = grants_for_modules(self.role, self.allowed_modules)
+            kwargs['update_fields'] = set(update_fields) | {'action_permissions'}
+        return super().save(*args, **kwargs)
+
 
     def get_initials(self):
         """Returns 'JA' for 'Joshua Agulto', or first letter of username."""
@@ -114,6 +137,26 @@ class User(AbstractUser):
         if self.role == self.Role.CUSTOMER:
             return CustomerProfile.objects.create(user=self, first_name=self.username, last_name='')
         return None
+
+
+class PermissionChangeLog(models.Model):
+    """Immutable audit record for Owner-managed action grant changes."""
+
+    target_user = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name='permission_change_logs'
+    )
+    changed_by = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name='permission_changes_made'
+    )
+    previous_permissions = models.JSONField(default=dict)
+    new_permissions = models.JSONField(default=dict)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-changed_at', '-pk']
+
+    def __str__(self):
+        return f'Permissions for {self.target_user} changed by {self.changed_by}'
 
 
 class VerificationToken(models.Model):

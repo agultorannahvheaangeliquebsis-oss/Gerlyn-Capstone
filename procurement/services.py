@@ -29,6 +29,7 @@ def active_supplier_product_links(supplier):
     return SupplierProduct.objects.filter(
         supplier_id=supplier_id,
         supplier__is_active=True,
+        product__is_active=True,
     )
 
 

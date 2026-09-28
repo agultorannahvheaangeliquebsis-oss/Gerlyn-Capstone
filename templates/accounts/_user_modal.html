@@ -98,19 +98,40 @@ blank means "keep the current one", which is what an empty field already says.
         </div>
       </div>
 
-      {% if which == "edit" %}
-      <div class="field" id="{{ which }}-user-modules-field">
-        <label>Module Access <span class="gv-meta">— managers &amp; staff only; which sections this account can see</span></label>
-        <div class="grid-2" style="gap:6px 16px;">
-          {% for code, label in module_choices %}
-            <label class="row" style="gap:8px; font-weight:400;">
-              <input type="checkbox" name="allowed_modules" value="{{ code }}" {% if code in modules %}checked{% endif %}>
-              {{ label }}
-            </label>
-          {% endfor %}
+      <div class="field" id="{{ which }}-user-modules-field"
+           data-submitted="{% if form_data %}1{% else %}0{% endif %}">
+        <input type="hidden" name="permissions_matrix" value="1">
+        <label>Action Permissions <span class="gv-meta">— role and branch restrictions still apply</span></label>
+        <div style="overflow-x:auto;">
+          <table class="data-table permission-matrix" style="min-width:620px;">
+            <thead><tr><th>Module</th><th>View</th><th>Add</th><th>Edit</th><th>Delete / Deactivate</th><th></th></tr></thead>
+            <tbody>
+            {% for row in permission_rows %}
+              <tr data-permission-module="{{ row.code }}">
+                <th scope="row">{{ row.label }}</th>
+                {% for cell in row.actions %}
+                <td style="text-align:center;">
+                  <input type="checkbox" class="permission-action"
+                         name="permission__{{ row.code }}__{{ cell.code }}" value="1"
+                         aria-label="{{ row.label }}: {{ cell.label }}"
+                         data-manager-allowed="{% if cell.manager_allowed %}1{% else %}0{% endif %}"
+                         data-staff-allowed="{% if cell.staff_allowed %}1{% else %}0{% endif %}"
+                         data-manager-default="{% if cell.manager_default %}1{% else %}0{% endif %}"
+                         data-staff-default="{% if cell.staff_default %}1{% else %}0{% endif %}"
+                         {% if cell.checked %}checked{% endif %}
+                         title="Unavailable choices are inherited from the selected role's security ceiling.">
+                </td>
+                {% endfor %}
+                <td><button type="button" class="btn btn-sm permission-select-all">Select all</button></td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
         </div>
+        <p class="gv-meta">Disabled choices are prohibited by the selected role and cannot be enabled by a grant.</p>
       </div>
 
+      {% if which == "edit" %}
       <div class="field">
         <label for="{{ which }}-user-password">
           Password

@@ -3,6 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from .models import (
     User, OwnerProfile, BranchManagerProfile,
     StaffProfile, CustomerProfile, SupplierProfile, Notification,
+    PermissionChangeLog,
 )
 
 
@@ -46,6 +47,22 @@ class NotificationAdmin(admin.ModelAdmin):
         if not obj.reference_type:
             return '-'
         return f'{obj.reference_type}:{obj.reference_id}'
+
+
+@admin.register(PermissionChangeLog)
+class PermissionChangeLogAdmin(admin.ModelAdmin):
+    list_display = ('target_user', 'changed_by', 'changed_at')
+    readonly_fields = tuple(field.name for field in PermissionChangeLog._meta.fields)
+    date_hierarchy = 'changed_at'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 admin.site.register(User, CustomUserAdmin)

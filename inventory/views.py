@@ -34,6 +34,7 @@ from .alerts import alert_summary, stock_status
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
+from core.module_permissions import FLOOR_STOCK, PRODUCTS, WAREHOUSE_STOCK, user_can
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
 from core.scoping import (
     branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
@@ -65,7 +66,7 @@ get_user_branch = branch_for_user
 
 def _product_list_context(request):
     products = (
-        Product.objects.select_related('category')
+        Product.objects.filter(is_active=True).select_related('category')
         .prefetch_related('inventory_records__branch', 'images', 'price_tiers')
         .all()
     )
@@ -122,8 +123,10 @@ def _product_list_context(request):
         # Every other active filter, for the topbar branch switcher to carry
         # along — same idea as _daterange.html's daterange_carry.
         'branch_switch_carry': [('q', search_query), ('category', category_filter)],
-        'total_count': Product.objects.count(),
-        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        'total_count': Product.objects.filter(is_active=True).count(),
+        'can_add': user_can(request.user, PRODUCTS, 'add'),
+        'can_edit': user_can(request.user, PRODUCTS, 'edit'),
+        'can_delete': user_can(request.user, PRODUCTS, 'delete'),
         'unit_choices': Product.UnitOfMeasure.choices,
         'next_sku': Product.next_sku_code(),
         'branches': branches,
@@ -284,7 +287,7 @@ def product_list(request):
 
     edit_pk = request.GET.get('edit')
     if edit_pk and context['can_edit']:
-        product = Product.objects.filter(pk=edit_pk).first()
+        product = Product.objects.filter(pk=edit_pk, is_active=True).first()
         if product:
             context.update({
                 'show_edit_modal': True,
@@ -293,7 +296,7 @@ def product_list(request):
             })
 
     import_step = request.GET.get('import')
-    if import_step and context['can_edit']:
+    if import_step and context['can_add']:
         context.update(_import_modal_context(request, import_step))
 
     return render(request, 'inventory/product_list.html', context)
@@ -314,8 +317,8 @@ def barcode_lookup(request):
         return JsonResponse({'found': False})
 
     product = (
-        Product.objects.filter(barcode__iexact=code).first()
-        or Product.objects.filter(sku_code__iexact=code).first()
+        Product.objects.filter(barcode__iexact=code, is_active=True).first()
+        or Product.objects.filter(sku_code__iexact=code, is_active=True).first()
     )
     if not product:
         return JsonResponse({'found': False})
@@ -437,7 +440,7 @@ def product_add(request):
 
 @login_required(login_url='accounts:login')
 def product_edit(request, pk):
-    product = get_object_or_404(Product, pk=pk)
+    product = get_object_or_404(Product, pk=pk, is_active=True)
 
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to edit products.')
@@ -547,8 +550,9 @@ def product_delete(request, pk):
     product = get_object_or_404(Product, pk=pk)
 
     if request.method == 'POST':
-        product.delete()
-        messages.success(request, 'Product deleted.')
+        product.is_active = False
+        product.save(update_fields=['is_active'])
+        messages.success(request, 'Product deactivated. Its transaction history was retained.')
         return redirect('product_list')
 
     # The confirm step is a modal on the product list now (confirm-dialog.js
@@ -1263,7 +1267,9 @@ def _category_list_context(request):
 
     return {
         'categories': categories,
-        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        'can_add': user_can(request.user, PRODUCTS, 'add'),
+        'can_edit': user_can(request.user, PRODUCTS, 'edit'),
+        'can_delete': user_can(request.user, PRODUCTS, 'delete'),
     }
 
 
@@ -1612,7 +1618,7 @@ def _inventory_list_context(request):
         active_branch = next(
             (b for b in all_branches if str(b.id) == branch_filter), None
         )
-    can_adjust = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+    can_adjust = user_can(request.user, FLOOR_STOCK, 'edit')
 
     return {
         'rows': rows,
@@ -1646,7 +1652,7 @@ def _inventory_list_context(request):
             ('q', search_query), ('category', category_filter), ('status', status_filter),
         ],
         'can_adjust': can_adjust,
-        'adjust_products': Product.objects.order_by('product_name'),
+        'adjust_products': Product.objects.filter(is_active=True).order_by('product_name'),
     }
 
 
@@ -1735,7 +1741,10 @@ def stock_adjustment_add(request):
     quantity = request.POST.get('quantity', '').strip()
     expiry_date = request.POST.get('expiry_date', '').strip()
 
-    product = Product.objects.filter(pk=product_id).first() if product_id else None
+    product = (
+        Product.objects.filter(pk=product_id, is_active=True).first()
+        if product_id else None
+    )
     branch = Branch.objects.filter(pk=branch_id).first() if branch_id else None
 
     errors = []
@@ -2186,11 +2195,11 @@ def _warehouse_stock_list_context(request):
         # Distinct products, not len(rows) — rows is now one-per-batch, so a
         # product with two lots would otherwise count itself twice.
         'total_products': len(matching),
-        'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        'can_edit_reorder': user_can(request.user, WAREHOUSE_STOCK, 'edit'),
         # Always available to any internal role — when there's no single
         # pinned branch (Owner), the modal shows a branch picker step first
         # rather than the button being hidden outright.
-        'can_request_to_floor': True,
+        'can_request_to_floor': user_can(request.user, WAREHOUSE_STOCK, 'add'),
         'request_target_branch': request_target_branch,
         'request_warehouse_stock': request_warehouse_stock,
         'show_request_modal': request.GET.get('open_request') == '1',
@@ -3145,8 +3154,8 @@ def transfer_scan(request, pk):
         return JsonResponse({'ok': False, 'detail': 'No code supplied.'}, status=400)
 
     product = (
-        Product.objects.filter(barcode__iexact=code).first()
-        or Product.objects.filter(sku_code__iexact=code).first()
+        Product.objects.filter(barcode__iexact=code, is_active=True).first()
+        or Product.objects.filter(sku_code__iexact=code, is_active=True).first()
     )
     item = transfer.items.filter(product=product).first() if product else None
 

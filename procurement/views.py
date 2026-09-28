@@ -28,6 +28,7 @@ from core.querystrings import list_filter_querystring
 from core.permissions import (
     BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
 )
+from core.module_permissions import PROCUREMENT, user_can
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -99,7 +100,7 @@ def _procurement_list_context(request):
     # creating a PO stays Owner/Manager-only — procurement_add's own role
     # check has always enforced that; this just stops offering a button
     # Staff would only get rejected from now that they can reach the page.
-    can_create = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+    can_create = user_can(request.user, PROCUREMENT, 'add')
 
     switch_branches = Branch.objects.all() if show_branch_filter else []
 
@@ -321,7 +322,7 @@ def _procurement_form_context(user):
     # default cost belongs to a supplier/product pair. These are the only
     # options the PO JavaScript will put in a product selector.
     links = list(
-        SupplierProduct.objects.filter(supplier__in=suppliers)
+        SupplierProduct.objects.filter(supplier__in=suppliers, product__is_active=True)
         .select_related('product')
         .prefetch_related('product__price_tiers')
         .order_by('supplier_id', 'product__product_name')
@@ -849,7 +850,7 @@ def delivery_list(request):
             receive_items = candidate.items.select_related('product').all()
             # The "add unexpected item" picker. Excludes what's already on
             # the order, so the only thing it can offer is a genuinely new line.
-            addable_products = Product.objects.exclude(
+            addable_products = Product.objects.filter(is_active=True).exclude(
                 pk__in=receive_items.values_list('product_id', flat=True)
             ).order_by('product_name')
 
@@ -1117,8 +1118,8 @@ def delivery_scan(request, pk):
     # then our own SKU, which covers products that never got a manufacturer
     # code assigned.
     product = (
-        Product.objects.filter(barcode__iexact=code).first()
-        or Product.objects.filter(sku_code__iexact=code).first()
+        Product.objects.filter(barcode__iexact=code, is_active=True).first()
+        or Product.objects.filter(sku_code__iexact=code, is_active=True).first()
     )
 
     item = None
@@ -1178,7 +1179,9 @@ def delivery_add_unexpected(request, pk):
         messages.error(request, f'{proc.po_number} is closed.')
         return redirect('procurement_detail', pk=pk)
 
-    product = get_object_or_404(Product, pk=request.POST.get('product'))
+    product = get_object_or_404(
+        Product, pk=request.POST.get('product'), is_active=True
+    )
 
     if proc.items.filter(product=product).exists():
         messages.info(request, f'{product.product_name} is already on this order.')
@@ -1420,7 +1423,7 @@ def supplier_notification_mark_all_read(request):
 def _supplier_list_context(request):
     from django.db.models import Count
 
-    suppliers = User.objects.filter(role=User.Role.SUPPLIER).select_related(
+    suppliers = User.objects.filter(role=User.Role.SUPPLIER, is_active=True).select_related(
         'supplier_profile'
     ).annotate(
         # Drives the Products column, which links into the per-supplier
@@ -1572,7 +1575,7 @@ def supplier_detail(request, pk):
     # Products this supplier doesn't already carry — the "Add Product" picker.
     # Excluding the existing ones up front is what stops a user picking a
     # product that would only bounce off the unique constraint.
-    available = Product.objects.exclude(
+    available = Product.objects.filter(is_active=True).exclude(
         pk__in=links.values_list('product_id', flat=True)
     ).order_by('product_name')
 
@@ -1612,7 +1615,7 @@ def supplier_product_add(request, pk):
         messages.error(request, 'Choose a product to add.')
         return redirect('supplier_detail', pk=pk)
 
-    product = get_object_or_404(Product, pk=product_id)
+    product = get_object_or_404(Product, pk=product_id, is_active=True)
 
     cost = request.POST.get('default_cost_price') or None
     lead = request.POST.get('lead_time_days') or None
@@ -1723,8 +1726,9 @@ def supplier_delete(request, pk):
             )
             return redirect('supplier_list')
         name = getattr(supplier.supplier_profile, 'supplier_name', supplier.username)
-        supplier.delete()
-        messages.success(request, f'Supplier "{name}" deleted.')
+        supplier.is_active = False
+        supplier.save(update_fields=['is_active'])
+        messages.success(request, f'Supplier "{name}" deactivated. Purchase-order history was retained.')
         return redirect('supplier_list')
 
     # The confirm step is a modal on the supplier list now (confirm-dialog.js
@@ -1837,7 +1841,8 @@ class ProcurementDetailAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        proc.delete()
+        proc.status = Procurement.Status.CANCELLED
+        proc.save(update_fields=['status'])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

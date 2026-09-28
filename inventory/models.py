@@ -55,6 +55,10 @@ class Product(models.Model):
         help_text="Retail price — what one unit costs below the first bulk tier"
     )
     description = models.TextField(blank=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Inactive products are retained for transaction and stock audit history.',
+    )
 
     # --- tax / statutory-discount flags -------------------------------------
     # Three independent booleans, not one: a product can be VAT-exempt without

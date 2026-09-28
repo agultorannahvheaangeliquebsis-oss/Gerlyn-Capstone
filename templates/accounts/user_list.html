@@ -151,11 +151,11 @@ to, not sit frozen on "All Branches".{% endcomment %}
 </div>
 
 {% url 'accounts:user_add' as add_action %}
-{% include "accounts/_user_modal.html" with which="add" title="Invite New User" action=add_action branch_id=add_branch_id errors=add_errors form_data=add_form_data is_open=show_add_modal submit_label="Send Invite" %}
+{% include "accounts/_user_modal.html" with which="add" title="Invite New User" action=add_action branch_id=add_branch_id permission_rows=add_permission_rows errors=add_errors form_data=add_form_data is_open=show_add_modal submit_label="Send Invite" %}
 
 {% if edit_target %}
 {% url 'accounts:user_edit' edit_target.pk as edit_action %}
-{% include "accounts/_user_modal.html" with which="edit" title="Edit User" action=edit_action target=edit_target branch_id=edit_branch_id modules=edit_modules errors=edit_errors form_data=edit_form_data is_open=show_edit_modal submit_label="Save Changes" %}
+{% include "accounts/_user_modal.html" with which="edit" title="Edit User" action=edit_action target=edit_target branch_id=edit_branch_id permission_rows=edit_permission_rows errors=edit_errors form_data=edit_form_data is_open=show_edit_modal submit_label="Save Changes" %}
 {% endif %}
 {% endblock %}
 
@@ -186,7 +186,7 @@ to, not sit frozen on "All Branches".{% endcomment %}
     var role = document.getElementById(which + '-user-role');
     var branch = document.getElementById(which + '-user-branch');
     var modulesField = document.getElementById(which + '-user-modules-field');
-    var moduleChecks = modulesField ? modulesField.querySelectorAll('input[type="checkbox"]') : [];
+    var moduleChecks = modulesField ? modulesField.querySelectorAll('.permission-action') : [];
     if (!role || !branch) return;
 
     function syncBranchField() {
@@ -200,11 +200,35 @@ to, not sit frozen on "All Branches".{% endcomment %}
       // they don't post a value the server would just ignore anyway — keeps
       // the form honest about what a given role selection actually affects.
       if (modulesField) modulesField.style.display = scoped ? '' : 'none';
-      moduleChecks.forEach(function (cb) { cb.disabled = !scoped; });
+      moduleChecks.forEach(function (cb) {
+        var roleAllowed = role.value === 'BRANCH_MANAGER'
+          ? cb.dataset.managerAllowed === '1'
+          : role.value === 'STAFF' && cb.dataset.staffAllowed === '1';
+        cb.disabled = !scoped || !roleAllowed;
+        if (!roleAllowed) cb.checked = false;
+      });
     }
 
-    role.addEventListener('change', syncBranchField);
+    role.addEventListener('change', function () {
+      if (which === 'add') {
+        moduleChecks.forEach(function (cb) {
+          cb.checked = role.value === 'BRANCH_MANAGER'
+            ? cb.dataset.managerDefault === '1'
+            : role.value === 'STAFF' && cb.dataset.staffDefault === '1';
+        });
+      }
+      syncBranchField();
+    });
     syncBranchField();
+
+    if (modulesField) {
+      modulesField.querySelectorAll('.permission-select-all').forEach(function (button) {
+        button.addEventListener('click', function () {
+          button.closest('tr').querySelectorAll('.permission-action:not(:disabled)')
+            .forEach(function (cb) { cb.checked = true; });
+        });
+      });
+    }
   });
 })();
 </script>

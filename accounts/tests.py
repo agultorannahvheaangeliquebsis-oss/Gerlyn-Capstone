@@ -379,6 +379,10 @@ class SupplierModalFlowTests(TestCase):
         manager = User.objects.create_user(
             username='carlo', password='pw', role=User.Role.BRANCH_MANAGER
         )
+        manager.manager_profile.branch = Branch.objects.create(
+            owner=self.owner, branch_name='Supplier Test Branch', location='Baliuag'
+        )
+        manager.manager_profile.save(update_fields=['branch'])
         self.client.force_login(manager)
         self.assertEqual(self.client.get(reverse('supplier_list')).status_code, 200)
         self.client.post(reverse('supplier_add'), {

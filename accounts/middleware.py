@@ -5,7 +5,10 @@ from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-from core.module_permissions import URL_NAME_TO_MODULE, user_can_access_module
+from core.module_permissions import (
+    PROTECTED_URL_NAMES, permission_for_request, role_allows,
+    route_role_allows, user_can,
+)
 
 
 class NoCacheForAuthenticatedMiddleware:
@@ -55,21 +58,36 @@ class ModulePermissionMiddleware:
             return None
 
         url_name = request.resolver_match.url_name if request.resolver_match else None
-        module_code = URL_NAME_TO_MODULE.get(url_name)
-        if module_code is None:
+        if url_name not in PROTECTED_URL_NAMES:
             return None
-
-        if not user_can_access_module(user, module_code):
+        permission = permission_for_request(url_name, request.method)
+        if permission is None:
+            return None
+        # Preserve each view's existing role-specific denial path/message.
+        # The action gate restricts access inside that ceiling; it does not
+        # replace or broaden the original role guard.
+        if not route_role_allows(url_name, user.role):
+            return None
+        if permission and not role_allows(user.role, permission[0], permission[1]):
+            return None
+        if not (permission and user_can(user, permission[0], permission[1])):
             if request.path.startswith('/api/'):
                 return JsonResponse(
-                    {'detail': 'You do not have access to this module.'},
+                    {'detail': 'You do not have permission to perform this action.'},
                     status=403,
                 )
-            messages.error(
-                request,
-                "You don't have access to that section. Ask your Owner or "
-                "Branch Manager to grant it if you need it."
-            )
+            if url_name == 'transaction_add':
+                from core.scoping import branch_ids_for_user
+                if branch_ids_for_user(user) == []:
+                    messages.error(
+                        request,
+                        'Your account is not assigned to a branch, so it cannot '
+                        'record sales. Ask the Owner or an administrator to set your branch.'
+                    )
+                else:
+                    messages.error(request, "You don't have permission to perform that action. Ask the Owner if you need access.")
+            else:
+                messages.error(request, "You don't have permission to perform that action. Ask the Owner if you need access.")
             from .views import redirect_by_role
             return redirect_by_role(request, user)
         return None

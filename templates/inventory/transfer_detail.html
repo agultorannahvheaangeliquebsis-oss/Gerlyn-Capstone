@@ -74,7 +74,7 @@
   </table>
   </div>
 
-  <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+  {% if action_access.withdrawals.edit %}<div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
     {% if transfer.status == 'Pending' %}
       <a class="btn green" style="padding:8px 16px; background:#128a4f; color:#fff; border-radius:4px; text-decoration:none;" href="{% url 'transfer_approve' transfer.pk %}">Review &amp; Approve</a>
     {% elif transfer.status == 'Approved' %}
@@ -92,6 +92,6 @@
         <input type="text" name="flag_reason" placeholder="reason" style="padding:6px; flex:1 1 100px;">
         <button type="submit" style="display:inline-flex; align-items:center; gap:6px; padding:8px 16px; color:#c0392b; background:#fff; border:1px solid #e6b3ae; border-radius:4px;">{% include "partials/_empty_icon.html" with icon="flag" %} Flag Discrepancy</button></form>
     {% endif %}
-  </div>
+  </div>{% endif %}
 </div>
 {% endblock %}

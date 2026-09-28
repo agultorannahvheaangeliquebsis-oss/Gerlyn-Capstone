@@ -70,7 +70,7 @@
             {% else %}<span class="gv-meta">No date set</span>{% endif %}
           </td>
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'delivery_receive' p.pk %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Receive</a>
+            {% if action_access.deliveries.edit %}<a class="btn btn-sm btn-primary" href="{% url 'delivery_receive' p.pk %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Receive</a>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -103,7 +103,7 @@
             {% else %}<span class="pill pill-neutral">Moderate</span>{% endif %}
           </td>
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Request Stock</a>
+            {% if action_access.withdrawals.add %}<a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Request Stock</a>{% endif %}
           </td>
         </tr>
         {% endfor %}

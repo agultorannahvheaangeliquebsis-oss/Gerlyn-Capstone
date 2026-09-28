@@ -193,7 +193,7 @@ class ProcurementWriteSerializer(serializers.Serializer):
         product_ids = [item['productId'] for item in value]
         if len(product_ids) != len(set(product_ids)):
             raise serializers.ValidationError("Duplicate products in order.")
-        existing = Product.objects.filter(id__in=product_ids).count()
+        existing = Product.objects.filter(id__in=product_ids, is_active=True).count()
         if existing != len(product_ids):
             raise serializers.ValidationError("One or more products not found.")
         return value
@@ -248,7 +248,7 @@ class ProcurementWriteSerializer(serializers.Serializer):
 
             total = 0
             for item_data in items_data:
-                product = Product.objects.get(id=item_data['productId'])
+                product = Product.objects.get(id=item_data['productId'], is_active=True)
                 qty     = item_data['quantityOrdered']
                 cost    = item_data['costPrice']
 

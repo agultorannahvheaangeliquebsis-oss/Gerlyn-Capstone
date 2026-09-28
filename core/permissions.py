@@ -133,16 +133,25 @@ class IsInternal(BasePermission):
 
 
 class HasModuleAccess(BasePermission):
-    """Apply the same per-user module grants to DRF API routes."""
+    """Apply the same per-user action grants to DRF API routes."""
 
     def has_permission(self, request, view):
         from core.module_permissions import (
-            URL_NAME_TO_MODULE,
-            user_can_access_module,
+            PROTECTED_URL_NAMES, permission_for_request, role_allows,
+            route_role_allows, user_can,
         )
 
         match = getattr(request, 'resolver_match', None)
-        module = URL_NAME_TO_MODULE.get(match.url_name if match else None)
-        if module is None or not request.user.is_authenticated:
+        url_name = match.url_name if match else None
+        if getattr(request.user, 'role', None) not in {BRANCH_MANAGER, STAFF}:
             return True
-        return user_can_access_module(request.user, module)
+        if url_name not in PROTECTED_URL_NAMES:
+            return True
+        permission = permission_for_request(url_name, request.method)
+        if permission is None:
+            return True
+        if not route_role_allows(url_name, request.user.role):
+            return True
+        if permission and not role_allows(request.user.role, permission[0], permission[1]):
+            return False
+        return bool(permission and user_can(request.user, permission[0], permission[1]))

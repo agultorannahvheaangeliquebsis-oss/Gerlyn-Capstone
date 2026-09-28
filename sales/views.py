@@ -15,6 +15,7 @@ from billing.models import BillingRecord
 from branches.models import Branch
 from core.people import person_display_name
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
+from core.module_permissions import SALES_POS, user_can
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
@@ -117,7 +118,7 @@ def _pos_products_for(user_branch):
     case instead, showing "Not carried at this branch" for any product with
     no entry in pos_stock_map for whichever branch is currently selected.
     """
-    products = Product.objects.select_related('category')
+    products = Product.objects.filter(is_active=True).select_related('category')
     if user_branch:
         products = products.filter(inventory_records__branch_id=user_branch.id).distinct()
     return products
@@ -219,7 +220,7 @@ def _transaction_list_context(request):
         transactions = transactions.filter(order_status=status_filter)
 
     show_branch_filter = branch_ids_for_user(request.user) is None
-    can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
+    can_pos = user_can(request.user, SALES_POS, 'add')
     branches = Branch.objects.all() if show_branch_filter else []
 
     over_committed_ids, over_committed_count = _over_committed_order_ids(request.user)
@@ -384,7 +385,10 @@ def transaction_detail(request, pk):
         # transaction_apply_discount re-checks every one of these conditions
         # itself - this only decides what to draw, and asks the same model
         # method the view enforces so the two cannot drift apart.
-        'can_apply_discount': _can_offer_discount(txn, billing),
+        'can_apply_discount': (
+            user_can(request.user, SALES_POS, 'edit')
+            and _can_offer_discount(txn, billing)
+        ),
         'discount_choices': _pos_discount_choices(),
     })
 
@@ -1181,7 +1185,7 @@ def transaction_add(request):
         names = []
         for pid in dropped_pids:
             try:
-                product = Product.objects.filter(pk=pid).first()
+                product = Product.objects.filter(pk=pid, is_active=True).first()
             except (ValueError, TypeError):
                 product = None
             names.append(product.product_name if product else f'item #{pid}')
@@ -1199,7 +1203,7 @@ def transaction_add(request):
     products_by_id = {}
     for pid, _qty in line_items:
         try:
-            products_by_id[str(pid)] = Product.objects.get(pk=pid)
+            products_by_id[str(pid)] = Product.objects.get(pk=pid, is_active=True)
         except (Product.DoesNotExist, ValueError, TypeError):
             pass
     if line_items and any(str(pid) not in products_by_id for pid, _qty in line_items):

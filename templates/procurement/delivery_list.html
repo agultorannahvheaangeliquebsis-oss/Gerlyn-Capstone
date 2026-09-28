@@ -156,7 +156,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
             {% endcomment %}
             <a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order"
                title="View details" aria-label="View details for {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
-            {% if p.status == 'Ordered' %}
+            {% if p.status == 'Ordered' and action_access.deliveries.edit %}
             <a class="btn btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive</a>
             {% endif %}
           </span>

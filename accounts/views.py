@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -11,7 +12,7 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
-    CustomerProfile, SupplierProfile, Notification,
+    CustomerProfile, SupplierProfile, Notification, PermissionChangeLog,
 )
 from .rate_limit import (
     REGISTER_MAX_ATTEMPTS, REGISTER_WINDOW_SECONDS,
@@ -22,7 +23,10 @@ from .role_policy import USER_MANAGEMENT_ROLE_CHOICES, USER_MANAGEMENT_ROLES
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
-from core.module_permissions import ALL_MODULE_CODES, MODULE_REGISTRY
+from core.module_permissions import (
+    ACTIONS, ALL_MODULE_CODES, MODULE_LABELS, ROLE_ACTION_CEILINGS,
+    default_action_permissions, grants_for_modules,
+)
 
 
 def safe_next(request):
@@ -314,7 +318,7 @@ def customer_dashboard(request):
     
     from inventory.models import Product, ProductCategory
     from branches.models import Branch
-    products = Product.objects.prefetch_related('images')[:8]
+    products = Product.objects.filter(is_active=True).prefetch_related('images')[:8]
     branches = Branch.objects.all()
     categories = ProductCategory.objects.all()
     return render(request, 'accounts/customer_dashboard.html', {
@@ -340,6 +344,78 @@ def _profile_for(user):
         or getattr(user, 'staff_profile', None)
         or getattr(user, 'owner_profile', None)
     )
+
+
+def _normalized_permissions(user):
+    permissions = user.action_permissions
+    legacy_modules = {
+        module for module in (user.allowed_modules or [])
+        if module in ALL_MODULE_CODES
+    }
+    if permissions is None:
+        permissions = grants_for_modules(user.role, user.allowed_modules or [])
+    elif not isinstance(permissions, dict):
+        permissions = {}
+    elif {module for module in permissions if module in ALL_MODULE_CODES} != legacy_modules:
+        permissions = grants_for_modules(user.role, legacy_modules)
+    return {
+        module: [action for action in ACTIONS if action in permissions.get(module, [])]
+        for module in ALL_MODULE_CODES
+        if isinstance(permissions, dict) and permissions.get(module)
+    }
+
+
+def _submitted_permissions(request, role):
+    """Accept the action matrix, with legacy module-only POST compatibility."""
+    has_matrix_fields = (
+        request.POST.get('permissions_matrix') == '1'
+        or any(key.startswith('permission__') for key in request.POST)
+    )
+    if not has_matrix_fields:
+        modules = [
+            code for code in request.POST.getlist('allowed_modules')
+            if code in ALL_MODULE_CODES
+        ]
+        return grants_for_modules(role, modules)
+
+    ceiling = ROLE_ACTION_CEILINGS.get(role, {})
+    submitted = {}
+    for module in ALL_MODULE_CODES:
+        allowed = ceiling.get(module, set())
+        actions = [
+            action for action in ACTIONS
+            if action in allowed and request.POST.get(f'permission__{module}__{action}') == '1'
+        ]
+        # A write-only module is not usable from the UI and would make the
+        # legacy module mirror ambiguous. Any granted write therefore carries
+        # View when that role is allowed to view the module.
+        if actions and 'view' in allowed and 'view' not in actions:
+            actions.insert(0, 'view')
+        if actions:
+            submitted[module] = actions
+    return submitted
+
+
+def _permission_rows(permissions):
+    permissions = permissions or {}
+    manager_defaults = default_action_permissions(User.Role.BRANCH_MANAGER)
+    staff_defaults = default_action_permissions(User.Role.STAFF)
+    rows = []
+    labels = {'view': 'View', 'add': 'Add', 'edit': 'Edit', 'delete': 'Delete / Deactivate'}
+    for module, module_label in MODULE_LABELS.items():
+        cells = []
+        for action in ACTIONS:
+            cells.append({
+                'code': action,
+                'label': labels[action],
+                'checked': action in permissions.get(module, []),
+                'manager_allowed': action in ROLE_ACTION_CEILINGS['BRANCH_MANAGER'].get(module, set()),
+                'staff_allowed': action in ROLE_ACTION_CEILINGS['STAFF'].get(module, set()),
+                'manager_default': action in manager_defaults.get(module, []),
+                'staff_default': action in staff_defaults.get(module, []),
+            })
+        rows.append({'code': module, 'label': module_label, 'actions': cells})
+    return rows
 
 
 @login_required(login_url='accounts:login')
@@ -408,8 +484,8 @@ def _user_list_context(request):
         # unlike the non-privilege-escalating backfill default used for
         # pre-existing accounts) — overwritten by user_form on a rejected
         # submit so a retry keeps whatever was actually checked.
-        'module_choices': [(code, label) for code, (label, _urls) in MODULE_REGISTRY.items()],
-        'add_modules': ALL_MODULE_CODES,
+        'permission_actions': ACTIONS,
+        'add_permission_rows': _permission_rows({}),
     }
 
 
@@ -432,12 +508,13 @@ def user_list(request):
                 'show_edit_modal': True,
                 'edit_target': target,
                 'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
-                'edit_modules': target.allowed_modules or [],
+                'edit_permission_rows': _permission_rows(_normalized_permissions(target)),
             })
     return render(request, 'accounts/user_list.html', context)
 
 
 @login_required(login_url='accounts:login')
+@transaction.atomic
 def user_form(request, pk=None):
     if request.user.role != User.Role.OWNER:
         messages.error(request, 'Only the Owner can manage users.')
@@ -463,9 +540,8 @@ def user_form(request, pk=None):
     # Filtered against the real registry so a tampered POST can't smuggle an
     # unknown code into the field — it'd be harmless (nothing gates on an
     # unrecognized code) but there's no reason to store it either.
-    submitted_modules = [
-        c for c in request.POST.getlist('allowed_modules') if c in ALL_MODULE_CODES
-    ]
+    submitted_permissions = _submitted_permissions(request, role)
+    previous_permissions = _normalized_permissions(target)
 
     # The same checks, collected rather than redirected — a redirect
     # discarded the whole form, and this one has several fields to retype.
@@ -538,8 +614,29 @@ def user_form(request, pk=None):
         # untouched for any other role rather than overwritten with an
         # empty list that would just be ignored anyway.
         if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
-            target.allowed_modules = submitted_modules
-            target.save(update_fields=['allowed_modules'])
+            target.action_permissions = submitted_permissions
+            target.allowed_modules = [
+                module for module, actions in submitted_permissions.items()
+                if 'view' in actions
+            ]
+            target.save(update_fields=['allowed_modules', 'action_permissions'])
+            if previous_permissions != submitted_permissions:
+                PermissionChangeLog.objects.create(
+                    target_user=target,
+                    changed_by=request.user,
+                    previous_permissions=previous_permissions,
+                    new_permissions=submitted_permissions,
+                )
+        elif previous_permissions:
+            target.action_permissions = {}
+            target.allowed_modules = []
+            target.save(update_fields=['allowed_modules', 'action_permissions'])
+            PermissionChangeLog.objects.create(
+                target_user=target,
+                changed_by=request.user,
+                previous_permissions=previous_permissions,
+                new_permissions={},
+            )
 
         if role_changed_from is not None:
             from core.notifications import CATEGORY_SYSTEM, PRIORITY_HIGH, notify
@@ -569,7 +666,7 @@ def user_form(request, pk=None):
         'show_edit_modal': True,
         'edit_target': target,
         'edit_branch_id': branch_id,
-        'edit_modules': submitted_modules,
+        'edit_permission_rows': _permission_rows(submitted_permissions),
         'edit_errors': errors,
         'edit_form_data': request.POST,
     })
@@ -586,6 +683,15 @@ def _user_invite_submit(request):
     email = request.POST.get('email', '').strip()
     role = request.POST.get('role')
     branch_id = request.POST.get('branch') or None
+    has_permission_payload = (
+        request.POST.get('permissions_matrix') == '1'
+        or 'allowed_modules' in request.POST
+        or any(key.startswith('permission__') for key in request.POST)
+    )
+    submitted_permissions = (
+        _submitted_permissions(request, role)
+        if has_permission_payload else default_action_permissions(role)
+    )
 
     errors = []
     if role not in USER_MANAGEMENT_ROLES:
@@ -629,6 +735,14 @@ def _user_invite_submit(request):
             target.staff_profile.branch_id = branch_id
             target.staff_profile.save()
 
+        if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
+            target.action_permissions = submitted_permissions
+            target.allowed_modules = [
+                module for module, actions in submitted_permissions.items()
+                if 'view' in actions
+            ]
+            target.save(update_fields=['allowed_modules', 'action_permissions'])
+
         send_staff_invite(target, request)
         messages.success(request, f'Invite sent to {email}.')
         return redirect('accounts:user_list')
@@ -639,6 +753,7 @@ def _user_invite_submit(request):
         'add_branch_id': branch_id,
         'add_errors': errors,
         'add_form_data': request.POST,
+        'add_permission_rows': _permission_rows(submitted_permissions),
     })
     return render(request, 'accounts/user_list.html', context)
 
@@ -833,7 +948,7 @@ def home_view(request):
     # happened to include an empty one.
     products = attach_storefront_counts(
         list(
-            Product.objects.select_related('category')
+            Product.objects.filter(is_active=True).select_related('category')
             .filter(id__in=in_stock_product_ids())
             .prefetch_related('images')[:12]
         ),

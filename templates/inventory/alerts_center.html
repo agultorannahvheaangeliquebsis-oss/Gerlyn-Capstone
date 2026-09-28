@@ -89,7 +89,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
 
 <!-- ------------------------------------------------------- low FLOOR stock -->
 <div id="panel-floor" class="card table-wrap">
-  <p class="gv-meta" style="padding:12px 16px 0;">Pull stock from the branch's own warehouse to fix these — see <a href="{% url 'transfer_create' %}">New Stock Adjustment</a>.</p>
+  {% if action_access.withdrawals.add %}<p class="gv-meta" style="padding:12px 16px 0;">Pull stock from the branch's own warehouse to fix these — see <a href="{% url 'transfer_create' %}">New Stock Adjustment</a>.</p>{% endif %}
   <table class="gv-table">
     <thead>
       <tr>
@@ -120,7 +120,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Create Stock Adjustment</a>
+            {% if action_access.withdrawals.add %}<a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Create Stock Adjustment</a>{% endif %}
           </span>
         </td>
       </tr>
@@ -141,7 +141,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
 
 <!-- --------------------------------------------------- low WAREHOUSE stock -->
 <div id="panel-warehouse" class="card table-wrap hidden">
-  <p class="gv-meta" style="padding:12px 16px 0;">Order more from the supplier to fix these — see <a href="{% url 'procurement_add' %}">Create Purchase Order</a>.</p>
+  {% if action_access.procurement.add %}<p class="gv-meta" style="padding:12px 16px 0;">Order more from the supplier to fix these — see <a href="{% url 'procurement_add' %}">Create Purchase Order</a>.</p>{% endif %}
   <table class="gv-table">
     <thead>
       <tr>
@@ -172,7 +172,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Create PO</a>
+            {% if action_access.procurement.add %}<a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Create PO</a>{% endif %}
           </span>
         </td>
       </tr>
@@ -217,7 +217,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <td data-label="Qty" class="num strong" style="color:var(--danger-fg);">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date" class="strong" style="color:var(--danger-fg);">{{ row.expiry_date|date:"Y-m-d" }}</td>
         <td data-label="Actions">
-          {% if row.location == 'Floor' %}
+          {% if row.location == 'Floor' and action_access.alerts.delete %}
           <button type="button" class="btn btn-sm btn-danger"
                   onclick="openWriteOffConfirm({{ row.batch_id }}, '{{ row.product.product_name|escapejs }}', '{{ row.branch.branch_name|escapejs }}', {{ row.quantity_on_hand }})">
             Write Off

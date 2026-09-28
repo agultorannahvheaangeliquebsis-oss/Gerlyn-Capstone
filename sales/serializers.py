@@ -102,7 +102,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
 
     def validate_items(self, value):
         product_ids = [item['productId'] for item in value]
-        existing = Product.objects.filter(id__in=product_ids).count()
+        existing = Product.objects.filter(id__in=product_ids, is_active=True).count()
         if existing != len(set(product_ids)):
             raise serializers.ValidationError("One or more products not found.")
         return value
@@ -173,7 +173,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             inventories = []
             for item in items_data:
                 product = Product.objects.prefetch_related('price_tiers').get(
-                    id=item['productId']
+                    id=item['productId'], is_active=True
                 )
                 qty = item['quantity']
                 unit_price = product.price_at(qty_by_product[item['productId']])

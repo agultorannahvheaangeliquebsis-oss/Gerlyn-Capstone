@@ -203,6 +203,12 @@ views can never drift apart.
 
 ## How the key rules are enforced
 
+- **Action permissions** — the Owner assigns View, Add, Edit, and Delete/Deactivate
+  per internal module. `core.module_permissions.user_can()` combines that grant with
+  the account's role ceiling and branch assignment, and the same URL/method map is
+  enforced for server-rendered views and `/api/` endpoints. Supplier and Customer
+  portals continue to use their dedicated workflows.
+
 - **Branch scoping** — `core/scoping.py` filters every queryset server-side. The UI's
   branch dropdown is never the only guard.
 - **Stock moves exactly once** — walk-in sales deduct at the point of sale; online

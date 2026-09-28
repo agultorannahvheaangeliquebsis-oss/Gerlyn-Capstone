@@ -97,7 +97,7 @@
 {% endif %}
 
 {# ---- lifecycle actions ---- #}
-{% if next_actions %}
+{% if next_actions and action_access.sales_pos.edit %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div>
@@ -174,7 +174,7 @@ from SalesTransaction.can_apply_pwd_senior_discount() via the view, which
 re-checks it on POST — a Delivery order is refused server-side even if
 this form is forged, so hiding the control is convenience, not the guard.
 {% endcomment %}
-{% if transaction.pwd_verification_status == 'PENDING' %}
+{% if transaction.pwd_verification_status == 'PENDING' and action_access.sales_pos.edit %}
 <div class="card card-pad mb-4">
   <h3>PWD discount verification</h3>
   <p>Order {{ transaction.order_number }} · {{ transaction.customer.get_full_name|default:transaction.customer.username }} · {{ transaction.branch.branch_name }}</p>
@@ -357,7 +357,7 @@ this form is forged, so hiding the control is convenience, not the guard.
       </div>
       <div class="row">
         <a class="btn" data-detail-modal="Billing Record" href="{% url 'billing_detail' billing.pk %}">View billing record</a>
-        {% if billing.status != "Paid" and transaction.pwd_verification_status != 'PENDING' %}
+        {% if action_access.billing.add and billing.status != "Paid" and transaction.pwd_verification_status != 'PENDING' %}
           <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
         {% endif %}
       </div>
@@ -365,7 +365,7 @@ this form is forged, so hiding the control is convenience, not the guard.
     {% else %}
       <p class="gv-meta">No billing record.</p>
       <div class="row mt-2" style="justify-content: flex-end;">
-        <a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>
+        {% if action_access.billing.add %}<a class="btn btn-primary" href="{% url 'billing_create' transaction.pk %}">Record Payment</a>{% endif %}
       </div>
     {% endif %}
   </div>
