@@ -336,7 +336,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
         items_data = validated_data.pop('items')
 
         branch_id = validated_data.get('branchId') or self.context.get('user_branch_id')
-        if not branch_id:
+        if not branch_id and user.role != user.Role.CUSTOMER:
             raise serializers.ValidationError({'branchId': 'No branch assigned to your account.'})
 
         # Staff/Manager are pinned to their own branch everywhere else in the
@@ -364,6 +364,46 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             )
 
         with transaction.atomic():
+            if user.role == user.Role.CUSTOMER:
+                # Customer API writes follow the same automatic whole-cart
+                # assignment as the server-rendered checkout. Lock all
+                # candidate rows first so another checkout cannot promise the
+                # same units while this one is resolving.
+                from orders.services import (
+                    customer_fulfillment_location,
+                    remember_assignment,
+                    resolve_nearest_branch,
+                )
+
+                list(
+                    Inventory.objects.select_for_update()
+                    .filter(
+                        branch__is_active=True,
+                        product_id__in=qty_by_product,
+                    )
+                    .order_by('branch_id', 'product_id')
+                )
+                location = customer_fulfillment_location(user, request.session)
+                resolution = resolve_nearest_branch(
+                    location['latitude'], location['longitude'], qty_by_product,
+                    city=location['city'], barangay=location['barangay'],
+                    preferred_branch_id=request.session.get('branch_id'),
+                )
+                if not resolution.branch:
+                    raise serializers.ValidationError({
+                        'items': 'No single branch can fulfill every item in this order.'
+                    })
+                branch_id = resolution.branch.pk
+                remember_assignment(request.session, resolution)
+
+            from orders.services import fulfillable_quantities
+            available_by_product = {
+                product_id: quantity
+                for (_branch_id, product_id), quantity in fulfillable_quantities(
+                    [branch_id], qty_by_product
+                ).items()
+            }
+
             # Lock stock and validate availability before writing anything, so
             # total_amount can be set at creation time (billing.signals reads
             # it then — creating with 0 and updating afterward left the
@@ -410,7 +450,10 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     inv = Inventory.objects.select_for_update().sellable().filter(
                         product=product, branch_id=branch_id
                     ).first()
-                    if not inv or inv.available_qty < total_qty:
+                    if (
+                        not inv
+                        or available_by_product.get(product.id, 0) < total_qty
+                    ):
                         raise serializers.ValidationError(
                             {'items': f'Not enough stock for {product.product_name}.'}
                         )
@@ -480,9 +523,10 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             # (_deduct_stock). Deducting here as well took the stock twice for
             # one sale: 5 units at creation, 5 more at completion. Availability
             # was still validated above, exactly like the storefront checkout
-            # (orders.customer_views.checkout) does — reserve nothing, promise
-            # nothing that isn't on the shelf, and let completion be the one
-            # place stock moves.
+            # (orders.customer_views.checkout) does. Pending/approved/preparing
+            # lines are counted as commitments by the shared fulfillment
+            # service, while completion remains the one place the physical
+            # quantity_on_hand value moves.
             #
             # A Physical sale over this endpoint IS the moment of sale (there
             # is no console step to wait for, the way there is none for the
@@ -547,6 +591,9 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 billing.payment_method = validated_data['modeOfPayment']
                 billing.save()
 
+        if user.role == user.Role.CUSTOMER:
+            request.session.pop('fulfillment_location', None)
+            request.session.pop('fulfillment_assignment', None)
         return txn
 
 

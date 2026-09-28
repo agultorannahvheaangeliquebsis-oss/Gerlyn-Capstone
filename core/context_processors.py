@@ -1,4 +1,6 @@
 """Template context available on every page."""
+from django.conf import settings
+
 from core.module_permissions import module_access_map
 from core.permissions import INTERNAL_ROLES
 from core.scoping import branch_ids_for_user
@@ -7,6 +9,11 @@ from core.version import APP_VERSION
 
 def app_version(request):
     return {"APP_VERSION": APP_VERSION}
+
+
+def map_config(request):
+    """Public attribution text only; provider URLs and keys remain server-side."""
+    return {"MAP_TILE_ATTRIBUTION": settings.MAP_TILE_ATTRIBUTION}
 
 
 def store_settings(request):
@@ -77,6 +84,10 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     # Procurement
     "supplier_list": "suppliers", "supplier_add": "suppliers",
     "supplier_edit": "suppliers", "supplier_delete": "suppliers",
+    "supplier_return_list": "returns", "supplier_return_detail": "returns",
+    "supplier_return_add": "returns",
+    "supplier_category_list": "suppliers", "supplier_category_add": "suppliers",
+    "supplier_category_edit": "suppliers", "supplier_category_delete": "suppliers",
     "procurement_list": "procurement", "procurement_add": "procurement",
     "procurement_detail": "procurement", "procurement_update_status": "procurement",
     "delivery_list": "deliveries", "delivery_receive": "deliveries",
@@ -216,7 +227,7 @@ def nav_branches(request):
     """
     from branches.models import Branch
 
-    return {"nav_branches": Branch.objects.all()}
+    return {"nav_branches": Branch.objects.filter(is_active=True)}
 
 
 ALERT_COUNT_CACHE_SECONDS = 30
@@ -326,7 +337,16 @@ def nav_selected_branch(request):
     try:
         from branches.models import Branch
 
-        return {"nav_selected_branch": Branch.objects.filter(pk=branch_id).first()}
+        branch = Branch.objects.filter(pk=branch_id, is_active=True).first()
+        assignment = request.session.get('fulfillment_assignment') or {}
+        distance = (
+            assignment.get('distance_km')
+            if branch and assignment.get('branch_id') == branch.pk else None
+        )
+        return {
+            "nav_selected_branch": branch,
+            "nav_branch_distance": distance,
+        }
     except Exception:
         return {}
 

@@ -4,8 +4,8 @@ from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Procurement, ProcurementItem, SupplierProduct
-from .services import SupplierCostError, snapshot_supplier_costs
+from .models import DeliveryReceipt, Procurement, ProcurementItem, SupplierProduct
+from .services import SupplierCostError, snapshot_supplier_costs, unassigned_product_ids
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
 from branches.models import Branch
@@ -93,7 +93,10 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
     )
     total            = serializers.DecimalField(source='total_cost', max_digits=12, decimal_places=2, read_only=True)
     receiptFlag      = serializers.CharField(source='receipt_flag', read_only=True)
+    fundingSource    = serializers.CharField(source='funding_source', read_only=True)
+    fundingNote      = serializers.CharField(source='funding_note', read_only=True)
     items            = ProcurementItemSerializer(many=True, read_only=True)
+    receipts         = serializers.SerializerMethodField()
 
     class Meta:
         model  = Procurement
@@ -111,7 +114,23 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
             'total',
             'status',
             'receiptFlag',
+            'fundingSource',
+            'fundingNote',
             'items',
+            'receipts',
+        ]
+
+    def get_receipts(self, obj) -> list:
+        from core.people import person_display_name
+
+        return [
+            {
+                'receivedBy': person_display_name(r.received_by) or None,
+                'deliveredBy': r.delivered_by or None,
+                'receiptDate': r.receipt_date.isoformat() if r.receipt_date else None,
+                'recordedAt': r.received_at.isoformat(),
+            }
+            for r in obj.receipts.all()
         ]
 
     def get_branch(self, obj) -> str | None:
@@ -174,6 +193,8 @@ class ProcurementWriteSerializer(serializers.Serializer):
     supplierId       = serializers.IntegerField()
     orderDate        = serializers.DateField()
     expectedDelivery = serializers.DateField(required=False, allow_null=True)
+    fundingSource    = serializers.ChoiceField(choices=Procurement.FundingSource.choices)
+    fundingNote      = serializers.CharField(required=False, allow_blank=True, max_length=200)
     items            = ProcurementItemWriteSerializer(many=True, min_length=1)
 
     def validate_branchId(self, value):
@@ -187,8 +208,10 @@ class ProcurementWriteSerializer(serializers.Serializer):
         return value
 
     def validate_supplierId(self, value):
-        if not User.objects.filter(id=value, role=User.Role.SUPPLIER).exists():
-            raise serializers.ValidationError("Supplier not found.")
+        if not User.objects.filter(
+            id=value, role=User.Role.SUPPLIER, is_active=True
+        ).exists():
+            raise serializers.ValidationError("Active supplier not found.")
         return value
 
     def validate_items(self, value):
@@ -201,14 +224,22 @@ class ProcurementWriteSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        product_ids = [item['productId'] for item in attrs.get('items', [])]
-        mapped_ids = set(SupplierProduct.objects.filter(
-            supplier_id=attrs.get('supplierId'),
-            product_id__in=product_ids,
-        ).values_list('product_id', flat=True))
-        if set(product_ids) != mapped_ids:
+        # Same rule as the web form: Other has to say what it is.
+        if (attrs['fundingSource'] == Procurement.FundingSource.OTHER
+                and not (attrs.get('fundingNote') or '').strip()):
             raise serializers.ValidationError({
-                'items': 'Every product must belong to the selected supplier catalog.'
+                'fundingNote': 'Describe the funding source when you choose Other.'
+            })
+        """Items must belong to the supplier's current product catalog."""
+        product_ids = [item['productId'] for item in attrs.get('items', [])]
+        if product_ids and unassigned_product_ids(
+            attrs.get('supplierId'), product_ids
+        ):
+            raise serializers.ValidationError({
+                'items': (
+                    'One or more products are not active products assigned '
+                    'to the selected supplier.'
+                ),
             })
         return attrs
 
@@ -221,6 +252,20 @@ class ProcurementWriteSerializer(serializers.Serializer):
         created_by   = request.user
 
         with transaction.atomic():
+            # Re-check while locking the selected catalog rows. Validation
+            # above gives a useful 400 before any write; this second check
+            # prevents a concurrent unlink from slipping between validation
+            # and creation.
+            if unassigned_product_ids(
+                supplier, [item['productId'] for item in items_data], lock=True
+            ):
+                raise serializers.ValidationError({
+                    'items': (
+                        'One or more products are no longer assigned to the '
+                        'selected supplier.'
+                    ),
+                })
+
             proc = Procurement.objects.create(
                 branch=branch,
                 supplier=supplier,
@@ -230,6 +275,8 @@ class ProcurementWriteSerializer(serializers.Serializer):
                 delivery_date=validated_data.get('expectedDelivery'),
                 status=Procurement.Status.DRAFT,
                 total_cost=0,
+                funding_source=validated_data['fundingSource'],
+                funding_note=(validated_data.get('fundingNote') or '').strip(),
             )
 
             for item_data in items_data:
@@ -241,7 +288,6 @@ class ProcurementWriteSerializer(serializers.Serializer):
                     product=product,
                     quantity_ordered=qty,
                 )
-
         return proc
 
 
@@ -275,6 +321,10 @@ class ProcurementStatusSerializer(serializers.Serializer):
     # Optional: override delivery date when marking as received
     deliveryDate = serializers.DateField(required=False, allow_null=True)
     actualReceiptDate = serializers.DateField(required=False)
+    # Optional courier/driver name, recorded on the DeliveryReceipt.
+    deliveredBy = serializers.CharField(
+        required=False, allow_blank=True, max_length=100,
+    )
     # Optional per-item received quantities for a RECEIVED transition. If
     # omitted entirely, every item is assumed received in full — the same
     # assumption this endpoint always made, kept as the default for any
@@ -418,5 +468,13 @@ class ProcurementStatusSerializer(serializers.Serializer):
                 )
                 instance.actual_receipt_date = receipt_date
                 instance.save()
+                # Same record the template view writes: who took this
+                # shipment in. The API's actor is the authenticated user.
+                DeliveryReceipt.objects.create(
+                    procurement=instance,
+                    received_by=user,
+                    receipt_date=receipt_date,
+                    delivered_by=(validated_data.get('deliveredBy') or '').strip(),
+                )
 
         return instance

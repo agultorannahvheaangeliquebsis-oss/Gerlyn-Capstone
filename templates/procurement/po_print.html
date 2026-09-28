@@ -223,7 +223,8 @@ it print too, so nobody signs a document with a broken figure.
       <div class="po-doc-title">PURCHASE ORDER</div>
       <div class="po-doc-meta">
         <strong>{{ procurement.po_number }}</strong><br>
-        Order date: {{ procurement.order_date|date:"d M Y" }}
+        Order date: {{ procurement.order_date|date:"d M Y" }}{% if procurement.funding_source %}<br>
+        Funding: {{ procurement.funding_source }}{% if procurement.funding_note %} ({{ procurement.funding_note }}){% endif %}{% endif %}
       </div>
     </div>
   </div>
@@ -326,6 +327,12 @@ it print too, so nobody signs a document with a broken figure.
       <div class="role">Received / Acknowledged By — Supplier</div>
     </div>
   </div>
+
+  {% if receipts %}
+  <p style="margin:14px 0 0; font-size:12px;">
+    {% for r in receipts %}Received into stock by {{ r.received_by_name|default:"—" }}{% if r.receipt_date %} on {{ r.receipt_date|date:"Y-m-d" }}{% endif %}{% if r.delivered_by %} (delivered by {{ r.delivered_by }}){% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}.
+  </p>
+  {% endif %}
 
   <div class="po-foot">
     <span>

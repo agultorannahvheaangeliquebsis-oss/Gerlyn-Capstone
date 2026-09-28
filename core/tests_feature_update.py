@@ -117,6 +117,12 @@ class FeatureUpdateTests(TestCase):
     def setUpTestData(cls):
         call_command('seed_demo', verbosity=0)
 
+    def setUp(self):
+        # Mapping tests below construct their own exact source/destination
+        # catalogs. The demo seed now also creates realistic catalogs for the
+        # PO picker, so isolate these transfer assertions from that fixture.
+        SupplierProduct.objects.all().delete()
+
     def login(self, username):
         client = Client()
         client.force_login(User.objects.get(username=username))

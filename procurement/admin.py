@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (
-    Procurement, ProcurementItem, SupplierProduct, DeliveryScanLog,
+    Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
+    DeliveryScanLog,
 )
 
 
@@ -36,9 +37,9 @@ class ProcurementItemAdmin(admin.ModelAdmin):
 class SupplierProductAdmin(admin.ModelAdmin):
     list_display = (
         'product', 'supplier', 'supplier_sku',
-        'current_cost_price', 'lead_time_days', 'is_preferred',
+        'current_cost_price', 'lead_time_days', 'is_preferred', 'status',
     )
-    list_filter = ('is_preferred', 'supplier')
+    list_filter = ('status', 'is_preferred', 'supplier')
     search_fields = ('product__product_name', 'product__sku_code', 'supplier_sku')
     autocomplete_fields = ()
     readonly_fields = ('current_cost_price',)
@@ -63,3 +64,10 @@ class DeliveryScanLogAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(SupplierProductRequest)
+class SupplierProductRequestAdmin(admin.ModelAdmin):
+    list_display = ('product_name', 'supplier', 'proposed_cost', 'status', 'created_at')
+    list_filter = ('status',)
+    search_fields = ('product_name',)

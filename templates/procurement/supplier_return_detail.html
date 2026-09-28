@@ -1,0 +1,166 @@
+{% extends "internal_base.html" %}
+{% load l10n %}
+{% block title %}{{ ret.return_number }}{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'supplier_return_list' %}">Supplier Returns</a>
+    <h1 class="mt-2">{{ ret.return_number }} {% include "partials/_return_status_pill.html" with status=ret.status %}</h1>
+  </div>
+</div>
+
+{% if ret.status == "Requested" %}
+<div class="banner banner-info mb-4">Waiting for the supplier to acknowledge or reject this return. No stock has moved yet.</div>
+{% elif ret.status == "Acknowledged" %}
+<div class="banner banner-info mb-4">The supplier acknowledged this return. Ship the goods back to take them out of warehouse stock.</div>
+{% elif ret.status == "Rejected" %}
+<div class="banner banner-error mb-4"><strong>The supplier rejected this return.</strong>{% if ret.supplier_note %} Reason: {{ ret.supplier_note }}{% endif %} No stock has moved — cancel it, or raise a new one.</div>
+{% elif ret.status == "Shipped" %}
+<div class="banner banner-info mb-4">The goods have been sent back. Record the credit note, or receive the replacement, to settle this return.</div>
+{% endif %}
+
+<div class="grid-2 mb-4">
+  <div class="card card-pad">
+    <h3 class="mb-4">Return details</h3>
+    <table class="gv-table kv-table" style="border:0;">
+      <tbody>
+        <tr><td class="gv-meta">Purchase order</td><td style="text-align:right;"><a href="{% url 'procurement_detail' ret.procurement.pk %}">{{ ret.procurement.po_number }}</a></td></tr>
+        <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ ret.branch.branch_name|default:"—" }}</td></tr>
+        <tr><td class="gv-meta">Supplier</td><td style="text-align:right;">{% if ret.supplier %}{{ ret.supplier.supplier_profile.supplier_name|default:ret.supplier.username }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="gv-meta">Reason</td><td style="text-align:right;">{{ ret.get_reason_display }}</td></tr>
+        {% if ret.notes %}<tr><td class="gv-meta">Notes</td><td style="text-align:right;">{{ ret.notes }}</td></tr>{% endif %}
+        <tr><td class="gv-meta">Raised</td><td class="gv-meta" style="text-align:right;">{{ ret.created_at|date:"Y-m-d H:i" }}{% if ret.requested_by %} by {{ ret.requested_by.username }}{% endif %}</td></tr>
+        {% if ret.responded_at %}<tr><td class="gv-meta">Supplier answered</td><td class="gv-meta" style="text-align:right;">{{ ret.responded_at|date:"Y-m-d H:i" }}</td></tr>{% endif %}
+        {% if ret.shipped_at %}<tr><td class="gv-meta">Shipped back</td><td class="gv-meta" style="text-align:right;">{{ ret.shipped_at|date:"Y-m-d H:i" }}{% if ret.shipped_by %} by {{ ret.shipped_by.username }}{% endif %}{% if ret.shipping_note %}<div>{{ ret.shipping_note }}</div>{% endif %}</td></tr>{% endif %}
+        {% if ret.status == "Settled" %}
+        <tr><td class="gv-meta">Settled by</td><td style="text-align:right;">{{ ret.resolution }}{% if ret.resolution == "Credit Note" %} — {{ ret.credit_reference }} (₱{{ ret.credit_amount|floatformat:2 }}){% endif %}</td></tr>
+        <tr><td class="gv-meta">Settled</td><td class="gv-meta" style="text-align:right;">{{ ret.settled_at|date:"Y-m-d H:i" }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if can_cancel or can_ship or can_settle %}
+  <div class="card card-pad">
+    <h3 class="mb-4">Actions</h3>
+
+    {% if can_ship %}
+    <form method="POST" action="{% url 'supplier_return_ship' ret.pk %}" class="mb-4"
+          data-confirm="The returned units are taken out of warehouse stock now. This can't be undone."
+          data-confirm-title="Ship these goods back?"
+          data-confirm-variant="warn"
+          data-confirm-ok="Ship back">
+      {% csrf_token %}
+      <div class="field">
+        <label for="ship-note">Shipping note <span class="gv-meta">— optional (courier, waybill)</span></label>
+        <input id="ship-note" type="text" name="shipping_note" maxlength="200">
+      </div>
+      <button type="submit" class="btn btn-primary">Ship goods back</button>
+    </form>
+    {% endif %}
+
+    {% if can_settle %}
+    <form method="POST" action="{% url 'supplier_return_credit' ret.pk %}" class="mb-4">
+      {% csrf_token %}
+      <h4 class="mb-2">Settle with a credit note</h4>
+      <div class="row wrap" style="gap:12px; align-items:flex-end;">
+        <div class="field" style="margin:0;">
+          <label for="credit-ref">Credit note reference</label>
+          <input id="credit-ref" type="text" name="credit_reference" maxlength="60" required>
+        </div>
+        <div class="field" style="margin:0;">
+          <label for="credit-amt">Amount (₱)</label>
+          <input id="credit-amt" type="number" name="credit_amount" min="0.01" step="0.01" required style="width:130px; text-align:right;">
+        </div>
+        <button type="submit" class="btn btn-primary">Record credit</button>
+      </div>
+    </form>
+    {% endif %}
+
+    {% if can_cancel %}
+    <form method="POST" action="{% url 'supplier_return_cancel' ret.pk %}"
+          data-confirm="{{ ret.return_number }} is closed and the supplier is told. No stock has moved, so nothing else changes."
+          data-confirm-title="Cancel this return?"
+          data-confirm-variant="danger"
+          data-confirm-ok="Cancel return"
+          data-confirm-dismiss="Keep return">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-quiet">Cancel this return</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if can_settle %}
+<form method="POST" action="{% url 'supplier_return_replacement' ret.pk %}">
+  {% csrf_token %}
+  <div class="card table-wrap mb-4">
+    <div class="card-pad" style="border-bottom:1px solid var(--line);">
+      <h3>Receive replacement goods</h3>
+      <p class="gv-meta mb-0">Enter what actually arrived. Stock is added to the warehouse only after you submit; the return settles once every unit is replaced.</p>
+    </div>
+    <table class="gv-table">
+      <thead><tr><th>Product</th><th class="num">Owed</th><th class="num">Received now</th><th>Expiry date</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+          <td data-label="Owed" class="num">{{ item.replacement_outstanding }}</td>
+          <td data-label="Received now" class="num">
+            {% if item.replacement_outstanding %}
+            <input type="number" name="qty_{{ item.pk|unlocalize }}" min="0" max="{{ item.replacement_outstanding|unlocalize }}" step="1" style="width:100px; text-align:right;"
+                   aria-label="Replacement units of {{ item.product.product_name }} received">
+            {% else %}—{% endif %}
+          </td>
+          <td data-label="Expiry date">{% if item.replacement_outstanding %}<input type="date" name="expiry_{{ item.pk|unlocalize }}" aria-label="Expiry date for {{ item.product.product_name }}">{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="card-pad row wrap" style="gap:12px; align-items:flex-end;">
+      <div class="field" style="margin:0;">
+        <label for="repl-by">Delivered by <span class="gv-meta">— optional</span></label>
+        <input id="repl-by" type="text" name="delivered_by" maxlength="100">
+      </div>
+      <button type="submit" class="btn btn-primary">Record replacement received</button>
+    </div>
+  </div>
+</form>
+{% endif %}
+
+<div class="card table-wrap mb-4">
+  <table class="gv-table">
+    <thead><tr><th>Product</th><th class="num">Units returned</th><th class="num">Replaced</th></tr></thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+        <td data-label="Units returned" class="num">{{ item.quantity_returned }}</td>
+        <td data-label="Replaced" class="num">{{ item.quantity_replaced }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if receipts %}
+<div class="card table-wrap mb-4">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Replacement receipts</h3></div>
+  <table class="gv-table">
+    <thead><tr><th>Date</th><th>Received by</th><th>Delivered by</th></tr></thead>
+    <tbody>
+      {% for r in receipts %}
+      <tr>
+        <td data-label="Date">{{ r.receipt_date|date:"Y-m-d" }}</td>
+        <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
+        <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -61,6 +61,76 @@ Open <http://127.0.0.1:8000/> — the storefront. Log in at `/login/` for the in
 `DJANGO_ALLOWED_HOSTS` in `.env`, then run
 `python manage.py runserver 0.0.0.0:8000`.
 
+### Email delivery
+
+Development uses Django's console email backend by default, so verification
+messages appear in the terminal without SMTP credentials. For a deployment,
+set these environment variables in the hosting service (never commit real
+values):
+
+```text
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_USE_SSL=False
+EMAIL_HOST_USER=the-sender@example.com
+EMAIL_HOST_PASSWORD=provider-app-password
+DEFAULT_FROM_EMAIL=the-sender@example.com
+PUBLIC_BASE_URL=https://your-public-domain.example
+```
+
+Use either TLS on port 587 or SSL on port 465, never both. Gmail requires an
+App Password when two-step verification is enabled, and the sender must be the
+authenticated account or an authorized alias. After setting deployment
+variables, verify delivery without creating an account:
+
+```bash
+python manage.py sendtestemail your-inbox@example.com
+```
+
+The command reports SMTP configuration/authentication failures to the operator;
+it does not print the configured password. After it succeeds, register a test
+customer and confirm that the received verification link starts with
+`PUBLIC_BASE_URL`.
+
+### Address maps and geocoding
+
+The address picker uses the bundled Philippine PSGC data for its cascading
+Region/Province/City/Barangay fields. Automatic pin placement is optional and
+is performed server-side through a Nominatim-compatible provider; the browser
+never receives the provider URL or key. Configure `GEOCODING_SEARCH_URL`,
+`GEOCODING_REVERSE_URL`, and an identifying `GEOCODING_USER_AGENT` in `.env`.
+Set `GEOCODING_API_KEY` and `GEOCODING_API_KEY_PARAM` only when the selected
+provider requires them.
+
+For map imagery, configure `MAP_TILE_URL_TEMPLATE` with `{z}`, `{x}`, and `{y}`
+placeholders (plus `{api_key}` when needed) and keep the key in
+`MAP_TILE_API_KEY`. Both geocoder results and tiles are cached. With these
+settings blank or while a provider is unavailable, the coordinate grid,
+manual coordinate entry, and draggable pin remain available.
+Set `MAP_TILE_ATTRIBUTION` to the credit line required by the chosen tile
+provider. The default provider-wide geocoding interval is one second and can
+be adjusted with `GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS` to match policy.
+
+### Automatic fulfillment branch
+
+The storefront assigns one active branch to the complete cart; it never
+splits an order. When the customer explicitly presses **Use current
+location**, the browser's Geolocation API supplies coordinates for a
+straight-line Haversine comparison. These coordinates stay only in the
+server-side session, expire after 30 minutes, and are cleared after checkout.
+Saved address coordinates are reused when available. Without coordinates,
+the resolver tries matching branch city/barangay service areas, preserves a
+valid automatic cart assignment, then uses `DEFAULT_FULFILLMENT_BRANCH_ID`
+or the lowest active branch ID as a deterministic fallback.
+
+Set `DEFAULT_FULFILLMENT_BRANCH_ID` in `.env` to an active Branch database ID
+when a specific store should be the fallback. Owners maintain branch active
+status and coordinates under **Administration → Branches** (or Django admin).
+Distance is approximate straight-line distance, not road distance or a
+delivery-time quote; no third-party routing service is used.
+
 ---
 
 ## Day-to-day: `./run.sh`
@@ -202,6 +272,23 @@ views can never drift apart.
   (`fulfillmentType`, `pwdDiscountRequest` on `POST /api/sales/`;
   `POST /api/sales/<id>/pwd-request/` to approve/reject). No ID image is stored — only
   the typed details, and the reviewer's name and time on the decision.
+- **Suppliers & purchase orders** —
+  *Categories:* a supplier has one category from a managed list (Procurement →
+  Suppliers → Supplier Categories, Owner-edited). *Offers:* a supplier's own "add a
+  product" is a **Proposed** offer with its cost; nothing is orderable until the Owner
+  approves it, and a product not yet on the master list is requested and only created on
+  approval. Suppliers can remove their own products, but not while one of their open
+  orders needs it. A PO can only list products the chosen supplier has an *approved*
+  offer for (web and API). *Funding:* every PO records where the money comes from
+  (Cash on Hand, Bank Transfer, GCash, Owner's Funds, or Other + note); editable until
+  the terms are agreed. *Receiving:* each shipment records who received it and,
+  optionally, the courier (`DeliveryReceipt`); stock is only added at that validated
+  receipt. *Returns:* goods can be sent back against a received PO — supplier
+  acknowledges, the store ships (units leave the **warehouse** exactly once, as
+  `Supplier Return` stock movements from that order's own lots), then it is settled by a
+  credit note or a replacement received into the warehouse. *Overdue:* see
+  [Notification operations](#notification-operations). The rules live in
+  `procurement/services.py`.
 
 ---
 
@@ -278,6 +365,13 @@ writes off batches whose expiry date has arrived from floor/warehouse stock,
 records one batch-linked `Expiry Write-off` movement per lot, and then sends
 near-expiry alerts. The command is idempotent. For an expiry-only manual run,
 use `python manage.py process_expired_stock`.
+
+The same job also sweeps overdue purchase-order deliveries
+(`python manage.py process_overdue_deliveries` to run just that): an Incoming or
+Partially Received order is flagged and the buyer and supplier notified once it
+is `PO_OVERDUE_GRACE_DAYS` (default 1) past its delivery date, and escalated to
+the Owner at `PO_OVERDUE_ESCALATE_DAYS` (default 3). Orders are never
+auto-cancelled; the Owner reschedules or cancels from the PO detail page.
 
 ## Scope limitations (per Chapter 1)
 

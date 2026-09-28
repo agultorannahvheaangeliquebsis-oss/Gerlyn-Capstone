@@ -911,6 +911,9 @@ class StockMovement(models.Model):
         # from ADJUSTMENT (the void-reversal type): a refund is a customer handing
         # goods back, not a correction to a mistaken count.
         CUSTOMER_RETURN = 'Customer Return', 'Customer Return (Refund)'
+        # Goods sent back to the supplier (procurement.SupplierReturn shipped).
+        # reference_id is the SupplierReturn's pk, not a Procurement's.
+        SUPPLIER_RETURN = 'Supplier Return', 'Supplier Return (Warehouse Out)'
 
     class LocationType(models.TextChoices):
         WAREHOUSE = 'Warehouse', 'Warehouse'

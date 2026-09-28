@@ -1,6 +1,8 @@
 {% extends "internal_base.html" %}
+{% load static %}
 {% block title %}Branch Management{% endblock %}
 {% block page_subtitle %}Administration{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -23,7 +25,9 @@
     <tbody>
       {% for r in rows %}
       <tr>
-        <td data-label="Branch" class="strong">{{ r.branch.branch_name }}</td>
+        <td data-label="Branch" class="strong">{{ r.branch.branch_name }}
+          {% if not r.branch.is_active %}<span class="pill pill-warn">Inactive</span>{% endif %}
+        </td>
         <td data-label="Location" class="gv-meta">{{ r.branch.location|default:"—" }}</td>
         <td data-label="Manager">
           {% if r.manager %}{{ r.manager }}{% else %}<span class="pill pill-warn">No manager</span>{% endif %}
@@ -95,7 +99,19 @@
         <label for="add-branch-location">Location</label>
         <textarea id="add-branch-location" name="location" rows="2"
                   placeholder="Brgy. Tarcan, Baliuag, Bulacan">{{ add_form_data.location|default:'' }}</textarea>
+        <button type="button" class="btn btn-sm btn-quiet js-branch-location" data-prefix="add" style="margin-top:8px;">Locate address on map</button>
+        <input type="hidden" id="add-region" name="region" value="{{ add_form_data.region|default:'' }}">
+        <input type="hidden" id="add-province" name="province" value="{{ add_form_data.province|default:'' }}">
+        <input type="hidden" id="add-city" name="city" value="{{ add_form_data.city|default:'' }}">
+        <input type="hidden" id="add-barangay" name="barangay" value="{{ add_form_data.barangay|default:'' }}">
+        <input type="hidden" id="add-street-detail" name="street_detail" value="{{ add_form_data.street_detail|default:'' }}">
+        <input type="hidden" id="add-latitude" name="latitude" value="{{ add_form_data.latitude|default:'' }}">
+        <input type="hidden" id="add-longitude" name="longitude" value="{{ add_form_data.longitude|default:'' }}">
       </div>
+      <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+        <input type="checkbox" name="is_active" style="width:auto; min-height:auto;" {% if add_form_data %}{% if add_form_data.is_active %}checked{% endif %}{% else %}checked{% endif %}>
+        Active for customer fulfillment
+      </label>
 
       {% comment %}
       Kept from the page this replaces. It states a side effect of saving that
@@ -146,7 +162,19 @@
         <label for="edit-branch-location">Location</label>
         <textarea id="edit-branch-location" name="location" rows="2"
                   placeholder="Brgy. Tarcan, Baliuag, Bulacan">{{ edit_form_data.location|default:edit_branch.location|default:'' }}</textarea>
+        <button type="button" class="btn btn-sm btn-quiet js-branch-location" data-prefix="edit" style="margin-top:8px;">Locate address on map</button>
+        <input type="hidden" id="edit-region" name="region" value="{{ edit_form_data.region|default:edit_branch.region|default:'' }}">
+        <input type="hidden" id="edit-province" name="province" value="{{ edit_form_data.province|default:edit_branch.province|default:'' }}">
+        <input type="hidden" id="edit-city" name="city" value="{{ edit_form_data.city|default:edit_branch.city|default:'' }}">
+        <input type="hidden" id="edit-barangay" name="barangay" value="{{ edit_form_data.barangay|default:edit_branch.barangay|default:'' }}">
+        <input type="hidden" id="edit-street-detail" name="street_detail" value="{{ edit_form_data.street_detail|default:edit_branch.street_detail|default:'' }}">
+        <input type="hidden" id="edit-latitude" name="latitude" value="{{ edit_form_data.latitude|default:edit_branch.latitude|default_if_none:'' }}">
+        <input type="hidden" id="edit-longitude" name="longitude" value="{{ edit_form_data.longitude|default:edit_branch.longitude|default_if_none:'' }}">
       </div>
+      <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+        <input type="checkbox" name="is_active" style="width:auto; min-height:auto;" {% if edit_form_data %}{% if edit_form_data.is_active %}checked{% endif %}{% elif edit_branch.is_active %}checked{% endif %}>
+        Active for customer fulfillment
+      </label>
     </form>
 
     <div class="modal-foot">
@@ -250,9 +278,11 @@
   </div>
 </div>
 {% endif %}
+{% include "accounts/_address_picker_modal.html" %}
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/address-picker.js' %}?v={{ APP_VERSION }}"></script>
 <script>
 (function () {
   initModal({
@@ -289,6 +319,32 @@
     select.addEventListener('change', syncNewFields);
     syncNewFields();
   }
+
+  document.querySelectorAll('.js-branch-location').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var prefix = button.dataset.prefix;
+      function value(name) {
+        var element = document.getElementById(prefix + '-' + name);
+        return element ? element.value : '';
+      }
+      AddressPicker.open({
+        title: prefix === 'edit' ? 'Edit Branch Location' : 'Set Branch Location',
+        showType: false,
+        initial: {
+          region: value('region'), province: value('province'), city: value('city'),
+          barangay: value('barangay'), street_detail: value('street-detail'),
+          text: value('branch-location'), latitude: value('latitude'), longitude: value('longitude')
+        },
+        onConfirm: function (data) {
+          document.getElementById(prefix + '-branch-location').value = data.text;
+          ['region', 'province', 'city', 'barangay', 'street-detail', 'latitude', 'longitude'].forEach(function (name) {
+            var key = name.replace('-', '_');
+            document.getElementById(prefix + '-' + name).value = data[key];
+          });
+        }
+      });
+    });
+  });
 })();
 </script>
 {% endblock %}

@@ -104,14 +104,42 @@ def branch_form(request, pk=None):
     name = request.POST.get('branch_name', '').strip()
     location = request.POST.get('location', '').strip()
 
+    from accounts.geocoding import parse_coordinates
+    try:
+        latitude, longitude = parse_coordinates(
+            request.POST.get('latitude'), request.POST.get('longitude')
+        )
+    except ValueError as exc:
+        latitude = longitude = None
+        coordinate_error = str(exc)
+    else:
+        coordinate_error = None
+
+    location_fields = {
+        'region': request.POST.get('region', '').strip(),
+        'province': request.POST.get('province', '').strip(),
+        'city': request.POST.get('city', '').strip(),
+        'barangay': request.POST.get('barangay', '').strip(),
+        'street_detail': request.POST.get('street_detail', '').strip(),
+        'latitude': latitude,
+        'longitude': longitude,
+        'is_active': (
+            request.POST.get('is_active') == 'on'
+            if branch is not None or 'is_active' in request.POST else True
+        ),
+    }
+
     errors = []
     if not name:
         errors.append('Branch name is required.')
+    if coordinate_error:
+        errors.append(coordinate_error)
 
     if not errors:
         if branch is None:
             branch = Branch.objects.create(
                 branch_name=name, location=location, owner=request.user,
+                **location_fields,
             )
             # Every branch needs a warehouse to receive/withdraw stock.
             Warehouse.objects.get_or_create(
@@ -121,6 +149,8 @@ def branch_form(request, pk=None):
         else:
             branch.branch_name = name
             branch.location = location
+            for field, value in location_fields.items():
+                setattr(branch, field, value)
             branch.save()
             messages.success(request, f'Branch "{name}" updated.')
         bust_branches_cache()

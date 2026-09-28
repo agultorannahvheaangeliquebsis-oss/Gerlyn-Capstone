@@ -256,9 +256,9 @@ class Address(models.Model):
     barangay      = models.CharField(max_length=15, blank=True)
     street_detail = models.CharField(max_length=255, blank=True)
 
-    # Legacy pin coordinates. No longer captured — the map picker was
-    # dropped as out of scope — but kept nullable so existing rows are
-    # untouched. Nothing reads these.
+    # Nullable so a typed address without a map pin remains valid. Automatic
+    # fulfillment uses the pair when present and falls back to the structured
+    # city/barangay fields when it is absent.
     latitude  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
@@ -279,14 +279,13 @@ class Address(models.Model):
         """Builds a human-readable address from the structured PSGC fields —
         the fallback used when the picker's text field is left untouched."""
         from . import geo
-        parts = [self.street_detail]
-        if self.barangay:
-            parts.append(f"Brgy. {geo.barangay_name(self.barangay)}")
-        if self.city:
-            parts.append(geo.city_name(self.city))
-        if self.province:
-            parts.append(geo.province_name(self.province))
-        return ", ".join(p for p in parts if p)
+        return geo.compose_address(
+            region=self.region,
+            province=self.province,
+            city=self.city,
+            barangay=self.barangay,
+            street_detail=self.street_detail,
+        )
 
 
 class NotificationPreference(models.Model):
@@ -330,6 +329,36 @@ class UserSession(models.Model):
         return describe_user_agent(self.user_agent)
 
 
+class SupplierCategory(models.Model):
+    """What kind of goods a supplier sells — a managed list the Owner
+    maintains, replacing the free-text field SupplierProfile used to carry
+    (which produced "Canned Goods" / "canned goods" / "Cans" as three
+    different categories).
+
+    product_categories optionally maps this supplier category onto the
+    storefront's ProductCategory rows; the supplier's own "add a product"
+    picker starts narrowed to those so a canned-goods supplier isn't scrolling
+    the whole catalog. It is a convenience filter, never a permission —
+    what a supplier may be ordered from is decided by its approved offers."""
+
+    name = models.CharField(max_length=100, unique=True)
+    product_categories = models.ManyToManyField(
+        'inventory.ProductCategory', blank=True, related_name='supplier_categories',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Inactive categories stay on existing suppliers but can't "
+                  "be picked for new ones.",
+    )
+
+    class Meta:
+        verbose_name_plural = 'Supplier categories'
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class SupplierProfile(models.Model):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='supplier_profile'
@@ -344,7 +373,10 @@ class SupplierProfile(models.Model):
     supplier_name     = models.CharField(max_length=100)
     contact_number    = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
     address           = models.TextField(blank=True)
-    supplier_category = models.CharField(max_length=100, blank=True)
+    category          = models.ForeignKey(
+        SupplierCategory, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='suppliers',
+    )
     contact_person    = models.CharField(max_length=100, blank=True)
 
     def __str__(self):
