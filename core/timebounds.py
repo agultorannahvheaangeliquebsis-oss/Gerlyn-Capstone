@@ -37,6 +37,8 @@ from datetime import date, datetime, timedelta
 
 from django.utils import timezone
 
+from .date_validation import parse_date_range
+
 
 def local_day_bounds(day):
     """
@@ -107,7 +109,7 @@ def resolve_date_range(preset, date_from=None, date_to=None, today=None):
     show unbounded history. A caller that buckets per day (the Dashboard's
     chart) genuinely cannot work without a lower edge, and resolves one itself.
     """
-    today = today or timezone.localtime().date()
+    today = today or timezone.localdate()
 
     if preset == 'today':
         return today, today, 'today'
@@ -120,8 +122,12 @@ def resolve_date_range(preset, date_from=None, date_to=None, today=None):
         return None, today, 'all'
     if preset == '7':
         return today - timedelta(days=6), today, '7'
-    if preset == 'custom' and date_from and date_to and date_from <= date_to:
-        return date_from, date_to, 'custom'
+    if preset == 'custom' and date_from and date_to:
+        # Request-facing callers validate this pair with parse_date_range.
+        # Keep this low-level resolver's documented safe fallback for direct
+        # callers that hand it an inverted pair.
+        if date_from <= date_to:
+            return date_from, date_to, 'custom'
     return today - timedelta(days=29), today, '30'
 
 
@@ -186,8 +192,9 @@ def _explicit_range_params(params):
     raw_day, raw_from, raw_to = (
         params.get('date') or '', params.get('date_from') or '', params.get('date_to') or '',
     )
-    day, date_from, date_to = (
-        parse_iso_date(raw_day), parse_iso_date(raw_from), parse_iso_date(raw_to),
+    day = parse_iso_date(raw_day)
+    date_from, date_to, range_errors = parse_date_range(
+        raw_from, raw_to, required=(preset == 'custom')
     )
 
     if not preset:
@@ -209,11 +216,12 @@ def _explicit_range_params(params):
             problem = "range=day needs a 'date' (YYYY-MM-DD)."
         date_from = day or date_from
     elif preset == 'custom':
-        if (raw_from and not date_from) or (raw_to and not date_to):
+        if ((raw_from and date_from is None)
+                or (raw_to and date_to is None)):
             problem = "'date_from' and 'date_to' must be valid YYYY-MM-DD dates."
         elif not (date_from and date_to):
             problem = "range=custom needs both 'date_from' and 'date_to'."
-        elif date_from > date_to:
+        elif range_errors:
             problem = "'date_from' must not be after 'date_to'."
     return preset, date_from, date_to, problem
 
@@ -252,8 +260,27 @@ def range_from_request(request, today=None):
     substituting a date.
     """
     preset, date_from, date_to, _problem = _explicit_range_params(request.GET)
+    request.date_range_errors = {}
+    request.date_range_values = {}
 
-    if not preset:
+    if preset == 'custom':
+        raw_from = request.GET.get('date_from', '')
+        raw_to = request.GET.get('date_to', '')
+        request.date_range_values = {
+            'date_from': raw_from,
+            'date_to': raw_to,
+        }
+        date_from, date_to, errors = parse_date_range(
+            raw_from, raw_to, required=True
+        )
+        if errors:
+            request.date_range_errors = errors
+            # Reject the submitted range and retain the last valid session
+            # selection rather than displaying figures for an inverted pair.
+            preset = None
+            date_from = date_to = None
+
+    if not preset and not request.date_range_errors:
         legacy = month_as_range(request.GET.get('month'))
         if legacy:
             preset, date_from, date_to = 'custom', legacy[0], legacy[1]
@@ -261,8 +288,14 @@ def range_from_request(request, today=None):
     if not preset:
         stored = request.session.get(DATE_RANGE_SESSION_KEY) or {}
         preset = stored.get('range')
-        date_from = date_from or parse_iso_date(stored.get('date_from'))
-        date_to = date_to or parse_iso_date(stored.get('date_to'))
+        date_from, date_to, stored_errors = parse_date_range(
+            stored.get('date_from'),
+            stored.get('date_to'),
+            required=(preset == 'custom'),
+        )
+        if stored_errors:
+            preset = None
+            date_from = date_to = None
 
     start, end, active = resolve_date_range(preset, date_from, date_to, today=today)
 

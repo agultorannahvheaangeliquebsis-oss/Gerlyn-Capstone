@@ -1451,12 +1451,19 @@ def resend_verification(request):
 def _profile_redirect(user):
     """Where to land after an account-security action (password, 2FA)
     completes — the internal Settings page for staff/branch managers/
-    owners, the customer Settings hub for everyone else. Without this,
-    internal users doing this from Settings > Password get bounced into
-    the customer-chromed profile page regardless of where they started."""
+    owners, the Supplier Portal's own account page for suppliers, the
+    customer Settings hub for everyone else. Without this, a Supplier (or
+    an internal user) doing this from their own account page gets bounced
+    into the customer-chromed profile page regardless of where they started
+    — change_password/toggle_two_factor/request_password_change_email never
+    render a template directly on error, only ever redirect through here, so
+    this one branch is enough to keep all three correctly on-shell for every
+    role."""
     from core.permissions import INTERNAL_ROLES
     if user.role in INTERNAL_ROLES:
         return redirect('internal_settings')
+    if user.role == User.Role.SUPPLIER:
+        return redirect('supplier_account')
     return redirect('accounts:profile')
 
 

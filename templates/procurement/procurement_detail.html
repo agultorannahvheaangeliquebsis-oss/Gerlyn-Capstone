@@ -266,12 +266,6 @@
 {% endif %}
 
 {% comment %}
-UIUX-006 — every option this card can ever offer a Supplier viewer
-(Received, Cancelled) is one procurement_update_status already refuses them:
-Drafts are never visible to a Supplier (see supplier_portal), so on their own
-Ordered PO this card would show nothing they're actually allowed to submit.
-Hiding it here matches the backend guard rather than leaving a dead-end form.
-
 Restricted to the three statuses where a plain status bump still makes
 unambiguous sense: Draft (cancel only — approval is the Approve card
 above), and Incoming/Partially Received (record a receipt, or cancel).
@@ -280,9 +274,16 @@ Terms Agreed) are owned entirely by the negotiation card below instead,
 including its own Cancel action — Incoming is reachable only through the
 supplier's own final confirmation once Terms Agreed, never a bare status
 POST here (that used to be a way to skip negotiation entirely).
+
+user.role != "SUPPLIER" (UIUX-006): every option this card can ever offer a
+Supplier viewer (Received, Cancelled) is one procurement_update_status
+already refuses them — Drafts are never visible to a Supplier (see
+supplier_portal), so on their own Ordered PO this card would show nothing
+they're actually allowed to submit. Hiding it here matches the backend
+guard rather than leaving a dead-end form.
 {% endcomment %}
-{% if user.role != "SUPPLIER" %}
 {% if procurement.status == "Draft" or procurement.status == "Incoming" or procurement.status == "Partially Received" %}
+  {% if user.role != "SUPPLIER" %}
 <div class="card card-pad mb-4">
   <div class="status-update-block">
     <div>
@@ -343,7 +344,7 @@ POST here (that used to be a way to skip negotiation entirely).
     </form>
   </div>
 </div>
-{% endif %}
+  {% endif %}
 {% endif %}
 
 {% comment %}
@@ -411,7 +412,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
       <input type="hidden" name="action" value="propose">
       <div class="field" style="max-width:220px;">
         <label for="neg-delivery-date">Delivery date</label>
-        <input id="neg-delivery-date" type="date" name="delivery_date" required>
+        <input id="neg-delivery-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" required>
       </div>
       <table class="gv-table kv-table mt-2" style="border:0;">
         <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>
@@ -442,7 +443,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
       <input type="hidden" name="action" value="counter">
       <div class="field" style="max-width:220px;">
         <label for="neg-counter-date">Delivery date</label>
-        <input id="neg-counter-date" type="date" name="delivery_date" required>
+        <input id="neg-counter-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" required>
       </div>
       <table class="gv-table kv-table mt-2" style="border:0;">
         <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Counter unit cost</th></tr></thead>

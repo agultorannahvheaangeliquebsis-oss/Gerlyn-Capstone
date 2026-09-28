@@ -1,0 +1,93 @@
+<style>
+  {% comment %}
+  Shared header chrome for every Supplier Portal page (supplier_portal.html,
+  supplier_notifications.html, supplier_account.html) — suppliers get a
+  focused shell, no internal sidebar, because none of those screens are
+  theirs to open. Brand colours below are scoped to .portal-header/
+  .portal-wrap on purpose: .brand-mark, .avatar, .btn, .filter-tab and .stat
+  are shared with the login/register/storefront/sidebar chrome, so
+  overriding them globally would restyle those too.
+
+  Split out of supplier_portal.html once a second page (supplier_account.html)
+  needed the identical header — a page's own <style> block still carries
+  whatever is specific to IT (stat cards, tabs, tables, ...), only the header
+  itself lives here now.
+  {% endcomment %}
+  /* No max-width on purpose: the Admin Dashboard's .content (its own main
+     content area) has none either and fills the full window width at any
+     size/zoom — this now matches that instead of the centered-card pattern
+     the Customer Shop's .shop-wrap uses. */
+  .portal-wrap { width: 100%; padding: 0 24px; box-sizing: border-box; }
+  .portal-header { width: 100%; background: #1E7A4F; color: #fff; border-bottom: none; padding: 14px 0; }
+  .portal-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  @media (max-width: 640px) { .portal-wrap { padding: 0 16px; } }
+
+  /* Brand mark: same logo image as the storefront header and admin sidebar,
+     just sized a touch larger (38px/9px radius) for this header. */
+  .portal-header .brand-mark { width: 38px; height: 38px; border-radius: 9px; }
+
+  /* Brand text next to the mark: name in full white, subtitle stepped
+     down to 80% opacity so it recedes under it. */
+  .portal-header .brand-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
+  .portal-header .brand-sub { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
+
+  /* Account info text next to the avatar: same scale as .brand-name/
+     .brand-sub on the left so both sides of the header read as one
+     typographic system, just right-aligned instead of left. */
+  .portal-header .who-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
+  .portal-header .who-role { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
+
+  /* Header avatar — first letter of the supplier's name. Deliberately its
+     own class rather than reusing .avatar: .avatar is --action/white
+     everywhere else, this one flips to a light tint on the dark header. */
+  .portal-avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex: none;
+    background: #E4F3EA; color: #123D28;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px;
+  }
+
+  /* Account link: same lightweight-outline treatment as Logout, so the two
+     header actions read as one pair rather than one styled and one bare. */
+  .portal-header .account-link,
+  .portal-header .btn {
+    background: transparent; border: 1px solid rgba(255,255,255,.35);
+    color: #fff; border-radius: 7px;
+  }
+  .portal-header .account-link:hover,
+  .portal-header .btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+  .portal-header .account-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; font-size: 13px; font-weight: 600; text-decoration: none;
+  }
+  .portal-header .account-link svg { width: 14px; height: 14px; }
+
+  /* Notification bell: same .topbar-bell/.notif-tray the internal
+     Owner/Manager/Staff chrome uses (static/js/notification-tray.js is
+     shared verbatim — see that file), just recoloured for the dark
+     header instead of the light topbar it was designed for. */
+  .portal-header .topbar-bell { color: #fff; }
+  .portal-header .topbar-bell:hover { background: rgba(255,255,255,.16); color: #fff; }
+  .portal-header .topbar-bell[aria-expanded="true"] { color: #fff; }
+
+  /* .notif-tray is translucent glass (72% white + backdrop-filter blur) so
+     it can pick up a tint from whatever sits behind it — invisible against
+     the light topbar it was designed for, but it pulled in this header's
+     solid dark green as a smudge across the top of the card. Made opaque
+     only here so the popover still reads as a clean white card like every
+     other role's. */
+  .portal-header .notif-tray, .portal-header .notif-tray::before { background: #fff; }
+
+  @media (max-width: 720px) {
+    /* Header: tighter padding, and the header's own copy of .portal-wrap
+       drops its horizontal padding so it isn't doubled up with the
+       header's — everything else keeps the wider 24px/16px gutter each
+       page's own rules set for its own content. */
+    .portal-header { padding: 12px 16px; }
+    .portal-header .portal-wrap { padding: 0; }
+    /* Keep just the essential brand name/account name — the subtitle and
+       role label are the least essential line on each side. */
+    .portal-header .brand-sub,
+    .portal-header .who-role { display: none; }
+  }
+</style>

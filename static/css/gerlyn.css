@@ -435,6 +435,19 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    carries preserveAspectRatio="none", so it compresses to fit rather than
    cropping anything. */
 .kpi-graph-panel svg { display: block; width: 100%; height: auto; max-height: 280px; }
+/* Sales Trend by Branch's own chart (reports/views.py::
+   _sales_trend_by_branch_chart) reuses .kpi-graph-svg-wrap for the tooltip's
+   positioned ancestor (below) but isn't itself a .kpi-graph-panel — it never
+   hides/swaps like the KPI rail's cards do — so it needs this same height:auto
+   rule under its own id rather than picking it up for free. Without it, the
+   HTML height="220" attribute holds the SVG at a literal 220 CSS px regardless
+   of how wide it stretches, so width and height end up scaled by DIFFERENT
+   factors — exactly the mismatch that made a 14-user-unit axis-label font-size
+   (computed compensating only the width-axis scale) paint far too small: its
+   real height followed the untouched (1x) height scale, not the width scale
+   the compensation divided by. Forcing height:auto keeps both axes scaled
+   together, same fix, same reason, as the rule above. */
+#trend-svg { display: block; width: 100%; height: auto; max-height: 280px; }
 /* Anchors the tooltip div's absolute positioning to this pane rather than the
    page (its nearest positioned ancestor would otherwise be much further up
    the tree, and the tooltip would need page-scroll-relative math instead of

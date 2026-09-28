@@ -47,7 +47,7 @@ from .services import (
     receive_replacement, remove_supplier_product, reschedule_delivery,
     respond_to_return, returnable_lines, review_offer, review_product_request,
     set_funding, settle_with_credit, ship_return, transfer_supplier_products,
-    unassigned_product_ids,
+    unassigned_product_ids, validate_expected_delivery_date,
 )
 from .serializers import (
     ProcurementReadSerializer,
@@ -128,9 +128,10 @@ def _procurement_list_context(request):
         'procurements': procurements,
         'counts': counts,
         'status_filter': status_filter,
-        'today': timezone.now().date(),
+        'today': timezone.localdate(),
         'can_create': can_create,
         'po_errors': None,
+        'po_field_errors': None,
         'po_form_data': None,
         'po_restore_rows': None,
         'branch_filter': branch_filter,
@@ -465,7 +466,7 @@ def procurement_add(request):
         branch_id = request.POST.get('branch')
 
     supplier_id  = request.POST.get('supplier')
-    order_date   = request.POST.get('order_date')
+    order_date_text = request.POST.get('order_date', '').strip()
     product_ids  = request.POST.getlist('product_id')
     quantities   = request.POST.getlist('quantity_ordered')
 
@@ -492,6 +493,14 @@ def procurement_add(request):
     # procurement_supplier_propose / procurement_review_terms), never set by
     # whoever creates the PO.
     errors = []
+    field_errors = {}
+    try:
+        order_date = parse_date(order_date_text) if order_date_text else None
+    except ValueError:
+        order_date = None
+    if order_date is None:
+        field_errors['order_date'] = 'Enter a valid order date.'
+        errors.append(field_errors['order_date'])
     items = []
     for product_id, qty in zip(product_ids, quantities):
         if not product_id and not qty:
@@ -536,6 +545,7 @@ def procurement_add(request):
         context = _procurement_list_context(request)
         context.update({
             'po_errors': errors,
+            'po_field_errors': field_errors,
             'po_form_data': request.POST,
             'po_restore_rows': [
                 {'product_id': pid, 'quantity': qty}
@@ -949,11 +959,17 @@ def _read_proposed_terms(request, proc):
     errors = []
 
     raw_date = request.POST.get('delivery_date', '').strip()
-    delivery_date = parse_date(raw_date) if raw_date else None
+    try:
+        delivery_date = parse_date(raw_date) if raw_date else None
+    except ValueError:
+        delivery_date = None
     if not delivery_date:
         errors.append('Choose a delivery date.')
-    elif delivery_date < timezone.localdate():
-        errors.append('The delivery date cannot be in the past.')
+    else:
+        try:
+            validate_expected_delivery_date(delivery_date)
+        except ValidationError as exc:
+            errors.append(f'Delivery date: {exc.messages[0]}')
 
     items = list(proc.items.filter(is_unexpected=False))
     costs = {}
@@ -1120,7 +1136,14 @@ def procurement_supplier_confirm(request, pk):
             messages.error(request, f'{locked.po_number} is not ready to confirm.')
             return redirect('supplier_portal')
 
-        apply_agreed_terms(locked)
+        try:
+            apply_agreed_terms(locked)
+        except ValidationError as exc:
+            messages.error(
+                request,
+                f'Delivery date: {exc.messages[0]} Submit updated terms first.',
+            )
+            return redirect('supplier_portal')
         locked.status = Procurement.Status.INCOMING
         locked.save(update_fields=['status'])
 
@@ -1276,7 +1299,7 @@ def delivery_list(request):
         'deliveries': deliveries,
         'counts': counts,
         'status_filter': status_filter,
-        'today': timezone.now().date(),
+        'today': timezone.localdate(),
         'search_query': search_query,
         'branches': branches,
         'branch_filter': branch_filter,
@@ -1722,7 +1745,7 @@ def supplier_portal(request):
     # it after the filter (as this used to) meant the Delivered/Cancelled
     # tabs had no Ordered rows left to summarize, and every stat silently
     # collapsed to 0 / ₱0.00 the moment you weren't on All or To fulfil.
-    today = timezone.now().date()
+    today = timezone.localdate()
     # Committed but not yet finished — includes the negotiation statuses now:
     # a PO mid-negotiation is exactly as "open" as one already Incoming, and
     # used to silently fall out of this count the moment it left Approved.
@@ -1783,6 +1806,127 @@ def supplier_portal(request):
         'profile': getattr(request.user, 'supplier_profile', None),
         'notif_unread_count': request.user.notifications.filter(is_read=False).count(),
     })
+
+
+# =============================================================================
+# SUPPLIER ACCOUNT — the portal's own self-service page (procurement/
+# supplier_account.html). Everything else in the portal is transactional
+# (orders, deliveries, catalog); this is the one screen about the account
+# itself, the Supplier equivalent of accounts/profile.html (Customer) and
+# internal_settings.html (Owner/Manager/Staff) — same idea, portal-shelled
+# instead of storefront- or internal-shelled, since neither of those chromes
+# is this role's.
+#
+# Field split, by who a change actually affects:
+#   self-editable   — username, email, contact_person, contact_number,
+#                      address: this supplier's own day-to-day contact
+#                      details, no different in kind from a Customer editing
+#                      their own name/phone/address.
+#   Owner/staff-only — supplier_name, supplier_category, branch: shown
+#                      read-only here. These aren't private to the supplier
+#                      the way contact details are — supplier_name is how
+#                      staff look this account up across POs/products/
+#                      dropdowns, and branch is store-side scoping (the same
+#                      reason a Branch Manager/Staff account can't reassign
+#                      its own `branch` either) — letting a supplier rename
+#                      either out from under the store's own records is a
+#                      store decision, not a personal-details one. Both stay
+#                      changeable through the existing Owner-only
+#                      supplier_form/supplier_list.
+#
+# Password/2FA reuse accounts.views' existing endpoints verbatim
+# (change_password, toggle_two_factor, request_password_change_email) —
+# none of the three ever render a template on error, only ever redirect via
+# accounts.views._profile_redirect, which already has a SUPPLIER branch
+# pointing back at supplier_account. Nothing role-specific needed on that
+# side beyond that one redirect branch.
+# =============================================================================
+
+def _supplier_account_context(request):
+    """Context for supplier_account.html — shared by the GET view and
+    supplier_account_update's error path, the same split
+    _internal_settings_context/update_profile use for their own pages."""
+    user = request.user
+    profile = user.get_or_create_role_profile()
+    return {
+        'username': user.username,
+        'email': user.email,
+        'pending_email': user.pending_email,
+        'is_email_verified': user.is_email_verified,
+        'initials': user.get_initials(),
+        'profile': profile,
+        'two_factor_enabled': user.two_factor_enabled,
+        'notif_unread_count': user.notifications.filter(is_read=False).count(),
+    }
+
+
+@login_required(login_url='accounts:login')
+def supplier_account(request):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+    return render(request, 'procurement/supplier_account.html', _supplier_account_context(request))
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def supplier_account_update(request):
+    if request.user.role != User.Role.SUPPLIER:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    from accounts.services import set_contact_number, send_email_change_verification
+
+    user = request.user
+    profile = user.get_or_create_role_profile()
+    errors = {}
+
+    new_username = request.POST.get('username', '').strip()
+    new_email = request.POST.get('email', '').strip().lower()
+    new_contact_person = request.POST.get('contact_person', '').strip()
+    new_contact_number = request.POST.get('contact_number', '').strip()
+    new_address = request.POST.get('address', '').strip()
+
+    if new_username and new_username != user.username:
+        if User.objects.filter(username__iexact=new_username).exclude(pk=user.pk).exists():
+            errors['username'] = 'That username is already taken.'
+        else:
+            user.username = new_username
+
+    if new_email and new_email != user.email:
+        email_taken = (
+            User.objects.filter(email=new_email).exclude(pk=user.pk).exists()
+            or User.objects.filter(pending_email=new_email).exclude(pk=user.pk).exists()
+        )
+        if email_taken:
+            errors['email'] = 'That email is already associated with another account.'
+        else:
+            try:
+                send_email_change_verification(user, new_email, request)
+                messages.info(
+                    request,
+                    f"A verification link has been sent to {new_email}. "
+                    f"Your email won't change until you click it."
+                )
+            except Exception:
+                errors['email'] = 'Failed to send verification email. Please try again.'
+
+    if new_contact_number:
+        try:
+            set_contact_number(profile, new_contact_number, user)
+        except ValidationError as e:
+            errors['contact_number'] = e.messages[0]
+
+    if errors:
+        context = {**_supplier_account_context(request), 'errors': errors}
+        return render(request, 'procurement/supplier_account.html', context)
+
+    user.save()
+    profile.contact_person = new_contact_person
+    profile.address = new_address
+    profile.save(update_fields=['contact_person', 'address'])
+    messages.success(request, 'Account updated.')
+    return redirect('supplier_account')
 
 
 @login_required(login_url='accounts:login')

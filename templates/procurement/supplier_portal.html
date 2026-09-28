@@ -6,68 +6,13 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>Supplier Portal — GERLYN</title>
   <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
+  {% include "procurement/_supplier_portal_head.html" %}
   <style>
-    /* Suppliers get a focused shell — no internal sidebar, because none of
-       those screens are theirs to open. Brand colours below are scoped to
-       .portal-header/.portal-wrap on purpose: .brand-mark, .avatar, .btn,
-       .filter-tab and .stat are shared with the login/register/storefront/
-       sidebar chrome, so overriding them globally would restyle those too. */
-    /* No max-width on purpose: the Admin Dashboard's .content (its own main
-       content area) has none either and fills the full window width at any
-       size/zoom — this now matches that instead of the centered-card pattern
-       the Customer Shop's .shop-wrap uses. */
-    .portal-wrap { width: 100%; padding: 0 24px; box-sizing: border-box; }
-    .portal-header { width: 100%; background: #1E7A4F; color: #fff; border-bottom: none; padding: 14px 0; }
-    .portal-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-    @media (max-width: 640px) { .portal-wrap { padding: 0 16px; } }
-
-    /* Brand mark: same logo image as the storefront header and admin sidebar,
-       just sized a touch larger (38px/9px radius) for this header. */
-    .portal-header .brand-mark { width: 38px; height: 38px; border-radius: 9px; }
-
-    /* Brand text next to the mark: name in full white, subtitle stepped
-       down to 80% opacity so it recedes under it. */
-    .portal-header .brand-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
-    .portal-header .brand-sub { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
-
-    /* Account info text next to the avatar: same scale as .brand-name/
-       .brand-sub on the left so both sides of the header read as one
-       typographic system, just right-aligned instead of left. */
-    .portal-header .who-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
-    .portal-header .who-role { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
-
-    /* Header avatar — first letter of the supplier's name. Deliberately its
-       own class rather than reusing .avatar: .avatar is --action/white
-       everywhere else, this one flips to a light tint on the dark header. */
-    .portal-avatar {
-      width: 34px; height: 34px; border-radius: 50%; flex: none;
-      background: #E4F3EA; color: #123D28;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 700; font-size: 14px;
-    }
-
-    /* Logout: lightweight outline on the dark header instead of a solid box. */
-    .portal-header .btn {
-      background: transparent; border: 1px solid rgba(255,255,255,.35);
-      color: #fff; border-radius: 7px;
-    }
-    .portal-header .btn:hover { background: rgba(255,255,255,.12); color: #fff; }
-
-    /* Notification bell: same .topbar-bell/.notif-tray the internal
-       Owner/Manager/Staff chrome uses (static/js/notification-tray.js is
-       shared verbatim — see that file), just recoloured for the dark
-       header instead of the light topbar it was designed for. */
-    .portal-header .topbar-bell { color: #fff; }
-    .portal-header .topbar-bell:hover { background: rgba(255,255,255,.16); color: #fff; }
-    .portal-header .topbar-bell[aria-expanded="true"] { color: #fff; }
-
-    /* .notif-tray is translucent glass (72% white + backdrop-filter blur) so
-       it can pick up a tint from whatever sits behind it — invisible against
-       the light topbar it was designed for, but it pulled in this header's
-       solid dark green as a smudge across the top of the card. Made opaque
-       only here so the popover still reads as a clean white card like every
-       other role's. */
-    .portal-header .notif-tray, .portal-header .notif-tray::before { background: #fff; }
+    /* Everything below is specific to THIS page (stat strip, tabs, tables,
+       confirm-date box) — the shared header chrome (brand/bell/who-name/
+       avatar/logout, plus its own responsive rules) now lives in
+       _supplier_portal_head.html, included above, so supplier_account.html
+       can use the identical header without a second hand-copy. */
 
     /* Stat cards: first one highlighted, the rest plain white/gray. */
     .portal-wrap .stat-strip .stat { background: #fff; border: 1px solid #E3E8E4; border-radius: 10px; }
@@ -148,16 +93,9 @@
        Two explicit breakpoints so the page actually restructures instead of
        just scaling down inside the centered .portal-wrap. */
     @media (max-width: 720px) {
-      /* Header: tighter padding, and the header's own copy of .portal-wrap
-         drops its horizontal padding so it isn't doubled up with the
-         header's — everything else keeps the wider 24px/16px gutter from
-         the rules above. */
-      .portal-header { padding: 12px 16px; }
-      .portal-header .portal-wrap { padding: 0; }
-      /* Keep just the essential brand name/account name — the subtitle and
-         role label are the least essential line on each side. */
-      .portal-header .brand-sub,
-      .portal-header .who-role { display: none; }
+      /* Header's own responsive rules (padding, portal-wrap, brand-sub/
+         who-role) live in _supplier_portal_head.html now — just this
+         page's own stuff here. */
 
       /* 4 stat cards -> 2, instead of leaving auto-fit to pick a width. */
       .portal-wrap .stat-strip { grid-template-columns: repeat(2, 1fr); }
@@ -190,59 +128,7 @@
 </head>
 <body>
 
-<header class="portal-header">
-  <div class="portal-wrap portal-nav">
-    <span class="row" style="gap:10px;">
-      <span class="brand-mark"><img src="{% static 'img/logo.png' %}" alt="GERLYN"></span>
-      <span>
-        <span class="brand-name">GERLYN</span><br>
-        <span class="brand-sub">Supplier Portal</span>
-      </span>
-    </span>
-    <span class="row" style="gap:12px;">
-      {% comment %}
-        Same tray markup/JS as the internal Owner/Manager/Staff bell
-        (templates/internal_base.html + static/js/notification-tray.js),
-        pointed at the supplier's own endpoints (procurement/views.py:
-        supplier_notifications) instead — those are scoped to
-        request.user.notifications and check role == SUPPLIER on every
-        request, so this bell can only ever show orders placed with THIS
-        supplier, never another supplier's or the store's own internal
-        notifications. No search/category-pills here (unlike the internal
-        tray): every notification a supplier gets is the same "your
-        purchase order" kind, so filtering them would have nothing to do.
-      {% endcomment %}
-      <div class="notif-tray-anchor">
-        <a class="topbar-bell" href="{% url 'supplier_notifications' %}" id="notifBell"
-           aria-haspopup="true" aria-expanded="false" title="Notifications" aria-label="Notifications">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-          {% if notif_unread_count %}<span class="nav-badge" id="notifBadge">{{ notif_unread_count }}</span>{% endif %}
-        </a>
-        <div class="notif-tray" id="notifTray" role="dialog" aria-label="Notifications" aria-hidden="true">
-          <div class="notif-tray-head">
-            <h2>Notifications</h2>
-            <button type="button" class="notif-tray-markread" id="notifMarkAll"
-                    data-url="{% url 'supplier_notification_mark_all_read' %}">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
-              Mark all read
-            </button>
-          </div>
-          <div class="notif-tray-list" id="notifList">
-            <div class="tray-empty">Loading…</div>
-          </div>
-          <div class="notif-tray-foot"><a href="{% url 'supplier_notifications' %}">See full list</a></div>
-        </div>
-        <div class="notif-tray-scrim" id="notifScrim"></div>
-      </div>
-      <span style="text-align:right;">
-        <span class="who-name">{{ profile.supplier_name|default:request.user.username }}</span><br>
-        <span class="who-role">Supplier</span>
-      </span>
-      <span class="portal-avatar">{{ profile.supplier_name|default:request.user.username|first|upper }}</span>
-      <a class="btn" href="{% url 'accounts:logout' %}">Logout</a>
-    </span>
-  </div>
-</header>
+{% include "procurement/_supplier_portal_header.html" with active_page="portal" %}
 
 <main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
 
@@ -579,7 +465,7 @@
           {% csrf_token %}
           <input type="hidden" name="action" value="propose">
           <div class="row wrap confirm-date-row" style="gap:10px; align-items:center; margin-bottom:10px;">
-            <input type="date" name="delivery_date" class="confirm-date-input" required>
+            <input type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" class="confirm-date-input" required>
           </div>
           <table class="gv-table" style="margin-bottom:10px;">
             <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>

@@ -13,7 +13,6 @@ from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
-from datetime import date
 from decimal import Decimal, InvalidOperation as DecimalException
 from urllib.parse import urlencode
 
@@ -2487,7 +2486,9 @@ def _transfer_list_context(request):
     purpose_filter = request.GET.get('purpose', '')
     # The shared back-office range control (_daterange.html), same as the
     # Dashboard, Reports and the audit log — DESIGN.md's "All date filtering
-    # should use the same date-range control pattern."
+    # should use the same date-range control pattern." Validates date_from/
+    # date_to itself (via core.date_validation.parse_date_range) and stores
+    # any errors on request.date_range_errors, which _daterange.html reads.
     range_start, range_end, active_range = range_from_request(request)
     # Owner-only branch filter — Manager/Staff are already pinned to their own
     # branch's transfers above, so a selector would do nothing for them.
@@ -2518,10 +2519,10 @@ def _transfer_list_context(request):
     # aware-datetime bounds, NOT created_at__month=/__year= — `created_at` is
     # a DateTimeField, so __month= is compiled through CONVERT_TZ on MySQL
     # and silently matches zero rows here, pinning this tile to 0 forever.
-    # See core.timebounds. localtime(), not now(): now() is UTC under
+    # See core.timebounds. localdate(), not now(): now() is UTC under
     # USE_TZ, so on the 1st or last day of a month it reports the wrong
     # month for Asia/Manila.
-    today = timezone.localtime().date()
+    today = timezone.localdate()
     month_start, month_end = local_month_bounds(today.year, today.month)
 
     total_released_this_month = transfers.filter(
@@ -2707,7 +2708,7 @@ def warehouse_stock_request(request):
         messages.error(request, f'No warehouse found for {target_branch.branch_name}.')
         return redirect('warehouse_stock_list')
 
-    transfer_date = request.POST.get('transfer_date') or date.today()
+    transfer_date = request.POST.get('transfer_date') or timezone.localdate()
     notes = request.POST.get('notes', '')
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity_requested')
@@ -2807,7 +2808,7 @@ def transfer_create(request):
     if purpose not in dict(write_off_purposes):
         purpose = StockTransfer.Purpose.OTHER  # guards against a tampered POST
     notes = request.POST.get('notes', '')
-    transfer_date = request.POST.get('transfer_date') or date.today()
+    transfer_date = request.POST.get('transfer_date') or timezone.localdate()
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity_requested')
 

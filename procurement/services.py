@@ -10,8 +10,11 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.db import transaction
 from django.db.models import F
+from django.core.exceptions import ValidationError
 
 from django.utils import timezone
+
+from core.date_validation import validate_today_or_future
 
 from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
 
@@ -29,6 +32,11 @@ class SupplierTransferError(Exception):
 
 class SupplierCostError(Exception):
     """A purchase order cannot be confirmed without supplier-owned costs."""
+
+
+def validate_expected_delivery_date(value, *, today=None):
+    """Apply the shared future-action rule to procurement delivery dates."""
+    return validate_today_or_future(value, today=today)
 
 
 def snapshot_supplier_costs(procurement):
@@ -79,6 +87,10 @@ def apply_agreed_terms(procurement):
     creation path pulling from the supplier's standing catalog price), this
     pulls from what was actually negotiated on THIS order.
     """
+    # Terms can sit agreed until the supplier confirms them. Revalidate at
+    # this mutation boundary so yesterday's proposal cannot become a newly
+    # active Incoming commitment today.
+    validate_expected_delivery_date(procurement.proposed_delivery_date)
     procurement.delivery_date = procurement.proposed_delivery_date
 
     total = Decimal('0.00')
@@ -430,8 +442,12 @@ def reschedule_delivery(procurement, new_date, today=None):
     """Move an awaiting-delivery order's delivery date and restart its overdue
     tracking. Returns the locked, updated order."""
     today = today or timezone.localdate()
-    if new_date is None or new_date < today:
+    if new_date is None:
         raise RescheduleError('Choose a delivery date that is today or later.')
+    try:
+        validate_expected_delivery_date(new_date, today=today)
+    except ValidationError as exc:
+        raise RescheduleError(exc.messages[0]) from exc
     with transaction.atomic():
         locked = Procurement.objects.select_for_update().get(pk=procurement.pk)
         if locked.status not in Procurement.AWAITING_DELIVERY_STATUSES:

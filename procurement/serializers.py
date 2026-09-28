@@ -1,11 +1,15 @@
 # procurement/serializers.py
 
 from rest_framework import serializers
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from .models import DeliveryReceipt, Procurement, ProcurementItem, SupplierProduct
-from .services import SupplierCostError, snapshot_supplier_costs, unassigned_product_ids
+from .services import (
+    SupplierCostError, snapshot_supplier_costs, unassigned_product_ids,
+    validate_expected_delivery_date,
+)
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
 from branches.models import Branch
@@ -192,7 +196,11 @@ class ProcurementWriteSerializer(serializers.Serializer):
     branchId         = serializers.IntegerField()
     supplierId       = serializers.IntegerField()
     orderDate        = serializers.DateField()
-    expectedDelivery = serializers.DateField(required=False, allow_null=True)
+    expectedDelivery = serializers.DateField(
+        required=False,
+        allow_null=True,
+        validators=[validate_expected_delivery_date],
+    )
     fundingSource    = serializers.ChoiceField(choices=Procurement.FundingSource.choices)
     fundingNote      = serializers.CharField(required=False, allow_blank=True, max_length=200)
     items            = ProcurementItemWriteSerializer(many=True, min_length=1)
@@ -250,6 +258,14 @@ class ProcurementWriteSerializer(serializers.Serializer):
         supplier     = User.objects.get(id=validated_data['supplierId'])
         owner_user   = request.user if request.user.role == User.Role.OWNER else None
         created_by   = request.user
+        expected_delivery = validated_data.get('expectedDelivery')
+        if expected_delivery:
+            try:
+                validate_expected_delivery_date(expected_delivery)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({
+                    'expectedDelivery': [exc.messages[0]],
+                }) from exc
 
         with transaction.atomic():
             # Re-check while locking the selected catalog rows. Validation
@@ -272,7 +288,7 @@ class ProcurementWriteSerializer(serializers.Serializer):
                 owner=owner_user,
                 created_by=created_by,
                 order_date=validated_data['orderDate'],
-                delivery_date=validated_data.get('expectedDelivery'),
+                delivery_date=expected_delivery,
                 status=Procurement.Status.DRAFT,
                 total_cost=0,
                 funding_source=validated_data['fundingSource'],
@@ -318,8 +334,13 @@ class ProcurementStatusSerializer(serializers.Serializer):
         required=False,
         default=Procurement.ReceiptFlag.NONE
     )
-    # Optional: override delivery date when marking as received
-    deliveryDate = serializers.DateField(required=False, allow_null=True)
+    # Optional expected-date override. Actual receipt history belongs in
+    # actualReceiptDate and intentionally permits past values.
+    deliveryDate = serializers.DateField(
+        required=False,
+        allow_null=True,
+        validators=[validate_expected_delivery_date],
+    )
     actualReceiptDate = serializers.DateField(required=False)
     # Optional courier/driver name, recorded on the DeliveryReceipt.
     deliveredBy = serializers.CharField(
@@ -341,6 +362,15 @@ class ProcurementStatusSerializer(serializers.Serializer):
             for entry in validated_data.get('items', [])
         }
         user = self.context.get('request').user if self.context.get('request') else None
+
+        submitted_delivery_date = validated_data.get('deliveryDate')
+        if submitted_delivery_date:
+            try:
+                validate_expected_delivery_date(submitted_delivery_date)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({
+                    'deliveryDate': [exc.messages[0]],
+                }) from exc
 
         with transaction.atomic():
             if (instance.status == Procurement.Status.DRAFT
