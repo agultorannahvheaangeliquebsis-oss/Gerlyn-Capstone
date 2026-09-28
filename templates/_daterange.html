@@ -21,7 +21,7 @@ Context expected:
 NOTE: like the avatar menu, this does not close on outside-click without JS.
 That matches the existing component rather than introducing a new behaviour.
 {% endcomment %}
-<details class="daterange">
+<details class="daterange"{% if request.date_range_errors %} open{% endif %}>
   <summary class="daterange-trigger" aria-label="Change date range">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>
@@ -70,12 +70,14 @@ That matches the existing component rather than introducing a new behaviour.
       <span class="daterange-custom-head">Custom range</span>
       <label class="daterange-field">
         <span>From</span>
-        <input type="date" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+        <input type="date" name="date_from" value="{% if request.date_range_values.date_from %}{{ request.date_range_values.date_from }}{% else %}{{ range_start|date:'Y-m-d' }}{% endif %}"{% if request.date_range_errors.date_from %} aria-invalid="true" aria-describedby="date-from-error"{% endif %}>
       </label>
+      {% if request.date_range_errors.date_from %}<p class="field-error" id="date-from-error" role="alert">{{ request.date_range_errors.date_from }}</p>{% endif %}
       <label class="daterange-field">
         <span>To</span>
-        <input type="date" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+        <input type="date" name="date_to" value="{% if request.date_range_values.date_to %}{{ request.date_range_values.date_to }}{% else %}{{ range_end|date:'Y-m-d' }}{% endif %}"{% if request.date_range_errors.date_to %} aria-invalid="true" aria-describedby="date-to-error"{% endif %}>
       </label>
+      {% if request.date_range_errors.date_to %}<p class="field-error" id="date-to-error" role="alert">{{ request.date_range_errors.date_to }}</p>{% endif %}
       <button type="submit" name="range" value="custom" class="btn btn-primary">Apply</button>
     </div>
   </form>

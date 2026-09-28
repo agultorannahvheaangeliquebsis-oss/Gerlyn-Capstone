@@ -13,7 +13,6 @@ from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
-from datetime import date
 from decimal import Decimal, InvalidOperation as DecimalException
 from urllib.parse import urlencode
 
@@ -38,6 +37,7 @@ from core.refdata import bust_categories_cache, cached_branches, cached_categori
 from core.scoping import (
     branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
 )
+from core.date_validation import parse_date_range
 from core.timebounds import local_month_bounds
 
 
@@ -2424,6 +2424,16 @@ def _transfer_list_context(request):
     purpose_filter = request.GET.get('purpose', '')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
+    parsed_date_from, parsed_date_to, date_range_errors = parse_date_range(
+        date_from, date_to
+    )
+    if date_range_errors:
+        field, error = next(iter(date_range_errors.items()))
+        messages.error(
+            request,
+            f'{field.replace("_", " ").title()}: {error}',
+        )
+        transfers = transfers.none()
     # Owner-only branch filter — Manager/Staff are already pinned to their own
     # branch's transfers above, so a selector would do nothing for them.
     branch_filter = request.GET.get('branch', '') if not user_branch else ''
@@ -2444,11 +2454,11 @@ def _transfer_list_context(request):
     if purpose_filter:
         transfers = transfers.filter(purpose=purpose_filter)
 
-    if date_from:
-        transfers = transfers.filter(transfer_date__gte=date_from)
+    if parsed_date_from and not date_range_errors:
+        transfers = transfers.filter(transfer_date__gte=parsed_date_from)
 
-    if date_to:
-        transfers = transfers.filter(transfer_date__lte=date_to)
+    if parsed_date_to and not date_range_errors:
+        transfers = transfers.filter(transfer_date__lte=parsed_date_to)
 
     # Summary stats for the top cards.
     # Half-open aware-datetime bounds, NOT created_at__month=/__year= —
@@ -2457,7 +2467,7 @@ def _transfer_list_context(request):
     # tile to 0 forever. See core.timebounds.
     # localtime(), not now(): now() is UTC under USE_TZ, so on the 1st or
     # last day of a month it reports the wrong month for Asia/Manila.
-    today = timezone.localtime().date()
+    today = timezone.localdate()
     month_start, month_end = local_month_bounds(today.year, today.month)
 
     total_released_this_month = transfers.filter(
@@ -2500,6 +2510,7 @@ def _transfer_list_context(request):
         'purpose_filter': purpose_filter,
         'date_from': date_from,
         'date_to': date_to,
+        'date_range_errors': date_range_errors,
         'branches': cached_branches() if not user_branch else [],
         'branch_filter': branch_filter,
         # The topbar branch chip renders this — same pattern as Floor Stock,
@@ -2630,7 +2641,7 @@ def warehouse_stock_request(request):
         messages.error(request, f'No warehouse found for {target_branch.branch_name}.')
         return redirect('warehouse_stock_list')
 
-    transfer_date = request.POST.get('transfer_date') or date.today()
+    transfer_date = request.POST.get('transfer_date') or timezone.localdate()
     notes = request.POST.get('notes', '')
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity_requested')
@@ -2730,7 +2741,7 @@ def transfer_create(request):
     if purpose not in dict(write_off_purposes):
         purpose = StockTransfer.Purpose.OTHER  # guards against a tampered POST
     notes = request.POST.get('notes', '')
-    transfer_date = request.POST.get('transfer_date') or date.today()
+    transfer_date = request.POST.get('transfer_date') or timezone.localdate()
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity_requested')
 

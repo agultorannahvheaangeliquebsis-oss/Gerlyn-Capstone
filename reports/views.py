@@ -2893,7 +2893,7 @@ def export_csv(request, kind):
         return render(request, 'reports/no_access.html')
 
     user_branch = get_user_branch(request.user)
-    today = timezone.localtime().date()
+    today = timezone.localdate()
 
     # The sales export follows the daily-sales range when the link names one
     # (the Sales Report and the Reports hub both do). Only an EXPLICIT range

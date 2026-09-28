@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from rest_framework import serializers
+from django.utils import timezone
 from branches.models import Branch
 from .models import (
     Product, ProductCategory, ProductPriceTier, Inventory, Warehouse,
@@ -305,8 +306,6 @@ class StockTransferWriteSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data):
-        from django.utils.timezone import now
-
         request = self.context['request']
         user = request.user
         items_data = validated_data.pop('items')
@@ -324,7 +323,7 @@ class StockTransferWriteSerializer(serializers.Serializer):
             purpose=validated_data['purpose'],
             requested_by=user,
             status=StockTransfer.Status.PENDING,
-            transfer_date=validated_data.get('transferDate') or now().date(),
+            transfer_date=validated_data.get('transferDate') or timezone.localdate(),
             notes=validated_data.get('notes', ''),
         )
 

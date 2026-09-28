@@ -327,7 +327,7 @@ card above deliberately excludes these statuses now.
       <input type="hidden" name="action" value="propose">
       <div class="field" style="max-width:220px;">
         <label for="neg-delivery-date">Delivery date</label>
-        <input id="neg-delivery-date" type="date" name="delivery_date" required>
+        <input id="neg-delivery-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" required>
       </div>
       <table class="gv-table kv-table mt-2" style="border:0;">
         <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>
@@ -358,7 +358,7 @@ card above deliberately excludes these statuses now.
       <input type="hidden" name="action" value="counter">
       <div class="field" style="max-width:220px;">
         <label for="neg-counter-date">Delivery date</label>
-        <input id="neg-counter-date" type="date" name="delivery_date" required>
+        <input id="neg-counter-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" required>
       </div>
       <table class="gv-table kv-table mt-2" style="border:0;">
         <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Counter unit cost</th></tr></thead>

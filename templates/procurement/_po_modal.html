@@ -110,7 +110,8 @@ account reaching a control it can't use.
         <div class="field">
           <label for="po-order-date">Order Date</label>
           {# Defaults to today: every order is raised on the day it is raised, and the field is required, so an empty one is friction with no upside. #}
-          <input id="po-order-date" type="date" name="order_date" value="{% firstof po_form_data.order_date today|date:'Y-m-d' %}" required>
+          <input id="po-order-date" type="date" name="order_date" value="{% firstof po_form_data.order_date today|date:'Y-m-d' %}" required{% if po_field_errors.order_date %} aria-invalid="true" aria-describedby="po-order-date-error"{% endif %}>
+          {% if po_field_errors.order_date %}<p class="field-error" id="po-order-date-error" role="alert">{{ po_field_errors.order_date }}</p>{% endif %}
         </div>
       </div>
       <div class="grid-2">

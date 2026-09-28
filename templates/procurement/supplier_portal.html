@@ -465,7 +465,7 @@
           {% csrf_token %}
           <input type="hidden" name="action" value="propose">
           <div class="row wrap confirm-date-row" style="gap:10px; align-items:center; margin-bottom:10px;">
-            <input type="date" name="delivery_date" class="confirm-date-input" required>
+            <input type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" class="confirm-date-input" required>
           </div>
           <table class="gv-table" style="margin-bottom:10px;">
             <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>

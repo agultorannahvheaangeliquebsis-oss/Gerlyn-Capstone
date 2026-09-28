@@ -47,7 +47,7 @@ from .services import (
     receive_replacement, remove_supplier_product, reschedule_delivery,
     respond_to_return, returnable_lines, review_offer, review_product_request,
     set_funding, settle_with_credit, ship_return, transfer_supplier_products,
-    unassigned_product_ids,
+    unassigned_product_ids, validate_expected_delivery_date,
 )
 from .serializers import (
     ProcurementReadSerializer,
@@ -128,13 +128,14 @@ def _procurement_list_context(request):
         'procurements': procurements,
         'counts': counts,
         'status_filter': status_filter,
-        'today': timezone.now().date(),
+        'today': timezone.localdate(),
         'can_create': can_create,
         # Create Purchase Order is a modal on this page now (see
         # procurement_add) — ?add=1 is how a direct hit at /procurement/add/
         # (bookmark, back button) lands here with it already open.
         'show_po_modal': can_create and request.GET.get('add') == '1',
         'po_errors': None,
+        'po_field_errors': None,
         'po_form_data': None,
         'po_restore_rows': None,
         'branch_filter': branch_filter,
@@ -448,7 +449,7 @@ def procurement_add(request):
         branch_id = request.POST.get('branch')
 
     supplier_id  = request.POST.get('supplier')
-    order_date   = request.POST.get('order_date')
+    order_date_text = request.POST.get('order_date', '').strip()
     product_ids  = request.POST.getlist('product_id')
     quantities   = request.POST.getlist('quantity_ordered')
 
@@ -476,6 +477,14 @@ def procurement_add(request):
     # procurement_supplier_propose / procurement_review_terms), never set by
     # whoever creates the PO.
     errors = []
+    field_errors = {}
+    try:
+        order_date = parse_date(order_date_text) if order_date_text else None
+    except ValueError:
+        order_date = None
+    if order_date is None:
+        field_errors['order_date'] = 'Enter a valid order date.'
+        errors.append(field_errors['order_date'])
     items = []
     for product_id, qty in zip(product_ids, quantities):
         if not product_id and not qty:
@@ -521,6 +530,7 @@ def procurement_add(request):
         context.update({
             'show_po_modal': True,
             'po_errors': errors,
+            'po_field_errors': field_errors,
             'po_form_data': request.POST,
             'po_restore_rows': [
                 {'product_id': pid, 'quantity': qty}
@@ -935,11 +945,17 @@ def _read_proposed_terms(request, proc):
     errors = []
 
     raw_date = request.POST.get('delivery_date', '').strip()
-    delivery_date = parse_date(raw_date) if raw_date else None
+    try:
+        delivery_date = parse_date(raw_date) if raw_date else None
+    except ValueError:
+        delivery_date = None
     if not delivery_date:
         errors.append('Choose a delivery date.')
-    elif delivery_date < timezone.localdate():
-        errors.append('The delivery date cannot be in the past.')
+    else:
+        try:
+            validate_expected_delivery_date(delivery_date)
+        except ValidationError as exc:
+            errors.append(f'Delivery date: {exc.messages[0]}')
 
     items = list(proc.items.filter(is_unexpected=False))
     costs = {}
@@ -1106,7 +1122,14 @@ def procurement_supplier_confirm(request, pk):
             messages.error(request, f'{locked.po_number} is not ready to confirm.')
             return redirect('supplier_portal')
 
-        apply_agreed_terms(locked)
+        try:
+            apply_agreed_terms(locked)
+        except ValidationError as exc:
+            messages.error(
+                request,
+                f'Delivery date: {exc.messages[0]} Submit updated terms first.',
+            )
+            return redirect('supplier_portal')
         locked.status = Procurement.Status.INCOMING
         locked.save(update_fields=['status'])
 
@@ -1262,7 +1285,7 @@ def delivery_list(request):
         'deliveries': deliveries,
         'counts': counts,
         'status_filter': status_filter,
-        'today': timezone.now().date(),
+        'today': timezone.localdate(),
         'search_query': search_query,
         'branches': branches,
         'branch_filter': branch_filter,
@@ -1708,7 +1731,7 @@ def supplier_portal(request):
     # it after the filter (as this used to) meant the Delivered/Cancelled
     # tabs had no Ordered rows left to summarize, and every stat silently
     # collapsed to 0 / ₱0.00 the moment you weren't on All or To fulfil.
-    today = timezone.now().date()
+    today = timezone.localdate()
     # Committed but not yet finished — includes the negotiation statuses now:
     # a PO mid-negotiation is exactly as "open" as one already Incoming, and
     # used to silently fall out of this count the moment it left Approved.
