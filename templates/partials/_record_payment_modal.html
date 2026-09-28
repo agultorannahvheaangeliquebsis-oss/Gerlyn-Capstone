@@ -1,18 +1,21 @@
 {% comment %}
-Record Payment dialog on Order Detail. Hidden by CSS until static/js/order-
-detail.js opens it from an [data-payment-open] link, which is also a plain
-link to the full-page form (billing_create) for when that script has not run.
+Record Payment dialog — Order Detail and the Billing record's own page both
+include this. Hidden by CSS until static/js/order-detail.js opens it from an
+[data-payment-open] link, which is also a plain link to the full-page form
+(billing_create) for when that script has not run.
 
-Needs from the view (sales.views.transaction_detail): transaction, billing (may
-be None), payment_choices, reference_required_methods, proof_required_methods,
-proof_max_mb.
+Needs from the view: transaction, billing (may be None), payment_choices,
+reference_required_methods, proof_required_methods, proof_max_mb, and
+return_to ('order' or 'billing' — which page to bounce back to; defaults to
+'order' for callers that don't pass it).
 
-It posts to billing_create with return_to=order, so the cashier lands back on
-this order — with a message either way. Nothing here is authoritative:
-billing_create re-checks the method against the order's channel, the reference
-format, the proof's real image type and size, and that the record is still
-Pending. The reference / proof fields show only for the methods that need
-them, from the same BillingRecord lists the server rule reads.
+It posts to billing_create with return_to, so the caller lands back on
+whichever page it opened this from — with a message either way. Nothing here
+is authoritative: billing_create re-checks the method against the order's
+channel, the reference format, the proof's real image type and size, and
+that the record is still Pending. The reference / proof fields show only for
+the methods that need them, from the same BillingRecord lists the server
+rule reads.
 {% endcomment %}
 <div class="modal-overlay" id="record-payment-modal" data-payment-modal
      data-reference-methods="{{ reference_required_methods|join:'|' }}"
@@ -20,7 +23,7 @@ them, from the same BillingRecord lists the server rule reads.
      data-proof-max-mb="{{ proof_max_mb }}"
      data-proof-on-file="{% if billing.proof_of_payment %}1{% endif %}"
      aria-hidden="true">
-  <div class="modal-card pay-modal-card" role="dialog" aria-modal="true" aria-labelledby="record-payment-title">
+  <div class="modal-card pay-modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="record-payment-title">
     <div class="modal-head">
       <h2 id="record-payment-title">Record Payment</h2>
       <button type="button" class="modal-close" data-payment-close aria-label="Close">
@@ -30,39 +33,55 @@ them, from the same BillingRecord lists the server rule reads.
     <form method="post" action="{% url 'billing_create' transaction.pk %}" enctype="multipart/form-data"
           class="pay-form" data-payment-form>
       {% csrf_token %}
-      <input type="hidden" name="return_to" value="order">
+      <input type="hidden" name="return_to" value="{{ return_to|default:'order' }}">
       <div class="modal-body">
-        <div class="row-between pay-due">
-          <span class="gv-label">Amount due</span>
-          <span class="gv-metric" style="color:var(--action);">₱{% if billing %}{{ billing.amount_due|floatformat:2 }}{% else %}{{ transaction.total_amount|floatformat:2 }}{% endif %}</span>
+        <div class="grid-2">
+          {# Read-only context — what the fields on the right are being recorded against, so this dialog doesn't need the page behind it to make sense. #}
+          <dl class="od-facts">
+            <div><dt>Order</dt><dd>{{ transaction.order_number }}</dd></div>
+            <div><dt>Customer</dt><dd>
+              {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
+              {% else %}Walk-in{% endif %}
+            </dd></div>
+            <div><dt>Branch</dt><dd>{{ transaction.branch.branch_name }}</dd></div>
+            <div><dt>Amount due</dt><dd style="color:var(--action); font-weight:700;">₱{% if billing %}{{ billing.amount_due|floatformat:2 }}{% else %}{{ transaction.total_amount|floatformat:2 }}{% endif %}</dd></div>
+          </dl>
+
+          <div class="stack">
+            <div class="field">
+              <label for="pay-method">Payment Method</label>
+              <select id="pay-method" name="payment_method" data-payment-method>
+                {% for value, label in payment_choices %}
+                <option value="{{ value }}" {% if billing.payment_method == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            {# style.display, not [hidden]: gerlyn.css gives .field display:flex, which outranks the UA's [hidden]. #}
+            <div class="field" data-payment-reference-field style="display:none;">
+              <label for="pay-reference">Reference Number <span class="gv-meta">— required</span></label>
+              <input id="pay-reference" type="text" name="reference_number" maxlength="100" autocomplete="off"
+                     value="{{ billing.reference_number|default:'' }}" placeholder="e.g. GC-2026-0001">
+            </div>
+
+            <div class="field" data-payment-proof-field style="display:none;">
+              <label for="pay-proof-dropzone">Proof of Payment <span class="gv-meta">— required · screenshot or photo</span></label>
+              <label class="dropzone" id="pay-proof-dropzone" for="pay-proof">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5-9 9"/><path d="M15 8h3M16.5 6.5v3"/></svg>
+                <span class="dropzone-title">Click or drag receipt here</span>
+                <span class="dropzone-filename"></span>
+              </label>
+              <input id="pay-proof" type="file" name="proof_of_payment" class="sr-only"
+                     accept="image/jpeg,image/png,image/webp">
+              <img class="pay-proof-thumb" data-payment-thumb alt="Selected proof preview" hidden>
+              <span class="gv-meta">JPEG, PNG or WEBP, up to {{ proof_max_mb }} MB.
+                {% if billing.proof_of_payment %}A proof is already on file — upload a new one only to replace it.{% endif %}</span>
+              <span class="field-error" data-payment-file-error role="alert" hidden></span>
+            </div>
+          </div>
         </div>
 
-        <div class="field">
-          <label for="pay-method">Payment Method</label>
-          <select id="pay-method" name="payment_method" data-payment-method>
-            {% for value, label in payment_choices %}
-            <option value="{{ value }}" {% if billing.payment_method == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
-        {# style.display, not [hidden]: gerlyn.css gives .field display:flex, which outranks the UA's [hidden]. #}
-        <div class="field" data-payment-reference-field style="display:none;">
-          <label for="pay-reference">Reference Number <span class="gv-meta">— required</span></label>
-          <input id="pay-reference" type="text" name="reference_number" maxlength="100" autocomplete="off"
-                 value="{{ billing.reference_number|default:'' }}" placeholder="e.g. GC-2026-0001">
-        </div>
-
-        <div class="field" data-payment-proof-field style="display:none;">
-          <label for="pay-proof">Proof of Payment <span class="gv-meta">— required · screenshot or photo</span></label>
-          <input id="pay-proof" class="pay-file" type="file" name="proof_of_payment"
-                 accept="image/jpeg,image/png,image/webp">
-          <span class="gv-meta">JPEG, PNG or WEBP, up to {{ proof_max_mb }} MB.
-            {% if billing.proof_of_payment %}A proof is already on file — upload a new one only to replace it.{% endif %}</span>
-          <span class="field-error" data-payment-file-error role="alert" hidden></span>
-        </div>
-
-        <div class="banner banner-info mb-0">
+        <div class="banner banner-info mb-0 mt-4">
           This records the payment for the audit trail. The system does not process funds —
           money changes hands outside it.
         </div>

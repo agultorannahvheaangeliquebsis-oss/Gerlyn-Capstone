@@ -1,0 +1,61 @@
+{% comment %}
+Confirmation dialog for Reject Payment. Rendered INSIDE the reject <form> on
+billing_detail and hidden by CSS until static/js/order-status-confirm.js
+opens it — so `reason` is an ordinary control of that form, exactly like
+partials/_order_status_confirm.html's pattern for order-status transitions.
+Not that same partial reused with a synthetic context: its summary is
+order-status-shaped (a from/to status pill transition), which doesn't fit a
+payment rejection, so this is a small billing-specific sibling instead.
+
+Usage: {% include "partials/_billing_reject_confirm.html" with record=record %}
+
+Everything here is display only: billing_confirm re-validates the reason,
+the transition and the maker/checker rule server-side.
+{% endcomment %}
+<div class="modal-overlay" data-status-modal aria-hidden="true">
+  <div class="modal-card confirm-card status-confirm-card" role="alertdialog" aria-modal="true"
+       aria-labelledby="billing-reject-title" aria-describedby="billing-reject-notes">
+    <div class="modal-head">
+      <h2 id="billing-reject-title">Reject this payment?</h2>
+      <button type="button" class="modal-close" data-status-close aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="confirm-body status-confirm-body">
+      <dl class="status-confirm-summary">
+        <div><dt>Order</dt><dd class="strong">{{ record.transaction.order_number }}</dd></div>
+        <div><dt>Branch</dt><dd>{{ record.transaction.branch.branch_name }}</dd></div>
+        <div><dt>Customer</dt><dd>
+          {% if record.transaction.customer %}{{ record.transaction.customer.get_full_name|default:record.transaction.customer.username }}
+          {% else %}Walk-in{% endif %}
+        </dd></div>
+        <div><dt>Amount due</dt><dd class="strong">₱{{ record.amount_due|floatformat:2 }}</dd></div>
+        <div><dt>Method</dt><dd>{{ record.payment_method }}</dd></div>
+        <div><dt>Reference</dt><dd>{{ record.reference_number|default:"—" }}</dd></div>
+      </dl>
+
+      <div class="banner banner-warning">
+        <div class="banner-text" id="billing-reject-notes">
+          <strong>What this does</strong>
+          <ul class="status-confirm-notes">
+            <li>The customer is notified their payment could not be verified and asked to check the details or contact the branch.</li>
+            <li>The record moves to Rejected — it can be re-opened later for another attempt if this was a mistake.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="billing-reject-reason">Reason</label>
+        <textarea id="billing-reject-reason" name="reason" rows="3" maxlength="255"
+                  data-reason-required aria-required="true"
+                  placeholder="e.g. reference number doesn't match, screenshot unreadable"></textarea>
+        <span class="gv-meta">Shown to staff on this record, and to the customer in their notification.</span>
+        <span class="field-error status-confirm-error" data-reason-error role="alert" hidden></span>
+      </div>
+    </div>
+    <div class="confirm-foot">
+      <button type="button" class="btn" data-status-cancel>Cancel</button>
+      <button type="submit" class="btn btn-danger-solid" data-status-ok>Reject Payment</button>
+    </div>
+  </div>
+</div>

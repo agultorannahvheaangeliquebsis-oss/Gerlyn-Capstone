@@ -38,7 +38,7 @@ from core.refdata import bust_categories_cache, cached_branches, cached_categori
 from core.scoping import (
     branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
 )
-from core.timebounds import local_month_bounds
+from core.timebounds import local_month_bounds, range_from_request
 
 
 # ─────────────────────────────────────────────
@@ -124,17 +124,11 @@ def _product_list_context(request):
         'branch_switch_carry': [('q', search_query), ('category', category_filter)],
         'total_count': Product.objects.count(),
         'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
-        'unit_choices': Product.UnitOfMeasure.choices,
-        'next_sku': Product.next_sku_code(),
-        'branches': branches,
-        # `branches` above is unrestricted — the Availability column and the
-        # Add Product modal's per-branch checkboxes need every branch
-        # regardless of role. The topbar switcher must not, or a Manager/
-        # Staff account (show_branch_filter False) would get a live control
-        # with nothing for it to do.
+        # `branches` is unrestricted — the Availability column needs every
+        # branch regardless of role. The topbar switcher must not, or a
+        # Manager/Staff account (show_branch_filter False) would get a live
+        # control with nothing for it to do.
         'switch_branches': branches if show_branch_filter else [],
-        'add_selected_branches': None,  # None = fresh modal, default all branches checked
-        'add_tier_rows': [],  # empty = fresh modal; the page JS opens three blank rows
     }
 
 
@@ -227,10 +221,10 @@ def _parse_price_tiers(form_data, retail_price):
     return tiers, errors
 
 
-def _edit_modal_values(product, form_data=None):
-    """Field values for the Edit Product modal: posted values win (so a
+def _edit_form_values(product, form_data=None):
+    """Field values for the Edit Product page: posted values win (so a
     validation error redisplays what the user typed), otherwise fall back
-    to the product's current values (fresh open from the list page)."""
+    to the product's current values (fresh GET of the edit page)."""
     def pick(field, product_value):
         posted = form_data.get(field) if form_data else None
         return posted if posted not in (None, '') else product_value
@@ -281,16 +275,6 @@ def product_list(request):
         return redirect('accounts:home')
 
     context = _product_list_context(request)
-
-    edit_pk = request.GET.get('edit')
-    if edit_pk and context['can_edit']:
-        product = Product.objects.filter(pk=edit_pk).first()
-        if product:
-            context.update({
-                'show_edit_modal': True,
-                'edit_product': product,
-                'edit_values': _edit_modal_values(product),
-            })
 
     import_step = request.GET.get('import')
     if import_step and context['can_edit']:
@@ -344,10 +328,16 @@ def product_add(request):
         return redirect('product_list')
 
     if request.method != 'POST':
-        # The add flow lives in a modal on the product list page now — send
-        # anyone who lands here directly (bookmark, back button) there with
-        # a flag so the page JS opens the modal on load.
-        return redirect(f"{reverse('product_list')}?add=1")
+        context = {
+            'mode': 'add',
+            'categories': cached_categories(),
+            'branches': cached_branches(),
+            'unit_choices': Product.UnitOfMeasure.choices,
+            'next_sku': Product.next_sku_code(),
+            'add_selected_branches': None,  # None = default all branches checked
+            'add_tier_rows': [],  # empty = fresh form; the page JS opens three blank rows
+        }
+        return render(request, 'inventory/product_form.html', context)
 
     product_name = request.POST.get('product_name', '').strip()
     barcode = request.POST.get('barcode', '').strip() or None
@@ -428,15 +418,18 @@ def product_add(request):
                 messages.success(request, 'Product added successfully.')
             return redirect('product_list')
 
-    context = _product_list_context(request)
-    context.update({
-        'show_add_modal': True,
+    context = {
+        'mode': 'add',
+        'categories': cached_categories(),
+        'branches': cached_branches(),
+        'unit_choices': Product.UnitOfMeasure.choices,
+        'next_sku': Product.next_sku_code(),
         'add_errors': errors,
         'add_form_data': request.POST,
         'add_selected_branches': branch_ids,
         'add_tier_rows': _posted_tier_rows(request.POST),
-    })
-    return render(request, 'inventory/product_list.html', context)
+    }
+    return render(request, 'inventory/product_form.html', context)
 
 
 @login_required(login_url='accounts:login')
@@ -448,10 +441,14 @@ def product_edit(request, pk):
         return redirect('product_list')
 
     if request.method != 'POST':
-        # The edit flow lives in a modal on the product list page now — send
-        # anyone who lands here directly (bookmark, back button) there with
-        # a flag so the page JS opens the modal on load.
-        return redirect(f"{reverse('product_list')}?edit={pk}")
+        context = {
+            'mode': 'edit',
+            'categories': cached_categories(),
+            'unit_choices': Product.UnitOfMeasure.choices,
+            'edit_product': product,
+            'edit_values': _edit_form_values(product),
+        }
+        return render(request, 'inventory/product_form.html', context)
 
     product_name = request.POST.get('product_name', '').strip()
     barcode = request.POST.get('barcode', '').strip() or None
@@ -483,7 +480,7 @@ def product_edit(request, pk):
         try:
             with transaction.atomic():
                 product.category_id = request.POST.get('category') or None
-                # sku_code is locked in the edit modal — never trust a posted
+                # sku_code is locked on the edit form — never trust a posted
                 # value for it, so it can't be tampered with client-side.
                 product.product_name = product_name
                 product.barcode = barcode
@@ -536,14 +533,15 @@ def product_edit(request, pk):
             messages.success(request, 'Product updated successfully.')
             return redirect('product_list')
 
-    context = _product_list_context(request)
-    context.update({
-        'show_edit_modal': True,
+    context = {
+        'mode': 'edit',
+        'categories': cached_categories(),
+        'unit_choices': Product.UnitOfMeasure.choices,
         'edit_product': product,
         'edit_errors': errors,
-        'edit_values': _edit_modal_values(product, request.POST),
-    })
-    return render(request, 'inventory/product_list.html', context)
+        'edit_values': _edit_form_values(product, request.POST),
+    }
+    return render(request, 'inventory/product_form.html', context)
 
 
 @login_required(login_url='accounts:login')
@@ -1287,7 +1285,11 @@ def category_list(request):
     if edit_pk and context['can_edit']:
         category = ProductCategory.objects.filter(pk=edit_pk).first()
         if category:
-            context.update({'show_edit_modal': True, 'edit_category': category})
+            context.update({
+                'show_edit_modal': True,
+                'edit_category': category,
+                'edit_category_products': category.products.order_by('product_name'),
+            })
 
     return render(request, 'inventory/category_list.html', context)
 
@@ -1349,6 +1351,7 @@ def category_form(request, pk=None):
         context.update({
             'show_edit_modal': True,
             'edit_category': category,
+            'edit_category_products': category.products.order_by('product_name'),
             'edit_errors': errors,
             'edit_form_data': request.POST,
         })
@@ -1704,7 +1707,19 @@ def inventory_list(request):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    return render(request, 'inventory/inventory_list.html', _inventory_list_context(request))
+    context = _inventory_list_context(request)
+
+    if request.user.role == User.Role.OWNER:
+        # The Import Opening Stock upload modal is always in the page (see
+        # _opening_stock_upload_modal.html), even when it isn't the one
+        # being opened, so its date field needs a value in every Owner
+        # response — not just the ?opening=upload one.
+        context['opening_as_of_date'] = timezone.localdate()
+        opening_step = request.GET.get('opening')
+        if opening_step:
+            context.update(_opening_modal_context(request, opening_step))
+
+    return render(request, 'inventory/inventory_list.html', context)
 
 
 @login_required(login_url='accounts:login')
@@ -1873,77 +1888,105 @@ def _opening_preview_context(request, state):
     }
 
 
+def _opening_modal_context(request, step):
+    """Which Import Opening Stock modal (if any) Floor Stock should open,
+    driven by ?opening=upload|preview — the wizard now lives entirely in
+    modals on top of inventory_list, so a redirect here is what used to be a
+    full page render of opening_stock_import.html. Mirrors
+    _import_modal_context for Import Products."""
+    if step == 'upload':
+        return {'show_opening_upload_modal': True, 'opening_as_of_date': timezone.localdate()}
+
+    state = request.session.get('opening_stock_import')
+    if not state:
+        messages.error(request, 'Upload a file to start an opening-stock import.')
+        return {}
+    try:
+        context = _opening_preview_context(request, state)
+    except OpeningStockValidationError as exc:
+        _clear_opening_stock_session(request)
+        messages.error(request, str(exc))
+        return {}
+    context['show_opening_preview_modal'] = True
+    return context
+
+
 @login_required(login_url='accounts:login')
 def opening_stock_import(request):
+    """Step 1: parse & validate an opening-stock spreadsheet.
+
+    The wizard lives in a modal on Floor Stock now (inventory_list.html), so
+    a GET here (bookmark, back button, History's own button) just forwards
+    there with a flag so the page JS opens the right modal on load — same as
+    product_import_upload. POST still renders its result directly (not a
+    redirect) so the preview shown here is exactly what opening_stock_confirm
+    commits."""
     denied = _opening_owner_only(request)
     if denied:
         return denied
 
-    if request.method == 'POST':
-        upload = request.FILES.get('file')
-        as_of_text = request.POST.get('as_of_date', '').strip()
-        try:
-            as_of_date = parse_date(as_of_text) if as_of_text else timezone.localdate()
-        except ValueError:
-            as_of_date = None
-        if as_of_date is None:
-            messages.error(request, 'Enter a valid inventory as-of date.')
-            return render(request, 'inventory/opening_stock_import.html', {
-                'as_of_date': as_of_text,
-            })
-        if not upload or not upload.name.lower().endswith('.xlsx'):
-            messages.error(request, 'Choose a valid .xlsx spreadsheet.')
-            return render(request, 'inventory/opening_stock_import.html', {
-                'as_of_date': as_of_date,
-            })
-        if upload.size > _OPENING_MAX_BYTES:
-            messages.error(request, 'The spreadsheet cannot exceed 10 MB.')
-            return render(request, 'inventory/opening_stock_import.html', {
-                'as_of_date': as_of_date,
-            })
+    if request.method != 'POST':
+        state = request.session.get('opening_stock_import')
+        step = 'preview' if state else 'upload'
+        return redirect(f"{reverse('inventory_list')}?opening={step}")
 
-        _clear_opening_stock_session(request)
-        os.makedirs(_OPENING_TMP_DIR, exist_ok=True)
-        path = os.path.join(_OPENING_TMP_DIR, f'{uuid.uuid4().hex}.xlsx')
-        digest = hashlib.sha256()
-        with open(path, 'wb') as target:
-            for chunk in upload.chunks():
-                digest.update(chunk)
-                target.write(chunk)
+    def fail(message, as_of_value):
+        messages.error(request, message)
+        context = _inventory_list_context(request)
+        context['show_opening_upload_modal'] = True
+        context['opening_as_of_date'] = as_of_value
+        return render(request, 'inventory/inventory_list.html', context)
 
-        state = {
-            'path': path,
-            'filename': os.path.basename(upload.name),
-            'raw_sha256': digest.hexdigest(),
-            'as_of_date': as_of_date.isoformat(),
-        }
-        try:
-            context = _opening_preview_context(request, state)
-        except Exception as exc:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            message = str(exc) if isinstance(exc, OpeningStockValidationError) else (
-                'Could not read that workbook. Confirm it is a valid .xlsx file.'
-            )
-            messages.error(request, message)
-            return render(request, 'inventory/opening_stock_import.html', {
-                'as_of_date': as_of_date,
-            })
-        request.session['opening_stock_import'] = state
-        request.session.modified = True
-        return render(request, 'inventory/opening_stock_import.html', context)
+    upload = request.FILES.get('file')
+    as_of_text = request.POST.get('as_of_date', '').strip()
+    try:
+        as_of_date = parse_date(as_of_text) if as_of_text else timezone.localdate()
+    except ValueError:
+        as_of_date = None
+    if as_of_date is None:
+        # Not the raw text: the date field's |date filter needs a real date
+        # (or None) to format, and a type="date" input only ever sends
+        # ISO-format text or nothing anyway.
+        return fail('Enter a valid inventory as-of date.', None)
+    if not upload or not upload.name.lower().endswith('.xlsx'):
+        return fail('Choose a valid .xlsx spreadsheet.', as_of_date)
+    if upload.size > _OPENING_MAX_BYTES:
+        return fail('The spreadsheet cannot exceed 10 MB.', as_of_date)
 
-    state = request.session.get('opening_stock_import')
-    context = {'as_of_date': timezone.localdate()}
-    if state and request.GET.get('preview') == '1':
+    _clear_opening_stock_session(request)
+    os.makedirs(_OPENING_TMP_DIR, exist_ok=True)
+    path = os.path.join(_OPENING_TMP_DIR, f'{uuid.uuid4().hex}.xlsx')
+    digest = hashlib.sha256()
+    with open(path, 'wb') as target:
+        for chunk in upload.chunks():
+            digest.update(chunk)
+            target.write(chunk)
+
+    state = {
+        'path': path,
+        'filename': os.path.basename(upload.name),
+        'raw_sha256': digest.hexdigest(),
+        'as_of_date': as_of_date.isoformat(),
+    }
+    try:
+        preview_context = _opening_preview_context(request, state)
+    except Exception as exc:
         try:
-            context.update(_opening_preview_context(request, state))
-        except OpeningStockValidationError as exc:
-            _clear_opening_stock_session(request)
-            messages.error(request, str(exc))
-    return render(request, 'inventory/opening_stock_import.html', context)
+            os.remove(path)
+        except OSError:
+            pass
+        message = str(exc) if isinstance(exc, OpeningStockValidationError) else (
+            'Could not read that workbook. Confirm it is a valid .xlsx file.'
+        )
+        return fail(message, as_of_date)
+
+    request.session['opening_stock_import'] = state
+    request.session.modified = True
+    context = _inventory_list_context(request)
+    context['opening_as_of_date'] = timezone.localdate()
+    context.update(preview_context)
+    context['show_opening_preview_modal'] = True
+    return render(request, 'inventory/inventory_list.html', context)
 
 
 @login_required(login_url='accounts:login')
@@ -1955,30 +1998,34 @@ def opening_stock_confirm(request):
     state = request.session.get('opening_stock_import')
     if not state:
         messages.error(request, 'Upload and preview an opening-stock file first.')
-        return redirect('opening_stock_import')
+        return redirect(f"{reverse('inventory_list')}?opening=upload")
     try:
-        context = _opening_preview_context(request, state)
-        summary = context['preview_summary']
+        preview_context = _opening_preview_context(request, state)
+        summary = preview_context['preview_summary']
         if summary['duplicate_import']:
             raise OpeningStockDuplicateError(
                 f'This opening stock was already imported as batch #{summary["duplicate_import"].pk}.'
             )
         import_batch = commit_opening_stock_import(
-            rows=context['preview_rows'],
+            rows=preview_context['preview_rows'],
             filename=state['filename'],
             raw_sha256=state['raw_sha256'],
             canonical_sha256=summary['canonical_sha256'],
-            as_of_date=context['as_of_date'],
+            as_of_date=preview_context['as_of_date'],
             actor=request.user,
             warnings_acknowledged=request.POST.get('acknowledge_warnings') == '1',
         )
     except (OpeningStockValidationError, OpeningStockDuplicateError, IntegrityError) as exc:
         messages.error(request, str(exc) or 'The import could not be committed.')
         try:
-            context = _opening_preview_context(request, state)
+            preview_context = _opening_preview_context(request, state)
         except OpeningStockValidationError:
-            return redirect('opening_stock_import')
-        return render(request, 'inventory/opening_stock_import.html', context)
+            return redirect(f"{reverse('inventory_list')}?opening=upload")
+        context = _inventory_list_context(request)
+        context['opening_as_of_date'] = timezone.localdate()
+        context.update(preview_context)
+        context['show_opening_preview_modal'] = True
+        return render(request, 'inventory/inventory_list.html', context)
 
     _clear_opening_stock_session(request)
     messages.success(
@@ -2405,6 +2452,22 @@ def _movement_log(branch_ids=None):
 # WITHDRAWAL SLIP (STOCK TRANSFER) VIEWS
 # ─────────────────────────────────────────────
 
+def _range_carry(active_range, range_start, range_end):
+    """(name, value) pairs for the §2e range control, for the topbar branch
+    switcher (partials/_branch_switch.html) to carry along — the reverse of
+    _daterange.html's own daterange_carry, which carries branch INTO a range
+    change. Same helper as reports.views._range_carry."""
+    carry = [('range', active_range)]
+    if active_range == 'day':
+        carry.append(('date', range_end.strftime('%Y-%m-%d')))
+    elif active_range == 'custom':
+        carry += [
+            ('date_from', range_start.strftime('%Y-%m-%d') if range_start else ''),
+            ('date_to', range_end.strftime('%Y-%m-%d') if range_end else ''),
+        ]
+    return carry
+
+
 def _transfer_list_context(request):
     transfers = StockTransfer.objects.select_related(
         'source_branch', 'destination_branch',
@@ -2422,8 +2485,10 @@ def _transfer_list_context(request):
     search_query = request.GET.get('q', '')
     status_filter = request.GET.get('status', '')
     purpose_filter = request.GET.get('purpose', '')
-    date_from = request.GET.get('date_from', '')
-    date_to = request.GET.get('date_to', '')
+    # The shared back-office range control (_daterange.html), same as the
+    # Dashboard, Reports and the audit log — DESIGN.md's "All date filtering
+    # should use the same date-range control pattern."
+    range_start, range_end, active_range = range_from_request(request)
     # Owner-only branch filter — Manager/Staff are already pinned to their own
     # branch's transfers above, so a selector would do nothing for them.
     branch_filter = request.GET.get('branch', '') if not user_branch else ''
@@ -2444,19 +2509,18 @@ def _transfer_list_context(request):
     if purpose_filter:
         transfers = transfers.filter(purpose=purpose_filter)
 
-    if date_from:
-        transfers = transfers.filter(transfer_date__gte=date_from)
-
-    if date_to:
-        transfers = transfers.filter(transfer_date__lte=date_to)
-
-    # Summary stats for the top cards.
-    # Half-open aware-datetime bounds, NOT created_at__month=/__year= —
-    # `created_at` is a DateTimeField, so __month= is compiled through
-    # CONVERT_TZ on MySQL and silently matches zero rows here, pinning this
-    # tile to 0 forever. See core.timebounds.
-    # localtime(), not now(): now() is UTC under USE_TZ, so on the 1st or
-    # last day of a month it reports the wrong month for Asia/Manila.
+    # Summary stats for the top cards, computed BEFORE the range filter below
+    # is applied to `transfers`. Released This Month is a FLOW already fixed
+    # to its own window (the calendar month, via created_at); Pending
+    # Acknowledgment and Flagged Discrepancies are BACKLOGS with no natural
+    # window at all — see the kpi-row comment in transfer_list.html for why
+    # neither may be scoped to the toolbar's date range. Half-open
+    # aware-datetime bounds, NOT created_at__month=/__year= — `created_at` is
+    # a DateTimeField, so __month= is compiled through CONVERT_TZ on MySQL
+    # and silently matches zero rows here, pinning this tile to 0 forever.
+    # See core.timebounds. localtime(), not now(): now() is UTC under
+    # USE_TZ, so on the 1st or last day of a month it reports the wrong
+    # month for Asia/Manila.
     today = timezone.localtime().date()
     month_start, month_end = local_month_bounds(today.year, today.month)
 
@@ -2473,6 +2537,14 @@ def _transfer_list_context(request):
     flagged_discrepancies = transfers.filter(
         status=StockTransfer.Status.DISCREPANCY
     ).count()
+
+    # The range control narrows the Withdrawal Slips list only, applied here
+    # so it never touches the backlog/flow KPIs above. transfer_date is a
+    # plain DateField (no timezone conversion needed); range_start is None
+    # for the 'all' preset.
+    if range_start:
+        transfers = transfers.filter(transfer_date__gte=range_start)
+    transfers = transfers.filter(transfer_date__lte=range_end)
 
     # The Movement Log tab shares this page, so the same branch choice narrows
     # it too — [int(branch_filter)] when the Owner has picked one, otherwise
@@ -2498,8 +2570,14 @@ def _transfer_list_context(request):
         'search_query': search_query,
         'status_filter': status_filter,
         'purpose_filter': purpose_filter,
-        'date_from': date_from,
-        'date_to': date_to,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [
+            ('q', search_query), ('status', status_filter), ('purpose', purpose_filter),
+            ('branch', branch_filter),
+        ],
         'branches': cached_branches() if not user_branch else [],
         'branch_filter': branch_filter,
         # The topbar branch chip renders this — same pattern as Floor Stock,
@@ -2507,11 +2585,10 @@ def _transfer_list_context(request):
         'filter_branch': next((b for b in cached_branches() if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
         # Every other active filter, for the topbar branch switcher to carry
-        # along — same idea as _daterange.html's daterange_carry.
+        # along — same idea as _daterange.html's daterange_carry, in reverse.
         'branch_switch_carry': [
             ('q', search_query), ('status', status_filter), ('purpose', purpose_filter),
-            ('date_from', date_from), ('date_to', date_to),
-        ],
+        ] + _range_carry(active_range, range_start, range_end),
         'status_choices': StockTransfer.Status.choices,
         'purpose_choices': StockTransfer.Purpose.choices,
         'total_released_this_month': total_released_this_month,

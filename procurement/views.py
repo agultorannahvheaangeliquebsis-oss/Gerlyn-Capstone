@@ -130,10 +130,6 @@ def _procurement_list_context(request):
         'status_filter': status_filter,
         'today': timezone.now().date(),
         'can_create': can_create,
-        # Create Purchase Order is a modal on this page now (see
-        # procurement_add) — ?add=1 is how a direct hit at /procurement/add/
-        # (bookmark, back button) lands here with it already open.
-        'show_po_modal': can_create and request.GET.get('add') == '1',
         'po_errors': None,
         'po_form_data': None,
         'po_restore_rows': None,
@@ -142,9 +138,9 @@ def _procurement_list_context(request):
         # Warehouse Stock, Product Master List, Billing and Receive Delivery.
         'filter_branch': next((b for b in switch_branches if str(b.id) == branch_filter), None),
         'user_branch': branch_for_user(request.user),
-        # `branches` is reserved for the Create PO modal's own branch picker
-        # (see _procurement_form_context below) — the topbar switcher gets
-        # its own key so the two can never collide.
+        # `branches` is reserved for the Create Purchase Order page's own
+        # branch picker (see _procurement_form_context below) — the topbar
+        # switcher gets its own key so the two can never collide.
         'switch_branches': switch_branches,
         # O-3 — one urlencoded filter string for the status tabs, same fix
         # as Billing/the Order Console: a tab's href used to be hand-built
@@ -156,7 +152,10 @@ def _procurement_list_context(request):
     }
     if can_create:
         # suppliers/products/branches/user_branch, plus the (more correct,
-        # localdate-based) 'today' the modal's Order Date field defaults to.
+        # localdate-based) 'today' the Create Purchase Order page's Order
+        # Date field defaults to. Computed here too (not just by
+        # procurement_add) so this same function can back both the list
+        # page's Create PO link and procurement_add's own GET/error render.
         context.update(_procurement_form_context(request.user))
     return context
 
@@ -186,8 +185,26 @@ def procurement_detail(request, pk):
         return redirect('procurement_list')
 
     items = proc.items.select_related('product').all()
+    is_supplier_party = (
+        request.user.role == User.Role.SUPPLIER and proc.supplier_id == request.user.id
+    )
     return render(request, 'procurement/procurement_detail.html', {
         'supplier_returns': proc.supplier_returns.select_related('supplier'),
+        # Whether the negotiation card has a form for *this* viewer to act on
+        # right now, vs. just a status message — see the template's
+        # NEGOTIATION block. Kept in one place so the "waiting" banner
+        # styling and the actionable form's card styling never fall out of
+        # sync with who can actually do what.
+        'negotiation_actionable': (
+            (is_supplier_party and proc.status in (
+                Procurement.Status.APPROVED, Procurement.Status.PENDING_SUPPLIER_REVIEW,
+            ))
+            or (
+                proc.status == Procurement.Status.PENDING_OWNER_REVIEW
+                and request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            )
+            or (is_supplier_party and proc.status == Procurement.Status.TERMS_AGREED)
+        ),
         'can_return_goods': (
             request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
             and proc.status in (
@@ -334,9 +351,9 @@ def _po_suppliers_for_user(user):
 
 
 def _procurement_form_context(user):
-    """The suppliers/products/branches the Create PO modal needs, shared by
-    _procurement_list_context's initial GET and procurement_add's error
-    re-render so the two cannot drift apart."""
+    """The suppliers/products/branches the Create Purchase Order page needs,
+    shared by _procurement_list_context's initial GET and procurement_add's
+    error re-render so the two cannot drift apart."""
     from branches.models import Branch
 
     user_branch = branch_for_user(user)  # None for Owner; the manager's branch otherwise
@@ -397,8 +414,8 @@ def _procurement_form_context(user):
     return {
         'funding_choices': Procurement.FundingSource.choices,
         'products': Product.objects.all(),
-        # Every product, by id and name, for the modal's JS to rebuild each
-        # item row's dropdown from (see _po_modal.html).
+        # Every product, by id and name, for the page's JS to rebuild each
+        # item row's dropdown from (see procurement_form.html).
         'product_options': [
             {'id': str(pid), 'name': name}
             for pid, name in Product.objects.order_by('product_name').values_list(
@@ -423,20 +440,20 @@ def _procurement_form_context(user):
 
 @login_required(login_url='accounts:login')
 def procurement_add(request):
-    """POST handler for the "Create Purchase Order" modal on the Purchase
-    Orders list — the modal itself (branch/supplier/date fields and the item
-    rows) is rendered inline by procurement_list/_procurement_list_context.
-    This view only ever handles the submit, redisplaying that same page with
-    the modal reopened on a validation error so the picked branch/supplier
-    and entered rows aren't lost. A direct GET (bookmark, back button) lands
-    on the list with the modal already open — see _procurement_list_context.
+    """The "Create Purchase Order" page — its own page (see
+    templates/procurement/procurement_form.html), not a modal on the
+    Purchase Orders list. GET renders the form (branch/supplier/date fields
+    and the item rows, via _procurement_list_context). POST handles the
+    submit, redisplaying that same page on a validation error so the picked
+    branch/supplier and entered rows aren't lost — same pattern as Walk-in
+    Sale's transaction_add.
     """
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
         messages.error(request, 'You do not have permission to create procurement orders.')
         return redirect('procurement_list')
 
     if request.method != 'POST':
-        return redirect(f"{reverse('procurement_list')}?add=1")
+        return render(request, 'procurement/procurement_form.html', _procurement_list_context(request))
 
     if request.user.role == User.Role.BRANCH_MANAGER:
         try:
@@ -461,7 +478,6 @@ def procurement_add(request):
     except FundingError as exc:
         context = _procurement_list_context(request)
         context.update({
-            'show_po_modal': True,
             'po_errors': [str(exc)],
             'po_form_data': request.POST,
             'po_restore_rows': [
@@ -469,7 +485,7 @@ def procurement_add(request):
                 for pid, qty in zip(product_ids, quantities) if pid
             ],
         })
-        return render(request, 'procurement/procurement_list.html', context)
+        return render(request, 'procurement/procurement_form.html', context)
 
     # Neither cost nor delivery date is accepted from this form — both are
     # negotiated with the supplier after the order is raised (see
@@ -519,7 +535,6 @@ def procurement_add(request):
     if errors:
         context = _procurement_list_context(request)
         context.update({
-            'show_po_modal': True,
             'po_errors': errors,
             'po_form_data': request.POST,
             'po_restore_rows': [
@@ -527,7 +542,7 @@ def procurement_add(request):
                 for pid, qty in zip(product_ids, quantities) if pid
             ],
         })
-        return render(request, 'procurement/procurement_list.html', context)
+        return render(request, 'procurement/procurement_form.html', context)
 
     is_owner = request.user.role == User.Role.OWNER
 
@@ -538,7 +553,6 @@ def procurement_add(request):
         if unassigned_product_ids(supplier, parsed_product_ids, lock=True):
             context = _procurement_list_context(request)
             context.update({
-                'show_po_modal': True,
                 'po_errors': [
                     'The supplier catalog changed while you were creating '
                     'the order. Review the items and try again.'
@@ -550,7 +564,7 @@ def procurement_add(request):
                 ],
             })
             return render(
-                request, 'procurement/procurement_list.html', context
+                request, 'procurement/procurement_form.html', context
             )
 
         # Who raises the order decides whether it is already authorized.

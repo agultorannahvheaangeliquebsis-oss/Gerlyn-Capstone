@@ -2,6 +2,32 @@
 {% block title %}Billing #{{ record.id }}{% endblock %}
 {% block page_subtitle %}Billing{% endblock %}
 
+{% block extra_css %}
+<style>
+  {% comment %}
+  Proof-of-payment zoom: a bare CSS :target lightbox, no JS needed. The
+  thumbnail links to #proof-lightbox; the overlay only shows while that id
+  is the page's URL fragment, and its own close control points back at the
+  page with no fragment. Degrades safely with no JS at all.
+  {% endcomment %}
+  #proof-lightbox {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    align-items: center; justify-content: center; padding: var(--s6);
+    background: var(--scrim, rgba(23,37,30,.72));
+  }
+  #proof-lightbox:target { display: flex; }
+  #proof-lightbox img { max-width: min(92vw, 900px); max-height: 88vh; border-radius: var(--r-card); }
+  .proof-frame { cursor: zoom-in; display: block; border-radius: var(--r-card); overflow: hidden; border: 1px solid var(--line); }
+  .proof-frame img { display: block; width: 100%; }
+  .proof-lightbox-close {
+    position: absolute; top: var(--s4); right: var(--s4);
+    width: 40px; height: 40px; border-radius: 50%; border: 0;
+    background: var(--surface); color: var(--ink-900); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -31,18 +57,29 @@
           isn't final. <a href="{% url 'transaction_detail' record.transaction.pk %}">Approve or reject it on the order</a>
           before verifying payment.</span>
       </div>
+      {% elif missing_evidence %}
+      <div class="banner banner-warning mt-2">
+        <span>Needs its {{ missing_evidence|join:" and " }} before it can be verified —
+          add it from "Edit payment details" below.</span>
+      </div>
       {% endif %}
     </div>
-    <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
-      {% csrf_token %}
-      <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
-      {% if record.transaction.has_pending_pwd_request %}
-      {# P15 — the amount due is not final yet. billing_confirm refuses Paid regardless; this only keeps the button honest. #}
-      <button type="button" class="btn btn-primary" disabled>Verify Payment</button>
-      {% else %}
-      <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
-      {% endif %}
-    </form>
+    <div class="row" style="gap:var(--s2);">
+      <form method="POST" action="{% url 'billing_confirm' record.pk %}" data-status-confirm>
+        {% csrf_token %}
+        <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
+        {% include "partials/_billing_reject_confirm.html" with record=record %}
+      </form>
+      <form method="POST" action="{% url 'billing_confirm' record.pk %}">
+        {% csrf_token %}
+        {% if record.transaction.has_pending_pwd_request or missing_evidence %}
+        {# P15 / evidence gate — billing_confirm refuses Paid regardless; this only keeps the button honest. #}
+        <button type="button" class="btn btn-primary" disabled>Verify Payment</button>
+        {% else %}
+        <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
+        {% endif %}
+      </form>
+    </div>
   </div>
 </div>
 {% endif %}
@@ -51,6 +88,9 @@
   <div class="row-between wrap">
     <div class="grow">
       <h3>Payment Verification Rejected</h3>
+      {% if record.reject_reason %}
+      <p class="gv-meta mb-0"><strong>Reason:</strong> {{ record.reject_reason }}</p>
+      {% endif %}
       <p class="gv-meta mb-0">
         Re-open it if the customer is paying again, or if the rejection was a mistake —
         it goes back to Pending for a fresh check.
@@ -64,7 +104,26 @@
 </div>
 {% endif %}
 
-<div class="grid-2">
+{# ---- Order Progress: read-only. Anything that changes the order itself (status, PWD discount, refunds) stays on "View Order". ---- #}
+<div class="card card-pad od-card">
+  <h3 class="od-h">Order Progress</h3>
+  {% if progress.cancelled %}
+  <div class="banner banner-error mt-2 mb-0">
+    <span><strong>{{ record.transaction.order_number }} was cancelled</strong> — it will not move through the remaining stages.</span>
+  </div>
+  {% else %}
+  <div class="order-progress-track">
+    {% for step in progress.steps %}
+    <div class="order-progress-step {% if step.done %}done{% endif %} {% if step.current %}current{% endif %}">
+      <span class="dot">{% if step.done %}&#10003;{% else %}{{ forloop.counter }}{% endif %}</span>
+      <span class="order-progress-label">{{ step.name }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="od-side">
   <div class="card card-pad">
     <h3 class="mb-4">Payment Details</h3>
     <table class="gv-table kv-table" style="border:0;">
@@ -74,11 +133,6 @@
           {% if record.transaction.customer %}{{ record.transaction.customer.get_full_name|default:record.transaction.customer.username }}
           {% else %}Walk-in{% endif %}</td></tr>
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ record.transaction.branch.branch_name }}</td></tr>
-        {% comment %}
-        Payment status row removed here — the h1 above already shows this
-        record's status pill, so a second copy two inches below it was the
-        same status shown twice on one page.
-        {% endcomment %}
         <tr><td class="gv-meta">Amount due</td><td class="num" style="text-align:right;">
           <span class="gv-metric" style="color:var(--action);">₱{{ record.amount_due|floatformat:2 }}</span></td></tr>
         <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ record.payment_method }}</td></tr>
@@ -86,6 +140,9 @@
         <tr><td class="gv-meta">Date recorded</td><td style="text-align:right;">{{ record.date_recorded|date:"Y-m-d H:i" }}</td></tr>
         <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ record.confirmed_by.username|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date confirmed</td><td style="text-align:right;">{{ record.date_confirmed|date:"Y-m-d H:i"|default:"—" }}</td></tr>
+        {% if record.status == "Rejected" and record.reject_reason %}
+        <tr><td class="gv-meta">Reject reason</td><td style="text-align:right;">{{ record.reject_reason }}</td></tr>
+        {% endif %}
         {% if record.status == "Cancelled" %}
         <tr><td class="gv-meta">Cancelled by</td><td style="text-align:right;">{{ record.voided_by.username|default:"—" }}</td></tr>
         <tr><td class="gv-meta">Date cancelled</td><td style="text-align:right;">{{ record.date_voided|date:"Y-m-d H:i"|default:"—" }}</td></tr>
@@ -99,31 +156,102 @@
     edit/upload action that only leads to billing_create's own bounce
     message ("this order was cancelled — its billing record is closed").
     Pending and Rejected are the only statuses a payment's details can still
-    change under.
+    change under. This opens the Record Payment modal in place instead of
+    navigating to a blank page — see _record_payment_modal.html.
     {% endcomment %}
     {% if record.status == "Pending" or record.status == "Rejected" %}
-      <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Edit payment details</a>
+      <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
+         data-payment-open="record-payment-modal">Edit payment details</a>
     {% endif %}
   </div>
 
-  <div class="card card-pad card-fill">
-    <h3 class="mb-4">Proof of Payment</h3>
-    <div class="card-fill-body">
-      {% if record.proof_of_payment %}
-        {# F-06: auth-gated billing_proof view, never the raw media path. #}
-        <img src="{% url 'billing_proof' record.pk %}" alt="Proof of payment"
-             style="max-width:100%; border-radius:var(--r-card); border:1px solid var(--line);">
-      {% else %}
-        <div class="empty">
-          <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
-          <h3>No proof uploaded</h3>
-          <p>GCash, bank transfer and card payments need a screenshot or receipt on file before they can be verified.</p>
-          {% if record.status == "Pending" or record.status == "Rejected" %}
-            <a class="btn mt-2" href="{% url 'billing_create' record.transaction.pk %}?from=billing">Upload proof</a>
-          {% endif %}
-        </div>
+  <div class="card card-pad">
+    <h3 class="mb-4">Financial Summary</h3>
+    <dl class="od-sum">
+      {% if record.transaction.discount_type != 'None' %}
+      <div><dt>Less: discount</dt><dd class="od-credit">−₱{{ record.transaction.total_discount_amount|floatformat:2 }}</dd></div>
       {% endif %}
-    </div>
+      {% if record.transaction.total_vat_amount %}
+      <div><dt>VAT (included)</dt><dd>₱{{ record.transaction.total_vat_amount|floatformat:2 }}</dd></div>
+      {% endif %}
+      <div class="od-total"><dt>Total</dt><dd>₱{{ record.transaction.total_amount|floatformat:2 }}</dd></div>
+      {% if record.transaction.refunded_amount %}
+      <div><dt>Less: refunded</dt><dd class="od-credit">−₱{{ record.transaction.refunded_amount|floatformat:2 }}</dd></div>
+      <div><dt>Net after refunds</dt><dd class="strong">₱{{ record.transaction.net_amount|floatformat:2 }}</dd></div>
+      {% endif %}
+    </dl>
   </div>
 </div>
+
+<div class="card card-pad od-card">
+  <div class="od-items-block">
+    <h4 class="od-items-head">
+      Items <span class="tag">{{ items|length }} item{{ items|length|pluralize }}</span>
+    </h4>
+    <table class="gv-table od-table od-items" style="border:0;">
+      <thead>
+        <tr><th>Product</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Subtotal</th></tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td data-label="Product" class="strong">{{ item.product.product_name|default:"(product removed)" }}</td>
+          <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
+          <td data-label="Unit Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
+          <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="gv-meta">No items on this order.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card card-pad card-fill">
+  <h3 class="mb-4">Proof of Payment</h3>
+  <div class="card-fill-body">
+    {% if record.proof_of_payment %}
+      {# F-06: auth-gated billing_proof view, never the raw media path. #}
+      <a class="proof-frame" href="#proof-lightbox">
+        <img src="{% url 'billing_proof' record.pk %}" alt="Proof of payment">
+      </a>
+      <div id="proof-lightbox">
+        <a class="proof-lightbox-close" href="#" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </a>
+        <img src="{% url 'billing_proof' record.pk %}" alt="Proof of payment, full size">
+      </div>
+      <dl class="od-sum mt-4">
+        {% if record.transaction.total_vat_amount %}
+        <div><dt>VAT (included)</dt><dd>₱{{ record.transaction.total_vat_amount|floatformat:2 }}</dd></div>
+        {% endif %}
+        <div class="od-total"><dt>Total</dt><dd>₱{{ record.amount_due|floatformat:2 }}</dd></div>
+      </dl>
+    {% elif record.status == "Pending" or record.status == "Rejected" %}
+      {% if record.payment_method in proof_required_methods %}
+      <div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
+        <h3>No proof uploaded</h3>
+        <p>Waiting for payment data from recorder.</p>
+      </div>
+      {% else %}
+      <div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
+        <h3>No proof needed</h3>
+        <p>{{ record.payment_method }} doesn't require a screenshot or receipt.</p>
+      </div>
+      {% endif %}
+    {% else %}
+      <div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
+        <h3>No proof uploaded</h3>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if record.status == "Pending" or record.status == "Rejected" %}
+{% include "partials/_record_payment_modal.html" with transaction=record.transaction billing=record return_to="billing" %}
+{% endif %}
 {% endblock %}

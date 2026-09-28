@@ -913,7 +913,9 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
 
     def test_internal_po_form_has_no_editable_cost_field(self):
         self.client.force_login(self.owner)
-        response = self.client.get(reverse('procurement_list'))
+        # Create Purchase Order is its own page (procurement_add's GET), not
+        # a modal on procurement_list.
+        response = self.client.get(reverse('procurement_add'))
         self.assertNotContains(response, 'name="cost_price"')
         self.assertContains(response, 'Supplier Unit Cost')
 

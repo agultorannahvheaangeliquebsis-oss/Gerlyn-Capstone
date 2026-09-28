@@ -6,71 +6,43 @@
 {% block extra_css %}
 <style>
   {% comment %}
-  Order progress — the same dot+line track orders/track_order.html draws for
-  the customer, from the same four Pending/Approved/Preparing/Completed
-  stages (sales.views.ORDER_PROGRESS_STEPS mirrors its STATUS_STEPS). Named
-  distinctly and scoped to this page rather than folded into gerlyn.css,
-  since it is this page's own copy of that widget, not a shared component.
-  Dots are 24px and the track is capped in width: it sits under the status
-  message as a header strip, not as a section of its own.
-  {% endcomment %}
-  .order-progress-track { display: flex; gap: 0; margin: var(--s3) 0 0; max-width: 640px; }
-  .order-progress-step { flex: 1; text-align: center; position: relative; }
-  .order-progress-step .dot {
-    width: 24px; height: 24px; border-radius: 50%; margin: 0 auto 6px;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--line); color: var(--ink-400);
-    font: 700 12px/1 var(--font-sans); position: relative; z-index: 1;
-  }
-  .order-progress-step.done .dot { background: var(--brand); color: #fff; }
-  .order-progress-step.current .dot {
-    background: var(--action); color: #fff; box-shadow: 0 0 0 4px var(--green-50);
-  }
-  .order-progress-step::before {
-    content: ""; position: absolute; top: 12px; left: 0; right: 50%;
-    height: 2px; background: var(--line);
-  }
-  .order-progress-step::after {
-    content: ""; position: absolute; top: 12px; left: 50%; right: 0;
-    height: 2px; background: var(--line);
-  }
-  .order-progress-step:first-child::before, .order-progress-step:last-child::after { display: none; }
-  .order-progress-step.done::after, .order-progress-step.done::before { background: var(--brand); }
-  .order-progress-step.current::before { background: var(--brand); }
-  .order-progress-label { font: 600 13px/1.3 var(--font-sans); color: var(--ink-600); }
-  .order-progress-step.current .order-progress-label { color: var(--action-700); }
-
-  {% comment %}
   Order Detail layout. Every rule is prefixed od- and lives here rather than in
   gerlyn.css: this page is the only one that wants its cards this tight, and
   the shared .card-pad / .gv-table / .kv-table stay as every other page has
   them. Nothing is wrapped in a container element because detail-modal.js
   drops this fragment into a flex column whose gap sits between its direct
   children.
+
+  The order-progress-*/od-card/od-h/od-workspace/od-side/od-facts/od-sum/
+  od-items-*/pay-*/status-confirm-* base rules used to live here too, but
+  moved to gerlyn.css once Billing's own detail page needed the same
+  stepper, two-column layout, items table and dialog shells verbatim — see
+  gerlyn.css's "Order/billing detail component family" comment. Only what
+  stays specific to THIS page's status-change/refund/discount controls is
+  still scoped here.
   {% endcomment %}
-  .od-card.card-pad { padding: var(--s4); }
-  {% comment %}
-  Spacing between sections on the full page. Inside the detail modal
-  `.modal-body > *` zeroes these margins (its flex gap does the spacing), and
-  inside .od-top the grid's own gap does, so neither ever doubles up.
-  {% endcomment %}
-  .od-card, .od-top, .od-history { margin-bottom: var(--s4); }
-  .od-top > .od-card { margin-bottom: 0; }
-  .od-h { margin: 0 0 var(--s3); }
-  .od-note { font-size: 13.5px; margin: 0 0 var(--s3); }
 
   {% comment %}
-  Top row: Payment Status beside Order Progress. The next status step depends
-  on the payment (Completed needs it Paid), so the payment is read first and
-  the status control sits directly under the track it moves. auto-fit gives
-  each card the whole row when the other is absent (opened from billing) and
-  stacks them on a phone, payment first.
+  Order Progress is its own full-width banner: the stepper and the status
+  control that moves it share one row (.order-progress-row above). Payment
+  Status is the next full-width section — the next status step depends on
+  it (Completed needs it Paid), so it still reads before the progress card
+  that acts on it. .od-move holds only the per-step forms now (hidden
+  inputs and a dialog), so it carries no visible spacing of its own.
   {% endcomment %}
-  .od-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: var(--s4); }
-  .od-move { margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--line-soft); }
-  .od-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+  .od-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s3); flex: 0 1 auto; }
   .od-status-select { width: auto; min-width: 190px; }
-  .od-move-hint { margin: var(--s2) 0 0; }
+  {% comment %}
+  The Completed-needs-Paid rule as a pill instead of plain gv-meta text, in
+  the same row as the select and Update button it explains rather than on
+  its own line beneath them.
+  {% endcomment %}
+  .od-callout {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 999px; background: var(--warn-bg); color: var(--warn-fg);
+    font: 600 12.5px/1.3 var(--font-sans);
+  }
+  .od-callout svg { flex: none; }
   {% comment %}
   The per-step forms hold only hidden inputs and a dialog that is
   position:fixed until opened. `contents` keeps them from taking a slot (and a
@@ -85,62 +57,36 @@
   recorded. Pure CSS (:has) so it works in the detail-modal fragment, where
   scripts do not run. The inputs are display:none while unticked, so they
   cannot block or be part of a submit; the checkbox has no name and is never
-  posted.
+  posted. It sits directly under the items table it applies to, as its own
+  shaded sub-card rather than a plain separator, since the totals it changes
+  are now in the Financial Summary card in the sidebar, not right below it.
   {% endcomment %}
-  .od-discount.card-pad { padding: var(--s3) var(--s4); }
+  .od-discount-inline {
+    margin-top: var(--s4); padding: var(--s4);
+    background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: var(--r-card);
+  }
   .od-discount-toggle { cursor: pointer; }
   .od-discount-toggle strong { display: block; }
   .od-discount-body { display: none; margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line-soft); }
   .od-discount:has(.od-discount-toggle input:checked) .od-discount-body { display: flex; flex-direction: column; gap: var(--s3); }
   .od-discount-toggle:has(input:focus-visible) { outline: 3px solid var(--brand); outline-offset: 4px; border-radius: 4px; }
 
-  {% comment %}
-  Items Ordered lives inside Order Details as a disclosure: closed it is one
-  row naming the count, open it is the table. The summary swaps its own verb
-  (View / Hide) from [open], so it needs no script.
-  {% endcomment %}
-  .od-items-toggle { margin: var(--s3) 0 0; }
-  .od-items-toggle > summary {
-    display: inline-flex; align-items: center; gap: var(--s2); cursor: pointer; list-style: none;
-    min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: var(--r-input);
-    background: var(--surface); color: var(--ink-900); font: 600 13.5px/1.2 var(--font-sans);
-  }
-  .od-items-toggle > summary::-webkit-details-marker { display: none; }
-  .od-items-toggle > summary:hover { background: var(--green-50); }
-  .od-items-toggle > summary:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
-  .od-items-toggle .od-items-hide, .od-items-toggle[open] .od-items-view { display: none; }
-  .od-items-toggle[open] .od-items-hide { display: inline; }
-  .od-items-panel { max-width: 760px; margin-top: var(--s3); }
-
-  {% comment %}
-  Label-over-value tiles, several per row, instead of a full-width
-  label-left/value-right table whose value drifts to the far edge.
-  {% endcomment %}
-  .od-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: var(--s3) var(--s4); margin: 0; }
-  .od-facts > div { min-width: 0; }
-  .od-facts .wide { grid-column: 1 / -1; }
-  .od-facts dt, .od-sum dt { font: 700 11.5px/1.3 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500); }
-  .od-facts dd { margin: 2px 0 0; font-size: 14.5px; line-height: 1.35; color: var(--ink-900); overflow-wrap: anywhere; }
-  .od-sub { display: block; font-size: 13px; color: var(--ink-600); }
-  .od-sum { margin: var(--s3) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line-soft); max-width: 420px; margin-left: auto; }
-  .od-sum > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); padding: 4px 0; }
-  .od-sum dt { text-transform: none; letter-spacing: 0; font: 400 14px/1.4 var(--font-sans); color: var(--ink-600); }
-  .od-sum dd { margin: 0; font-size: 14.5px; font-variant-numeric: tabular-nums; }
-  .od-sum .od-total { border-top: 1px solid var(--line-soft); margin-top: 2px; padding-top: var(--s2); }
-  .od-sum .od-total:first-child { border-top: 0; margin-top: 0; padding-top: 4px; }
-  .od-sum .od-total dt { font-weight: 700; color: var(--ink-900); }
-  .od-sum .od-total dd { font: 700 20px/1.2 var(--font-sans); color: var(--action); }
-  .od-sum .od-credit { color: var(--ok-fg); }
   .od-card-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
-  .od-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); margin: 0 0 var(--s3); }
+  .od-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); margin: 0 0 var(--s3); flex-wrap: wrap; }
   .od-head h3 { margin: 0; }
+  {% comment %}
+  The card's own primary action sits beside its title and status pill, not
+  buried under the facts below — Record Payment is what this card is for,
+  so it reads as one action cluster with what it is confirming, not a
+  second, disconnected step.
+  {% endcomment %}
+  .od-head-actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 
   {% comment %}
-  Compact rows for the tables on this page: the shared 48px / 16px .gv-table
-  row is what made Items and the refund table so tall.
+  Compact rows for the refund table on this page: the shared 48px / 16px
+  .gv-table row (and the Items table's own .od-table padding, promoted to
+  gerlyn.css) is what made it so tall.
   {% endcomment %}
-  .od-table th { padding: 8px 12px; }
-  .od-table td { padding: 8px 12px; height: auto; font-size: 14.5px; }
   .od-refund-wrap { max-width: 820px; }
   .od-refund th.od-w-check, .od-refund td.od-w-check { width: 44px; padding-right: 0; }
   .od-refund th.od-w-num { width: 96px; }
@@ -172,68 +118,33 @@
   @media (prefers-reduced-motion: no-preference) {
     .od-history > summary::before { transition: transform .15s ease; }
   }
-  .od-log { list-style: none; margin: 0; padding: 0 var(--s4) var(--s3); display: grid; gap: var(--s2); }
-  .od-log li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--s3); font-size: 14.5px; padding-top: var(--s2); border-top: 1px solid var(--line-soft); }
-  .od-log .od-when { font-size: 13.5px; color: var(--ink-600); }
+  {% comment %}
+  Each step as a rail-and-dot timeline entry rather than a two-column line:
+  the dot marks the step, the rail below it is what "next" means, and the
+  last entry gets no rail since there is nothing after it yet.
+  {% endcomment %}
+  .od-log { list-style: none; margin: 0; padding: 0 var(--s4) var(--s3); display: grid; gap: 0; }
+  .od-log li { position: relative; padding: 0 0 var(--s3) 22px; font-size: 14.5px; }
+  .od-log li::before {
+    content: ""; position: absolute; left: 2px; top: 4px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--brand);
+  }
+  .od-log li::after {
+    content: ""; position: absolute; left: 6px; top: 15px; bottom: 0; width: 1px; background: var(--line-soft);
+  }
+  .od-log li:last-child::after { display: none; }
+  .od-log li:last-child { padding-bottom: 0; }
+  .od-log .od-when { display: block; font-size: 13.5px; color: var(--ink-600); margin-bottom: 2px; }
 
   @media (max-width: 860px) {
-    {% comment %}
-    The shared stacked-card table collapse turns each item into four lines. Four
-    short columns fit a phone, so Items opts back out of it, the way .kv-table
-    does for key/value tables.
-    {% endcomment %}
-    .od-items.gv-table { display: table; }
-    .od-items.gv-table thead { display: table-header-group; }
-    .od-items.gv-table tbody { display: table-row-group; }
-    .od-items.gv-table tr { display: table-row; width: auto; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent !important; }
-    .od-items.gv-table th, .od-items.gv-table td { display: table-cell; width: auto; padding: 8px 6px; font-size: 13.5px; text-align: left; }
-    .od-items.gv-table th.num, .od-items.gv-table td.num { text-align: right; }
-    .od-items.gv-table td::before { content: none; }
-    .od-items.gv-table td:first-child { overflow-wrap: anywhere; }
     .od-refund td.od-w-check { width: 100%; padding-right: 14px; }
     .od-btn { min-height: var(--touch); }
-    .od-log li { grid-template-columns: 1fr; gap: 2px; }
   }
   @media (max-width: 560px) {
     .od-actions, .od-action { width: 100%; }
     .od-action .btn { flex: 1 1 auto; }
     .od-card-actions .btn { flex: 1 1 auto; }
   }
-
-  {% comment %}
-  Record Payment dialog (order-detail.js, partials/_record_payment_modal.html).
-  Reuses .modal-overlay / .modal-card / .modal-body / .modal-foot; the form
-  sits between the head and the body, so it has to carry the card's flex column
-  down to the scrolling body.
-  {% endcomment %}
-  .pay-modal-card { max-width: 520px; }
-  .pay-form { display: flex; flex-direction: column; min-height: 0; margin: 0; }
-  .pay-due { padding-bottom: var(--s4); border-bottom: 1px solid var(--line); }
-  .pay-file { padding: 10px 12px; height: auto; }
-  .pay-file::file-selector-button {
-    margin-right: var(--s3); padding: 6px 12px; cursor: pointer;
-    border: 1px solid var(--line); border-radius: var(--r-input);
-    background: var(--surface); color: var(--ink-900); font: 600 13.5px/1.2 var(--font-sans);
-  }
-  .pay-file::file-selector-button:hover { background: var(--green-50); }
-
-  {% comment %}
-  Status-change dialog (order-status-confirm.js). Reuses .modal-overlay /
-  .confirm-card; only the summary grid and the notice list are this page's.
-  {% endcomment %}
-  .status-confirm-card { max-width: 520px; }
-  .status-confirm-body { display: flex; flex-direction: column; gap: var(--s4); overflow-y: auto; }
-  .status-confirm-summary {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--s3) var(--s4); margin: 0;
-  }
-  .status-confirm-summary dt { font: 600 12px/1.3 var(--font-sans); color: var(--ink-600); text-transform: uppercase; letter-spacing: .04em; }
-  .status-confirm-summary dd { margin: 2px 0 0; font-size: 14.5px; color: var(--ink-900); }
-  .status-confirm-notes { margin: 6px 0 0; padding-left: 18px; }
-  .status-confirm-notes li + li { margin-top: 4px; }
-  .status-confirm-error { margin: 0; }
-  .status-confirm-body textarea { width: 100%; }
-  @media (max-width: 480px) { .status-confirm-summary { grid-template-columns: 1fr; } }
 </style>
 {% endblock %}
 
@@ -259,66 +170,22 @@
   {% endif %}
 </div>
 
-{# ---- top row: payment (what the next step depends on) beside where the order is and the control that moves it ---- #}
-<div class="od-top">
-  {% if not from_billing %}
-  {# Payment Status is the order page's copy of the billing record: everything about the payment is read here, so there is no second page to open for it. #}
-  <div class="card card-pad od-card">
-    <div class="od-head">
-      <h3>Payment Status</h3>
-      {% if billing %}
-        {% include "partials/_billing_status_pill.html" with status=billing.status %}
-      {% endif %}
-    </div>
-    {% if billing %}
-    <dl class="od-facts">
-      <div><dt>Billing no.</dt><dd>#{{ billing.pk }}</dd></div>
-      <div><dt>Amount due</dt><dd class="strong">₱{{ billing.amount_due|floatformat:2 }}</dd></div>
-      <div><dt>Method</dt><dd>{{ billing.payment_method }}</dd></div>
-      <div><dt>Reference no.</dt><dd class="sku">{{ billing.reference_number|default:"—" }}</dd></div>
-      <div><dt>Recorded</dt><dd>{{ billing.date_recorded|date:"j M Y, g:i a" }}</dd></div>
-      <div><dt>Confirmed by</dt><dd>
-        {% if billing.confirmed_by %}{{ billing.confirmed_by.get_full_name|default:billing.confirmed_by.username }}{% else %}—{% endif %}
-        {% if billing.date_confirmed %}<span class="od-sub">{{ billing.date_confirmed|date:"j M Y, g:i a" }}</span>{% endif %}</dd></div>
-      {% if billing.status == "Cancelled" %}
-      <div><dt>Cancelled by</dt><dd>
-        {% if billing.voided_by %}{{ billing.voided_by.get_full_name|default:billing.voided_by.username }}{% else %}—{% endif %}
-        {% if billing.date_voided %}<span class="od-sub">{{ billing.date_voided|date:"j M Y, g:i a" }}</span>{% endif %}</dd></div>
-      {% endif %}
-    </dl>
-    {% else %}
-    <p class="gv-meta mb-0">No billing record.</p>
-    {% endif %}
-    {% comment %}
-    billing_proof is the auth-gated stream (F-06), never the raw media path;
-    it answers with the image itself, so it opens in its own tab. Record
-    Payment stays for the two states with nothing to verify yet — no record,
-    or a Pending one — because this page is the only route to the form for an
-    order with no billing record. It opens the modal below; the href is the
-    full-page form, which is what a click does when order-detail.js has not
-    run.
-    {% endcomment %}
-    {% if billing.proof_of_payment or can_record_payment %}
-    <div class="od-card-actions">
-      {% if billing.proof_of_payment %}
-      <a class="btn btn-sm od-btn" href="{% url 'billing_proof' billing.pk %}" target="_blank" rel="noopener">View payment proof</a>
-      {% endif %}
-      {% if can_record_payment %}
-      <a class="btn btn-primary btn-sm od-btn" href="{% url 'billing_create' transaction.pk %}"
-         data-payment-open="record-payment-modal">Record Payment</a>
-      {% endif %}
-    </div>
-    {% endif %}
+{# ---- top: Order Progress as a full-width banner, the stepper and the control that moves it in one card ---- #}
+<div class="card card-pad od-card">
+  <h3 class="od-h">Order Progress</h3>
+  {% if progress.cancelled %}
+  <div class="banner banner-error mt-2 mb-0">
+    <span><strong>{{ transaction.order_number }} was cancelled</strong> — it will not move through the remaining stages.</span>
   </div>
-  {% endif %}
-
-  <div class="card card-pad od-card">
-    <h3 class="od-h">Order Progress</h3>
-    {% if progress.cancelled %}
-    <div class="banner banner-error mt-2 mb-0">
-      <span><strong>{{ transaction.order_number }} was cancelled</strong> — it will not move through the remaining stages.</span>
-    </div>
-    {% else %}
+  {% else %}
+  {% comment %}
+  The stepper and the status-change control share one row instead of the
+  control sitting in a separate row below: changing the status is the
+  action this progress track exists for, so it reads right beside what it
+  moves. Wraps to its own line under the track once the row is too narrow
+  for both (.order-progress-row, max-width:560px breakpoint below).
+  {% endcomment %}
+  <div class="order-progress-row">
     <div class="order-progress-track">
       {% for step in progress.steps %}
       <div class="order-progress-step {% if step.done %}done{% endif %} {% if step.current %}current{% endif %}">
@@ -327,74 +194,137 @@
       </div>
       {% endfor %}
     </div>
-    {% endif %}
-
-    {# cancellation record: the reason, and the order this one corrects or was replaced by #}
-    {% if transaction.order_status == "Cancelled" %}
-    <p class="gv-meta od-cancel-meta"><strong>Reason:</strong> {{ transaction.cancel_reason|default:"—" }}
-      {% if transaction.replaces %}
-      · Corrects <a href="{% url 'transaction_detail' transaction.replaces.pk %}">{{ transaction.replaces.order_number }}</a>
-      {% endif %}
-      {% with replacement=transaction.replaced_by.first %}
-      {% if replacement %}
-      · Replaced by <a href="{% url 'transaction_detail' replacement.pk %}">{{ replacement.order_number }}</a>
-      {% endif %}
-      {% endwith %}
-    </p>
-    {% endif %}
 
     {% if next_actions %}
     {% comment %}
-    One dropdown of the steps this order may take next, instead of a button per
-    step, sitting under the track it moves. order-detail.js points the Update
-    button at the form of the option picked (the button's own `form`
-    attribute), so each option still submits to its own transaction_set_status
-    URL and keeps its own confirmation dialog. Options come from _next_actions,
-    so a step the server would refuse is never listed; Completed is listed but
-    disabled until the payment is Paid — the view enforces that, this just
-    says so before the click.
+    One dropdown of the steps this order may take next, instead of a button
+    per step. order-detail.js points the Update button at the form of the
+    option picked (the button's own `form` attribute), so each option still
+    submits to its own transaction_set_status URL and keeps its own
+    confirmation dialog — the form elements themselves live below, out of
+    this row, since the `form` attribute finds them by id anywhere on the
+    page. Options come from _next_actions, so a step the server would refuse
+    is never listed; Completed is listed but disabled until the payment is
+    Paid — the view enforces that, this just says so before the click.
     {% endcomment %}
-    <div class="od-move">
-      <div class="od-actions">
-        <label class="sr-only" for="od-status-select">Change order status</label>
-        <select id="od-status-select" class="od-status-select" data-status-select>
-          <option value="">Change status…</option>
-          {% for item in next_action_items %}
-          {% with action=item.status %}
-          <option value="od-status-form-{{ action }}"
-                  {% if action == 'Completed' and not payment_is_paid %}disabled{% endif %}>
-            {% if action == 'Cancelled' %}{% if transaction.order_status == "Completed" %}Void Sale{% else %}Cancel Order{% endif %}{% else %}Mark {{ action }}{% endif %}
-          </option>
-          {% endwith %}
-          {% endfor %}
-        </select>
-        <button type="submit" class="btn btn-primary" data-status-apply disabled>Update</button>
-      </div>
+    <div class="od-actions">
+      <label class="sr-only" for="od-status-select">Change order status</label>
+      <select id="od-status-select" class="od-status-select" data-status-select>
+        <option value="">Change status…</option>
+        {% for item in next_action_items %}
+        {% with action=item.status %}
+        <option value="od-status-form-{{ action }}"
+                {% if action == 'Completed' and not payment_is_paid %}disabled{% endif %}>
+          {% if action == 'Cancelled' %}{% if transaction.order_status == "Completed" %}Void Sale{% else %}Cancel Order{% endif %}{% else %}Mark {{ action }}{% endif %}
+        </option>
+        {% endwith %}
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary" data-status-apply disabled>Update</button>
       {% if 'Completed' in next_actions and not payment_is_paid %}
-      <p class="gv-meta od-move-hint">Payment must be verified as Paid first.</p>
+      <p class="od-callout">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>
+        Payment must be verified as Paid first.
+      </p>
       {% endif %}
-      {% for item in next_action_items %}
-      {% comment %}
-      Completed and Cancelled stop for order-status-confirm.js's dialog — the
-      order summary, what the step does to stock and payment, and a reason
-      (required for Cancelled, optional for Completed). The dialog markup sits
-      inside its form so the reason posts with it. Approved / Preparing are the
-      routine path a cashier walks all day and stay one click. expected_status
-      lets the server refuse the request if the order moved on after this page
-      was drawn.
-      {% endcomment %}
-      <form method="post" action="{% url 'transaction_set_status' transaction.pk item.status %}"
-            id="od-status-form-{{ item.status }}" class="od-action"
-            {% if item.confirm %}data-status-confirm{% endif %}>
-        {% csrf_token %}
-        <input type="hidden" name="expected_status" value="{{ transaction.order_status }}">
-        {% if item.confirm %}{% include "partials/_order_status_confirm.html" with c=item.confirm %}{% endif %}
-      </form>
-      {% endfor %}
     </div>
     {% endif %}
   </div>
+  {% endif %}
+
+  {# cancellation record: the reason, and the order this one corrects or was replaced by #}
+  {% if transaction.order_status == "Cancelled" %}
+  <p class="gv-meta od-cancel-meta"><strong>Reason:</strong> {{ transaction.cancel_reason|default:"—" }}
+    {% if transaction.replaces %}
+    · Corrects <a href="{% url 'transaction_detail' transaction.replaces.pk %}">{{ transaction.replaces.order_number }}</a>
+    {% endif %}
+    {% with replacement=transaction.replaced_by.first %}
+    {% if replacement %}
+    · Replaced by <a href="{% url 'transaction_detail' replacement.pk %}">{{ replacement.order_number }}</a>
+    {% endif %}
+    {% endwith %}
+  </p>
+  {% endif %}
+
+  {% if next_actions %}
+  <div class="od-move">
+    {% for item in next_action_items %}
+    {% comment %}
+    Completed and Cancelled stop for order-status-confirm.js's dialog — the
+    order summary, what the step does to stock and payment, and a reason
+    (required for Cancelled, optional for Completed). The dialog markup sits
+    inside its form so the reason posts with it. Approved / Preparing are the
+    routine path a cashier walks all day and stay one click. expected_status
+    lets the server refuse the request if the order moved on after this page
+    was drawn.
+    {% endcomment %}
+    <form method="post" action="{% url 'transaction_set_status' transaction.pk item.status %}"
+          id="od-status-form-{{ item.status }}" class="od-action"
+          {% if item.confirm %}data-status-confirm{% endif %}>
+      {% csrf_token %}
+      <input type="hidden" name="expected_status" value="{{ transaction.order_status }}">
+      {% if item.confirm %}{% include "partials/_order_status_confirm.html" with c=item.confirm %}{% endif %}
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
+
+{% if not from_billing %}
+{# ---- middle: Payment Status as its own full-width section, directly below Order Progress ---- #}
+{# Payment Status is the order page's copy of the billing record: everything about the payment is read here, so there is no second page to open for it. #}
+<div class="card card-pad od-card">
+  <div class="od-head">
+    <h3>Payment Status</h3>
+    <div class="od-head-actions">
+      {% if billing %}
+        {% include "partials/_billing_status_pill.html" with status=billing.status %}
+      {% endif %}
+      {% comment %}
+      Record Payment sits beside the title it confirms rather than below
+      the facts, so the card's one primary action is the first thing read
+      after what state the payment is in. See the comment on the href
+      below for what it opens.
+      {% endcomment %}
+      {% if can_record_payment %}
+      <a class="btn btn-primary btn-sm od-btn" href="{% url 'billing_create' transaction.pk %}"
+         data-payment-open="record-payment-modal">Record Payment</a>
+      {% endif %}
+    </div>
+  </div>
+  {% if billing %}
+  <dl class="od-facts">
+    <div><dt>Billing no.</dt><dd>#{{ billing.pk }}</dd></div>
+    <div><dt>Amount due</dt><dd class="strong">₱{{ billing.amount_due|floatformat:2 }}</dd></div>
+    <div><dt>Method</dt><dd>{{ billing.payment_method }}</dd></div>
+    <div><dt>Reference no.</dt><dd class="sku">{{ billing.reference_number|default:"—" }}</dd></div>
+    <div><dt>Recorded</dt><dd>{{ billing.date_recorded|date:"j M Y, g:i a" }}</dd></div>
+    <div><dt>Confirmed by</dt><dd>
+      {% if billing.confirmed_by %}{{ billing.confirmed_by.get_full_name|default:billing.confirmed_by.username }}{% else %}—{% endif %}
+      {% if billing.date_confirmed %}<span class="od-sub">{{ billing.date_confirmed|date:"j M Y, g:i a" }}</span>{% endif %}</dd></div>
+    {% if billing.status == "Cancelled" %}
+    <div><dt>Cancelled by</dt><dd>
+      {% if billing.voided_by %}{{ billing.voided_by.get_full_name|default:billing.voided_by.username }}{% else %}—{% endif %}
+      {% if billing.date_voided %}<span class="od-sub">{{ billing.date_voided|date:"j M Y, g:i a" }}</span>{% endif %}</dd></div>
+    {% endif %}
+  </dl>
+  {% else %}
+  <p class="gv-meta mb-0">No billing record.</p>
+  {% endif %}
+  {% comment %}
+  billing_proof is the auth-gated stream (F-06), never the raw media path;
+  it answers with the image itself, so it opens in its own tab. Record
+  Payment itself moved to the card head above — it opens the same modal;
+  the href there is the full-page form, which is what a click does when
+  order-detail.js has not run.
+  {% endcomment %}
+  {% if billing.proof_of_payment %}
+  <div class="od-card-actions">
+    <a class="btn btn-sm od-btn" href="{% url 'billing_proof' billing.pk %}" target="_blank" rel="noopener">View payment proof</a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 {% if not from_billing and can_record_payment %}
 {% include "partials/_record_payment_modal.html" %}
 {% endif %}
@@ -476,164 +406,126 @@ is what the reviewer confirms against the card.
 </div>
 {% endif %}
 
-{# ---- apply PWD / Senior discount (walk-in or pickup only) ---- #}
+{# ---- bottom workspace: Order Details + Financial Summary side by side, items + discount full-width below ---- #}
 {% comment %}
-F-04. This is the only place the statutory discount can be granted:
-customer checkout no longer accepts one at all. can_apply_discount comes
-from SalesTransaction.can_apply_pwd_senior_discount() via the view, which
-re-checks it on POST — a Delivery order is refused server-side even if
-this form is forged, so hiding the control is convenience, not the guard.
-The card is one checkbox row until ticked; the ID fields appear only then.
+Payment Status moved to its own full-width section above. Order Details and
+Financial Summary are both reference material read together, so they sit
+side by side in one row; the order's contents (what was bought, and the
+discount that applies to it) follow as their own full-width row below.
+Opened from the billing record (billing_detail.html's "View Order" adds
+?from=billing) the payment card is left out above, since that record is the
+page already open behind this overlay — Order Details is unaffected by that.
 {% endcomment %}
-{% if can_apply_discount %}
-<div class="card card-pad od-card od-discount">
-  <form method="post" action="{% url 'transaction_apply_discount' transaction.pk %}"
-        data-confirm="This re-prices {{ transaction.order_number }} and updates the amount due. Only apply it if you have seen the ID."
-        data-confirm-title="Apply statutory discount?"
-        data-confirm-ok="Apply discount"
-        data-confirm-dismiss="Not yet">
-    {% csrf_token %}
-    <label class="od-check od-discount-toggle">
-      <input type="checkbox" id="discount_toggle">
-      <span>
-        <strong>Apply PWD / Senior Citizen discount</strong>
-        <span class="gv-meta">
-          {% if transaction.transaction_type == "Online" %}
-          Tick when the customer presents their PWD / OSCA ID as they collect the order.
-          {% else %}
-          Tick if the ID was presented at the counter but not entered on the sale.
-          {% endif %}
-        </span>
-      </span>
-    </label>
-    <div class="od-discount-body">
-      <p class="gv-meta od-note mb-0">
-        20% comes off the VAT-exclusive price and the eligible lines become VAT-exempt.
-        Your name is recorded against it.
-      </p>
-      <div class="od-fields">
-        <div class="field">
-          <label for="discount_type">Discount type</label>
-          <select id="discount_type" name="discount_type" required>
-            <option value="">Select…</option>
-            {% for value, label in discount_choices %}
-            <option value="{{ value }}">{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="field">
-          <label for="discount_id_number">ID number</label>
-          <input type="text" id="discount_id_number" name="discount_id_number"
-                 placeholder="PWD / OSCA ID" required>
-        </div>
-        <div class="field">
-          <label for="discount_holder_name">Name on ID</label>
-          <input type="text" id="discount_holder_name" name="discount_holder_name"
-                 placeholder="Full name" required>
-        </div>
-        <div><button type="submit" class="btn btn-primary">Apply discount</button></div>
-      </div>
+<div class="od-workspace">
+  <div class="od-side">
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Order Details</h3>
+      <dl class="od-facts">
+        <div><dt>Branch</dt><dd>{{ transaction.branch.branch_name }}</dd></div>
+        <div><dt>Channel</dt><dd>
+          {% if transaction.transaction_type == "Online" %}<span class="tag">Online</span>
+          {% else %}<span class="tag">In-Store</span>{% endif %}</dd></div>
+        <div><dt>Customer</dt><dd>
+          {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
+          {% else %}Walk-in{% endif %}</dd></div>
+        <div><dt>Placed on</dt><dd>{{ transaction.transaction_date|date:"j M Y, g:i a" }}</dd></div>
+        {% comment %}
+        X-3 — recorded_by, not staff: staff is STAFF-role-only by its own
+        limit_choices_to, so a sale the Owner or a Branch Manager rang up
+        always had staff=None and showed "—" here even though someone
+        plainly rang it up. recorded_by is written on every walk-in/API
+        creation path regardless of role.
+        {% endcomment %}
+        <div><dt>Recorded by</dt><dd>
+          {% if transaction.recorded_by %}{{ transaction.recorded_by.username }}{% else %}—{% endif %}</dd></div>
+        {% comment %}
+        The payment method lives in the Payment Status card when there is one;
+        it is only listed here when that card is not showing, so it is never
+        printed twice.
+        {% endcomment %}
+        {% if from_billing or not billing %}
+        <div><dt>Payment method</dt><dd>{{ transaction.mode_of_payment }}</dd></div>
+        {% endif %}
+        {% comment %}
+        Shown for every online order, not only the ones with an address:
+        "Pickup" is now a recorded fact rather than the absence of one, and
+        it is what decides whether the discount form above appears (F-11).
+        {% endcomment %}
+        {% if transaction.transaction_type == "Online" %}
+        <div><dt>Fulfillment</dt><dd><span class="tag">{{ transaction.get_fulfillment_type_display }}</span></dd></div>
+        {% endif %}
+        {% if transaction.delivery_address %}
+        <div class="wide"><dt>Deliver to</dt><dd>{{ transaction.delivery_address }}</dd></div>
+        {% endif %}
+        {% comment %}
+        The statutory-discount record. Shown only when a claim was made — the
+        ID is what makes the discount defensible if it is ever questioned, so
+        it belongs on the transaction, not just in the audit log.
+        {% endcomment %}
+        {% if transaction.discount_type != 'None' %}
+        <div><dt>Discount</dt><dd><span class="tag">{{ transaction.get_discount_type_display }}</span></dd></div>
+        <div><dt>ID presented</dt><dd>
+          {{ transaction.discount_id_number|default:"—" }}
+          {% if transaction.discount_holder_name %}<span class="od-sub">{{ transaction.discount_holder_name }}</span>{% endif %}</dd></div>
+        {% comment %}
+        Who granted it and when — the A-1 audit trail. Null on a sale rung
+        up through the POS before this was recorded, which reads as "—"
+        rather than pretending nobody was responsible.
+        {% endcomment %}
+        {% if transaction.discount_applied_by or transaction.discount_applied_at %}
+        <div><dt>Discount applied by</dt><dd>
+          {% if transaction.discount_applied_by %}{{ transaction.discount_applied_by.get_full_name|default:transaction.discount_applied_by.username }}{% else %}—{% endif %}
+          {% if transaction.discount_applied_at %}
+          <span class="od-sub">{{ transaction.discount_applied_at|date:"j M Y, g:i a" }}</span>
+          {% endif %}</dd></div>
+        {% endif %}
+        {% endif %}
+        {% comment %}
+        The customer's request and how it was decided (P15). A Pending one is
+        drawn with its own review card above, so it is only summarised here
+        when that card is not showing. An Approved one is already visible as
+        the discount rows above.
+        {% endcomment %}
+        {% if transaction.pwd_request_status == 'Rejected' %}
+        <div class="wide"><dt>PWD request</dt><dd>
+          <span class="tag">Not approved</span>
+          {% if transaction.pwd_request_reject_reason %}<span class="od-sub">{{ transaction.pwd_request_reject_reason }}</span>{% endif %}
+          {% if transaction.pwd_request_reviewed_by %}<span class="od-sub">
+            {{ transaction.pwd_request_reviewed_by.get_full_name|default:transaction.pwd_request_reviewed_by.username }}
+            · {{ transaction.pwd_request_reviewed_at|date:"j M Y, g:i a" }}</span>{% endif %}</dd></div>
+        {% elif transaction.pwd_request_status == 'Pending' and not can_review_pwd_request %}
+        <div><dt>PWD request</dt><dd><span class="tag">Pending</span></dd></div>
+        {% endif %}
+      </dl>
     </div>
-  </form>
-</div>
-{% endif %}
 
-{# ---- order details, with the items ordered folded into it ---- #}
-{% comment %}
-Payment Status moved to the top row. Items Ordered is no longer a card of its
-own: it is the "View order items" disclosure below the facts, ahead of the
-totals it adds up to. Opened from the billing record (billing_detail.html's
-"View Order" adds ?from=billing) the payment card is left out of the top row,
-since that record is the page already open behind this overlay.
-{% endcomment %}
-<div class="card card-pad od-card">
-  <h3 class="od-h">Order Details</h3>
-  <dl class="od-facts">
-    <div><dt>Branch</dt><dd>{{ transaction.branch.branch_name }}</dd></div>
-    <div><dt>Channel</dt><dd>
-      {% if transaction.transaction_type == "Online" %}<span class="tag">Online</span>
-      {% else %}<span class="tag">In-Store</span>{% endif %}</dd></div>
-    <div><dt>Customer</dt><dd>
-      {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
-      {% else %}Walk-in{% endif %}</dd></div>
-    <div><dt>Placed on</dt><dd>{{ transaction.transaction_date|date:"j M Y, g:i a" }}</dd></div>
-    {% comment %}
-    X-3 — recorded_by, not staff: staff is STAFF-role-only by its own
-    limit_choices_to, so a sale the Owner or a Branch Manager rang up
-    always had staff=None and showed "—" here even though someone
-    plainly rang it up. recorded_by is written on every walk-in/API
-    creation path regardless of role.
-    {% endcomment %}
-    <div><dt>Recorded by</dt><dd>
-      {% if transaction.recorded_by %}{{ transaction.recorded_by.username }}{% else %}—{% endif %}</dd></div>
-    {% comment %}
-    The payment method lives in the Payment Status card when there is one;
-    it is only listed here when that card is not showing, so it is never
-    printed twice.
-    {% endcomment %}
-    {% if from_billing or not billing %}
-    <div><dt>Payment method</dt><dd>{{ transaction.mode_of_payment }}</dd></div>
-    {% endif %}
-    {% comment %}
-    Shown for every online order, not only the ones with an address:
-    "Pickup" is now a recorded fact rather than the absence of one, and
-    it is what decides whether the discount form above appears (F-11).
-    {% endcomment %}
-    {% if transaction.transaction_type == "Online" %}
-    <div><dt>Fulfillment</dt><dd><span class="tag">{{ transaction.get_fulfillment_type_display }}</span></dd></div>
-    {% endif %}
-    {% if transaction.delivery_address %}
-    <div class="wide"><dt>Deliver to</dt><dd>{{ transaction.delivery_address }}</dd></div>
-    {% endif %}
-    {% comment %}
-    The statutory-discount record. Shown only when a claim was made — the
-    ID is what makes the discount defensible if it is ever questioned, so
-    it belongs on the transaction, not just in the audit log.
-    {% endcomment %}
-    {% if transaction.discount_type != 'None' %}
-    <div><dt>Discount</dt><dd><span class="tag">{{ transaction.get_discount_type_display }}</span></dd></div>
-    <div><dt>ID presented</dt><dd>
-      {{ transaction.discount_id_number|default:"—" }}
-      {% if transaction.discount_holder_name %}<span class="od-sub">{{ transaction.discount_holder_name }}</span>{% endif %}</dd></div>
-    {% comment %}
-    Who granted it and when — the A-1 audit trail. Null on a sale rung
-    up through the POS before this was recorded, which reads as "—"
-    rather than pretending nobody was responsible.
-    {% endcomment %}
-    {% if transaction.discount_applied_by or transaction.discount_applied_at %}
-    <div><dt>Discount applied by</dt><dd>
-      {% if transaction.discount_applied_by %}{{ transaction.discount_applied_by.get_full_name|default:transaction.discount_applied_by.username }}{% else %}—{% endif %}
-      {% if transaction.discount_applied_at %}
-      <span class="od-sub">{{ transaction.discount_applied_at|date:"j M Y, g:i a" }}</span>
-      {% endif %}</dd></div>
-    {% endif %}
-    {% endif %}
-    {% comment %}
-    The customer's request and how it was decided (P15). A Pending one is
-    drawn with its own review card above, so it is only summarised here
-    when that card is not showing. An Approved one is already visible as
-    the discount rows above.
-    {% endcomment %}
-    {% if transaction.pwd_request_status == 'Rejected' %}
-    <div class="wide"><dt>PWD request</dt><dd>
-      <span class="tag">Not approved</span>
-      {% if transaction.pwd_request_reject_reason %}<span class="od-sub">{{ transaction.pwd_request_reject_reason }}</span>{% endif %}
-      {% if transaction.pwd_request_reviewed_by %}<span class="od-sub">
-        {{ transaction.pwd_request_reviewed_by.get_full_name|default:transaction.pwd_request_reviewed_by.username }}
-        · {{ transaction.pwd_request_reviewed_at|date:"j M Y, g:i a" }}</span>{% endif %}</dd></div>
-    {% elif transaction.pwd_request_status == 'Pending' and not can_review_pwd_request %}
-    <div><dt>PWD request</dt><dd><span class="tag">Pending</span></dd></div>
-    {% endif %}
-  </dl>
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Financial Summary</h3>
+      <dl class="od-sum">
+        {% if transaction.discount_type != 'None' %}
+        <div><dt>Less: discount</dt><dd class="od-credit">−₱{{ transaction.total_discount_amount|floatformat:2 }}</dd></div>
+        {% endif %}
+        {% if transaction.total_vat_amount %}
+        <div><dt>VAT (included)</dt><dd>₱{{ transaction.total_vat_amount|floatformat:2 }}</dd></div>
+        {% endif %}
+        <div class="od-total"><dt>Total</dt><dd>₱{{ transaction.total_amount|floatformat:2 }}</dd></div>
+        {% if transaction.refunded_amount %}
+        <div><dt>Less: refunded</dt><dd class="od-credit">−₱{{ transaction.refunded_amount|floatformat:2 }}</dd></div>
+        <div><dt>Net after refunds</dt><dd class="strong">₱{{ transaction.net_amount|floatformat:2 }}</dd></div>
+        {% endif %}
+        {% if transaction.amount_tendered is not None %}
+        <div><dt>Amount tendered</dt><dd>₱{{ transaction.amount_tendered|floatformat:2 }}</dd></div>
+        <div><dt>Change</dt><dd>₱{{ transaction.change_amount|floatformat:2 }}</dd></div>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
 
-  <details class="od-items-toggle">
-    <summary>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-      <span class="od-items-view">View order items</span>
-      <span class="od-items-hide">Hide order items</span>
-      <span class="tag">{{ items|length }} item{{ items|length|pluralize }}</span>
-    </summary>
-    <div class="od-items-panel">
+  <div class="card card-pad od-card">
+    <div class="od-items-block">
+      <h4 class="od-items-head">
+        Items <span class="tag">{{ items|length }} item{{ items|length|pluralize }}</span>
+      </h4>
       <table class="gv-table od-table od-items" style="border:0;">
         <thead>
           <tr><th>Product</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Subtotal</th></tr>
@@ -652,25 +544,69 @@ since that record is the page already open behind this overlay.
         </tbody>
       </table>
     </div>
-  </details>
 
-  <dl class="od-sum">
-    {% if transaction.discount_type != 'None' %}
-    <div><dt>Less: discount</dt><dd class="od-credit">−₱{{ transaction.total_discount_amount|floatformat:2 }}</dd></div>
+    {# ---- apply PWD / Senior discount (walk-in or pickup only) ---- #}
+    {% comment %}
+    F-04. This is the only place the statutory discount can be granted:
+    customer checkout no longer accepts one at all. can_apply_discount comes
+    from SalesTransaction.can_apply_pwd_senior_discount() via the view, which
+    re-checks it on POST — a Delivery order is refused server-side even if
+    this form is forged, so hiding the control is convenience, not the guard.
+    It is one checkbox row until ticked; the ID fields appear only then.
+    {% endcomment %}
+    {% if can_apply_discount %}
+    <div class="od-discount od-discount-inline">
+      <form method="post" action="{% url 'transaction_apply_discount' transaction.pk %}"
+            data-confirm="This re-prices {{ transaction.order_number }} and updates the amount due. Only apply it if you have seen the ID."
+            data-confirm-title="Apply statutory discount?"
+            data-confirm-ok="Apply discount"
+            data-confirm-dismiss="Not yet">
+        {% csrf_token %}
+        <label class="od-check od-discount-toggle">
+          <input type="checkbox" id="discount_toggle">
+          <span>
+            <strong>Apply PWD / Senior Citizen discount</strong>
+            <span class="gv-meta">
+              {% if transaction.transaction_type == "Online" %}
+              Tick when the customer presents their PWD / OSCA ID as they collect the order.
+              {% else %}
+              Tick if the ID was presented at the counter but not entered on the sale.
+              {% endif %}
+            </span>
+          </span>
+        </label>
+        <div class="od-discount-body">
+          <p class="gv-meta od-note mb-0">
+            20% comes off the VAT-exclusive price and the eligible lines become VAT-exempt.
+            Your name is recorded against it.
+          </p>
+          <div class="od-fields">
+            <div class="field">
+              <label for="discount_type">Discount type</label>
+              <select id="discount_type" name="discount_type" required>
+                <option value="">Select…</option>
+                {% for value, label in discount_choices %}
+                <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="discount_id_number">ID number</label>
+              <input type="text" id="discount_id_number" name="discount_id_number"
+                     placeholder="PWD / OSCA ID" required>
+            </div>
+            <div class="field">
+              <label for="discount_holder_name">Name on ID</label>
+              <input type="text" id="discount_holder_name" name="discount_holder_name"
+                     placeholder="Full name" required>
+            </div>
+            <div><button type="submit" class="btn btn-primary">Apply discount</button></div>
+          </div>
+        </div>
+      </form>
+    </div>
     {% endif %}
-    {% if transaction.total_vat_amount %}
-    <div><dt>VAT (included)</dt><dd>₱{{ transaction.total_vat_amount|floatformat:2 }}</dd></div>
-    {% endif %}
-    <div class="od-total"><dt>Total</dt><dd>₱{{ transaction.total_amount|floatformat:2 }}</dd></div>
-    {% if transaction.refunded_amount %}
-    <div><dt>Less: refunded</dt><dd class="od-credit">−₱{{ transaction.refunded_amount|floatformat:2 }}</dd></div>
-    <div><dt>Net after refunds</dt><dd class="strong">₱{{ transaction.net_amount|floatformat:2 }}</dd></div>
-    {% endif %}
-    {% if transaction.amount_tendered is not None %}
-    <div><dt>Amount tendered</dt><dd>₱{{ transaction.amount_tendered|floatformat:2 }}</dd></div>
-    <div><dt>Change</dt><dd>₱{{ transaction.change_amount|floatformat:2 }}</dd></div>
-    {% endif %}
-  </dl>
+  </div>
 </div>
 
 {# ---- refund request (P14) ---- #}

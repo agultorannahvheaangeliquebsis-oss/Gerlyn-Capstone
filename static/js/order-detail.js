@@ -68,10 +68,21 @@
     );
   }
 
+  /* Save starts disabled and only unlocks once every required field the
+     current method demands is actually filled — the native Constraint
+     Validation API already knows this, since syncFields keeps `required`
+     in step with what is shown. */
+  function syncSaveState(modal) {
+    var form = modal.querySelector('[data-payment-form]');
+    var save = modal.querySelector('[data-payment-save]');
+    if (form && save) save.disabled = !form.checkValidity();
+  }
+
   function open(modal, trigger) {
     if (active) return;
     active = { modal: modal, trigger: trigger || null, bodyOverflow: document.body.style.overflow };
     syncFields(modal);
+    syncSaveState(modal);
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
@@ -94,6 +105,25 @@
      caught before the upload rather than after a page reload. */
   var PROOF_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
+  /* The thumbnail is a local preview only — nothing is uploaded until Save.
+     One object URL is ever live at a time (one modal, one proof field), so
+     it is revoked before the next one replaces it rather than leaked. */
+  var thumbUrl = null;
+
+  function updateThumb(modal, file, ok) {
+    var thumb = modal.querySelector('[data-payment-thumb]');
+    if (!thumb) return;
+    if (thumbUrl) { URL.revokeObjectURL(thumbUrl); thumbUrl = null; }
+    if (file && ok) {
+      thumbUrl = URL.createObjectURL(file);
+      thumb.src = thumbUrl;
+      thumb.hidden = false;
+    } else {
+      thumb.removeAttribute('src');
+      thumb.hidden = true;
+    }
+  }
+
   function checkProof(input) {
     var modal = input.closest('[data-payment-modal]');
     var box = modal.querySelector('[data-payment-file-error]');
@@ -110,6 +140,9 @@
     input.setCustomValidity(problem);
     box.textContent = problem;
     box.hidden = !problem;
+    updateThumb(modal, file, !problem);
+    var nameEl = modal.querySelector('.dropzone-filename');
+    if (nameEl) nameEl.textContent = (file && !problem) ? file.name : '';
   }
 
   document.addEventListener('click', function (e) {
@@ -140,8 +173,51 @@
   document.addEventListener('change', function (e) {
     var el = e.target;
     if (!el.matches) return;
-    if (el.matches('[data-payment-method]')) syncFields(el.closest('[data-payment-modal]'));
-    else if (el.matches('[data-payment-modal] input[type=file]')) checkProof(el);
+    var modal = el.closest('[data-payment-modal]');
+    if (!modal) return;
+    if (el.matches('[data-payment-method]')) syncFields(modal);
+    else if (el.matches('input[type=file]')) checkProof(el);
+    syncSaveState(modal);
+  });
+
+  /* Reference number, and any other typed field, unlock Save as soon as
+     they're valid rather than only on blur. */
+  document.addEventListener('input', function (e) {
+    var modal = e.target.closest && e.target.closest('[data-payment-modal]');
+    if (modal) syncSaveState(modal);
+  });
+
+  /* Drag-and-drop onto the proof dropzone, scoped to the payment modal so it
+     doesn't interfere with Product/Category's own separate dropzones. Same
+     three-listener shape as product_form.html's, lifted to delegated
+     listeners since this dialog can be included on more than one page. */
+  ['dragenter', 'dragover'].forEach(function (evt) {
+    document.addEventListener(evt, function (e) {
+      var zone = e.target.closest && e.target.closest('[data-payment-modal] .dropzone');
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.add('is-dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function (evt) {
+    document.addEventListener(evt, function (e) {
+      var zone = e.target.closest && e.target.closest('[data-payment-modal] .dropzone');
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.remove('is-dragover');
+    });
+  });
+  document.addEventListener('drop', function (e) {
+    var zone = e.target.closest && e.target.closest('[data-payment-modal] .dropzone');
+    if (!zone) return;
+    var modal = zone.closest('[data-payment-modal]');
+    var input = modal && modal.querySelector('input[type=file]');
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (input && files && files.length) {
+      input.files = files;
+      checkProof(input);
+      syncSaveState(modal);
+    }
   });
 
   /* One click, one save: the button locks once the browser has accepted the

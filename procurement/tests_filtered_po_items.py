@@ -63,32 +63,34 @@ class FilteredPoItemsTests(TestCase):
         })
 
     # ---- what the form offers ------------------------------------------------
+    # Create Purchase Order is its own page (procurement_add's GET), not a
+    # modal on procurement_list, so these hit that page directly.
 
     def test_catalog_lists_each_suppliers_approved_products_only(self):
-        catalog = self.client.get(reverse('procurement_list')).context['supplier_catalog']
+        catalog = self.client.get(reverse('procurement_add')).context['supplier_catalog']
         self.assertEqual(set(catalog[str(self.canned_supplier.pk)]), {str(self.tuna.pk)})
         self.assertEqual(set(catalog[str(self.drinks_supplier.pk)]), {str(self.cola.pk)})
         self.assertNotIn(str(self.uncategorised.pk), catalog)
 
     def test_category_filter_lists_only_categories_with_suppliers(self):
-        context = self.client.get(reverse('procurement_list')).context
+        context = self.client.get(reverse('procurement_add')).context
         self.assertEqual(
             set(context['supplier_categories']), {self.canned_cat, self.drinks_cat})
 
     def test_supplier_options_carry_their_category_for_the_filter(self):
-        response = self.client.get(reverse('procurement_list'))
+        response = self.client.get(reverse('procurement_add'))
         self.assertContains(
             response, f'data-category="{self.canned_cat.pk}"')
         self.assertContains(response, 'id="po-supplier-category"')
 
     def test_product_options_for_the_row_dropdowns_are_emitted(self):
-        response = self.client.get(reverse('procurement_list'))
+        response = self.client.get(reverse('procurement_add'))
         self.assertContains(response, 'id="po-all-products"')
         options = response.context['product_options']
         self.assertIn({'id': str(self.tuna.pk), 'name': 'P21 Tuna'}, options)
 
     def test_form_explains_a_supplier_with_nothing_approved(self):
-        response = self.client.get(reverse('procurement_list'))
+        response = self.client.get(reverse('procurement_add'))
         self.assertContains(response, 'id="po-no-catalog"')
         self.assertContains(response, 'no approved products yet')
 

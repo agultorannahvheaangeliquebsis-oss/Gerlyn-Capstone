@@ -1,0 +1,477 @@
+{% extends "internal_base.html" %}
+{% load l10n %}
+{% block title %}Create Purchase Order{% endblock %}
+{% block page_subtitle %}Procurement{% endblock %}
+{% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% comment %}
+Create Purchase Order, as its own page — same move as Walk-in Sale
+(templates/sales/transaction_form.html), which this layout mirrors: a wide
+left panel to build the order plus a narrower, sticky right panel ("Order
+Summary") that carries the order's details and the submit action. It used
+to be a modal on the Purchase Orders list (_po_modal.html, now removed);
+the fields, their names and the item-row JS below are the same ones that
+modal carried, just laid out as a page instead of an overlay.
+
+On a rejected submit the view sends back po_restore_rows and the JS rebuilds
+those rows instead of the single blank one, so a mistyped quantity does not
+cost the whole order — identical to how Walk-in Sale restores its cart.
+{% endcomment %}
+
+{% block extra_css %}
+<style>
+.po-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: var(--s4);
+  align-items: start;
+}
+.po-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* ---- Items (left) ------------------------------------------------------ */
+.po-items { padding: var(--s4); min-width: 0; }
+.po-items-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3);
+}
+.po-items-head h2 {
+  margin: 0; font: 700 20px/1.2 var(--font-sans); color: var(--ink-900);
+  display: flex; align-items: center; gap: var(--s2);
+}
+
+.po-rows { display: flex; flex-direction: column; gap: var(--s3); }
+.po-row {
+  display: flex; flex-wrap: wrap; gap: var(--s3); align-items: flex-end;
+  border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3);
+}
+.po-row .field { margin: 0; }
+.po-row .field-product { flex: 1 1 220px; min-width: 220px; }
+.po-row .field-qty { width: 110px; }
+.po-row .field-cost { width: 160px; }
+
+/* Column headings shown once above the rows instead of on every row — each
+   row keeps its own <label>s for screen readers (.po-row-label), just hidden
+   from sighted users here since the heading already says what the column is. */
+.po-rows-head {
+  display: flex; gap: var(--s3); padding: 0 var(--s3); margin-bottom: var(--s2);
+  font: 600 13px/1.2 var(--font-sans); color: var(--ink-700);
+}
+.po-rows-head span:nth-child(1) { flex: 1 1 220px; min-width: 220px; }
+.po-rows-head span:nth-child(2) { width: 110px; }
+.po-rows-head span:nth-child(3) { width: 160px; }
+@media (min-width: 561px) {
+  .po-row .field { position: relative; }
+  .po-row-label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+}
+
+/* ---- Order summary (right) --------------------------------------------- */
+.po-summary {
+  position: sticky; top: 78px;
+  max-height: calc(100vh - 94px); overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.po-sum-section { padding: var(--s4); border-bottom: 1px solid var(--line); }
+.po-sum-section:last-child { border-bottom: 0; }
+.po-sum-head h2 { margin: 0 0 var(--s3); font: 700 20px/1.2 var(--font-sans); color: var(--ink-900); }
+.po-summary .field { margin-bottom: var(--s3); }
+.po-summary .field:last-child { margin-bottom: 0; }
+.po-summary select, .po-summary input[type=text], .po-summary input[type=date] { width: 100%; }
+
+.po-grand {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-top: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line);
+}
+.po-grand span:first-child { font: 700 16px/1.2 var(--font-sans); color: var(--ink-900); }
+.po-grand span:last-child { font: 700 20px/1.2 var(--font-sans); color: var(--ink-900); font-variant-numeric: tabular-nums; }
+.po-submit { width: 100%; justify-content: center; margin-top: var(--s4); padding-top: 12px; padding-bottom: 12px; font-size: 15px; }
+.po-cancel { display: block; text-align: center; margin-top: var(--s2); font-size: 14px; }
+
+@media (max-width: 1100px) {
+  .po-shell { grid-template-columns: minmax(0, 1fr); }
+  .po-summary { position: static; max-height: none; overflow: visible; }
+}
+@media (max-width: 560px) {
+  .po-row { flex-direction: column; align-items: stretch; }
+  .po-row .field-product, .po-row .field-qty, .po-row .field-cost { width: 100%; }
+  .po-rows-head { display: none; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'procurement_list' %}">Purchase Orders</a>
+    <h1 class="mt-2">Create Purchase Order</h1>
+  </div>
+</div>
+
+{% if po_errors %}
+{% comment %}
+A rejected order is re-rendered rather than redirected (the item rows have
+to survive), so its errors never pass through the messages framework. Same
+flash-modal pattern as Walk-in Sale's pos_errors.
+{% endcomment %}
+{% include "partials/_flash_modal.html" with flash_source=po_errors level="error" %}
+{% endif %}
+
+{% comment %}
+A purchase order needs somewhere to send it and something to put on it.
+With either list empty the form below would be a required <select> with
+no options — unfillable, unsubmittable, and silent about why. Show what
+is missing and the way out of it instead of a dead form.
+{% endcomment %}
+{% if not suppliers or not supplier_product_options %}
+<div class="card">
+  <div class="empty">
+    <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
+    {% if not suppliers and not supplier_product_options %}
+      <h3>No orderable supplier catalog yet</h3>
+      <p>Add an active supplier and assign products to that supplier before creating a purchase order.</p>
+      <div class="row mt-2">
+        <a class="btn btn-primary" href="{% url 'supplier_add' %}">Add supplier</a>
+        <a class="btn" href="{% url 'supplier_list' %}">Manage supplier products</a>
+      </div>
+    {% elif not suppliers %}
+      <h3>No suppliers to order from</h3>
+      <p>A purchase order is addressed to a supplier. Add the supplier you buy from, then come back to place the order.</p>
+      <a class="btn btn-primary mt-2" href="{% url 'supplier_add' %}">Add supplier</a>
+    {% else %}
+      <h3>No products assigned to a supplier</h3>
+      <p>Assign at least one product to an active supplier before creating a purchase order.</p>
+      <a class="btn btn-primary mt-2" href="{% url 'supplier_list' %}">Manage supplier products</a>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+
+<form method="POST" action="{% url 'procurement_add' %}" id="po-form">
+  {% csrf_token %}
+
+  <div class="po-shell">
+    {# ---------------- Items: the product/quantity rows this order will place ---------------- #}
+    <section class="po-panel po-items" aria-label="Items">
+      <div class="po-items-head">
+        <h2>Order Items <span class="pill pill-neutral" id="po-item-count">1 item</span></h2>
+        <button type="button" class="btn btn-sm" onclick="poAddRow()">+ Add Item</button>
+      </div>
+
+      {% comment %}
+      P21 - shown when the chosen supplier has no approved products: nothing
+      can be ordered from them yet, so the submit button steps aside instead
+      of offering an empty dropdown.
+      {% endcomment %}
+      <div class="banner banner-warn" id="po-no-catalog" hidden>
+        This supplier has no approved products yet, so there is nothing to order from them.
+        Ask them to offer products in their portal, or add them on their
+        <a href="{% url 'supplier_list' %}">supplier page</a>.
+      </div>
+
+      {% comment %}
+      Column headings for the rows below; each row still carries its own
+      labels (.po-row-label) for screen readers, just visually hidden on
+      screens wide enough to show this heading instead.
+      {% endcomment %}
+      <div class="po-rows-head" aria-hidden="true">
+        <span>Product</span>
+        <span>Quantity</span>
+        <span>Supplier Unit Cost</span>
+      </div>
+
+      <div id="po-item-rows" class="po-rows"></div>
+
+      <template id="po-row-template">
+        <div class="item-row po-row">
+          <div class="field field-product">
+            <label class="po-row-label">Product</label>
+            {# JavaScript hides products not carried by the selected supplier. #}
+            <select name="product_id" class="js-product" required onchange="poRecalc()">
+              <option value="">Choose a product</option>
+              {% for p in products %}
+                <option value="{{ p.id }}">{{ p.product_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field field-qty">
+            <label class="po-row-label">Quantity</label>
+            <input type="number" name="quantity_ordered" class="js-qty" min="1" value="1" required oninput="poRecalc()">
+          </div>
+          <div class="field field-cost">
+            <label class="po-row-label">Supplier Unit Cost</label>
+            <div class="field-static js-cost-display">Select a product</div>
+          </div>
+          {# The quiet button, not the danger one: DESIGN.md reserves danger styling for destructive actions awaiting confirmation. Dropping a line from an order that does not exist yet is the most routine edit on the page. #}
+          <button type="button" class="btn btn-quiet js-remove" onclick="poRemoveRow(this)">Remove</button>
+        </div>
+      </template>
+    </section>
+
+    {# ---------------- Order summary: who/when/how, then the total and submit ---------------- #}
+    <aside class="po-panel po-summary" aria-label="Order summary">
+      <div class="po-sum-section">
+        <div class="po-sum-head"><h2>Order Summary</h2></div>
+
+        {% if user_branch %}
+          <input type="hidden" name="branch" value="{{ user_branch.id }}">
+          <div class="field">
+            <label>Branch</label>
+            <div class="field-static">{{ user_branch.branch_name }}
+              <span class="gv-meta">your assigned branch</span></div>
+          </div>
+        {% else %}
+          <div class="field">
+            <label for="po-branch">Branch</label>
+            <select id="po-branch" name="branch" required>
+              {% for b in branches %}
+                <option value="{{ b.id }}" {% if po_form_data.branch == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+
+        {% if supplier_categories %}
+        <div class="field">
+          <label for="po-supplier-category">Supplier category <span class="gv-meta">— optional filter</span></label>
+          <select id="po-supplier-category">
+            <option value="">All categories</option>
+            {% for c in supplier_categories %}
+              <option value="{{ c.pk|unlocalize }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="field">
+          <label for="po-supplier">Supplier</label>
+          <select id="po-supplier" name="supplier" required>
+            {% for s in suppliers %}
+              <option value="{{ s.id }}" data-category="{{ s.supplier_profile.category_id|default_if_none:''|unlocalize }}" {% if po_form_data.supplier == s.id|stringformat:"s" %}selected{% endif %}>{{ s.supplier_profile.supplier_name|default:s.username }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="po-order-date">Order Date</label>
+          {# Defaults to today: every order is raised on the day it is raised, and the field is required, so an empty one is friction with no upside. #}
+          <input id="po-order-date" type="date" name="order_date" value="{% firstof po_form_data.order_date today|date:'Y-m-d' %}" required>
+        </div>
+      </div>
+
+      <div class="po-sum-section">
+        {% comment %}
+        No Expected Delivery Date field here — the supplier proposes it (and
+        the price) once this order is Approved; a Manager/Owner raising the
+        order has neither to give. See procurement.views' NEGOTIATION section.
+        {% endcomment %}
+        <div class="field">
+          <label for="po-funding-source">Funding Source</label>
+          <select id="po-funding-source" name="funding_source" required>
+            <option value="">Where does the money come from?</option>
+            {% for value, label in funding_choices %}
+              <option value="{{ value }}" {% if po_form_data.funding_source == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="po-funding-note">Funding Note <span class="gv-meta" id="po-funding-note-hint">— optional</span></label>
+          <input id="po-funding-note" type="text" name="funding_note" maxlength="200"
+                 value="{{ po_form_data.funding_note|default:'' }}" placeholder="e.g. BDO account ending 1234">
+        </div>
+      </div>
+
+      <div class="po-sum-section">
+        <div class="po-grand">
+          <span>Estimated total</span>
+          <span id="po-grand-total">₱0.00</span>
+        </div>
+        <button type="submit" class="btn btn-primary po-submit" id="po-submit-btn">Create Purchase Order</button>
+        <a href="{% url 'procurement_list' %}" class="po-cancel">Cancel</a>
+      </div>
+    </aside>
+  </div>
+</form>
+
+{% comment %}
+Only emitted after a rejected submit. json_script rather than a data
+attribute so the payload is escaped as JSON by Django and never has to
+survive a trip through HTML attribute quoting. The JS treats a missing
+element as "no rows to restore" and opens with one blank row, which is the
+normal case.
+{% endcomment %}
+{% if po_restore_rows %}{{ po_restore_rows|json_script:"po-restore-rows" }}{% endif %}
+{{ supplier_catalog|json_script:"po-supplier-catalog" }}
+{% comment %}Full product list for the JS to rebuild each row's dropdown from: option[hidden] is ignored by several mobile browsers, so a filtered row only ever contains the supplier's own products.{% endcomment %}
+{{ product_options|json_script:"po-all-products" }}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if suppliers and supplier_product_options %}
+<script>
+var poRows = document.getElementById('po-item-rows');
+var poTpl = document.getElementById('po-row-template');
+var poSupplier = document.getElementById('po-supplier');
+var poCatalog = JSON.parse(document.getElementById('po-supplier-catalog').textContent);
+
+function poSupplierProducts() {
+  return poCatalog[poSupplier.value] || {};
+}
+var poAllProducts = JSON.parse(document.getElementById('po-all-products').textContent);
+// Rebuild the row's dropdown from scratch so it holds only this supplier's
+// approved products. Hiding options is not enough: option[hidden] is ignored
+// by several mobile browsers, which would show (and let you pick) the rest.
+function poFilterProducts(select) {
+  var available = poSupplierProducts();
+  var keep = select.value;
+  while (select.options.length > 1) select.remove(1);
+  poAllProducts.forEach(function (p) {
+    if (!Object.prototype.hasOwnProperty.call(available, p.id)) return;
+    var option = document.createElement('option');
+    option.value = p.id;
+    option.textContent = p.name;
+    select.appendChild(option);
+  });
+  select.value = Object.prototype.hasOwnProperty.call(available, keep) ? keep : '';
+}
+// Nothing orderable from the chosen supplier: say so and stand the form down.
+function poSyncCatalogNotice() {
+  var empty = Object.keys(poSupplierProducts()).length === 0;
+  document.getElementById('po-no-catalog').hidden = !empty;
+  var submit = document.getElementById('po-submit-btn');
+  if (submit) submit.disabled = empty;
+}
+// Optional category filter: narrow the supplier dropdown to one supplier
+// category, then let the normal supplier-change path refilter the items.
+var poCategory = document.getElementById('po-supplier-category');
+var poSupplierOptions = Array.from(poSupplier.options).map(function (o) {
+  return {value: o.value, label: o.textContent, category: o.dataset.category || ''};
+});
+function poFilterSuppliers() {
+  var wanted = poCategory ? poCategory.value : '';
+  var current = poSupplier.value;
+  while (poSupplier.options.length) poSupplier.remove(0);
+  poSupplierOptions.forEach(function (s) {
+    if (wanted && s.category !== wanted) return;
+    var option = document.createElement('option');
+    option.value = s.value;
+    option.textContent = s.label;
+    option.dataset.category = s.category;
+    poSupplier.appendChild(option);
+  });
+  var stillThere = Array.from(poSupplier.options).some(function (o) { return o.value === current; });
+  if (stillThere) poSupplier.value = current;
+  poSupplier.dispatchEvent(new Event('change'));
+}
+if (poCategory) poCategory.addEventListener('change', poFilterSuppliers);
+
+function poAddRow() {
+  poRows.appendChild(poTpl.content.cloneNode(true));
+  var last = poRows.lastElementChild;
+  poFilterProducts(last.querySelector('.js-product'));
+  poSyncRemoveButtons();
+  poRecalc();
+}
+function poRemoveRow(btn) {
+  if (poRows.children.length > 1) { btn.closest('.item-row').remove(); poSyncRemoveButtons(); poRecalc(); }
+}
+// An order needs at least one line, so the last Remove has nothing to do.
+// It used to stay enabled and silently no-op, which reads as a broken
+// button rather than a rule.
+function poSyncRemoveButtons() {
+  var onlyOne = poRows.children.length <= 1;
+  poRows.querySelectorAll('.js-remove').forEach(function (b) {
+    b.disabled = onlyOne;
+    b.title = onlyOne ? 'An order needs at least one item' : '';
+  });
+}
+function poUpdateItemCount() {
+  var rows = poRows.children.length;
+  document.getElementById('po-item-count').textContent = rows + (rows === 1 ? ' item' : ' items');
+}
+function poPeso(n) { return '₱' + n.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function poRecalc() {
+  var total = 0;
+  var pricePending = false;
+  var available = poSupplierProducts();
+  poRows.querySelectorAll('.item-row').forEach(function (r) {
+    var qty = parseInt(r.querySelector('.js-qty').value || 0, 10);
+    var productId = r.querySelector('.js-product').value;
+    var rawCost = productId ? available[productId] : null;
+    var display = r.querySelector('.js-cost-display');
+    if (!productId) {
+      display.textContent = 'Select a product';
+    } else if (rawCost === null || typeof rawCost === 'undefined') {
+      display.textContent = 'Pending supplier price';
+      pricePending = true;
+    } else {
+      var cost = parseFloat(rawCost);
+      display.textContent = poPeso(cost);
+      if (qty > 0) total += qty * cost;
+    }
+  });
+  document.getElementById('po-grand-total').textContent = pricePending
+    ? 'Pending supplier pricing'
+    : poPeso(total);
+  poUpdateItemCount();
+}
+
+// A funding source of Other has to say what it is.
+(function () {
+  var source = document.getElementById('po-funding-source');
+  var note = document.getElementById('po-funding-note');
+  var hint = document.getElementById('po-funding-note-hint');
+  if (!source || !note) return;
+  function sync() {
+    var other = source.value === 'Other';
+    note.required = other;
+    hint.textContent = other ? '— required for Other' : '— optional';
+  }
+  source.addEventListener('change', sync);
+  sync();
+})();
+
+poSupplier.addEventListener('change', function () {
+  poRows.querySelectorAll('.js-product').forEach(poFilterProducts);
+  poSyncCatalogNotice();
+  poRecalc();
+});
+
+(function () {
+  // A rejected submit sends the item rows back; otherwise open with one blank row.
+  var restoreEl = document.getElementById('po-restore-rows');
+  var restore = restoreEl ? JSON.parse(restoreEl.textContent) : [];
+  if (restore.length) {
+    restore.forEach(function (item) {
+      poAddRow();
+      var row = poRows.lastElementChild;
+      row.querySelector('.js-product').value = item.product_id;
+      row.querySelector('.js-qty').value = item.quantity;
+      poFilterProducts(row.querySelector('.js-product'));
+    });
+  } else {
+    poAddRow();
+  }
+  poSyncCatalogNotice();
+  poRecalc();
+})();
+
+// Double-submit guard: a slow connection or an impatient re-click must not
+// post the same order twice.
+(function () {
+  var form = document.getElementById('po-form');
+  var btn = document.getElementById('po-submit-btn');
+  if (!form || !btn) return;
+  form.addEventListener('submit', function () {
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

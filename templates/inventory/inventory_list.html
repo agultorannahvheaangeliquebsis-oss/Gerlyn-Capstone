@@ -76,7 +76,7 @@ partials/_branch_switch.html.
   {% if can_adjust %}
   <div class="row" style="gap:8px;">
     {% if request.user.role == 'OWNER' %}
-    <a class="btn" href="{% url 'opening_stock_import' %}">Import Opening Stock</a>
+    <button type="button" class="btn" id="open-opening-upload-modal">Import Opening Stock</button>
     <a class="btn" href="{% url 'opening_stock_import_history' %}">Import History</a>
     {% endif %}
     <button type="button" class="btn btn-primary" id="open-adjust-modal">
@@ -424,6 +424,11 @@ across the full width leave the default block padding as empty card.
   </div>
 </div>
 {% endif %}
+
+{% if request.user.role == 'OWNER' %}
+{% include "inventory/_opening_stock_upload_modal.html" %}
+{% include "inventory/_opening_stock_preview_modal.html" %}
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -445,6 +450,19 @@ sidebar.js, shared by every page that includes partials/_branch_switch.html.{% e
   });
 })();
 </script>
+{% if request.user.role == 'OWNER' %}
+<script>
+(function () {
+  // Import Opening Stock: two steps, each its own overlay (upload/preview),
+  // server-opened via show_opening_*_modal — see _opening_modal_context() in
+  // views.py. The X/Escape/overlay-click here only hide the dialog, same as
+  // navigating away used to on the old pages; "Cancel Import" is the real,
+  // POSTed action that drops the upload and session state.
+  initModal({ modalId: 'opening-upload-modal', openerIds: ['open-opening-upload-modal'], closerIds: ['close-opening-upload-modal', 'cancel-opening-upload-modal'] });
+  initModal({ modalId: 'opening-preview-modal', closerIds: ['close-opening-preview-modal'] });
+})();
+</script>
+{% endif %}
 {% if can_adjust %}
 <script>
 (function () {

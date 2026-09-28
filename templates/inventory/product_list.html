@@ -10,95 +10,6 @@ wording.{% endcomment %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 {% block branch_chip %}{% include "partials/_branch_switch.html" with branches=switch_branches %}{% endblock %}
 
-{% block extra_css %}
-<style>
-  /* .modal-overlay / -card / -head / -close / -body / -foot, .sr-only and
-     .dropzone now live in gerlyn.css — Add Category uses the same shell.
-     What stays here is what only this form needs. */
-  .field-auto-row { display: flex; align-items: center; gap: 10px; }
-  .field-auto-row input { background: var(--surface-2); color: var(--ink-600); }
-  .badge-auto {
-    flex: 0 0 auto;
-    font: 700 11px/1 var(--font-sans); letter-spacing: .03em; text-transform: uppercase;
-    color: var(--ink-400); background: var(--surface-2); border: 1px solid var(--line);
-    border-radius: var(--r-pill); padding: 6px 10px;
-  }
-
-  .price-input { position: relative; }
-  .price-input .price-currency {
-    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
-    color: var(--ink-400); pointer-events: none;
-  }
-  .price-input input { padding-left: 30px; }
-
-  .avail-list {
-    border: 1.5px solid var(--input-line);
-    border-radius: var(--r-card);
-    overflow: hidden;
-  }
-  .avail-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px var(--s4);
-    border-bottom: 1px solid var(--line);
-    cursor: pointer;
-    font: 400 14.5px/1.3 var(--font-sans);
-    color: var(--ink-900);
-  }
-  .avail-row:last-child { border-bottom: none; }
-  .avail-row.avail-master { font-weight: 650; background: var(--surface-2); }
-  .avail-row.avail-child { padding-left: 40px; }
-  .avail-row input[type=checkbox] {
-    width: 20px; height: 20px; min-height: 0; flex: none;
-    accent-color: var(--action);
-    cursor: pointer;
-  }
-
-  /* The shared .grid-2 class needs 320px per column, which doesn't fit the
-     modal's ~512px content width — force an even two-up split here instead,
-     falling back to one column only on narrow phones. */
-  .modal-body .grid-2 { grid-template-columns: 1fr 1fr; }
-  @media (max-width: 420px) {
-    .modal-body .grid-2 { grid-template-columns: 1fr; }
-  }
-
-  /* Current Images: the delete icon sits half-off the thumbnail's corner, so
-     the card needs room around it rather than clipping at the edge. */
-  .img-thumb { position: relative; overflow: visible; transition: opacity .15s ease; }
-
-  .img-delete-btn {
-    position: absolute; top: -8px; right: -8px;
-    width: 26px; height: 26px; padding: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 50%;
-    border: 1px solid var(--input-line);
-    background: var(--surface);
-    color: var(--danger-fg);
-    box-shadow: var(--shadow-card);
-    cursor: pointer;
-    transition: transform .12s ease, background-color .12s ease, color .12s ease, box-shadow .12s ease;
-  }
-  .img-delete-btn:hover { background: var(--danger-dot); border-color: var(--danger-dot); color: #fff; transform: scale(1.1); }
-  .img-delete-btn:active { transform: scale(.9); }
-  .img-delete-btn:focus-visible { outline-offset: 2px; }
-  .img-delete-btn .icon-undo { display: none; }
-
-  .img-thumb-meta { display: block; margin-top: 6px; }
-  .img-thumb-pending { display: none; font: 650 11px/1.3 var(--font-sans); color: var(--danger-fg); margin-top: 6px; }
-
-  /* Pending-delete state: dim the photo, swap the icon to "undo", hide the
-     Main radio (a deleted image can't be the primary one) and label it. */
-  .img-thumb.is-pending-delete img { opacity: .4; }
-  .img-thumb.is-pending-delete .img-thumb-meta { display: none; }
-  .img-thumb.is-pending-delete .img-thumb-pending { display: block; }
-  .img-thumb.is-pending-delete .img-delete-btn {
-    background: var(--surface-2); border-color: var(--input-line); color: var(--ink-600);
-  }
-  .img-thumb.is-pending-delete .img-delete-btn:hover { background: var(--action); border-color: var(--action); color: #fff; }
-  .img-thumb.is-pending-delete .img-delete-btn .icon-trash { display: none; }
-  .img-thumb.is-pending-delete .img-delete-btn .icon-undo { display: block; }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="page-head">
   <div>
@@ -135,10 +46,10 @@ wording.{% endcomment %}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M6 13l6-6 6 6M5 3h14"/></svg>
       Import
     </a>
-    <button type="button" class="btn btn-primary" id="open-add-modal">
+    <a class="btn btn-primary" href="{% url 'product_add' %}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
       Add Product
-    </button>
+    </a>
     {% endif %}
   </div>
 </div>
@@ -239,7 +150,7 @@ input[type=search] within the form — all three survive the restructure.
         {% if can_edit %}
         <td data-label="Actions">
           <span class="row-actions">
-            <a class="icon-btn icon-btn-action" href="{% url 'product_list' %}?edit={{ row.product.pk }}"
+            <a class="icon-btn icon-btn-action" href="{% url 'product_edit' row.product.pk %}"
                title="Edit" aria-label="Edit {{ row.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></a>
             {% comment %}confirm-dialog.js turns this submit into the "Delete product?"
             modal; with no JS the form still POSTs straight to product_delete, the
@@ -264,7 +175,7 @@ input[type=search] within the form — all three survive the restructure.
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No products found</h3>
             <p>{% if search_query or category_filter or branch_filter %}Try clearing the search, branch or category filter.{% else %}The catalog is empty. Add your first product to get started.{% endif %}</p>
-            {% if can_edit %}<button type="button" class="btn btn-primary mt-2" id="open-add-modal-empty">Add Product</button>{% endif %}
+            {% if can_edit %}<a class="btn btn-primary mt-2" href="{% url 'product_add' %}">Add Product</a>{% endif %}
           </div>
         </td>
       </tr>
@@ -284,342 +195,16 @@ input[type=search] within the form — all three survive the restructure.
 </div>
 
 {% if can_edit %}
-<div class="modal-overlay{% if show_add_modal %} is-open{% endif %}" id="add-product-modal" data-autoopen="{% if show_add_modal %}1{% else %}0{% endif %}">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-product-title">
-    <div class="modal-head">
-      <h2 id="add-product-title">Add New Product</h2>
-      <button type="button" class="modal-close" id="close-add-modal" aria-label="Close">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-    </div>
-
-    <form method="POST" action="{% url 'product_add' %}" enctype="multipart/form-data" class="modal-body" id="add-product-form">
-      {% csrf_token %}
-
-      {% if add_errors %}
-      <div class="banner banner-error">
-        {% for err in add_errors %}<div>{{ err }}</div>{% endfor %}
-      </div>
-      {% endif %}
-
-      <div class="field">
-        <label>Product Image</label>
-        <label class="dropzone" id="add-dropzone" for="add-images">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5-9 9"/><path d="M15 8h3M16.5 6.5v3"/></svg>
-          <span class="dropzone-title">Upload product photo</span>
-          <span class="gv-meta">Click or drag &amp; drop</span>
-          <span class="dropzone-filename" id="add-dropzone-filename"></span>
-        </label>
-        <input type="file" id="add-images" name="images" accept="image/*" multiple class="sr-only">
-      </div>
-
-      <div class="field">
-        <label for="add-barcode">Barcode</label>
-        <div class="row" style="gap:8px;">
-          <input type="text" id="add-barcode" name="barcode" class="input grow"
-                 placeholder="Scan a barcode, or type one and press Enter" autocomplete="off"
-                 value="{{ add_form_data.barcode|default:'' }}">
-          <button type="button" class="btn" id="add-barcode-scan-btn" title="Scan with camera">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
-        </div>
-        <span class="barcode-status" id="add-barcode-status"></span>
-        <div id="add-barcode-match" class="banner banner-info" style="display:none; margin-top:8px;"></div>
-      </div>
-
-      <div class="field">
-        <label for="add-sku">SKU (Auto)</label>
-        <div class="field-auto-row">
-          <input id="add-sku" type="text" value="{{ next_sku }}" readonly>
-          <span class="badge-auto">Auto</span>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="add-product-name">Product Name <span style="color:var(--danger-dot);">*</span></label>
-        <input id="add-product-name" type="text" name="product_name" placeholder="e.g. Century Tuna Flakes in Oil 155g"
-               value="{{ add_form_data.product_name|default:'' }}" required>
-      </div>
-
-      <div class="grid-2">
-        <div class="field">
-          <label for="add-category">Category</label>
-          <select id="add-category" name="category">
-            {% for category in categories %}
-              <option value="{{ category.id }}" {% if add_form_data.category|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>
-                {# The department-qualified name; see the filter select above. #}
-                {{ category }}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="field">
-          <label for="add-unit">Unit of Measure <span style="color:var(--danger-dot);">*</span></label>
-          <select id="add-unit" name="unit_of_measure" required>
-            {% for value, label in unit_choices %}
-              <option value="{{ value }}" {% if add_form_data.unit_of_measure == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="add-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
-        <div class="price-input">
-          <span class="price-currency">₱</span>
-          <input id="add-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
-                 value="{{ add_form_data.unit_price|default:'' }}" required>
-        </div>
-      </div>
-
-      {% include "inventory/_price_tier_rows.html" with which="add" rows=add_tier_rows %}
-
-      {% include "inventory/_tax_fields.html" with which="add" is_vat_exempt=add_form_data.is_vat_exempt is_pwd_eligible=add_form_data.is_pwd_eligible is_senior_eligible=add_form_data.is_senior_eligible %}
-
-      <div class="field">
-        <label for="add-description">Description</label>
-        <textarea id="add-description" name="description" placeholder="Short product description…">{{ add_form_data.description|default:'' }}</textarea>
-      </div>
-
-      <div class="field">
-        <label>Availability</label>
-        <div class="avail-list" id="add-avail-list">
-          <label class="avail-row avail-master">
-            <input type="checkbox" id="add-avail-all">
-            <span>All Branches</span>
-          </label>
-          {% for branch in branches %}
-          <label class="avail-row avail-child">
-            <input type="checkbox" name="branches" value="{{ branch.id }}" class="avail-branch"
-                   {% if add_selected_branches == None or branch.id|stringformat:"s" in add_selected_branches %}checked{% endif %}>
-            <span>{{ branch.branch_name }}</span>
-          </label>
-          {% endfor %}
-        </div>
-      </div>
-    </form>
-
-    <div class="modal-foot">
-      <button type="button" class="btn" id="cancel-add-modal">Cancel</button>
-      <button type="submit" form="add-product-form" class="btn btn-primary">Save Product</button>
-    </div>
-  </div>
-</div>
-
 {% include "inventory/_import_upload_modal.html" %}
 {% include "inventory/_import_map_modal.html" %}
 {% include "inventory/_import_preview_modal.html" %}
-{% endif %}
-
-{% if can_edit and edit_product %}
-<div class="modal-overlay{% if show_edit_modal %} is-open{% endif %}" id="edit-product-modal" data-autoopen="{% if show_edit_modal %}1{% else %}0{% endif %}">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-product-title">
-    <div class="modal-head">
-      <h2 id="edit-product-title">Edit Product</h2>
-      <button type="button" class="modal-close" id="close-edit-modal" aria-label="Close">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-    </div>
-
-    <form method="POST" action="{% url 'product_edit' edit_product.pk %}" enctype="multipart/form-data" class="modal-body" id="edit-product-form">
-      {% csrf_token %}
-
-      {% if edit_errors %}
-      <div class="banner banner-error">
-        {% for err in edit_errors %}<div>{{ err }}</div>{% endfor %}
-      </div>
-      {% endif %}
-
-      <div class="field">
-        <label for="edit-sku">SKU Code</label>
-        <div class="field-auto-row">
-          <input id="edit-sku" type="text" value="{{ edit_values.sku_code }}" readonly>
-          <span class="badge-auto">Locked</span>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="edit-barcode">Barcode</label>
-        <div class="row" style="gap:8px;">
-          <input type="text" id="edit-barcode" name="barcode" class="input grow"
-                 placeholder="Scan a barcode, or type one and press Enter" autocomplete="off"
-                 value="{{ edit_values.barcode }}">
-          <button type="button" class="btn" id="edit-barcode-scan-btn" title="Scan with camera">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
-        </div>
-        <span class="barcode-status" id="edit-barcode-status"></span>
-        <div id="edit-barcode-match" class="banner banner-info" style="display:none; margin-top:8px;"></div>
-      </div>
-
-      <div class="field">
-        <label for="edit-product-name">Product Name <span style="color:var(--danger-dot);">*</span></label>
-        <input id="edit-product-name" type="text" name="product_name" value="{{ edit_values.product_name }}" required>
-      </div>
-
-      <div class="grid-2">
-        <div class="field">
-          <label for="edit-category">Category</label>
-          <select id="edit-category" name="category">
-            {% for category in categories %}
-              <option value="{{ category.id }}" {% if edit_values.category_id|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>
-                {# The department-qualified name; see the filter select above. #}
-                {{ category }}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="field">
-          <label for="edit-unit">Unit of Measure <span style="color:var(--danger-dot);">*</span></label>
-          <select id="edit-unit" name="unit_of_measure" required>
-            {% for value, label in unit_choices %}
-              <option value="{{ value }}" {% if edit_values.unit_of_measure == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="edit-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
-        <div class="price-input">
-          <span class="price-currency">₱</span>
-          <input id="edit-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
-                 value="{{ edit_values.unit_price|unlocalize }}" required>
-        </div>
-      </div>
-
-      {% include "inventory/_price_tier_rows.html" with which="edit" rows=edit_values.price_tiers %}
-
-      {% include "inventory/_tax_fields.html" with which="edit" is_vat_exempt=edit_values.is_vat_exempt is_pwd_eligible=edit_values.is_pwd_eligible is_senior_eligible=edit_values.is_senior_eligible %}
-
-      <div class="field">
-        <label for="edit-description">Description</label>
-        <textarea id="edit-description" name="description" placeholder="Short product description…">{{ edit_values.description }}</textarea>
-      </div>
-
-      {% if edit_product.images.all %}
-      <div class="field">
-        <label>Current Images</label>
-        <div class="row wrap" style="gap:12px;">
-          {% for img in edit_product.images.all %}
-          <div class="card card-pad img-thumb" style="width:110px; text-align:center;">
-            <button type="button" class="img-delete-btn" data-role="img-delete-toggle" aria-label="Delete this image">
-              <svg class="icon-trash" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6"/><path d="M10 11v6M14 11v6"/></svg>
-              <svg class="icon-undo" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
-            </button>
-            <img src="{{ img.image.url }}" alt="{{ img.alt_text }}"
-                 style="width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:3px;">
-            <label class="gv-meta img-thumb-meta">
-              <input type="radio" name="primary_image" value="{{ img.pk }}" {% if img.is_primary %}checked{% endif %}>
-              Main
-            </label>
-            <span class="img-thumb-pending">Marked for deletion</span>
-            <input type="checkbox" name="delete_images" value="{{ img.pk }}" class="sr-only img-delete-checkbox">
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-
-      <div class="field">
-        <label>Add Images</label>
-        <label class="dropzone" id="edit-dropzone" for="edit-images">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5-9 9"/><path d="M15 8h3M16.5 6.5v3"/></svg>
-          <span class="dropzone-title">Upload product photo</span>
-          <span class="gv-meta">Click or drag &amp; drop</span>
-          <span class="dropzone-filename" id="edit-dropzone-filename"></span>
-        </label>
-        <input type="file" id="edit-images" name="images" accept="image/*" multiple class="sr-only">
-      </div>
-    </form>
-
-    <div class="modal-foot">
-      <button type="button" class="btn" id="cancel-edit-modal">Cancel</button>
-      <button type="submit" form="edit-product-form" class="btn btn-primary">Save Product</button>
-    </div>
-  </div>
-</div>
-
-{% comment %}
-  Confirms marking a Current Image for deletion. Deliberately not
-  confirm-dialog.js — that one intercepts a <form> submit, but marking an
-  image here only flips a checkbox inside the still-open edit form; nothing
-  is deleted until Save Product actually submits it. Same visual language
-  (.modal-overlay/.confirm-card from gerlyn.css) for consistency, own JS
-  below since the interaction it confirms isn't a form submit.
-{% endcomment %}
-<div class="modal-overlay" id="img-delete-confirm">
-  <div class="modal-card confirm-card" role="alertdialog" aria-modal="true"
-       aria-labelledby="img-delete-confirm-title" aria-describedby="img-delete-confirm-text">
-    <div class="modal-head">
-      <h2 id="img-delete-confirm-title">Delete this image?</h2>
-      <button type="button" class="modal-close" id="img-delete-confirm-close" aria-label="Close">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-    <div class="confirm-body">
-      <p class="confirm-text" id="img-delete-confirm-text">It will be removed when you save the product. You can undo this before then.</p>
-    </div>
-    <div class="confirm-foot">
-      <button type="button" class="btn" id="img-delete-confirm-cancel">Cancel</button>
-      <button type="button" class="btn btn-danger-solid" id="img-delete-confirm-ok">Delete image</button>
-    </div>
-  </div>
-</div>
 {% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
-// Global, not scoped: the tier rows are cloned with inline onclick handlers,
-// which resolve against window. tier-prefixed so nothing else collides.
-function tierAddRow(which, minQuantity, unitPrice) {
-  var rows = document.getElementById(which + '-tier-rows');
-  var tpl = document.getElementById(which + '-tier-row-template');
-  if (!rows || !tpl) return;
-  rows.appendChild(tpl.content.cloneNode(true));
-  var row = rows.lastElementChild;
-  if (minQuantity !== undefined && minQuantity !== null) row.querySelector('.js-tier-qty').value = minQuantity;
-  if (unitPrice !== undefined && unitPrice !== null) row.querySelector('.js-tier-price').value = unitPrice;
-}
-function tierRemoveRow(btn) {
-  btn.closest('.js-tier-row').remove();
-}
-// Open each ladder with what the server sent back — the stored tiers on Edit,
-// the posted rows after a rejected save — then pad to three rows, so every
-// product shows room for a three-step ladder without hunting for a button.
-['add', 'edit'].forEach(function (which) {
-  var dataEl = document.getElementById(which + '-tier-rows-data');
-  if (!dataEl) return;
-  var saved = JSON.parse(dataEl.textContent) || [];
-  if (!Array.isArray(saved)) saved = [];
-  saved.forEach(function (tier) { tierAddRow(which, tier.min_quantity, tier.unit_price); });
-  for (var i = saved.length; i < 3; i++) tierAddRow(which);
-});
-</script>
-<script>
 (function () {
   // initModal comes from static/js/modal.js — Add Category uses the same one.
-  initModal({
-    modalId: 'add-product-modal',
-    openerIds: ['open-add-modal', 'open-add-modal-empty'],
-    closerIds: ['close-add-modal', 'cancel-add-modal'],
-    autoopenParam: 'add',
-    dropzoneId: 'add-dropzone',
-    fileInputId: 'add-images',
-    filenameId: 'add-dropzone-filename',
-  });
-
-  initModal({
-    modalId: 'edit-product-modal',
-    closerIds: ['close-edit-modal', 'cancel-edit-modal'],
-    dropzoneId: 'edit-dropzone',
-    fileInputId: 'edit-images',
-    filenameId: 'edit-dropzone-filename',
-  });
-
   // Import Products: three steps, each its own overlay (upload/map/preview),
   // server-opened via show_import_*_modal — see _import_modal_context() in
   // views.py. The X/Escape/overlay-click here only hide the dialog, same as
@@ -628,80 +213,6 @@ function tierRemoveRow(btn) {
   initModal({ modalId: 'import-upload-modal', closerIds: ['close-import-upload-modal', 'cancel-import-upload-modal'] });
   initModal({ modalId: 'import-map-modal', closerIds: ['close-import-map-modal'] });
   initModal({ modalId: 'import-preview-modal', closerIds: ['close-import-preview-modal'] });
-
-  // Availability: "All Branches" is a UI-only master checkbox (not
-  // submitted) that mirrors and drives the per-branch checkboxes.
-  var allBranchesBox = document.getElementById('add-avail-all');
-  var branchBoxes = Array.prototype.slice.call(document.querySelectorAll('.avail-branch'));
-
-  function syncMasterCheckbox() {
-    var checkedCount = branchBoxes.filter(function (b) { return b.checked; }).length;
-    allBranchesBox.checked = checkedCount === branchBoxes.length;
-    allBranchesBox.indeterminate = checkedCount > 0 && checkedCount < branchBoxes.length;
-  }
-
-  if (allBranchesBox && branchBoxes.length) {
-    allBranchesBox.addEventListener('change', function () {
-      branchBoxes.forEach(function (b) { b.checked = allBranchesBox.checked; });
-      allBranchesBox.indeterminate = false;
-    });
-    branchBoxes.forEach(function (b) {
-      b.addEventListener('change', syncMasterCheckbox);
-    });
-    syncMasterCheckbox();
-  }
-
-  // Current Images: clicking the trash icon asks for confirmation before
-  // marking an image for deletion; nothing is actually deleted until Save
-  // Product submits the edit form. Clicking the icon again (now showing an
-  // undo glyph) unmarks it — no confirmation needed to undo.
-  var imgConfirm = document.getElementById('img-delete-confirm');
-  var imgConfirmOk = document.getElementById('img-delete-confirm-ok');
-  var imgConfirmCancel = document.getElementById('img-delete-confirm-cancel');
-  var imgConfirmClose = document.getElementById('img-delete-confirm-close');
-  var pendingThumb = null;
-
-  function openImgConfirm(thumb) {
-    pendingThumb = thumb;
-    imgConfirm.classList.add('is-open');
-    document.body.style.overflow = 'hidden';
-  }
-  function closeImgConfirm() {
-    pendingThumb = null;
-    imgConfirm.classList.remove('is-open');
-    document.body.style.overflow = '';
-  }
-
-  if (imgConfirm) {
-    document.querySelectorAll('.img-thumb .img-delete-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var thumb = btn.closest('.img-thumb');
-        var checkbox = thumb.querySelector('.img-delete-checkbox');
-        if (thumb.classList.contains('is-pending-delete')) {
-          checkbox.checked = false;
-          thumb.classList.remove('is-pending-delete');
-          return;
-        }
-        openImgConfirm(thumb);
-      });
-    });
-
-    imgConfirmOk.addEventListener('click', function () {
-      if (pendingThumb) {
-        pendingThumb.querySelector('.img-delete-checkbox').checked = true;
-        pendingThumb.classList.add('is-pending-delete');
-      }
-      closeImgConfirm();
-    });
-    imgConfirmCancel.addEventListener('click', closeImgConfirm);
-    imgConfirmClose.addEventListener('click', closeImgConfirm);
-    imgConfirm.addEventListener('click', function (e) {
-      if (e.target === imgConfirm) closeImgConfirm();
-    });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && imgConfirm.classList.contains('is-open')) closeImgConfirm();
-    });
-  }
 })();
 </script>
 <script src="{% static 'js/vendor/html5-qrcode.min.js' %}"></script>
@@ -720,69 +231,4 @@ function tierRemoveRow(btn) {
   });
 })();
 </script>
-<script>
-(function () {
-  var input = document.getElementById('add-barcode');
-  var btn = document.getElementById('add-barcode-scan-btn');
-  var status = document.getElementById('add-barcode-status');
-  var matchBanner = document.getElementById('add-barcode-match');
-  if (!input) return;
-
-  GerlynBarcodeScanner.attachBarcodeField(input, {
-    lookupUrl: '{% url "barcode_lookup" %}',
-    cameraBtn: btn,
-    statusEl: status,
-    notFoundMessage: 'No existing product matches this code — fill in the details below to add it as new.',
-    onFound: function (product) {
-      matchBanner.style.display = 'block';
-      matchBanner.innerHTML =
-        'A product with this barcode already exists: <strong>' +
-        product.product_name.replace(/</g, '&lt;') +
-        '</strong> — did you mean to <a href="' + product.edit_url + '">edit that product</a> ' +
-        'or add stock for it instead, rather than create a duplicate?';
-    },
-    onNotFound: function () {
-      matchBanner.style.display = 'none';
-    },
-  });
-})();
-</script>
-{% if edit_product %}
-<script>
-(function () {
-  var input = document.getElementById('edit-barcode');
-  var btn = document.getElementById('edit-barcode-scan-btn');
-  var status = document.getElementById('edit-barcode-status');
-  var matchBanner = document.getElementById('edit-barcode-match');
-  if (!input) return;
-
-  // A lookup that resolves back to the product already open in this modal
-  // is not a collision — it's just this product's own barcode being
-  // re-submitted unchanged (or scanned again to confirm it) — so that case
-  // is deliberately excluded from the "already exists" warning below.
-  var editingProductId = {{ edit_product.pk }};
-
-  GerlynBarcodeScanner.attachBarcodeField(input, {
-    lookupUrl: '{% url "barcode_lookup" %}',
-    cameraBtn: btn,
-    statusEl: status,
-    notFoundMessage: 'No existing product uses this code — safe to save.',
-    onFound: function (product) {
-      if (product.id === editingProductId) {
-        matchBanner.style.display = 'none';
-        return;
-      }
-      matchBanner.style.display = 'block';
-      matchBanner.innerHTML =
-        'A different product already uses this barcode: <strong>' +
-        product.product_name.replace(/</g, '&lt;') +
-        '</strong> — saving will fail unless you change it or clear this one.';
-    },
-    onNotFound: function () {
-      matchBanner.style.display = 'none';
-    },
-  });
-})();
-</script>
-{% endif %}
 {% endblock %}

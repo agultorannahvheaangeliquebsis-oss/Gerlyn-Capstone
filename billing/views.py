@@ -214,7 +214,39 @@ def billing_detail(request, pk):
         messages.error(request, 'That billing record is not available to you.')
         return redirect('billing_list')
 
-    return render(request, 'billing/billing_detail.html', {'record': record})
+    # Local import — sales.views imports payment_methods_for_channel from
+    # this module at load time, so importing sales.views back at module
+    # level here would be circular. Deferred the same way this module
+    # already defers other cross-app imports (e.g. core.module_permissions
+    # in billing_confirm below).
+    from sales.views import _order_progress
+
+    txn = record.transaction
+    allowed_payment_methods = payment_methods_for_channel(txn.transaction_type)
+
+    return render(request, 'billing/billing_detail.html', {
+        'record': record,
+        # The Record Payment modal, included below so "Edit payment
+        # details" opens it in place instead of navigating to a blank
+        # page — same fields transaction_detail's own copy passes it.
+        'payment_choices': [(m.value, m.label) for m in allowed_payment_methods],
+        'reference_required_methods': sorted(BillingRecord.REFERENCE_REQUIRED_METHODS),
+        'proof_required_methods': sorted(BillingRecord.PROOF_REQUIRED_METHODS),
+        'proof_max_mb': settings.PROOF_OF_PAYMENT_MAX_MB,
+        # Display-only: billing_confirm already refuses Paid server-side
+        # when this is non-empty. Lets the template grey out Verify Payment
+        # instead of letting the click round-trip into a refusal message.
+        'missing_evidence': BillingRecord.missing_payment_evidence(
+            record.payment_method, record.reference_number,
+            bool(record.proof_of_payment),
+        ),
+        # Read-only order context (Order Progress, items) so a verifier
+        # doesn't have to leave this page for the common case — anything
+        # that changes the order itself (status, PWD discount, refunds)
+        # stays on transaction_detail, reached via "View Order".
+        'items': list(txn.items.select_related('product')),
+        'progress': _order_progress(txn),
+    })
 
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
@@ -328,11 +360,14 @@ def billing_create(request, transaction_id):
     }
 
     if request.method == 'POST':
-        # The Record Payment modal on the order's own page posts here with
-        # return_to=order and expects to land back on that page. A flag
-        # rather than a URL, for the same reason as `from` above: it only ever
-        # chooses between two known destinations.
-        from_order = request.POST.get('return_to') == 'order'
+        # The Record Payment modal posts here with return_to=order (from the
+        # order's own page) or return_to=billing (from the billing record's
+        # page) and expects to land back on whichever one it came from. A
+        # flag rather than a URL, for the same reason as `from` above: it
+        # only ever chooses between known destinations.
+        return_to = request.POST.get('return_to')
+        from_order = return_to == 'order'
+        from_billing = return_to == 'billing' and existing is not None
 
         def refuse(message):
             messages.error(request, message)
@@ -341,6 +376,10 @@ def billing_create(request, transaction_id):
                 # cashier corrects the form instead of hunting for the button.
                 return redirect(
                     reverse('transaction_detail', args=[txn.pk]) + '?record_payment=1'
+                )
+            if from_billing:
+                return redirect(
+                    reverse('billing_detail', args=[existing.pk]) + '?record_payment=1'
                 )
             return render(request, 'billing/billing_form.html', form_context)
 
@@ -528,6 +567,21 @@ def billing_confirm(request, pk):
                     )
                     return redirect('billing_detail', pk=pk)
 
+            # A rejection needs a reason on file — it is the only record of
+            # why a payment wasn't accepted, read by both staff (the
+            # Payment Details panel) and the customer (the rejection
+            # notification below).
+            if new_status == BillingRecord.PaymentStatus.REJECTED:
+                reason = request.POST.get('reason', '').strip()[:255]
+                if not reason:
+                    messages.error(
+                        request,
+                        f'{locked.transaction.order_number}: a reason is '
+                        f'required to reject this payment.'
+                    )
+                    return redirect('billing_detail', pk=pk)
+                locked.reject_reason = reason
+
             locked.status = new_status
             if new_status == BillingRecord.PaymentStatus.PENDING:
                 # Re-opening a rejected payment — clear the prior decision so
@@ -535,6 +589,7 @@ def billing_confirm(request, pk):
                 # as still "confirmed by / on" the rejection.
                 locked.confirmed_by = None
                 locked.date_confirmed = None
+                locked.reject_reason = ''
             else:
                 locked.confirmed_by = request.user
                 locked.date_confirmed = timezone.now()
@@ -554,7 +609,8 @@ def billing_confirm(request, pk):
                 CATEGORY_SALES, PRIORITY_HIGH,
                 f'Payment rejected — {txn.order_number}',
                 f'Payment for {txn.order_number} ({txn.branch.branch_name}, '
-                f'₱{txn.total_amount}) was rejected by {request.user.username}.',
+                f'₱{txn.total_amount}) was rejected by {request.user.username}: '
+                f'{locked.reject_reason}',
                 branch=txn.branch,
                 action_url=reverse('billing_detail', kwargs={'pk': record.pk}),
                 action_label='View Billing Record',

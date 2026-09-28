@@ -96,6 +96,21 @@ class BillingPaymentSerializer(serializers.Serializer):
 class BillingConfirmSerializer(serializers.Serializer):
     """Handles PATCH /api/billing/<pk>/confirm/ — mirrors billing_confirm."""
     status = serializers.ChoiceField(choices=BillingRecord.PaymentStatus.choices)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=255)
+
+    def validate(self, data):
+        # Object-level: a rejection needs a reason on file, the same rule
+        # billing_confirm enforces. Field-level validate_status below still
+        # runs first (DRF calls it before this), so the maker/checker and
+        # transition checks are already settled by the time this runs.
+        if data.get('status') == BillingRecord.PaymentStatus.REJECTED:
+            reason = data.get('reason', '').strip()
+            if not reason:
+                raise serializers.ValidationError(
+                    {'reason': 'A reason is required to reject this payment.'}
+                )
+            data['reason'] = reason[:255]
+        return data
 
     def validate_status(self, value):
         record = self.instance
@@ -147,9 +162,12 @@ class BillingConfirmSerializer(serializers.Serializer):
         from django.utils import timezone
         new_status = validated_data['status']
         instance.status = new_status
+        if new_status == BillingRecord.PaymentStatus.REJECTED:
+            instance.reject_reason = validated_data.get('reason', '')
         if new_status == BillingRecord.PaymentStatus.PENDING:
             instance.confirmed_by = None
             instance.date_confirmed = None
+            instance.reject_reason = ''
         else:
             instance.confirmed_by = self.context['request'].user
             instance.date_confirmed = timezone.now()

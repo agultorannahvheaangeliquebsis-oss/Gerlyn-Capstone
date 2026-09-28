@@ -133,8 +133,8 @@ class BillingDedicatedPagesTests(TestCase):
         client.force_login(self.owner)
         response = client.get(f'/sales/{record.transaction.pk}/?from=billing&modal=1')
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'View order items')
-        # Once, not twice: the full-width items table is skipped in this view.
+        self.assertContains(response, 'class="od-items-block"')
+        # Once, not twice: there is only ever one items table.
         self.assertContains(response, 'Billing Modal Widget', count=1)
         self.assertNotContains(response, 'Payment Status')
         self.assertNotContains(response, 'View billing record')
@@ -150,7 +150,7 @@ class BillingDedicatedPagesTests(TestCase):
         self.assertNotContains(response, f'href="/billing/{record.pk}/"')
         self.assertContains(response, 'Payment Status')
         self.assertContains(response, f'#{record.pk}')
-        self.assertContains(response, 'View order items')
+        self.assertContains(response, 'class="od-items-block"')
 
     def test_record_payment_page_is_a_dedicated_page_not_the_detail_page(self):
         txn = SalesTransaction.objects.create(

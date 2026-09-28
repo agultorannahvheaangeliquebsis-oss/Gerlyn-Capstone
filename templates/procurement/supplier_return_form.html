@@ -7,7 +7,7 @@
 <div class="page-head">
   <div>
     <a class="back-link" href="{% url 'procurement_detail' procurement.pk %}">{{ procurement.po_number }}</a>
-    <h1 class="mt-2">Return goods to {{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}</h1>
+    <h1 class="mt-2">Return goods to {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</h1>
     <p class="gv-meta">Only stock from this order that is still in the {{ procurement.branch.branch_name }} warehouse can be sent back. Units already moved to the shop floor are not listed.</p>
   </div>
 </div>

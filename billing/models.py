@@ -222,6 +222,10 @@ class BillingRecord(models.Model):
         validators=[validate_reference_number],
         help_text="GCash/bank reference number, if applicable"
     )
+    # Why a Rejected payment was turned down — required by billing_confirm /
+    # BillingConfirmSerializer only when moving to Rejected, and cleared on
+    # re-open to Pending, symmetric with confirmed_by / date_confirmed below.
+    reject_reason = models.CharField(max_length=255, blank=True, default='')
     proof_of_payment = models.ImageField(
         upload_to='payment_proofs/', storage=payment_proof_storage,
         null=True, blank=True,

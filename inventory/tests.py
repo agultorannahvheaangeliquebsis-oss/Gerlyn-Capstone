@@ -117,10 +117,14 @@ class CategoryModalFlowTests(TestCase):
     def test_product_list_still_renders_after_the_modal_move(self):
         """The modal CSS and initModal() moved out of product_list.html into
         gerlyn.css and static/js/modal.js. Nothing about the page should have
-        changed, so this is here to catch it if the extraction broke it."""
+        changed, so this is here to catch it if the extraction broke it.
+
+        Add/Edit Product later moved off this page entirely, onto their own
+        product_form.html — so what survives here is the link to it, not a
+        modal id."""
         response = self.client.get(reverse('product_list'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'add-product-modal')
+        self.assertContains(response, reverse('product_add'))
 
     def test_staff_cannot_post_a_category(self):
         staff = User.objects.create_user(

@@ -456,7 +456,10 @@ class BillingGateTests(ReviewFixture, TestCase):
 
     def test_it_does_not_stop_a_payment_being_rejected(self):
         self.client.force_login(self.manager)
-        self.client.post(reverse('billing_confirm', args=[self.billing.pk]), {'status': 'Rejected'})
+        self.client.post(
+            reverse('billing_confirm', args=[self.billing.pk]),
+            {'status': 'Rejected', 'reason': 'Payment could not be verified.'},
+        )
 
         self.billing.refresh_from_db()
         self.assertEqual(self.billing.status, 'Rejected')

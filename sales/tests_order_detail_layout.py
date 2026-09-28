@@ -2,8 +2,11 @@
 
 The page folds what used to be a Next Action card, a "View billing record"
 link and two Status History tables into the status strip, the Payment Status
-card and one collapsed timeline. These tests pin down what has to stay
-reachable from the order itself, and what must no longer be drawn.
+card and one collapsed timeline. Order Progress and Payment Status are each
+their own full-width section, and the rest of the page is a 1/3 (Order
+Details + Financial Summary) / 2/3 (items + discount) split. These tests pin
+down what has to stay reachable from the order itself, and what must no
+longer be drawn.
 """
 from django.urls import reverse
 
@@ -29,6 +32,9 @@ class OrderDetailLayoutTests(_OrderStatusBase):
         # their own beneath the progress track.
         self.assertLess(html.index('Mark Approved'), html.index('Order Details'))
         self.assertLess(html.index('Order Progress'), html.index('Mark Approved'))
+        # The status select, Update button and the Paid-first notice share
+        # one row inside the Order Progress card.
+        self.assertLess(html.index('Order Progress'), html.index('data-status-select'))
 
     def test_the_status_message_is_gone_because_the_progress_track_says_it(self):
         txn = self._order(Status.PENDING)
@@ -128,54 +134,55 @@ class OrderDetailLayoutTests(_OrderStatusBase):
 
     # -- items -------------------------------------------------------------------
 
-    def test_payment_comes_first_then_progress_then_the_details(self):
+    def test_progress_comes_first_then_payment_then_the_details(self):
         txn = self._order(Status.PENDING)
         html = self._html(txn)
-        payment = html.index('Payment Status</h3>')
         progress = html.index('Order Progress</h3>')
         select = html.index('data-status-select')
+        payment = html.index('Payment Status</h3>')
         details = html.index('Order Details</h3>')
-        # The status control depends on the payment, so it is read first, and
-        # the dropdown sits with the progress track it moves.
-        self.assertLess(payment, progress)
+        # Order Progress is the full-width top banner, with the dropdown that
+        # moves it in the same card; Payment Status is its own full-width
+        # section directly below, ahead of the Order Details/Items workspace.
         self.assertLess(progress, select)
-        self.assertLess(select, details)
-        self.assertEqual(html.count('class="od-top"'), 1)
+        self.assertLess(select, payment)
+        self.assertLess(payment, details)
 
-    def test_from_billing_the_top_row_is_the_progress_card_alone(self):
+    def test_from_billing_the_top_is_the_progress_card_alone(self):
         txn = self._order(Status.PENDING)
         html = self._html(txn, '?from=billing')
         self.assertNotIn('Payment Status</h3>', html)
         self.assertIn('Order Progress</h3>', html)
         self.assertIn('Order Details</h3>', html)
-        self.assertIn('View order items', html)
+        self.assertIn('class="od-items-block"', html)
 
     # -- items -------------------------------------------------------------------
 
-    def test_items_are_a_disclosure_inside_order_details_not_a_card_of_their_own(self):
+    def test_items_are_an_inline_table_in_the_workspace_not_a_card_of_their_own(self):
         txn = self._order(Status.PENDING)
         html = self._html(txn)
         self.assertNotIn('Items Ordered', html)
         self.assertNotIn('class="od-col"', html)
+        items_block = html.index('class="od-items-block"')
         details = html.index('Order Details</h3>')
-        toggle = html.index('<details class="od-items-toggle">')
         total = html.index('<div class="od-total">')
         refund_or_history = html.index('<details class="card od-history">')
-        # Facts, then the items disclosure, then the totals they add up to.
-        self.assertLess(details, toggle)
-        self.assertLess(toggle, total)
-        self.assertLess(total, refund_or_history)
-        # Closed by default.
-        self.assertNotIn('<details class="od-items-toggle" open', html)
-        self.assertIn('View order items', html)
+        # The facts and totals lead the left sidebar of the workspace, the
+        # items table sits in the wider column beside it, and the totals
+        # still add up before the items table that follows them.
+        self.assertLess(details, total)
+        self.assertLess(total, items_block)
+        self.assertLess(items_block, refund_or_history)
+        # No disclosure left to open — the lines are visible without a click.
+        self.assertNotIn('<details class="od-items-toggle"', html)
 
     def test_items_are_listed_once_in_either_view(self):
         txn = self._order(Status.PENDING)
         for query in ('', '?from=billing'):
             html = self._html(txn, query)
             self.assertEqual(html.count('Rice (Sack)'), 1, query)
-            self.assertIn('View order items', html)
-            self.assertLess(html.index('Order Details'), html.index('View order items'))
+            self.assertIn('class="od-items-block"', html)
+            self.assertLess(html.index('Order Details'), html.index('class="od-items-block"'))
 
     # -- discount ----------------------------------------------------------------
 

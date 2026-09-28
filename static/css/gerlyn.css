@@ -1597,6 +1597,126 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .dropzone-title { font: 600 14.5px/1.3 var(--font-sans); color: var(--ink-900); }
 .dropzone-filename { font: 400 13px/1.4 var(--font-sans); color: var(--action); word-break: break-all; }
 
+/* Order/billing detail component family — order-progress-*, od-card/od-h/
+   od-workspace/od-side/od-facts/od-sum/od-items-*, pay-*, status-confirm-*.
+   Started as page-scoped CSS on Sales & Orders' transaction_detail.html;
+   promoted here once Billing's own detail page needed the same stepper,
+   two-column facts/summary layout, items table and dialog shells verbatim.
+   What stays truly page-specific (status-change controls, refunds, the
+   statutory-discount toggle, status history) is still page-scoped on
+   transaction_detail.html itself. */
+.order-progress-row {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--s3) var(--s4); margin: var(--s3) 0 0;
+}
+.order-progress-track { display: flex; gap: 0; flex: 1 1 320px; max-width: 1040px; }
+.order-progress-step { flex: 1; text-align: center; position: relative; }
+.order-progress-step .dot {
+  width: 24px; height: 24px; border-radius: 50%; margin: 0 auto 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--line); color: var(--ink-400);
+  font: 700 12px/1 var(--font-sans); position: relative; z-index: 1;
+}
+.order-progress-step.done .dot { background: var(--brand); color: #fff; }
+.order-progress-step.current .dot {
+  background: var(--action); color: #fff; box-shadow: 0 0 0 4px var(--green-50);
+}
+.order-progress-step::before {
+  content: ""; position: absolute; top: 12px; left: 0; right: 50%;
+  height: 2px; background: var(--line);
+}
+.order-progress-step::after {
+  content: ""; position: absolute; top: 12px; left: 50%; right: 0;
+  height: 2px; background: var(--line);
+}
+.order-progress-step:first-child::before, .order-progress-step:last-child::after { display: none; }
+.order-progress-step.done::after, .order-progress-step.done::before { background: var(--brand); }
+.order-progress-step.current::before { background: var(--brand); }
+.order-progress-label { font: 600 13px/1.3 var(--font-sans); color: var(--ink-600); }
+.order-progress-step.current .order-progress-label { color: var(--action-700); }
+
+.od-card.card-pad { padding: var(--s4); }
+.od-card, .od-workspace, .od-history { margin-bottom: var(--s4); }
+.od-workspace > .od-card, .od-side > .od-card { margin-bottom: 0; }
+.od-h { margin: 0 0 var(--s3); }
+.od-note { font-size: 13.5px; margin: 0 0 var(--s3); }
+
+.od-workspace { display: flex; flex-direction: column; gap: var(--s4); }
+.od-side { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); align-items: start; }
+@media (max-width: 900px) {
+  .od-side { grid-template-columns: 1fr; }
+}
+
+.od-items-block { margin: 0; }
+.od-items-head {
+  display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s2);
+  font: 700 13px/1.3 var(--font-sans); text-transform: uppercase; letter-spacing: .03em; color: var(--ink-600);
+}
+
+/* Label-over-value tiles, several per row — see transaction_detail.html's
+   original comment: flex rather than grid so each row's own tiles share out
+   that row's full width evenly (grid's auto-fit left a dead strip with 5
+   tiles). */
+.od-facts { display: flex; flex-wrap: wrap; gap: var(--s3) var(--s4); margin: 0; }
+.od-facts > div { flex: 1 1 128px; min-width: 0; }
+.od-facts .wide { flex: 1 1 100%; }
+.od-facts dt, .od-sum dt { font: 700 11.5px/1.3 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500); }
+.od-facts dd { margin: 2px 0 0; font-size: 14.5px; line-height: 1.35; color: var(--ink-900); overflow-wrap: anywhere; }
+.od-sub { display: block; font-size: 13px; color: var(--ink-600); }
+.od-sum { margin: 0; }
+.od-sum > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); padding: 4px 0; }
+.od-sum dt { text-transform: none; letter-spacing: 0; font: 400 14px/1.4 var(--font-sans); color: var(--ink-600); }
+.od-sum dd { margin: 0; font-size: 14.5px; font-variant-numeric: tabular-nums; }
+.od-sum .od-total { border-top: 1px solid var(--line-soft); margin-top: 2px; padding-top: var(--s2); }
+.od-sum .od-total:first-child { border-top: 0; margin-top: 0; padding-top: 4px; }
+.od-sum .od-total dt { font-weight: 700; color: var(--ink-900); }
+.od-sum .od-total dd { font: 700 20px/1.2 var(--font-sans); color: var(--action); }
+.od-sum .od-credit { color: var(--ok-fg); }
+
+.od-table th { padding: 8px 12px; }
+.od-table td { padding: 8px 12px; height: auto; font-size: 14.5px; }
+@media (max-width: 860px) {
+  .od-items.gv-table { display: table; }
+  .od-items.gv-table thead { display: table-header-group; }
+  .od-items.gv-table tbody { display: table-row-group; }
+  .od-items.gv-table tr { display: table-row; width: auto; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent !important; }
+  .od-items.gv-table th, .od-items.gv-table td { display: table-cell; width: auto; padding: 8px 6px; font-size: 13.5px; text-align: left; }
+  .od-items.gv-table th.num, .od-items.gv-table td.num { text-align: right; }
+  .od-items.gv-table td::before { content: none; }
+  .od-items.gv-table td:first-child { overflow-wrap: anywhere; }
+}
+
+/* Record Payment dialog (order-detail.js, partials/_record_payment_modal.html).
+   Reuses .modal-overlay / .modal-card / .modal-body / .modal-foot; the form
+   sits between the head and the body, so it has to carry the card's flex
+   column down to the scrolling body. */
+.pay-modal-card { max-width: 520px; }
+.pay-modal-card.modal-card--wide { max-width: 880px; }
+.pay-form { display: flex; flex-direction: column; min-height: 0; margin: 0; }
+.pay-due { padding-bottom: var(--s4); border-bottom: 1px solid var(--line); }
+.pay-proof-thumb {
+  display: block; max-width: 160px; max-height: 160px; margin-top: var(--s2);
+  border-radius: var(--r-card); border: 1px solid var(--line); object-fit: cover;
+}
+
+/* Status/decision confirm dialog (order-status-confirm.js). Reuses
+   .modal-overlay / .confirm-card; started as transaction_detail.html's own
+   copy for order-status changes, now also used by Billing's Reject Payment
+   reason prompt (partials/_billing_reject_confirm.html). */
+.status-confirm-card { max-width: 520px; }
+.status-confirm-body { display: flex; flex-direction: column; gap: var(--s4); overflow-y: auto; }
+.status-confirm-summary {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3) var(--s4); margin: 0;
+}
+.status-confirm-summary dt { font: 600 12px/1.3 var(--font-sans); color: var(--ink-600); text-transform: uppercase; letter-spacing: .04em; }
+.status-confirm-summary dd { margin: 2px 0 0; font-size: 14.5px; color: var(--ink-900); }
+.status-confirm-notes { margin: 6px 0 0; padding-left: 18px; }
+.status-confirm-notes li + li { margin-top: 4px; }
+.status-confirm-error { margin: 0; }
+.status-confirm-body textarea { width: 100%; }
+@media (max-width: 480px) { .status-confirm-summary { grid-template-columns: 1fr; } }
+
 .toolbar { display: flex; gap: var(--s2); margin-bottom: var(--s4); flex-wrap: wrap; }
 .toolbar .input, .toolbar select { width: auto; min-width: 200px; }
 /* ------------------------------------------------ search + filter bar

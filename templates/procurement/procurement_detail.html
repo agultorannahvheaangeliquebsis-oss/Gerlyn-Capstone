@@ -134,6 +134,66 @@
     {% endcomment %}
     .status-update-form .status-select { flex: none; max-width: none; }
   }
+
+  {% comment %}
+  Negotiation, waiting state: a status message with nothing to act on yet
+  reads as a workflow banner (title + message left, Cancel as a text link
+  right) instead of a full card — the same weight the .banner-warning
+  messages elsewhere already use for "something is pending" states. Once
+  there's an actual form to fill in (negotiation_actionable, computed in
+  the view from who can act on which status), it stays a plain card since a
+  banner isn't built to hold inputs.
+  {% endcomment %}
+  .pd-negotiate-banner {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s4);
+    flex-wrap: wrap; background: var(--warn-bg); border: 1px solid var(--warn-fg);
+    border-radius: var(--r-card); padding: var(--s4);
+  }
+  .pd-negotiate-banner h3 { margin: 0 0 4px; color: var(--warn-fg); }
+  .pd-negotiate-banner p { margin: 0; }
+  .pd-negotiate-banner .btn-quiet { flex: none; white-space: nowrap; }
+
+  {% comment %}
+  Top row: two side-by-side fact panels — Delivery & receipt validation on
+  the left, Order Details (plus the funding form, when editable) on the
+  right. Order items/Receipts/Returns all live below in .pd-below, spanning
+  the full width instead of sharing a column with either fact panel, since
+  the items table needs more room than a sidebar column gives it.
+  {% endcomment %}
+  .pd-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); align-items: start; margin-bottom: var(--s4); }
+  .pd-top-col { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+  .pd-below { display: flex; flex-direction: column; gap: var(--s4); }
+  .pd-top-grid .card, .pd-below .card { margin: 0; }
+  @media (max-width: 900px) {
+    .pd-top-grid { grid-template-columns: 1fr; }
+  }
+  {% comment %}
+  This page is also reachable inside the detail-modal overlay (see the
+  status-select comment above), whose .modal-card caps out at 860px
+  regardless of the viewport — so on an ordinary monitor the @media query
+  above never fires there, and the 1fr/1fr split lands on a ~800px box
+  instead of a full-width page. Force the single-column stack
+  unconditionally in the modal instead of guessing a second breakpoint
+  number that would only coincidentally match 860px.
+  {% endcomment %}
+  .detail-modal .pd-top-grid { grid-template-columns: 1fr; }
+
+  {% comment %}
+  In the modal the title already sits in .modal-head, so by the time
+  detail-modal.js is done dressing the fragment, .page-head here holds
+  nothing but Print PO/Download PDF — two buttons stranded in the same
+  amount of space a full title-and-buttons row would take, with nothing
+  left in it to explain why they're floating there. A rule under the strip
+  (same shape as the "Order items" card header's border-bottom above) reads
+  it as the record's own action toolbar sitting under the header, not a
+  stray control adrift in blank surface.
+  {% endcomment %}
+  .detail-modal .modal-body .page-head {
+    padding-bottom: var(--s4);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .pd-items-foot td { border-top: 1px solid var(--line); padding-top: var(--s3); }
 </style>
 {% endblock %}
 
@@ -293,7 +353,32 @@ section for the full state shape. Owns Approved through Terms Agreed
 entirely, including its own Cancel action — the generic "Update status"
 card above deliberately excludes these statuses now.
 {% endcomment %}
-{% if procurement.status == "Approved" or procurement.status == "Pending Owner Review" or procurement.status == "Pending Supplier Review" or procurement.status == "Terms Agreed" %}
+{% if procurement.status == "Approved" and not negotiation_actionable %}
+{% comment %}
+The plain "nothing to act on yet" case — an Owner/Manager viewing a freshly
+Approved order, before the supplier has made a first offer. No proposed
+terms to show, no form to fill in, so it reads as an integrated status
+banner rather than a full card (see .pd-negotiate-banner above).
+{% endcomment %}
+<div class="pd-negotiate-banner mb-4">
+  <div>
+    <h3>Negotiate price &amp; delivery date</h3>
+    <p class="gv-meta mb-0">Waiting for the supplier to propose a delivery date and pricing.</p>
+  </div>
+  {% if user.role == "OWNER" or user.role == "BRANCH_MANAGER" %}
+  <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}"
+        data-confirm="{{ procurement.po_number }} will be closed as cancelled."
+        data-confirm-title="Cancel this purchase order?"
+        data-confirm-variant="warn"
+        data-confirm-ok="Cancel PO"
+        data-confirm-dismiss="Keep PO">
+    {% csrf_token %}
+    <input type="hidden" name="status" value="Cancelled">
+    <button type="submit" class="btn btn-quiet">Cancel this order</button>
+  </form>
+  {% endif %}
+</div>
+{% elif procurement.status == "Approved" or procurement.status == "Pending Owner Review" or procurement.status == "Pending Supplier Review" or procurement.status == "Terms Agreed" %}
 <div class="card card-pad mb-4">
   <h3 class="mb-4">Negotiate price &amp; delivery date</h3>
 
@@ -430,135 +515,153 @@ card above deliberately excludes these statuses now.
 </div>
 {% endif %}
 
-<div class="grid-2 mb-4">
-  <div class="card card-pad">
-    <h3 class="mb-4">Order Details</h3>
-    <table class="gv-table kv-table" style="border:0;">
-      <tbody>
-        <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ procurement.branch.branch_name }}</td></tr>
-        <tr><td class="gv-meta">Supplier</td><td style="text-align:right;">
-          {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</td></tr>
-        <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
-        <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Funding source</td><td style="text-align:right;">
-          {% if procurement.funding_source %}<span class="tag">{{ procurement.funding_source }}</span>{% if procurement.funding_note %}<div class="gv-meta">{{ procurement.funding_note }}</div>{% endif %}{% else %}<span class="gv-meta">Not recorded</span>{% endif %}</td></tr>
-        <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
-          {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
-        <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">
-          {% if procurement.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
-          {% elif procurement.receipt_flag == 'Partial' %}<span class="pill pill-warn">Partial</span>
-          {% else %}<span class="pill pill-ok">None</span>{% endif %}</td></tr>
-        <tr><td class="gv-meta">Total cost</td><td class="num" style="text-align:right;">
-          <span class="gv-metric" style="color:var(--action);">₱{{ procurement.total_cost|floatformat:2 }}</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  {% if can_edit_funding %}
-  <div class="card card-pad">
-    <h3 class="mb-4">Funding source</h3>
-    <form method="POST" action="{% url 'procurement_set_funding' procurement.pk %}">
-      {% csrf_token %}
-      <div class="field">
-        <label for="fund-source">Where the money comes from</label>
-        <select id="fund-source" name="funding_source" required>
-          <option value="">Choose…</option>
-          {% for value, label in funding_choices %}
-            <option value="{{ value }}"{% if procurement.funding_source == value %} selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="fund-note">Note <span class="gv-meta">— required for Other</span></label>
-        <input id="fund-note" type="text" name="funding_note" maxlength="200" value="{{ procurement.funding_note }}">
-      </div>
-      <button type="submit" class="btn btn-primary">Save funding source</button>
-      <p class="gv-meta mt-2 mb-0">Can be changed until the supplier and buyer agree terms.</p>
-    </form>
-  </div>
-  {% endif %}
-
-  <div class="card card-pad card-fill">
-    <h3 class="mb-4">Delivery</h3>
-    <div class="card-fill-body">
-      <p class="gv-meta">
+<div class="pd-top-grid">
+  <div class="pd-top-col">
+    <div class="card card-pad">
+      <h3 class="mb-2">Delivery &amp; receipt validation</h3>
+      <p class="gv-meta mb-0">
         Stock is only added after a receipt is validated — this keeps the digital
         records matching the physical goods.
       </p>
-      <div class="stat mt-4">
-        <div class="value">{{ items|length }}</div>
-        <div class="label">Line item{{ items|length|pluralize }} on this order</div>
-      </div>
+      <table class="gv-table kv-table mt-4" style="border:0;">
+        <tbody>
+          <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
+          <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
+          <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">
+            {% if procurement.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
+            {% elif procurement.receipt_flag == 'Partial' %}<span class="pill pill-warn">Partial</span>
+            {% else %}<span class="pill pill-ok">None</span>{% endif %}</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
-</div>
 
-{% if can_return_goods or supplier_returns %}
-<div class="card table-wrap mb-4">
-  <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
-    <h3>Returns to supplier</h3>
-    {% if can_return_goods %}<a class="btn btn-sm" href="{% url 'supplier_return_add' procurement.pk %}">Return goods</a>{% endif %}
+  <div class="pd-top-col">
+    <div class="card card-pad">
+      <h3 class="mb-4">Order Details</h3>
+      <table class="gv-table kv-table" style="border:0;">
+        <tbody>
+          <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ procurement.branch.branch_name }}</td></tr>
+          <tr><td class="gv-meta">Supplier</td><td style="text-align:right;">
+            {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</td></tr>
+          <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
+          <tr><td class="gv-meta">Funding source</td><td style="text-align:right;">
+            {% if procurement.funding_source %}<span class="tag">{{ procurement.funding_source }}</span>{% if procurement.funding_note %}<div class="gv-meta">{{ procurement.funding_note }}</div>{% endif %}{% else %}<span class="gv-meta">Not recorded</span>{% endif %}</td></tr>
+          <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
+            {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if can_edit_funding %}
+    <div class="card card-pad">
+      <h3 class="mb-4">Funding source</h3>
+      <form method="POST" action="{% url 'procurement_set_funding' procurement.pk %}">
+        {% csrf_token %}
+        <div class="stack">
+          <div class="field">
+            <label for="fund-source">Where the money comes from</label>
+            <select id="fund-source" name="funding_source" required>
+              <option value="">Choose…</option>
+              {% for value, label in funding_choices %}
+                <option value="{{ value }}"{% if procurement.funding_source == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="fund-note">Note <span class="gv-meta">— required for Other</span></label>
+            <input id="fund-note" type="text" name="funding_note" maxlength="200" value="{{ procurement.funding_note }}">
+          </div>
+        </div>
+        <div class="mt-4" style="display:flex; justify-content:flex-end;">
+          <button type="submit" class="btn btn-primary">Save funding source</button>
+        </div>
+        <p class="gv-meta mt-2 mb-0">Can be changed until the supplier and buyer agree on terms.</p>
+      </form>
+    </div>
+    {% endif %}
   </div>
-  <table class="gv-table">
-    <thead><tr><th>Return</th><th>Reason</th><th>Status</th><th>Raised</th><th class="end">Action</th></tr></thead>
-    <tbody>
-      {% for r in supplier_returns %}
-      <tr>
-        <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
-        <td data-label="Reason">{{ r.get_reason_display }}</td>
-        <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
-        <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
-        <td data-label="Action" class="end"><a class="btn btn-sm" href="{% url 'supplier_return_detail' r.pk %}">View</a></td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5"><span class="gv-meta">No returns yet. If part of this delivery was damaged, wrong or short-dated, choose Return goods.</span></td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
 </div>
-{% endif %}
 
-{% if receipts %}
-<div class="card table-wrap mb-4">
-  <table class="gv-table">
-    <thead>
-      <tr><th>Receipt</th><th>Receipt date</th><th>Received by</th><th>Delivered by</th><th>Recorded</th></tr>
-    </thead>
-    <tbody>
-      {% for r in receipts %}
-      <tr>
-        <td data-label="Receipt" class="strong">#{{ forloop.counter }}</td>
-        <td data-label="Receipt date">{{ r.receipt_date|date:"Y-m-d"|default:"—" }}</td>
-        <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
-        <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
-        <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
+<div class="pd-below">
+    <div class="card table-wrap">
+      <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+        <h3 class="mb-0">Order items &amp; received quantities <span class="pill pill-neutral">{{ items|length }} line item{{ items|length|pluralize }}</span></h3>
+      </div>
+      <table class="gv-table">
+        <thead>
+          <tr><th>Product</th><th class="num">Qty Ordered</th><th class="num">Qty Received</th>
+              <th class="num">Unit Cost Snapshot</th><th class="num">Line Total</th></tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+            <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
+            <td data-label="Qty Received" class="num">{{ item.quantity_received }}</td>
+            <td data-label="Unit Cost Snapshot" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}Pending confirmation{% endif %}</td>
+            <td data-label="Line Total" class="num strong">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5"><div class="empty"><h3>No items on this order</h3></div></td></tr>
+          {% endfor %}
+        </tbody>
+        {% if items %}
+        <tfoot>
+          <tr class="pd-items-foot">
+            <td colspan="5">
+              <div class="row-between"><span class="strong">Total cost</span><span class="gv-metric" style="color:var(--action);">₱{{ procurement.total_cost|floatformat:2 }}</span></div>
+            </td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
 
-<div class="card table-wrap">
-  <table class="gv-table">
-    <thead>
-      <tr><th>Product</th><th class="num">Qty Ordered</th><th class="num">Qty Received</th>
-          <th class="num">Unit Cost Snapshot</th><th class="num">Line Total</th></tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
-        <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
-        <td data-label="Qty Received" class="num">{{ item.quantity_received }}</td>
-        <td data-label="Unit Cost Snapshot" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}Pending confirmation{% endif %}</td>
-        <td data-label="Line Total" class="num strong">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5"><div class="empty"><h3>No items on this order</h3></div></td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    {% if receipts %}
+    <div class="card table-wrap">
+      <table class="gv-table">
+        <thead>
+          <tr><th>Receipt</th><th>Receipt date</th><th>Received by</th><th>Delivered by</th><th>Recorded</th></tr>
+        </thead>
+        <tbody>
+          {% for r in receipts %}
+          <tr>
+            <td data-label="Receipt" class="strong">#{{ forloop.counter }}</td>
+            <td data-label="Receipt date">{{ r.receipt_date|date:"Y-m-d"|default:"—" }}</td>
+            <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
+            <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
+            <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if can_return_goods or supplier_returns %}
+    <div class="card table-wrap">
+      <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+        <h3>Returns to supplier</h3>
+        {% if can_return_goods %}<a class="btn btn-sm" href="{% url 'supplier_return_add' procurement.pk %}">Return goods</a>{% endif %}
+      </div>
+      <table class="gv-table">
+        <thead><tr><th>Return</th><th>Reason</th><th>Status</th><th>Raised</th><th class="end">Action</th></tr></thead>
+        <tbody>
+          {% for r in supplier_returns %}
+          <tr>
+            <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
+            <td data-label="Reason">{{ r.get_reason_display }}</td>
+            <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
+            <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
+            <td data-label="Action" class="end"><a class="btn btn-sm" href="{% url 'supplier_return_detail' r.pk %}">View</a></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5"><span class="gv-meta">No returns yet. If part of this delivery was damaged, wrong or short-dated, choose Return goods.</span></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

@@ -63,6 +63,23 @@
     width: 56px; height: 56px; border-radius: 8px; object-fit: cover;
     border: 1px solid var(--line);
   }
+
+  /* Read-only reference list inside Edit Category — capped height so a
+     category with dozens of products doesn't stretch the modal past the
+     viewport; the field itself scrolls instead. */
+  .cat-product-list {
+    max-height: 200px; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  .cat-product-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; text-decoration: none; color: inherit;
+    border-bottom: 1px solid var(--line);
+  }
+  .cat-product-row:last-child { border-bottom: none; }
+  .cat-product-row:hover { background: var(--surface-2); }
+  .cat-product-row .cat-product-name { flex: 1 1 auto; font-weight: 500; }
+  .cat-product-row .cat-product-price { font-variant-numeric: tabular-nums; white-space: nowrap; }
 </style>
 {% endblock %}
 
@@ -269,6 +286,27 @@
         <label for="edit-category-description">Description <span class="gv-meta">— optional</span></label>
         <textarea id="edit-category-description" name="description" rows="2"
                   placeholder="What belongs in this category?">{{ edit_form_data.description|default:edit_category.description|default:'' }}</textarea>
+      </div>
+
+      {# Read-only reference, not a form field — moving a product between #}
+      {# categories happens on the product itself, so this just answers #}
+      {# "what's in here" before you rename or delete the category. #}
+      <div class="field">
+        <label>Products in this Category <span class="gv-meta">— {{ edit_category_products|length }}</span></label>
+        {% if edit_category_products %}
+        <div class="cat-product-list">
+          {% for p in edit_category_products %}
+          <a class="cat-product-row" href="{% url 'product_edit' p.pk %}" target="_blank" rel="noopener"
+             title="Open {{ p.product_name }} in a new tab">
+            <span class="cat-product-name">{{ p.product_name }}</span>
+            <span class="gv-meta">{{ p.sku_code }}</span>
+            <span class="cat-product-price">₱{{ p.unit_price|floatformat:2 }}</span>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="gv-meta">No products use this category yet.</p>
+        {% endif %}
       </div>
     </form>
 

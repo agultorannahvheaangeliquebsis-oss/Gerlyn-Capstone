@@ -49,8 +49,9 @@ def notify_payment_decision(record, actor, *, include_internal=True):
                     'title': f'Payment needs attention: {txn.order_number}',
                     'message': (
                         f'Your payment for {txn.order_number} could not be '
-                        f'verified. Review the order and contact the branch '
-                        f'with corrected payment details.'
+                        f'verified: {record.reject_reason} Review the order '
+                        f'and contact the branch with corrected payment '
+                        f'details.'
                     ),
                     'action_url': customer_url,
                     'action_label': 'View Order',

@@ -86,7 +86,9 @@ class FundingSourceTests(TestCase):
 
     def test_form_offers_every_choice(self):
         self.client.force_login(self.owner)
-        response = self.client.get(reverse('procurement_list'))
+        # Create Purchase Order is its own page (procurement_add's GET), not
+        # a modal on procurement_list.
+        response = self.client.get(reverse('procurement_add'))
         for label in ('Cash on Hand', 'Bank Transfer', 'GCash', "Owner&#x27;s Funds", 'Other'):
             self.assertContains(response, label)
 

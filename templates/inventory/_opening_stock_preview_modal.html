@@ -1,0 +1,98 @@
+{% comment %}
+Step 2 of the Import Opening Stock wizard. Context is preview_rows/
+preview_summary/opening_state/as_of_date from _opening_preview_context() —
+opening_stock_import's own POST renders it directly (not a redirect) so what
+was parsed here is exactly what opening_stock_confirm commits.
+{% endcomment %}
+<div class="modal-overlay{% if show_opening_preview_modal %} is-open{% endif %}" id="opening-preview-modal" data-autoopen="{% if show_opening_preview_modal %}1{% else %}0{% endif %}">
+  <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="opening-preview-title">
+    <div class="modal-head">
+      <h2 id="opening-preview-title">Import Opening Stock</h2>
+      <button type="button" class="modal-close" id="close-opening-preview-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <p class="gv-meta" style="margin-top:0;">Review before confirming</p>
+
+      <div class="kpi-row compact">
+        <div class="kpi-card"><span class="label">Rows</span><span class="value">{{ preview_summary.total }}</span></div>
+        <div class="kpi-card"><span class="label">Valid</span><span class="value">{{ preview_summary.valid }}</span></div>
+        <div class="kpi-card{% if preview_summary.warning %} warn{% endif %}"><span class="label">Warnings</span><span class="value">{{ preview_summary.warning }}</span></div>
+        <div class="kpi-card{% if preview_summary.invalid %} danger{% endif %}"><span class="label">Invalid</span><span class="value">{{ preview_summary.invalid }}</span></div>
+      </div>
+
+      <div class="row" style="gap:24px; flex-wrap:wrap;">
+        <span><b>{{ preview_summary.products }}</b> products</span>
+        <span><b>{{ preview_summary.branches }}</b> branches</span>
+        <span><b>{{ preview_summary.quantity }}</b> total units</span>
+        <span class="gv-meta">File: {{ opening_state.filename }}</span>
+        <span class="gv-meta">Fingerprint: <span class="sku">{{ preview_summary.canonical_sha256|slice:':16' }}…</span></span>
+      </div>
+
+      {% if preview_summary.duplicate_import %}
+      <div class="alert alert-danger">
+        These normalized rows were already committed as
+        <a href="{% url 'opening_stock_import_detail' preview_summary.duplicate_import.pk %}">import #{{ preview_summary.duplicate_import.pk }}</a>.
+        Confirmation is blocked.
+      </div>
+      {% endif %}
+
+      <div class="table-wrap">
+        <table class="gv-table">
+          <thead>
+            <tr>
+              <th>Row</th><th>Product / Barcode</th><th>Branch</th><th class="num">Qty</th>
+              <th>Lot</th><th>Expiry</th><th class="num">Current → Result</th><th>Validation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview_rows|slice:':500' %}
+            <tr>
+              <td class="gv-meta">{{ row.row_number }}</td>
+              <td><span class="strong">{{ row.product.product_name|default:'Unknown product' }}</span><br><span class="sku">{{ row.barcode|default:'—' }}</span></td>
+              <td>{{ row.branch.branch_name|default:row.branch_name }}</td>
+              <td class="num strong">{{ row.quantity|default:'—' }}</td>
+              <td>{{ row.lot_code|default:'—' }}</td>
+              <td>{{ row.expiry_date|date:'Y-m-d'|default:'—' }}</td>
+              <td class="num">{{ row.current_quantity }} → {{ row.resulting_quantity|default:'—' }}</td>
+              <td>
+                {% if row.status == 'invalid' %}<span class="pill pill-danger">Invalid</span>
+                {% elif row.status == 'warning' %}<span class="pill pill-warn">Warning</span>
+                {% else %}<span class="pill pill-ok">Valid</span>{% endif %}
+                {% for error in row.errors %}<div class="gv-meta" style="color:var(--danger);">{{ error }}</div>{% endfor %}
+                {% for warning in row.warnings %}<div class="gv-meta">{{ warning }}</div>{% endfor %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if preview_summary.total > 500 %}<div class="card-pad gv-meta">Showing the first 500 rows. All {{ preview_summary.total }} rows are validated and included in confirmation.</div>{% endif %}
+      </div>
+
+      <p class="gv-meta" style="margin-bottom:0;">Confirmation is atomic: either every row creates its Floor Stock batch and Opening Balance movement, or nothing is written.</p>
+
+      <form method="POST" action="{% url 'opening_stock_confirm' %}" id="opening-confirm-form">{% csrf_token %}
+        {% if preview_summary.warning %}
+        <label class="row" style="gap:8px; align-items:flex-start;">
+          <input type="checkbox" name="acknowledge_warnings" value="1" required>
+          <span>I reviewed the warning rows and want to import them.</span>
+        </label>
+        {% endif %}
+      </form>
+      <form method="POST" action="{% url 'opening_stock_cancel' %}" id="opening-preview-cancel-form">{% csrf_token %}</form>
+    </div>
+
+    <div class="modal-foot">
+      <button type="submit" form="opening-preview-cancel-form" class="btn">Cancel Import</button>
+      <button type="submit" form="opening-confirm-form" class="btn btn-primary"
+        {% if preview_summary.invalid or preview_summary.duplicate_import or not preview_summary.total %}disabled{% endif %}>
+        Confirm Opening Balance
+      </button>
+    </div>
+  </div>
+</div>

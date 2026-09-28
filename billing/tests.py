@@ -153,18 +153,31 @@ class BillingConfirmStateMachineTests(TestCase):
 
     def test_pending_to_rejected_is_allowed(self):
         rec = self._record()
-        self.login('gerlyn').post(f'/billing/{rec.pk}/confirm/', {'status': 'Rejected'})
+        self.login('gerlyn').post(
+            f'/billing/{rec.pk}/confirm/', {'status': 'Rejected', 'reason': 'Reference number does not match.'}
+        )
         rec.refresh_from_db()
         self.assertEqual(rec.status, 'Rejected')
+        self.assertEqual(rec.reject_reason, 'Reference number does not match.')
+
+    def test_rejecting_without_a_reason_is_refused(self):
+        rec = self._record()
+        self.login('gerlyn').post(f'/billing/{rec.pk}/confirm/', {'status': 'Rejected'})
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, 'Pending', 'a reason is required to reject a payment')
+        self.assertEqual(rec.reject_reason, '')
 
     def test_rejected_can_be_reopened_to_pending(self):
         rec = self._record()
         self._set_status(rec, 'Rejected', confirmed_by=self.owner)
+        rec.reject_reason = 'Screenshot unreadable.'
+        rec.save(update_fields=['reject_reason'])
         self.login('gerlyn').post(f'/billing/{rec.pk}/confirm/', {'status': 'Pending'})
         rec.refresh_from_db()
         self.assertEqual(rec.status, 'Pending')
         self.assertIsNone(rec.confirmed_by, 're-open clears the stale confirmation')
         self.assertIsNone(rec.date_confirmed)
+        self.assertEqual(rec.reject_reason, '', 're-open clears the stale rejection reason')
 
     # -- blocked --------------------------------------------------------------
 
@@ -478,14 +491,13 @@ class BillingConfirmMakerCheckerTests(TestCase):
 
     # -- DRF parity: same guard via BillingConfirmSerializer ---------------
 
-    def _serializer(self, record, user, new_status='Paid'):
-        request = RequestFactory().patch(
-            f'/api/billing/{record.pk}/confirm/', {'status': new_status}
-        )
+    def _serializer(self, record, user, new_status='Paid', reason=''):
+        data = {'status': new_status}
+        if reason:
+            data['reason'] = reason
+        request = RequestFactory().patch(f'/api/billing/{record.pk}/confirm/', data)
         request.user = user
-        return BillingConfirmSerializer(
-            record, data={'status': new_status}, context={'request': request}
-        )
+        return BillingConfirmSerializer(record, data=data, context={'request': request})
 
     def test_serializer_blocks_a_self_confirmation(self):
         record = self._pending_record(self.staff)
@@ -508,6 +520,41 @@ class BillingConfirmMakerCheckerTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
         self.assertEqual(record.confirmed_by, self.other_staff)
+
+    def test_serializer_requires_a_reason_to_reject(self):
+        record = self._pending_record(self.staff)
+        serializer = self._serializer(record, self.other_staff, new_status='Rejected')
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('reason', serializer.errors)
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_serializer_allows_reject_with_a_reason(self):
+        record = self._pending_record(self.staff)
+        serializer = self._serializer(
+            record, self.other_staff, new_status='Rejected', reason='Reference number is wrong.'
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.REJECTED)
+        self.assertEqual(record.reject_reason, 'Reference number is wrong.')
+
+    def test_a_self_confirming_reason_still_does_not_bypass_the_maker_checker_gate(self):
+        record = self._pending_record(self.staff)
+        serializer = self._serializer(
+            record, self.staff, new_status='Rejected', reason='Reference number is wrong.'
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(
+            self.SELF_CONFIRM_ERROR,
+            [str(e) for e in serializer.errors['status']],
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
 
 
 class BillingConfirmAPIBranchScopeTests(TestCase):
