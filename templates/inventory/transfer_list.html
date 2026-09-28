@@ -99,10 +99,10 @@ of the movement) — see transfer_list's movement_branch_ids.
     right.
     {% endcomment %}
     {% include "_daterange.html" %}
-    <button type="button" class="btn btn-primary" id="open-create-modal">
+    {% if can_create %}<button type="button" class="btn btn-primary" id="open-create-modal">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
       New Stock Adjustment
-    </button>
+    </button>{% endif %}
   </div>
 </div>
 
@@ -201,7 +201,7 @@ across the full width leave the default block padding as empty card.
 
 <!-- ---------------------------------------------------------- slips view -->
 <div id="panel-slips">
-  {% if pending_acknowledgment %}
+  {% if pending_acknowledgment and module_actions.withdrawals.edit %}
   {% comment %}
   A plain .card, not the amber box this used to be. The KPI card directly above
   is already tinted .warn and already counts these, so a second amber panel four
@@ -280,7 +280,7 @@ across the full width leave the default block padding as empty card.
               <span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span>
               <h3>No withdrawal slips yet</h3>
               <p>A withdrawal records stock leaving the shelf — damaged, expired, spoiled or on display — and stays open until the branch confirms what left.</p>
-              <button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('open-create-modal').click()">New Stock Adjustment</button>
+              {% if can_create %}<button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('open-create-modal').click()">New Stock Adjustment</button>{% endif %}
             </div>
           </td>
         </tr>
@@ -341,7 +341,7 @@ The item form's "Change" link drops ?branch= but keeps open_create=1,
 landing back on this same picker step — see _branch_scoped_modal_target and
 _transfer_list_context in inventory/views.py.
 {% endcomment %}
-<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
+{% if can_create %}<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" style="max-width:640px;">
     <div class="modal-head">
       <h2 id="create-modal-title">New Stock Adjustment</h2>
@@ -436,7 +436,7 @@ _transfer_list_context in inventory/views.py.
     </div>
     {% endif %}
   </div>
-</div>
+</div>{% endif %}
 {% endblock %}
 
 {% block extra_js %}

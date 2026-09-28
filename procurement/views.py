@@ -29,6 +29,10 @@ from core.querystrings import list_filter_querystring
 from core.permissions import (
     BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
 )
+from core.module_permissions import (
+    ADD, DELETE, EDIT, DELIVERIES, PROCUREMENT,
+    user_can_perform_module_action,
+)
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -120,7 +124,10 @@ def _procurement_list_context(request):
     # creating a PO stays Owner/Manager-only — procurement_add's own role
     # check has always enforced that; this just stops offering a button
     # Staff would only get rejected from now that they can reach the page.
-    can_create = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+    can_create = (
+        request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+        and user_can_perform_module_action(request.user, PROCUREMENT, ADD)
+    )
 
     switch_branches = Branch.objects.all() if show_branch_filter else []
 
@@ -208,6 +215,7 @@ def procurement_detail(request, pk):
         ),
         'can_return_goods': (
             request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and user_can_perform_module_action(request.user, PROCUREMENT, ADD)
             and proc.status in (
                 Procurement.Status.RECEIVED, Procurement.Status.PARTIALLY_RECEIVED,
             )
@@ -215,12 +223,14 @@ def procurement_detail(request, pk):
         'days_overdue': proc.days_overdue(),
         'can_reschedule': (
             request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
             and proc.status in Procurement.AWAITING_DELIVERY_STATUSES
         ),
         'today': timezone.localdate(),
         'funding_choices': Procurement.FundingSource.choices,
         'can_edit_funding': (
             request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER)
+            and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
             and not proc.funding_locked
         ),
         'procurement': proc, 'items': items,
@@ -1277,8 +1287,9 @@ def delivery_list(request):
     receive_procurement = None
     receive_items = None
     addable_products = None
+    can_receive = user_can_perform_module_action(request.user, DELIVERIES, EDIT)
     receive_pk = request.GET.get('receive')
-    if receive_pk and receive_pk.isdigit():
+    if can_receive and receive_pk and receive_pk.isdigit():
         candidate = Procurement.objects.select_related('branch', 'supplier').filter(
             pk=receive_pk,
             status__in=[
@@ -1319,6 +1330,10 @@ def delivery_list(request):
         'receive_items': receive_items,
         'addable_products': addable_products,
         'show_receive_modal': receive_procurement is not None,
+        'can_receive': can_receive,
+        'can_add_unexpected': user_can_perform_module_action(
+            request.user, DELIVERIES, ADD
+        ),
     })
 
 
@@ -2105,7 +2120,18 @@ def _supplier_list_context(request):
     return {
         'suppliers': suppliers,
         'search_query': search_query,
-        'can_edit': request.user.role == User.Role.OWNER,
+        'can_add': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, ADD)
+        ),
+        'can_edit': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
+        ),
+        'can_delete': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, DELETE)
+        ),
         # The add/edit modal assigns a supplier to a branch (or to none, meaning
         # every branch). Without this the modal's select renders empty and a
         # saved edit would blank the assignment the list column shows.
@@ -2250,7 +2276,20 @@ def supplier_category_list(request):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
     context = _supplier_category_context()
-    context['can_edit'] = request.user.role == User.Role.OWNER
+    context.update({
+        'can_add': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, ADD)
+        ),
+        'can_edit': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
+        ),
+        'can_delete': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, DELETE)
+        ),
+    })
     return render(request, 'procurement/supplier_category_list.html', context)
 
 
@@ -2376,7 +2415,18 @@ def supplier_detail(request, pk):
         'product_categories': ProductCategory.objects.all(),
         'available_products': available,
         'other_suppliers': other_suppliers,
-        'can_edit': request.user.role == User.Role.OWNER,
+        'can_add': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, ADD)
+        ),
+        'can_edit': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
+        ),
+        'can_delete': (
+            request.user.role == User.Role.OWNER
+            and user_can_perform_module_action(request.user, PROCUREMENT, DELETE)
+        ),
         'recent_orders': Procurement.objects.filter(
             supplier=supplier
         ).select_related('branch').order_by('-order_date')[:5],
@@ -3056,7 +3106,10 @@ def supplier_return_list(request):
             (value, label, counts.get(value, 0))
             for value, label in SupplierReturn.Status.choices
         ],
-        'can_manage': request.user.role in _RETURN_MANAGERS,
+        'can_manage': (
+            request.user.role in _RETURN_MANAGERS
+            and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
+        ),
     })
 
 
@@ -3130,14 +3183,21 @@ def supplier_return_detail(request, pk):
         return redirect('accounts:home')
 
     ret = get_object_or_404(_store_returns(request.user), pk=pk)
-    can_manage = request.user.role in _RETURN_MANAGERS
+    can_manage = (
+        request.user.role in _RETURN_MANAGERS
+        and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
+    )
     S = SupplierReturn.Status
     return render(request, 'procurement/supplier_return_detail.html', {
         'ret': ret,
         'items': ret.items.select_related('product', 'procurement_item'),
         'receipts': ret.replacement_receipts.select_related('received_by'),
         'can_manage': can_manage,
-        'can_cancel': can_manage and ret.status in SupplierReturn.CANCELLABLE_STATUSES,
+        'can_cancel': (
+            request.user.role in _RETURN_MANAGERS
+            and user_can_perform_module_action(request.user, PROCUREMENT, DELETE)
+            and ret.status in SupplierReturn.CANCELLABLE_STATUSES
+        ),
         'can_ship': can_manage and ret.status == S.ACKNOWLEDGED,
         'can_settle': can_manage and ret.status == S.SHIPPED,
         'today': timezone.localdate(),

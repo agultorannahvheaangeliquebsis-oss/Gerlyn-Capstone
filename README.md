@@ -223,6 +223,11 @@ views can never drift apart.
 
 ## How the key rules are enforced
 
+- **Per-user module actions** — Owner accounts configure View, Add, Edit and
+  Delete per module for each Manager or Staff account. View is a mandatory
+  parent permission, and the same centralized gate protects template pages
+  and `/api/` routes before their existing role and branch checks run.
+
 - **Branch scoping** — `core/scoping.py` filters every queryset server-side. The UI's
   branch dropdown is never the only guard.
 - **Stock moves exactly once** — walk-in sales deduct at the point of sale; online

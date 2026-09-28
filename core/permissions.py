@@ -138,11 +138,16 @@ class HasModuleAccess(BasePermission):
     def has_permission(self, request, view):
         from core.module_permissions import (
             URL_NAME_TO_MODULE,
-            user_can_access_module,
+            required_action_for_request,
+            user_can_perform_module_action,
         )
 
         match = getattr(request, 'resolver_match', None)
         module = URL_NAME_TO_MODULE.get(match.url_name if match else None)
         if module is None or not request.user.is_authenticated:
             return True
-        return user_can_access_module(request.user, module)
+        action = required_action_for_request(
+            match.url_name if match else None,
+            request.method,
+        )
+        return user_can_perform_module_action(request.user, module, action)

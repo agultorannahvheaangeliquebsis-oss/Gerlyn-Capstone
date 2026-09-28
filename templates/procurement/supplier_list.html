@@ -9,7 +9,7 @@
   </div>
   <div class="row-actions">
   <a class="btn" href="{% url 'supplier_category_list' %}">Supplier Categories</a>
-  {% if can_edit %}
+  {% if can_add %}
   <button type="button" class="btn btn-primary" id="open-add-supplier-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Add Supplier
@@ -32,7 +32,7 @@
     <thead>
       <tr><th>Supplier</th><th>Branch</th><th>Category</th><th class="num">Products</th><th>Contact Person</th>
           <th>Contact Number</th><th>Email</th><th>Address</th>
-          {% if can_edit %}<th class="end">Actions</th>{% endif %}</tr>
+          {% if can_edit or can_delete %}<th class="end">Actions</th>{% endif %}</tr>
     </thead>
     <tbody>
       {% for s in suppliers %}
@@ -66,11 +66,14 @@
         <td data-label="Contact Number" class="num">{{ s.supplier_profile.contact_number|default:"—" }}</td>
         <td data-label="Email" class="gv-meta">{{ s.email|default:"—" }}</td>
         <td data-label="Address" class="gv-meta">{{ s.supplier_profile.address|default:"—"|truncatechars:34 }}</td>
-        {% if can_edit %}
+        {% if can_edit or can_delete %}
         <td data-label="Actions">
           <span class="row-actions">
+            {% if can_edit %}
             <a class="icon-btn icon-btn-action" href="{% url 'supplier_list' %}?edit={{ s.pk }}"
                title="Edit" aria-label="Edit {{ s.supplier_profile.supplier_name|default:s.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></a>
+            {% endif %}
+            {% if can_delete %}
             {% comment %}confirm-dialog.js draws the "Delete this supplier?" modal off this
             submit. A supplier with open orders is blocked server-side and comes back as
             an error toast. No JS -> the form POSTs straight through.{% endcomment %}
@@ -83,6 +86,7 @@
               <button type="submit" class="icon-btn icon-btn-danger"
                       title="Delete" aria-label="Delete {{ s.supplier_profile.supplier_name|default:s.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
             </form>
+            {% endif %}
           </span>
         </td>
         {% endif %}
@@ -92,7 +96,7 @@
         <span class="glyph">{% include "partials/_empty_icon.html" with icon="supplier" %}</span>
         <h3>No suppliers yet</h3>
         <p>Suppliers are who you raise purchase orders with.</p>
-        {% if can_edit %}<button type="button" class="btn btn-primary mt-2" id="open-add-supplier-modal-empty">Add Supplier</button>{% endif %}
+        {% if can_add %}<button type="button" class="btn btn-primary mt-2" id="open-add-supplier-modal-empty">Add Supplier</button>{% endif %}
       </div></td></tr>
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
@@ -105,7 +109,7 @@
   </table>
 </div>
 
-{% if can_edit %}
+{% if can_add %}
 {% comment %}
 The add and edit forms are one set of fields with two actions, so they are
 written once as an include and given the values each case needs. The add modal
@@ -114,7 +118,9 @@ the supplier's stored values underneath that.
 {% endcomment %}
 {% url 'supplier_add' as add_action %}
 {% include "procurement/_supplier_modal.html" with which="add" title="Add New Supplier" action=add_action errors=add_errors form_data=add_form_data is_open=show_add_modal submit_label="Save Supplier" %}
+{% endif %}
 
+{% if can_edit %}
 {% if edit_supplier %}
 {% url 'supplier_edit' edit_supplier.pk as edit_action %}
 {% include "procurement/_supplier_modal.html" with which="edit" title="Edit Supplier" action=edit_action supplier=edit_supplier profile=edit_profile errors=edit_errors form_data=edit_form_data is_open=show_edit_modal submit_label="Save Changes" %}

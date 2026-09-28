@@ -42,7 +42,7 @@
 </div>
 
 {% if record.status == "Pending" %}
-{% if request.user.role == 'OWNER' or request.user.role == 'BRANCH_MANAGER' or request.user.role == 'STAFF' %}
+{% if module_actions.billing.edit %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div class="grow">
@@ -83,7 +83,7 @@
   </div>
 </div>
 {% endif %}
-{% elif record.status == "Rejected" %}
+{% elif record.status == "Rejected" and module_actions.billing.edit %}
 <div class="card card-pad mb-4">
   <div class="row-between wrap">
     <div class="grow">
@@ -159,7 +159,7 @@
     change under. This opens the Record Payment modal in place instead of
     navigating to a blank page — see _record_payment_modal.html.
     {% endcomment %}
-    {% if record.status == "Pending" or record.status == "Rejected" %}
+    {% if module_actions.billing.edit and record.status == "Pending" or module_actions.billing.edit and record.status == "Rejected" %}
       <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
          data-payment-open="record-payment-modal">Edit payment details</a>
     {% endif %}
@@ -251,7 +251,7 @@
   </div>
 </div>
 
-{% if record.status == "Pending" or record.status == "Rejected" %}
+{% if module_actions.billing.edit and record.status == "Pending" or module_actions.billing.edit and record.status == "Rejected" %}
 {% include "partials/_record_payment_modal.html" with transaction=record.transaction billing=record return_to="billing" %}
 {% endif %}
 {% endblock %}

@@ -12,7 +12,7 @@
   <a class="btn" href="{% url 'supplier_list' %}">Back to Suppliers</a>
 </div>
 
-{% if can_edit %}
+{% if can_add %}
 <div class="card card-pad mb-4">
   <h3 class="mb-4">Add a category</h3>
   <form method="POST" action="{% url 'supplier_category_add' %}">
@@ -44,6 +44,7 @@
     </h3>
     <span class="gv-meta">{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }}</span>
   </div>
+  {% if can_edit or can_delete %}
   {% if can_edit %}
   <form method="POST" action="{% url 'supplier_category_edit' c.pk %}">
     {% csrf_token %}
@@ -66,14 +67,15 @@
     </div>
     <button type="submit" class="btn btn-primary">Save</button>
   </form>
-  <form method="POST" action="{% url 'supplier_category_delete' c.pk %}" style="display:inline; margin-top:8px;"
+  {% endif %}
+  {% if can_delete %}<form method="POST" action="{% url 'supplier_category_delete' c.pk %}" style="display:inline; margin-top:8px;"
         data-confirm="{% if c.supplier_count %}{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }} still use{{ c.supplier_count|pluralize:'s,' }} this category, so it can't be deleted. Mark it inactive instead.{% else %}Nothing uses this category, so it is removed for good.{% endif %}"
         data-confirm-title="Delete this category?"
         data-confirm-variant="danger"
         data-confirm-ok="Delete category">
     {% csrf_token %}
     <button type="submit" class="btn btn-danger">Delete</button>
-  </form>
+  </form>{% endif %}
   {% else %}
   <div>
     {% for pc in c.product_categories.all %}<span class="tag">{{ pc.category_name }}</span> {% empty %}<span class="gv-meta">No product categories linked.</span>{% endfor %}
@@ -84,7 +86,7 @@
 <div class="card card-pad">
   <div class="empty">
     <h3>No supplier categories yet</h3>
-    <p>{% if can_edit %}Add the first one above.{% else %}The Owner adds these.{% endif %}</p>
+    <p>{% if can_add %}Add the first one above.{% else %}The Owner adds these.{% endif %}</p>
   </div>
 </div>
 {% endfor %}

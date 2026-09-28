@@ -240,7 +240,7 @@ across the full width leave the default block padding as empty card.
         <th>Received</th>
         <th class="num">Reorder Level</th>
         <th>Status</th>
-        {% if can_adjust %}<th class="end">Actions</th>{% endif %}
+        {% if can_edit_reorder %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -269,7 +269,7 @@ across the full width leave the default block padding as empty card.
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
-        {% if can_adjust %}
+        {% if can_edit_reorder %}
         <td data-label="Actions">
           <span class="row-actions">
             <button type="button" class="icon-btn icon-btn-action"
@@ -387,7 +387,7 @@ across the full width leave the default block padding as empty card.
 </div>
 {% endif %}
 
-{% if can_adjust %}
+{% if can_edit_reorder %}
 <div class="modal-overlay" id="edit-inventory-modal">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-inventory-title" style="max-width:420px;">
     <div class="modal-head">

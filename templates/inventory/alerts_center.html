@@ -232,7 +232,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <th>Location</th>
         <th class="num">Qty</th>
         <th>Expiry Date</th>
-        <th class="end">Actions</th>
+        {% if module_actions.alerts.delete %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -246,16 +246,16 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Qty" class="num strong" style="color:var(--danger-fg);">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date" class="strong" style="color:var(--danger-fg);">{{ row.expiry_date|date:"Y-m-d" }}</td>
-        <td data-label="Actions">
+        {% if module_actions.alerts.delete %}<td data-label="Actions">
           <button type="button" class="btn btn-sm btn-danger"
                   onclick="openWriteOffConfirm({{ row.batch_id }}, '{{ row.product.product_name|escapejs }}', '{{ row.branch.branch_name|escapejs }}', {{ row.quantity_on_hand }}, '{{ row.location }}')">
             Write Off
           </button>
-        </td>
+        </td>{% endif %}
       </tr>
       {% empty %}
       <tr>
-        <td colspan="6">
+        <td colspan="{% if module_actions.alerts.delete %}6{% else %}5{% endif %}">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing expired</h3>
@@ -274,7 +274,7 @@ expiry_write_off) — a real confirm step, not a native confirm() dialog, same
 visual language as the rest of the app's destructive confirmations (e.g.
 Product Master List's image-delete confirm).
 {% endcomment %}
-<div class="modal-overlay" id="writeoff-confirm">
+{% if module_actions.alerts.delete %}<div class="modal-overlay" id="writeoff-confirm">
   <div class="modal-card confirm-card" role="alertdialog" aria-modal="true"
        aria-labelledby="writeoff-confirm-title" aria-describedby="writeoff-confirm-text">
     <div class="modal-head">
@@ -297,7 +297,7 @@ Product Master List's image-delete confirm).
       <button type="submit" form="writeoff-confirm-form" class="btn btn-danger-solid">Write off</button>
     </div>
   </div>
-</div>
+</div>{% endif %}
 
 <!-- --------------------------------------------------------- expiring soon -->
 <div id="panel-soon" class="card table-wrap hidden">

@@ -251,7 +251,7 @@
         {% endif %}
       </p>
     </div>
-    {% if user.role == "OWNER" %}
+    {% if user.role == "OWNER" and module_actions.procurement.edit %}
     <form method="POST" action="{% url 'procurement_approve' procurement.pk %}" class="row"
           data-confirm="{{ procurement.po_number }} will be approved, committing the order to the supplier."
           data-confirm-title="Approve this purchase order?"
@@ -282,7 +282,7 @@ supplier_portal), so on their own Ordered PO this card would show nothing
 they're actually allowed to submit. Hiding it here matches the backend
 guard rather than leaving a dead-end form.
 {% endcomment %}
-{% if procurement.status == "Draft" or procurement.status == "Incoming" or procurement.status == "Partially Received" %}
+{% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
   {% if user.role != "SUPPLIER" %}
 <div class="card card-pad mb-4">
   <div class="status-update-block">
@@ -478,7 +478,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
     </p>
   {% endif %}
 
-  {% if user.role == "OWNER" or user.role == "BRANCH_MANAGER" or user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
+  {% if module_actions.procurement.edit and user.role == "OWNER" or module_actions.procurement.edit and user.role == "BRANCH_MANAGER" or module_actions.procurement.edit and user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
   <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="mt-4"
         data-confirm="{{ procurement.po_number }} will be closed as cancelled."
         data-confirm-title="Cancel this purchase order?"

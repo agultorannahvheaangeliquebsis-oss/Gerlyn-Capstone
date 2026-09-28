@@ -24,7 +24,9 @@ from .role_policy import USER_MANAGEMENT_ROLE_CHOICES, USER_MANAGEMENT_ROLES
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
-from core.module_permissions import ALL_MODULE_CODES, MODULE_REGISTRY
+from core.module_permissions import (
+    ALL_MODULE_CODES, MODULE_PERMISSION_REGISTRY, WRITE_ACTIONS, permission_rows,
+)
 
 
 def safe_next(request):
@@ -409,15 +411,8 @@ def _user_list_context(request):
         'form_role_choices': USER_MANAGEMENT_ROLE_CHOICES,
         'branches': branches,
         'active_count': users.filter(is_active=True).count(),
-        # The module-access checkbox panel — only meaningful for Staff/
-        # Manager, shown/hidden by JS based on the role select. add_modules
-        # defaults to everything checked for a freshly-opened Add modal
-        # (the Owner is deliberately setting this account up from scratch,
-        # unlike the non-privilege-escalating backfill default used for
-        # pre-existing accounts) — overwritten by user_form on a rejected
-        # submit so a retry keeps whatever was actually checked.
-        'module_choices': [(code, label) for code, (label, _urls) in MODULE_REGISTRY.items()],
-        'add_modules': ALL_MODULE_CODES,
+        # The detailed matrix is target-specific and is attached when the
+        # Edit modal is opened.
     }
 
 
@@ -441,6 +436,9 @@ def user_list(request):
                 'edit_target': target,
                 'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
                 'edit_modules': target.allowed_modules or [],
+                'edit_permission_rows': permission_rows(
+                    target.allowed_modules, target.module_actions
+                ),
             })
     return render(request, 'accounts/user_list.html', context)
 
@@ -475,6 +473,18 @@ def user_form(request, pk=None):
     submitted_modules = [
         c for c in request.POST.getlist('allowed_modules') if c in ALL_MODULE_CODES
     ]
+    submitted_actions = {code: [] for code in ALL_MODULE_CODES}
+    for token in request.POST.getlist('module_actions'):
+        try:
+            code, action = token.split(':', 1)
+        except ValueError:
+            continue
+        if (
+            code in submitted_modules
+            and action in WRITE_ACTIONS
+            and MODULE_PERMISSION_REGISTRY[code][action]
+        ):
+            submitted_actions[code].append(action)
 
     # The same checks, collected rather than redirected — a redirect
     # discarded the whole form, and this one has several fields to retype.
@@ -568,7 +578,8 @@ def user_form(request, pk=None):
         # empty list that would just be ignored anyway.
         if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
             target.allowed_modules = submitted_modules
-            target.save(update_fields=['allowed_modules'])
+            target.module_actions = submitted_actions
+            target.save(update_fields=['allowed_modules', 'module_actions'])
 
         if role_changed_from is not None:
             from core.notifications import CATEGORY_SYSTEM, PRIORITY_HIGH, notify
@@ -599,6 +610,9 @@ def user_form(request, pk=None):
         'edit_target': target,
         'edit_branch_id': branch_id,
         'edit_modules': submitted_modules,
+        'edit_permission_rows': permission_rows(
+            submitted_modules, submitted_actions
+        ),
         'edit_errors': errors,
         'edit_form_data': request.POST,
     })

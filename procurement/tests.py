@@ -344,11 +344,12 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.DRAFT, 'unchanged')
         self.assertRedirects(
-            resp, reverse('procurement_list'), fetch_redirect_response=False
+            resp, reverse('accounts:staff_dashboard'),
+            fetch_redirect_response=False,
         )
         msgs = [m.message for m in resp.wsgi_request._messages]
         self.assertTrue(
-            any('do not have permission' in m for m in msgs), msgs
+            any('permission' in m for m in msgs), msgs
         )
 
     def test_staff_cannot_reach_status_update_on_foreign_branch(self):
@@ -358,7 +359,8 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.DRAFT, 'unchanged')
         self.assertRedirects(
-            resp, reverse('procurement_list'), fetch_redirect_response=False
+            resp, reverse('accounts:staff_dashboard'),
+            fetch_redirect_response=False,
         )
 
 

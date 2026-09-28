@@ -17,6 +17,9 @@ from billing.views import payment_methods_for_channel
 from branches.models import Branch
 from core.people import person_display_name
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
+from core.module_permissions import (
+    ADD, BILLING, EDIT, SALES_POS, user_can_perform_module_action,
+)
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
@@ -277,7 +280,10 @@ def _transaction_list_context(request):
         transactions = transactions.filter(order_status=status_filter)
 
     show_branch_filter = branch_ids_for_user(request.user) is None
-    can_pos = request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
+    can_pos = (
+        request.user.role in [OWNER, BRANCH_MANAGER, STAFF]
+        and user_can_perform_module_action(request.user, SALES_POS, ADD)
+    )
     branches = Branch.objects.all() if show_branch_filter else []
 
     over_committed_ids, over_committed_count = _over_committed_order_ids(request.user)
@@ -431,7 +437,9 @@ def transaction_detail(request, pk):
 
     items = list(txn.items.select_related('product'))
     billing = getattr(txn, 'billing_record', None)
-    next_actions = _next_actions(txn, request.user)
+    can_edit_sales = user_can_perform_module_action(request.user, SALES_POS, EDIT)
+    can_edit_billing = user_can_perform_module_action(request.user, BILLING, EDIT)
+    next_actions = _next_actions(txn, request.user) if can_edit_sales else []
     confirmations = _status_confirmations(txn, billing, items, next_actions)
 
     return render(request, 'sales/transaction_detail.html', {
@@ -459,6 +467,8 @@ def transaction_detail(request, pk):
         # billing_create re-checks all of it (status, branch, channel, evidence)
         # on POST; the lists below only decide which fields the modal draws.
         'can_record_payment': (
+            can_edit_billing
+            and
             request.GET.get('from') != 'billing'
             and (billing is None or billing.status == BillingRecord.PaymentStatus.PENDING)
         ),
@@ -473,20 +483,29 @@ def transaction_detail(request, pk):
         # transaction_apply_discount re-checks every one of these conditions
         # itself - this only decides what to draw, and asks the same model
         # method the view enforces so the two cannot drift apart.
-        'can_apply_discount': _can_offer_discount(txn, billing),
+        'can_apply_discount': can_edit_sales and _can_offer_discount(txn, billing),
         'discount_choices': _pos_discount_choices(),
         # Refunds (P14). Asked here so the form is only drawn when
         # sales.refunds would accept it — request_refund re-checks against
         # locked rows, so a forged POST is refused server-side regardless.
-        'can_request_refund': refund_service.can_request_refund(txn, billing, request.user),
+        'can_request_refund': (
+            can_edit_sales
+            and refund_service.can_request_refund(txn, billing, request.user)
+        ),
         # The customer's own PWD request, awaiting a look at their ID.
         # transaction_pwd_request_review re-checks this against locked rows.
-        'can_review_pwd_request': _can_review_pwd_request(txn, billing),
+        'can_review_pwd_request': (
+            can_edit_sales and _can_review_pwd_request(txn, billing)
+        ),
         'refundable_items': (
             refund_service.refundable_lines(txn)
-            if refund_service.can_request_refund(txn, billing, request.user) else []
+            if can_edit_sales and refund_service.can_request_refund(
+                txn, billing, request.user
+            ) else []
         ),
-        'can_decide_refunds': refund_service.can_decide_refund(request.user, txn),
+        'can_decide_refunds': (
+            can_edit_sales and refund_service.can_decide_refund(request.user, txn)
+        ),
         'refund_method_choices': Refund.RefundMethod.choices,
         'refund_condition_choices': RefundItem.Condition.choices,
         'refund_reason_choices': Refund.ReasonCode.choices,

@@ -122,7 +122,7 @@ Owner-only controls; a Manager sees what is pending, read-only.
     <h2>Products</h2>
     <p class="gv-meta mb-0">{{ links|length }} product{{ links|length|pluralize }} mapped to this supplier.</p>
   </div>
-  {% if can_edit %}
+  {% if can_add %}
   <button type="button" class="btn btn-primary" id="open-add-product-modal">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
     Add Product
@@ -160,7 +160,7 @@ would submit nothing.
         {% if can_edit and links %}<th style="width:34px;"><input type="checkbox" id="select-all" aria-label="Select all products"></th>{% endif %}
         <th>Product</th><th>Category</th><th>Supplier SKU</th>
         <th class="num">Current Cost</th><th class="num">Lead Time</th><th>Preferred</th>
-        {% if can_edit %}<th class="end">Actions</th>{% endif %}
+        {% if can_edit or can_delete %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -182,7 +182,7 @@ would submit nothing.
           {% if link.lead_time_days %}{{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }}{% else %}—{% endif %}</td>
         <td data-label="Preferred">
           {% if link.is_preferred %}<span class="pill pill-ok">Preferred</span>{% else %}—{% endif %}</td>
-        {% if can_edit %}
+        {% if can_edit or can_delete %}
         <td data-label="Actions">
           <span class="row-actions">
             {% comment %}
@@ -191,10 +191,12 @@ would submit nothing.
             destination select is inside the row form — the bulk bar's select
             belongs to the other form and would not be submitted here.
             {% endcomment %}
-            <button type="button" class="icon-btn icon-btn-action" data-open-row-transfer="{{ link.pk }}"
+            {% if can_edit %}<button type="button" class="icon-btn icon-btn-action" data-open-row-transfer="{{ link.pk }}"
                     title="Transfer" aria-label="Transfer {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></button>
-            <button type="submit" form="remove-{{ link.pk }}" class="icon-btn icon-btn-danger"
+            {% endif %}
+            {% if can_delete %}<button type="submit" form="remove-{{ link.pk }}" class="icon-btn icon-btn-danger"
                     title="Remove" aria-label="Remove {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            {% endif %}
           </span>
         </td>
         {% endif %}
@@ -264,7 +266,17 @@ submit the transfer instead. Each button references its form by id.
 </div>
 {% endif %}
 
-{% if can_edit %}
+{% if can_delete and not can_edit %}
+{% for link in links %}
+<form method="POST" action="{% url 'supplier_product_remove' supplier.pk link.pk %}" id="remove-{{ link.pk }}" hidden
+      data-confirm="{{ link.product.product_name }} will no longer be mapped to this supplier. The product itself is not deleted."
+      data-confirm-title="Remove this product?" data-confirm-variant="warn" data-confirm-ok="Remove">
+  {% csrf_token %}
+</form>
+{% endfor %}
+{% endif %}
+
+{% if can_add %}
 <div class="modal-overlay" id="add-product-modal">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-product-title">
     <div class="modal-head">
@@ -313,7 +325,7 @@ submit the transfer instead. Each button references its form by id.
 {% block extra_js %}
 <script>
 (function () {
-  {% if can_edit %}
+  {% if can_add %}
   initModal({
     modalId: 'add-product-modal',
     openerIds: ['open-add-product-modal'],

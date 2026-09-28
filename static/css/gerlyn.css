@@ -1451,6 +1451,16 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    and still leaves the overlay's 16px padding visible on a 1024px screen. */
 .modal-card--wide { max-width: 880px; }
 
+/* User Management's per-module CRUD matrix. Compact controls keep ten
+   modules scannable while the table wrapper provides a safe mobile scroll. */
+.permission-matrix { min-width: 560px; }
+.permission-matrix th,
+.permission-matrix td { height: auto; padding: 8px 12px; }
+.permission-matrix th.center,
+.permission-matrix td.center { width: 74px; text-align: center; }
+.permission-matrix input[type="checkbox"] { width: 16px; height: 16px; }
+.permission-matrix input[type="checkbox"]:disabled { opacity: .35; cursor: not-allowed; }
+
 .modal-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--s4) var(--s6);

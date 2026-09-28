@@ -89,7 +89,7 @@
     <a class="back-link" href="{% url 'product_list' %}">Product Master List</a>
     <h1 class="mt-2">Manage Categories</h1>
   </div>
-  {% if can_edit %}
+  {% if can_add %}
   {% comment %}
   A button, not a link to a page: adding a category is two fields, and it was
   costing a full page load, a page header and a back-link to collect them —
@@ -109,14 +109,14 @@
       <col class="col-name">
       <col class="col-desc">
       <col class="col-count">
-      {% if can_edit %}<col class="col-actions">{% endif %}
+      {% if can_edit or can_delete %}<col class="col-actions">{% endif %}
     </colgroup>
     <thead>
       <tr>
         <th>Category Name</th>
         <th>Description</th>
         <th class="num">Products</th>
-        {% if can_edit %}<th class="end">Actions</th>{% endif %}
+        {% if can_edit or can_delete %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -132,13 +132,16 @@
             <span class="count-zero" title="No products in this category yet">0</span>
           {% endif %}
         </td>
-        {% if can_edit %}
+        {% if can_edit or can_delete %}
         <td data-label="Actions">
           <span class="row-actions">
+            {% if can_edit %}
             {# ?edit=<pk> on this page, matching the Products table — the row #}
             {# opens the modal over the list instead of navigating away. #}
             <a class="icon-btn icon-btn-action" href="{% url 'category_list' %}?edit={{ c.pk }}"
                title="Edit" aria-label="Edit {{ c.category_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></a>
+            {% endif %}
+            {% if can_delete %}
             {% comment %}confirm-dialog.js draws the "Delete category?" modal off this
             submit. A category still used by products is blocked server-side and comes
             back as an error toast. No JS -> the form POSTs straight through.{% endcomment %}
@@ -151,6 +154,7 @@
               <button type="submit" class="icon-btn icon-btn-danger"
                       title="Delete" aria-label="Delete {{ c.category_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
             </form>
+            {% endif %}
           </span>
         </td>
         {% endif %}
@@ -158,12 +162,12 @@
       {% empty %}
       <tr>
         {# 3 columns for a viewer who cannot edit — Actions is not rendered. #}
-        <td colspan="{% if can_edit %}4{% else %}3{% endif %}">
+        <td colspan="{% if can_edit or can_delete %}4{% else %}3{% endif %}">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="tag" %}</span>
             <h3>No categories yet</h3>
             <p>Categories group products in the catalog and power the storefront's "Shop by Category".</p>
-            {% if can_edit %}<button type="button" class="btn btn-primary mt-2" id="open-add-category-modal-empty">Add Category</button>{% endif %}
+            {% if can_add %}<button type="button" class="btn btn-primary mt-2" id="open-add-category-modal-empty">Add Category</button>{% endif %}
           </div>
         </td>
       </tr>
@@ -172,7 +176,7 @@
   </table>
 </div>
 
-{% if can_edit %}
+{% if can_add %}
 <!-- ------------------------------------------------------- add category -->
 <div class="modal-overlay{% if show_add_modal %} is-open{% endif %}" id="add-category-modal" data-autoopen="{% if show_add_modal %}1{% else %}0{% endif %}">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-category-title">
@@ -229,8 +233,10 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- ------------------------------------------------------ edit category -->
+{% if can_edit %}
 {% if edit_category %}
 <div class="modal-overlay{% if show_edit_modal %} is-open{% endif %}" id="edit-category-modal" data-autoopen="{% if show_edit_modal %}1{% else %}0{% endif %}">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-category-title">

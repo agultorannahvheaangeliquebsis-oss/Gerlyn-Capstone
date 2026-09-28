@@ -11,6 +11,7 @@ from django.urls import reverse
 
 from accounts.models import User
 from branches.models import Branch
+from core.module_permissions import ADD, PRODUCTS, default_module_actions
 from inventory.alerts import batch_inventory_mismatches
 from inventory.models import (
     Batch, Inventory, Product, ProductCategory, ProductImportMappingTemplate,
@@ -138,7 +139,8 @@ class CategoryModalFlowTests(TestCase):
         # redirect: since F-07 a new STAFF has no Inventory module, so the
         # list GET itself redirects — which is not what this test is about.
         self.assertRedirects(
-            response, reverse('category_list'), fetch_redirect_response=False
+            response, reverse('accounts:staff_dashboard'),
+            fetch_redirect_response=False,
         )
         self.assertFalse(
             ProductCategory.objects.filter(category_name='Canned Goods').exists()
@@ -300,7 +302,8 @@ class ProductImportExportTests(TestCase):
         self.client.force_login(staff)
         response = self.client.get(reverse('product_export_xlsx'))
         self.assertRedirects(
-            response, reverse('product_list'), fetch_redirect_response=False
+            response, reverse('accounts:staff_dashboard'),
+            fetch_redirect_response=False,
         )
 
     # ── Upload ──────────────────────────────────────────────
@@ -361,6 +364,47 @@ class ProductImportExportTests(TestCase):
 
         self.assertFalse(Product.objects.filter(barcode='BADPRICE1').exists())
         self.assertFalse(Product.objects.filter(barcode='BADUOM1').exists())
+
+    def test_add_only_import_creates_new_rows_but_cannot_update_existing(self):
+        existing = Product.objects.create(
+            sku_code='SKU-IMPORT-LOCKED', product_name='Keep This Name',
+            barcode='IMPORTLOCKED', unit_of_measure=Product.UnitOfMeasure.PIECE,
+            unit_price=50,
+        )
+        manager = User.objects.create_user(
+            username='add-only-importer', password='pw',
+            role=User.Role.BRANCH_MANAGER,
+        )
+        manager.allowed_modules = [PRODUCTS]
+        manager.module_actions = {
+            code: ([ADD] if code == PRODUCTS else [])
+            for code in default_module_actions()
+        }
+        manager.save(update_fields=['allowed_modules', 'module_actions'])
+        self.client.force_login(manager)
+
+        self._upload([
+            ['Blocked Rename', 'IMPORTLOCKED', '', 'Piece', '75', '', '', '', '', ''],
+            ['Allowed New Product', 'IMPORTNEW', '', 'Piece', '25', '', '', '', '', ''],
+        ])
+        self.client.post(reverse('product_import_map'), self.MAPPING)
+
+        preview = self.client.get(reverse('product_import_preview'), follow=True)
+        self.assertEqual(preview.context['import_counts'], {
+            'total': 2, 'create': 1, 'update': 0, 'error': 1,
+        })
+        self.assertIn(
+            'Edit permission is required',
+            next(
+                row for row in preview.context['import_rows']
+                if row['barcode'] == 'IMPORTLOCKED'
+            )['errors'][0],
+        )
+
+        self.client.post(reverse('product_import_preview'))
+        existing.refresh_from_db()
+        self.assertEqual(existing.product_name, 'Keep This Name')
+        self.assertTrue(Product.objects.filter(barcode='IMPORTNEW').exists())
 
     def test_import_writes_a_bulk_ladder_and_refuses_a_bad_one(self):
         """The rung column-pairs are held to the same rules as the product

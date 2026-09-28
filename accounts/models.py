@@ -4,7 +4,7 @@ from django.db import models
 from django.utils import timezone
 import uuid
 
-from core.module_permissions import default_allowed_modules
+from core.module_permissions import default_allowed_modules, default_module_actions
 from .validators import validate_ph_mobile_number
 
 
@@ -50,8 +50,14 @@ class User(AbstractUser):
     allowed_modules = models.JSONField(
         default=default_allowed_modules,
         blank=True,
-        help_text="Which internal sections this account can see, on top of "
-                  "its role. Owner is exempt and always sees everything."
+        help_text="View permission for internal modules. Owner is exempt and "
+                  "always sees everything."
+    )
+    module_actions = models.JSONField(
+        default=default_module_actions,
+        blank=True,
+        help_text="Per-module Add/Edit/Delete permissions. Every action also "
+                  "requires the module's View permission."
     )
 
     # Set only by accounts.services.hard_delete_personal_data — a deliberate,

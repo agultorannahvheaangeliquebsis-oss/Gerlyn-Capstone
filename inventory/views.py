@@ -33,6 +33,10 @@ from .alerts import alert_summary, stock_status
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
+from core.module_permissions import (
+    ADD, DELETE, EDIT, FLOOR_STOCK, PRODUCTS, WAREHOUSE_STOCK, WITHDRAWALS,
+    user_can_perform_module_action,
+)
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
 from core.scoping import (
     branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
@@ -122,7 +126,18 @@ def _product_list_context(request):
         # along — same idea as _daterange.html's daterange_carry.
         'branch_switch_carry': [('q', search_query), ('category', category_filter)],
         'total_count': Product.objects.count(),
-        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        'can_add': (
+            request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+            and user_can_perform_module_action(request.user, PRODUCTS, ADD)
+        ),
+        'can_edit': (
+            request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+            and user_can_perform_module_action(request.user, PRODUCTS, EDIT)
+        ),
+        'can_delete': (
+            request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+            and user_can_perform_module_action(request.user, PRODUCTS, DELETE)
+        ),
         # `branches` is unrestricted — the Availability column needs every
         # branch regardless of role. The topbar switcher must not, or a
         # Manager/Staff account (show_branch_filter False) would get a live
@@ -276,7 +291,7 @@ def product_list(request):
     context = _product_list_context(request)
 
     import_step = request.GET.get('import')
-    if import_step and context['can_edit']:
+    if import_step and context['can_add']:
         context.update(_import_modal_context(request, import_step))
 
     return render(request, 'inventory/product_list.html', context)
@@ -750,7 +765,7 @@ def _guess_mapping(headers):
     return guess
 
 
-def _parse_import_rows(path, mapping):
+def _parse_import_rows(path, mapping, *, allow_updates=True):
     """Read the sheet at `path`, apply `mapping` ({field_key: column header
     text}), and return one dict per non-blank data row:
 
@@ -894,6 +909,11 @@ def _parse_import_rows(path, mapping):
                 unit_of_measure = Product.UnitOfMeasure.PIECE
 
         existing = Product.objects.filter(barcode__iexact=barcode).first() if barcode else None
+        if existing and not allow_updates:
+            errors.append(
+                'This barcode already belongs to a product; Edit permission '
+                'is required to update it through an import.'
+            )
         action = 'error' if errors else ('update' if existing else 'create')
 
         results.append({
@@ -1026,7 +1046,13 @@ def _import_modal_context(request, step):
             _clear_import_session(request)
             messages.error(request, 'Your uploaded file is no longer available — please upload it again.')
             return {}
-        rows = _parse_import_rows(path, state['mapping'])
+        rows = _parse_import_rows(
+            path,
+            state['mapping'],
+            allow_updates=user_can_perform_module_action(
+                request.user, PRODUCTS, EDIT
+            ),
+        )
         counts = {
             'total': len(rows),
             'create': sum(1 for r in rows if r['action'] == 'create'),
@@ -1180,7 +1206,13 @@ def product_import_preview(request):
     if request.method != 'POST':
         return redirect(f"{reverse('product_list')}?import=preview")
 
-    rows = _parse_import_rows(path, state['mapping'])
+    rows = _parse_import_rows(
+        path,
+        state['mapping'],
+        allow_updates=user_can_perform_module_action(
+            request.user, PRODUCTS, EDIT
+        ),
+    )
     created = updated = skipped = 0
     any_new_category = False
     with transaction.atomic():
@@ -1268,7 +1300,18 @@ def _category_list_context(request):
 
     return {
         'categories': categories,
-        'can_edit': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        'can_add': (
+            request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+            and user_can_perform_module_action(request.user, PRODUCTS, ADD)
+        ),
+        'can_edit': (
+            request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+            and user_can_perform_module_action(request.user, PRODUCTS, EDIT)
+        ),
+        'can_delete': (
+            request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+            and user_can_perform_module_action(request.user, PRODUCTS, DELETE)
+        ),
     }
 
 
@@ -1659,7 +1702,14 @@ def _inventory_list_context(request):
         active_branch = next(
             (b for b in all_branches if str(b.id) == branch_filter), None
         )
-    can_adjust = request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+    can_adjust = (
+        request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+        and user_can_perform_module_action(request.user, FLOOR_STOCK, ADD)
+    )
+    can_edit_reorder = (
+        request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+        and user_can_perform_module_action(request.user, FLOOR_STOCK, EDIT)
+    )
 
     return {
         'rows': rows,
@@ -1685,7 +1735,9 @@ def _inventory_list_context(request):
         # The Branch column only earns its width when more than one branch can
         # appear in the table.
         'show_branch_column': can_pick_branch and not branch_filter,
-        'table_colspan': 7 + int(can_pick_branch and not branch_filter) + int(can_adjust),
+        'table_colspan': (
+            7 + int(can_pick_branch and not branch_filter) + int(can_edit_reorder)
+        ),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along — same idea as
         # _daterange.html's daterange_carry.
@@ -1693,6 +1745,7 @@ def _inventory_list_context(request):
             ('q', search_query), ('category', category_filter), ('status', status_filter),
         ],
         'can_adjust': can_adjust,
+        'can_edit_reorder': can_edit_reorder,
         'adjust_products': Product.objects.order_by('product_name'),
     }
 
@@ -2295,11 +2348,16 @@ def _warehouse_stock_list_context(request):
         # Distinct products, not len(rows) — rows is now one-per-batch, so a
         # product with two lots would otherwise count itself twice.
         'total_products': len(matching),
-        'can_edit_reorder': request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER],
+        'can_edit_reorder': (
+            request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+            and user_can_perform_module_action(request.user, WAREHOUSE_STOCK, EDIT)
+        ),
         # Always available to any internal role — when there's no single
         # pinned branch (Owner), the modal shows a branch picker step first
         # rather than the button being hidden outright.
-        'can_request_to_floor': True,
+        'can_request_to_floor': user_can_perform_module_action(
+            request.user, WAREHOUSE_STOCK, ADD
+        ),
         'request_target_branch': request_target_branch,
         'request_warehouse_stock': request_warehouse_stock,
         'show_request_modal': request.GET.get('open_request') == '1',
@@ -2608,6 +2666,9 @@ def _transfer_list_context(request):
             if c[0] != StockTransfer.Purpose.BRANCH_RESTOCK
         ],
         'show_create_modal': request.GET.get('open_create') == '1',
+        'can_create': user_can_perform_module_action(
+            request.user, WITHDRAWALS, ADD
+        ),
     }
 
 

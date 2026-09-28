@@ -74,7 +74,7 @@
   </table>
   </div>
 
-  <div class="row wrap mt-4">
+  {% if module_actions.withdrawals.edit %}<div class="row wrap mt-4">
     {% if transfer.status == 'Pending' %}
       <a class="btn btn-primary" href="{% url 'transfer_approve' transfer.pk %}">Review &amp; Approve</a>
     {% elif transfer.status == 'Approved' %}
@@ -92,6 +92,6 @@
         <input type="text" name="flag_reason" placeholder="reason" style="flex:1 1 100px;">
         <button type="submit" class="btn btn-danger">{% include "partials/_empty_icon.html" with icon="flag" %} Flag Discrepancy</button></form>
     {% endif %}
-  </div>
+  </div>{% endif %}
 </div>
 {% endblock %}

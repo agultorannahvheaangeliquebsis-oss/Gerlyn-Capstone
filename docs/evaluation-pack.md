@@ -50,7 +50,9 @@ Then **Deliveries** → receive an existing "Ordered" PO.
 ### G. Reporting + governance (1 min)
 **Reports → Sales Report → Export CSV** (a real, branch-scoped file) and
 **Export PDF** (print dialog → Save as PDF).
-**Administration → User Management**: show role + branch assignment and deactivation.
+**Administration → User Management**: show role + branch assignment, the per-module
+View/Add/Edit/Delete matrix, and deactivation. Disable View for one module and show
+that its direct page/API write URLs are rejected as well as disappearing from navigation.
 
 ---
 

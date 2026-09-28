@@ -148,7 +148,7 @@ one per row.
 </div>
 
 {# --------------------------------------------- unexpected item, added late #}
-<div class="modal-overlay" id="unexpected-modal">
+{% if can_add_unexpected %}<div class="modal-overlay" id="unexpected-modal">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="unexpected-title">
     <div class="modal-head">
       <h2 id="unexpected-title">Add an unexpected item</h2>
@@ -184,4 +184,4 @@ one per row.
       <button type="submit" form="unexpected-form" class="btn btn-primary">Add to this receipt</button>
     </div>
   </div>
-</div>
+</div>{% endif %}

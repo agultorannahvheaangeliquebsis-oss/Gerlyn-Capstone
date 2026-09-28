@@ -5,7 +5,12 @@ from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-from core.module_permissions import URL_NAME_TO_MODULE, user_can_access_module
+from core.module_permissions import (
+    MODULE_ACTION_LABELS,
+    URL_NAME_TO_MODULE,
+    required_action_for_request,
+    user_can_perform_module_action,
+)
 
 
 class NoCacheForAuthenticatedMiddleware:
@@ -30,15 +35,12 @@ class NoCacheForAuthenticatedMiddleware:
 
 
 class ModulePermissionMiddleware:
-    """Enforces core.module_permissions: a single, central gate instead of a
-    decorator that has to be remembered on every gated view.
+    """Centrally enforce the module/action registry for resolved views.
 
-    Resolves the current request's URL name against MODULE_REGISTRY's
-    reverse index. A URL name not in the registry (dashboards, login,
-    Settings, Branch/User Management, every write/approve action the
-    registry deliberately excludes — see module_permissions.py) is left
-    alone entirely. Only STAFF/BRANCH_MANAGER are ever actually checked —
-    user_can_access_module() passes everyone else through unconditionally.
+    The URL name identifies the module and action; shared REST routes also
+    use the HTTP method to distinguish View/Add/Edit/Delete. Dashboards,
+    account settings, and Owner-only administration stay outside this
+    module system. Only Staff and Branch Managers are restricted here.
     """
 
     def __init__(self, get_response):
@@ -59,16 +61,20 @@ class ModulePermissionMiddleware:
         if module_code is None:
             return None
 
-        if not user_can_access_module(user, module_code):
+        action = required_action_for_request(url_name, request.method)
+        if not user_can_perform_module_action(user, module_code, action):
             if request.path.startswith('/api/'):
                 return JsonResponse(
-                    {'detail': 'You do not have access to this module.'},
+                    {'detail': (
+                        f'You do not have {MODULE_ACTION_LABELS[action]} '
+                        'permission for this module.'
+                    )},
                     status=403,
                 )
             messages.error(
                 request,
-                "You don't have access to that section. Ask your Owner or "
-                "Branch Manager to grant it if you need it."
+                f"You don't have {MODULE_ACTION_LABELS[action]} permission "
+                "for that section. Ask your Owner to grant it if you need it."
             )
             from .views import redirect_by_role
             return redirect_by_role(request, user)

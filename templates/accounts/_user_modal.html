@@ -30,7 +30,7 @@ should write a password back into a page, and on edit it is optional anyway —
 blank means "keep the current one", which is what an empty field already says.
 {% endcomment %}
 <div class="modal-overlay{% if is_open %} is-open{% endif %}" id="{{ which }}-user-modal" data-autoopen="{% if is_open %}1{% else %}0{% endif %}">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="{{ which }}-user-title">
+  <div class="modal-card{% if which == 'edit' %} modal-card--wide{% endif %}" role="dialog" aria-modal="true" aria-labelledby="{{ which }}-user-title">
     <div class="modal-head">
       <h2 id="{{ which }}-user-title">{{ title }}</h2>
       <button type="button" class="modal-close" id="close-{{ which }}-user-modal" aria-label="Close">
@@ -109,14 +109,31 @@ blank means "keep the current one", which is what an empty field already says.
 
       {% if which == "edit" %}
       <div class="field" id="{{ which }}-user-modules-field">
-        <label>Module Access <span class="gv-meta">— managers &amp; staff only; which sections this account can see</span></label>
-        <div class="grid-2" style="gap:6px 16px;">
-          {% for code, label in module_choices %}
-            <label class="row" style="gap:8px; font-weight:400;">
-              <input type="checkbox" name="allowed_modules" value="{{ code }}" {% if code in modules %}checked{% endif %}>
-              {{ label }}
-            </label>
-          {% endfor %}
+        <label>Detailed Permissions <span class="gv-meta">— managers &amp; staff only</span></label>
+        <p class="gv-meta" style="margin:0 0 8px;">View is required for every other action. Role and assigned-branch restrictions still apply.</p>
+        <div class="table-wrap">
+          <table class="gv-table permission-matrix">
+            <thead>
+              <tr>
+                <th>Module</th>
+                <th class="center">View</th>
+                <th class="center">Add</th>
+                <th class="center">Edit</th>
+                <th class="center">Delete</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in permission_rows %}
+              <tr data-module-permission-row>
+                <td>{{ row.label }}</td>
+                <td class="center"><input type="checkbox" name="allowed_modules" value="{{ row.code }}" data-view-permission aria-label="View {{ row.label }}" {% if row.view %}checked{% endif %}></td>
+                <td class="center">{% if row.supports_add %}<input type="checkbox" name="module_actions" value="{{ row.code }}:add" data-action-permission aria-label="Add in {{ row.label }}" {% if row.add %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
+                <td class="center">{% if row.supports_edit %}<input type="checkbox" name="module_actions" value="{{ row.code }}:edit" data-action-permission aria-label="Edit in {{ row.label }}" {% if row.edit %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
+                <td class="center">{% if row.supports_delete %}<input type="checkbox" name="module_actions" value="{{ row.code }}:delete" data-action-permission aria-label="Delete in {{ row.label }}" {% if row.delete %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
       </div>
 
