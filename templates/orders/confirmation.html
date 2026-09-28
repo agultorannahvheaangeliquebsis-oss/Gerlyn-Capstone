@@ -15,13 +15,8 @@
 
   <div class="card card-pad" style="text-align:center;">
     <div class="empty" style="padding-bottom:16px;">
-      <span class="glyph" style="background:var(--ok-bg); color:var(--ok-fg);">✓</span>
-      <h3>Thank you — your order is placed!</h3>
-      <p>We've sent it to {{ sale.branch.branch_name }}. Staff will confirm it shortly.</p>
-    </div>
-    <div class="row" style="justify-content:center; gap:8px;">
-      <span class="gv-label">Order number</span>
-      <span class="sku" style="font-weight:700; font-size:18px;">{{ sale.order_number }}</span>
+      <span class="glyph" style="background:none; color:var(--ok-fg);">✓</span>
+      <h3>{{ sale.order_number }} has been placed</h3>
     </div>
   </div>
 
@@ -49,7 +44,7 @@
       <tbody>
         {% for item in items %}
         <tr>
-          <td data-label="Item"><span style="margin-right:8px;">{{ item.product|product_icon }}</span>{{ item.product.product_name }}</td>
+          <td data-label="Item"><span class="order-item-thumb">{% include "partials/product_thumb.html" with product=item.product %}</span>{{ item.product.product_name }}</td>
           <td data-label="Qty" class="num">{{ item.quantity_sold }}</td>
           <td data-label="Price" class="num">₱{{ item.unit_price|floatformat:2 }}</td>
           <td data-label="Subtotal" class="num strong">₱{{ item.subtotal|floatformat:2 }}</td>
@@ -63,8 +58,8 @@
     </div>
   </div>
 
-  <div class="row mt-6">
-    <a class="btn btn-primary" href="{% url 'orders:track_order' sale.pk %}">Track this order</a>
+  <div class="row mt-6" style="justify-content:flex-start;">
+    <a class="btn btn-primary" href="{% url 'orders:track_order' sale.pk %}">Track Order</a>
     <a class="btn" href="{% url 'orders:catalog' %}">Continue shopping</a>
   </div>
 </div>

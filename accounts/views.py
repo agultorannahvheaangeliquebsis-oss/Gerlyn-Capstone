@@ -1122,7 +1122,6 @@ def _profile_context(user):
         'role'              : user.get_role_display(),
         'two_factor_enabled': user.two_factor_enabled,
         'addresses'         : user.addresses.all(),
-        'default_address'   : user.addresses.filter(is_default=True).first(),
         'active_page'       : 'profile',
     }
 

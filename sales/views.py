@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 from accounts.models import User
 from billing.models import BillingRecord
+from billing.views import payment_methods_for_channel
 from branches.models import Branch
 from core.people import person_display_name
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
@@ -110,15 +112,21 @@ def _pos_stock_map(user_branch):
     the same tiering the Floor Stock list and Alerts Center already use, so
     the indicator can't drift out of sync with what those screens call
     "low stock".
+
+    `qty` is the SELLABLE quantity (Inventory.sellable() -> available_qty),
+    the same figure _deduct_stock enforces, not the raw quantity_on_hand.
+    Expired stock stays in quantity_on_hand until the daily sweep writes it
+    off, so counting it here let the cart accept a quantity the server would
+    then reject with "Not enough stock".
     """
-    qs = Inventory.objects.all()
+    qs = Inventory.objects.sellable()
     if user_branch:
         qs = qs.filter(branch_id=user_branch.id)
     stock_map = {}
-    for inv in qs.values('product_id', 'branch_id', 'quantity_on_hand', 'reorder_level'):
+    for inv in qs.values('product_id', 'branch_id', 'available_qty', 'reorder_level'):
         stock_map.setdefault(str(inv['product_id']), {})[str(inv['branch_id'])] = {
-            'qty': inv['quantity_on_hand'],
-            'status': stock_status(inv['quantity_on_hand'], inv['reorder_level']),
+            'qty': inv['available_qty'],
+            'status': stock_status(inv['available_qty'], inv['reorder_level']),
         }
     return stock_map
 
@@ -171,15 +179,25 @@ def _pos_context(request):
     # filter below: a cashier should not even see a product their branch has
     # never stocked, tier preview or not.
     pos_products = list(
-        _pos_products_for(effective_branch).prefetch_related('price_tiers')
+        # images — the menu grid shows each product's primary photo
+        # (partials/product_thumb.html reads product.images.all).
+        _pos_products_for(effective_branch).prefetch_related('price_tiers', 'images')
     ) if effective_branch else []
     for product in pos_products:
         product.tiers_json = json.dumps([
             [tier.min_quantity, float(tier.unit_price)]
             for tier in product.price_tiers.all()
         ])
+    # The menu's category tabs — only categories this branch actually has
+    # a product in, so a tab can never open onto an empty grid.
+    pos_categories = sorted(
+        {p.category for p in pos_products if p.category_id},
+        key=lambda c: c.category_name.lower(),
+    )
     return {
         'pos_products': pos_products,
+        'pos_categories': pos_categories,
+        'pos_has_uncategorized': any(not p.category_id for p in pos_products),
         'pos_branches': Branch.objects.all() if not user_branch else [],
         'pos_user_branch': user_branch,
         # The Owner's choice specifically — None until the branch picker
@@ -420,16 +438,36 @@ def transaction_detail(request, pk):
         'transaction': txn,
         'items': items,
         'billing': billing,
+        # Set by the billing record's "View Order" link. The billing record is
+        # already open behind that overlay, so the order shows its items in
+        # place of the payment summary.
+        'from_billing': request.GET.get('from') == 'billing',
         'next_actions': next_actions,
         # The same actions, each paired with what its confirmation dialog
         # shows (None for the routine steps that don't stop for one).
         'next_action_items': [
             {'status': a, 'confirm': confirmations.get(a)} for a in next_actions
         ],
-        'status_changes': txn.status_changes.select_related('changed_by'),
+        # Every step the order has taken, with its reason, as one trail.
+        'status_timeline': _status_timeline(txn),
         # The Mark Completed button is only live once the payment is Paid
         # (transaction_set_status enforces it; this just keeps the UI honest).
         'payment_is_paid': bool(billing and billing.status == BillingRecord.PaymentStatus.PAID),
+        # The Record Payment modal. Offered while nothing is verified yet — no
+        # billing record, or a Pending one — and never from the billing record's
+        # own overlay, which already has its own payment controls.
+        # billing_create re-checks all of it (status, branch, channel, evidence)
+        # on POST; the lists below only decide which fields the modal draws.
+        'can_record_payment': (
+            request.GET.get('from') != 'billing'
+            and (billing is None or billing.status == BillingRecord.PaymentStatus.PENDING)
+        ),
+        'payment_choices': [
+            (m.value, m.label) for m in payment_methods_for_channel(txn.transaction_type)
+        ],
+        'reference_required_methods': sorted(BillingRecord.REFERENCE_REQUIRED_METHODS),
+        'proof_required_methods': sorted(BillingRecord.PROOF_REQUIRED_METHODS),
+        'proof_max_mb': settings.PROOF_OF_PAYMENT_MAX_MB,
         'progress': _order_progress(txn),
         # Whether to offer the after-the-fact PWD/Senior discount form.
         # transaction_apply_discount re-checks every one of these conditions
@@ -455,8 +493,6 @@ def transaction_detail(request, pk):
         'refunds': txn.refunds.select_related('requested_by', 'refunded_by').prefetch_related(
             'items__sales_item__product', 'events__actor'
         ),
-        # Order lifecycle trail — every step, who took it and why.
-        'status_history': txn.status_history.select_related('actor'),
     })
 
 
@@ -565,6 +601,38 @@ def _next_actions(txn, user=None):
 # display aid: it never feeds _next_actions or transaction_set_status, so it
 # cannot drift into gating anything.
 ORDER_PROGRESS_STEPS = ['Pending', 'Approved', 'Preparing', 'Completed']
+
+
+def _status_timeline(txn):
+    """One chronological list of every step an order has taken, for Order Detail.
+
+    Two tables record the same moves: OrderStatusHistory (the full trail,
+    including creation, but with a note only for a cancellation) and
+    OrderStatusChange (written beside it by transaction_set_status, and the
+    only place the optional Completed note is kept). Each step here is the
+    history row with the change's reason folded in. A change with no history
+    row — an order that predates OrderStatusHistory — stands on its own.
+    """
+    unmatched = list(txn.status_changes.select_related('changed_by'))
+    timeline = []
+    for h in txn.status_history.select_related('actor'):
+        note = h.note
+        for change in unmatched:
+            if change.from_status == h.from_status and change.to_status == h.to_status:
+                unmatched.remove(change)
+                note = note or change.reason
+                break
+        timeline.append({
+            'when': h.created_at, 'from_status': h.from_status,
+            'to_status': h.to_status, 'by': h.actor, 'note': note,
+        })
+    for change in unmatched:
+        timeline.append({
+            'when': change.changed_at, 'from_status': change.from_status,
+            'to_status': change.to_status, 'by': change.changed_by, 'note': change.reason,
+        })
+    timeline.sort(key=lambda step: step['when'])
+    return timeline
 
 
 def _order_progress(txn):

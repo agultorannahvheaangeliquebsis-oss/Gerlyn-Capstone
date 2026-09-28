@@ -11,7 +11,7 @@
     </h1>
   </div>
   <div class="row" style="gap:var(--s2);">
-    <a class="btn" data-detail-modal="Order" href="{% url 'transaction_detail' record.transaction.pk %}">View Order</a>
+    <a class="btn" data-detail-modal="Order" href="{% url 'transaction_detail' record.transaction.pk %}?from=billing">View Order</a>
   </div>
 </div>
 

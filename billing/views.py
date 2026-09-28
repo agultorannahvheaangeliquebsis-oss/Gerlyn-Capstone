@@ -20,7 +20,7 @@ from core.scoping import branch_for_user, scope_queryset, user_can_access_branch
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 
 
-def _payment_methods_for_channel(transaction_type):
+def payment_methods_for_channel(transaction_type):
     """Which BillingRecord.PaymentMethod choices make sense for this
     transaction's channel (B-3) — billing_create used to offer, and accept,
     all six choices regardless of channel: a Physical (walk-in) sale could
@@ -315,7 +315,7 @@ def billing_create(request, transaction_id):
             (txn.order_number, reverse('transaction_detail', args=[txn.pk])),
         ]
 
-    allowed_payment_methods = _payment_methods_for_channel(txn.transaction_type)
+    allowed_payment_methods = payment_methods_for_channel(txn.transaction_type)
     form_context = {
         'transaction': txn,
         'record': existing,  # Pass to template so it can pre-fill payment_method if desired
@@ -328,6 +328,22 @@ def billing_create(request, transaction_id):
     }
 
     if request.method == 'POST':
+        # The Record Payment modal on the order's own page posts here with
+        # return_to=order and expects to land back on that page. A flag
+        # rather than a URL, for the same reason as `from` above: it only ever
+        # chooses between two known destinations.
+        from_order = request.POST.get('return_to') == 'order'
+
+        def refuse(message):
+            messages.error(request, message)
+            if from_order:
+                # ?record_payment=1 reopens the modal over the message, so the
+                # cashier corrects the form instead of hunting for the button.
+                return redirect(
+                    reverse('transaction_detail', args=[txn.pk]) + '?record_payment=1'
+                )
+            return render(request, 'billing/billing_form.html', form_context)
+
         payment_method = request.POST.get('payment_method')
         reference_number = request.POST.get('reference_number', '').strip()
         proof_of_payment = request.FILES.get('proof_of_payment')
@@ -344,15 +360,13 @@ def billing_create(request, transaction_id):
         # against a POST that bypasses it (e.g. Cash on Delivery for a
         # walk-in sale that was already paid at the counter).
         if not payment_method or payment_method not in {m.value for m in allowed_payment_methods}:
-            messages.error(request, 'Choose a valid payment method to record this payment.')
-            return render(request, 'billing/billing_form.html', form_context)
+            return refuse('Choose a valid payment method to record this payment.')
 
         if proof_of_payment:
             try:
                 _validate_proof_of_payment(proof_of_payment)
             except ValidationError as e:
-                messages.error(request, e.message)
-                return render(request, 'billing/billing_form.html', form_context)
+                return refuse(e.message)
 
         # X-2 — with no payment gateway integrated, the reference number and
         # the screenshot ARE the record of a remote payment. What each method
@@ -371,20 +385,17 @@ def billing_create(request, transaction_id):
             try:
                 reference_number = clean_reference_number(reference_number)
             except ValidationError as e:
-                messages.error(request, e.messages[0])
-                return render(request, 'billing/billing_form.html', form_context)
+                return refuse(e.messages[0])
         missing = BillingRecord.missing_payment_evidence(
             payment_method, reference_number,
             bool(proof_of_payment or (existing and existing.proof_of_payment)),
         )
         if missing:
-            messages.error(
-                request,
+            return refuse(
                 f'A {payment_method} payment needs its {" and ".join(missing)} '
                 f'before it can be saved — we cannot match the payment to '
                 f'this order without it.'
             )
-            return render(request, 'billing/billing_form.html', form_context)
 
         if existing:
             # Update the auto-created record with the actual payment details.
@@ -397,6 +408,8 @@ def billing_create(request, transaction_id):
                 )
             except ValidationError:
                 messages.info(request, 'A billing record already exists for this transaction.')
+                if from_order:
+                    return redirect('transaction_detail', pk=txn.pk)
                 return redirect('billing_detail', pk=existing.pk)
             record = existing
         else:
@@ -413,6 +426,8 @@ def billing_create(request, transaction_id):
                 record.sync_payment_method_to_sale()
 
         messages.success(request, 'Billing record saved.')
+        if from_order:
+            return redirect('transaction_detail', pk=txn.pk)
         return redirect('billing_detail', pk=record.pk)
 
     return render(request, 'billing/billing_form.html', form_context)

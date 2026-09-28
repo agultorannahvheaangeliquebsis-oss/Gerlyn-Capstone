@@ -198,7 +198,7 @@ def _cart_items(request):
 
     for product_id, qty in list(cart.items()):
         inv = Inventory.objects.sellable().select_related('product').prefetch_related(
-            'product__price_tiers'
+            'product__price_tiers', 'product__images'
         ).filter(
             product_id=product_id, branch_id=branch_id
         ).first()
@@ -1537,6 +1537,6 @@ def order_confirmation(request, transaction_id):
     )
     return render(request, 'orders/confirmation.html', {
         'sale': sale,
-        'items': sale.items.select_related('product').all(),
+        'items': sale.items.select_related('product').prefetch_related('product__images'),
         'billing': getattr(sale, 'billing_record', None),
     })

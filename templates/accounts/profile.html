@@ -191,21 +191,6 @@
               <div class="val">@{{ username }}</div>
             </div>
           </div>
-
-          <!-- Delivery address subsection -->
-          <div class="info-subsection">
-            <h3 class="info-subsection-title">{% t "Delivery Address" %}</h3>
-            {% if default_address %}
-              <div class="val">{{ default_address.text }}</div>
-            {% else %}
-              <div class="val" style="color:var(--ink-400);">{% t "No address saved — add one so your orders can be delivered." %}</div>
-            {% endif %}
-            <button type="button" class="btn btn-sm btn-quiet" style="margin-top:10px; color:var(--action); gap:4px;"
-              onclick="AddressPicker.open({formAction: '{% url 'accounts:address_create' %}', title: '{% t "Add Address" %}'})">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              {% if default_address %}{% t "Add another address" %}{% else %}{% t "Add your delivery address" %}{% endif %}
-            </button>
-          </div>
         </div>
 
         <!-- Edit form (toggle) -->
@@ -338,7 +323,7 @@
               {% endfor %}
             </div>
           {% else %}
-            <p class="account-empty">{% t "No saved addresses yet. Add your first delivery address above." %}</p>
+            <p class="account-empty">{% t "No address saved — add one so your orders can be delivered." %}</p>
           {% endif %}
         </div>
       </div>

@@ -51,7 +51,7 @@ the header lands.
       </div>
 
       {% for o in orders %}
-      <div class="card">
+      <a class="card order-row-link" href="{% url 'orders:track_order' o.pk %}" aria-label="{% t 'View order' %} {{ o.order_number }}">
         <div class="order-row">
           <div>
             <div class="order-row-head">
@@ -66,10 +66,9 @@ the header lands.
           </div>
           <div class="order-row-side">
             <div class="order-row-total">₱{{ o.total_amount|floatformat:2 }}</div>
-            <a class="btn btn-sm" href="{% url 'orders:track_order' o.pk %}">{% t "Track order" %}</a>
           </div>
         </div>
-      </div>
+      </a>
       {% empty %}
       <div class="card">
         <div class="empty">

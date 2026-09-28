@@ -42,7 +42,7 @@ every panel in the app to fix one column.
     <div class="card card-pad">
       {% for it in items %}
       <div class="cart-row">
-        <div class="cart-thumb">{{ it.product|product_icon }}</div>
+        <div class="cart-thumb">{% include "partials/product_thumb.html" with product=it.product %}</div>
         <div>
           <a href="{% url 'orders:product_detail' it.product.id %}"
              style="font-weight:600; text-decoration:none; color:var(--ink-900);">{{ it.product.product_name }}</a>

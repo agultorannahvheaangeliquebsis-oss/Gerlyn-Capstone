@@ -225,27 +225,12 @@
    The person glyph was doing duty for both Full Name and Username, which is
    the tell — an icon that stands for two different things stands for
    neither, and the four labels were legible without any of them. */
-.info-field .val,
-.info-subsection .val {
+.info-field .val {
   font: 500 15px/1.4 var(--font-sans);
   color: var(--ink-900);
   overflow-wrap: anywhere;
 }
 
-/* ── Personal Information: Delivery Address subsection ────────────
-   Sits a step below the card title (16px) and a step above the field
-   labels (12px uppercase) so it reads as a grouped subsection of Personal
-   Information rather than just another field in the grid. */
-.info-subsection {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line-soft);
-}
-.info-subsection-title {
-  font: 650 13.5px/1.2 var(--font-sans);
-  color: var(--ink-700);
-  margin: 0 0 8px;
-}
 /* .verified-badge / .unverified-badge are gone. Whether an email is verified
    is a binary status on a record, which is what .pill is for, and these two
    were the last binary status in the app still drawn as bare coloured text
@@ -581,7 +566,11 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .order-row-meta { margin-top: 5px; font: 400 13px/1.5 var(--font-sans); color: var(--ink-600); }
 .order-row-side { text-align: right; flex: none; }
 .order-row-total { font: 700 19px/1.2 var(--font-sans); color: var(--action); }
-.order-row-side .btn { margin-top: 7px; }
+/* The whole card is the link to the order's details, so it needs to read as
+   clickable: no underline, inherited ink, and a hover/focus lift. */
+.order-row-link { display: block; color: inherit; text-decoration: none; }
+.order-row-link:hover { border-color: var(--action); }
+.order-row-link:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 
 /* Five tabs now (All · In progress · To receive · Completed · Cancelled)
    instead of three, in a column narrower than the internal tables this
