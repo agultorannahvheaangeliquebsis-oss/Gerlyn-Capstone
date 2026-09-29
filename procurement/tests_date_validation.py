@@ -210,8 +210,8 @@ class ProcurementDateValidationTests(TestCase):
         detail = self.web.get(
             reverse('procurement_detail', args=[procurement.pk])
         )
-        portal = self.web.get(reverse('supplier_portal'))
+        supplier_orders = self.web.get(reverse('supplier_purchase_orders'))
 
         expected = f'min="{self.today.isoformat()}"'
         self.assertContains(detail, expected)
-        self.assertContains(portal, expected)
+        self.assertContains(supplier_orders, expected)

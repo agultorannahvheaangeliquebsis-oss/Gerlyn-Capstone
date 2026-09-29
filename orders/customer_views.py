@@ -1,9 +1,11 @@
-import uuid
+import math
 import time
+import uuid
 from decimal import Decimal
 from functools import wraps
 from urllib.parse import quote
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -149,6 +151,16 @@ def _safe_next(request):
     own default.
     """
     nxt = request.POST.get('next')
+    if nxt and url_has_allowed_host_and_scheme(
+        nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return nxt
+    return None
+
+
+def _safe_get_next(request):
+    """GET equivalent of ``_safe_next`` for the confirmation page link."""
+    nxt = request.GET.get('next')
     if nxt and url_has_allowed_host_and_scheme(
         nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()
     ):
@@ -767,7 +779,7 @@ def select_branch(request):
     if request.method == 'POST':
         status = request.POST.get('location_status', '')
         if status == 'granted':
-            from accounts.geocoding import parse_coordinates
+            from accounts.geocoding import GeocodingError, parse_coordinates, reverse_geocode
 
             try:
                 latitude, longitude = parse_coordinates(
@@ -776,36 +788,69 @@ def select_branch(request):
             except ValueError as exc:
                 messages.error(request, str(exc))
                 return redirect('orders:select_branch')
-            request.session['fulfillment_location'] = {
+            location_payload = {
                 'latitude': str(latitude),
                 'longitude': str(longitude),
                 'captured_at': time.time(),
             }
+            try:
+                accuracy = float(request.POST.get('accuracy', ''))
+            except (TypeError, ValueError):
+                accuracy = None
+            if accuracy is not None and math.isfinite(accuracy) and 0 <= accuracy <= 100000:
+                location_payload['accuracy_m'] = round(accuracy)
+            label = None
+            if settings.GEOCODING_REVERSE_URL:
+                try:
+                    label = reverse_geocode(latitude, longitude)
+                except (GeocodingError, ValueError):
+                    pass
+            if label:
+                location_payload['label'] = label
+            request.session['fulfillment_location'] = location_payload
         else:
             request.session.pop('fulfillment_location', None)
 
         resolution = _resolve_cart_branch(request, notify_change=True)
+        location = customer_fulfillment_location(request.user, request.session)
         if not resolution.branch:
             messages.error(request, NO_SINGLE_BRANCH)
         elif status == 'granted':
             messages.success(
-                request, f'Fulfillment updated to {resolution.branch.branch_name}.'
+                request,
+                f'Location detected. {resolution.branch.branch_name} can fulfill '
+                'your whole cart.',
             )
         else:
-            messages.info(
-                request,
-                f'Location was not shared. Using {resolution.branch.branch_name} '
-                'from your saved address or the store fallback.',
+            fallback_description = (
+                f'your saved address ({location["label"]})'
+                if location['source'] == 'address' and location['label']
+                else 'your saved address'
+                if location['source'] == 'address'
+                else 'the configured store fallback'
             )
-        return redirect(_safe_next(request) or 'orders:cart')
+            messages.info(request, f'Location was not shared. Using {fallback_description}.')
+
+        # Return to this page so the shopper can see which location was used
+        # and which branch it selected before continuing.
+        destination = _safe_next(request) or reverse('orders:cart')
+        confirmation_url = reverse('orders:select_branch')
+        return redirect(f'{confirmation_url}?next={quote(destination, safe="")}')
 
     current_branch = Branch.objects.filter(
         pk=request.session.get('branch_id'), is_active=True
     ).first()
+    location = customer_fulfillment_location(request.user, request.session)
+    continue_url = _safe_get_next(request) or reverse('orders:cart')
     return render(request, 'orders/select_branch.html', {
         'current_branch': current_branch,
         'assignment_distance': _assignment_distance(request, current_branch),
-        'next': request.GET.get('next', ''),
+        'assignment_strategy': (
+            (request.session.get('fulfillment_assignment') or {}).get('strategy', '')
+        ),
+        'location_used': location,
+        'continue_url': continue_url,
+        'next': continue_url,
     })
 
 
@@ -1049,6 +1094,7 @@ def view_cart(request):
     branch = Branch.objects.filter(
         id=request.session.get('branch_id'), is_active=True
     ).first()
+    location_used = customer_fulfillment_location(request.user, request.session)
     return render(request, 'orders/cart.html', {
         'items': items,
         'total': total,
@@ -1059,6 +1105,7 @@ def view_cart(request):
         'progress_pct': min(int((total / FREE_DELIVERY_OVER) * 100), 100) if total else 0,
         'branch': branch,
         'assignment_distance': _assignment_distance(request, branch),
+        'location_used': location_used,
         # The one saved address a Delivery order ships to. Shown read-only in
         # the checkout form; the shopper changes it in Settings -> Addresses,
         # never here. checkout() re-reads the same row.

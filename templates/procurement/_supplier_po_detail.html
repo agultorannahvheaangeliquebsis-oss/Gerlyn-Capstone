@@ -46,7 +46,7 @@ back to after POSTing — see _supplier_next_redirect in procurement/views.py).
     {% csrf_token %}
     <input type="hidden" name="action" value="propose">
     <input type="hidden" name="next" value="{{ next_url }}">
-    <div style="margin-bottom:10px;"><input type="date" name="delivery_date" required></div>
+    <div style="margin-bottom:10px;"><input type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" required></div>
     <table>
       <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>
       <tbody>

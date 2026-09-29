@@ -200,7 +200,9 @@ filterable/paginated table lives on supplier_purchase_orders now.
           {% else %}
             <span class="sp-status-pill sp-status-pending">Not confirmed</span>
           {% endif %}
-<<<<<<< HEAD
+{% comment %}
+Obsolete pre-redesign order-detail block retained during conflict cleanup.
+The compact recent-orders table below is the active supplier portal design.
         {% else %}
           <span class="pill pill-pending">Delivery date not confirmed</span>
         {% endif %}
@@ -327,7 +329,7 @@ filterable/paginated table lives on supplier_purchase_orders now.
       </div>
     </div>
     {% endfor %}
-=======
+{% endcomment %}
         </td>
         <td data-label="Action" class="end">
           <a class="sp-order-view" href="{% url 'supplier_purchase_orders' %}">
@@ -338,7 +340,6 @@ filterable/paginated table lives on supplier_purchase_orders now.
       {% endfor %}
     </tbody>
   </table>
->>>>>>> 08f18de (Supplier's acc redesigned)
   </div>
   {% else %}
   <div class="sp-order-empty">

@@ -62,7 +62,12 @@ def valid_coordinate_pair(latitude, longitude):
 
 
 def customer_fulfillment_location(user, session):
-    """Return private location inputs for resolution and expire browser data."""
+    """Return private location inputs for resolution and expire browser data.
+
+    The human-readable label and browser accuracy are display metadata only.
+    They expire with the temporary coordinates and never influence branch
+    ranking.
+    """
     location = session.get('fulfillment_location') or {}
     try:
         captured_at = float(location.get('captured_at', 0))
@@ -79,12 +84,21 @@ def customer_fulfillment_location(user, session):
     coordinates = temporary or (
         valid_coordinate_pair(saved.latitude, saved.longitude) if saved else None
     )
+    uses_saved_address = bool(
+        not temporary and saved and (coordinates or saved.city or saved.barangay)
+    )
     return {
         'latitude': coordinates[0] if coordinates else None,
         'longitude': coordinates[1] if coordinates else None,
         'city': saved.city if saved else '',
         'barangay': saved.barangay if saved else '',
-        'source': 'browser' if temporary else ('address' if coordinates else 'fallback'),
+        'source': 'browser' if temporary else ('address' if uses_saved_address else 'fallback'),
+        'label': (
+            str(location.get('label') or '').strip()
+            if temporary else (saved.text if uses_saved_address else '')
+        ),
+        'accuracy_m': location.get('accuracy_m') if temporary else None,
+        'captured_at': captured_at if temporary else None,
     }
 
 

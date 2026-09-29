@@ -14,8 +14,57 @@
   </div>
 
   {% if current_branch %}
-  <div class="banner banner-info">
-    <span>Currently fulfilled by <strong>{{ current_branch.branch_name }}</strong>{% if assignment_distance != None %}, approximately {{ assignment_distance|floatformat:1 }} km away{% endif %}.</span>
+  <div class="card card-pad stack" aria-labelledby="location-result-heading">
+    <div>
+      <h3 id="location-result-heading">Location and fulfillment</h3>
+      <p class="gv-meta mb-0">Review the location used and the branch selected for your order.</p>
+    </div>
+
+    <dl class="summary-list" style="margin:0;">
+      <div class="summary-line">
+        <dt>Location used</dt>
+        <dd style="text-align:right;">
+          {% if location_used.source == 'browser' %}
+            {% if location_used.label %}
+              <strong>{{ location_used.label }}</strong>
+            {% else %}
+              <strong>{{ location_used.latitude|floatformat:4 }}, {{ location_used.longitude|floatformat:4 }}</strong>
+              <div class="gv-meta">Approximate coordinates; no readable address was available</div>
+            {% endif %}
+            <div class="gv-meta">Detected from this device{% if location_used.accuracy_m != None %} · accurate to approximately {{ location_used.accuracy_m|floatformat:0 }} m{% endif %}</div>
+          {% elif location_used.source == 'address' %}
+            <strong>{{ location_used.label|default:"Your default saved address" }}</strong>
+            <div class="gv-meta">Using your default saved address</div>
+          {% else %}
+            <strong>Location unavailable</strong>
+            <div class="gv-meta">Using the configured store fallback</div>
+          {% endif %}
+        </dd>
+      </div>
+      <div class="summary-line">
+        <dt>Fulfillment branch</dt>
+        <dd style="text-align:right;">
+          <strong>{{ current_branch.branch_name }}</strong>
+          {% if current_branch.location %}<div class="gv-meta">{{ current_branch.location }}</div>{% endif %}
+          {% if assignment_distance != None %}<div class="gv-meta">Approximately {{ assignment_distance|floatformat:1 }} km straight-line distance</div>{% endif %}
+        </dd>
+      </div>
+    </dl>
+
+    <p class="gv-meta mb-0">
+      {% if assignment_strategy == 'coordinates' %}
+        This is the nearest active branch that can fulfill your whole cart.
+      {% elif assignment_strategy == 'service_area' %}
+        This branch matches your saved area and can fulfill your whole cart.
+      {% else %}
+        This available branch was selected using the store fallback.
+      {% endif %}
+      Your detected location selects store inventory; it does not replace your delivery address.
+    </p>
+    <div>
+      <a class="btn btn-primary" href="{{ continue_url }}">Continue shopping</a>
+      <button type="button" class="btn" id="retry-current-location">Try location again</button>
+    </div>
   </div>
   {% endif %}
 
@@ -23,14 +72,16 @@
     <h3>Use current location</h3>
     <p class="gv-meta mb-0">
       Your browser will ask permission only after you press the button. The
-      coordinates stay in your private session for this cart, are never saved
-      on the order, and expire after 30 minutes.
+      store retains the coordinates only in your private session for this cart;
+      they are never saved on the order and expire after 30 minutes. To show a
+      readable area, the store's configured location provider may process them.
     </p>
     <form method="POST" id="fulfillment-location-form">
       {% csrf_token %}
       <input type="hidden" name="location_status" id="fulfillment-location-status" value="">
       <input type="hidden" name="latitude" id="fulfillment-latitude" value="">
       <input type="hidden" name="longitude" id="fulfillment-longitude" value="">
+      <input type="hidden" name="accuracy" id="fulfillment-accuracy" value="">
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
       <button type="button" class="btn btn-primary" id="use-current-location">Use current location</button>
       <button type="submit" class="btn" name="location_status" value="fallback">
@@ -54,7 +105,9 @@
   var status = document.getElementById('fulfillment-location-status');
   var latitude = document.getElementById('fulfillment-latitude');
   var longitude = document.getElementById('fulfillment-longitude');
+  var accuracy = document.getElementById('fulfillment-accuracy');
   var feedback = document.getElementById('fulfillment-location-feedback');
+  var retry = document.getElementById('retry-current-location');
   if (!button || !form) return;
 
   function useFallback(message) {
@@ -75,6 +128,10 @@
       status.value = 'granted';
       latitude.value = position.coords.latitude.toFixed(6);
       longitude.value = position.coords.longitude.toFixed(6);
+      if (accuracy && Number.isFinite(position.coords.accuracy)) {
+        accuracy.value = Math.round(position.coords.accuracy);
+      }
+      if (feedback) feedback.textContent = 'Location found. Checking branch availability...';
       form.submit();
     }, function () {
       useFallback('Location permission was denied or the location could not be read.');
@@ -84,6 +141,12 @@
       maximumAge: 300000
     });
   });
+
+  if (retry) {
+    retry.addEventListener('click', function () {
+      button.click();
+    });
+  }
 })();
 </script>
 {% endblock %}

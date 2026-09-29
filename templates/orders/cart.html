@@ -31,8 +31,19 @@ every panel in the app to fix one column.
     <div>
       <h2>Your Cart</h2>
       {% if branch %}<p class="gv-meta mb-0" id="cart-fulfillment-note">
-        Fulfilled by <strong>{{ branch.branch_name }}</strong>{% if assignment_distance != None %} · approximately {{ assignment_distance|floatformat:1 }} km away{% endif %}
+        Fulfilled by <strong>{{ branch.branch_name }}</strong>{% if assignment_distance != None %} · approximately {{ assignment_distance|floatformat:1 }} km straight-line distance{% endif %}
         · <a href="{% url 'orders:select_branch' %}?next={% url 'orders:cart' %}">update location</a>
+      </p>
+      <p class="gv-meta mb-0">
+        Location used:
+        {% if location_used.source == 'browser' %}
+          <strong>{% if location_used.label %}{{ location_used.label }}{% else %}{{ location_used.latitude|floatformat:4 }}, {{ location_used.longitude|floatformat:4 }}{% endif %}</strong>
+          (this device)
+        {% elif location_used.source == 'address' %}
+          <strong>{{ location_used.label|default:"your default saved address" }}</strong>
+        {% else %}
+          <strong>store fallback</strong>
+        {% endif %}
       </p>{% endif %}
     </div>
   </div>

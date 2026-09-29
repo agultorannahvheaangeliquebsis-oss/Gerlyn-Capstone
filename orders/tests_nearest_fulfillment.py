@@ -1,4 +1,5 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
@@ -180,8 +181,48 @@ class AutomaticFulfillmentWorkflowTests(TestCase):
             'location_status': 'granted',
             'latitude': latitude,
             'longitude': longitude,
+            'accuracy': '125',
             'next': reverse('orders:catalog'),
         })
+
+    @override_settings(GEOCODING_REVERSE_URL='https://geocoder.invalid/reverse')
+    @patch('accounts.geocoding.reverse_geocode', return_value='Poblacion, Baliuag, Bulacan')
+    def test_detected_location_and_selected_branch_are_confirmed_separately(self, mocked):
+        self.stock(self.near, self.product_a, 5)
+        session = self.client.session
+        session['cart'] = {str(self.product_a.pk): 1}
+        session.save()
+
+        response = self.share_location()
+
+        self.assertRedirects(
+            response,
+            reverse('orders:select_branch') + '?next=%2Fshop%2F',
+            fetch_redirect_response=False,
+        )
+        confirmation = self.client.get(response.url)
+        self.assertContains(confirmation, 'Poblacion, Baliuag, Bulacan')
+        self.assertContains(confirmation, 'Detected from this device')
+        self.assertContains(confirmation, 'approximately 125 m')
+        self.assertContains(confirmation, '<strong>Near Branch</strong>', html=True)
+        self.assertContains(confirmation, 'straight-line distance')
+        mocked.assert_called_once_with(Decimal('14.951000'), Decimal('120.900000'))
+
+    def test_fallback_confirmation_identifies_saved_address_source(self):
+        self.stock(self.near, self.product_a, 5)
+        Address.objects.create(
+            user=self.customer, is_default=True, text='12 Saved Street, Baliuag',
+            latitude=Decimal('14.951000'), longitude=Decimal('120.900000'),
+        )
+
+        response = self.client.post(
+            reverse('orders:select_branch'),
+            {'location_status': 'fallback', 'next': reverse('orders:catalog')},
+        )
+        confirmation = self.client.get(response.url)
+
+        self.assertContains(confirmation, '12 Saved Street, Baliuag')
+        self.assertContains(confirmation, 'Using your default saved address')
 
     def test_whole_cart_moves_to_next_branch_without_being_cleared(self):
         self.stock(self.near, self.product_a, 5)
@@ -201,6 +242,8 @@ class AutomaticFulfillmentWorkflowTests(TestCase):
         response = self.client.get(reverse('orders:cart'))
         self.assertContains(response, 'Fulfilled by <strong>Far Branch</strong>')
         self.assertContains(response, 'approximately')
+        self.assertContains(response, 'Location used:')
+        self.assertContains(response, '14.9510, 120.9000')
 
     def test_add_refuses_to_split_the_cart(self):
         self.stock(self.near, self.product_a, 5)
