@@ -127,7 +127,7 @@ class CheckoutDoubleSubmitTests(TestCase):
         Image.new('RGB', (2, 2), color='white').save(buf, format='PNG')
         retry = self.client.post(reverse('orders:checkout'), {
             'mode_of_payment': 'GCash',
-            'reference_number': 'GC-RETRY-1',
+            'reference_number': '2026000000102',
             'proof_of_payment': SimpleUploadedFile(
                 'receipt.png', buf.getvalue(), content_type='image/png'
             ),

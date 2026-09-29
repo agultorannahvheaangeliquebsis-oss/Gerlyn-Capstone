@@ -31,6 +31,19 @@ _BAD_CHARACTERS = (
 )
 
 
+# PaymentMethod.GCASH's value, spelled out because billing.models imports this
+# module.
+GCASH_METHOD = 'GCash'
+GCASH_REFERENCE_LENGTH = 13
+_GCASH_DIGITS_ONLY = (
+    'A GCash reference number is digits only — no letters or symbols.'
+)
+_GCASH_LENGTH = (
+    f'A GCash reference number is exactly {GCASH_REFERENCE_LENGTH} digits '
+    f'(for example 1234 567 890123).'
+)
+
+
 def validate_reference_number(value):
     """Model-field validator. Blank is allowed here — whether a blank is
     acceptable depends on the payment method, which is
@@ -43,14 +56,37 @@ def validate_reference_number(value):
         raise ValidationError(_BAD_CHARACTERS, code='invalid')
 
 
-def clean_reference_number(raw):
+def clean_gcash_reference(raw):
+    """A GCash reference is exactly 13 digits — the app shows it as
+    "1234 567 890123". Spaces and dashes are dropped so the stored value is
+    the bare 13 digits and two spellings of the same transfer are one string.
+    Blank comes back as '' (missing_payment_evidence's job).
+
+    static/js/gcash-reference.js mirrors this rule in the browser."""
+    text = unicodedata.normalize('NFKC', raw or '')
+    if not text.strip():
+        return ''
+    digits = re.sub(r'[\s-]', '', text)
+    if not (digits.isascii() and digits.isdigit()):
+        raise ValidationError(_GCASH_DIGITS_ONLY, code='invalid')
+    if len(digits) != GCASH_REFERENCE_LENGTH:
+        raise ValidationError(_GCASH_LENGTH, code='invalid')
+    return digits
+
+
+def clean_reference_number(raw, method=None):
     """Return `raw` in the form it is stored, or raise ValidationError.
 
     Compatibility-normalised (full-width digits become ASCII), trimmed, and
-    every run of whitespace collapsed to one space — so "GC-1   2" and
-    "GC-1 2", the same transfer, are one string that search can find. Blank
+    every run of whitespace collapsed to one space — so "BT-1   2" and
+    "BT-1 2", the same transfer, are one string that search can find. Blank
     or None comes back as '' untouched.
+
+    `method` is the payment method's value. GCash has one fixed reference
+    format (clean_gcash_reference); every other method keeps the general rule.
     """
+    if method == GCASH_METHOD:
+        return clean_gcash_reference(raw)
     text = unicodedata.normalize('NFKC', raw or '')
     text = ' '.join(text.split())
     validate_reference_number(text)

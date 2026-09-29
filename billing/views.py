@@ -602,7 +602,9 @@ def billing_create(request, transaction_id):
             # over-long value used to reach it and 500. Same rule as the API
             # and checkout (billing.validators).
             try:
-                reference_number = clean_reference_number(reference_number)
+                reference_number = clean_reference_number(
+                    reference_number, payment_method
+                )
             except ValidationError as e:
                 return refuse(e.messages[0])
         missing = BillingRecord.missing_payment_evidence(

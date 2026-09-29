@@ -55,7 +55,10 @@
     var refField = modal.querySelector('[data-payment-reference-field]');
     var proofField = modal.querySelector('[data-payment-proof-field]');
     refField.style.display = needsRef ? '' : 'none';
-    refField.querySelector('input').required = needsRef;
+    var refInput = refField.querySelector('input');
+    refInput.required = needsRef;
+    // GCash's 13-digit rule, with the inline warning (gcash-reference.js).
+    if (window.GerlynGCashRef) window.GerlynGCashRef.sync(refInput, method.value === 'GCash');
     proofField.style.display = needsProof ? '' : 'none';
     proofField.querySelector('input').required =
       needsProof && !modal.getAttribute('data-proof-on-file');

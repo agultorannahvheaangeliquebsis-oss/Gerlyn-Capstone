@@ -123,7 +123,7 @@ class GCashReferenceTests(StorefrontShopperTestCase):
 
     def test_gcash_without_a_proof_is_refused_and_nothing_is_saved(self):
         response = self.check_out(
-            mode_of_payment='GCash', reference_number='GC-2026-0001'
+            mode_of_payment='GCash', reference_number='2026000000001'
         )
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
@@ -146,7 +146,7 @@ class GCashReferenceTests(StorefrontShopperTestCase):
 
     def test_a_non_image_proof_is_refused(self):
         response = self.check_out(
-            mode_of_payment='GCash', reference_number='GC-2026-0001',
+            mode_of_payment='GCash', reference_number='2026000000001',
             proof_of_payment=SimpleUploadedFile(
                 'receipt.html', b'<script>alert(1)</script>', content_type='text/html'
             ),
@@ -156,14 +156,14 @@ class GCashReferenceTests(StorefrontShopperTestCase):
 
     def test_gcash_with_a_reference_is_accepted_and_records_it(self):
         response = self.check_out(
-            mode_of_payment='GCash', reference_number=' GC-2026-0001 ',
+            mode_of_payment='GCash', reference_number=' 2026000000001 ',
             proof_of_payment=_proof(),
         )
 
         sale = SalesTransaction.objects.get()
         self.assertEqual(sale.mode_of_payment, 'GCash')
         # Stored stripped, the same treatment delivery_address gets.
-        self.assertEqual(sale.billing_record.reference_number, 'GC-2026-0001')
+        self.assertEqual(sale.billing_record.reference_number, '2026000000001')
         self.assertEqual(sale.billing_record.payment_method, 'GCash')
         self.assertTrue(sale.billing_record.proof_of_payment)
 
@@ -172,7 +172,7 @@ class GCashReferenceTests(StorefrontShopperTestCase):
         for Cash on Delivery used to ride along onto the billing row."""
         self.check_out(
             mode_of_payment='Cash on Delivery',
-            reference_number='GC-2026-0001',
+            reference_number='2026000000001',
         )
 
         sale = SalesTransaction.objects.get()
@@ -184,7 +184,7 @@ class GCashReferenceTests(StorefrontShopperTestCase):
         the reference must be cleared against the METHOD THAT IS STORED, not
         the one that was posted, or a bogus method smuggles a reference in."""
         self.check_out(
-            mode_of_payment='Bitcoin', reference_number='GC-2026-0001'
+            mode_of_payment='Bitcoin', reference_number='2026000000001'
         )
 
         sale = SalesTransaction.objects.get()

@@ -1174,7 +1174,7 @@ class BillingCreateValidationTests(TestCase):
 
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'reference_number': 'GC-1'},  # no payment_method at all
+            {'reference_number': '1000000000001'},  # no payment_method at all
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1192,7 +1192,7 @@ class BillingCreateValidationTests(TestCase):
         txn = self._pending_txn()
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'payment_method': '', 'reference_number': 'GC-2'},
+            {'payment_method': '', 'reference_number': '1000000000002'},
         )
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'billing/billing_form.html')
@@ -1207,14 +1207,14 @@ class BillingCreateValidationTests(TestCase):
 
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'payment_method': 'GCash', 'reference_number': 'GC-9',
+            {'payment_method': 'GCash', 'reference_number': '1000000000009',
              'proof_of_payment': _valid_png_file()},
         )
 
         self.assertRedirects(response, f'/billing/{record.pk}/')
         record.refresh_from_db()
         self.assertEqual(record.payment_method, 'GCash')
-        self.assertEqual(record.reference_number, 'GC-9')
+        self.assertEqual(record.reference_number, '1000000000009')
 
     def test_an_unrecognized_payment_method_is_rejected(self):
         """A value outside BillingRecord.PaymentMethod (a tampered POST, or
@@ -1227,7 +1227,7 @@ class BillingCreateValidationTests(TestCase):
 
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'payment_method': 'Paid', 'reference_number': 'GC-3'},
+            {'payment_method': 'Paid', 'reference_number': '1000000000003'},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1247,7 +1247,7 @@ class BillingCreateValidationTests(TestCase):
             f'/billing/create/{txn.pk}/',
             {
                 'payment_method': 'GCash',
-                'reference_number': 'GC-4',
+                'reference_number': '1000000000004',
                 'proof_of_payment': ContentFile(
                     b'<html><body><script>alert(1)</script></body></html>',
                     name='receipt.html',
@@ -1281,7 +1281,7 @@ class BillingCreateValidationTests(TestCase):
             f'/billing/create/{txn.pk}/',
             {
                 'payment_method': 'GCash',
-                'reference_number': 'GC-5',
+                'reference_number': '1000000000005',
                 'proof_of_payment': ContentFile(valid_png_bytes, name='receipt.png'),
             },
         )
@@ -1371,9 +1371,9 @@ class PaymentEvidencePerMethodTests(TestCase):
         need = BillingRecord.missing_payment_evidence
         M = BillingRecord.PaymentMethod
         self.assertEqual(need(M.GCASH, '', False), ['reference number', 'proof of payment'])
-        self.assertEqual(need(M.GCASH, 'GC-1', False), ['proof of payment'])
+        self.assertEqual(need(M.GCASH, '1000000000001', False), ['proof of payment'])
         self.assertEqual(need(M.GCASH, '', True), ['reference number'])
-        self.assertEqual(need(M.GCASH, 'GC-1', True), [])
+        self.assertEqual(need(M.GCASH, '1000000000001', True), [])
         self.assertEqual(need(M.BANK_TRANSFER, 'BT-1', False), ['proof of payment'])
         self.assertEqual(need(M.CARD, '', False), ['proof of payment'])
         self.assertEqual(need(M.CARD, '', True), [])
@@ -1404,7 +1404,7 @@ class PaymentEvidencePerMethodTests(TestCase):
     def test_gcash_without_a_proof_is_not_saved(self):
         txn = self._txn()
         response = self._save_payment(
-            txn, payment_method='GCash', reference_number='GC-1'
+            txn, payment_method='GCash', reference_number='1000000000001'
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1425,14 +1425,14 @@ class PaymentEvidencePerMethodTests(TestCase):
     def test_gcash_with_both_saves(self):
         txn = self._txn()
         response = self._save_payment(
-            txn, payment_method='GCash', reference_number='GC-7',
+            txn, payment_method='GCash', reference_number='1000000000007',
             proof_of_payment=_valid_png_file(),
         )
 
         record = txn.billing_record
         self.assertRedirects(response, f'/billing/{record.pk}/')
         record.refresh_from_db()
-        self.assertEqual(record.reference_number, 'GC-7')
+        self.assertEqual(record.reference_number, '1000000000007')
         self.assertTrue(record.proof_of_payment)
 
     def test_a_proof_already_on_file_is_not_demanded_again(self):
@@ -1441,12 +1441,12 @@ class PaymentEvidencePerMethodTests(TestCase):
         record.proof_of_payment.save('first.png', _valid_png_file(), save=True)
 
         response = self._save_payment(
-            txn, payment_method='GCash', reference_number='GC-8'
+            txn, payment_method='GCash', reference_number='1000000000008'
         )
 
         self.assertRedirects(response, f'/billing/{record.pk}/')
         record.refresh_from_db()
-        self.assertEqual(record.reference_number, 'GC-8')
+        self.assertEqual(record.reference_number, '1000000000008')
 
     def test_card_needs_a_proof_but_not_a_reference(self):
         txn = self._txn(SalesTransaction.ModeOfPayment.CARD)
@@ -1509,7 +1509,7 @@ class PaymentEvidencePerMethodTests(TestCase):
         return record.status
 
     def test_gcash_cannot_be_verified_on_a_reference_alone(self):
-        record = self._record('GCash', reference='GC-1')
+        record = self._record('GCash', reference='1000000000001')
         self.assertEqual(self._mark_paid(record), 'Pending')
 
     def test_gcash_cannot_be_verified_on_a_proof_alone(self):
@@ -1517,7 +1517,7 @@ class PaymentEvidencePerMethodTests(TestCase):
         self.assertEqual(self._mark_paid(record), 'Pending')
 
     def test_gcash_verifies_with_both(self):
-        record = self._record('GCash', reference='GC-1', proof=True)
+        record = self._record('GCash', reference='1000000000001', proof=True)
         self.assertEqual(self._mark_paid(record), 'Paid')
 
     def test_card_verifies_on_a_proof_and_not_without(self):
@@ -1535,13 +1535,13 @@ class PaymentEvidencePerMethodTests(TestCase):
         request = RequestFactory().patch('/')
         request.user = self.owner
         short = BillingConfirmSerializer(
-            self._record('GCash', reference='GC-1'),
+            self._record('GCash', reference='1000000000001'),
             data={'status': 'Paid'}, context={'request': request},
         )
         self.assertFalse(short.is_valid())
 
         complete = BillingConfirmSerializer(
-            self._record('GCash', reference='GC-2', proof=True),
+            self._record('GCash', reference='1000000000002', proof=True),
             data={'status': 'Paid'}, context={'request': request},
         )
         self.assertTrue(complete.is_valid(), complete.errors)
@@ -1551,7 +1551,7 @@ class PaymentEvidencePerMethodTests(TestCase):
 
         record = self._record('Cash')
         missing_proof = BillingPaymentSerializer(
-            record, data={'paymentMethod': 'GCash', 'referenceNumber': 'GC-1'}
+            record, data={'paymentMethod': 'GCash', 'referenceNumber': '1000000000001'}
         )
         self.assertFalse(missing_proof.is_valid())
 

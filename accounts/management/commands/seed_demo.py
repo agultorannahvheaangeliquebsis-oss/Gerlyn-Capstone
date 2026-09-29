@@ -589,7 +589,7 @@ class Command(BaseCommand):
                 amount_due=D(total),
                 payment_method=mop,
                 status=pay_status,
-                reference_number="GC-2026-0001" if mop == "GCash" else "",
+                reference_number="2026000000001" if mop == "GCash" else "",
             )
 
     # ----------------------------------------------------------------- summary

@@ -110,12 +110,12 @@ class RecordPaymentModalOnBillingPageTests(TestCase):
         self.assertTrue(any('reference number' in m for m in self._messages(response)))
 
         response = self.client.post(create_url, {
-            'payment_method': 'GCash', 'reference_number': 'GC-BILLING-1',
+            'payment_method': 'GCash', 'reference_number': '2026000000101',
             'proof_of_payment': _valid_png_file(), 'return_to': 'billing',
         })
         self.assertRedirects(response, reverse('billing_detail', args=[record.pk]))
         record.refresh_from_db()
-        self.assertEqual(record.reference_number, 'GC-BILLING-1')
+        self.assertEqual(record.reference_number, '2026000000101')
 
     # -- Verify Payment is not offered when evidence is missing ------------------
 

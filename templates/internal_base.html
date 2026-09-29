@@ -26,6 +26,7 @@
   of the page, which runs before any deferred script does. See modal.js.
   {% endcomment %}
   <script src="{% static 'js/modal.js' %}?v={{ APP_VERSION }}"></script>
+  <script src="{% static 'js/gcash-reference.js' %}?v={{ APP_VERSION }}"></script>
   <script src="{% static 'js/notification-tray.js' %}?v={{ APP_VERSION }}" defer></script>
   {% block extra_css %}{% endblock %}
 </head>

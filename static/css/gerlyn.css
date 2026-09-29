@@ -318,6 +318,10 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   font: 500 13px/1.4 var(--font-sans);
   color: var(--danger-fg);
 }
+/* The same message under a plain (non-floating-label) input, e.g. the GCash
+   reference field — no pull-up margin, and the input itself turns red. */
+.field-error--ref { margin: 0; }
+.field input.is-invalid { border-color: var(--danger-dot); }
 
 /* ----------------------------------------------------------------- cards */
 .card {

@@ -1266,7 +1266,9 @@ def checkout(request):
         # cleaned value is what is stored. billing.validators is the rule
         # billing_create and the pay API apply too.
         try:
-            reference_number = clean_reference_number(reference_number)
+            reference_number = clean_reference_number(
+                reference_number, mode_of_payment
+            )
         except ValidationError as e:
             messages.error(request, e.messages[0])
             return redirect('orders:cart')
