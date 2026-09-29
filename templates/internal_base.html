@@ -361,7 +361,7 @@ DOM — it is off-screen until focused (see .skip-link).
     </a>
     {% endif %}
     <details class="more-menu">
-      <summary class="{% if active_page == 'alerts' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'internal_settings' %}active{% endif %}">
+      <summary class="{% if active_page == 'alerts' or active_page == 'billing' or active_page == 'audit' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'internal_settings' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         More
         {% if alert_count and module_access.alerts %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
@@ -372,8 +372,15 @@ DOM — it is off-screen until focused (see .skip-link).
           Alerts {% if alert_count %}<span class="nav-badge nav-badge--inline">{{ alert_count }}</span>{% endif %}
         </a>
         {% endif %}
+        {% if module_access.billing %}
+        <a class="more-menu-link {% if active_page == 'billing' %}active{% endif %}" href="{% url 'billing_list' %}">Billing</a>
+        {% endif %}
         {% if module_access.reports %}
         <a class="more-menu-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
+        {% endif %}
+        {# Same gate as the sidebar's Audit Log row; audit.views.can_view_audit_log is the real check. #}
+        {% if request.user.role == 'OWNER' or request.user.is_superuser %}
+        <a class="more-menu-link {% if active_page == 'audit' %}active{% endif %}" href="{% url 'audit_log_list' %}">Audit Log</a>
         {% endif %}
         {% if module_access.deliveries %}
         <a class="more-menu-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>

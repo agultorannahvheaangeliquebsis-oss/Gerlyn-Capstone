@@ -503,6 +503,10 @@ status. Rows are built from reports/views.py::_recent_activity.
       <h3>Recent Activity</h3>
       <p class="gv-meta mb-0">Not filtered by the selected range</p>
     </div>
+    {# The full who-changed-what trail behind this feed; same Owner gate as the sidebar's Audit Log row. #}
+    {% if request.user.role == 'OWNER' or request.user.is_superuser %}
+    <a class="link-more" href="{% url 'audit_log_list' %}">Audit log <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
+    {% endif %}
   </div>
   {% for e in recent_activity %}
   <a href="{{ e.url }}" class="feed-row">

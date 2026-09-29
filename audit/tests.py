@@ -594,6 +594,21 @@ class AuditLogViewTests(TestCase):
         manager_page = self.client.get(reverse('reports_dashboard'))
         self.assertNotContains(manager_page, self.url)
 
+    def test_the_mobile_more_menu_links_it_too(self):
+        # Below 860px the sidebar is hidden and the More menu is the only nav.
+        page = self.client.get(reverse('reports_dashboard'))
+
+        self.assertContains(page, f'href="{self.url}"', count=2)  # sidebar + More menu
+        html = page.content.decode()
+        more_menu = html.split('class="more-menu-panel"', 1)[1].split('</details>', 1)[0]
+        self.assertIn(f'href="{self.url}">Audit Log</a>', more_menu)
+
+    def test_the_dashboard_recent_activity_card_links_it_for_the_owner(self):
+        page = self.client.get(reverse('accounts:owner_dashboard'))
+
+        # Sidebar, More menu, and the Recent Activity card's header link.
+        self.assertContains(page, f'href="{self.url}"', count=3)
+
 
 class GroupedActionTests(TestCase):
     """One user-facing action can write several AuditLog rows (audit.views.
