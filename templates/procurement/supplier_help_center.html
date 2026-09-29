@@ -1,0 +1,91 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>Help Center — GERLYN</title>
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
+  <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
+  {% include "procurement/_supplier_portal_head.html" %}
+  <style>
+    /* Same .faq-item disclosure styling as accounts/help_center.html —
+       copied rather than shared, since account.css doesn't carry it and
+       this is the only other page that uses it. */
+    .faq-item { border-bottom: 1px solid var(--line-soft); padding: 14px 0; }
+    .faq-item:last-child { border-bottom: 0; }
+    .faq-item summary {
+      font: 600 15px/1.3 var(--font-sans);
+      color: var(--ink-900);
+      cursor: pointer;
+      list-style: none;
+    }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .faq-item summary::before { content: '+ '; color: var(--action); font-weight: 700; }
+    .faq-item[open] summary::before { content: '– '; }
+    .faq-item p { margin: 8px 0 0; font: 400 14px/1.5 var(--font-sans); color: var(--ink-600); }
+  </style>
+</head>
+<body>
+
+{% include "procurement/_supplier_portal_header.html" with active_page="help_center" %}
+
+<main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
+  {% include "partials/_flash_modal.html" %}
+
+  <h1 class="gv-page-title">Settings</h1>
+
+  <div class="account-grid">
+    {% include "procurement/_supplier_account_sidebar.html" %}
+    <div class="profile-sections">
+      {% comment %}
+        Supplier-specific FAQ, not a reuse of accounts/help_center.html's
+        content — that copy answers questions about delivery addresses and
+        storefront checkout that don't apply to a Supplier account (see
+        accounts.views.help_center_view's own comment on this split).
+      {% endcomment %}
+      <div class="account-card">
+        <div class="account-card-head">
+          <span class="account-card-title">Help Center</span>
+        </div>
+        <div class="account-card-body">
+
+          <details class="faq-item" open>
+            <summary>How do I change my password?</summary>
+            <p>Go to Settings → My Profile → Account Security → Manage. If Two-Factor Authentication is on, we'll email you a secure link to confirm the change instead of changing it right away.</p>
+          </details>
+
+          <details class="faq-item">
+            <summary>What is Two-Factor Authentication and how do I turn it on?</summary>
+            <p>It's an extra security step: once enabled, password changes must be confirmed via a link sent to your email, not just the current-password form. Toggle it from Settings → My Profile → Account Security — you'll be asked to confirm your current password first.</p>
+          </details>
+
+          <details class="faq-item">
+            <summary>How do I update my contact number or business address?</summary>
+            <p>Go to Settings → My Profile → Edit. Your contact person, mobile number, and business address are yours to update directly. Your business name, category, and assigned branch are managed by the store — contact your administrator to change those.</p>
+          </details>
+
+          <details class="faq-item">
+            <summary>How do I respond to a purchase order or confirm a delivery date?</summary>
+            <p>Open the order from your Purchase Orders list. Orders awaiting your response show a negotiation card where you can agree to or counter the proposed price and delivery date; once terms are agreed, you'll confirm the final delivery date there too.</p>
+          </details>
+
+          <details class="faq-item">
+            <summary>Where do I see updates on my orders?</summary>
+            <p>Go to Settings → Notifications, or the bell icon in the header — you'll be notified when GERLYN places a new order, approves terms, or records a delivery.</p>
+          </details>
+
+          <details class="faq-item">
+            <summary>Still need help?</summary>
+            <p>Contact your GERLYN store representative directly, or visit the branch you supply — listed on the About page.</p>
+          </details>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
+</body>
+</html>

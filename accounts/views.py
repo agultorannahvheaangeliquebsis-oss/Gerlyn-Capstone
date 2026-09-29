@@ -1189,13 +1189,25 @@ def _internal_settings_context(request):
 
 @login_required(login_url='accounts:login')
 def profile_view(request):
+    # Enforced here, not just by removing the link that used to point here:
+    # this template (public_base.html) and its Personal Information form
+    # assume a first/last name and an Address book neither exists for a
+    # Supplier, and a Supplier could always reach this URL directly
+    # (bookmark, typed address) regardless of what the UI links to.
+    if request.user.role == User.Role.SUPPLIER:
+        return redirect('supplier_account')
     return render(request, 'accounts/profile.html', _profile_context(request.user))
 
 
 @login_required(login_url='accounts:login')
 @require_POST
 def update_profile(request):
-    user   = request.user
+    user = request.user
+    if user.role == User.Role.SUPPLIER:
+        # supplier_account_update is the one path now — it also saves
+        # `address`, which this view never touches (Customer's Address book
+        # is a different model entirely from SupplierProfile.address).
+        return redirect('supplier_account')
     errors = {}
 
     new_username   = request.POST.get('username', '').strip()
@@ -1664,6 +1676,14 @@ def notifications_view(request):
         }, request=request)
         return JsonResponse({'list_html': list_html, 'needs_action_count': unread_count})
 
+    # The full-page render below is customer-shelled with customer-only
+    # preference toggles (order_updates/promotions/delivery_reminders/
+    # newsletter) — a Supplier has their own inbox at supplier_notifications
+    # already (no XHR tray of its own to hit this branch from, so only the
+    # direct-visit case needs the redirect).
+    if request.user.role == User.Role.SUPPLIER:
+        return redirect('supplier_notifications')
+
     prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
     return render(request, 'accounts/notifications.html', {
         'notifications': notifications,
@@ -1941,11 +1961,25 @@ def notification_preferences_update(request):
 
 @login_required(login_url='accounts:login')
 def help_center_view(request):
+    # Content, not just chrome, differs by role: the customer FAQ answers
+    # questions about delivery addresses and checkout that don't apply to a
+    # Supplier account, so this isn't just a shell swap the way language/
+    # about are — procurement/supplier_help_center.html carries its own,
+    # supplier-relevant questions instead of reusing this copy.
+    if request.user.role == User.Role.SUPPLIER:
+        return render(request, 'procurement/supplier_help_center.html', {'active_page': 'help_center'})
     return render(request, 'accounts/help_center.html', {'active_page': 'help_center'})
 
 
 @login_required(login_url='accounts:login')
 def about_view(request):
+    # Same store-general content either way (branches, delivery, payment
+    # methods, help link) — accounts/_about_card.html and
+    # procurement/supplier_about.html both include the shared
+    # accounts/_about_card.html partial rather than duplicating it, only
+    # the surrounding shell (and the Help Center link's target) differs.
+    if request.user.role == User.Role.SUPPLIER:
+        return render(request, 'procurement/supplier_about.html', {'active_page': 'about'})
     return render(request, 'accounts/about.html', {'active_page': 'about'})
 
 
@@ -1966,6 +2000,11 @@ def language_view(request):
             messages.error(request, "That language isn't available. Your language is unchanged.")
         return redirect('accounts:language')
 
+    # request.user.language is a base User field — the save above already
+    # works for any role — so only the template (which shell wraps the same
+    # English/Filipino toggle) needs to branch here.
+    if request.user.role == User.Role.SUPPLIER:
+        return render(request, 'procurement/supplier_language.html', {'active_page': 'language'})
     return render(request, 'accounts/language.html', {'active_page': 'language'})
 
 
@@ -1975,15 +2014,26 @@ def language_view(request):
 
 def _sessions_redirect(user):
     """Mirrors _profile_redirect for the Sessions actions — internal users
-    land back on their own Settings page, not the customer Sessions page."""
+    land back on their own Settings page, a Supplier back on their own
+    Account page (Sessions is a #sessions card there, not its own page —
+    see supplier_account.html), not the customer Sessions page."""
     from core.permissions import INTERNAL_ROLES
     if user.role in INTERNAL_ROLES:
         return redirect('internal_settings')
+    if user.role == User.Role.SUPPLIER:
+        return redirect('supplier_account')
     return redirect('accounts:sessions')
 
 
 @login_required(login_url='accounts:login')
 def sessions_view(request):
+    # Supplier Sessions lives inline on their own Account page (see
+    # _sessions_redirect above) — this page is customer-shelled
+    # (public_base.html) and was never built to be reached by any other
+    # role, so a Supplier landing here directly (bookmark, typed URL) is
+    # sent to the equivalent card instead of the wrong chrome.
+    if request.user.role == User.Role.SUPPLIER:
+        return redirect('supplier_account')
     return render(request, 'accounts/sessions.html', {
         'sessions': get_active_sessions(request.user),
         'current_session_key': request.session.session_key,
@@ -2021,6 +2071,11 @@ def session_logout_all_others(request):
 
 @login_required(login_url='accounts:login')
 def privacy_view(request):
+    # No self-deactivate/delete for a Supplier per the permission matrix —
+    # that's an Owner action on the account, not self-service (same as
+    # internal roles, which never get a Privacy & Data page at all).
+    if request.user.role == User.Role.SUPPLIER:
+        return redirect('supplier_account')
     return render(request, 'accounts/privacy.html', {'active_page': 'privacy'})
 
 
@@ -2030,6 +2085,11 @@ def deactivate_account_request(request):
     """Entry point when Two-Factor Authentication is on — sends a
     confirmation link instead of deactivating right away."""
     user = request.user
+    # Guarded here too, not just on the GET page it's posted from — a
+    # Supplier POSTing this URL directly would otherwise still trigger a
+    # real deactivation email even with privacy_view itself blocked.
+    if user.role == User.Role.SUPPLIER:
+        return redirect('supplier_account')
     if not user.two_factor_enabled:
         return redirect('accounts:privacy')
 
@@ -2050,6 +2110,11 @@ def deactivate_account_confirm(request):
     password confirmation happens right here on the Privacy page, gated by
     a JS confirm() pop-up before the form even submits."""
     user = request.user
+    # Same backend guard as deactivate_account_request above — a Supplier
+    # is never allowed to self-deactivate regardless of which of the two
+    # POST endpoints is hit directly.
+    if user.role == User.Role.SUPPLIER:
+        return redirect('supplier_account')
     if user.two_factor_enabled:
         messages.error(request, "Two-factor authentication is enabled. Use \"Deactivate Account\" to request a secure email link instead.")
         return redirect('accounts:privacy')

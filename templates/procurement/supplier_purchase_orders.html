@@ -1,0 +1,110 @@
+{% extends "procurement/supplier_base.html" %}
+{% load l10n %}
+{% block title %}Purchase orders — Supplier Portal — GERLYN{% endblock %}
+
+{% block content %}
+<div class="sp-head-row">
+  <div>
+    <h1>Purchase orders</h1>
+    <p class="sp-head-sub">All orders GERLYN has placed with you.</p>
+  </div>
+</div>
+
+<div class="sp-card">
+  <div class="sp-pill-filters">
+    <a class="sp-pill-filter{% if not status_filter %} is-active{% endif %}" href="?{% if q %}q={{ q|urlencode }}{% endif %}">All {{ counts.all }}</a>
+    <a class="sp-pill-filter{% if status_filter == 'NeedsAction' %} is-active{% endif %}" href="?status=NeedsAction{% if q %}&q={{ q|urlencode }}{% endif %}">Needs response {{ counts.needs_action }}</a>
+    <a class="sp-pill-filter{% if status_filter == 'Incoming' %} is-active{% endif %}" href="?status=Incoming{% if q %}&q={{ q|urlencode }}{% endif %}">Incoming {{ counts.incoming }}</a>
+    <a class="sp-pill-filter{% if status_filter == 'Overdue' %} is-active{% endif %}" href="?status=Overdue{% if q %}&q={{ q|urlencode }}{% endif %}">Overdue {{ overdue }}</a>
+    <a class="sp-pill-filter{% if status_filter == 'Received' %} is-active{% endif %}" href="?status=Received{% if q %}&q={{ q|urlencode }}{% endif %}">Delivered {{ counts.received }}</a>
+    <a class="sp-pill-filter{% if status_filter == 'Cancelled' %} is-active{% endif %}" href="?status=Cancelled{% if q %}&q={{ q|urlencode }}{% endif %}">Cancelled {{ counts.cancelled }}</a>
+
+    <form method="GET" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+      {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+      <input type="search" name="q" value="{{ q }}" placeholder="Filter by PO number"
+             style="height:34px; border-radius:8px; border:1px solid var(--sp-border); padding:0 10px; font:400 15px/1.4 var(--font-sans); width:200px;">
+    </form>
+  </div>
+
+  {% if page_obj.object_list %}
+  <div style="overflow-x:auto;">
+  <table class="sp-orders-table" id="spOrdersTable">
+    <thead>
+      <tr><th>Order</th><th>Branch</th><th class="num">Total</th><th>Status</th><th class="end">Action</th></tr>
+    </thead>
+    <tbody>
+      {% for o in page_obj %}
+      <tr>
+        <td data-label="Order">
+          <div class="sp-order-po">{{ o.po_number }}</div>
+          <div class="sp-order-meta">{{ o.order_date|date:"Y-m-d" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }}</div>
+        </td>
+        <td data-label="Branch">{{ o.branch.branch_name }}</td>
+        <td data-label="Total" class="num sp-order-total">₱{{ o.total_cost|floatformat:2 }}</td>
+        <td data-label="Status">
+          {% if o.status == 'Cancelled' %}
+            <span class="sp-status-pill sp-status-cancelled">Cancelled</span>
+          {% elif o.status == 'Received' %}
+            <span class="sp-status-pill sp-status-delivered">Delivered</span>
+          {% elif o.status in awaiting_delivery_statuses %}
+            {% if o.delivery_date and o.delivery_date < today %}
+              <span class="sp-status-pill sp-status-overdue">Overdue</span>
+            {% elif o.delivery_date %}
+              <span class="sp-status-pill sp-status-incoming">Arriving {{ o.delivery_date|date:"M j" }}</span>
+            {% else %}
+              <span class="sp-status-pill sp-status-incoming">Incoming</span>
+            {% endif %}
+          {% else %}
+            <span class="sp-status-pill sp-status-pending">Not confirmed</span>
+          {% endif %}
+        </td>
+        <td data-label="Action" class="end">
+          <button type="button" class="sp-order-view" onclick="respondTo('{{ o.pk|unlocalize }}')">
+            {% if o.status in supplier_action_statuses %}Respond{% else %}View{% endif %}
+          </button>
+        </td>
+      </tr>
+      <tr class="sp-order-detail" id="po-detail-row-{{ o.pk|unlocalize }}" hidden>
+        <td colspan="5">
+          <div class="sp-order-detail-body">
+            {% include "procurement/_supplier_po_detail.html" with o=o next_url=request.get_full_path %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px; flex-wrap:wrap; gap:10px;">
+    <p class="sp-empty-note" style="padding:0;">Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }} order{{ page_obj.paginator.count|pluralize }}</p>
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div style="display:flex; gap:6px;">
+      {% if page_obj.has_previous %}
+      <a class="sp-btn-outline" style="height:34px; padding:0 12px;" href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">&laquo;</a>
+      {% endif %}
+      {% for num in page_obj.paginator.page_range %}
+      <a class="sp-pill-filter{% if num == page_obj.number %} is-active{% endif %}" style="height:34px; min-width:34px; justify-content:center; padding:0;"
+         href="?page={{ num }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">{{ num }}</a>
+      {% endfor %}
+      {% if page_obj.has_next %}
+      <a class="sp-btn-outline" style="height:34px; padding:0 12px;" href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">&raquo;</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="sp-order-empty">
+    {% if q or status_filter %}
+    <p><strong>No orders match this filter.</strong><br><a href="{% url 'supplier_purchase_orders' %}">Clear filters</a></p>
+    {% else %}
+    <p><strong>No purchase orders yet.</strong><br>When GERLYN places an order with you, it appears here.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<p style="text-align:center; font:400 13px/1.5 var(--font-body); color:var(--sp-muted); margin:0;">
+  Deliveries are confirmed by store staff when the goods physically arrive.
+</p>
+{% endblock %}

@@ -1,0 +1,88 @@
+{% comment %}
+Shared per-order detail block — line items + whatever status-specific box
+that status needs (propose/accept forms, a read-only "waiting on..."/
+"confirmed for..." note, or the discrepancy warning). Used by both
+supplier_purchase_orders.html and supplier_deliveries.html so the real
+respond/confirm forms exist in exactly one place instead of being
+hand-copied per page.
+
+Expects: o (the Procurement), next_url (where its forms should redirect
+back to after POSTing — see _supplier_next_redirect in procurement/views.py).
+{% endcomment %}
+<table>
+  <thead>
+    <tr><th>Product</th><th class="num">Qty ordered</th><th class="num">Unit cost</th><th class="num">Line total</th>
+        {% if o.status == 'Received' or o.status == 'Partially Received' %}<th class="num">Qty received</th>{% endif %}</tr>
+  </thead>
+  <tbody>
+    {% for item in o.items.all %}
+    <tr>
+      <td>{{ item.product.product_name }}</td>
+      <td class="num">{{ item.quantity_ordered }}</td>
+      <td class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}—{% endif %}</td>
+      <td class="num">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
+      {% if o.status == 'Received' or o.status == 'Partially Received' %}
+      <td class="num{% if item.quantity_received != item.quantity_ordered %} strong{% endif %}"{% if item.quantity_received != item.quantity_ordered %} style="color:var(--danger-fg);"{% endif %}>{{ item.quantity_received }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if o.status == 'Approved' or o.status == 'Pending Supplier Review' %}
+<div class="sp-confirm-box">
+  {% if o.status == 'Pending Supplier Review' %}
+  <p>{{ o.branch.branch_name }} countered — delivery {{ o.proposed_delivery_date|date:"M j, Y" }}. Accept, or send your own counter below.</p>
+  <form method="POST" action="{% url 'procurement_supplier_respond' o.pk %}" style="margin-bottom:12px;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="accept">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <button type="submit" class="sp-confirm-btn">Accept these terms</button>
+  </form>
+  {% else %}
+  <p>Propose a delivery date and your unit cost for each item</p>
+  {% endif %}
+  <form method="POST" action="{% url 'procurement_supplier_respond' o.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="propose">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <div style="margin-bottom:10px;"><input type="date" name="delivery_date" required></div>
+    <table>
+      <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>
+      <tbody>
+        {% for item in o.items.all %}
+          {% if not item.is_unexpected %}
+          <tr>
+            <td>{{ item.product.product_name }}</td>
+            <td class="num">{{ item.quantity_ordered }}</td>
+            <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" required></td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit" class="sp-confirm-btn">{% if o.status == 'Pending Supplier Review' %}Send counter{% else %}Send terms{% endif %}</button>
+  </form>
+</div>
+{% elif o.status == 'Pending Owner Review' %}
+<div class="sp-confirm-box">
+  <p style="margin:0; font-weight:500;">Waiting for {{ o.branch.branch_name }} to review your proposal — delivery {{ o.proposed_delivery_date|date:"M j, Y" }}.</p>
+</div>
+{% elif o.status == 'Terms Agreed' %}
+<div class="sp-confirm-box">
+  <p>Terms agreed — delivery {{ o.proposed_delivery_date|date:"M j, Y" }}. Confirm to start preparing this order.</p>
+  <form method="POST" action="{% url 'procurement_supplier_confirm' o.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <button type="submit" class="sp-confirm-btn">Confirm &amp; start preparing</button>
+  </form>
+</div>
+{% elif o.status == 'Incoming' %}
+<div class="sp-confirm-box">
+  <p style="margin:0; color:var(--ok-fg);">Confirmed for delivery on {{ o.delivery_date|date:"M j, Y" }}</p>
+</div>
+{% elif o.status == 'Received' and o.receipt_flag == 'Discrepancy' %}
+<div class="banner banner-warning mt-4">
+  The store recorded different quantities from what was ordered. Please check this delivery with them.
+</div>
+{% endif %}

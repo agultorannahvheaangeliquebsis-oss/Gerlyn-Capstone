@@ -137,6 +137,21 @@ class Procurement(models.Model):
     # open orders (matches supplier_portal.html's own Draft exclusion).
     COMMITTED_OPEN_STATUSES = OPEN_STATUSES - {Status.DRAFT}
 
+    # Statuses where the SUPPLIER specifically is the one who must act next:
+    # Approved (submit the first price/date offer), Pending Supplier Review
+    # (respond to a buyer counter), Terms Agreed (confirm to start
+    # preparing — see ALLOWED_TRANSITIONS' own comment on why that
+    # confirmation, not a bare status POST, is the only door from here to
+    # Incoming). Pending Owner Review is deliberately excluded from this
+    # set even though it's a NEGOTIATION_STATUSES member: that status means
+    # the BUYER hasn't responded yet, so surfacing it as "needs your
+    # action" on the supplier's own portal would tell them to do something
+    # that isn't theirs to do. Used by supplier_portal's action banner/tab
+    # so both read the same real span rather than a hand-copied status list.
+    SUPPLIER_ACTION_STATUSES = frozenset({
+        Status.APPROVED, Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED,
+    })
+
     # --- existing fields (untouched) ----------------------------------------
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL,

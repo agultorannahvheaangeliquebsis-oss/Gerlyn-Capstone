@@ -339,10 +339,13 @@ class ViewTests(ReturnBase):
             f'qty_{self.item.pk}': '1', 'reason': 'Damaged'})
         self.assertFalse(SupplierReturn.objects.exists())
 
-    def test_supplier_portal_lists_returns_and_answers_them(self):
+    def test_supplier_deliveries_lists_returns_and_answers_them(self):
+        # Returns live on the Deliveries page (not the Dashboard) since the
+        # Supplier Portal split into three pages — see procurement/views.py's
+        # supplier_deliveries.
         ret = self.make_return()
         self.client.force_login(self.supplier)
-        page = self.client.get(reverse('supplier_portal'))
+        page = self.client.get(reverse('supplier_deliveries'))
         self.assertContains(page, ret.return_number)
         self.assertContains(page, 'Acknowledge')
         self.client.post(reverse('supplier_return_respond', args=[ret.pk]),

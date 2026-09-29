@@ -42,24 +42,21 @@
         </div>
         <div class="notif-tray-scrim" id="notifScrim"></div>
       </div>
-      <span style="text-align:right;">
-        <span class="who-name">{{ profile.supplier_name|default:request.user.username }}</span><br>
-        <span class="who-role">Supplier</span>
-      </span>
       {% comment %}
-        Account link — the one way into supplier_account.html from anywhere
-        else in the portal. `active_page` (passed by whichever page includes
-        this partial) is 'account' only on supplier_account.html itself,
-        where the link is redundant with the page you're already on, so it's
-        dropped there rather than left pointing at itself.
+        Avatar-only link into supplier_account.html — same idea as
+        internal_base.html's own header avatar (a bare round initial-letter
+        circle, no name/role text beside it), just a plain link here rather
+        than that one's <details> dropdown menu, since a Supplier has
+        nowhere else that menu would go besides Account and Logout, both of
+        which are already one click away on their own. .portal-avatar keeps
+        its existing light-tint colours (not .avatar's solid --action green)
+        because --action IS this header's own background — .avatar unchanged
+        would vanish into it; internal's own avatar has no such clash since
+        its topbar is white.
       {% endcomment %}
-      {% if active_page != 'account' %}
-        <a class="account-link" href="{% url 'supplier_account' %}" title="Account">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          Account
-        </a>
-      {% endif %}
-      <span class="portal-avatar">{{ profile.supplier_name|default:request.user.username|first|upper }}</span>
+      <a class="portal-avatar-link" href="{% url 'supplier_account' %}" title="Account">
+        <span class="portal-avatar">{{ profile.supplier_name|default:request.user.username|first|upper }}</span>
+      </a>
       <a class="btn" href="{% url 'accounts:logout' %}">Logout</a>
     </span>
   </div>

@@ -31,12 +31,6 @@
   .portal-header .brand-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
   .portal-header .brand-sub { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
 
-  /* Account info text next to the avatar: same scale as .brand-name/
-     .brand-sub on the left so both sides of the header read as one
-     typographic system, just right-aligned instead of left. */
-  .portal-header .who-name { font-weight: 700; font-size: 15px; color: #fff; line-height: 1.3; }
-  .portal-header .who-role { font-size: 12px; color: rgba(255,255,255,.8); line-height: 1.3; }
-
   /* Header avatar — first letter of the supplier's name. Deliberately its
      own class rather than reusing .avatar: .avatar is --action/white
      everywhere else, this one flips to a light tint on the dark header. */
@@ -47,20 +41,29 @@
     font-weight: 700; font-size: 14px;
   }
 
-  /* Account link: same lightweight-outline treatment as Logout, so the two
-     header actions read as one pair rather than one styled and one bare. */
-  .portal-header .account-link,
+  /* Logout: lightweight outline on the dark header. */
   .portal-header .btn {
     background: transparent; border: 1px solid rgba(255,255,255,.35);
     color: #fff; border-radius: 7px;
   }
-  .portal-header .account-link:hover,
   .portal-header .btn:hover { background: rgba(255,255,255,.12); color: #fff; }
-  .portal-header .account-link {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 12px; font-size: 13px; font-weight: 600; text-decoration: none;
+
+  /* Avatar-only link into supplier_account.html (see
+     _supplier_portal_header.html's own comment on why this replaced the
+     separate "Account" button, and why it's the avatar alone — no name
+     text, no pill background). A ring on hover/focus, not a filled
+     background — matches internal_base.html's own .avatar-menu-trigger
+     hover treatment (box-shadow ring) rather than the filled-pill hover
+     every OTHER header control here uses, since a solid fill behind a
+     circle reads as a bigger, blockier control than the plain ring internal
+     already established for exactly this element. */
+  .portal-avatar-link {
+    display: inline-flex; border-radius: 50%;
+    box-shadow: 0 0 0 0 rgba(255,255,255,.5);
+    transition: box-shadow .14s ease;
   }
-  .portal-header .account-link svg { width: 14px; height: 14px; }
+  .portal-avatar-link:hover,
+  .portal-avatar-link:focus-visible { box-shadow: 0 0 0 3px rgba(255,255,255,.5); }
 
   /* Notification bell: same .topbar-bell/.notif-tray the internal
      Owner/Manager/Staff chrome uses (static/js/notification-tray.js is
@@ -85,9 +88,9 @@
        page's own rules set for its own content. */
     .portal-header { padding: 12px 16px; }
     .portal-header .portal-wrap { padding: 0; }
-    /* Keep just the essential brand name/account name — the subtitle and
-       role label are the least essential line on each side. */
-    .portal-header .brand-sub,
-    .portal-header .who-role { display: none; }
+    /* Keep just the essential brand name — the subtitle is the least
+       essential line on this side now that the avatar carries no text of
+       its own to also trim. */
+    .portal-header .brand-sub { display: none; }
   }
 </style>

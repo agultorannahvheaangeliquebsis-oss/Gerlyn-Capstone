@@ -1,0 +1,882 @@
+{% load static l10n %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}Supplier Portal — GERLYN{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
+  {% comment %}
+  Shared shell for the three Supplier Portal pages (Dashboard/
+  supplier_portal.html, Purchase orders/supplier_purchase_orders.html,
+  Deliveries/supplier_deliveries.html) — sidebar, topbar, the Products &
+  pricing modal and its "offer a product" sibling, and all their CSS/JS live
+  here exactly once so the three pages can never drift out of sync with
+  each other. Not shared with the rest of the Supplier Portal (Account/
+  Language/About/Help Center), which keep the older green-header shell in
+  _supplier_portal_head.html/_supplier_portal_header.html untouched.
+  {% endcomment %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  {% comment %}
+  Roboto + Lucide — the exact same two dependencies internal_base.html
+  already loads (--font-sans defaults to Roboto in gerlyn.css; .sb-item's
+  icons are Lucide, rendered by lucide.createIcons()). The whole supplier
+  POV uses this one family now, not the earlier Manrope/Plus Jakarta Sans
+  pairing that used to be loaded here — see --font-display/--font-body
+  below, which now both resolve to var(--font-sans) rather than naming a
+  second typeface. Nothing new: both are already dependencies of this
+  codebase, not introduced by this page.
+  {% endcomment %}
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
+  <script src="https://unpkg.com/lucide@1.31.0/dist/umd/lucide.js" defer></script>
+  <style>
+    :root {
+      /* Colors AND fonts are the exact shared design tokens every other POV
+         (Admin/Manager/Staff) already uses (gerlyn.css :root) — these
+         --sp- and --font-display/--font-body names exist only so the rest
+         of this file can keep saying "the supplier page's ink color"/"the
+         heading font" etc. without spelling out var(--ink-900)/
+         var(--font-sans) everywhere; they all resolve to gerlyn.css's own
+         values now, not a second palette or typeface. Manrope and Plus
+         Jakarta Sans (and their Google Fonts import above) are gone —
+         Admin uses one family, Roboto, for headings and body alike, weight
+         is what varies by element, not family, so both names below point
+         at the same var(--font-sans). */
+      --sp-green: var(--action);
+      --sp-bg: var(--bg);
+      --sp-card: var(--surface);
+      --sp-border: var(--line);
+      --sp-row: var(--line-soft);
+      --sp-ink: var(--ink-900);
+      --sp-muted: var(--ink-600);
+      --sp-sec: var(--ink-700);
+      --sp-thead: var(--surface-2);
+      --font-display: var(--font-sans);
+      --font-body: var(--font-sans);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--sp-bg); color: var(--sp-ink);
+      font: 400 16px/1.5 var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    button { font-family: inherit; }
+
+    /* ------------------------------------------------------------- shell
+       The sidebar itself is the REAL internal one now — .app/.sidebar/
+       .sb-head/.sb-logo/.sb-nav/.sb-item/.sb-item--active/.sb-toggle are
+       gerlyn.css's own shared classes (the same ones internal_base.html's
+       "GERLYN / Internal System" rail uses), included here by reference,
+       not copied. Only what's genuinely supplier-specific — the badge's
+       soft-circle style (not internal's red .nav-badge), the collapsed-dot
+       variant, and the help card — gets its own rule below. .main is also
+       gerlyn.css's own (margin-left: var(--sidebar-w)), so .sp-topbar/
+       .sp-main just need to sit inside it instead of the old flex .sp-col. */
+
+    /* ------------------------------------------------------- supplier nav */
+    .sp-nav-badge {
+      min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box;
+      border-radius: 999px; background: #e3ebe6; color: #1f3a2c;
+      font-size: 11.5px; font-weight: 700; display: flex; align-items: center;
+      justify-content: center; margin-left: auto;
+    }
+    /* Collapsed rail: the row becomes a 44px icon-only circle with no room
+       for the count itself (same reason internal hides .sb-tree-toggle's
+       own .nav-badge there) — a plain 8px dot on the icon stands in for
+       "this still has something on it", per the redesign's own spec. */
+    .app.sidebar-collapsed .sp-nav-badge { display: none; }
+    .sp-nav-dot {
+      display: none; position: absolute; top: 6px; right: 10px;
+      width: 8px; height: 8px; border-radius: 50%; background: var(--sp-green);
+      border: 2px solid var(--surface);
+    }
+    .app.sidebar-collapsed .sb-item[data-badge="1"] .sp-nav-dot { display: block; }
+
+    .sp-help-card {
+      margin-top: auto; background: var(--green-50); border: 1px solid var(--line);
+      border-radius: 14px; padding: 16px;
+    }
+    .sp-help-card h4 { margin: 0 0 6px; font: 700 13.5px/1.3 var(--font-sans); color: var(--ink-900); }
+    .sp-help-card p { margin: 0 0 10px; font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-600); }
+    .sp-help-card a { color: var(--action-700); font: 600 12.5px/1 var(--font-sans); text-decoration: underline; }
+    .app.sidebar-collapsed .sp-help-card { display: none; }
+
+    /* ----------------------------------------------------------- topbar */
+    .sp-topbar {
+      height: 76px; flex: none; background: var(--sp-card); border-bottom: 1px solid var(--sp-border);
+      display: flex; align-items: center; justify-content: space-between; padding: 0 40px;
+      gap: 16px; position: sticky; top: 0; z-index: 20;
+    }
+    .sp-search {
+      width: 460px; max-width: 100%; height: 44px; box-sizing: border-box;
+      display: flex; align-items: center; gap: 10px; padding: 0 14px;
+      border: 1px solid var(--input-line); border-radius: 10px; background: var(--surface-2);
+      flex-shrink: 0;
+    }
+    .sp-search:focus-within { border-color: var(--sp-green); box-shadow: 0 0 0 3px rgba(30,122,79,.15); }
+    .sp-search svg { width: 17px; height: 17px; color: var(--sp-muted); flex: none; pointer-events: none; }
+    .sp-search input {
+      flex: 1; min-width: 0; width: 100%; border: none; outline: none;
+      background: transparent; font: 400 15px/1.4 var(--font-sans); color: var(--sp-ink);
+    }
+    .sp-search input::placeholder { color: var(--ink-500); }
+
+    .sp-topbar-right { display: flex; align-items: center; gap: 18px; flex: none; }
+    .sp-bell { position: relative; background: none; border: 0; padding: 4px; cursor: pointer; color: var(--sp-ink); display: flex; }
+    .sp-bell svg { width: 22px; height: 22px; }
+    .sp-bell .nav-badge {
+      position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; min-width: 0;
+      border-radius: 50%; background: var(--danger-dot); border: 2px solid var(--sp-card); padding: 0; font-size: 0;
+    }
+
+    .sp-avatar-menu { position: relative; }
+    .sp-avatar-btn {
+      width: 44px; height: 44px; border-radius: 50%; background: var(--sp-green);
+      color: #fff; border: 0; cursor: pointer; display: flex; align-items: center;
+      justify-content: center; font: 700 16px/1 var(--font-display);
+      box-shadow: 0 0 0 3px var(--green-300); transition: box-shadow .15s ease;
+    }
+    .sp-avatar-menu.is-open .sp-avatar-btn,
+    .sp-avatar-menu:hover .sp-avatar-btn { box-shadow: 0 0 0 3px var(--action-700); }
+    .sp-avatar-dropdown {
+      position: absolute; top: calc(100% + 10px); right: 0; width: 260px;
+      background: var(--sp-card); border: 1px solid var(--sp-border); border-radius: 14px;
+      box-shadow: var(--shadow-hero); padding: 8px; z-index: 40;
+      opacity: 0; visibility: hidden; transform: translateY(-6px);
+      transition: opacity .12s ease, transform .12s ease, visibility .12s;
+    }
+    .sp-avatar-menu.is-open .sp-avatar-dropdown,
+    .sp-avatar-menu:hover .sp-avatar-dropdown { opacity: 1; visibility: visible; transform: translateY(0); }
+    .sp-avatar-dropdown-head { padding: 10px 12px 12px; border-bottom: 1px solid var(--sp-row); margin-bottom: 6px; }
+    .sp-avatar-dropdown-head .name { font: 700 14px/1.3 var(--font-body); color: var(--sp-ink); }
+    .sp-avatar-dropdown-head .email { font: 400 12.5px/1.3 var(--font-body); color: var(--sp-muted); margin-top: 2px; word-break: break-all; }
+    .sp-avatar-dropdown a {
+      display: block; padding: 10px 12px; border-radius: 8px; text-decoration: none;
+      font: 500 13.5px/1 var(--font-body); color: var(--sp-ink);
+    }
+    .sp-avatar-dropdown a:hover { background: var(--sp-row); }
+    .sp-avatar-dropdown a.danger { color: var(--danger-fg); font-weight: 600; }
+    .sp-avatar-dropdown a.danger:hover { background: var(--danger-bg); }
+
+    /* ------------------------------------------------------------ main */
+    .sp-main { padding: 36px 40px; display: flex; flex-direction: column; gap: 28px; }
+
+    .sp-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+    .sp-head-date { font: 500 13px/1 var(--font-body); color: var(--sp-muted); margin: 0 0 6px; }
+    .sp-head-row h1 { font: 650 24px/1.25 var(--font-sans); margin: 0; color: var(--sp-ink); }
+    .sp-head-sub { font: 400 14.5px/1.4 var(--font-body); color: var(--sp-sec); margin: 6px 0 0; }
+    .sp-btn-primary {
+      display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px;
+      border-radius: 12px; background: var(--sp-green); color: #fff; border: 0;
+      font: 650 14.5px/1 var(--font-sans); cursor: pointer; text-decoration: none;
+      box-shadow: 0 6px 16px rgba(30,122,79,.25); flex: none;
+    }
+    .sp-btn-primary svg { width: 16px; height: 16px; }
+    .sp-btn-primary:hover { filter: brightness(1.05); }
+
+    /* ---------------------------------------------------------- action strip */
+    .sp-action-strip {
+      display: flex; align-items: center; gap: 14px; background: var(--warn-bg);
+      border: 1px solid var(--warn-dot); border-radius: 14px; padding: 14px 18px;
+    }
+    .sp-action-strip-icon {
+      width: 40px; height: 40px; border-radius: 10px; background: var(--warn-bg);
+      display: flex; align-items: center; justify-content: center; flex: none; color: var(--warn-fg);
+    }
+    .sp-action-strip-icon svg { width: 20px; height: 20px; }
+    .sp-action-strip-title { font: 700 14.5px/1.3 var(--font-body); color: var(--warn-fg); margin: 0; }
+    .sp-action-strip-sub { font: 400 13px/1.4 var(--font-body); color: var(--warn-fg); margin: 3px 0 0; }
+    .sp-action-strip-btn {
+      margin-left: auto; flex: none; background: var(--warn-cta); color: #fff; border: 0;
+      height: 40px; padding: 0 18px; border-radius: 10px; font: 650 13.5px/1 var(--font-sans);
+      cursor: pointer; text-decoration: none; display: inline-flex; align-items: center;
+    }
+
+    /* ------------------------------------------------------------- kpis */
+    .sp-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    .sp-kpi-card {
+      background: var(--sp-card); border: 1px solid var(--sp-border); border-radius: 16px;
+      padding: 20px;
+    }
+    .sp-kpi-card.is-danger { background: var(--danger-bg); border-color: var(--danger-dot); }
+    .sp-kpi-label { font: 400 14px/1.4 var(--font-sans); color: var(--sp-muted); margin: 0 0 8px; }
+    .sp-kpi-value { font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--sp-ink); margin: 0; }
+    .sp-kpi-card.is-danger .sp-kpi-value { color: var(--danger-fg); }
+    .sp-kpi-context { font: 500 12.5px/1.4 var(--font-body); color: var(--sp-sec); margin: 8px 0 0; }
+    .sp-kpi-card.is-danger .sp-kpi-context { color: var(--danger-fg); }
+    .sp-kpi-context a { color: inherit; font-weight: 700; text-decoration: underline; }
+
+    /* --------------------------------------------------------- two-col */
+    .sp-grid-2 { display: grid; grid-template-columns: 1.55fr 1fr; gap: 20px; align-items: start; }
+    .sp-card {
+      background: var(--sp-card); border: 1px solid var(--sp-border); border-radius: 16px;
+      padding: 20px;
+    }
+    .sp-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .sp-card-head h3 { font: 600 18px/1.3 var(--font-sans); margin: 0; color: var(--sp-ink); }
+    .sp-card-head a.sp-see-all { font: 600 13px/1 var(--font-body); color: var(--sp-green); text-decoration: none; }
+    .sp-card-head a.sp-see-all:hover { text-decoration: underline; }
+
+    .sp-resp-row { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-top: 1px solid var(--sp-row); }
+    .sp-resp-row:first-of-type { border-top: 0; padding-top: 0; }
+    .sp-resp-main { flex: 1; min-width: 0; }
+    .sp-resp-po { font: 700 14px/1.3 var(--font-body); color: var(--sp-ink); }
+    .sp-resp-meta { font: 400 12.5px/1.4 var(--font-body); color: var(--sp-muted); margin-top: 2px; }
+    .sp-resp-total { font: 700 14.5px/1 var(--font-body); color: var(--sp-ink); flex: none; font-variant-numeric: tabular-nums; }
+    .sp-resp-btn {
+      flex: none; height: 38px; padding: 0 16px; border-radius: 9px; border: 0;
+      background: var(--sp-green); color: #fff; font: 650 13px/1 var(--font-sans);
+      cursor: pointer; text-decoration: none; display: inline-flex; align-items: center;
+    }
+    .sp-empty-note { font: 400 13.5px/1.5 var(--font-body); color: var(--sp-muted); padding: 4px 0; }
+
+    .sp-deliv-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--sp-row); }
+    .sp-deliv-row:first-of-type { border-top: 0; padding-top: 0; }
+    .sp-deliv-tile {
+      width: 52px; height: 56px; border-radius: 10px; flex: none; text-align: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: var(--ok-bg); color: var(--ok-fg);
+    }
+    .sp-deliv-tile.is-overdue { background: var(--danger-bg); color: var(--danger-fg); }
+    .sp-deliv-tile .mon { font: 700 11px/1 var(--font-body); text-transform: uppercase; letter-spacing: .03em; }
+    .sp-deliv-tile .day { font: 800 20px/1.3 var(--font-display); }
+    .sp-deliv-main { flex: 1; min-width: 0; }
+    .sp-deliv-po { font: 700 13.5px/1.3 var(--font-body); color: var(--sp-ink); }
+    .sp-deliv-note { font: 500 12px/1.4 var(--font-body); color: var(--sp-sec); margin-top: 2px; }
+    .sp-deliv-note.is-overdue { color: var(--danger-fg); }
+    .sp-deliv-note a { color: inherit; text-decoration: underline; }
+    .sp-deliv-amount { flex: none; font: 700 13.5px/1 var(--font-body); color: var(--sp-ink); font-variant-numeric: tabular-nums; }
+
+    .sp-pricebox {
+      margin-top: 14px; background: var(--green-50); border-radius: 12px; padding: 14px 16px;
+      display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap;
+    }
+    .sp-pricebox-title { font: 700 13.5px/1.3 var(--font-body); color: var(--sp-ink); }
+    .sp-pricebox-sub { font: 400 12.5px/1.4 var(--font-body); color: var(--sp-sec); margin-top: 2px; }
+    .sp-btn-outline {
+      flex: none; height: 36px; padding: 0 16px; border-radius: 9px; background: var(--sp-card);
+      border: 1px solid var(--sp-border); color: var(--sp-ink); font: 650 13px/1 var(--font-sans);
+      cursor: pointer; text-decoration: none; display: inline-flex; align-items: center;
+    }
+    .sp-btn-outline:hover { background: var(--sp-row); }
+
+    /* -------------------------------------------------------- order table */
+    .sp-pill-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .sp-pill-filter {
+      height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--sp-border);
+      background: var(--sp-card); color: var(--sp-ink); font: 600 13px/1 var(--font-body); cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center;
+    }
+    .sp-pill-filter.is-active { background: var(--sp-green); border-color: var(--sp-green); color: #fff; }
+
+    .sp-orders-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .sp-orders-table th {
+      text-align: left; font: 700 12px/1.2 var(--font-sans); letter-spacing: .04em;
+      text-transform: uppercase; color: var(--ink-500); background: var(--sp-thead);
+      padding: 11px 14px; border-bottom: 1px solid var(--sp-border);
+    }
+    .sp-orders-table th.num, .sp-orders-table td.num { text-align: right; }
+    .sp-orders-table th.end, .sp-orders-table td.end { text-align: right; }
+    .sp-orders-table td { padding: 14px; border-bottom: 1px solid var(--sp-row); vertical-align: top; font-size: 13.5px; }
+    .sp-order-po { font: 700 14px/1.3 var(--font-sans); color: var(--sp-ink); }
+    .sp-order-meta { font: 400 12.5px/1.4 var(--font-sans); color: var(--sp-muted); margin-top: 2px; }
+    .sp-order-total { font: 700 13.5px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
+    .sp-status-pill {
+      display: inline-flex; align-items: center; padding: 4px 11px; border-radius: 999px;
+      font: 600 13px/1.6 var(--font-sans); white-space: nowrap;
+    }
+    {% comment %}
+    Same 5 tints the buyer-side procurement pages use for these exact
+    Procurement statuses (templates/procurement/procurement_list.html /
+    procurement_detail.html): Received/Terms Agreed -> pill-ok, Incoming/
+    Approved -> pill-info (which is GREEN in this design system, not blue
+    — the old #e3eefc/#1d4f91 here was a genuine mismatch), Pending Owner/
+    Supplier Review -> pill-warn (what "Not confirmed" below maps to, since
+    it's this page's merged label for that same negotiation-in-progress
+    group), Cancelled -> pill-danger (the old #eceeec/#4a5650 gray here was
+    also a mismatch — the buyer side shows Cancelled in red).
+    {% endcomment %}
+    .sp-status-pending { background: var(--warn-bg); color: var(--warn-fg); }
+    .sp-status-incoming { background: var(--info-bg); color: var(--info-fg); }
+    .sp-status-overdue { background: var(--danger-bg); color: var(--danger-fg); }
+    .sp-status-delivered { background: var(--ok-bg); color: var(--ok-fg); }
+    .sp-status-cancelled { background: var(--danger-bg); color: var(--danger-fg); }
+    .sp-order-view { font: 700 13px/1 var(--font-body); color: var(--sp-green); text-decoration: underline; background: none; border: 0; cursor: pointer; }
+
+    .sp-order-detail td { padding: 0; border-bottom: 1px solid var(--sp-row); }
+    .sp-order-detail[hidden] { display: none; }
+    .sp-order-detail-body { padding: 4px 20px 22px; }
+    .sp-order-detail table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .sp-order-detail th { text-align: left; font: 600 11.5px/1 var(--font-body); color: var(--sp-muted); padding: 8px 6px; border-bottom: 1px solid var(--sp-row); text-transform: uppercase; letter-spacing: .03em; }
+    .sp-order-detail th.num, .sp-order-detail td.num { text-align: right; }
+    .sp-order-detail td { padding: 9px 6px; border-bottom: 1px solid var(--sp-row); font-size: 13.5px; }
+    .sp-confirm-box { margin-top: 14px; background: var(--sp-thead); border: 1px solid var(--sp-border); border-radius: 10px; padding: 16px 18px; }
+    .sp-confirm-box p { margin: 0 0 10px; font: 600 14px/1.3 var(--font-body); color: var(--sp-ink); }
+    .sp-confirm-box input[type="date"] { height: 40px; border-radius: 8px; border: 1px solid var(--sp-border); padding: 0 10px; font: 400 15px/1.4 var(--font-sans); }
+    .sp-confirm-box input[type="number"] { height: 36px; border-radius: 8px; border: 1px solid var(--sp-border); padding: 0 10px; width: 100px; text-align: right; font: 400 15px/1.4 var(--font-sans); }
+    .sp-confirm-btn {
+      margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px;
+      border-radius: 9px; background: var(--sp-green); color: #fff; border: 0; font: 650 13.5px/1 var(--font-sans); cursor: pointer;
+    }
+    .sp-order-empty { padding: 44px 20px; text-align: center; color: var(--sp-muted); font: 500 14px/1.5 var(--font-body); }
+
+    /* --------------------------------------------------------- returns */
+    .sp-plain-card { background: var(--sp-card); border: 1px solid var(--sp-border); border-radius: 16px; padding: 20px; }
+    .sp-plain-card h3 { font: 600 18px/1.3 var(--font-sans); margin: 0 0 2px; color: var(--sp-ink); }
+    .sp-plain-card .sub { font: 400 13.5px/1.4 var(--font-body); color: var(--sp-sec); margin: 0 0 14px; }
+
+    /* --------------------------------------------------------- pp modal
+       #pp-modal-scoped overrides only — .modal-card/.modal-head/.modal-body
+       stay gerlyn.css's own shared rules (other modals across every POV use
+       them), so every change here targets #pp-modal specifically instead of
+       touching those. The dialog is a flex column (already true of the
+       shared .modal-card) with overflow: hidden added so nothing —
+       including the footer, which used to reach the corners with negative
+       margins instead — can visually escape its own 16px-rounded edges.
+       Header/body/footer all share one 28px side padding so the toolbar,
+       the table, and the footer's content line up on the same left/right
+       edges. */
+    #pp-modal .modal-card { overflow: hidden; border-radius: 16px; }
+    #pp-modal .modal-head,
+    #pp-modal .modal-body { padding-left: 28px; padding-right: 28px; }
+    #pp-modal .modal-body { padding-top: 20px; padding-bottom: 24px; }
+    .sp-pp-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .sp-pp-search { flex: 1; min-width: 200px; position: relative; }
+    .sp-pp-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--sp-muted); }
+    .sp-pp-search input { width: 100%; height: 40px; border-radius: 9px; border: 1px solid var(--sp-border); padding: 0 12px 0 34px; font: 400 15px/1.4 var(--font-sans); }
+    .sp-pp-add-btn {
+      flex: none; height: 40px; padding: 0 16px; border-radius: 9px; border: 1.5px dashed var(--sp-green);
+      background: var(--sp-card); color: var(--sp-green); font: 650 13px/1 var(--font-sans); cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .sp-pp-add-btn svg { width: 14px; height: 14px; }
+    .sp-pp-table-wrap { max-height: 46vh; overflow-y: auto; border: 1px solid var(--sp-row); border-radius: 10px; }
+    /* One shared column template for header and rows, via <colgroup> +
+       table-layout: fixed (the <table> equivalent of the fix's grid-
+       template-columns) — .sp-pp-table--catalog is the 6-column
+       Product/Unit/Current/New/Status/Action table, .sp-pp-table--requests
+       the 5-column one (no "current vs new price" split there). */
+    .sp-pp-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .sp-pp-table th {
+      position: sticky; top: 0; text-align: left; font: 700 12px/1.2 var(--font-sans); letter-spacing: .04em;
+      text-transform: uppercase; color: var(--ink-500); background: var(--sp-thead);
+      padding: 14px 16px; border-bottom: 1px solid var(--sp-border); white-space: nowrap;
+    }
+    .sp-pp-table td { padding: 14px 16px; border-bottom: 1px solid var(--sp-row); font-size: 13.5px; vertical-align: middle; }
+    .sp-pp-table th.num, .sp-pp-table td.num { text-align: right; }
+    .sp-pp-table th.end, .sp-pp-table td.end { text-align: right; }
+    .sp-pp-price-input { width: 100%; height: 36px; border-radius: 7px; border: 1px solid var(--sp-border); padding: 0 8px; text-align: right; font: 400 15px/1.4 var(--font-sans); box-sizing: border-box; }
+    .sp-pp-row.is-hidden { display: none; }
+    .sp-pp-footer { margin: 0; padding: 16px 28px; border-top: 1px solid var(--line); background: var(--surface-2); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .sp-pp-footer p { margin: 0; font: 400 12.5px/1.4 var(--font-sans); color: var(--sp-muted); }
+    .sp-pp-footer .row { display: flex; gap: 10px; }
+
+    /* ------------------------------------------------------------- misc */
+    .sp-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+    {% block extra_style %}{% endblock %}
+
+    /* ---------------------------------------------------------- responsive */
+    @media (max-width: 1180px) {
+      .sp-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .sp-grid-2 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 900px) {
+      .sp-topbar { padding: 0 20px; }
+      .sp-main { padding: 24px 20px; }
+      .sp-search { display: none; }
+    }
+    /* <=860px: gerlyn.css's own breakpoint (`.sidebar { display: none; }`,
+       see that file) — the rail disappears entirely there exactly like
+       internal's, so navigation on phones goes through the same
+       .bottom-nav tab bar gerlyn.css already styles for that width,
+       reused here with the three supplier pages instead of the internal
+       module set. */
+    @media (max-width: 860px) {
+      .sp-main { padding-bottom: 90px; }
+    }
+    @media (max-width: 640px) {
+      .sp-kpi-grid { grid-template-columns: 1fr; }
+      .sp-head-row h1 { font-size: 24px; }
+      .sp-action-strip { flex-wrap: wrap; }
+      .sp-action-strip-btn { margin-left: 0; }
+      .sp-orders-table thead { display: none; }
+      .sp-orders-table td { display: block; padding: 6px 14px; }
+      .sp-orders-table tr.sp-order-row { display: block; padding: 10px 0; border-bottom: 1px solid var(--sp-row); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app" id="app">
+  {% comment %}
+  This IS internal_base.html's own sidebar shell — .sidebar/.sb-head/
+  .sb-logo/.sb-toggle/.sb-nav/.sb-item/.sb-item--active/.brand-mark are all
+  gerlyn.css's shared classes, unmodified, so colors/fonts/sizes/spacing/
+  the collapse toggle and its animation are pixel-identical to the internal
+  rail. logo.jpg is the same mark-on-its-own-green-square image internal's
+  sidebar uses (see that template's own comment on why, versus logo.png).
+  Only the brand subtitle, the three menu items, and the soft-circle badge
+  style (.sp-nav-badge, defined above — NOT internal's red .nav-badge) are
+  supplier-specific.
+  {% endcomment %}
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-head">
+      <div class="sb-logo">
+        <span class="brand-mark"><img src="{% static 'img/logo.jpg' %}" alt="GERLYN"></span>
+        <span class="sb-logo-text">
+          <span class="sb-label sb-logo-name">GERLYN</span>
+          <span class="sb-label sb-logo-sub">Supplier Portal</span>
+        </span>
+      </div>
+      <button type="button" class="sb-toggle" id="sidebarToggle" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+        <i data-lucide="chevron-left"></i>
+      </button>
+    </div>
+
+    {% comment %}
+    Three real pages/URLs now (procurement/urls.py: supplier_portal,
+    supplier_purchase_orders, supplier_deliveries), each its own view in
+    procurement/views.py — active state reads request.resolver_match.url_name
+    directly, no anchors/JS scroll-spy involved. No dropdown groups here
+    (unlike internal's Inventory/Procurement trees) — all three are
+    top-level .sb-item rows, same as internal's own Dashboard link.
+    {% endcomment %}
+    <nav class="sb-nav" aria-label="Primary">
+      <a class="sb-item{% if request.resolver_match.url_name == 'supplier_portal' %} sb-item--active{% endif %}" href="{% url 'supplier_portal' %}" title="Dashboard">
+        <i data-lucide="layout-dashboard"></i>
+        <span class="sb-label">Dashboard</span>
+      </a>
+      <a class="sb-item{% if request.resolver_match.url_name == 'supplier_purchase_orders' %} sb-item--active{% endif %}" href="{% url 'supplier_purchase_orders' %}" title="Purchase orders" data-badge="{% if counts.needs_action %}1{% endif %}">
+        <i data-lucide="file-text"></i>
+        <span class="sb-label">Purchase orders</span>
+        {% if counts.needs_action %}<span class="sp-nav-badge">{{ counts.needs_action }}</span>{% endif %}
+        <span class="sp-nav-dot" aria-hidden="true"></span>
+      </a>
+      <a class="sb-item{% if request.resolver_match.url_name == 'supplier_deliveries' %} sb-item--active{% endif %}" href="{% url 'supplier_deliveries' %}" title="Deliveries" data-badge="{% if deliveries_badge %}1{% endif %}">
+        <i data-lucide="truck"></i>
+        <span class="sb-label">Deliveries</span>
+        {% if deliveries_badge %}<span class="sp-nav-badge">{{ deliveries_badge }}</span>{% endif %}
+        <span class="sp-nav-dot" aria-hidden="true"></span>
+      </a>
+    </nav>
+
+    <div class="sp-help-card">
+      <h4>Questions about an order?</h4>
+      <p>Message Gerlyn purchasing directly from any PO.</p>
+      <a href="{% url 'supplier_account' %}">Contact purchasing</a>
+    </div>
+  </aside>
+
+  {% comment %}
+  <=860px: the sidebar above is display:none (gerlyn.css's own rule), so
+  this is the phone-width equivalent — the same .bottom-nav tab bar
+  gerlyn.css already styles for that width, not a new pattern.
+  {% endcomment %}
+  <nav class="bottom-nav" aria-label="Primary">
+    <a href="{% url 'supplier_portal' %}" class="{% if request.resolver_match.url_name == 'supplier_portal' %}active{% endif %}">
+      <i data-lucide="layout-dashboard"></i>Dashboard
+    </a>
+    <a href="{% url 'supplier_purchase_orders' %}" class="{% if request.resolver_match.url_name == 'supplier_purchase_orders' %}active{% endif %}">
+      <i data-lucide="file-text"></i>Orders
+      {% if counts.needs_action %}<span class="nav-badge">{{ counts.needs_action }}</span>{% endif %}
+    </a>
+    <a href="{% url 'supplier_deliveries' %}" class="{% if request.resolver_match.url_name == 'supplier_deliveries' %}active{% endif %}">
+      <i data-lucide="truck"></i>Deliveries
+      {% if deliveries_badge %}<span class="nav-badge">{{ deliveries_badge }}</span>{% endif %}
+    </a>
+  </nav>
+
+  <div class="main">
+    <header class="sp-topbar">
+      <span class="row" style="display:flex; align-items:center; gap:8px;">
+        {% comment %}
+        A quick jump to Purchase orders, filtered — the page-specific
+        "Filter by PO number" box on that page itself is what does the real
+        server-side filtering (see item 4 of the split-into-pages fix); this
+        one is for getting there from anywhere.
+        {% endcomment %}
+        <form class="sp-search" action="{% url 'supplier_purchase_orders' %}" method="GET">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" name="q" placeholder="Search PO number or product" aria-label="Search purchase orders">
+        </form>
+      </span>
+
+      <div class="sp-topbar-right">
+        <div class="notif-tray-anchor">
+          <a class="sp-bell" href="{% url 'supplier_notifications' %}" id="notifBell"
+             aria-haspopup="true" aria-expanded="false" title="Notifications" aria-label="Notifications">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            {% if notif_unread_count %}<span class="nav-badge" id="notifBadge"><span class="sp-sr-only">{{ notif_unread_count }} unread</span></span>{% endif %}
+          </a>
+          <div class="notif-tray" id="notifTray" role="dialog" aria-label="Notifications" aria-hidden="true">
+            <div class="notif-tray-head">
+              <h2>Notifications</h2>
+              <button type="button" class="notif-tray-markread" id="notifMarkAll"
+                      data-url="{% url 'supplier_notification_mark_all_read' %}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
+                Mark all read
+              </button>
+            </div>
+            <div class="notif-tray-list" id="notifList">
+              <div class="tray-empty">Loading…</div>
+            </div>
+            <div class="notif-tray-foot"><a href="{% url 'supplier_notifications' %}">See full list</a></div>
+          </div>
+          <div class="notif-tray-scrim" id="notifScrim"></div>
+        </div>
+
+        <div class="sp-avatar-menu" id="spAvatarMenu">
+          <button type="button" class="sp-avatar-btn" id="spAvatarBtn" aria-haspopup="true" aria-expanded="false" aria-label="Account menu">
+            {{ profile.supplier_name|default:request.user.username|first|upper }}
+          </button>
+          <div class="sp-avatar-dropdown" id="spAvatarDropdown">
+            <div class="sp-avatar-dropdown-head">
+              <div class="name">{{ profile.supplier_name|default:request.user.username }}</div>
+              <div class="email">{{ request.user.email }}</div>
+            </div>
+            <a href="{% url 'supplier_account' %}">Company profile</a>
+            <a href="{% url 'supplier_account' %}">Change password</a>
+            <a class="danger" href="{% url 'accounts:logout' %}">Log out</a>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="sp-main">
+      {% include "partials/_flash_modal.html" %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+{% comment %}
+"Products & pricing" modal — on every page (it's part of the shared shell),
+same endpoints as always: supplier_set_product_cost (per-row Save),
+supplier_product_self_add / supplier_product_request_add (the "+ Offer a
+new product" flow, its own focused modal below).
+{% endcomment %}
+<div class="modal-overlay" id="pp-modal">
+  <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="pp-modal-title">
+    <div class="modal-head">
+      <div>
+        <h2 id="pp-modal-title">Products &amp; pricing</h2>
+        <p class="gv-meta mb-0" style="margin-top:4px;">Update what you supply and your unit price. GERLYN reviews every price change before it applies to new POs.</p>
+      </div>
+      <button type="button" class="modal-close" onclick="closeModal('pp-modal')" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="sp-pp-toolbar">
+        <div class="sp-pp-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="ppSearch" placeholder="Search your products">
+        </div>
+        {% if available_products %}
+        <button type="button" class="sp-pp-add-btn" onclick="closeModal('pp-modal'); openModal('offer-product-modal');">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Offer a new product
+        </button>
+        {% endif %}
+      </div>
+
+      <div class="sp-pp-table-wrap">
+        <table class="sp-pp-table" id="ppTable">
+          {% comment %}
+          table-layout: fixed's equivalent of "minmax(0,2fr) 80px 120px 150px
+          150px 150px": the one <col> with no explicit width (Product) gets
+          whatever's left of the table's own width once the other five
+          fixed-px columns are subtracted — a plain length is the only
+          valid <col> width, there's no minmax()/fr for table columns.
+          {% endcomment %}
+          <colgroup>
+            <col><col style="width:80px;"><col style="width:120px;">
+            <col style="width:150px;"><col style="width:150px;"><col style="width:150px;">
+          </colgroup>
+          <thead>
+            <tr><th>Product</th><th>Unit</th><th class="num">Current price</th><th class="num">Your new price</th><th>Status</th><th class="end">Action</th></tr>
+          </thead>
+          <tbody>
+            {% for link in catalog_links %}
+            <tr class="sp-pp-row" data-name="{{ link.product.product_name|lower }}" data-status="{{ link.status }}">
+              <td><strong>{{ link.product.product_name }}</strong><div class="sp-order-meta">{{ link.supplier_sku|default:link.product.sku_code }}</div></td>
+              <td>{{ link.product.get_unit_of_measure_display }}</td>
+              <td class="num">{% if link.current_cost_price %}₱{{ link.current_cost_price|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td class="num">
+                <form method="POST" action="{% url 'supplier_set_product_cost' link.pk %}" id="cost-{{ link.pk|unlocalize }}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <input type="number" name="current_cost_price" min="0" step="0.01" required
+                         value="{{ link.current_cost_price|default_if_none:''|unlocalize }}"
+                         aria-label="Current unit cost for {{ link.product.product_name }}"
+                         class="sp-pp-price-input">
+                </form>
+              </td>
+              <td>{% include "partials/_offer_status_pill.html" with status=link.status %}</td>
+              <td class="end">
+                <span class="row-actions" style="display:inline-flex; gap:6px;">
+                  <button type="submit" form="cost-{{ link.pk|unlocalize }}" class="sp-resp-btn" style="height:36px; padding:0 10px; font-size:12px;">Save</button>
+                  <form method="POST" action="{% url 'supplier_product_self_remove' link.pk %}" style="display:inline;"
+                        data-confirm="{% if link.status == 'Approved' %}{{ link.product.product_name }} will no longer be on your catalog and can't be ordered from you. You can offer it again later.{% else %}This offer is withdrawn. You can offer the product again later.{% endif %}"
+                        data-confirm-title="{% if link.status == 'Approved' %}Remove this product?{% else %}Withdraw this offer?{% endif %}"
+                        data-confirm-variant="warn"
+                        data-confirm-ok="{% if link.status == 'Approved' %}Remove{% else %}Withdraw{% endif %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <button type="submit" class="sp-btn-outline" style="height:36px; padding:0 10px; font-size:12px; color:var(--danger-fg);" aria-label="Remove {{ link.product.product_name }}">{% if link.status == 'Approved' %}Remove{% else %}Withdraw{% endif %}</button>
+                  </form>
+                </span>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" style="text-align:center; padding:30px 12px; color:var(--sp-muted);">No products yet. Offer what you carry above, or Gerlyn can assign it from their side.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if product_requests %}
+      <h3 style="font:600 18px/1.3 var(--font-sans); margin:20px 0 10px;">Your product requests</h3>
+      <div class="sp-pp-table-wrap" style="max-height:220px;">
+        <table class="sp-pp-table">
+          <colgroup>
+            <col><col style="width:80px;"><col style="width:150px;">
+            <col style="width:150px;"><col style="width:150px;">
+          </colgroup>
+          <thead><tr><th>Requested product</th><th>Unit</th><th class="num">Your cost</th><th>Status</th><th class="end">Action</th></tr></thead>
+          <tbody>
+            {% for req in product_requests %}
+            <tr>
+              <td><strong>{{ req.product_name }}</strong></td>
+              <td>{{ req.unit_of_measure }}</td>
+              <td class="num">₱{{ req.proposed_cost|floatformat:2 }}</td>
+              <td>{% include "partials/_offer_status_pill.html" with status=req.status %}
+                {% if req.status == "Rejected" and req.review_note %}<div class="sp-order-meta">{{ req.review_note }}</div>{% endif %}</td>
+              <td class="end">
+                {% if req.status == "Pending" %}
+                <form method="POST" action="{% url 'supplier_product_request_withdraw' req.pk %}"
+                      data-confirm="Gerlyn will no longer see this request." data-confirm-title="Withdraw this request?"
+                      data-confirm-variant="warn" data-confirm-ok="Withdraw">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" class="sp-btn-outline" style="height:36px; padding:0 12px; font-size:12px; color:var(--danger-fg);">Withdraw</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+    <div class="sp-pp-footer">
+      <p>Changes are sent to GERLYN purchasing for approval.</p>
+      <div class="row">
+        <button type="button" class="sp-btn-outline" onclick="closeModal('pp-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+"Offer a new product" — its own small modal, same two forms/endpoints
+(supplier_product_self_add, supplier_product_request_add) the old page-flow
+version used. Opened from the "Products & pricing" modal's toolbar button.
+{% endcomment %}
+<div class="modal-overlay" id="offer-product-modal">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="offer-product-title" style="max-width:560px;">
+    <div class="modal-head">
+      <h2 id="offer-product-title">Offer a product</h2>
+      <button type="button" class="modal-close" onclick="closeModal('offer-product-modal')" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      {% if available_products %}
+      <form method="POST" action="{% url 'supplier_product_self_add' %}" class="stack" style="gap:14px;">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="field" style="margin:0;">
+          <label for="add-product">Product</label>
+          <select id="add-product" name="product" required>
+            <option value="">Choose a product</option>
+            {% for p in available_products %}
+              <option value="{{ p.id|unlocalize }}">{{ p.product_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="row wrap" style="gap:12px;">
+          <div class="field" style="margin:0;">
+            <label for="add-cost">Your unit cost (₱)</label>
+            <input id="add-cost" type="number" name="current_cost_price" min="0.01" step="0.01" required style="width:130px; text-align:right;">
+          </div>
+          <div class="field" style="margin:0;">
+            <label for="add-lead">Lead time (days)</label>
+            <input id="add-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Offer</button>
+      </form>
+      {% if products_narrowed %}
+      <p class="gv-meta mt-2 mb-0">Showing products in your category. <a href="?all_products=1">Show all products</a></p>
+      {% endif %}
+      {% else %}
+      <p class="gv-meta mb-0">
+        {% if products_narrowed %}Nothing left in your category to offer. <a href="?all_products=1">Show all products</a>.
+        {% else %}Every product in the list is already on your catalog.{% endif %}
+      </p>
+      {% endif %}
+
+      <details class="mt-4">
+        <summary class="strong" style="cursor:pointer;">Not in the list? Request a new product</summary>
+        <form method="POST" action="{% url 'supplier_product_request_add' %}" class="stack mt-4" style="gap:14px;">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <div class="field" style="margin:0;">
+            <label for="req-name">Product name</label>
+            <input id="req-name" type="text" name="product_name" maxlength="150" required>
+          </div>
+          <div class="row wrap" style="gap:12px;">
+            <div class="field" style="margin:0;">
+              <label for="req-unit">Unit</label>
+              <select id="req-unit" name="unit_of_measure" required>
+                {% for value, label in unit_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="req-cost">Your unit cost (₱)</label>
+              <input id="req-cost" type="number" name="proposed_cost" min="0.01" step="0.01" required style="width:130px; text-align:right;">
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="req-lead">Lead time (days)</label>
+              <input id="req-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
+            </div>
+          </div>
+          <div class="field" style="margin:0;">
+            <label for="req-note">Details <span class="gv-meta">— optional</span></label>
+            <input id="req-note" type="text" name="note" maxlength="300" placeholder="Brand, size, pack…">
+          </div>
+          <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Send request</button>
+        </form>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script src="{% static 'js/notification-tray.js' %}"></script>
+<script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
+<script>
+// ---------------------------------------------------------------- sidebar
+// Same collapse behaviour as internal_base.html's own sidebar.js (icon-only
+// rail, animated width, persisted across page loads) — deliberately a
+// small supplier-scoped copy rather than loading sidebar.js itself, which
+// also drives the internal rail's dropdown tree-groups, sliding hover
+// highlight and other internal-only DOM this page doesn't have. The one
+// real difference on purpose: a separate localStorage key, so a collapsed/
+// expanded choice here never reads from or writes to the internal user's
+// own preference.
+// lucide.js is loaded with `defer`, so it may not have run yet at this
+// point (this inline script isn't deferred) — DOMContentLoaded fires after
+// every deferred script has, same ordering internal_base.html relies on
+// for its own sidebar.js (also `defer`, also after lucide.js in document
+// order).
+document.addEventListener('DOMContentLoaded', function () {
+  if (window.lucide) lucide.createIcons();
+});
+(function () {
+  var app = document.getElementById('app');
+  var toggle = document.getElementById('sidebarToggle');
+  if (!app || !toggle) return;
+  var COLLAPSE_KEY = 'sp-nav-collapsed';
+  function applyCollapsed(isCollapsed) {
+    app.classList.toggle('sidebar-collapsed', isCollapsed);
+    toggle.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+    toggle.setAttribute('aria-label', isCollapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    toggle.setAttribute('title', isCollapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  }
+  var collapsed = false;
+  try { collapsed = localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (e) {}
+  applyCollapsed(collapsed);
+  toggle.addEventListener('click', function () {
+    var next = !app.classList.contains('sidebar-collapsed');
+    applyCollapsed(next);
+    try { localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch (e) {}
+  });
+})();
+
+// ------------------------------------------------------------ avatar menu
+var spAvatarMenu = document.getElementById('spAvatarMenu');
+var spAvatarBtn = document.getElementById('spAvatarBtn');
+spAvatarBtn.addEventListener('click', function (e) {
+  e.stopPropagation();
+  var open = spAvatarMenu.classList.toggle('is-open');
+  spAvatarBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
+document.addEventListener('click', function (e) {
+  if (!spAvatarMenu.contains(e.target)) {
+    spAvatarMenu.classList.remove('is-open');
+    spAvatarBtn.setAttribute('aria-expanded', 'false');
+  }
+});
+
+// Per-order detail row toggle — collapsed by default; expands the exact
+// same rich content (line items, negotiation/confirm-date forms) inline.
+// Used on Purchase orders and Deliveries, wherever a .sp-order-detail row
+// with this id exists on the current page.
+function respondTo(pk) {
+  var row = document.getElementById('po-detail-row-' + pk);
+  if (!row) return;
+  var isOpen = row.hasAttribute('hidden');
+  row.toggleAttribute('hidden', !isOpen);
+  if (isOpen) row.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+// ------------------------------------------------------------- pp search
+var ppSearch = document.getElementById('ppSearch');
+var ppTable = document.getElementById('ppTable');
+if (ppSearch && ppTable) {
+  ppSearch.addEventListener('input', function () {
+    var q = ppSearch.value.trim().toLowerCase();
+    ppTable.querySelectorAll('tr.sp-pp-row').forEach(function (row) {
+      var match = !q || (row.getAttribute('data-name') || '').indexOf(q) !== -1;
+      row.classList.toggle('is-hidden', !match);
+    });
+  });
+}
+// "N price pending review" — counted client-side from the same rows the
+// modal already renders, so it never needs a new backend field.
+(function () {
+  var pending = document.querySelectorAll('#ppTable .sp-pp-row[data-status="Pending"]').length;
+  var el = document.getElementById('pp-pending-count');
+  if (el) el.textContent = pending;
+})();
+
+// --------------------------------------------------------------- modals
+function openModal(id) {
+  document.getElementById(id).classList.add('is-open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('is-open');
+}
+document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) overlay.classList.remove('is-open');
+  });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.is-open').forEach(function (overlay) {
+      overlay.classList.remove('is-open');
+    });
+    spAvatarMenu.classList.remove('is-open');
+  }
+});
+{% block extra_script %}{% endblock %}
+</script>
+</body>
+</html>

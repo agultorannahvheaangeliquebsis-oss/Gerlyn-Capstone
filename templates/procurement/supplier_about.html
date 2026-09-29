@@ -1,0 +1,31 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>About — GERLYN</title>
+  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
+  <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
+  {% include "procurement/_supplier_portal_head.html" %}
+</head>
+<body>
+
+{% include "procurement/_supplier_portal_header.html" with active_page="about" %}
+
+<main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
+  {% include "partials/_flash_modal.html" %}
+
+  <h1 class="gv-page-title">Settings</h1>
+
+  <div class="account-grid">
+    {% include "procurement/_supplier_account_sidebar.html" %}
+    <div class="profile-sections">
+      {% include "accounts/_about_card.html" %}
+    </div>
+  </div>
+</main>
+
+<script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
+</body>
+</html>

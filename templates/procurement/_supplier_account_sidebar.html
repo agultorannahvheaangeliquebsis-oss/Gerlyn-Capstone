@@ -1,0 +1,62 @@
+{% load static %}
+{% comment %}
+Supplier equivalent of templates/accounts/_account_sidebar.html — same
+wrapper markup/classes (.account-sidebar, .account-nav-label, .account-nav-
+link, .account-nav-sep) so it matches the Customer rail exactly, but with
+only the items GerlynPLUS's permission matrix actually grants a Supplier:
+Dashboard, View Purchase Orders, View Deliveries, plus this account page
+for themselves. No My Orders, Saved Addresses, or Privacy & Data — those
+are Customer-only concepts (a shopping order history / shipping address
+book / self-deactivation) a Supplier account has no equivalent of.
+{% endcomment %}
+<aside class="account-sidebar">
+  <div class="account-nav-label">Work</div>
+  <a href="{% url 'supplier_portal' %}" class="account-nav-link{% if active_page == 'portal' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+    Purchase Orders
+  </a>
+  <a href="{% url 'supplier_notifications' %}" class="account-nav-link{% if active_page == 'notifications' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    Notifications
+    {% if notif_unread_count %}<span class="account-nav-count">{{ notif_unread_count }}</span>{% endif %}
+  </a>
+
+  <div class="account-nav-label">Account</div>
+  <a href="{% url 'supplier_account' %}" class="account-nav-link{% if active_page == 'account' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    My Profile
+  </a>
+  {% comment %}
+  Sessions is a card ON supplier_account.html (#sessions), not its own page
+  — Customer's Sessions is a separate accounts:sessions page, but that
+  template is locked to the storefront shell (public_base.html), so the
+  inline-card shape Internal's own Account Security already uses is what's
+  actually reusable here without landing a Supplier in the wrong chrome.
+  {% endcomment %}
+  <a href="{% url 'supplier_account' %}#sessions" class="account-nav-link{% if active_page == 'account' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+    Sessions
+  </a>
+
+  <div class="account-nav-label">Preferences &amp; Support</div>
+  <a href="{% url 'accounts:language' %}" class="account-nav-link{% if active_page == 'language' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    Language
+  </a>
+  <a href="{% url 'accounts:help_center' %}" class="account-nav-link{% if active_page == 'help_center' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    Help Center
+  </a>
+  <a href="{% url 'accounts:about' %}" class="account-nav-link{% if active_page == 'about' %} active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+    About
+  </a>
+
+  <div class="account-nav-sep"></div>
+
+  <div class="account-nav-label">Account Action</div>
+  <a href="{% url 'accounts:logout' %}" class="account-nav-link account-nav-link--danger">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Logout
+  </a>
+</aside>

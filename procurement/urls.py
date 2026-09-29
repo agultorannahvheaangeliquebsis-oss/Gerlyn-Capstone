@@ -45,8 +45,14 @@ urlpatterns = [
     path('deliveries/<int:pk>/add-unexpected/', views.delivery_add_unexpected,
          name='delivery_add_unexpected'),
 
-    # Supplier's own portal (role = SUPPLIER)
+    # Supplier's own portal (role = SUPPLIER) — three real pages sharing one
+    # sidebar+topbar shell (templates/procurement/supplier_base.html), kept
+    # under the existing portal/ prefix alongside supplier_account rather
+    # than a new top-level namespace.
     path('portal/', views.supplier_portal, name='supplier_portal'),
+    path('portal/purchase-orders/', views.supplier_purchase_orders,
+         name='supplier_purchase_orders'),
+    path('portal/deliveries/', views.supplier_deliveries, name='supplier_deliveries'),
     path('portal/account/', views.supplier_account, name='supplier_account'),
     path('portal/account/update/', views.supplier_account_update, name='supplier_account_update'),
     path('portal/<int:pk>/respond/', views.procurement_supplier_respond,

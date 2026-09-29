@@ -1,408 +1,206 @@
-{% load static l10n %}<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="csrf-token" content="{{ csrf_token }}">
-  <title>Supplier Portal — GERLYN</title>
-  <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
-  {% include "procurement/_supplier_portal_head.html" %}
-  <style>
-    /* Everything below is specific to THIS page (stat strip, tabs, tables,
-       confirm-date box) — the shared header chrome (brand/bell/who-name/
-       avatar/logout, plus its own responsive rules) now lives in
-       _supplier_portal_head.html, included above, so supplier_account.html
-       can use the identical header without a second hand-copy. */
+{% extends "procurement/supplier_base.html" %}
+{% load l10n %}
+{% block title %}Dashboard — Supplier Portal — GERLYN{% endblock %}
 
-    /* Stat cards: first one highlighted, the rest plain white/gray. */
-    .portal-wrap .stat-strip .stat { background: #fff; border: 1px solid #E3E8E4; border-radius: 10px; }
-    .portal-wrap .stat-strip .stat.stat-highlight {
-      position: relative; overflow: hidden; background: #F2F9F4; border-color: #227A4F;
-    }
-    .portal-wrap .stat-strip .stat.stat-highlight::before {
-      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-      background: #227A4F; border-radius: 10px 10px 0 0;
-    }
-    .portal-wrap .stat-strip .stat.stat-danger {
-      position: relative; overflow: hidden; background: #FDECEC; border-color: #D64545;
-    }
-    .portal-wrap .stat-strip .stat.stat-danger::before {
-      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-      background: #D64545; border-radius: 10px 10px 0 0;
-    }
-    .portal-wrap .stat-strip .stat.stat-danger .value { color: #B23B3B; }
+{% block extra_style %}
+/* Equal-height "Needs your response" / "Upcoming deliveries" cards — scoped
+   to .sp-grid-2, which only this page uses, so .sp-card everywhere else
+   (Purchase orders' table card, Deliveries' cards) keeps its own
+   shrink-to-content height. */
+.sp-grid-2 { align-items: stretch; }
+.sp-grid-2 .sp-card { height: 100%; display: flex; flex-direction: column; box-sizing: border-box; }
+.sp-card-rows { flex: none; }
+.sp-card-footer {
+  margin-top: auto; padding-top: 14px; border-top: 1px solid var(--sp-row);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font: 400 13px/1.4 var(--font-body); color: var(--sp-muted);
+}
+.sp-card-footer a { color: var(--sp-green); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.sp-card-footer a:hover { text-decoration: underline; }
+.sp-card-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: 4px; padding: 20px;
+}
+.sp-card-empty svg { width: 32px; height: 32px; color: var(--sp-green); margin-bottom: 6px; }
+.sp-card-empty .title { font: 700 14.5px/1.3 var(--font-body); color: var(--sp-ink); margin: 0; }
+.sp-card-empty .sub { font: 400 13px/1.4 var(--font-body); color: var(--sp-muted); margin: 0; }
+{% endblock %}
 
-    /* Status pills: same shared .pill-* tokens as the buyer-side Purchase
-       Orders page, just pill-shaped (20px) here and "To fulfil" recoloured
-       from the shared blue/teal info tint to the brand green — scoped to
-       .portal-wrap so the buyer-side page keeps its own tint. */
-    .portal-wrap .pill { border-radius: 20px; padding: 3px 10px; }
-    .portal-wrap .pill-info { background: #E4F3EA; color: #123D28; }
-
-    /* Delivery-date-not-confirmed badge: warning tint, same pill shape as the
-       status badges. Once confirmed, the bottom confirmation section is the
-       only place that shows the date — this badge just disappears rather
-       than duplicating it. Left margin keeps it off the "ordered {date}"
-       text before it. */
-    .portal-wrap .pill-pending { background: #FDF3E7; color: #8A5A15; margin-left: 8px; }
-
-    /* "Change date" / "Cancel": plain-button reset so they read as small
-       text links, not real buttons — secondary to the confirmed-date line
-       and the primary Confirm date action beside them. */
-    .portal-wrap .change-date-link {
-      background: none; border: 0; padding: 0; cursor: pointer;
-      color: #5B655F; font-size: 13px; font-weight: 600; text-decoration: underline;
-      font-family: inherit;
-    }
-    .portal-wrap .change-date-link:hover { color: #123D28; }
-
-    /* Confirm-delivery-date action box: an "action needed" panel, visually
-       separated from the read-only items table above it. Input and button
-       get matching 40px heights (min-height overridden — the shared
-       input[type=date] rule sets 44px) so they sit flush as one control. */
-    .portal-wrap .confirm-date-input {
-      height: 40px; min-height: 0; padding: 0 12px;
-      border: 1px solid #E3E8E4; border-radius: 7px;
-      background: #fff; max-width: 220px;
-    }
-    .portal-wrap .confirm-date-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      height: 40px; padding: 0 18px; border: 0; border-radius: 7px;
-      background: #1E7A4F; color: #fff; font-weight: 600; font-size: 14px;
-      box-shadow: 0 1px 2px rgba(18,61,40,.15); cursor: pointer;
-    }
-    .portal-wrap .confirm-date-btn:hover { background: #227A4F; }
-    .portal-wrap .confirm-date-btn svg { width: 14px; height: 14px; flex: none; }
-
-    /* Tabs: filled active state instead of the app-wide underline. */
-    .portal-wrap .filter-tabs { border-bottom: none; gap: 4px; }
-    .portal-wrap .filter-tab {
-      padding: 8px 14px; margin-bottom: 0; border: 0; border-radius: 8px 8px 0 0;
-      color: #5B655F;
-    }
-    .portal-wrap .filter-tab:hover { color: #1A1F1C; }
-    .portal-wrap .filter-tab.active { background: #E4F3EA; color: #123D28; }
-    /* Per-tab count: inherits the tab's own size/weight, just faded so it
-       doesn't compete with the label. */
-    .portal-wrap .filter-tab .tab-count { opacity: .6; }
-
-    /* Consistent card corners for this page. */
-    .portal-wrap .card { border-radius: 10px; }
-
-    /* ---------------------------------------------------------- responsive
-       Two explicit breakpoints so the page actually restructures instead of
-       just scaling down inside the centered .portal-wrap. */
-    @media (max-width: 720px) {
-      /* Header's own responsive rules (padding, portal-wrap, brand-sub/
-         who-role) live in _supplier_portal_head.html now — just this
-         page's own stuff here. */
-
-      /* 4 stat cards -> 2, instead of leaving auto-fit to pick a width. */
-      .portal-wrap .stat-strip { grid-template-columns: repeat(2, 1fr); }
-
-      /* PO number + status pills wrap instead of forcing the row to stay
-         on one line and overflowing. */
-      .portal-wrap .po-card-head { flex-wrap: wrap; }
-
-      /* Already true at every width via the shared .table-wrap rule, plus
-         the app-wide <=860px breakpoint already turns .gv-table into
-         stacked cards below this — restated here so the intent is explicit
-         on this page rather than inherited silently. */
-      .portal-wrap .table-wrap { overflow-x: auto; }
-    }
-
-    @media (max-width: 460px) {
-      /* 2 stat cards -> 1, full width. */
-      .portal-wrap .stat-strip { grid-template-columns: 1fr; }
-
-      .portal-wrap .page-head h1 { font-size: 19px; }
-
-      /* Confirm-delivery-date row: input and button stack full-width
-         instead of sitting side by side — both stay >=40px tall so they're
-         still comfortably tappable stacked. */
-      .portal-wrap .confirm-date-row { flex-direction: column; align-items: stretch; }
-      .portal-wrap .confirm-date-input,
-      .portal-wrap .confirm-date-btn { width: 100%; }
-    }
-  </style>
-</head>
-<body>
-
-{% include "procurement/_supplier_portal_header.html" with active_page="portal" %}
-
-<main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
-
-  {% include "partials/_flash_modal.html" %}
-
-  <div class="page-head">
-    <div>
-      <h1>Product Pricing</h1>
-      <p class="gv-meta mb-0">What you carry, and a reference cost for each — the actual price on a purchase order is agreed with Gerlyn when they place it.</p>
-    </div>
+{% block content %}
+<div class="sp-head-row">
+  <div>
+    <p class="sp-head-date">{% now "l, F j, Y" %}</p>
+    {% comment %}
+    Same wording/cutoffs as the Admin Dashboard's own greeting — see
+    procurement/views.py::_supplier_greeting for why it isn't the exact
+    same function call (reports/views.py::_dashboard_greeting has no seam
+    for a supplier's extra name fallback, and that file is out of scope).
+    {% endcomment %}
+    <h1>{{ greeting }}</h1>
+    <p class="sp-head-sub">Here is where your orders with GERLYN stand today.</p>
   </div>
+  <button type="button" class="sp-btn-primary" onclick="openModal('pp-modal')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 12.6 12.6 20.6a2 2 0 0 1-2.8 0l-8.8-8.8a2 2 0 0 1 0-2.8L9 0h8a4 4 0 0 1 4 4z" transform="translate(1 2)"/><circle cx="8" cy="8.5" r="1"/></svg>
+    Products &amp; pricing
+  </button>
+</div>
 
-  {% comment %}
-  P01 — a supplier offers what it carries; nothing is orderable until Gerlyn
-  approves it. Two ways in: a product already on the master list (a Proposed
-  offer with your cost) or one that isn't there yet (a request the Owner turns
-  into a real product).
-  {% endcomment %}
-  <div class="card card-pad mb-6">
-    <h3 class="mb-4">Offer a product</h3>
-    {% if available_products %}
-    <form method="POST" action="{% url 'supplier_product_self_add' %}" class="row wrap" style="gap:12px; align-items:flex-end;">
-      {% csrf_token %}
-      <div class="field grow" style="min-width:220px; margin:0;">
-        <label for="add-product">Product</label>
-        <select id="add-product" name="product" required>
-          <option value="">Choose a product</option>
-          {% for p in available_products %}
-            <option value="{{ p.id|unlocalize }}">{{ p.product_name }}</option>
-          {% endfor %}
-        </select>
+{% comment %}
+Action strip — entirely data-driven off counts.needs_action
+(Procurement.SUPPLIER_ACTION_STATUSES: Approved, Pending Supplier Review,
+Terms Agreed). Never shown at 0. "Review now" is a real link to Purchase
+orders, filtered, now that it's a real page.
+{% endcomment %}
+{% if counts.needs_action %}
+<div class="sp-action-strip">
+  <span class="sp-action-strip-icon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+  </span>
+  <div>
+    <p class="sp-action-strip-title">{{ counts.needs_action }} purchase order{{ counts.needs_action|pluralize }} {{ counts.needs_action|pluralize:"is,are" }} waiting on your response</p>
+    <p class="sp-action-strip-sub">Confirm a delivery date so GERLYN can plan stock for its branches.</p>
+  </div>
+  <a class="sp-action-strip-btn" href="{% url 'supplier_purchase_orders' %}?status=NeedsAction">Review now</a>
+</div>
+{% endif %}
+
+<div class="sp-kpi-grid">
+  <div class="sp-kpi-card">
+    <p class="sp-kpi-label">Open orders to fulfil</p>
+    <p class="sp-kpi-value">{{ open_count }}</p>
+    <p class="sp-kpi-context">{{ counts.needs_action }} need a response · {{ counts.incoming }} scheduled</p>
+  </div>
+  <div class="sp-kpi-card">
+    <p class="sp-kpi-label">Value of open orders</p>
+    <p class="sp-kpi-value">₱{{ open_value|floatformat:2 }}</p>
+    <p class="sp-kpi-context">Across {{ open_count }} purchase order{{ open_count|pluralize }}</p>
+  </div>
+  <div class="sp-kpi-card{% if overdue %} is-danger{% endif %}">
+    <p class="sp-kpi-label">Past delivery date</p>
+    <p class="sp-kpi-value">{{ overdue }}</p>
+    <p class="sp-kpi-context">{% if overdue %}<a href="{% url 'supplier_purchase_orders' %}?status=Overdue">Update delivery status</a>{% else %}Nothing overdue right now{% endif %}</p>
+  </div>
+  <div class="sp-kpi-card">
+    <p class="sp-kpi-label">Delivered &amp; received</p>
+    <p class="sp-kpi-value">{{ counts.received }}</p>
+    <p class="sp-kpi-context">Confirmed by GERLYN staff</p>
+  </div>
+</div>
+
+<div class="sp-grid-2">
+  <div class="sp-card">
+    <div class="sp-card-head">
+      <h3>Needs your response</h3>
+      <a class="sp-see-all" href="{% url 'supplier_purchase_orders' %}?status=NeedsAction">See all</a>
+    </div>
+    {% if needs_response_orders %}
+    <div class="sp-card-rows">
+      {% for o in needs_response_orders %}
+      <div class="sp-resp-row">
+        <div class="sp-resp-main">
+          <div class="sp-resp-po">{{ o.po_number }}</div>
+          <div class="sp-resp-meta">Placed {{ o.order_date|date:"Y-m-d" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }} · requested by {{ o.branch.branch_name }}</div>
+        </div>
+        <div class="sp-resp-total">₱{{ o.total_cost|floatformat:2 }}</div>
+        <a class="sp-resp-btn" href="{% url 'supplier_purchase_orders' %}?status=NeedsAction">
+          {% if o.status == 'Terms Agreed' %}Confirm{% else %}Respond{% endif %}
+        </a>
       </div>
-      <div class="field" style="margin:0;">
-        <label for="add-cost">Your unit cost (₱)</label>
-        <input id="add-cost" type="number" name="current_cost_price" min="0.01" step="0.01" required style="width:130px; text-align:right;">
-      </div>
-      <div class="field" style="margin:0;">
-        <label for="add-lead">Lead time (days)</label>
-        <input id="add-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
-      </div>
-      <button type="submit" class="btn btn-primary">Offer</button>
-    </form>
-    {% if products_narrowed %}
-    <p class="gv-meta mt-2 mb-0">Showing products in your category. <a href="?all_products=1">Show all products</a></p>
-    {% endif %}
+      {% endfor %}
+    </div>
+    <div class="sp-card-footer">
+      <span>{{ needs_response_orders|length }} of {{ counts.needs_action }} order{{ counts.needs_action|pluralize }} need your response</span>
+      <a href="{% url 'supplier_purchase_orders' %}?status=NeedsAction">View all purchase orders &rarr;</a>
+    </div>
     {% else %}
-    <p class="gv-meta mb-0">
-      {% if products_narrowed %}Nothing left in your category to offer. <a href="?all_products=1">Show all products</a>.
-      {% else %}Every product in the list is already on your catalog.{% endif %}
-    </p>
+    <div class="sp-card-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      <p class="title">You're all caught up</p>
+      <p class="sub">New purchase orders from GERLYN will show here.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="sp-card">
+    <div class="sp-card-head">
+      <h3>Upcoming deliveries</h3>
+      <a class="sp-see-all" href="{% url 'supplier_deliveries' %}">See all</a>
+    </div>
+    {% if upcoming_orders %}
+    <div class="sp-card-rows">
+      {% for o in upcoming_orders %}
+      <div class="sp-deliv-row">
+        <div class="sp-deliv-tile{% if o.delivery_date < today %} is-overdue{% endif %}">
+          <span class="mon">{{ o.delivery_date|date:"M" }}</span>
+          <span class="day">{{ o.delivery_date|date:"d" }}</span>
+        </div>
+        <div class="sp-deliv-main">
+          <div class="sp-deliv-po">{{ o.po_number }} · {{ o.branch.branch_name }}</div>
+          {% if o.delivery_date < today %}
+          <div class="sp-deliv-note is-overdue">{{ o.delivery_date|timesince:today }} late</div>
+          {% else %}
+          <div class="sp-deliv-note">Confirmed · in {{ o.delivery_date|timeuntil:today }}</div>
+          {% endif %}
+        </div>
+        <div class="sp-deliv-amount">₱{{ o.total_cost|floatformat:2 }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="sp-empty-note" style="text-align:center; padding:20px 0;">No deliveries scheduled</p>
     {% endif %}
 
-    <details class="mt-4">
-      <summary class="strong" style="cursor:pointer;">Not in the list? Request a new product</summary>
-      <form method="POST" action="{% url 'supplier_product_request_add' %}" class="row wrap mt-4" style="gap:12px; align-items:flex-end;">
-        {% csrf_token %}
-        <div class="field grow" style="min-width:220px; margin:0;">
-          <label for="req-name">Product name</label>
-          <input id="req-name" type="text" name="product_name" maxlength="150" required>
-        </div>
-        <div class="field" style="margin:0;">
-          <label for="req-unit">Unit</label>
-          <select id="req-unit" name="unit_of_measure" required>
-            {% for value, label in unit_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="field" style="margin:0;">
-          <label for="req-cost">Your unit cost (₱)</label>
-          <input id="req-cost" type="number" name="proposed_cost" min="0.01" step="0.01" required style="width:130px; text-align:right;">
-        </div>
-        <div class="field" style="margin:0;">
-          <label for="req-lead">Lead time (days)</label>
-          <input id="req-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
-        </div>
-        <div class="field grow" style="min-width:220px; margin:0;">
-          <label for="req-note">Details <span class="gv-meta">— optional</span></label>
-          <input id="req-note" type="text" name="note" maxlength="300" placeholder="Brand, size, pack…">
-        </div>
-        <button type="submit" class="btn btn-primary">Send request</button>
-      </form>
-    </details>
-  </div>
-
-  <div class="card table-wrap mb-6">
-    <table class="gv-table">
-      <thead>
-        <tr><th>Product</th><th>SKU</th><th>Status</th><th class="num">Current Unit Cost</th><th class="end">Action</th></tr>
-      </thead>
-      <tbody>
-        {% for link in catalog_links %}
-        <tr>
-          <td data-label="Product" class="strong">{{ link.product.product_name }}</td>
-          <td data-label="SKU" class="sku">{{ link.supplier_sku|default:link.product.sku_code }}</td>
-          <td data-label="Status">
-            {% include "partials/_offer_status_pill.html" with status=link.status %}
-            {% if link.status == "Rejected" and link.review_note %}<div class="gv-meta">{{ link.review_note }}</div>{% endif %}
-          </td>
-          <td data-label="Current Unit Cost" class="num">
-            <form method="POST" action="{% url 'supplier_set_product_cost' link.pk %}" id="cost-{{ link.pk|unlocalize }}">
-              {% csrf_token %}
-              <input type="number" name="current_cost_price" min="0" step="0.01" required
-                     value="{{ link.current_cost_price|default_if_none:''|unlocalize }}"
-                     aria-label="Current unit cost for {{ link.product.product_name }}"
-                     style="width:130px; text-align:right;">
-            </form>
-          </td>
-          <td data-label="Action" class="end">
-            <span class="row-actions">
-              <button type="submit" form="cost-{{ link.pk|unlocalize }}" class="btn btn-sm btn-primary">Save Cost</button>
-              {% comment %}confirm-dialog.js draws the modal off data-confirm. A product on one of your open orders is refused server-side and comes back as an error toast.{% endcomment %}
-              <form method="POST" action="{% url 'supplier_product_self_remove' link.pk %}" style="display:inline;"
-                    data-confirm="{% if link.status == 'Approved' %}{{ link.product.product_name }} will no longer be on your catalog and can't be ordered from you. You can offer it again later.{% else %}This offer is withdrawn. You can offer the product again later.{% endif %}"
-                    data-confirm-title="{% if link.status == 'Approved' %}Remove this product?{% else %}Withdraw this offer?{% endif %}"
-                    data-confirm-variant="warn"
-                    data-confirm-ok="{% if link.status == 'Approved' %}Remove{% else %}Withdraw{% endif %}">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-sm btn-danger" aria-label="Remove {{ link.product.product_name }}">{% if link.status == 'Approved' %}Remove{% else %}Withdraw{% endif %}</button>
-              </form>
-            </span>
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="5"><div class="empty">
-          <h3>No products yet</h3>
-          <p>Offer what you carry above, or Gerlyn can assign it from their side.</p>
-        </div></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% if product_requests %}
-  <div class="card table-wrap mb-6">
-    <table class="gv-table">
-      <thead>
-        <tr><th>Requested product</th><th>Unit</th><th class="num">Your cost</th><th>Status</th><th class="end">Action</th></tr>
-      </thead>
-      <tbody>
-        {% for req in product_requests %}
-        <tr>
-          <td data-label="Requested product" class="strong">{{ req.product_name }}</td>
-          <td data-label="Unit">{{ req.unit_of_measure }}</td>
-          <td data-label="Your cost" class="num">₱{{ req.proposed_cost|floatformat:2 }}</td>
-          <td data-label="Status">
-            {% include "partials/_offer_status_pill.html" with status=req.status %}
-            {% if req.status == "Rejected" and req.review_note %}<div class="gv-meta">{{ req.review_note }}</div>{% endif %}
-          </td>
-          <td data-label="Action" class="end">
-            {% if req.status == "Pending" %}
-            <form method="POST" action="{% url 'supplier_product_request_withdraw' req.pk %}" style="display:inline;"
-                  data-confirm="Gerlyn will no longer see this request."
-                  data-confirm-title="Withdraw this request?"
-                  data-confirm-variant="warn"
-                  data-confirm-ok="Withdraw">
-              {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-danger">Withdraw</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% comment %}
-  P17 - goods GERLYN is sending back. Acknowledge (you agree to take them
-  back) or reject with a reason; everything after that is the store's side.
-  {% endcomment %}
-  {% if supplier_returns %}
-  <div class="page-head">
-    <div>
-      <h1>Returns</h1>
-      <p class="gv-meta mb-0">Goods GERLYN wants to send back to you.</p>
-    </div>
-  </div>
-  <div class="card table-wrap mb-6">
-    <table class="gv-table">
-      <thead>
-        <tr><th>Return</th><th>Order</th><th>Goods</th><th>Reason</th><th>Status</th><th class="end">Action</th></tr>
-      </thead>
-      <tbody>
-        {% for r in supplier_returns %}
-        <tr>
-          <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
-          <td data-label="Order" class="sku">{{ r.procurement.po_number }}<div class="gv-meta">{{ r.branch.branch_name }}</div></td>
-          <td data-label="Goods">{% for item in r.items.all %}{{ item.product.product_name }} &times; {{ item.quantity_returned }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
-          <td data-label="Reason">{{ r.get_reason_display }}{% if r.notes %}<div class="gv-meta">{{ r.notes }}</div>{% endif %}</td>
-          <td data-label="Status">
-            {% include "partials/_return_status_pill.html" with status=r.status %}
-            {% if r.status == "Rejected" and r.supplier_note %}<div class="gv-meta">{{ r.supplier_note }}</div>{% endif %}
-            {% if r.status == "Settled" %}<div class="gv-meta">{{ r.resolution }}{% if r.credit_reference %} {{ r.credit_reference }}{% endif %}</div>{% endif %}
-          </td>
-          <td data-label="Action" class="end">
-            {% if r.status == "Requested" %}
-            <form method="POST" action="{% url 'supplier_return_respond' r.pk %}" class="row wrap" style="gap:8px; justify-content:flex-end;">
-              {% csrf_token %}
-              <input type="text" name="note" maxlength="200" placeholder="Reason, if rejecting" aria-label="Reason for rejecting {{ r.return_number }}" style="width:170px;">
-              <button type="submit" name="decision" value="acknowledge" class="btn btn-sm btn-primary">Acknowledge</button>
-              <button type="submit" name="decision" value="reject" class="btn btn-sm btn-danger">Reject</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  <div class="page-head">
-    <div>
-      <h1>Your Purchase Orders</h1>
-      <p class="gv-meta mb-0">Orders GERLYN has placed with you.</p>
-    </div>
-  </div>
-
-  <div class="stat-strip mb-6">
-    <div class="stat stat-highlight">
-      <div class="value">{{ open_count }}</div>
-      <div class="label">Open orders to fulfil</div>
-    </div>
-    <div class="stat">
-      <div class="value">₱{{ open_value|floatformat:2 }}</div>
-      <div class="label">Value of open orders</div>
-    </div>
-    <div class="stat{% if overdue %} stat-danger{% endif %}">
-      <div class="value">{{ overdue }}</div>
-      <div class="label">Past their delivery date</div>
-    </div>
-    <div class="stat">
-      <div class="value">{{ counts.received }}</div>
-      <div class="label">Delivered &amp; received</div>
-    </div>
-  </div>
-
-  {% comment %}
-  Same PO statuses as Purchase Orders, so the same glyphs and tints — the
-  supplier's "To fulfil" and the buyer's "Ordered" are one record.
-  {% endcomment %}
-  <div class="filter-tabs">
-    <a class="filter-tab {% if not status_filter %}active{% endif %}" href="?">All <span class="tab-count">({{ counts.all }})</span></a>
-    <a class="filter-tab {% if status_filter == 'Approved' %}active{% endif %}" href="?status=Approved">Approved <span class="tab-count">({{ counts.approved }})</span></a>
-    <a class="filter-tab {% if status_filter == 'Negotiating' %}active{% endif %}" href="?status=Negotiating">Negotiating <span class="tab-count">({{ counts.negotiating }})</span></a>
-    <a class="filter-tab {% if status_filter == 'Incoming' %}active{% endif %}" href="?status=Incoming">Incoming <span class="tab-count">({{ counts.incoming }})</span></a>
-    <a class="filter-tab {% if status_filter == 'Partially Received' %}active{% endif %}" href="?status=Partially%20Received">Partially Received <span class="tab-count">({{ counts.partially_received }})</span></a>
-    <a class="filter-tab {% if status_filter == 'Received' %}active{% endif %}" href="?status=Received">Delivered <span class="tab-count">({{ counts.received }})</span></a>
-    <a class="filter-tab {% if status_filter == 'Cancelled' %}active{% endif %}" href="?status=Cancelled">Cancelled <span class="tab-count">({{ counts.cancelled }})</span></a>
-  </div>
-
-  <div class="stack">
-    {% for o in orders %}
-    <div class="card card-pad">
-      <div class="row po-card-head" style="gap:10px;">
-        <span class="sku" style="font-weight:700; font-size:16px;">{{ o.po_number }}</span>
-        {% if o.status == 'Received' %}<span class="pill pill-ok">Delivered &amp; received</span>
-        {% elif o.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
-        {% elif o.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
-        {% elif o.status == 'Terms Agreed' %}<span class="pill pill-ok">Terms Agreed — confirm to proceed</span>
-        {% elif o.status == 'Pending Supplier Review' %}<span class="pill pill-warn">Your turn — respond</span>
-        {% elif o.status == 'Pending Owner Review' %}<span class="pill pill-warn">Waiting on {{ o.branch.branch_name }}</span>
-        {% elif o.status == 'Approved' %}<span class="pill pill-info">Propose terms</span>
-        {% elif o.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
-        {% else %}<span class="pill pill-info">To fulfil</span>{% endif %}
-        {% if o.receipt_flag == 'Discrepancy' %}<span class="pill pill-warn">Quantity discrepancy</span>{% endif %}
+    <div class="sp-pricebox" style="margin-top:auto;">
+      <div>
+        <div class="sp-pricebox-title">Your price list</div>
+        <div class="sp-pricebox-sub">{{ catalog_count }} product{{ catalog_count|pluralize }} offered · <span id="pp-pending-count">0</span> price pending review</div>
       </div>
-      <div class="gv-meta mt-2">
-        Deliver to <strong>{{ o.branch.branch_name }}</strong>
-        · ordered {{ o.order_date|date:"Y-m-d" }}
-        {% if o.delivery_date %}
-          {% if o.delivery_date < today and o.status == 'Incoming' %}
-            · due <strong style="color:var(--danger-fg);">{{ o.delivery_date|date:"Y-m-d" }} (overdue)</strong>
+      <button type="button" class="sp-btn-outline" onclick="openModal('pp-modal')">Manage</button>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+Recent orders — a preview only (latest 5, no filter pills); the full
+filterable/paginated table lives on supplier_purchase_orders now.
+{% endcomment %}
+<div class="sp-card">
+  <div class="sp-card-head">
+    <h3>Recent orders</h3>
+    <a class="sp-see-all" href="{% url 'supplier_purchase_orders' %}">View all purchase orders &rarr;</a>
+  </div>
+  {% if recent_orders %}
+  <div style="overflow-x:auto;">
+  <table class="sp-orders-table" style="margin-top:0;">
+    <thead>
+      <tr><th>Order</th><th>Branch</th><th class="num">Total</th><th>Status</th><th class="end">Action</th></tr>
+    </thead>
+    <tbody>
+      {% for o in recent_orders %}
+      <tr>
+        <td data-label="Order">
+          <div class="sp-order-po">{{ o.po_number }}</div>
+          <div class="sp-order-meta">{{ o.order_date|date:"Y-m-d" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }}</div>
+        </td>
+        <td data-label="Branch">{{ o.branch.branch_name }}</td>
+        <td data-label="Total" class="num sp-order-total">₱{{ o.total_cost|floatformat:2 }}</td>
+        <td data-label="Status">
+          {% if o.status == 'Cancelled' %}
+            <span class="sp-status-pill sp-status-cancelled">Cancelled</span>
+          {% elif o.status == 'Received' %}
+            <span class="sp-status-pill sp-status-delivered">Delivered</span>
+          {% elif o.status in awaiting_delivery_statuses %}
+            {% if o.delivery_date and o.delivery_date < today %}
+              <span class="sp-status-pill sp-status-overdue">Overdue</span>
+            {% elif o.delivery_date %}
+              <span class="sp-status-pill sp-status-incoming">Arriving {{ o.delivery_date|date:"M j" }}</span>
+            {% else %}
+              <span class="sp-status-pill sp-status-incoming">Incoming</span>
+            {% endif %}
+          {% else %}
+            <span class="sp-status-pill sp-status-pending">Not confirmed</span>
           {% endif %}
+<<<<<<< HEAD
         {% else %}
           <span class="pill pill-pending">Delivery date not confirmed</span>
         {% endif %}
@@ -529,14 +327,23 @@
       </div>
     </div>
     {% endfor %}
+=======
+        </td>
+        <td data-label="Action" class="end">
+          <a class="sp-order-view" href="{% url 'supplier_purchase_orders' %}">
+            {% if o.status in supplier_action_statuses %}Respond{% else %}View{% endif %}
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+>>>>>>> 08f18de (Supplier's acc redesigned)
   </div>
-
-  <p class="gv-meta mt-6" style="text-align:center;">
-    Deliveries are confirmed by store staff when the goods physically arrive.
-  </p>
-</main>
-
-<script src="{% static 'js/notification-tray.js' %}"></script>
-<script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
-</body>
-</html>
+  {% else %}
+  <div class="sp-order-empty">
+    <p><strong>No purchase orders yet.</strong><br>When GERLYN places an order with you, it appears here.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

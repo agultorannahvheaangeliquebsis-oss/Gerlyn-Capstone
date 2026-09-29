@@ -1,0 +1,184 @@
+{% extends "procurement/supplier_base.html" %}
+{% load l10n %}
+{% block title %}Deliveries — Supplier Portal — GERLYN{% endblock %}
+
+{% block extra_style %}
+.sp-mini-kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+/* Who received/filed each row — same shared text tokens as the rest of
+   this page's tables (var(--ink-900)/var(--ink-600)/var(--font-sans)),
+   just two new small rules since neither an identifying name+role line
+   nor a "not recorded" fallback had a class here yet. */
+.sp-received-name { font: 600 13.5px/1.3 var(--font-sans); color: var(--ink-900); }
+.sp-received-meta { font: 400 12.5px/1.4 var(--font-sans); color: var(--ink-600); margin-top: 2px; }
+.sp-received-empty { font: 400 13.5px/1.3 var(--font-sans); color: var(--ink-500); font-style: italic; }
+{% endblock %}
+
+{% block content %}
+<div class="sp-head-row">
+  <div>
+    <h1>Deliveries</h1>
+    <p class="sp-head-sub">Track what you are sending to GERLYN branches.</p>
+  </div>
+</div>
+
+<div class="sp-mini-kpi-grid">
+  <div class="sp-kpi-card{% if overdue %} is-danger{% endif %}">
+    <p class="sp-kpi-label">Overdue</p>
+    <p class="sp-kpi-value">{{ overdue }}</p>
+  </div>
+  <div class="sp-kpi-card">
+    <p class="sp-kpi-label">Scheduled this week</p>
+    <p class="sp-kpi-value">{{ scheduled_this_week }}</p>
+  </div>
+  <div class="sp-kpi-card{% if returns_awaiting %} is-danger{% endif %}">
+    <p class="sp-kpi-label">Returns to respond to</p>
+    <p class="sp-kpi-value">{{ returns_awaiting }}</p>
+  </div>
+</div>
+
+<div class="sp-card">
+  <div class="sp-card-head">
+    <h3>Scheduled &amp; overdue</h3>
+  </div>
+  {% if scheduled_orders %}
+  <div style="overflow-x:auto;">
+  <table class="sp-orders-table" style="margin-top:0;">
+    <tbody>
+      {% for o in scheduled_orders %}
+      <tr>
+        <td style="width:1%; white-space:nowrap;">
+          <div class="sp-deliv-tile{% if o.delivery_date < today %} is-overdue{% endif %}" style="margin:0;">
+            <span class="mon">{{ o.delivery_date|date:"M" }}</span>
+            <span class="day">{{ o.delivery_date|date:"d" }}</span>
+          </div>
+        </td>
+        <td>
+          <div class="sp-order-po">{{ o.po_number }} · {{ o.branch.branch_name }}</div>
+          {% if o.delivery_date < today %}
+          <div class="sp-deliv-note is-overdue">Overdue · {{ o.delivery_date|timesince:today }} late</div>
+          {% else %}
+          <div class="sp-deliv-note">Confirmed · in {{ o.delivery_date|timeuntil:today }}</div>
+          {% endif %}
+        </td>
+        <td class="num sp-order-total">₱{{ o.total_cost|floatformat:2 }}</td>
+        <td class="end">
+          <button type="button" class="sp-btn-outline" onclick="respondTo('{{ o.pk|unlocalize }}')">View</button>
+        </td>
+      </tr>
+      <tr class="sp-order-detail" id="po-detail-row-{{ o.pk|unlocalize }}" hidden>
+        <td colspan="4">
+          <div class="sp-order-detail-body">
+            {% include "procurement/_supplier_po_detail.html" with o=o next_url=request.get_full_path %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="sp-empty-note">No deliveries scheduled right now.</p>
+  {% endif %}
+</div>
+
+{% comment %}
+P17 — goods GERLYN is sending back. Moved here from the old single-page
+Dashboard, unchanged (Acknowledge/Reject with an optional reason).
+{% endcomment %}
+<div class="sp-plain-card">
+  <h3>Returns</h3>
+  <p class="sub">Items a branch sent back. Acknowledge, or reject with a reason.</p>
+  {% if supplier_returns %}
+  <div style="overflow-x:auto;">
+  <table class="sp-orders-table" style="margin-top:0;">
+    <thead>
+      <tr><th>Order</th><th>Goods</th><th>Reason</th><th>Status</th><th class="end">Action</th></tr>
+    </thead>
+    <tbody>
+      {% for r in supplier_returns %}
+      <tr>
+        <td>
+          <div class="sp-order-po">{{ r.procurement.po_number }}</div>
+          <div class="sp-order-meta">{{ r.branch.branch_name }} · {{ r.return_number }}</div>
+          {% if r.requested_by %}
+          <div class="sp-received-meta">Filed by {{ r.requested_by.first_name }} {{ r.requested_by.last_name|first }}. ({{ r.requested_by.get_role_display }})</div>
+          {% endif %}
+        </td>
+        <td>{% for item in r.items.all %}{{ item.product.product_name }} &times; {{ item.quantity_returned }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+        <td>{{ r.get_reason_display }}{% if r.notes %}<div class="sp-order-meta">{{ r.notes }}</div>{% endif %}</td>
+        <td>
+          {% include "partials/_return_status_pill.html" with status=r.status %}
+          {% if r.status == "Rejected" and r.supplier_note %}<div class="sp-order-meta">{{ r.supplier_note }}</div>{% endif %}
+          {% if r.status == "Settled" %}<div class="sp-order-meta">{{ r.resolution }}{% if r.credit_reference %} {{ r.credit_reference }}{% endif %}</div>{% endif %}
+        </td>
+        <td class="end">
+          {% if r.status == "Requested" %}
+          <form method="POST" action="{% url 'supplier_return_respond' r.pk %}" style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <input type="text" name="note" maxlength="200" placeholder="Reason, if rejecting" aria-label="Reason for rejecting {{ r.return_number }}" style="width:150px; height:34px; border-radius:7px; border:1px solid var(--sp-border); padding:0 8px;">
+            <button type="submit" name="decision" value="reject" class="sp-btn-outline" style="color:var(--danger-fg);">Reject</button>
+            <button type="submit" name="decision" value="acknowledge" class="sp-resp-btn">Acknowledge</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="sp-empty-note">No returns waiting on you right now.</p>
+  {% endif %}
+</div>
+
+<div class="sp-card">
+  <div class="sp-card-head">
+    <h3>Delivered</h3>
+  </div>
+  {% if delivered_orders %}
+  <div style="overflow-x:auto;">
+  <table class="sp-orders-table" style="margin-top:0;">
+    <thead>
+      <tr><th>Order</th><th>Branch</th><th>Received</th><th class="num">Total</th><th>Status</th><th class="end">Action</th></tr>
+    </thead>
+    <tbody>
+      {% for o in delivered_orders %}
+      {% with receipt=o.latest_receipts|first %}
+      <tr>
+        <td data-label="Order">
+          <div class="sp-order-po">{{ o.po_number }}</div>
+          <div class="sp-order-meta">{{ o.order_date|date:"Y-m-d" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }}</div>
+        </td>
+        <td data-label="Branch">{{ o.branch.branch_name }}</td>
+        <td data-label="Received">
+          {% if receipt and receipt.received_by %}
+          <div class="sp-received-name">{{ receipt.received_by.first_name }} {{ receipt.received_by.last_name|first }}. ({{ receipt.received_by.get_role_display }})</div>
+          <div class="sp-received-meta">{{ receipt.received_at|date:"Y-m-d" }} &middot; {{ receipt.received_at|time:"g:i A" }}</div>
+          {% else %}
+          <span class="sp-received-empty">Not recorded</span>
+          {% endif %}
+        </td>
+        <td data-label="Total" class="num sp-order-total">₱{{ o.total_cost|floatformat:2 }}</td>
+        <td data-label="Status"><span class="sp-status-pill sp-status-delivered">Delivered</span></td>
+        <td data-label="Action" class="end">
+          <button type="button" class="sp-order-view" onclick="respondTo('{{ o.pk|unlocalize }}')">View</button>
+        </td>
+      </tr>
+      <tr class="sp-order-detail" id="po-detail-row-{{ o.pk|unlocalize }}" hidden>
+        <td colspan="6">
+          <div class="sp-order-detail-body">
+            {% include "procurement/_supplier_po_detail.html" with o=o next_url=request.get_full_path %}
+          </div>
+        </td>
+      </tr>
+      {% endwith %}
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="sp-empty-note">Nothing delivered yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

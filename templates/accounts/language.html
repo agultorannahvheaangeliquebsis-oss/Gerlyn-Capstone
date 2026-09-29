@@ -27,35 +27,8 @@
     {% include "accounts/_account_sidebar.html" %}
 
     <!-- ── Right content ── -->
-    <div class="account-card">
-      <div class="account-card-head">
-        <span class="account-card-title">{% t "Language" %}</span>
-      </div>
-      <div class="account-card-body">
-        <p class="gv-meta" style="margin-bottom:16px;">{% t "Choose the language you'd like to use across the store." %}</p>
-
-        <form method="post">
-          {% csrf_token %}
-          <input type="hidden" name="language" id="language-input" value="{{ request.user.language }}">
-          <div class="type-pill-group" style="margin-bottom:20px;">
-            <button type="button" class="type-pill{% if request.user.language == 'en' %} is-selected{% endif %}" data-lang="en" onclick="selectLanguage(this)">{% t "English" %}</button>
-            <button type="button" class="type-pill{% if request.user.language == 'fil' %} is-selected{% endif %}" data-lang="fil" onclick="selectLanguage(this)">{% t "Filipino" %}</button>
-          </div>
-          <button type="submit" class="btn btn-primary">{% t "Save" %}</button>
-        </form>
-      </div>
-    </div>
+    {% include "accounts/_language_card.html" %}
 
   </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-function selectLanguage(btn) {
-  document.querySelectorAll('.type-pill').forEach(function (p) { p.classList.remove('is-selected'); });
-  btn.classList.add('is-selected');
-  document.getElementById('language-input').value = btn.dataset.lang;
-}
-</script>
 {% endblock %}

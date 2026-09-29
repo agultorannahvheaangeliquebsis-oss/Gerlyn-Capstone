@@ -4,8 +4,11 @@
 #   SECTION 2 — new DRF API views (what React calls)
 
 import io
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from functools import wraps
 
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
@@ -17,9 +20,10 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from django.db.models import Count, F, Q
+from django.db.models import Count, F, Prefetch, Q
 
 from xhtml2pdf import pisa
 
@@ -1013,7 +1017,7 @@ def procurement_supplier_respond(request, pk):
 
     if request.user.role != User.Role.SUPPLIER or proc.supplier_id != request.user.id:
         messages.error(request, 'That purchase order is not available to you.')
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
 
     action = request.POST.get('action')
 
@@ -1026,26 +1030,26 @@ def procurement_supplier_respond(request, pk):
                     request,
                     f'{locked.po_number} is not waiting on your acceptance.'
                 )
-                return redirect('supplier_portal')
+                return _supplier_next_redirect(request)
             locked.status = Procurement.Status.TERMS_AGREED
             locked.save(update_fields=['status'])
             messages.success(
                 request,
                 f'Terms agreed on {locked.po_number} — confirm below to start preparing it.'
             )
-            return redirect('supplier_portal')
+            return _supplier_next_redirect(request)
 
         if locked.status not in (
             Procurement.Status.APPROVED, Procurement.Status.PENDING_SUPPLIER_REVIEW,
         ):
             messages.error(request, f'{locked.po_number} is not open for a proposal.')
-            return redirect('supplier_portal')
+            return _supplier_next_redirect(request)
 
         parsed, errors = _read_proposed_terms(request, locked)
         if errors:
             for error in errors:
                 messages.error(request, error)
-            return redirect('supplier_portal')
+            return _supplier_next_redirect(request)
         delivery_date, costs = parsed
 
         was_countering = locked.status == Procurement.Status.PENDING_SUPPLIER_REVIEW
@@ -1064,7 +1068,7 @@ def procurement_supplier_respond(request, pk):
     from .notifications import notify_terms_for_buyer
 
     notify_terms_for_buyer(locked, request.user, countered=was_countering)
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 @login_required(login_url='accounts:login')
@@ -1138,13 +1142,13 @@ def procurement_supplier_confirm(request, pk):
 
     if request.user.role != User.Role.SUPPLIER or proc.supplier_id != request.user.id:
         messages.error(request, 'That purchase order is not available to you.')
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
 
     with transaction.atomic():
         locked = Procurement.objects.select_for_update().get(pk=pk)
         if locked.status != Procurement.Status.TERMS_AGREED:
             messages.error(request, f'{locked.po_number} is not ready to confirm.')
-            return redirect('supplier_portal')
+            return _supplier_next_redirect(request)
 
         try:
             apply_agreed_terms(locked)
@@ -1164,7 +1168,7 @@ def procurement_supplier_confirm(request, pk):
     from .notifications import notify_incoming_delivery
 
     notify_incoming_delivery(locked, request.user)
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 # =============================================================================
@@ -1715,38 +1719,108 @@ def delivery_add_unexpected(request, pk):
 # their own orders and can commit to a delivery date. They deliberately CANNOT
 # mark an order Received: that is the store's receipt validation (business
 # rule 13), and letting a supplier self-confirm would defeat the control.
+#
+# Three pages now (Dashboard / Purchase orders / Deliveries), each its own URL
+# and template, sharing one sidebar+topbar shell (templates/procurement/
+# supplier_base.html). The guard below and the two helpers after it are what
+# all three views (and nothing else) are built from, so the sidebar badges,
+# the Products & pricing modal, and the underlying order queryset can never
+# drift out of sync between pages the way hand-copying them three times
+# would eventually let happen.
 # =============================================================================
 
-@login_required(login_url='accounts:login')
-def supplier_portal(request):
-    if request.user.role != User.Role.SUPPLIER:
-        messages.error(request, 'Access denied.')
-        return redirect('accounts:home')
+def _supplier_only(view_func):
+    """Same guard the original single-page supplier_portal view used —
+    factored out so all three page views below share it verbatim rather
+    than each re-declaring the same three lines."""
+    @wraps(view_func)
+    @login_required(login_url='accounts:login')
+    def _wrapped(request, *args, **kwargs):
+        if request.user.role != User.Role.SUPPLIER:
+            messages.error(request, 'Access denied.')
+            return redirect('accounts:home')
+        return view_func(request, *args, **kwargs)
+    return _wrapped
 
-    # Drafts are internal: an order the Owner has not approved is not yet a
-    # commitment to this supplier and must not appear in their portal as one.
-    # Before C-1 nothing reachable was ever Draft, so an unfiltered queryset
-    # was safe here; now every Manager-raised PO starts there. The status tabs
-    # below (all/ordered/received/cancelled) have no Draft counterpart either,
-    # so an unexcluded draft would also make "all" disagree with its tabs.
-    orders = Procurement.objects.filter(
-        supplier=request.user
+
+def _supplier_next_redirect(request, fallback='supplier_portal'):
+    """Where a supplier POST (respond/confirm, save cost, offer a product,
+    acknowledge/reject a return, ...) sends them back to, now that those
+    actions can be submitted from any of the three portal pages instead of
+    always the one dashboard. Every such form carries a hidden `next` set to
+    the page it was submitted from (see the `next_url` passed into
+    _supplier_po_detail.html and each page's own forms); validated the same
+    way any external-redirect-target field must be, falling back to the
+    dashboard when absent or unsafe."""
+    next_url = request.POST.get('next') or request.GET.get('next')
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure(),
+    ):
+        return redirect(next_url)
+    return redirect(fallback)
+
+
+def _supplier_orders_qs(user):
+    """Base queryset every supplier page's order list/table is built from —
+    Drafts excluded (an order the Owner hasn't approved yet is not a
+    commitment to this supplier and must never appear in their portal)."""
+    return Procurement.objects.filter(
+        supplier=user
     ).exclude(
         status=Procurement.Status.DRAFT
     ).select_related('branch').prefetch_related('items__product').order_by('-order_date')
 
-    status_filter = request.GET.get('status', '')
+
+def _supplier_greeting(now, user, profile):
+    """Dashboard <h1> — same wording and time-of-day cutoffs as the Admin
+    (Owner/Manager/Staff) Dashboard's own greeting
+    (reports/views.py::_dashboard_greeting, rendered in
+    templates/reports/dashboard.html), so a supplier logging in sees the
+    same "Good morning/afternoon/evening, {name}!" convention instead of a
+    hardcoded phrase found nowhere else in the app. Not imported directly:
+    that function's name resolution (first name -> full name -> username)
+    has no seam for a supplier's one extra fallback below, and reaching
+    into reports/views.py to add one would mean touching the Admin
+    dashboard's own file, which this change is explicitly not to do. The
+    cutoffs (noon, 6pm) and the exact format string are kept byte-for-byte
+    identical on purpose.
+    """
+    hour = now.hour
+    if hour < 12:
+        part = 'morning'
+    elif hour < 18:
+        part = 'afternoon'
+    else:
+        part = 'evening'
+    # first name -> full name -> supplier/company name -> username. The
+    # extra rung Admin's own chain doesn't have: a supplier account is a
+    # company, not a person, so it usually has no first/last name at all.
+    name = (
+        user.first_name.strip() or user.get_full_name().strip()
+        or (profile.supplier_name if profile and profile.supplier_name else '')
+        or user.username
+    )
+    return f'Good {part}, {name}!'
+
+
+def _supplier_shared_context(request):
+    """Everything the shared shell (supplier_base.html) needs on every
+    page: sidebar badges, the avatar/greeting name, and the Products &
+    pricing modal's data. Split out of the old single-view supplier_portal
+    so the three page views below can't drift out of sync with each other —
+    each calls this once, then adds only what its own page needs beyond it.
+    """
+    user = request.user
+    today = timezone.now().date()
+
+    orders = _supplier_orders_qs(user)
     counts = {
         'all': orders.count(),
-        'approved': orders.filter(status=Procurement.Status.APPROVED).count(),
-        # Pending Owner/Supplier Review, Terms Agreed — one tab, see
-        # _procurement_list_context's matching tab for the buyer side.
-        'negotiating': orders.filter(
-            status__in=Procurement.NEGOTIATION_STATUSES
+        'needs_action': orders.filter(
+            status__in=Procurement.SUPPLIER_ACTION_STATUSES
         ).count(),
-        'incoming': orders.filter(status=Procurement.Status.INCOMING).count(),
-        'partially_received': orders.filter(
-            status=Procurement.Status.PARTIALLY_RECEIVED
+        'incoming': orders.filter(
+            status__in=Procurement.AWAITING_DELIVERY_STATUSES
         ).count(),
         'received': orders.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': orders.filter(status=Procurement.Status.CANCELLED).count(),
@@ -1764,6 +1838,8 @@ def supplier_portal(request):
     # Committed but not yet finished — includes the negotiation statuses now:
     # a PO mid-negotiation is exactly as "open" as one already Incoming, and
     # used to silently fall out of this count the moment it left Approved.
+    # Committed but not yet finished — includes the negotiation statuses:
+    # a PO mid-negotiation is exactly as "open" as one already Incoming.
     open_orders = [
         o for o in orders if o.status in Procurement.COMMITTED_OPEN_STATUSES
     ]
@@ -1772,13 +1848,17 @@ def supplier_portal(request):
         1 for o in open_orders if o.delivery_date and o.delivery_date < today
     )
 
-    if status_filter == 'Negotiating':
-        orders = orders.filter(status__in=Procurement.NEGOTIATION_STATUSES)
-    elif status_filter:
-        orders = orders.filter(status=status_filter)
+    # A real DB count now (status=Requested), not the client-side row-count
+    # the single-page version used — that only worked because the Returns
+    # table was guaranteed to be on the same page as the sidebar; now it
+    # lives on Deliveries only, so the Dashboard and Purchase orders pages
+    # need this number without rendering that table at all.
+    returns_awaiting = user.supplier_returns.filter(
+        status=SupplierReturn.Status.REQUESTED
+    ).count()
 
     catalog_links = SupplierProduct.objects.filter(
-        supplier=request.user
+        supplier=user
     ).select_related('product').order_by('product__product_name')
 
     # The "Offer a product" picker — Product Master List minus what this
@@ -1786,7 +1866,7 @@ def supplier_portal(request):
     # bounce off the unique constraint. When the supplier's category is linked
     # to product categories the list starts narrowed to those; ?all_products=1
     # widens it. A convenience only: any master-list product may be offered.
-    profile = getattr(request.user, 'supplier_profile', None)
+    profile = getattr(user, 'supplier_profile', None)
     available_products = Product.objects.exclude(
         pk__in=catalog_links.values_list('product_id', flat=True)
     ).order_by('product_name')
@@ -1800,27 +1880,138 @@ def supplier_portal(request):
             category_id__in=suggested_category_ids
         )
 
-    return render(request, 'procurement/supplier_portal.html', {
-        'orders': orders,
-        'catalog_links': catalog_links,
-        'available_products': available_products,
-        'products_narrowed': narrowed,
-        'supplier_returns': request.user.supplier_returns.select_related(
-            'procurement', 'branch',
-        ).prefetch_related('items__product')[:20],
-        'product_requests': request.user.product_requests.exclude(
-            status=SupplierProductRequest.Status.WITHDRAWN
-        )[:20],
-        'unit_choices': Product.UnitOfMeasure.choices,
+    return {
+        'greeting': _supplier_greeting(timezone.localtime(), user, profile),
         'counts': counts,
-        'status_filter': status_filter,
         'open_count': len(open_orders),
         'open_value': open_value,
         'overdue': overdue,
+        'returns_awaiting': returns_awaiting,
+        # One number for the Deliveries sidebar badge — overdue deliveries
+        # plus returns waiting on this supplier, exactly what item 2 of the
+        # nav-badge fix asked the badge to show, just server-computed now.
+        'deliveries_badge': overdue + returns_awaiting,
         'today': today,
-        'profile': getattr(request.user, 'supplier_profile', None),
-        'notif_unread_count': request.user.notifications.filter(is_read=False).count(),
+        'catalog_links': catalog_links,
+        'catalog_count': catalog_links.count(),
+        'available_products': available_products,
+        'products_narrowed': narrowed,
+        'product_requests': user.product_requests.exclude(
+            status=SupplierProductRequest.Status.WITHDRAWN
+        )[:20],
+        'unit_choices': Product.UnitOfMeasure.choices,
+        # Passed through so each page's own per-row checks (which order
+        # gets a red "(overdue)" label, which gets a primary "Respond"
+        # button vs. a plain "View" one) read the same sets this context's
+        # own counts/filters above are built from, rather than hand-copying
+        # the status list a third time.
+        'awaiting_delivery_statuses': Procurement.AWAITING_DELIVERY_STATUSES,
+        'supplier_action_statuses': Procurement.SUPPLIER_ACTION_STATUSES,
+        'profile': profile,
+        'notif_unread_count': user.notifications.filter(is_read=False).count(),
+    }
+
+
+@_supplier_only
+def supplier_portal(request):
+    """Dashboard — a summary only. The full filterable order table lives on
+    supplier_purchase_orders now, and the Returns table on
+    supplier_deliveries; this page just previews the top few of each."""
+    ctx = _supplier_shared_context(request)
+    orders = _supplier_orders_qs(request.user)
+    ctx.update({
+        'recent_orders': orders[:5],
+        'needs_response_orders': orders.filter(
+            status__in=Procurement.SUPPLIER_ACTION_STATUSES
+        )[:3],
+        'upcoming_orders': orders.filter(
+            status__in=Procurement.AWAITING_DELIVERY_STATUSES,
+            delivery_date__isnull=False,
+        ).order_by('delivery_date')[:3],
     })
+    return render(request, 'procurement/supplier_portal.html', ctx)
+
+
+@_supplier_only
+def supplier_purchase_orders(request):
+    """All of a supplier's purchase orders — the full table the Dashboard
+    used to carry, now with server-side filtering/search/pagination so a
+    Dashboard link (e.g. "Review now" -> ?status=NeedsAction) lands on the
+    right slice instead of a client-side filter the URL knows nothing
+    about."""
+    ctx = _supplier_shared_context(request)
+    orders = _supplier_orders_qs(request.user)
+
+    status_filter = request.GET.get('status', '')
+    if status_filter == 'NeedsAction':
+        orders = orders.filter(status__in=Procurement.SUPPLIER_ACTION_STATUSES)
+    elif status_filter == 'Incoming':
+        orders = orders.filter(status__in=Procurement.AWAITING_DELIVERY_STATUSES)
+    elif status_filter == 'Overdue':
+        orders = orders.filter(
+            status__in=Procurement.AWAITING_DELIVERY_STATUSES,
+            delivery_date__lt=ctx['today'],
+        )
+    elif status_filter:
+        orders = orders.filter(status=status_filter)
+
+    q = request.GET.get('q', '').strip()
+    if q:
+        orders = orders.filter(po_number__icontains=q)
+
+    paginator = Paginator(orders, 10)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    ctx.update({
+        'orders': page_obj,
+        'page_obj': page_obj,
+        'status_filter': status_filter,
+        'q': q,
+    })
+    return render(request, 'procurement/supplier_purchase_orders.html', ctx)
+
+
+@_supplier_only
+def supplier_deliveries(request):
+    """Everything about goods moving toward or back to GERLYN: scheduled
+    and overdue deliveries, returns awaiting this supplier's response
+    (moved here from the Dashboard), and recent delivered history."""
+    ctx = _supplier_shared_context(request)
+    orders = _supplier_orders_qs(request.user)
+
+    scheduled_orders = orders.filter(
+        status__in=Procurement.AWAITING_DELIVERY_STATUSES,
+        delivery_date__isnull=False,
+    ).order_by('delivery_date')
+    week_end = ctx['today'] + timedelta(days=7)
+    scheduled_this_week = scheduled_orders.filter(
+        delivery_date__gte=ctx['today'], delivery_date__lte=week_end,
+    ).count()
+
+    ctx.update({
+        'scheduled_orders': scheduled_orders,
+        # Prefetch with to_attr rather than plain 'receipts__received_by':
+        # a PO can have more than one DeliveryReceipt (partial shipments),
+        # and the template needs the most recent one — QuerySets (even a
+        # prefetched relation's own .all()) reject negative indexing
+        # (`|last` failed with "Negative indexing is not supported"), but
+        # to_attr caches a plain Python list, which index/slice freely.
+        # Ordered newest-first so the template just takes .0.
+        'delivered_orders': orders.filter(
+            status=Procurement.Status.RECEIVED
+        ).prefetch_related(
+            Prefetch(
+                'receipts',
+                queryset=DeliveryReceipt.objects.select_related('received_by').order_by('-received_at'),
+                to_attr='latest_receipts',
+            ),
+        )[:20],
+        'scheduled_this_week': scheduled_this_week,
+        'supplier_returns': request.user.supplier_returns.select_related(
+            'procurement', 'branch', 'requested_by',
+        ).prefetch_related('items__product')[:20],
+    })
+    return render(request, 'procurement/supplier_deliveries.html', ctx)
 
 
 # =============================================================================
@@ -1861,6 +2052,8 @@ def _supplier_account_context(request):
     """Context for supplier_account.html — shared by the GET view and
     supplier_account_update's error path, the same split
     _internal_settings_context/update_profile use for their own pages."""
+    from accounts.services import get_active_sessions
+
     user = request.user
     profile = user.get_or_create_role_profile()
     return {
@@ -1869,9 +2062,25 @@ def _supplier_account_context(request):
         'pending_email': user.pending_email,
         'is_email_verified': user.is_email_verified,
         'initials': user.get_initials(),
+        'avatar_url': user.avatar.url if user.avatar else None,
         'profile': profile,
         'two_factor_enabled': user.two_factor_enabled,
         'notif_unread_count': user.notifications.filter(is_read=False).count(),
+        'active_page': 'account',
+        # Hero stat tile — this supplier's own PO count, the Supplier-side
+        # equivalent of Customer's "Total Orders" tile. Drafts excluded for
+        # the same reason supplier_portal's own list excludes them: a PO the
+        # Owner hasn't approved yet isn't a commitment to this supplier, so
+        # it was never really "theirs" to count.
+        'purchase_order_count': Procurement.objects.filter(
+            supplier=user
+        ).exclude(status=Procurement.Status.DRAFT).count(),
+        # Sessions card — get_active_sessions is the same role-agnostic
+        # service _internal_settings_context uses; session_revoke/
+        # session_logout_all_others already exist and now redirect back
+        # here via _sessions_redirect's own SUPPLIER branch.
+        'sessions': get_active_sessions(user),
+        'current_session_key': request.session.session_key,
     }
 
 
@@ -1968,14 +2177,14 @@ def supplier_set_product_cost(request, link_pk):
         link.full_clean(exclude=['supplier', 'product'])
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
 
     link.save(update_fields=['current_cost_price'])
     messages.success(
         request,
         f'Current cost for {link.product.product_name} updated.'
     )
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 # =============================================================================
@@ -2510,14 +2719,14 @@ def supplier_product_self_add(request):
     product_id = request.POST.get('product')
     if not product_id:
         messages.error(request, 'Choose a product to add.')
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
 
     product = get_object_or_404(Product, pk=product_id)
     try:
         cost = _clean_offer_cost(request.POST.get('current_cost_price'))
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
     lead = _safe_nonneg_int(request.POST.get('lead_time_days'))
 
     with transaction.atomic():
@@ -2550,7 +2759,7 @@ def supplier_product_self_add(request):
         messages.info(request, f'{product.product_name} is already awaiting approval.')
     else:
         messages.info(request, f'{product.product_name} is already on your catalog.')
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 @login_required(login_url='accounts:login')
@@ -2576,7 +2785,7 @@ def supplier_product_self_remove(request, link_pk):
         pass  # double-submit: already gone
     else:
         messages.success(request, f'{name} removed from your catalog.')
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 @login_required(login_url='accounts:login')
@@ -2594,28 +2803,28 @@ def supplier_product_request_add(request):
     unit = request.POST.get('unit_of_measure', '')
     if not name or len(name) > 150:
         messages.error(request, 'Enter the product name (150 characters max).')
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
     if unit not in Product.UnitOfMeasure.values:
         messages.error(request, 'Choose a unit for the product.')
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
     try:
         cost = _clean_offer_cost(request.POST.get('proposed_cost'))
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
     if Product.objects.filter(product_name__iexact=name).exists():
         messages.error(
             request,
             f'"{name}" is already in the product list — offer it from '
             f'"Offer a product" instead.',
         )
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
     if SupplierProductRequest.objects.filter(
         supplier=request.user, product_name__iexact=name,
         status=SupplierProductRequest.Status.PENDING,
     ).exists():
         messages.info(request, f'You already have a pending request for "{name}".')
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
 
     SupplierProductRequest.objects.create(
         supplier=request.user, product_name=name, unit_of_measure=unit,
@@ -2625,7 +2834,7 @@ def supplier_product_request_add(request):
     )
     notify_offer_for_review(request.user, name, new_product=True)
     messages.success(request, f'Request for "{name}" sent to Gerlyn for review.')
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 @login_required(login_url='accounts:login')
@@ -2641,11 +2850,11 @@ def supplier_product_request_withdraw(request, req_pk):
         )
         if req.status != SupplierProductRequest.Status.PENDING:
             messages.error(request, 'That request was already decided.')
-            return redirect('supplier_portal')
+            return _supplier_next_redirect(request)
         req.status = SupplierProductRequest.Status.WITHDRAWN
         req.save(update_fields=['status'])
     messages.success(request, f'Request for "{req.product_name}" withdrawn.')
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 @login_required(login_url='accounts:login')
@@ -3337,14 +3546,14 @@ def supplier_return_respond(request, pk):
         )
     except ReturnError as exc:
         messages.error(request, str(exc))
-        return redirect('supplier_portal')
+        return _supplier_next_redirect(request)
 
     notify_return_response(updated, acknowledged=acknowledge)
     messages.success(
         request,
         f'{updated.return_number} {"acknowledged" if acknowledge else "rejected"}.',
     )
-    return redirect('supplier_portal')
+    return _supplier_next_redirect(request)
 
 
 class SupplierProductListAPIView(APIView):

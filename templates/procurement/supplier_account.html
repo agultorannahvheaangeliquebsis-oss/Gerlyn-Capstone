@@ -4,288 +4,407 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <title>My Account — GERLYN</title>
+  <title>Settings — GERLYN</title>
   <link rel="stylesheet" href="{% static 'css/gerlyn.css' %}?v={{ APP_VERSION }}">
   <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
   {% include "procurement/_supplier_portal_head.html" %}
-  <style>
-    /* This page's own content is a single centered column of account.css
-       cards (.account-card / .card.card-pad) — same components
-       internal_settings.html uses for its own "Your account" group, just
-       without that page's sidebar/internal chrome around them. */
-    .supplier-account-wrap { max-width: 640px; margin: 0 auto; }
-  </style>
 </head>
 <body>
 
 {% include "procurement/_supplier_portal_header.html" with active_page="account" %}
 
-<main class="portal-wrap supplier-account-wrap" style="padding-top:24px; padding-bottom:48px;">
+<main class="portal-wrap" style="padding-top:24px; padding-bottom:48px;">
+  {% include "partials/_flash_modal.html" %}
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="banner banner-{{ message.tags|default:'info' }}">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
+  <h1 class="gv-page-title">Settings</h1>
 
-  <h1 class="gv-page-title">My Account</h1>
+  <div class="account-grid">
 
-  <div class="account-card">
-    <div class="profile-hero">
-      <div class="profile-avatar-wrap">
-        <div class="profile-avatar">{{ profile.supplier_name|default:username|first|upper }}</div>
+    {% include "procurement/_supplier_account_sidebar.html" %}
+
+    <!-- ── Right content ── -->
+    <div class="profile-sections">
+
+      {% comment %}
+        Pending email notice — same placement/wording as Customer's own
+        profile.html, shown above the hero rather than inside the My
+        Profile card so it reads as account-wide status, not a field note.
+      {% endcomment %}
+      {% if pending_email %}
+      <div class="banner banner-info">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex:none;margin-top:2px;"><path d="M4 4h16v16H4z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <span>A verification link was sent to <strong>{{ pending_email }}</strong>. Click it to complete your email change.</span>
       </div>
-      <div class="profile-hero-info">
-        <p class="profile-hero-name">{{ profile.supplier_name|default:username }}</p>
-        <p class="profile-hero-email">{% if email %}{{ email }}{% else %}No email address yet{% endif %}</p>
-        <div class="profile-hero-meta">
-          <span class="role-pill">Supplier</span>
-        </div>
-      </div>
-    </div>
+      {% endif %}
 
-    <div class="account-card-head">
-      <span class="account-card-title">My Profile</span>
-      <button type="button" class="btn btn-sm btn-quiet" id="myprofile-toggle-btn" onclick="toggleMyProfileForm()" style="color:var(--action);">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        Edit
-      </button>
-    </div>
+      <!-- ── Hero card ── -->
+      <div class="account-card" style="border-radius: var(--r-card);">
 
-    <!-- View mode -->
-    <div class="account-card-body" id="myprofile-view" style="display:{% if errors %}none{% else %}block{% endif %};">
-      <div class="info-grid">
-        <div class="info-field">
-          <label>Username</label>
-          <div class="val">@{{ username }}</div>
-        </div>
-        <div class="info-field">
-          <label>Contact Person</label>
-          <div class="val">
-            {% if profile.contact_person %}{{ profile.contact_person }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
-          </div>
-        </div>
-        <div class="info-field">
-          <label>Mobile Number</label>
-          <div class="val">
-            {% if profile.contact_number %}{{ profile.contact_number }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
-          </div>
-        </div>
-        <div class="info-field">
-          <label>Email Address</label>
-          <div class="val">
-            {% if email %}
-              {{ email }}
-              {% if is_email_verified %}
-                <span class="pill pill-ok">Verified</span>
+        <!-- Avatar upload form (hidden input, triggered by pencil button) —
+             reuses accounts:update_avatar as-is: it's role-agnostic already
+             and _profile_redirect already lands a Supplier back here. -->
+        <form method="post" action="{% url 'accounts:update_avatar' %}" enctype="multipart/form-data" id="avatar-form">
+          {% csrf_token %}
+          <input type="file" name="avatar" id="avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none;">
+        </form>
+
+        <div class="profile-hero">
+          <div class="profile-avatar-wrap">
+            <div class="profile-avatar">
+              {% if avatar_url %}
+                <img src="{{ avatar_url }}" alt="{{ profile.supplier_name|default:username }}">
               {% else %}
-                <span class="pill pill-neutral">Unverified</span>
+                {{ initials }}
               {% endif %}
-            {% else %}
-              <span style="color:var(--ink-400);">Not set</span>
-            {% endif %}
-            {% if pending_email %}<div class="pending-notice">Pending: {{ pending_email }}</div>{% endif %}
+            </div>
+            <button type="button" class="avatar-upload-btn" onclick="document.getElementById('avatar-input').click()" title="Change photo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+          </div>
+          <div class="profile-hero-info">
+            <p class="profile-hero-name">{{ profile.supplier_name|default:username }}</p>
+            <p class="profile-hero-email">{% if email %}{{ email }}{% else %}No email address yet{% endif %}</p>
+            <div class="profile-hero-meta">
+              <span class="role-pill">Supplier</span>
+              <span class="member-since">Member since {{ request.user.date_joined|date:"F Y" }}</span>
+            </div>
           </div>
         </div>
-        <div class="info-field" style="grid-column: 1 / -1;">
-          <label>Address</label>
-          <div class="val">
-            {% if profile.address %}{{ profile.address }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Edit mode -->
-    <div class="edit-form {% if errors %}is-open{% endif %}" id="myprofile-form">
-      <form method="post" action="{% url 'supplier_account_update' %}">
-        {% csrf_token %}
-        <div class="edit-grid">
-          <div class="field">
-            <label for="sa_username">Username</label>
-            <input type="text" id="sa_username" name="username"
-              value="{{ username }}"
-              class="{% if errors.username %}is-invalid{% endif %}">
-            {% if errors.username %}<div class="field-err">{{ errors.username }}</div>{% endif %}
-          </div>
-          <div class="field">
-            <label for="sa_contact_person">Contact Person</label>
-            <input type="text" id="sa_contact_person" name="contact_person"
-              value="{{ profile.contact_person }}">
-          </div>
-          <div class="field">
-            <label for="sa_contact_number">Mobile Number</label>
-            <input type="tel" id="sa_contact_number" name="contact_number"
-              value="{{ profile.contact_number }}"
-              placeholder="+63 9XX XXX XXXX"
-              class="{% if errors.contact_number %}is-invalid{% endif %}">
-            {% if errors.contact_number %}<div class="field-err">{{ errors.contact_number }}</div>{% endif %}
-          </div>
-          <div class="field">
-            <label for="sa_email">Email Address</label>
-            <input type="email" id="sa_email" name="email"
-              value="{{ email }}"
-              class="{% if errors.email %}is-invalid{% endif %}">
-            {% if errors.email %}
-              <div class="field-err">{{ errors.email }}</div>
-            {% else %}
-              <div class="gv-meta" style="margin-top:4px;">Changing your email will send a verification link to the new address.</div>
-            {% endif %}
-          </div>
-          <div class="field" style="grid-column: 1 / -1;">
-            <label for="sa_address">Address</label>
-            <textarea id="sa_address" name="address" rows="2">{{ profile.address }}</textarea>
-          </div>
-        </div>
-        <div class="edit-actions">
-          <button type="button" class="btn btn-sm" onclick="toggleMyProfileForm()">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary">Save changes</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  {% comment %}
-    Business details — supplier_name/supplier_category/branch. Read-only
-    here on purpose (see procurement/views.py::supplier_account's own
-    comment for why): these are how the store looks this account up across
-    POs/products/branch dropdowns, not private contact details, so changing
-    them stays an Owner/staff action through Suppliers > Edit, the same way
-    a Branch Manager/Staff account can't reassign its own `branch` either.
-  {% endcomment %}
-  <div class="card card-pad">
-    <div class="settings-card-title">
-      Business Details
-    </div>
-    <p class="gv-meta settings-card-note">Managed by your store administrator — contact them to change any of this.</p>
-    <div class="info-grid">
-      <div class="info-field">
-        <label>Business Name</label>
-        <div class="val">{{ profile.supplier_name|default:"—" }}</div>
-      </div>
-      <div class="info-field">
-        <label>Category</label>
-        <div class="val">{{ profile.supplier_category|default:"—" }}</div>
-      </div>
-      <div class="info-field">
-        <label>Branch</label>
-        <div class="val">{{ profile.branch|default:"All branches" }}</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card card-pad">
-    <div class="settings-card-title">
-      Account Security
-    </div>
-    <p class="gv-meta settings-card-note">Your password and two-factor authentication.</p>
-
-    <!-- Password -->
-    <div class="security-item">
-      <div class="security-item-info">
-        <div class="security-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-        <div>
-          <div class="security-item-label">Password</div>
-          <div class="security-item-sub">
-            {% if two_factor_enabled %}
-              Password changes are confirmed via email while two-factor authentication is on.
-            {% else %}
-              ••••••••••••
-            {% endif %}
+        <!-- Stat row — this supplier's own PO count (purchase_order_count,
+             procurement/views.py::_supplier_account_context), the Supplier
+             equivalent of Customer's Total Orders tile. -->
+        <div class="profile-stats">
+          <div class="profile-stat">
+            <div class="profile-stat-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+            </div>
+            <div>
+              <div class="profile-stat-value">{{ purchase_order_count }}</div>
+              <div class="profile-stat-label">Purchase Orders</div>
+            </div>
           </div>
         </div>
       </div>
-      {% if two_factor_enabled %}
-        <form method="post" action="{% url 'accounts:request_password_change_email' %}" style="margin:0;">
-          {% csrf_token %}
-          <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--action);">Manage</button>
-        </form>
-      {% else %}
-        <button type="button" class="btn btn-sm btn-quiet" id="pwd-toggle-btn" onclick="togglePasswordForm()" style="color:var(--action);">Manage</button>
-      {% endif %}
-    </div>
 
-    {% if not two_factor_enabled %}
-      <!-- Inline change-password form (hidden by default) -->
-      <div class="edit-form" id="pwd-form" style="padding:18px 0 4px;">
-        <form method="post" action="{% url 'accounts:change_password' %}">
-          {% csrf_token %}
-          <div class="stack" style="gap:16px;">
-            <div class="field">
-              <label for="id_current_password">Current Password</label>
-              <div style="position:relative;">
-                <input type="password" id="id_current_password" name="current_password"
-                  placeholder="Enter current password" style="padding-right:44px;">
-                <button type="button" onclick="togglePwd('id_current_password', this)"
-                  style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
-                  <svg id="id_current_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
+      <!-- ── My Profile card ── -->
+      <div class="account-card">
+        <div class="account-card-head">
+          <span class="account-card-title">My Profile</span>
+          <button type="button" class="btn btn-sm btn-quiet" id="myprofile-toggle-btn" onclick="toggleMyProfileForm()" style="color:var(--action);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Edit
+          </button>
+        </div>
+
+        <!-- View mode -->
+        <div class="account-card-body" id="myprofile-view" style="display:{% if errors %}none{% else %}block{% endif %};">
+          <div class="info-grid">
+            <div class="info-field">
+              <label>Username</label>
+              <div class="val">@{{ username }}</div>
+            </div>
+            <div class="info-field">
+              <label>Contact Person</label>
+              <div class="val">
+                {% if profile.contact_person %}{{ profile.contact_person }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
               </div>
             </div>
-            <div class="field">
-              <label for="id_new_password">New Password</label>
-              <div style="position:relative;">
-                <input type="password" id="id_new_password" name="new_password"
-                  placeholder="Enter new password"
-                  pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
-                  title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
-                  style="padding-right:44px;">
-                <button type="button" onclick="togglePwd('id_new_password', this)"
-                  style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
-                  <svg id="id_new_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
+            <div class="info-field">
+              <label>Mobile Number</label>
+              <div class="val">
+                {% if profile.contact_number %}{{ profile.contact_number }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
               </div>
-              <div class="gv-meta" style="margin-top:4px;">Must include an uppercase letter, a number, and a special character.</div>
             </div>
-            <div class="field">
-              <label for="id_confirm_password">Confirm New Password</label>
-              <div style="position:relative;">
-                <input type="password" id="id_confirm_password" name="confirm_password"
-                  placeholder="Re-enter new password" style="padding-right:44px;">
-                <button type="button" onclick="togglePwd('id_confirm_password', this)"
-                  style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
-                  <svg id="id_confirm_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
+            <div class="info-field">
+              <label>Email Address</label>
+              <div class="val">
+                {% if email %}
+                  {{ email }}
+                  {% if is_email_verified %}
+                    <span class="pill pill-ok">Verified</span>
+                  {% else %}
+                    <span class="pill pill-neutral">Unverified</span>
+                  {% endif %}
+                {% else %}
+                  <span style="color:var(--ink-400);">Not set</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="info-field" style="grid-column: 1 / -1;">
+              <label>Address</label>
+              <div class="val">
+                {% if profile.address %}{{ profile.address }}{% else %}<span style="color:var(--ink-400);">Not set</span>{% endif %}
               </div>
             </div>
           </div>
-          <div class="edit-actions" style="margin-top:20px;">
-            <button type="button" class="btn btn-sm" onclick="togglePasswordForm()">Cancel</button>
-            <button type="submit" class="btn btn-sm btn-primary">Save password</button>
-          </div>
-        </form>
-      </div>
-    {% endif %}
+        </div>
 
-    <!-- Two-Factor Authentication -->
-    <div class="security-item" style="border-bottom:0;">
-      <div class="security-item-info">
-        <div class="security-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-        <div>
-          <div class="security-item-label">Two-Factor Authentication</div>
-          <div class="security-item-sub">
+        <!-- Edit mode -->
+        <div class="edit-form {% if errors %}is-open{% endif %}" id="myprofile-form">
+          <form method="post" action="{% url 'supplier_account_update' %}">
+            {% csrf_token %}
+            <div class="edit-grid">
+              <div class="field">
+                <label for="sa_username">Username</label>
+                <input type="text" id="sa_username" name="username"
+                  value="{{ username }}"
+                  class="{% if errors.username %}is-invalid{% endif %}">
+                {% if errors.username %}<div class="field-err">{{ errors.username }}</div>{% endif %}
+              </div>
+              <div class="field">
+                <label for="sa_contact_person">Contact Person</label>
+                <input type="text" id="sa_contact_person" name="contact_person"
+                  value="{{ profile.contact_person }}">
+              </div>
+              <div class="field">
+                <label for="sa_contact_number">Mobile Number</label>
+                <input type="tel" id="sa_contact_number" name="contact_number"
+                  value="{{ profile.contact_number }}"
+                  placeholder="+63 9XX XXX XXXX"
+                  class="{% if errors.contact_number %}is-invalid{% endif %}">
+                {% if errors.contact_number %}<div class="field-err">{{ errors.contact_number }}</div>{% endif %}
+              </div>
+              <div class="field">
+                <label for="sa_email">Email Address</label>
+                <input type="email" id="sa_email" name="email"
+                  value="{{ email }}"
+                  class="{% if errors.email %}is-invalid{% endif %}">
+                {% if errors.email %}
+                  <div class="field-err">{{ errors.email }}</div>
+                {% else %}
+                  <div class="gv-meta" style="margin-top:4px;">Changing your email will send a verification link to the new address.</div>
+                {% endif %}
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="sa_address">Address</label>
+                <textarea id="sa_address" name="address" rows="2">{{ profile.address }}</textarea>
+              </div>
+            </div>
+            <div class="edit-actions">
+              <button type="button" class="btn btn-sm" onclick="toggleMyProfileForm()">Cancel</button>
+              <button type="submit" class="btn btn-sm btn-primary">Save changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {% comment %}
+        Business details — supplier_name/supplier_category/branch. Read-only
+        here on purpose (see procurement/views.py::supplier_account's own
+        comment for why): these are how the store looks this account up
+        across POs/products/branch dropdowns, not private contact details,
+        so changing them stays an Owner/staff action through Suppliers >
+        Edit, the same way a Branch Manager/Staff account can't reassign
+        its own `branch` either.
+      {% endcomment %}
+      <div class="account-card">
+        <div class="account-card-head">
+          <span class="account-card-title">Business Details</span>
+        </div>
+        <div class="account-card-body">
+          <p class="gv-meta" style="margin:0 0 16px;">Managed by your store administrator — contact them to change any of this.</p>
+          <div class="info-grid">
+            <div class="info-field">
+              <label>Business Name</label>
+              <div class="val">{{ profile.supplier_name|default:"—" }}</div>
+            </div>
+            <div class="info-field">
+              <label>Category</label>
+              <div class="val">{{ profile.supplier_category|default:"—" }}</div>
+            </div>
+            <div class="info-field">
+              <label>Branch</label>
+              <div class="val">{{ profile.branch|default:"All branches" }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Account Security card (Password, 2FA, Sessions) ── -->
+      <div class="account-card">
+        <div class="account-card-head">
+          <span class="account-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Account Security
+          </span>
+          {% if two_factor_enabled %}
+            <form method="post" action="{% url 'accounts:request_password_change_email' %}" style="margin:0;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--action);">Change</button>
+            </form>
+          {% else %}
+            <button type="button" class="btn btn-sm btn-quiet" id="pwd-toggle-btn" onclick="togglePasswordForm()" style="color:var(--action);">Change</button>
+          {% endif %}
+        </div>
+
+        <!-- View mode -->
+        <div class="account-card-body" id="pwd-view">
+          <div class="security-item">
+            <div class="security-item-info">
+              <div class="security-item-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <div>
+                <div class="security-item-label">Password</div>
+                <div class="security-item-sub">
+                  {% if two_factor_enabled %}
+                    Password changes are confirmed via email while two-factor authentication is on.
+                  {% else %}
+                    ••••••••••••
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="security-item">
+            <div class="security-item-info">
+              <div class="security-item-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              </div>
+              <div>
+                <div class="security-item-label">Two-Factor Authentication</div>
+                <div class="security-item-sub">
+                  {% if not two_factor_enabled and not is_email_verified %}
+                    Verify your email address first to enable this
+                  {% else %}
+                    Add an extra layer of security to your account
+                  {% endif %}
+                </div>
+              </div>
+            </div>
             {% if not two_factor_enabled and not is_email_verified %}
-              Verify your email address first to enable this
+              <label class="toggle" title="Verify your email address before enabling two-factor authentication">
+                <input type="checkbox" disabled>
+                <span class="toggle-track"></span>
+              </label>
             {% else %}
-              Add an extra layer of security to your account
+              <label class="toggle" title="{% if two_factor_enabled %}Disable{% else %}Enable{% endif %} two-factor authentication">
+                <input type="checkbox" id="tfa-checkbox" {% if two_factor_enabled %}checked{% endif %} onclick="event.preventDefault(); openTfaModal();">
+                <span class="toggle-track"></span>
+              </label>
             {% endif %}
           </div>
         </div>
-      </div>
-      {% if not two_factor_enabled and not is_email_verified %}
-        <label class="toggle" title="Verify your email address before enabling two-factor authentication">
-          <input type="checkbox" disabled>
-          <span class="toggle-track"></span>
-        </label>
-      {% else %}
-        <label class="toggle" title="{% if two_factor_enabled %}Disable{% else %}Enable{% endif %} two-factor authentication">
-          <input type="checkbox" id="tfa-checkbox" {% if two_factor_enabled %}checked{% endif %} onclick="event.preventDefault(); openTfaModal();">
-          <span class="toggle-track"></span>
-        </label>
-      {% endif %}
-    </div>
-  </div>
 
+        {% if not two_factor_enabled %}
+          <!-- Change password form (hidden by default) -->
+          <div class="edit-form" id="pwd-form" style="padding:20px 24px;">
+            <form method="post" action="{% url 'accounts:change_password' %}">
+              {% csrf_token %}
+              <div class="stack" style="gap:16px;">
+                <div class="field">
+                  <label for="id_current_password">Current Password</label>
+                  <div style="position:relative;">
+                    <input type="password" id="id_current_password" name="current_password"
+                      placeholder="Enter current password" style="padding-right:44px;">
+                    <button type="button" onclick="togglePwd('id_current_password', this)"
+                      style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                      <svg id="id_current_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="id_new_password">New Password</label>
+                  <div style="position:relative;">
+                    <input type="password" id="id_new_password" name="new_password"
+                      placeholder="Enter new password"
+                      pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
+                      title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
+                      style="padding-right:44px;">
+                    <button type="button" onclick="togglePwd('id_new_password', this)"
+                      style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                      <svg id="id_new_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
+                  <div class="gv-meta" style="margin-top:4px;">Must include an uppercase letter, a number, and a special character.</div>
+                </div>
+                <div class="field">
+                  <label for="id_confirm_password">Confirm New Password</label>
+                  <div style="position:relative;">
+                    <input type="password" id="id_confirm_password" name="confirm_password"
+                      placeholder="Re-enter new password" style="padding-right:44px;">
+                    <button type="button" onclick="togglePwd('id_confirm_password', this)"
+                      style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
+                      <svg id="id_confirm_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="edit-actions" style="margin-top:20px;">
+                <button type="button" class="btn btn-sm" onclick="togglePasswordForm()">Cancel</button>
+                <button type="submit" class="btn btn-sm btn-primary">Save password</button>
+              </div>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+
+      {% comment %}
+        Sessions — its own card (not folded into Account Security above,
+        matching Customer's Sessions living on its own page rather than a
+        sub-section) but still id="sessions" so the sidebar's Sessions link
+        (#sessions) and any other deep-link land here. Same
+        get_active_sessions/session_revoke/session_logout_all_others
+        services Internal's inline panel and Customer's own Sessions page
+        both already use — _sessions_redirect's new SUPPLIER branch is what
+        makes reusing them directly safe (they redirect back to
+        supplier_account, not the customer Sessions page).
+      {% endcomment %}
+      <div class="account-card" id="sessions">
+        <div class="account-card-head">
+          <span class="account-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            Sessions
+          </span>
+          {% if sessions|length > 1 %}
+            <form method="post" action="{% url 'accounts:session_logout_all_others' %}" style="margin:0;"
+                  data-confirm="Every other device signed in to this account will be signed out. This one stays signed in."
+                  data-confirm-title="Log out of all other sessions?"
+                  data-confirm-variant="warn"
+                  data-confirm-ok="Log them out">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out all other sessions</button>
+            </form>
+          {% endif %}
+        </div>
+
+        <div class="account-card-body">
+          {% for s in sessions %}
+            <div class="security-item">
+              <div class="security-item-info">
+                <div class="security-item-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                </div>
+                <div>
+                  <div class="security-item-label">
+                    {{ s.device_label }}
+                    {% if s.session_key == current_session_key %}<span class="session-current-badge">This device</span>{% endif %}
+                  </div>
+                  <div class="security-item-sub">
+                    {{ s.ip_address|default:"—" }} · Last active {{ s.last_active|timesince }} ago
+                  </div>
+                </div>
+              </div>
+              {% if s.session_key != current_session_key %}
+                <form method="post" action="{% url 'accounts:session_revoke' s.pk %}" style="margin:0;"
+                      data-confirm="That device will be signed out and will need the password again to get back in."
+                      data-confirm-title="Log out this device?"
+                      data-confirm-variant="warn"
+                      data-confirm-ok="Log it out">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-sm btn-quiet" style="color:var(--danger-fg);">Log out</button>
+                </form>
+              {% endif %}
+            </div>
+          {% empty %}
+            <p class="account-empty">No other active sessions.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+    </div>{# end .profile-sections #}
+  </div>{# end .account-grid #}
 </main>
 
 <!-- ── Confirm-password modal (2FA toggle) ── -->
@@ -325,7 +444,16 @@
 </div>
 
 <script src="{% static 'js/notification-tray.js' %}"></script>
+<script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
+<script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
 <script>
+// Auto-submit avatar form when a file is picked
+document.getElementById('avatar-input').addEventListener('change', function () {
+  if (this.files && this.files[0]) {
+    document.getElementById('avatar-form').submit();
+  }
+});
+
 const EDIT_BTN_HTML =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit';
 const CANCEL_BTN_HTML =
@@ -350,7 +478,7 @@ function togglePasswordForm() {
   const form = document.getElementById('pwd-form');
   const btn  = document.getElementById('pwd-toggle-btn');
   const isOpen = form.classList.toggle('is-open');
-  btn.textContent = isOpen ? 'Cancel' : 'Manage';
+  btn.textContent = isOpen ? 'Cancel' : 'Change';
 }
 
 function togglePwd(inputId, btn) {
@@ -374,7 +502,6 @@ document.addEventListener('keydown', function (e) {
     closeTfaModal();
   }
 });
-
 </script>
 </body>
 </html>
