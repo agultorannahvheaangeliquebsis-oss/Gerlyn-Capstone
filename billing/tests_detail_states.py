@@ -211,6 +211,20 @@ class BillingDetailStateTests(TestCase):
         reject_form = reject_form.partition('</form>')[0]
         self.assertIn('<input type="hidden" name="status" value="Rejected">', reject_form)
 
+    def test_ready_to_verify_drops_the_stripe_but_keeps_what_it_said(self):
+        """The green left edge was a third telling of "this is ready" — the
+        heading, the method-specific instruction and the Verify button all
+        say it. The stripe goes; the states that flag a blocker or an
+        outcome keep theirs."""
+        html = self._html(self._record())
+
+        self.assertIn('.bill-next--action { border-left: 0; }', html)
+        self.assertIn('bill-next--action', html)
+        self.assertIn('Verify this payment', html)
+        self.assertIn('Verify Payment', html)
+        self.assertIn('.bill-next--wait  { border-left-color: var(--warn-fg); }', html)
+        self.assertIn('.bill-next--danger { border-left-color: var(--danger-fg); }', html)
+
     def test_more_menu_and_reject_form_need_the_billing_edit_permission(self):
         """Both are write controls, so neither is drawn without the grant —
         the reject form moved out of the actions row and must not escape it."""

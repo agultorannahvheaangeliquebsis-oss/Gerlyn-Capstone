@@ -26,8 +26,11 @@
     justify-content: space-between; gap: var(--s3) var(--s4);
     margin-bottom: var(--s4); border-left: 4px solid var(--line);
   }
-  .bill-next--action { border-left-color: var(--action); }
-  .bill-next--wait   { border-left-color: var(--warn-fg); }
+  /* Ready-to-verify carries no stripe: the Verify button already says
+     "act here", and a green edge on top of it was decoration. The tints
+     that remain flag a blocker, an outcome, or a closed bill. */
+  .bill-next--action { border-left: 0; }
+  .bill-next--wait  { border-left-color: var(--warn-fg); }
   .bill-next--done   { border-left-color: var(--ok-fg); }
   .bill-next--danger { border-left-color: var(--danger-fg); }
   .bill-next--muted  { border-left-color: var(--ink-400); }
