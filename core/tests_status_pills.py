@@ -4,8 +4,12 @@ These render the canonical partials directly, so they pin the DESIGN.md
 status table without depending on any seeded records: the same semantic
 status must land on the same .pill-* class on every surface.
 """
+from django.contrib.auth import get_user_model
 from django.template.loader import render_to_string
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
+
+User = get_user_model()
 
 
 def _pill(template, **ctx):
@@ -88,3 +92,20 @@ class PoDocumentStatusTests(SimpleTestCase):
     def test_document_never_borrows_the_screen_pills_buyer_wording(self):
         html = _pill('procurement/_po_document_status.html', status='Pending Owner Review')
         self.assertNotIn('Your turn', html)
+
+
+class CustomerProfileMemberSinceTests(TestCase):
+    """The profile hero showed "Member since <month year>" — an account-age
+    boast on a shop profile that told the customer nothing they could act on
+    and crowded the role pill beside it."""
+
+    def test_profile_no_longer_shows_member_since(self):
+        user = User.objects.create_user(
+            username='shopper', password='pw', role=User.Role.CUSTOMER
+        )
+        self.client.force_login(user)
+        response = self.client.get(reverse('accounts:profile'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Member since')
+        # date_joined itself is untouched — only the display went away.
+        self.assertIsNotNone(User.objects.get(pk=user.pk).date_joined)

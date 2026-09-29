@@ -133,10 +133,6 @@
   font: 600 12.5px/1.5 var(--font-sans);
   border: 1px solid rgba(255,255,255,.3);
 }
-.member-since {
-  font: 400 13px/1 var(--font-sans);
-  color: rgba(255,255,255,.75);
-}
 
 /* ── Stats row ─────────────────────────────────────────────────── */
 /* Flex, not a fixed 2-column grid: the row currently renders a single stat
