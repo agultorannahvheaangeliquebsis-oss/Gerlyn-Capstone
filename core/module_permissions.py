@@ -227,17 +227,28 @@ def default_allowed_modules():
     return list(ALL_MODULE_CODES)
 
 
-def default_module_actions():
-    """Backward-compatible write grants; View remains the prerequisite.
+# Write actions a NEW account does not receive by default. Product Master List
+# (products, categories and the bulk import all live in this one module)
+# is managed by the Owner: a Manager starts view-only there, and the Owner can
+# still grant Add/Edit/Delete to a specific account in the Permission Matrix.
+# Only the default changes - an explicit grant is honored exactly as before.
+DEFAULT_WITHHELD_ACTIONS = {
+    PRODUCTS: (ADD, EDIT, DELETE),
+}
 
-    Existing role checks still prevent privilege escalation. Keeping all
-    actions present means an old module grant retains its historical behavior
-    until the Owner customizes the new matrix.
+
+def default_module_actions():
+    """Default write grants for a new account; View remains the prerequisite.
+
+    Existing role checks still prevent privilege escalation. Every module's
+    write actions are present by default except those in
+    DEFAULT_WITHHELD_ACTIONS, which the Owner grants deliberately.
     """
     return {
         code: [
             action for action in WRITE_ACTIONS
             if MODULE_PERMISSION_REGISTRY[code][action]
+            and action not in DEFAULT_WITHHELD_ACTIONS.get(code, ())
         ]
         for code in ALL_MODULE_CODES
     }

@@ -9,9 +9,12 @@ from django.core.management import call_command, CommandError
 from django.test import TestCase
 from django.urls import reverse
 
-from accounts.models import User
+from accounts.models import BranchManagerProfile, User
 from branches.models import Branch
-from core.module_permissions import ADD, PRODUCTS, default_module_actions
+from core.module_permissions import (
+    ADD, DELETE, EDIT, MODULE_PERMISSION_REGISTRY, PRODUCTS, VIEW,
+    default_module_actions, user_can_perform_module_action,
+)
 from inventory.alerts import batch_inventory_mismatches
 from inventory.models import (
     Batch, Inventory, Product, ProductCategory, ProductImportMappingTemplate,
@@ -145,6 +148,338 @@ class CategoryModalFlowTests(TestCase):
         self.assertFalse(
             ProductCategory.objects.filter(category_name='Canned Goods').exists()
         )
+
+
+class _ManagerGrantTestBase(TestCase):
+    """Shared setup for the "Managers are view-only by default, but an Owner
+    can grant Add/Edit/Delete per account" tests (Product Master List module:
+    products, categories and the bulk import all sit under it).
+
+    Nothing here reimplements the grant system - the Manager is a normal
+    account whose `module_actions` is either the default a new account gets
+    (no Add/Edit/Delete on products) or an explicit grant, exactly what the
+    Permission Matrix writes."""
+
+    def setUp(self):
+        self.branch = Branch.objects.create(branch_name='Baliuag Main', location='Baliuag')
+        self.owner = User.objects.create_user(
+            username='grant-owner', password='pw', role=User.Role.OWNER
+        )
+        # A brand-new Manager: default_module_actions() is what it is created with.
+        self.manager = User.objects.create_user(
+            username='grant-manager', password='pw', role=User.Role.BRANCH_MANAGER,
+        )
+        # A signal already made the manager's profile; just point it at a branch.
+        BranchManagerProfile.objects.filter(user=self.manager).update(
+            branch=self.branch, manager_name='Grant Manager',
+        )
+        self.category = ProductCategory.objects.create(category_name='Canned Goods')
+        self.product = Product.objects.create(
+            sku_code='SKU-GRANT', product_name='Existing Product',
+            unit_of_measure=Product.UnitOfMeasure.PIECE, unit_price=10,
+            category=self.category,
+        )
+
+    def grant(self, *actions):
+        """What the Owner does in the Permission Matrix: View on Product Master
+        List plus the given write actions."""
+        self.manager.allowed_modules = [PRODUCTS]
+        module_actions = default_module_actions()
+        module_actions[PRODUCTS] = list(actions)
+        self.manager.module_actions = module_actions
+        self.manager.save(update_fields=['allowed_modules', 'module_actions'])
+
+    def product_payload(self, name):
+        return {
+            'product_name': name,
+            'unit_of_measure': Product.UnitOfMeasure.PIECE,
+            'unit_price': '10.00',
+        }
+
+
+class DefaultManagerProductPermissionTests(_ManagerGrantTestBase):
+    """A new Manager can view products and categories but not change them."""
+
+    def test_new_accounts_get_no_product_write_actions_by_default(self):
+        self.assertEqual(default_module_actions()[PRODUCTS], [])
+        self.assertTrue(user_can_perform_module_action(self.manager, PRODUCTS, VIEW))
+        for action in (ADD, EDIT, DELETE):
+            self.assertFalse(
+                user_can_perform_module_action(self.manager, PRODUCTS, action)
+            )
+
+    def test_the_default_only_withholds_the_product_module(self):
+        """Every other module still starts with all of its write actions."""
+        defaults = default_module_actions()
+        for code, actions in defaults.items():
+            if code != PRODUCTS:
+                self.assertEqual(
+                    actions,
+                    [a for a in (ADD, EDIT, DELETE)
+                     if MODULE_PERMISSION_REGISTRY[code][a]],
+                    code,
+                )
+
+    # ---- products -------------------------------------------------------
+    def test_default_manager_can_view_products_but_sees_no_write_controls(self):
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('product_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Existing Product')
+        self.assertFalse(response.context['can_add'])
+        self.assertFalse(response.context['can_edit'])
+        self.assertFalse(response.context['can_delete'])
+        self.assertNotContains(response, reverse('product_add'))
+        self.assertNotContains(response, reverse('product_import_upload'))
+        self.assertNotContains(
+            response, reverse('product_edit', args=[self.product.pk])
+        )
+        self.assertNotContains(
+            response, reverse('product_delete', args=[self.product.pk])
+        )
+
+    def test_default_manager_cannot_add_edit_or_delete_a_product(self):
+        self.client.force_login(self.manager)
+
+        self.client.post(reverse('product_add'), self.product_payload('Blocked Add'))
+        self.assertFalse(Product.objects.filter(product_name='Blocked Add').exists())
+
+        self.client.post(
+            reverse('product_edit', args=[self.product.pk]),
+            self.product_payload('Renamed'),
+        )
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.product_name, 'Existing Product')
+
+        self.client.post(reverse('product_delete', args=[self.product.pk]))
+        self.assertTrue(Product.objects.filter(pk=self.product.pk).exists())
+
+    def test_default_manager_cannot_write_products_through_the_api(self):
+        self.client.force_login(self.manager)
+        self.assertEqual(self.client.get(reverse('api-product-list')).status_code, 200)
+        detail = reverse('api-product-detail', args=[self.product.pk])
+
+        created = self.client.post(
+            reverse('api-product-list'),
+            {'sku': 'SKU-API', 'name': 'Blocked API', 'unit': 'Piece', 'retailPrice': '10.00'},
+        )
+        updated = self.client.patch(
+            detail, {'name': 'Renamed'}, content_type='application/json'
+        )
+        deleted = self.client.delete(detail)
+
+        self.assertEqual(created.status_code, 403)
+        self.assertEqual(updated.status_code, 403)
+        self.assertEqual(deleted.status_code, 403)
+        self.assertFalse(Product.objects.filter(product_name='Blocked API').exists())
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.product_name, 'Existing Product')
+
+    # ---- categories -------------------------------------------------------
+    def test_default_manager_can_view_categories_but_sees_no_write_controls(self):
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('category_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Canned Goods')
+        self.assertFalse(response.context['can_add'])
+        self.assertFalse(response.context['can_edit'])
+        self.assertFalse(response.context['can_delete'])
+        self.assertNotContains(
+            response, reverse('category_delete', args=[self.category.pk])
+        )
+        self.assertNotContains(
+            response, reverse('category_edit', args=[self.category.pk])
+        )
+
+    def test_default_manager_cannot_open_the_category_edit_modal_by_url(self):
+        self.client.force_login(self.manager)
+        response = self.client.get(
+            reverse('category_list'), {'edit': self.category.pk}
+        )
+        self.assertNotIn('show_edit_modal', response.context)
+
+    def test_default_manager_cannot_add_edit_or_delete_a_category(self):
+        self.client.force_login(self.manager)
+
+        self.client.post(reverse('category_add'), {'category_name': 'Beverages'})
+        self.assertFalse(
+            ProductCategory.objects.filter(category_name='Beverages').exists()
+        )
+
+        self.client.post(
+            reverse('category_edit', args=[self.category.pk]),
+            {'category_name': 'Renamed'},
+        )
+        self.category.refresh_from_db()
+        self.assertEqual(self.category.category_name, 'Canned Goods')
+
+        self.client.post(reverse('category_delete', args=[self.category.pk]))
+        self.assertTrue(ProductCategory.objects.filter(pk=self.category.pk).exists())
+
+    def test_default_manager_cannot_write_categories_through_the_api(self):
+        self.client.force_login(self.manager)
+        self.assertEqual(self.client.get(reverse('api-category-list')).status_code, 200)
+        detail = reverse('api-category-detail', args=[self.category.pk])
+
+        created = self.client.post(
+            reverse('api-category-list'), {'categoryName': 'Beverages'}
+        )
+        updated = self.client.patch(
+            detail, {'categoryName': 'Renamed'}, content_type='application/json'
+        )
+        deleted = self.client.delete(detail)
+
+        self.assertEqual(created.status_code, 403)
+        self.assertEqual(updated.status_code, 403)
+        self.assertEqual(deleted.status_code, 403)
+        self.assertFalse(
+            ProductCategory.objects.filter(category_name='Beverages').exists()
+        )
+        self.category.refresh_from_db()
+        self.assertEqual(self.category.category_name, 'Canned Goods')
+
+    # ---- bulk import (same permission as Add) -----------------------------
+    def test_default_manager_cannot_start_a_bulk_import(self):
+        """The import creates products (and categories), so it needs Add."""
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('product_import_upload'))
+        self.assertNotEqual(
+            response.url, f"{reverse('product_list')}?import=upload"
+        )
+
+
+class GrantedManagerProductPermissionTests(_ManagerGrantTestBase):
+    """An Owner can still grant a specific Manager product/category access
+    through the Permission Matrix - the default is not an absolute block."""
+
+    def test_granted_manager_can_add_edit_and_delete_products(self):
+        self.grant(ADD, EDIT, DELETE)
+        self.client.force_login(self.manager)
+
+        self.client.post(reverse('product_add'), self.product_payload('Granted Add'))
+        created = Product.objects.get(product_name='Granted Add')
+
+        self.client.post(
+            reverse('product_edit', args=[created.pk]),
+            self.product_payload('Granted Edit'),
+        )
+        created.refresh_from_db()
+        self.assertEqual(created.product_name, 'Granted Edit')
+
+        self.client.post(reverse('product_delete', args=[created.pk]))
+        self.assertFalse(Product.objects.filter(pk=created.pk).exists())
+
+    def test_granted_manager_can_add_edit_and_delete_categories(self):
+        self.grant(ADD, EDIT, DELETE)
+        self.client.force_login(self.manager)
+
+        self.client.post(reverse('category_add'), {'category_name': 'Beverages'})
+        added = ProductCategory.objects.get(category_name='Beverages')
+
+        self.client.post(
+            reverse('category_edit', args=[added.pk]), {'category_name': 'Drinks'}
+        )
+        added.refresh_from_db()
+        self.assertEqual(added.category_name, 'Drinks')
+
+        self.client.post(reverse('category_delete', args=[added.pk]))
+        self.assertFalse(ProductCategory.objects.filter(pk=added.pk).exists())
+
+    def test_granted_manager_sees_the_matching_controls(self):
+        self.grant(ADD, EDIT, DELETE)
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('product_list'))
+        self.assertTrue(response.context['can_add'])
+        self.assertTrue(response.context['can_edit'])
+        self.assertTrue(response.context['can_delete'])
+        self.assertContains(response, reverse('product_import_upload'))
+
+    def test_a_single_grant_only_opens_that_action(self):
+        self.grant(ADD)
+        self.client.force_login(self.manager)
+
+        self.client.post(reverse('category_add'), {'category_name': 'Beverages'})
+        self.assertTrue(
+            ProductCategory.objects.filter(category_name='Beverages').exists()
+        )
+        self.client.post(
+            reverse('category_edit', args=[self.category.pk]),
+            {'category_name': 'Renamed'},
+        )
+        self.category.refresh_from_db()
+        self.assertEqual(self.category.category_name, 'Canned Goods')
+        self.client.post(reverse('category_delete', args=[self.category.pk]))
+        self.assertTrue(ProductCategory.objects.filter(pk=self.category.pk).exists())
+
+    def test_granted_manager_can_start_a_bulk_import(self):
+        self.grant(ADD)
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('product_import_upload'))
+        self.assertRedirects(
+            response, f"{reverse('product_list')}?import=upload",
+            fetch_redirect_response=False,
+        )
+
+    def test_granted_manager_can_write_through_the_api(self):
+        self.grant(ADD, EDIT, DELETE)
+        self.client.force_login(self.manager)
+        created = self.client.post(
+            reverse('api-category-list'), {'categoryName': 'Beverages'}
+        )
+        self.assertEqual(created.status_code, 201)
+        updated = self.client.patch(
+            reverse('api-product-detail', args=[self.product.pk]),
+            {'name': 'API Renamed'}, content_type='application/json',
+        )
+        self.assertEqual(updated.status_code, 200)
+
+
+class OwnerProductPermissionTests(_ManagerGrantTestBase):
+    """The Owner is exempt from the grant layer and keeps full access."""
+
+    def test_owner_sees_all_controls_and_can_write_everything(self):
+        self.client.force_login(self.owner)
+        listing = self.client.get(reverse('product_list'))
+        self.assertTrue(listing.context['can_add'])
+        self.assertTrue(listing.context['can_edit'])
+        self.assertTrue(listing.context['can_delete'])
+        self.assertContains(listing, reverse('product_import_upload'))
+
+        self.client.post(reverse('product_add'), self.product_payload('Owner Added'))
+        created = Product.objects.get(product_name='Owner Added')
+        self.client.post(
+            reverse('product_edit', args=[created.pk]),
+            self.product_payload('Owner Edited'),
+        )
+        created.refresh_from_db()
+        self.assertEqual(created.product_name, 'Owner Edited')
+        self.client.post(reverse('product_delete', args=[created.pk]))
+        self.assertFalse(Product.objects.filter(pk=created.pk).exists())
+
+        self.client.post(reverse('category_add'), {'category_name': 'Beverages'})
+        self.assertTrue(
+            ProductCategory.objects.filter(category_name='Beverages').exists()
+        )
+
+    def test_owner_can_write_through_the_api(self):
+        self.client.force_login(self.owner)
+        created = self.client.post(
+            reverse('api-category-list'), {'categoryName': 'Beverages'}
+        )
+        self.assertEqual(created.status_code, 201)
+        updated = self.client.patch(
+            reverse('api-product-detail', args=[self.product.pk]),
+            {'name': 'Owner API Rename'}, content_type='application/json',
+        )
+        self.assertEqual(updated.status_code, 200)
+
+    def test_staff_are_still_blocked_from_deleting_products(self):
+        staff = User.objects.create_user(
+            username='grant-staff', password='pw', role=User.Role.STAFF
+        )
+        self.client.force_login(staff)
+        self.client.post(reverse('product_delete', args=[self.product.pk]))
+        self.assertTrue(Product.objects.filter(pk=self.product.pk).exists())
 
 
 class SeedCategoriesCommandTests(TestCase):
