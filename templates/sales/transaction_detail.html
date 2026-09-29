@@ -429,6 +429,12 @@ page already open behind this overlay — Order Details is unaffected by that.
           {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
           {% else %}Walk-in{% endif %}</dd></div>
         <div><dt>Placed on</dt><dd>{{ transaction.transaction_date|date:"j M Y, g:i a" }}</dd></div>
+        {% if transaction.source == "ZANK POS" %}
+        <div><dt>Source</dt><dd><span class="tag">ZANK POS</span></dd></div>
+        <div><dt>POS Invoice / OR</dt><dd class="sku">{{ transaction.pos_invoice_number }}</dd></div>
+        <div><dt>Terminal / Station</dt><dd>{{ transaction.pos_terminal_id|default:"—" }}</dd></div>
+        <div><dt>POS Cashier / Staff</dt><dd>{{ transaction.pos_cashier_id|default:"—" }}</dd></div>
+        {% endif %}
         {% comment %}
         X-3 — recorded_by, not staff: staff is STAFF-role-only by its own
         limit_choices_to, so a sale the Owner or a Branch Manager rang up

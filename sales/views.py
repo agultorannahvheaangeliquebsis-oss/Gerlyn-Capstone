@@ -6,10 +6,12 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import models as dj_models
 from django.db import transaction
+from django.db import IntegrityError
 from django.http import QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from accounts.models import User
 from billing.models import BillingRecord
@@ -18,17 +20,20 @@ from branches.models import Branch
 from core.people import person_display_name
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.module_permissions import (
-    ADD, BILLING, EDIT, SALES_POS, user_can_perform_module_action,
+    ADD, BILLING, EDIT, SALES_POS, VIEW, user_can_perform_module_action,
 )
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
+from audit import context as audit_context
 
 from . import refunds as refund_service
 from .models import (
     OrderStatusChange, OrderStatusHistory, Refund, RefundItem, SalesItem,
     SalesItemBatchConsumption, SalesTransaction,
+    PosSalesImport,
 )
+from .pos_import import PosImportError, build_preview, commit_pos_import, parse_pos_file
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 from .pwd_requests import (
     DISCOUNT_BLOCKED_BILLING_STATUSES, DiscountError, apply_discount,
@@ -255,6 +260,7 @@ def _transaction_list_context(request):
     if search_query:
         transactions = transactions.filter(
             dj_models.Q(order_number__icontains=search_query) |
+            dj_models.Q(pos_invoice_number__icontains=search_query) |
             dj_models.Q(customer__first_name__icontains=search_query) |
             dj_models.Q(customer__last_name__icontains=search_query) |
             dj_models.Q(customer__username__icontains=search_query)
@@ -412,6 +418,127 @@ def transaction_list(request):
     return render(
         request, 'sales/transaction_list.html', _transaction_list_context(request)
     )
+
+
+def _pos_import_denied(request, action=ADD):
+    if (
+        request.user.role not in [OWNER, BRANCH_MANAGER, STAFF]
+        or not user_can_perform_module_action(request.user, SALES_POS, action)
+    ):
+        messages.error(request, 'You do not have permission to import POS sales.')
+        return redirect('transaction_list')
+    if _pos_user_branch(request) is POS_BRANCH_UNASSIGNED:
+        messages.error(request, 'Your account must be assigned to a branch before importing POS sales.')
+        return redirect('transaction_list')
+    return None
+
+
+def _pos_import_branches(request):
+    fixed = _pos_user_branch(request)
+    return Branch.objects.all().order_by('branch_name') if fixed is None else Branch.objects.filter(pk=fixed.pk)
+
+
+def _pos_import_branch(request, branch_id):
+    try:
+        branch_id = int(branch_id)
+    except (TypeError, ValueError):
+        return None
+    branch = Branch.objects.filter(pk=branch_id).first()
+    if branch is None or not user_can_access_branch(request.user, branch.pk):
+        return None
+    return branch
+
+
+@login_required(login_url='accounts:login')
+def pos_sales_import(request):
+    denied = _pos_import_denied(request)
+    if denied:
+        return denied
+    context = {'branches': _pos_import_branches(request), 'fixed_branch': _pos_user_branch(request)}
+    if request.method != 'POST':
+        return render(request, 'sales/pos_import.html', context)
+
+    branch = _pos_import_branch(request, request.POST.get('branch'))
+    upload = request.FILES.get('pos_file')
+    if branch is None:
+        context['error'] = 'Select a branch your account is allowed to access.'
+    elif upload is None:
+        context['error'] = 'Choose a CSV or Excel (.xlsx) file.'
+    else:
+        try:
+            rows = parse_pos_file(upload)
+            preview = build_preview(rows, branch)
+        except PosImportError as exc:
+            context['error'] = str(exc)
+        else:
+            request.session['pos_sales_import'] = {
+                'filename': upload.name.rsplit('/', 1)[-1].rsplit('\\', 1)[-1],
+                'branch_id': branch.pk,
+                'rows': rows,
+            }
+            request.session.modified = True
+            context.update({'branch': branch, 'preview': preview, 'filename': upload.name})
+    return render(request, 'sales/pos_import.html', context)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def pos_sales_import_confirm(request):
+    denied = _pos_import_denied(request)
+    if denied:
+        return denied
+    state = request.session.get('pos_sales_import')
+    if not state:
+        messages.error(request, 'Upload and preview a POS file first.')
+        return redirect('pos_sales_import')
+    branch = _pos_import_branch(request, state.get('branch_id'))
+    if branch is None:
+        messages.error(request, 'The selected branch is no longer available to your account.')
+        return redirect('pos_sales_import')
+    try:
+        audit_context.set_action_label('Imported ZANK POS daily sales')
+        batch, preview = commit_pos_import(
+            rows=state['rows'], branch=branch, filename=state['filename'], actor=request.user,
+        )
+    except (PosImportError, _OrderActionError, IntegrityError) as exc:
+        context = {
+            'branches': _pos_import_branches(request), 'fixed_branch': _pos_user_branch(request),
+            'branch': branch, 'filename': state['filename'],
+            'preview': build_preview(state['rows'], branch),
+            'error': str(exc) or 'The import could not be saved. Nothing was changed.',
+        }
+        return render(request, 'sales/pos_import.html', context)
+    request.session.pop('pos_sales_import', None)
+    request.session.modified = True
+    messages.success(
+        request,
+        f'ZANK POS import #{batch.pk} completed: {batch.successful_transactions} transactions, '
+        f'{batch.skipped_duplicates} duplicates skipped, {batch.failed_rows} invalid rows skipped.',
+    )
+    return redirect('pos_sales_import_history')
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def pos_sales_import_cancel(request):
+    denied = _pos_import_denied(request)
+    if denied:
+        return denied
+    request.session.pop('pos_sales_import', None)
+    request.session.modified = True
+    messages.info(request, 'POS sales import cancelled.')
+    return redirect('transaction_list')
+
+
+@login_required(login_url='accounts:login')
+def pos_sales_import_history(request):
+    denied = _pos_import_denied(request, action=VIEW)
+    if denied:
+        return denied
+    imports = scope_queryset(
+        PosSalesImport.objects.select_related('branch', 'imported_by'), request.user
+    )
+    return render(request, 'sales/pos_import_history.html', {'imports': imports})
 
 
 @login_required(login_url='accounts:login')

@@ -161,6 +161,7 @@ let it print too, so nobody is handed a receipt with a broken figure.
 
   <div class="rc-meta">
     <div><span class="k">Receipt No.</span><span class="v">{{ transaction.order_number }}</span></div>
+    {% if transaction.source == "ZANK POS" %}<div><span class="k">Original POS OR</span><span class="v">{{ transaction.pos_invoice_number }}</span></div>{% endif %}
     <div><span class="k">Date</span><span class="v">{{ transaction.transaction_date|date:"d M Y, g:i A" }}</span></div>
     <div><span class="k">Channel</span><span class="v">{% if transaction.transaction_type == "Online" %}Online{% else %}In-Store{% endif %}</span></div>
     <div><span class="k">Customer</span><span class="v">{% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}{% else %}Walk-in{% endif %}</span></div>
@@ -201,7 +202,7 @@ let it print too, so nobody is handed a receipt with a broken figure.
   <div class="rc-totals">
     {% if transaction.total_discount_amount %}
     <div><span class="k">Subtotal</span><span class="v">₱{{ gross_subtotal|floatformat:2 }}</span></div>
-    <div><span class="k">Less: {{ transaction.get_discount_type_display }} discount</span><span class="v rc-discount-v">−₱{{ transaction.total_discount_amount|floatformat:2 }}</span></div>
+    <div><span class="k">Less: {% if transaction.source == "ZANK POS" %}POS{% else %}{{ transaction.get_discount_type_display }}{% endif %} discount</span><span class="v rc-discount-v">−₱{{ transaction.total_discount_amount|floatformat:2 }}</span></div>
     {% endif %}
     {% if transaction.total_vat_amount %}
     <div><span class="k">VAT (included)</span><span class="v">₱{{ transaction.total_vat_amount|floatformat:2 }}</span></div>

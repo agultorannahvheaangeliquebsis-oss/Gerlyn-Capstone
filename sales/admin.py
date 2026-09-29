@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import SalesTransaction, SalesItem
+from .models import PosSalesImport, SalesTransaction, SalesItem
 
 
 class SalesItemInline(admin.TabularInline):
@@ -24,3 +24,12 @@ class SalesTransactionAdmin(admin.ModelAdmin):
 class SalesItemAdmin(admin.ModelAdmin):
     list_display = ('transaction', 'product', 'quantity_sold', 'unit_price', 'subtotal')
     readonly_fields = ('subtotal',)
+
+
+@admin.register(PosSalesImport)
+class PosSalesImportAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'original_filename', 'branch', 'imported_at', 'imported_by',
+        'successful_transactions', 'skipped_duplicates', 'failed_rows',
+    )
+    readonly_fields = [field.name for field in PosSalesImport._meta.fields]

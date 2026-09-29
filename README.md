@@ -233,6 +233,14 @@ views can never drift apart.
 - **Stock moves exactly once** — walk-in sales deduct at the point of sale; online
   orders deduct when marked *Completed*. Deliveries add stock only on receipt validation
   (business rule 13), and re-receiving is blocked.
+- **ZANK POS daily-sales import** — authorized Sales / Order Console users can upload
+  a ZANK CSV or `.xlsx` export, select an accessible branch, and review valid rows,
+  invalid rows, unmatched SKUs/barcodes, duplicate invoice/branch pairs, and totals
+  before confirming. Confirmation atomically creates completed walk-in sales, paid
+  billing records, and normal floor-stock movements. Imported sales retain the source
+  invoice, terminal, cashier, tax, discount, and line values, and every confirmed file
+  appears in branch-scoped import history. The import is file-based; no ZANK service or
+  payment gateway is contacted.
 - **Audit trail** — every stock change writes a `StockMovement` row recording the
   before/after quantities, the reason, and who did it.
 - **Audit Log** — `audit/` records every create, edit and delete on the models listed in

@@ -31,6 +31,9 @@ class BillingRecord(models.Model):
         CASH = 'Cash', 'Cash'
         GCASH = 'GCash', 'GCash'
         CARD = 'Card', 'Card'
+        MAYA = 'Maya', 'Maya'
+        QR_PH = 'QR Ph', 'QR Ph'
+        CHARGE_SALE = 'Charge Sale', 'Charge Sale'
         BANK_TRANSFER = 'Bank Transfer', 'Bank Transfer'
         # Recorded only — funds move outside the system (Chapter 1, Limitation 1).
         COD = 'Cash on Delivery', 'Cash on Delivery'

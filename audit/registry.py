@@ -132,9 +132,12 @@ REGISTRY = {
         # pwd_request_* is what the customer typed at checkout (P15) — the
         # same ID number and name as discount_*, and just as private.
         mask=_f('delivery_address', 'discount_id_number', 'discount_holder_name',
-                'pwd_request_id_number', 'pwd_request_holder_name'),
+                'pwd_request_id_number', 'pwd_request_holder_name', 'pos_cashier_id'),
     ),
     'sales.SalesItem': AuditConfig('Order item', branch_path='transaction.branch_id'),
+    'sales.PosSalesImport': AuditConfig(
+        'ZANK POS sales import', repr_field='original_filename',
+    ),
     'sales.Refund': AuditConfig('Refund', branch_path='transaction.branch_id'),
     'sales.RefundItem': AuditConfig(
         'Refund item', branch_path='refund.transaction.branch_id',

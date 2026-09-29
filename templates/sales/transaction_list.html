@@ -13,10 +13,13 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
     <h1>Order Management Console</h1>
   </div>
   {% if can_pos %}
-  <a class="btn btn-primary" href="{% url 'transaction_add' %}">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    New Walk-in Sale
-  </a>
+  <div class="row" style="gap:8px; flex-wrap:wrap;">
+    <a class="btn" href="{% url 'pos_sales_import' %}">Import POS Sales</a>
+    <a class="btn btn-primary" href="{% url 'transaction_add' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      New Walk-in Sale
+    </a>
+  </div>
   {% endif %}
 </div>
 
@@ -97,7 +100,9 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
     <tbody>
       {% for t in transactions %}
       <tr data-filter-text="{{ t.order_number }} {% if t.customer %}{{ t.customer.first_name }} {{ t.customer.last_name }} {{ t.customer.username }}{% endif %}">
-        <td data-label="Order ID" class="sku strong">{{ t.order_number }}</td>
+        <td data-label="Order ID" class="sku strong">{{ t.order_number }}
+          {% if t.source == "ZANK POS" %}<br><span class="tag">ZANK {{ t.pos_invoice_number }}</span>{% endif %}
+        </td>
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
         <td data-label="Customer">
           {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}
