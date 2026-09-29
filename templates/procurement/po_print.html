@@ -263,7 +263,7 @@ it print too, so nobody signs a document with a broken figure.
     </div>
     <div class="po-term">
       <div class="k">Status</div>
-      <div class="v">{{ procurement.status }}</div>
+      <div class="v">{% include "procurement/_po_document_status.html" with status=procurement.status %}</div>
     </div>
   </div>
 

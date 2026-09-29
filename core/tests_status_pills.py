@@ -65,7 +65,26 @@ class PoPillWordsWhoseTurnItIsTests(SimpleTestCase):
             with self.subTest(status=status):
                 self.assertIn(wording, _pill('partials/_po_status_pill.html', status=status))
 
-    def test_print_variant_is_plain_text_with_no_badge_markup(self):
-        html = _pill('partials/_po_status_pill.html', status='Received', print=True)
-        self.assertNotIn('<span', html)
-        self.assertIn('Received', html.strip())
+
+class PoDocumentStatusTests(SimpleTestCase):
+    """The printed page and the PDF are the same artefact, so they share one
+    status line — worded for a reader who may be the supplier."""
+
+    def test_document_wording_is_neutral_and_carries_no_badge_markup(self):
+        cases = [
+            ('Pending Owner Review', 'Awaiting buyer response'),
+            ('Pending Supplier Review', 'Awaiting supplier response'),
+            ('Terms Agreed', 'Terms agreed — awaiting supplier confirmation'),
+            ('Received', 'Received'),
+            ('Cancelled', 'Cancelled'),
+            ('Draft', 'Draft'),
+        ]
+        for status, wording in cases:
+            with self.subTest(status=status):
+                html = _pill('procurement/_po_document_status.html', status=status)
+                self.assertEqual(html.strip(), wording)
+                self.assertNotIn('<span', html)
+
+    def test_document_never_borrows_the_screen_pills_buyer_wording(self):
+        html = _pill('procurement/_po_document_status.html', status='Pending Owner Review')
+        self.assertNotIn('Your turn', html)

@@ -1,0 +1,18 @@
+{% comment %}
+The status line as it appears on the purchase-order document — the printed
+page and the PDF, which are the same artefact and must never word it
+differently. Neutral, business-document language for whoever is holding it,
+buyer or supplier: partials/_po_status_pill.html's negotiation wording
+("Your turn — respond") is addressed to the buyer's own screen and doesn't
+belong on a page handed to the supplier.
+Usage: {% include "procurement/_po_document_status.html" with status=procurement.status %}
+{% endcomment %}
+{% if status == "Received" %}Received
+{% elif status == "Partially Received" %}Partially Received
+{% elif status == "Incoming" %}Incoming
+{% elif status == "Terms Agreed" %}Terms agreed — awaiting supplier confirmation
+{% elif status == "Pending Owner Review" %}Awaiting buyer response
+{% elif status == "Pending Supplier Review" %}Awaiting supplier response
+{% elif status == "Approved" %}Approved
+{% elif status == "Cancelled" %}Cancelled
+{% else %}Draft{% endif %}

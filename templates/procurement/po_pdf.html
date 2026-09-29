@@ -183,7 +183,7 @@
     </td>
     <td class="last">
       <div class="term-key">Status</div>
-      <div class="term-val">{{ procurement.status }}</div>
+      <div class="term-val">{% include "procurement/_po_document_status.html" with status=procurement.status %}</div>
     </td>
   </tr>
 </table>
