@@ -122,7 +122,6 @@ class ProductWriteSerializerAPITests(TestCase):
         return self.client.post(
             '/api/products/',
             data=json.dumps({
-                'sku': 'SKU-API-1',
                 'name': 'API Product',
                 'categoryId': self.category.id,
                 'unit': Product.UnitOfMeasure.PIECE,
@@ -135,18 +134,19 @@ class ProductWriteSerializerAPITests(TestCase):
         response = self._post('0.00')
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn('retailPrice', response.json())
-        self.assertFalse(Product.objects.filter(sku_code='SKU-API-1').exists())
+        self.assertFalse(Product.objects.exists())
 
     def test_negative_retail_price_is_rejected(self):
         response = self._post('-10.00')
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertFalse(Product.objects.filter(sku_code='SKU-API-1').exists())
+        self.assertFalse(Product.objects.exists())
 
     def test_positive_retail_price_is_accepted(self):
         response = self._post('20.00')
         self.assertEqual(response.status_code, 201, response.content)
+        # The SKU is auto-assigned (category 'Canned Goods' -> CAN-0001).
         self.assertEqual(
-            Product.objects.get(sku_code='SKU-API-1').unit_price, Decimal('20.00')
+            Product.objects.get(sku_code='CAN-0001').unit_price, Decimal('20.00')
         )
 
 

@@ -201,7 +201,7 @@ in the old modal markup, so their JS needs no changes.
             <div class="field">
               <label for="product-sku">SKU (Auto)</label>
               <div class="field-auto-row">
-                <input id="product-sku" type="text" value="{{ next_sku }}" readonly>
+                <input id="product-sku" type="text" value="Assigned on save (e.g. GEN-####)" readonly>
                 <span class="badge-auto">Auto</span>
               </div>
             </div>
@@ -216,7 +216,7 @@ in the old modal markup, so their JS needs no changes.
                   {% if mode == 'edit' %}
                   <option value="{{ category.id }}" {% if edit_values.category_id|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>{{ category }}</option>
                   {% else %}
-                  <option value="{{ category.id }}" {% if add_form_data.category|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>{{ category }}</option>
+                  <option value="{{ category.id }}" data-sku-prefix="{{ category.effective_sku_prefix }}" {% if add_form_data.category|stringformat:"s" == category.id|stringformat:"s" %}selected{% endif %}>{{ category }}</option>
                   {% endif %}
                 {% endfor %}
               </select>
@@ -372,6 +372,22 @@ in the old modal markup, so their JS needs no changes.
 {% endblock %}
 
 {% block extra_js %}
+<script>
+(function () {
+  // Add mode only: keep the static SKU hint in step with the chosen category.
+  // The number itself is assigned by the server on save.
+  var select = document.getElementById('product-category');
+  var sku = document.getElementById('product-sku');
+  if (!select || !sku || {% if mode == 'edit' %}true{% else %}false{% endif %}) return;
+  function update() {
+    var opt = select.options[select.selectedIndex];
+    var prefix = (opt && opt.getAttribute('data-sku-prefix')) || 'GEN';
+    sku.value = 'Assigned on save (e.g. ' + prefix + '-####)';
+  }
+  select.addEventListener('change', update);
+  update();
+})();
+</script>
 <script>
 // Global, not scoped: the tier rows are cloned with inline onclick handlers,
 // which resolve against window.

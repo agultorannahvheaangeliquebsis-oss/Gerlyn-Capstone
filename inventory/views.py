@@ -8,6 +8,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.db import models, transaction, IntegrityError
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -347,7 +348,6 @@ def product_add(request):
             'categories': cached_categories(),
             'branches': cached_branches(),
             'unit_choices': Product.UnitOfMeasure.choices,
-            'next_sku': Product.next_sku_code(),
             'add_selected_branches': None,  # None = default all branches checked
             'add_tier_rows': [],  # empty = fresh form; the page JS opens three blank rows
         }
@@ -386,9 +386,9 @@ def product_add(request):
     if not errors:
         try:
             with transaction.atomic():
-                product = Product.objects.create(
-                    category_id=request.POST.get('category') or None,
-                    sku_code=Product.next_sku_code(),
+                category_id = request.POST.get('category') or None
+                product = Product.create_with_sku(
+                    category=ProductCategory.objects.get(pk=category_id) if category_id else None,
                     barcode=barcode,
                     product_name=product_name,
                     unit_of_measure=request.POST.get('unit_of_measure'),
@@ -423,7 +423,7 @@ def product_add(request):
                 for branch_id in branch_ids:
                     if branch_id.isdigit() and user_can_access_branch(request.user, int(branch_id)):
                         Inventory.objects.create(product=product, branch_id=int(branch_id))
-        except (ValueError, TypeError, IntegrityError, DecimalException):
+        except (ValueError, TypeError, IntegrityError, DecimalException, ProductCategory.DoesNotExist):
             errors.append('Could not save the product — check that the prices are valid numbers.')
         else:
             if images:
@@ -437,7 +437,6 @@ def product_add(request):
         'categories': cached_categories(),
         'branches': cached_branches(),
         'unit_choices': Product.UnitOfMeasure.choices,
-        'next_sku': Product.next_sku_code(),
         'add_errors': errors,
         'add_form_data': request.POST,
         'add_selected_branches': branch_ids,
@@ -1234,7 +1233,7 @@ def product_import_preview(request):
                 product = Product.objects.get(pk=row['existing_id'])
                 updated += 1
             else:
-                product = Product(sku_code=Product.next_sku_code())
+                product = Product()
                 created += 1
 
             product.product_name = row['product_name']
@@ -1247,7 +1246,10 @@ def product_import_preview(request):
             product.is_vat_exempt = row['is_vat_exempt']
             product.is_pwd_eligible = row['is_pwd_eligible']
             product.is_senior_eligible = row['is_senior_eligible']
-            product.save()
+            if product.pk:
+                product.save()
+            else:
+                product.save_with_new_sku()
 
             # A row that priced any bulk rung replaces the whole ladder; a
             # row that priced none leaves it alone. Silence in a sheet that
@@ -1362,8 +1364,16 @@ def category_form(request, pk=None):
     description = request.POST.get('description', '').strip()
     image = request.FILES.get('image')
     remove_image = bool(request.POST.get('remove_image'))
+    # Typed prefixes are folded to uppercase; the model validator then
+    # rejects digits, spaces and anything else that is not A-Z.
+    sku_prefix = request.POST.get('sku_prefix', '').strip().upper()
 
     errors = []
+    if sku_prefix:
+        try:
+            ProductCategory._meta.get_field('sku_prefix').clean(sku_prefix, None)
+        except ValidationError:
+            errors.append('SKU prefix must be 1-5 uppercase letters (A-Z) only.')
     if not name:
         errors.append('Category name is required.')
     else:
@@ -1377,6 +1387,7 @@ def category_form(request, pk=None):
         target = category or ProductCategory()
         target.category_name = name
         target.description = description
+        target.sku_prefix = sku_prefix
         if image:
             target.image = image
         elif remove_image and target.pk:

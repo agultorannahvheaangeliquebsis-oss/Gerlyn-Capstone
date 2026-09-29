@@ -293,9 +293,8 @@ def review_product_request(req, reviewer, *, approve, note='',
         if approve:
             if unit_price is None or unit_price <= 0:
                 raise OfferReviewError('Enter a retail price greater than zero.')
-            product = Product.objects.create(
+            product = Product.create_with_sku(
                 category=category,
-                sku_code=Product.next_sku_code(),
                 product_name=req.product_name,
                 unit_of_measure=req.unit_of_measure,
                 unit_price=unit_price,

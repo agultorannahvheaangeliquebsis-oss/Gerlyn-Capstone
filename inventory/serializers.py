@@ -33,7 +33,7 @@ class ProductSerializer(serializers.ModelSerializer):
     # React expects: sku, name, unit, retailPrice, priceTiers, category (string)
     # Django stores: sku_code, product_name, unit_of_measure, unit_price, price_tiers (FK), category (FK)
 
-    sku = serializers.CharField(source='sku_code')
+    sku = serializers.CharField(source='sku_code', read_only=True)
     name = serializers.CharField(source='product_name')
     unit = serializers.CharField(source='unit_of_measure')
     retailPrice = serializers.DecimalField(
@@ -104,7 +104,11 @@ class ProductWriteSerializer(serializers.ModelSerializer):
     We use a write serializer because the read serializer
     has computed fields that are not writable.
     """
-    sku = serializers.CharField(source='sku_code')
+    # Read-only: the SKU is assigned server-side on create and never edited.
+    # A client-supplied 'sku' is rejected outright (see to_internal_value) so
+    # API consumers learn the field is not writable instead of it silently
+    # doing nothing.
+    sku = serializers.CharField(source='sku_code', read_only=True)
     name = serializers.CharField(source='product_name')
     unit = serializers.CharField(source='unit_of_measure')
     retailPrice = serializers.DecimalField(
@@ -125,6 +129,17 @@ class ProductWriteSerializer(serializers.ModelSerializer):
             'retailPrice',
             'description',
         ]
+
+    def to_internal_value(self, data):
+        if 'sku' in data:
+            raise serializers.ValidationError({
+                'sku': 'SKU is assigned automatically and cannot be set or changed.'
+            })
+        return super().to_internal_value(data)
+
+    def create(self, validated_data):
+        category = validated_data.pop('category', None)
+        return Product.create_with_sku(category=category, **validated_data)
 
 
 # =============================================================================

@@ -1,13 +1,27 @@
 
 from decimal import Decimal
 
-from django.core.validators import MinValueValidator
-from django.db import models
+import re
+
+from django.core.validators import MinValueValidator, RegexValidator
+from django.db import IntegrityError, models, transaction
 from django.db.models import F
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.urls import reverse
 from branches.models import Branch
+
+
+SKU_FALLBACK_PREFIX = 'GEN'
+SKU_SUFFIX_WIDTH = 4
+SKU_CREATE_ATTEMPTS = 5
+
+
+def suggest_sku_prefix(category_name):
+    """First three letters of a name, uppercased, non-letters skipped.
+    Falls back to GEN when the name has no letters at all."""
+    letters = re.sub(r'[^A-Za-z]', '', category_name or '').upper()
+    return letters[:3] or SKU_FALLBACK_PREFIX
 
 
 class ProductCategory(models.Model):
@@ -22,8 +36,26 @@ class ProductCategory(models.Model):
                    "Falls back to a tinted initial when left blank."
     )
 
+    sku_prefix = models.CharField(
+        max_length=5, blank=True, default='',
+        validators=[RegexValidator(
+            r'^[A-Z]+$', 'Use uppercase letters only (A-Z), no digits or spaces.'
+        )],
+        help_text="Letters that start this category's auto-assigned SKUs "
+                   "(e.g. CAN gives CAN-0001). Leave blank to use the first "
+                   "three letters of the category name."
+    )
+
     def __str__(self):
         return self.category_name
+
+    @property
+    def effective_sku_prefix(self):
+        """The prefix new products in this category get: the Owner's own
+        sku_prefix when set, else the first three letters of the name."""
+        if self.sku_prefix:
+            return self.sku_prefix
+        return suggest_sku_prefix(self.category_name)
 
     class Meta:
         verbose_name_plural = "Product Categories"
@@ -125,15 +157,39 @@ class Product(models.Model):
         return min((t.unit_price for t in tiers), default=self.unit_price)
 
     @classmethod
-    def next_sku_code(cls):
-        """Next SKU-### in sequence, based on the highest existing numeric suffix."""
-        prefix = 'SKU-'
+    def next_sku_code(cls, category=None):
+        """Next PREFIX-NNNN for `category` (GEN for uncategorised), one past
+        the highest numeric suffix already used under that prefix. Legacy
+        SKU-### codes are never renumbered — they only matter here when a
+        category's prefix is literally SKU."""
+        prefix = f'{category.effective_sku_prefix if category else SKU_FALLBACK_PREFIX}-'
         max_num = 0
         for code in cls.objects.filter(sku_code__startswith=prefix).values_list('sku_code', flat=True):
             suffix = code[len(prefix):]
             if suffix.isdigit():
                 max_num = max(max_num, int(suffix))
-        return f'{prefix}{max_num + 1:03d}'
+        return f'{prefix}{max_num + 1:0{SKU_SUFFIX_WIDTH}d}'
+
+    def save_with_new_sku(self):
+        """Insert this (unsaved) product with an auto-assigned SKU for its
+        category, retrying when a concurrent request took the same number
+        first. Each attempt runs in its own savepoint so a lost race does not
+        poison the caller's transaction. Any other IntegrityError (e.g. a
+        duplicate barcode) is re-raised untouched."""
+        for attempt in range(SKU_CREATE_ATTEMPTS):
+            self.sku_code = type(self).next_sku_code(self.category)
+            try:
+                with transaction.atomic():
+                    self.save(force_insert=True)
+                return self
+            except IntegrityError:
+                taken = type(self).objects.filter(sku_code=self.sku_code).exists()
+                if not taken or attempt == SKU_CREATE_ATTEMPTS - 1:
+                    raise
+
+    @classmethod
+    def create_with_sku(cls, category=None, **fields):
+        return cls(category=category, **fields).save_with_new_sku()
 
     class Meta:
         constraints = [

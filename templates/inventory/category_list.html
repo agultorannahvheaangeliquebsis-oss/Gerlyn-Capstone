@@ -220,6 +220,13 @@
         <textarea id="add-category-description" name="description" rows="2"
                   placeholder="What belongs in this category?">{{ add_form_data.description|default:'' }}</textarea>
       </div>
+      <div class="field">
+        <label for="add-category-sku-prefix">SKU Prefix <span class="gv-meta">— optional</span></label>
+        <input id="add-category-sku-prefix" type="text" name="sku_prefix" maxlength="5"
+               pattern="[A-Za-z]{1,5}" style="text-transform:uppercase"
+               value="{{ add_form_data.sku_prefix|default:'' }}" placeholder="e.g. CAN">
+        <span class="gv-meta">Starts this category's auto-assigned SKUs (CAN-0001). Blank = first three letters of the name.</span>
+      </div>
     </form>
 
     {% comment %}
@@ -292,6 +299,13 @@
         <label for="edit-category-description">Description <span class="gv-meta">— optional</span></label>
         <textarea id="edit-category-description" name="description" rows="2"
                   placeholder="What belongs in this category?">{{ edit_form_data.description|default:edit_category.description|default:'' }}</textarea>
+      </div>
+      <div class="field">
+        <label for="edit-category-sku-prefix">SKU Prefix <span class="gv-meta">— optional</span></label>
+        <input id="edit-category-sku-prefix" type="text" name="sku_prefix" maxlength="5"
+               pattern="[A-Za-z]{1,5}" style="text-transform:uppercase"
+               value="{% if edit_form_data %}{{ edit_form_data.sku_prefix }}{% else %}{{ edit_category.sku_prefix }}{% endif %}" placeholder="e.g. CAN">
+        <span class="gv-meta">Starts this category's auto-assigned SKUs (CAN-0001). Blank = first three letters of the name.</span>
       </div>
 
       {# Read-only reference, not a form field — moving a product between #}
