@@ -54,11 +54,9 @@ No card is tinted green for being the headline any more. Green means "the card
 you have selected" on the Dashboard, and a second green meaning here left the
 one colour saying two things three clicks apart.
 
-No pill when there is nothing to compare against: _delta_pill returns None for
-an empty previous window, and kpi_compare_note says why once, below the rail,
-instead of three cards each spending their most prominent slot on it. "All
-time" always takes that path — its previous window is empty by construction
-(§2e), since the range starts at the earliest sale on record.
+Zero baselines are rendered as New or No change by the same _delta_pill helper
+used on the operational Dashboard, so this rail cannot invent an infinite
+percentage or drift from the Dashboard's formatting and business polarity.
 
 Online Orders has no pill at all — see the view: the daily series carries no
 channel split, so there is nothing to compare it against without a query added
@@ -68,23 +66,23 @@ for one card's sake.
   <div class="kpi-row">
     <div class="kpi-card{% if delta_orders.tint %} {{ delta_orders.tint }}{% endif %}">
       <span class="label">Total Orders</span>
-      <span class="value">{{ total_orders }}</span>
+      <span class="value">{{ total_orders_display }}</span>
       {% if delta_orders %}
-      <span class="stat-status"><span class="pill {{ delta_orders.pill }}">{% include "reports/_delta_arrow.html" with dir=delta_orders.dir %}{{ delta_orders.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ delta_orders.pill }}"{% if delta_orders.tooltip %} title="{{ delta_orders.tooltip }}"{% endif %}>{% include "reports/_delta_arrow.html" with dir=delta_orders.dir %}{{ delta_orders.text }}</span></span>
       {% endif %}
     </div>
     <div class="kpi-card{% if delta_sales.tint %} {{ delta_sales.tint }}{% endif %}">
       <span class="label">Total Sales</span>
-      <span class="value">₱{{ total_sales|floatformat:2 }}</span>
+      <span class="value">₱{{ total_sales_display }}</span>
       {% if delta_sales %}
-      <span class="stat-status"><span class="pill {{ delta_sales.pill }}">{% include "reports/_delta_arrow.html" with dir=delta_sales.dir %}{{ delta_sales.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ delta_sales.pill }}"{% if delta_sales.tooltip %} title="{{ delta_sales.tooltip }}"{% endif %}>{% include "reports/_delta_arrow.html" with dir=delta_sales.dir %}{{ delta_sales.text }}</span></span>
       {% endif %}
     </div>
     <div class="kpi-card{% if delta_aov.tint %} {{ delta_aov.tint }}{% endif %}">
       <span class="label">Avg Order Value</span>
-      <span class="value">₱{{ avg_order_value|floatformat:2 }}</span>
+      <span class="value">₱{{ avg_order_value_display }}</span>
       {% if delta_aov %}
-      <span class="stat-status"><span class="pill {{ delta_aov.pill }}">{% include "reports/_delta_arrow.html" with dir=delta_aov.dir %}{{ delta_aov.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ delta_aov.pill }}"{% if delta_aov.tooltip %} title="{{ delta_aov.tooltip }}"{% endif %}>{% include "reports/_delta_arrow.html" with dir=delta_aov.dir %}{{ delta_aov.text }}</span></span>
       {% endif %}
       {% comment %}
       Same foot the Dashboard's Avg. Transaction Value card prints, from the
@@ -94,7 +92,7 @@ for one card's sake.
     </div>
     <div class="kpi-card">
       <span class="label">Online Orders</span>
-      <span class="value">{{ online_orders }}</span>
+      <span class="value">{{ online_orders_display }}</span>
     </div>
   </div>
   {% if kpi_compare_note %}

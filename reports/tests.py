@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -15,11 +15,91 @@ from reports.views import (
     _dashboard_branch_breakdown,
     _dashboard_daily_series,
     _dashboard_range_totals,
+    _delta_pill,
+    _delta_tint,
+    _format_percentage_change,
     _non_performing_products,
+    _percentage_change,
     _previous_window,
     _sales_by_category_chart,
     UNCATEGORIZED_LABEL,
 )
+
+
+class KpiComparisonFormattingTests(SimpleTestCase):
+    label = 'previous 30 days'
+
+    def test_actual_percentage_is_retained_while_large_display_is_capped(self):
+        delta = _delta_pill(750.6, 100, self.label)
+
+        self.assertAlmostEqual(delta['pct'], 650.6)
+        self.assertEqual(delta['text'], '>100% vs previous 30 days')
+        self.assertEqual(delta['dir'], 'up')
+        self.assertEqual(delta['tooltip'], 'Actual change: +650.6%')
+
+    def test_normal_increase_uses_one_decimal_and_favorable_status(self):
+        delta = _delta_pill(185.4, 100, self.label)
+
+        self.assertEqual(delta['text'], '85.4% vs previous 30 days')
+        self.assertEqual(delta['dir'], 'up')
+        self.assertEqual(delta['pill'], 'pill-ok')
+        self.assertEqual(delta['tooltip'], '')
+
+    def test_decrease_uses_unsigned_magnitude_with_down_arrow(self):
+        delta = _delta_pill(33.8, 100, self.label)
+
+        self.assertEqual(delta['text'], '66.2% vs previous 30 days')
+        self.assertEqual(delta['dir'], 'down')
+        self.assertNotIn('-', delta['text'])
+        self.assertEqual(delta['pill'], 'pill-danger')
+
+    def test_zero_baselines_are_descriptive_instead_of_infinite(self):
+        new = _delta_pill(10, 0, self.label, prev_window_empty=True)
+        unchanged = _delta_pill(0, 0, self.label, prev_window_empty=True)
+
+        self.assertIsNone(new['pct'])
+        self.assertEqual(new['text'], 'New vs previous 30 days')
+        self.assertEqual(unchanged['text'], 'No change vs previous 30 days')
+
+    def test_equal_nonzero_values_show_no_change(self):
+        delta = _delta_pill(25, 25, self.label)
+
+        self.assertEqual(delta['pct'], 0)
+        self.assertEqual(delta['text'], 'No change vs previous 30 days')
+        self.assertIsNone(delta['dir'])
+
+    def test_procurement_change_is_neutral_in_both_directions(self):
+        increase = _delta_pill(120, 100, self.label, favorable_when=None)
+        decrease = _delta_pill(80, 100, self.label, favorable_when=None)
+
+        self.assertEqual(increase['pill'], 'pill-neutral')
+        self.assertEqual(decrease['pill'], 'pill-neutral')
+        self.assertEqual(_delta_tint(increase), '')
+        self.assertEqual(_delta_tint(decrease), '')
+
+    def test_decrease_can_be_favorable_for_inverse_kpis(self):
+        delta = _delta_pill(8, 10, self.label, favorable_when='down')
+
+        self.assertEqual(delta['dir'], 'down')
+        self.assertEqual(delta['pill'], 'pill-ok')
+        self.assertEqual(_delta_tint(delta), '')
+
+    def test_raw_calculation_and_formatter_are_separate(self):
+        pct = _percentage_change(1, 3)
+        formatted = _format_percentage_change(pct)
+
+        self.assertAlmostEqual(pct, -66.66666666666666)
+        self.assertEqual(formatted['display'], '66.7%')
+
+    def test_previous_window_is_immediately_preceding_and_equal_length(self):
+        end = timezone.localdate()
+        start = end - timedelta(days=29)
+
+        prev_start, prev_end, days = _previous_window(start, end)
+
+        self.assertEqual(days, 30)
+        self.assertEqual(prev_end, start - timedelta(days=1))
+        self.assertEqual(prev_start, start - timedelta(days=30))
 
 
 class RevenueExcludesCancelledAndPendingTests(TestCase):

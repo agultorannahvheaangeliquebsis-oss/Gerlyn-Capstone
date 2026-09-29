@@ -388,7 +388,7 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .kpi-card.warn .value { color: var(--warn-fg); }
 
 /* .pill is nowrap everywhere else (table/list status never truncates), but the
-   Reports/Dashboard delta pill's text is a full sentence ("-100.0% vs previous
+   Reports/Dashboard delta pill's text is a full sentence ("100.0% vs previous
    30 days") next to a card that can shrink to ~200px on a narrow viewport —
    nowrap there just pushes the overflow past the card edge instead of
    preventing it. Wrapping is scoped to these two card shells (.kpi-card and

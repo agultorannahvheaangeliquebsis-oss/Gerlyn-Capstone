@@ -65,15 +65,12 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       <span class="label">{{ card.label }}</span>
       <span class="value">{{ card.value_display }}</span>
       {% comment %}
-      No pill when there is nothing to compare against. _delta_pill returns
-      None for that, rather than a pill reading "No previous 24 days to
-      compare" — which every card rendered identically, in the most prominent
-      slot each one has, pushing the actual figure into second place. The
-      reason is a property of the range, not of four separate metrics, so it
-      is stated once below the rail instead.
+      Percentage display and zero-baseline safeguards come from the shared
+      _delta_pill helper; the template only supplies the direction icon and
+      exposes the exact-change tooltip when the visible value is capped.
       {% endcomment %}
       {% if card.delta %}
-      <span class="stat-status"><span class="pill {{ card.delta.pill }}">{% include "reports/_delta_arrow.html" with dir=card.delta.dir %}{{ card.delta.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ card.delta.pill }}"{% if card.delta.tooltip %} title="{{ card.delta.tooltip }}"{% endif %}>{% include "reports/_delta_arrow.html" with dir=card.delta.dir %}{{ card.delta.text }}</span></span>
       {% endif %}
     </button>
     {% endfor %}
@@ -88,7 +85,7 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
     {% endcomment %}
     <div class="kpi-card{% if inventory_low_critical %} danger{% endif %}">
       <span class="label">Low / Critical Items</span>
-      <span class="value">{{ inventory_low_critical }}</span>
+      <span class="value">{{ inventory_low_critical_display }}</span>
     </div>
   </div>
   {% if kpi_compare_note %}
