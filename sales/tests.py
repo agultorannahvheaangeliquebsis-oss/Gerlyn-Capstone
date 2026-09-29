@@ -13,6 +13,7 @@ from importlib import import_module
 from unittest import mock
 
 from django.conf import settings
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.db import connections
 from django.db.models import Sum
@@ -900,6 +901,11 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.exclude(pk=original.pk).get()
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertEqual(new_order.replaces_id, original.pk)
+        # A link that stuck says nothing extra.
+        self.assertNotIn(
+            'could not be found',
+            ' '.join(str(m) for m in get_messages(response.wsgi_request)),
+        )
 
         original.refresh_from_db()
         self.assertEqual(list(original.replaced_by.all()), [new_order])
@@ -914,6 +920,11 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.exclude(pk=still_pending.pk).get()
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertIsNone(new_order.replaces_id)
+        # ...and the cashier is told, rather than the link vanishing silently.
+        self.assertIn(
+            'could not be found',
+            ' '.join(str(m) for m in get_messages(response.wsgi_request)),
+        )
 
     def test_replaces_is_dropped_if_the_cancelled_order_is_a_different_branch(self):
         Inventory.objects.create(
@@ -932,6 +943,10 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.get(branch=self.branch)
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertIsNone(new_order.replaces_id)
+        self.assertIn(
+            'could not be found',
+            ' '.join(str(m) for m in get_messages(response.wsgi_request)),
+        )
 
 
 class PaymentGatesOrderCompletionTests(TestCase):

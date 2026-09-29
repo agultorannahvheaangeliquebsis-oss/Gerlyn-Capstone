@@ -1821,10 +1821,15 @@ def transaction_add(request):
     # resolve to one — a stale dropdown value shouldn't block the sale
     # itself, only the cross-reference is optional.
     replaces_id = request.POST.get('replaces') or None
+    # Tracked separately from the None it collapses to below, so the sale can
+    # still tell the cashier the cross-reference didn't stick instead of just
+    # dropping it — see the message after the sale is recorded.
+    replaces_dropped = False
     if replaces_id and not SalesTransaction.objects.filter(
         pk=replaces_id, branch_id=branch_id,
         order_status=SalesTransaction.OrderStatus.CANCELLED,
     ).exists():
+        replaces_dropped = True
         replaces_id = None
 
     # --- cash tendered -------------------------------------------------------
@@ -2088,6 +2093,14 @@ def transaction_add(request):
                         )
                     else:
                         messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
+                if replaces_dropped:
+                    messages.info(
+                        request,
+                        f'Sale {txn.order_number} was recorded, but the cancelled '
+                        f'order it was meant to replace could not be found — it '
+                        f'may have changed since the form loaded. Recorded as a '
+                        f'standalone sale.'
+                    )
                 return redirect('transaction_detail', pk=txn.pk)
 
     # Rejected. Re-render the form with the header selections re-chosen and
