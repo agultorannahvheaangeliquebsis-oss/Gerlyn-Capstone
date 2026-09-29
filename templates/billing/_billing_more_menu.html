@@ -1,0 +1,20 @@
+{% comment %}
+"More" menu beside Verify Payment on a Pending record: Edit payment details
+and Reject Payment, which used to be two more buttons in the same row.
+Reject submits #bill-reject-form (billing/_billing_reject_form.html, which
+must be on the page) — billing_confirm still re-checks the transition,
+scope and maker/checker rule; this is only where the control is drawn.
+
+Needs: record.
+{% endcomment %}
+<details class="bill-more">
+  <summary class="btn">More
+    <svg class="bill-more-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+  </summary>
+  <div class="bill-more-panel">
+    <a class="bill-more-item" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
+       data-payment-open="record-payment-modal">Edit payment details</a>
+    <button type="submit" form="bill-reject-form" name="status" value="Rejected"
+            class="bill-more-item bill-more-item--danger">Reject Payment</button>
+  </div>
+</details>

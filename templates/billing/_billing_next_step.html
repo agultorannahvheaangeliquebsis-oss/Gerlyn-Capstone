@@ -67,15 +67,10 @@ order_status, remaining_after_refunds.
       </p>
     </div>
     {% if module_actions.billing.edit %}
+    {% include "billing/_billing_reject_form.html" %}
     <div class="bill-actions">
-      <form method="POST" action="{% url 'billing_confirm' record.pk %}" data-status-confirm>
-        {% csrf_token %}
-        <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
-        {% include "partials/_billing_reject_confirm.html" with record=record %}
-      </form>
       <button type="button" class="btn btn-primary" disabled>Verify Payment</button>
-      <a class="btn btn-quiet" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
-         data-payment-open="record-payment-modal">Edit payment details</a>
+      {% include "billing/_billing_more_menu.html" %}
     </div>
     {% endif %}
   </section>
@@ -132,18 +127,13 @@ order_status, remaining_after_refunds.
       </p>
     </div>
     {% if module_actions.billing.edit %}
+    {% include "billing/_billing_reject_form.html" %}
     <div class="bill-actions">
-      <form method="POST" action="{% url 'billing_confirm' record.pk %}" data-status-confirm>
-        {% csrf_token %}
-        <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
-        {% include "partials/_billing_reject_confirm.html" with record=record %}
-      </form>
       <form method="POST" action="{% url 'billing_confirm' record.pk %}">
         {% csrf_token %}
         <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
       </form>
-      <a class="btn btn-quiet" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
-         data-payment-open="record-payment-modal">Edit payment details</a>
+      {% include "billing/_billing_more_menu.html" %}
     </div>
     {% endif %}
   </section>

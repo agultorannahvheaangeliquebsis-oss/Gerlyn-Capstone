@@ -191,6 +191,39 @@ class BillingDetailStateTests(TestCase):
         form = form.partition('</form>')[0]
         self.assertIn('<input type="hidden" name="status" value="Rejected">', form)
 
+    def test_pending_ready_folds_edit_and_reject_into_a_more_menu(self):
+        """Verify Payment stays the one visible button; Edit payment details
+        and Reject Payment sit behind "More". The Reject row submits the
+        reject form by id, so the form (and its confirm dialog) must be on
+        the page outside the menu, and must post status=Rejected on its own
+        — the dialog's confirming button has no name/value to send it."""
+        record = self._record()
+        notice = self._next_step(self._html(record))
+
+        self.assertIn('<details class="bill-more">', notice)
+        menu = notice.partition('<details class="bill-more">')[2]
+        menu = menu.partition('</details>')[0]
+        self.assertIn('Edit payment details', menu)
+        self.assertIn('form="bill-reject-form" name="status" value="Rejected"', menu)
+        self.assertNotIn('<form', menu)
+
+        reject_form = notice.partition('id="bill-reject-form"')[2]
+        reject_form = reject_form.partition('</form>')[0]
+        self.assertIn('<input type="hidden" name="status" value="Rejected">', reject_form)
+
+    def test_more_menu_and_reject_form_need_the_billing_edit_permission(self):
+        """Both are write controls, so neither is drawn without the grant —
+        the reject form moved out of the actions row and must not escape it."""
+        record = self._record()
+        User.objects.filter(pk=self.staff.pk).update(
+            module_actions={**default_module_actions(), BILLING: []}
+        )
+        notice = self._next_step(self._html(record, user=self.staff))
+
+        self.assertNotIn('bill-more', notice)
+        self.assertNotIn('id="bill-reject-form"', notice)
+        self.assertNotIn('Reject Payment', notice)
+
     def test_view_order_is_offered_once_not_in_the_header_too(self):
         """The header used to carry its own View Order beside the one on the
         Order Information card — the same destination twice on one screen."""
