@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from accounts.models import BranchManagerProfile, StaffProfile, User
 from branches.models import Branch
+from core.module_permissions import PROCUREMENT
 from inventory.models import (
     Batch, Product, StockMovement, Warehouse, WarehouseStock,
 )
@@ -419,6 +420,172 @@ class ProcurementAuthorizationBase(TestCase):
             branch=branch or self.home_branch, supplier=self.supplier,
             order_date=dt.date(2026, 1, 1), status=status, total_cost=0,
             **extra
+        )
+
+
+class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
+    """Staff see only receiving-stage records for their assigned branch."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.staff = User.objects.create_user(
+            username='c1-staff', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff,
+            defaults={
+                'branch': cls.home_branch,
+                'staff_name': 'Steffi',
+                'contact_number': '0900',
+            },
+        )
+        # Prove record policy remains restrictive even when the Owner grants
+        # Staff access to the broader Procurement module/API.
+        cls.staff.refresh_from_db()
+        cls.staff.allowed_modules = [
+            *cls.staff.allowed_modules,
+            PROCUREMENT,
+        ]
+        cls.staff.save(update_fields=['allowed_modules'])
+
+        def make_po(status, branch=None):
+            return Procurement.objects.create(
+                branch=branch or cls.home_branch,
+                supplier=cls.supplier,
+                order_date=dt.date(2026, 1, 1),
+                status=status,
+                total_cost=0,
+            )
+
+        cls.approved = make_po(Procurement.Status.APPROVED)
+        cls.negotiating = make_po(Procurement.Status.PENDING_OWNER_REVIEW)
+        cls.incoming = make_po(Procurement.Status.INCOMING)
+        cls.partial = make_po(Procurement.Status.PARTIALLY_RECEIVED)
+        cls.received = make_po(Procurement.Status.RECEIVED)
+        cls.cancelled = make_po(Procurement.Status.CANCELLED)
+        cls.foreign_incoming = make_po(
+            Procurement.Status.INCOMING, cls.other_branch
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.staff)
+
+    def test_staff_delivery_page_defaults_to_active_receiving_work(self):
+        response = self.client.get(reverse('delivery_list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Active Deliveries')
+        self.assertContains(response, self.incoming.po_number)
+        self.assertContains(response, self.partial.po_number)
+        self.assertNotContains(response, self.received.po_number)
+        self.assertNotContains(response, self.approved.po_number)
+        self.assertNotContains(response, self.negotiating.po_number)
+        self.assertNotContains(response, self.cancelled.po_number)
+        self.assertNotContains(response, self.foreign_incoming.po_number)
+        self.assertNotContains(response, '>Approved <')
+        self.assertNotContains(response, '>Negotiating <')
+        self.assertNotContains(response, '>Cancelled <')
+        self.assertNotContains(response, '<th>Branch</th>')
+        self.assertEqual(response.context['counts']['active'], 2)
+        self.assertEqual(response.context['counts']['received'], 1)
+        self.assertEqual(response.context['counts']['approved'], 0)
+
+    def test_staff_delivery_actions_follow_receiving_status(self):
+        active = self.client.get(reverse('delivery_list'))
+        history = self.client.get(
+            reverse('delivery_list'), {'status': Procurement.Status.RECEIVED}
+        )
+
+        self.assertContains(active, 'Receive Delivery')
+        self.assertContains(active, 'Continue Receiving')
+        self.assertContains(history, self.received.po_number)
+        self.assertContains(history, 'View Receipt')
+
+    def test_staff_empty_state_describes_the_receiving_queue(self):
+        Procurement.objects.filter(
+            branch=self.home_branch,
+            status__in=Procurement.AWAITING_DELIVERY_STATUSES,
+        ).delete()
+
+        response = self.client.get(reverse('delivery_list'))
+
+        self.assertContains(
+            response,
+            'Incoming and partially received deliveries will appear here '
+            'when they are ready for receiving.',
+        )
+
+    def test_staff_cannot_force_hidden_status_with_query_parameter(self):
+        response = self.client.get(
+            reverse('delivery_list'), {'status': Procurement.Status.APPROVED}
+        )
+
+        self.assertNotContains(response, self.approved.po_number)
+        self.assertNotContains(response, self.negotiating.po_number)
+        self.assertEqual(response.context['status_filter'], '')
+
+    def test_staff_cannot_open_approval_or_negotiation_records_directly(self):
+        for procurement in (self.approved, self.negotiating):
+            with self.subTest(status=procurement.status):
+                delivery_response = self.client.get(
+                    reverse('delivery_detail', args=[procurement.pk])
+                )
+                procurement_response = self.client.get(
+                    reverse('procurement_detail', args=[procurement.pk])
+                )
+                receive_response = self.client.get(
+                    reverse('delivery_receive', args=[procurement.pk])
+                )
+                self.assertRedirects(
+                    delivery_response, reverse('procurement_list')
+                )
+                self.assertRedirects(
+                    procurement_response, reverse('procurement_list')
+                )
+                self.assertEqual(receive_response.status_code, 404)
+
+                response = self.client.get(
+                    reverse('api-procurement-detail', args=[procurement.pk])
+                )
+                self.assertEqual(response.status_code, 404)
+
+    def test_staff_cannot_access_another_branch_delivery(self):
+        html_response = self.client.get(
+            reverse('delivery_detail', args=[self.foreign_incoming.pk])
+        )
+        api_response = self.client.get(
+            reverse('api-procurement-detail', args=[self.foreign_incoming.pk])
+        )
+        receive_response = self.client.get(
+            reverse('delivery_receive', args=[self.foreign_incoming.pk])
+        )
+
+        self.assertRedirects(html_response, reverse('procurement_list'))
+        self.assertEqual(api_response.status_code, 404)
+        self.assertEqual(receive_response.status_code, 404)
+
+    def test_staff_api_returns_only_own_branch_receiving_records(self):
+        response = self.client.get(reverse('api-procurement-list'))
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()
+        self.assertEqual(
+            {row['poNumber'] for row in rows},
+            {
+                self.incoming.po_number,
+                self.partial.po_number,
+                self.received.po_number,
+            },
+        )
+        self.assertEqual(
+            {row['status'] for row in rows},
+            {
+                Procurement.Status.INCOMING,
+                Procurement.Status.PARTIALLY_RECEIVED,
+                Procurement.Status.RECEIVED,
+            },
         )
 
 

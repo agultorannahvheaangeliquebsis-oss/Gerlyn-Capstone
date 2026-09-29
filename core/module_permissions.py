@@ -177,7 +177,7 @@ MODULE_PERMISSION_REGISTRY = {
     },
     DELIVERIES: {
         'label': 'Deliveries',
-        VIEW: ['delivery_list'],
+        VIEW: ['delivery_list', 'delivery_detail'],
         ADD: ['delivery_add_unexpected'],
         EDIT: ['delivery_receive', 'delivery_scan'], DELETE: [],
     },

@@ -27,7 +27,9 @@ from django.db.models import Count, F, Prefetch, Q
 
 from xhtml2pdf import pisa
 
-from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
+from core.scoping import (
+    branch_ids_for_user, scope_queryset, user_can_access_branch, branch_for_user,
+)
 from core.people import person_display_name
 from core.querystrings import list_filter_querystring
 from core.permissions import (
@@ -46,6 +48,10 @@ from rest_framework.permissions import IsAuthenticated
 from .models import (
     Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
     SupplierReturn, DeliveryReceipt, DeliveryScanLog,
+)
+from .access import (
+    STAFF_ACTIVE_DELIVERY_STATUSES, procurements_visible_to,
+    user_can_read_procurement,
 )
 from .services import (
     FundingError, OfferReviewError, RescheduleError, ReturnError,
@@ -81,12 +87,7 @@ def _procurement_list_context(request):
 
     procurements = Procurement.objects.select_related('branch', 'supplier', 'owner').all()
 
-    if request.user.role == User.Role.SUPPLIER:
-        # Suppliers only ever see the orders addressed to them.
-        procurements = procurements.filter(supplier=request.user)
-    else:
-        # Owner = all branches; manager/staff = their own branch only.
-        procurements = scope_queryset(procurements, request.user)
+    procurements = procurements_visible_to(request.user, procurements)
 
     # Owner-only branch filter — Manager/Staff are already pinned to their
     # own branch's orders (and Supplier to their own orders) above, so a
@@ -181,9 +182,7 @@ def _can_read_procurement(user, proc):
     """Scoping the list is not enough — every per-order page must check too,
     or anyone can read another branch's (or a rival supplier's) order by
     editing the URL."""
-    if user.role == User.Role.SUPPLIER:
-        return proc.supplier_id == user.id
-    return user_can_access_branch(user, proc.branch_id)
+    return user_can_read_procurement(user, proc)
 
 
 @login_required(login_url='accounts:login')
@@ -1233,13 +1232,15 @@ def delivery_list(request):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    deliveries = scope_queryset(
+    deliveries = procurements_visible_to(
+        request.user,
         Procurement.objects.select_related('branch', 'supplier')
         .exclude(status=Procurement.Status.DRAFT),
-        request.user,
     )
+    staff_delivery_view = request.user.role == User.Role.STAFF
 
     user_branch = branch_for_user(request.user)
+    can_access_multiple_branches = branch_ids_for_user(request.user) is None
 
     search_query = request.GET.get('q', '')
     if search_query:
@@ -1251,7 +1252,9 @@ def delivery_list(request):
     # Owner-only branch filter — Manager/Staff are already pinned to their own
     # branch's deliveries by scope_queryset() above, so a selector would do
     # nothing for them.
-    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    branch_filter = (
+        request.GET.get('branch', '') if can_access_multiple_branches else ''
+    )
     if branch_filter and not branch_filter.isdigit():
         branch_filter = ''
     if branch_filter:
@@ -1260,8 +1263,17 @@ def delivery_list(request):
     deliveries = deliveries.order_by('-order_date')
 
     status_filter = request.GET.get('status', '')
+    if staff_delivery_view and status_filter not in (
+        Procurement.Status.INCOMING,
+        Procurement.Status.PARTIALLY_RECEIVED,
+        Procurement.Status.RECEIVED,
+    ):
+        status_filter = ''
     counts = {
         'all': deliveries.count(),
+        'active': deliveries.filter(
+            status__in=STAFF_ACTIVE_DELIVERY_STATUSES
+        ).count(),
         'approved': deliveries.filter(status=Procurement.Status.APPROVED).count(),
         'negotiating': deliveries.filter(
             status__in=Procurement.NEGOTIATION_STATUSES
@@ -1273,13 +1285,15 @@ def delivery_list(request):
         'received': deliveries.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': deliveries.filter(status=Procurement.Status.CANCELLED).count(),
     }
-    if status_filter == 'Negotiating':
+    if staff_delivery_view and not status_filter:
+        deliveries = deliveries.filter(status__in=STAFF_ACTIVE_DELIVERY_STATUSES)
+    elif status_filter == 'Negotiating':
         deliveries = deliveries.filter(status__in=Procurement.NEGOTIATION_STATUSES)
     elif status_filter:
         deliveries = deliveries.filter(status=status_filter)
 
     from branches.models import Branch
-    branches = Branch.objects.all() if not user_branch else []
+    branches = Branch.objects.all() if can_access_multiple_branches else []
 
     # Receive Delivery is a modal on this list now (see delivery_receive's
     # GET branch, which is what actually lands here with ?receive=<pk> —
@@ -1294,7 +1308,10 @@ def delivery_list(request):
     can_receive = user_can_perform_module_action(request.user, DELIVERIES, EDIT)
     receive_pk = request.GET.get('receive')
     if can_receive and receive_pk and receive_pk.isdigit():
-        candidate = Procurement.objects.select_related('branch', 'supplier').filter(
+        candidate = procurements_visible_to(
+            request.user,
+            Procurement.objects.select_related('branch', 'supplier'),
+        ).filter(
             pk=receive_pk,
             status__in=[
                 Procurement.Status.INCOMING,
@@ -1338,6 +1355,8 @@ def delivery_list(request):
         'can_add_unexpected': user_can_perform_module_action(
             request.user, DELIVERIES, ADD
         ),
+        'staff_delivery_view': staff_delivery_view,
+        'show_branch_column': can_access_multiple_branches,
     })
 
 
@@ -1356,7 +1375,11 @@ def delivery_receive(request, pk):
         return redirect('accounts:home')
 
     proc = get_object_or_404(
-        Procurement.objects.select_related('branch', 'supplier'), pk=pk
+        procurements_visible_to(
+            request.user,
+            Procurement.objects.select_related('branch', 'supplier'),
+        ),
+        pk=pk,
     )
 
     if not user_can_access_branch(request.user, proc.branch_id):
@@ -1604,11 +1627,16 @@ def delivery_scan(request, pk):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         return JsonResponse({'ok': False, 'detail': 'Access denied.'}, status=403)
 
-    proc = get_object_or_404(Procurement, pk=pk)
+    proc = get_object_or_404(
+        procurements_visible_to(request.user, Procurement.objects.all()), pk=pk
+    )
     if not user_can_access_branch(request.user, proc.branch_id):
         return JsonResponse({'ok': False, 'detail': 'Wrong branch.'}, status=403)
-    if proc.status in (Procurement.Status.RECEIVED, Procurement.Status.CANCELLED):
-        return JsonResponse({'ok': False, 'detail': 'This order is closed.'}, status=400)
+    if proc.status not in Procurement.AWAITING_DELIVERY_STATUSES:
+        return JsonResponse(
+            {'ok': False, 'detail': 'This order is not ready for receiving.'},
+            status=400,
+        )
 
     code = (request.POST.get('code') or '').strip()
     if not code:
@@ -1672,13 +1700,15 @@ def delivery_add_unexpected(request, pk):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    proc = get_object_or_404(Procurement, pk=pk)
+    proc = get_object_or_404(
+        procurements_visible_to(request.user, Procurement.objects.all()), pk=pk
+    )
     if not user_can_access_branch(request.user, proc.branch_id):
         messages.error(request, 'That purchase order belongs to another branch.')
         return redirect('delivery_list')
-    if proc.status in (Procurement.Status.RECEIVED, Procurement.Status.CANCELLED):
-        messages.error(request, f'{proc.po_number} is closed.')
-        return redirect('procurement_detail', pk=pk)
+    if proc.status not in Procurement.AWAITING_DELIVERY_STATUSES:
+        messages.error(request, f'{proc.po_number} is not ready for receiving.')
+        return redirect('delivery_list')
 
     product = get_object_or_404(Product, pk=request.POST.get('product'))
 
@@ -3059,13 +3089,7 @@ class ProcurementListCreateAPIView(APIView):
         ).prefetch_related('items__product', 'receipts__received_by').order_by('-id')
 
         # Role-based filtering — mirrors the original template view logic
-        if user.role == User.Role.OWNER:
-            return qs
-        if user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-            return scope_queryset(qs, user)
-        if user.role == User.Role.SUPPLIER:
-            return qs.filter(supplier=user)
-        return qs.none()
+        return procurements_visible_to(user, qs)
 
     def get(self, request):
         procurements = self.get_queryset(request.user)
@@ -3110,9 +3134,7 @@ class ProcurementDetailAPIView(APIView):
         )
 
     def _can_access(self, user, proc):
-        if user.role == User.Role.SUPPLIER:
-            return proc.supplier_id == user.id
-        return user_can_access_branch(user, proc.branch_id)
+        return user_can_read_procurement(user, proc)
 
     def get(self, request, pk):
         proc = self.get_object(pk)

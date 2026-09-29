@@ -254,6 +254,9 @@ def staff_dashboard(request):
     from core.scoping import branch_ids_for_user
     from inventory.models import Inventory, StockTransfer
     from inventory.alerts import low_stock_alerts
+    from procurement.access import (
+        STAFF_ACTIVE_DELIVERY_STATUSES, procurements_visible_to,
+    )
     from procurement.models import Procurement
 
     profile = getattr(request.user, 'staff_profile', None)
@@ -271,14 +274,11 @@ def staff_dashboard(request):
 
     branch_ids = branch_ids_for_user(request.user)
 
-    pending_deliveries = Procurement.objects.select_related(
-        'supplier__supplier_profile'
+    pending_deliveries = procurements_visible_to(
+        request.user,
+        Procurement.objects.select_related('supplier__supplier_profile'),
     ).filter(
-        branch=branch,
-        status__in=[
-            Procurement.Status.INCOMING,
-            Procurement.Status.PARTIALLY_RECEIVED,
-        ],
+        status__in=STAFF_ACTIVE_DELIVERY_STATUSES,
     ).order_by('delivery_date')
 
     pending_receipts = StockTransfer.objects.select_related('source_branch').filter(
