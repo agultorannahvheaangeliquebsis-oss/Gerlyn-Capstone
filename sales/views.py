@@ -1398,6 +1398,7 @@ def _reverse_stock(txn, user):
             quantity_before=before,
             quantity_after=inv.quantity_on_hand,
             reference_id=txn.pk,
+            reference_type=StockMovement.ReferenceType.SALES_TRANSACTION,
             notes=f'Voided order {txn.order_number} — stock reversal',
             created_by=user,
         )

@@ -16,6 +16,7 @@ wording.{% endcomment %}
     <h1>Product Master List</h1>
   </div>
   <div class="row" style="gap:var(--s2);">
+    <a class="btn" href="{% url 'stock_movement_history' %}">Movement History</a>
     {% comment %}
     Categories used to sit in the sidebar beside Product Master List, which
     gave a page you touch a few times a year the same standing as one you
@@ -139,7 +140,7 @@ input[type=search] within the form — all three survive the restructure.
             {% endif %}
           {% endwith %}
         </td>
-        <td data-label="SKU" class="sku">{{ row.product.sku_code }}</td>
+        <td data-label="SKU" class="sku"><a href="{% url 'stock_movement_history' %}?product={{ row.product.pk|stringformat:'d' }}" title="View movement history">{{ row.product.sku_code }}</a></td>
         <td data-label="Barcode" class="sku">{{ row.product.barcode|default:"—" }}</td>
         <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
         <td data-label="Category"><span class="tag">{{ row.product.category.category_name|default:"—" }}</span></td>

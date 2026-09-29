@@ -5,15 +5,16 @@ import hashlib
 
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
 from django.db import models, transaction, IntegrityError
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_safe
 from decimal import Decimal, InvalidOperation as DecimalException
 from urllib.parse import urlencode
 
@@ -35,14 +36,15 @@ from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.module_permissions import (
-    ADD, DELETE, EDIT, FLOOR_STOCK, PRODUCTS, WAREHOUSE_STOCK, WITHDRAWALS,
-    user_can_perform_module_action,
+    ADD, DELETE, EDIT, FLOOR_STOCK, PRODUCTS, URL_NAME_TO_MODULE, VIEW,
+    WAREHOUSE_STOCK, WITHDRAWALS, user_can_perform_module_action,
 )
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
 from core.scoping import (
     branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch,
 )
-from core.timebounds import local_month_bounds, range_from_request
+from core.querystrings import list_filter_querystring
+from core.timebounds import local_month_bounds, local_range_bounds, range_from_request
 
 
 # ─────────────────────────────────────────────
@@ -2447,15 +2449,28 @@ def _describe_movement(m):
     elif m.warehouse_stock_id:
         branch = m.warehouse_stock.warehouse.branch
         product_name = m.warehouse_stock.product.product_name
+    elif m.product_id:
+        # The Inventory/WarehouseStock row was later deleted (SET_NULL), but
+        # the movement kept its own product and branch (see StockMovement),
+        # so the journal can still say what it was about.
+        branch = m.branch
+        product_name = m.product.product_name
     else:
-        # The Inventory/WarehouseStock row this movement pointed at was
-        # later deleted (SET_NULL) — the audit record still deserves to
-        # show up, just without a live product/branch to describe.
+        # Nothing left to identify it - a legacy row whose stock row was
+        # deleted before those columns existed and that names no batch.
         return '(record removed)', '—', '—'
 
     branch_name = branch.branch_name if branch else '—'
     mt = StockMovement.MovementType
+    on_floor = m.location_type == StockMovement.LocationType.FLOOR
+    here = f'{branch_name} Floor' if on_floor else f'{branch_name} Warehouse'
 
+    if m.movement_type == mt.EXPIRY_WRITE_OFF:
+        return product_name, here, 'Expired — written off'
+    if m.movement_type == mt.CUSTOMER_RETURN:
+        return product_name, 'Customer refund', f'{branch_name} Floor'
+    if m.movement_type == mt.SUPPLIER_RETURN:
+        return product_name, f'{branch_name} Warehouse', 'Returned to supplier'
     if m.movement_type == mt.PROCUREMENT_RECEIVED:
         return product_name, 'Supplier', f'{branch_name} Warehouse'
     if m.movement_type == mt.WAREHOUSE_TO_FLOOR:
@@ -2491,7 +2506,7 @@ def _movement_log(branch_ids=None):
     qs = StockMovement.objects.select_related(
         'inventory__branch', 'inventory__product',
         'warehouse_stock__warehouse__branch', 'warehouse_stock__product',
-        'created_by',
+        'product', 'branch', 'created_by',
     ).exclude(
         movement_type=StockMovement.MovementType.WAREHOUSE_TO_FLOOR,
         location_type=StockMovement.LocationType.FLOOR,
@@ -2514,6 +2529,166 @@ def _movement_log(branch_ids=None):
             'quantity': abs(m.quantity_change),
         })
     return rows
+
+
+# ─────────────────────────────────────────────
+# MOVEMENT HISTORY (the stock journal)
+# ─────────────────────────────────────────────
+
+MOVEMENT_HISTORY_PAGE_SIZE = 50
+
+# reference_type -> the detail page it points at. Only rendered as a link when
+# the viewer's module grants let them open that page.
+_MOVEMENT_REFERENCE_PAGES = {
+    StockMovement.ReferenceType.SALES_TRANSACTION: 'transaction_detail',
+    StockMovement.ReferenceType.PROCUREMENT: 'procurement_detail',
+    StockMovement.ReferenceType.STOCK_TRANSFER: 'transfer_detail',
+    StockMovement.ReferenceType.SUPPLIER_RETURN: 'supplier_return_detail',
+    StockMovement.ReferenceType.OPENING_STOCK_IMPORT: 'opening_stock_import_detail',
+}
+
+
+def _movement_reference(user, movement):
+    """(label, url) for the record that caused a movement. url is '' when the
+    movement has no source record, the source has no page (a batch), or the
+    viewer may not open that page."""
+    if movement.reference_id is None or not movement.reference_type:
+        return '', ''
+    label = f'{movement.get_reference_type_display()} #{movement.reference_id}'
+    page = _MOVEMENT_REFERENCE_PAGES.get(movement.reference_type)
+    module = URL_NAME_TO_MODULE.get(page)
+    if not page or not module or not user_can_perform_module_action(user, module, VIEW):
+        return label, ''
+    try:
+        return label, reverse(page, args=[movement.reference_id])
+    except NoReverseMatch:
+        return label, ''
+
+
+@login_required(login_url='accounts:login')
+@require_safe
+def stock_movement_history(request):
+    """Read-only stock journal: every StockMovement the viewer's branches
+    can see, newest first, with product / branch / type / place / search /
+    date-range filters. `?product=<id>` turns it into that product's own
+    history, with its current on-hand shown above the table.
+
+    Read access is the Product Master List's VIEW grant (registered in
+    MODULE_PERMISSION_REGISTRY); there is nothing here to write. Branch
+    scoping is enforced on the denormalised StockMovement.branch: an Owner
+    sees every branch, anyone else only their own, and an unassigned account
+    sees nothing. A legacy row whose branch could not be recovered is
+    Owner-only."""
+    if request.user.role not in INTERNAL_ROLES:
+        messages.error(request, 'Access denied.')
+        return redirect('accounts:home')
+
+    params = request.GET
+    allowed_branch_ids = branch_ids_for_user(request.user)  # None = Owner
+
+    movements = StockMovement.objects.select_related(
+        'product', 'branch', 'created_by', 'batch',
+    )
+    if allowed_branch_ids is not None:
+        movements = movements.filter(branch_id__in=allowed_branch_ids)
+
+    product_id = params.get('product', '').strip()
+    product = None
+    if product_id.isdigit():
+        product = Product.objects.select_related('category').filter(pk=product_id).first()
+        movements = movements.filter(product_id=product_id)
+    else:
+        product_id = ''
+
+    branch_id = params.get('branch', '').strip()
+    if branch_id.isdigit() and allowed_branch_ids is None:
+        movements = movements.filter(branch_id=branch_id)
+    else:
+        branch_id = ''  # Manager/Staff are already pinned to their own branch.
+
+    movement_type = params.get('type', '').strip()
+    if movement_type in StockMovement.MovementType.values:
+        movements = movements.filter(movement_type=movement_type)
+    else:
+        movement_type = ''
+
+    location = params.get('location', '').strip()
+    if location in StockMovement.LocationType.values:
+        movements = movements.filter(location_type=location)
+    else:
+        location = ''
+
+    q = params.get('q', '').strip()
+    if q:
+        movements = movements.filter(
+            models.Q(product__product_name__icontains=q)
+            | models.Q(product__sku_code__icontains=q)
+            | models.Q(notes__icontains=q)
+        )
+
+    range_start, range_end, active_range = range_from_request(request)
+    range_dt_start, range_dt_end = local_range_bounds(range_start or range_end, range_end)
+    if range_start:
+        movements = movements.filter(created_at__gte=range_dt_start)
+    movements = movements.filter(created_at__lt=range_dt_end)
+
+    # Newest first; id breaks ties so pagination never repeats or skips a row
+    # when several movements share a created_at.
+    movements = movements.order_by('-created_at', '-id')
+    page = Paginator(movements, MOVEMENT_HISTORY_PAGE_SIZE).get_page(params.get('page'))
+
+    rows = []
+    for m in page.object_list:
+        described_product, source, destination = _describe_movement(m)
+        reference_label, reference_url = _movement_reference(request.user, m)
+        rows.append({
+            'movement': m,
+            'product': described_product,
+            'source': source,
+            'destination': destination,
+            'reference_label': reference_label,
+            'reference_url': reference_url,
+        })
+
+    product_panel = None
+    if product:
+        floor = Inventory.objects.filter(product=product)
+        warehouse = WarehouseStock.objects.filter(product=product)
+        if allowed_branch_ids is not None:
+            floor = floor.filter(branch_id__in=allowed_branch_ids)
+            warehouse = warehouse.filter(warehouse__branch_id__in=allowed_branch_ids)
+        product_panel = {
+            'product': product,
+            'floor_on_hand': floor.aggregate(t=models.Sum('quantity_on_hand'))['t'] or 0,
+            'warehouse_on_hand': warehouse.aggregate(t=models.Sum('quantity_on_hand'))['t'] or 0,
+        }
+
+    filters = {
+        'product': product_id, 'branch': branch_id, 'type': movement_type,
+        'location': location, 'q': q,
+    }
+    range_params = {
+        'range': active_range,
+        'date_from': range_start.isoformat() if range_start else '',
+        'date_to': range_end.isoformat(),
+    }
+    return render(request, 'inventory/movement_history.html', {
+        'rows': rows,
+        'page': page,
+        'filters': filters,
+        # Filters only: drives the "Clear" link and the empty-state wording.
+        'querystring': list_filter_querystring(**filters),
+        # Filters plus the range, so a pagination link keeps both.
+        'page_querystring': list_filter_querystring(**filters, **range_params),
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [(k, v) for k, v in filters.items()],
+        'product_panel': product_panel,
+        'type_choices': StockMovement.MovementType.choices,
+        'location_choices': StockMovement.LocationType.choices,
+        'branches': cached_branches() if allowed_branch_ids is None else [],
+    })
 
 
 # ─────────────────────────────────────────────
@@ -3482,6 +3657,7 @@ def transfer_flag_discrepancy(request, pk):
                     quantity_before=qty_before,
                     quantity_after=inv.quantity_on_hand,
                     reference_id=transfer.pk,
+                    reference_type=StockMovement.ReferenceType.STOCK_TRANSFER,
                     notes=f'Discrepancy on {transfer.slip_number}: {reason}',
                     created_by=request.user,
                 )

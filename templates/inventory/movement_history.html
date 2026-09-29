@@ -1,0 +1,138 @@
+{% extends "internal_base.html" %}
+{% block title %}Movement History{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Movement History</h1>
+    <p class="gv-meta mb-0">
+      {% if product_panel %}Every stock movement for this product{% else %}Every stock movement across {% if branches %}all branches{% else %}your branch{% endif %}{% endif %} — read only
+    </p>
+  </div>
+  {% include "_daterange.html" %}
+</div>
+
+{% comment %}
+The per-product panel: shown when the page is opened for one product
+(?product=<id>), e.g. from a SKU on the Product Master List. Current on-hand
+is scoped exactly like the journal below it — an Owner sees every branch, a
+Manager or Staff account only its own.
+{% endcomment %}
+{% if product_panel %}
+<div class="card mb-4" style="padding:var(--s4);">
+  <div class="row-between">
+    <div>
+      <div class="strong">{{ product_panel.product.product_name }}</div>
+      <div class="gv-meta">
+        <span class="sku">{{ product_panel.product.sku_code }}</span>
+        · {{ product_panel.product.category.category_name|default:"Uncategorised" }}
+        · {{ product_panel.product.unit_of_measure }}
+      </div>
+    </div>
+    <div class="row" style="gap:var(--s5);">
+      <div><div class="gv-meta">Floor on hand</div><div class="strong">{{ product_panel.floor_on_hand }}</div></div>
+      <div><div class="gv-meta">Warehouse on hand</div><div class="strong">{{ product_panel.warehouse_on_hand }}</div></div>
+      <a class="btn" href="{% url 'stock_movement_history' %}">All products</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<form method="GET" class="toolbar toolbar-search">
+  {# Keep the chosen range when the filters are submitted. #}
+  <input type="hidden" name="range" value="{{ active_range }}">
+  <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+  <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+  {% if filters.product %}<input type="hidden" name="product" value="{{ filters.product }}">{% endif %}
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search the movement history">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search product, SKU or notes…" autocomplete="off" aria-label="Search by product name, SKU or notes">
+  </div>
+  <div class="search-filters">
+    <select name="type" aria-label="Filter by movement type">
+      <option value="">All movement types</option>
+      {% for value, label in type_choices %}
+        <option value="{{ value }}" {% if filters.type == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="location" aria-label="Filter by place">
+      <option value="">Floor &amp; warehouse</option>
+      {% for value, label in location_choices %}
+        <option value="{{ value }}" {% if filters.location == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% if branches %}
+    <select name="branch" aria-label="Filter by branch">
+      <option value="">All branches</option>
+      {% for b in branches %}
+        <option value="{{ b.pk|stringformat:'d' }}" {% if filters.branch == b.pk|stringformat:"d" %}selected{% endif %}>{{ b.branch_name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Filter</button>
+    {% if querystring %}<a class="btn" href="{% url 'stock_movement_history' %}">Clear</a>{% endif %}
+  </div>
+</form>
+
+<div class="card table-wrap">
+  <table class="gv-table" id="movement-history-table">
+    <thead>
+      <tr>
+        <th>When</th>
+        <th>Product</th>
+        <th>Type</th>
+        <th>From → To</th>
+        <th class="num">Change</th>
+        <th class="num">Before → After</th>
+        <th>Source</th>
+        <th>By</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      {% with m=row.movement %}
+      <tr>
+        <td data-label="When" class="gv-meta">{{ m.created_at|date:"Y-m-d H:i" }}</td>
+        <td data-label="Product" class="strong">
+          {% if m.product_id %}
+            <a href="{% url 'stock_movement_history' %}?product={{ m.product_id|stringformat:'d' }}" title="View this product's history">{{ row.product }}</a>
+          {% else %}{{ row.product }}{% endif %}
+          {% if m.branch %}<div class="gv-meta">{{ m.branch.branch_name }}</div>{% endif %}
+        </td>
+        <td data-label="Type"><span class="tag">{{ m.get_movement_type_display }}</span></td>
+        <td data-label="From → To" class="gv-meta">{{ row.source }} → {{ row.destination }}</td>
+        <td data-label="Change" class="num strong">{% if m.quantity_change > 0 %}+{% endif %}{{ m.quantity_change }}</td>
+        <td data-label="Before → After" class="num gv-meta">{{ m.quantity_before }} → {{ m.quantity_after }}</td>
+        <td data-label="Source" class="gv-meta">
+          {% if row.reference_url %}<a href="{{ row.reference_url }}">{{ row.reference_label }}</a>
+          {% elif row.reference_label %}{{ row.reference_label }}
+          {% else %}—{% endif %}
+          {% if m.notes %}<div>{{ m.notes|truncatechars:80 }}</div>{% endif %}
+        </td>
+        <td data-label="By" class="gv-meta">{{ m.created_by.username|default:"System" }}</td>
+      </tr>
+      {% endwith %}
+      {% empty %}
+      <tr><td colspan="8"><div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
+        <h3>No stock movement</h3>
+        <p>{% if querystring %}Nothing matches these filters in this date range.{% else %}Nothing has moved in this date range.{% endif %}</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page.paginator.num_pages > 1 %}
+<div class="row-between mt-4">
+  <span class="gv-meta">Page {{ page.number }} of {{ page.paginator.num_pages }} · {{ page.paginator.count }} movement{{ page.paginator.count|pluralize }}</span>
+  <div class="row">
+    {% if page.has_previous %}<a class="btn" href="?{{ page_querystring }}&amp;page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    {% if page.has_next %}<a class="btn" href="?{{ page_querystring }}&amp;page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

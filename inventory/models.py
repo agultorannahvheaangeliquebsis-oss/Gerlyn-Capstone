@@ -975,6 +975,33 @@ class StockMovement(models.Model):
         WAREHOUSE = 'Warehouse', 'Warehouse'
         FLOOR = 'Floor', 'Store Floor'
 
+    class ReferenceType(models.TextChoices):
+        """What reference_id points at. reference_id alone is a bare integer;
+        this says which table it is a pk of."""
+        SALES_TRANSACTION = 'sales_transaction', 'Sales transaction'
+        PROCUREMENT = 'procurement', 'Purchase order'
+        STOCK_TRANSFER = 'stock_transfer', 'Withdrawal slip'
+        SUPPLIER_RETURN = 'supplier_return', 'Supplier return'
+        BATCH = 'batch', 'Stock batch'
+        OPENING_STOCK_IMPORT = 'opening_stock_import', 'Opening stock import'
+
+    # movement_type -> the reference_type its reference_id always is. ADJUSTMENT
+    # is deliberately absent: it is used for a void reversal (a sales
+    # transaction), a withdrawal-slip discrepancy (a transfer) and a manual
+    # count correction (no reference at all), so its writers say which.
+    _REFERENCE_TYPE_BY_MOVEMENT = {
+        MovementType.SALE: ReferenceType.SALES_TRANSACTION,
+        MovementType.CUSTOMER_RETURN: ReferenceType.SALES_TRANSACTION,
+        MovementType.PROCUREMENT_RECEIVED: ReferenceType.PROCUREMENT,
+        MovementType.SUPPLIER_RETURN: ReferenceType.SUPPLIER_RETURN,
+        MovementType.WAREHOUSE_TO_FLOOR: ReferenceType.STOCK_TRANSFER,
+        MovementType.FLOOR_TO_WAREHOUSE: ReferenceType.STOCK_TRANSFER,
+        MovementType.MANUAL_OUT: ReferenceType.STOCK_TRANSFER,
+        MovementType.EXPIRY_WRITE_OFF: ReferenceType.BATCH,
+        MovementType.OPENING_BALANCE: ReferenceType.OPENING_STOCK_IMPORT,
+        MovementType.OPENING_BALANCE_REVERSAL: ReferenceType.OPENING_STOCK_IMPORT,
+    }
+
     inventory = models.ForeignKey(
         Inventory, on_delete=models.SET_NULL,
         null=True, blank=True,
@@ -1001,6 +1028,24 @@ class StockMovement(models.Model):
         null=True, blank=True,
         help_text="ID of the Sale, Procurement, StockTransfer, or Batch that caused this"
     )
+    reference_type = models.CharField(
+        max_length=25, choices=ReferenceType.choices, blank=True, default='',
+        help_text="Which kind of record reference_id is the pk of. Blank when "
+                  "the movement has no source record (a manual count correction)."
+    )
+    # Denormalised from inventory / warehouse_stock. Those FKs are SET_NULL, so
+    # once a stock row is deleted a movement would forget which product and
+    # branch it was about; these two keep the journal readable, and give
+    # per-product / per-branch history a single indexed lookup instead of an
+    # OR across two join paths. Filled in save() - writers never set them.
+    product = models.ForeignKey(
+        Product, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='stock_movements',
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='stock_movements',
+    )
     batch = models.ForeignKey(
         Batch, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='stock_movements',
@@ -1018,6 +1063,35 @@ class StockMovement(models.Model):
         help_text="Opening-stock row that caused this movement, when applicable."
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        """Fill the denormalised product/branch and, when the writer named a
+        reference_id without a type, the reference_type its movement_type
+        implies. Every writer goes through .create()/.save() (nothing
+        bulk_creates movements), so this is the one place that keeps the
+        journal columns from depending on each call site remembering them."""
+        stock = self.inventory if self.inventory_id else (
+            self.warehouse_stock if self.warehouse_stock_id else None
+        )
+        if stock is not None:
+            if self.product_id is None:
+                self.product_id = stock.product_id
+            if self.branch_id is None:
+                self.branch_id = (
+                    stock.branch_id if self.inventory_id
+                    else stock.warehouse.branch_id
+                )
+        if self.batch_id and (self.product_id is None or self.branch_id is None):
+            # A stock-row-less movement can still name its lot.
+            if self.product_id is None:
+                self.product_id = self.batch.product_id
+            if self.branch_id is None:
+                self.branch_id = self.batch.branch_id
+        if self.reference_id is not None and not self.reference_type:
+            self.reference_type = self._REFERENCE_TYPE_BY_MOVEMENT.get(
+                self.movement_type, ''
+            )
+        super().save(*args, **kwargs)
 
     def __str__(self):
         direction = "+" if self.quantity_change > 0 else ""
@@ -1053,6 +1127,15 @@ class StockMovement(models.Model):
             models.Index(
                 fields=['warehouse_stock', '-created_at'],
                 name='stockmove_ws_created_idx',
+            ),
+            # Movement history: one product's journal, one branch's journal.
+            models.Index(
+                fields=['product', '-created_at'],
+                name='stockmove_prod_created_idx',
+            ),
+            models.Index(
+                fields=['branch', '-created_at'],
+                name='stockmove_branch_created_idx',
             ),
         ]
 

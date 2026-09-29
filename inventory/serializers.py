@@ -164,7 +164,10 @@ class WarehouseStockSerializer(serializers.ModelSerializer):
     productId = serializers.PrimaryKeyRelatedField(source='product', read_only=True)
     productName = serializers.CharField(source='product.product_name', read_only=True)
     productSku = serializers.CharField(source='product.sku_code', read_only=True)
-    quantityOnHand = serializers.IntegerField(source='quantity_on_hand')
+    # Read-only: on-hand changes only through the flows that write a
+    # StockMovement (receiving, transfers, sales, adjustments). A PATCH here
+    # used to rewrite it with no ledger row and no audit entry.
+    quantityOnHand = serializers.IntegerField(source='quantity_on_hand', read_only=True)
     reorderLevel = serializers.IntegerField(source='reorder_level')
     restockFlag = serializers.BooleanField(source='restock_flag', read_only=True)
     lastUpdated = serializers.DateTimeField(source='last_updated', read_only=True)

@@ -47,27 +47,37 @@ class InventoryAdmin(admin.ModelAdmin):
     )
     list_filter = ('branch', 'restock')
     search_fields = ('product__product_name',)
+    # On-hand quantity is a ledgered figure: it may only change through the
+    # flows that write a StockMovement (receiving, transfers, sales,
+    # adjustments). The admin is a place to look, so the counters and the
+    # values derived from them are read-only; reorder_level stays editable.
+    readonly_fields = ('quantity_on_hand', 'restock', 'last_stock_update')
 
 
 @admin.register(StockMovement)
 class StockMovementAdmin(admin.ModelAdmin):
     list_display = (
-        'created_at', 'inventory', 'movement_type',
+        'created_at', 'product', 'branch', 'movement_type',
         'quantity_before', 'quantity_change', 'quantity_after',
-        'batch', 'reference_id', 'created_by'
+        'batch', 'reference_type', 'reference_id', 'created_by'
     )
-    list_filter = ('movement_type', 'inventory__branch')
+    list_filter = ('movement_type', 'branch')
     search_fields = (
         'inventory__product__product_name', 'warehouse_stock__product__product_name',
         'batch__batch_number', 'batch__external_lot_code',
     )
+    # Every field, including the journal columns: the ledger is append-only.
     readonly_fields = (
-        'inventory', 'movement_type', 'quantity_change',
-        'quantity_before', 'quantity_after', 'batch', 'reference_id',
+        'inventory', 'warehouse_stock', 'location_type', 'product', 'branch',
+        'movement_type', 'quantity_change', 'quantity_before', 'quantity_after',
+        'batch', 'reference_type', 'reference_id', 'opening_import_row',
         'notes', 'created_by', 'created_at'
     )
 
     def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False
 
     def has_delete_permission(self, request, obj=None):

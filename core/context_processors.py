@@ -77,6 +77,7 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     # Inventory
     "product_list": "products", "product_add": "products", "product_edit": "products",
     "product_delete": "products", "product_detail": "products",
+    "stock_movement_history": "products",
     "category_list": "categories", "category_add": "categories",
     "category_edit": "categories", "category_delete": "categories",
     "inventory_list": "stock", "warehouse_stock_list": "warehouse_stock",

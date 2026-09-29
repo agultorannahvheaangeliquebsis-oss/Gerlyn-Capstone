@@ -43,6 +43,9 @@ MODULE_PERMISSION_REGISTRY = {
         VIEW: [
             'product_list', 'product_detail', 'category_list',
             'product_export_xlsx', 'barcode_lookup',
+            # The stock journal is read-only reference data for the product
+            # master list, so it rides on this module's View grant.
+            'stock_movement_history', 'api-stock-movements',
             'api-product-list', 'api-product-detail',
             'api-category-list', 'api-category-detail',
         ],

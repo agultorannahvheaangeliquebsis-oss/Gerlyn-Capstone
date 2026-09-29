@@ -32,6 +32,7 @@ urlpatterns = [
     path('stock/opening/history/', views.opening_stock_import_history, name='opening_stock_import_history'),
     path('stock/opening/history/<int:pk>/', views.opening_stock_import_detail, name='opening_stock_import_detail'),
     path('stock/opening/history/<int:pk>/reverse/', views.opening_stock_import_reverse, name='opening_stock_import_reverse'),
+    path('movements/', views.stock_movement_history, name='stock_movement_history'),
     path('warehouse/', views.warehouse_stock_list, name='warehouse_stock_list'),
     path('warehouse/<int:pk>/edit/', views.warehouse_stock_edit, name='warehouse_stock_edit'),
     path('warehouse/request/', views.warehouse_stock_request, name='warehouse_stock_request'),
