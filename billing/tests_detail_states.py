@@ -179,6 +179,16 @@ class BillingDetailStateTests(TestCase):
         self.assertIn('Reject Payment', html)
         self.assertIn('Edit payment details', html)
 
+    def test_reject_form_posts_the_status_itself(self):
+        """The confirm dialog's own Reject button carries no name/value, so
+        the form has to send status=Rejected itself. Without it the dialog
+        submits nothing but `reason`, and billing_confirm refuses it as
+        "Invalid payment status" — the rejection silently never happens."""
+        record = self._record()
+        form = self._html(record).partition('data-status-confirm')[2]
+        form = form.partition('</form>')[0]
+        self.assertIn('<input type="hidden" name="status" value="Rejected">', form)
+
     def test_pending_ready_instruction_is_method_specific(self):
         cash = self._record(method=BillingRecord.PaymentMethod.CASH)
         self.assertIn('Count ₱250.00 at the counter', self._html(cash))
