@@ -29,7 +29,7 @@ from .services import (
     parse_opening_stock_workbook, reverse_opening_stock_import,
     validate_opening_stock_rows,
 )
-from .alerts import alert_summary, stock_status
+from .alerts import alert_summary, stock_status, suggested_reorder_qty
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
@@ -1651,14 +1651,22 @@ def _inventory_list_context(request):
 
     rows = []
     for r, status in matching:
+        # The Status cell's risk line: the product/branch total the pill was
+        # judged on (Batch Qty is only one lot of it) and how much would bring
+        # it back to ~2x the reorder point — the same figure the Alerts
+        # Center's Suggested column shows. In Stock rows carry neither.
+        suggested = (
+            suggested_reorder_qty(r.available_qty, r.reorder_level)
+            if status != 'In Stock' else 0
+        )
         batches = batches_by_pair.get((r.product_id, r.branch_id))
         if batches:
             for b in batches:
-                rows.append({'inv': r, 'status': status, 'batch': b})
+                rows.append({'inv': r, 'status': status, 'batch': b, 'suggested_qty': suggested})
         else:
             # No batch to show (typically a 0-quantity "No Stock" row) —
             # still needs a row, or it would simply vanish from the table.
-            rows.append({'inv': r, 'status': status, 'batch': None})
+            rows.append({'inv': r, 'status': status, 'batch': None, 'suggested_qty': suggested})
 
     branches = cached_branches() if not user_branch else []
 
@@ -1714,6 +1722,11 @@ def _inventory_list_context(request):
     return {
         'rows': rows,
         'counts': counts,
+        # Critical + No Stock: what the Alerts Center's Low Floor Stock tab
+        # lists. Only gates the secondary link to it in the scope bar; the
+        # link carries no figure, since this one follows the page's search
+        # and category filters and the Alerts Center's does not.
+        'restock_count': counts['critical'] + counts['no_stock'],
         'branches': branches,
         'categories': cached_categories(),
         'search_query': search_query,

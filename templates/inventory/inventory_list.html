@@ -122,6 +122,7 @@ just typed.
   <span class="scopebar-meta">
     <b>{{ shelf_total }}</b> item{{ shelf_total|pluralize }} on the shelf
     {% if last_change %}<span class="dot"></span> last change {{ last_change|timesince }} ago{% endif %}
+    {% if restock_count and module_access.alerts %}<span class="dot"></span> <a href="{% url 'alerts_center' %}{% if branch_filter %}?branch={{ branch_filter }}{% endif %}">Restock list in Alerts</a>{% endif %}
   </span>
 </nav>
 {% else %}
@@ -139,6 +140,7 @@ just typed.
   <span class="scopebar-meta">
     <b>{{ shelf_total }}</b> item{{ shelf_total|pluralize }} on the shelf
     {% if last_change %}<span class="dot"></span> last change {{ last_change|timesince }} ago{% endif %}
+    {% if restock_count and module_access.alerts %}<span class="dot"></span> <a href="{% url 'alerts_center' %}{% if branch_filter %}?branch={{ branch_filter }}{% endif %}">Restock list in Alerts</a>{% endif %}
   </span>
 </div>
 {% endif %}
@@ -268,6 +270,15 @@ across the full width leave the default block padding as empty card.
           {% elif row.status == "Critical" %}<span class="pill pill-danger">Critical</span>
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
+          {% comment %}
+          The risk line, only on rows that need restocking. It shows the
+          product/branch total the pill was judged on, because Batch Qty is one
+          lot and can sit well above the reorder level while the whole shelf
+          reads Critical. It also shows the view's suggested_qty, the same
+          figure as the Alerts Center's Suggested column. Plain text, not a
+          tooltip, so it is readable on touch and in the mobile card layout.
+          {% endcomment %}
+          {% if row.status != "In Stock" %}<br><span class="gv-meta">{{ row.inv.available_qty }} on hand{% if row.suggested_qty %} · +{{ row.suggested_qty }} suggested{% endif %}</span>{% endif %}
         </td>
         {% if can_edit_reorder %}
         <td data-label="Actions">
