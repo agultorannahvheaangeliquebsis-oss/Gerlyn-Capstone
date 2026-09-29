@@ -1215,6 +1215,24 @@ class _DeliveryStatusError(Exception):
     instead of partially crediting warehouse stock for a rejected receipt."""
 
 
+def _receiving_exit(request, proc):
+    """Where the receiving flow sends someone once it's done with a PO.
+
+    The PO's own page when they can open it. Otherwise the Deliveries list,
+    on the tab the PO now sits in: procurement_detail is gated to the
+    PROCUREMENT module, which default Staff accounts don't have (only
+    DELIVERIES), so sending them there bounced every receipt to a "no access"
+    page instead of showing the result.
+    """
+    from urllib.parse import urlencode
+
+    from core.module_permissions import PROCUREMENT, user_can_access_module
+
+    if user_can_access_module(request.user, PROCUREMENT):
+        return redirect('procurement_detail', pk=proc.pk)
+    return redirect(f"{reverse('delivery_list')}?{urlencode({'status': proc.status})}")
+
+
 def _safe_nonneg_int(value):
     """int(value) if it's a clean non-negative integer, else None."""
     if value is None:
@@ -1306,6 +1324,7 @@ def delivery_list(request):
     receive_items = None
     addable_products = None
     can_receive = user_can_perform_module_action(request.user, DELIVERIES, EDIT)
+    receive_draft = None
     receive_pk = request.GET.get('receive')
     if can_receive and receive_pk and receive_pk.isdigit():
         candidate = procurements_visible_to(
@@ -1326,6 +1345,15 @@ def delivery_list(request):
             addable_products = Product.objects.exclude(
                 pk__in=receive_items.values_list('product_id', flat=True)
             ).order_by('product_name')
+            # A receipt that failed validation comes back here with what was
+            # typed (see _stash_receive_draft), so the modal reopens with the
+            # user's counts rather than the defaults. Popped: shown once.
+            receive_draft = request.session.pop(_receive_draft_key(candidate.pk), None)
+            if receive_draft:
+                draft_rows = receive_draft.get('rows') or {}
+                receive_items = list(receive_items)
+                for item in receive_items:
+                    item.draft = draft_rows.get(str(item.pk))
 
     return render(request, 'procurement/delivery_list.html', {
         'deliveries': deliveries,
@@ -1357,7 +1385,41 @@ def delivery_list(request):
         ),
         'staff_delivery_view': staff_delivery_view,
         'show_branch_column': can_access_multiple_branches,
+        'receive_draft': receive_draft,
     })
+
+
+def _receive_draft_key(pk):
+    return f'receive_draft_{pk}'
+
+
+def _stash_receive_draft(request, pk):
+    """Keep a rejected receipt's typed values for the reopened Receive modal.
+
+    Only what the form showed — nothing here is trusted or saved; the next
+    Confirm Receipt posts and validates it all again.
+    """
+    item_ids = request.POST.getlist('item_id')
+    qtys = request.POST.getlist('quantity_received')
+    expiries = request.POST.getlist('expiry_date')
+    rows = {}
+    for idx, item_id in enumerate(item_ids):
+        rows[str(item_id)[:20]] = {
+            'qty': (qtys[idx] if idx < len(qtys) else '').strip()[:20],
+            'expiry': (expiries[idx] if idx < len(expiries) else '').strip()[:10],
+        }
+    receipt_date = request.POST.get('actual_receipt_date', '').strip()
+    try:
+        valid_date = bool(receipt_date) and parse_date(receipt_date) is not None
+    except ValueError:
+        valid_date = False
+    request.session[_receive_draft_key(pk)] = {
+        'rows': rows,
+        # An unparseable date would only blank the date input; the default
+        # (today) is the better thing to reopen with.
+        'date': receipt_date if valid_date else '',
+        'delivered_by': request.POST.get('delivered_by', '').strip()[:100],
+    }
 
 
 @login_required(login_url='accounts:login')
@@ -1388,11 +1450,11 @@ def delivery_receive(request, pk):
 
     if proc.status == Procurement.Status.RECEIVED:
         messages.info(request, f'{proc.po_number} was already received.')
-        return redirect('procurement_detail', pk=pk)
+        return _receiving_exit(request, proc)
     unreceivable = _not_receivable_reason(proc)
     if unreceivable:
         messages.error(request, unreceivable)
-        return redirect('procurement_detail', pk=pk)
+        return _receiving_exit(request, proc)
 
     if request.method == 'POST':
         # A received delivery stocks the WAREHOUSE, not the branch floor —
@@ -1421,6 +1483,7 @@ def delivery_receive(request, pk):
         )
         if receipt_date_raw and receipt_date is None:
             messages.error(request, 'Enter a valid actual receipt date.')
+            _stash_receive_draft(request, pk)
             return redirect('delivery_receive', pk=pk)
 
         try:
@@ -1550,7 +1613,16 @@ def delivery_receive(request, pk):
                 )
         except _DeliveryStatusError as e:
             messages.error(request, str(e))
-            return redirect('procurement_detail', pk=pk)
+            # A count problem (too many, none, not a number) is fixed in the
+            # Receive modal, so reopen it (delivery_receive's GET does) rather
+            # than leave the receiver on a page they'd have to navigate back
+            # from. A PO that stopped being receivable goes where it always
+            # would once finished.
+            proc.refresh_from_db(fields=['status'])
+            if _not_receivable_reason(proc):
+                return _receiving_exit(request, proc)
+            _stash_receive_draft(request, pk)
+            return redirect('delivery_receive', pk=pk)
 
         if has_remaining:
             messages.warning(
@@ -1600,7 +1672,8 @@ def delivery_receive(request, pk):
                 action_url=reverse('supplier_portal'),
                 action_label='View order',
             )
-        return redirect('procurement_detail', pk=pk)
+        proc.refresh_from_db(fields=['status'])
+        return _receiving_exit(request, proc)
 
     # Receive Delivery is a modal on the Receive Delivery list now — a
     # direct hit (bookmark, the "Receive" link on a dashboard, the back
@@ -1708,7 +1781,7 @@ def delivery_add_unexpected(request, pk):
         return redirect('delivery_list')
     if proc.status not in Procurement.AWAITING_DELIVERY_STATUSES:
         messages.error(request, f'{proc.po_number} is not ready for receiving.')
-        return redirect('delivery_list')
+        return _receiving_exit(request, proc)
 
     product = get_object_or_404(Product, pk=request.POST.get('product'))
 

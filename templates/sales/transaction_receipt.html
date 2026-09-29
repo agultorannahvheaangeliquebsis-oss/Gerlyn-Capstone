@@ -110,10 +110,16 @@ the same row po_print.html reads.
     <a class="back-link" href="{% url 'transaction_detail' transaction.pk %}">Order details</a>
     <h1 class="mt-2">{{ transaction.order_number }}</h1>
   </div>
+  <div class="row wrap">
   <button type="button" class="btn btn-primary" onclick="window.print()">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
     Print
   </button>
+  {# Printed and handed over: the next customer is the next step, same shortcut as the order's own header. #}
+  {% if transaction.transaction_type == "Physical" and module_access.sales_pos and base_template == "internal_base.html" %}
+  <a class="btn btn-outline" href="{% url 'transaction_add' %}">New Walk-in Sale</a>
+  {% endif %}
+  </div>
 </div>
 
 {% if totals_disagree %}

@@ -322,6 +322,47 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
     }
   }
 
+  // --- counts survive "Add an unexpected item" --------------------------
+  // That is its own form POST, and the page it returns to rebuilds this
+  // table from the server — every count scanned or typed so far was lost and
+  // had to be redone. So the table is stashed on that submit and put
+  // back once, here, when the modal reopens. Nothing is saved on the server:
+  // the counts only become real when Confirm Receipt posts them.
+  var draftKey = 'receive-draft-{{ receive_procurement.pk }}';
+  var receiveForm = document.getElementById('receive-form');
+  document.getElementById('unexpected-form').addEventListener('submit', function () {
+    var saved = {};
+    rows.forEach(function (tr) {
+      saved[tr.dataset.itemId] = {
+        qty: tr.querySelector('.qty-input').value,
+        expiry: tr.querySelector('[name=expiry_date]').value,
+      };
+    });
+    try {
+      sessionStorage.setItem(draftKey, JSON.stringify({
+        rows: saved,
+        date: receiveForm.querySelector('[name=actual_receipt_date]').value,
+        deliveredBy: receiveForm.querySelector('[name=delivered_by]').value,
+      }));
+    } catch (e) { /* storage unavailable: the table just opens with defaults */ }
+  });
+  (function restoreDraft() {
+    var draft = null;
+    try {
+      draft = JSON.parse(sessionStorage.getItem(draftKey) || 'null');
+      sessionStorage.removeItem(draftKey);
+    } catch (e) { draft = null; }
+    if (!draft || !draft.rows) return;
+    rows.forEach(function (tr) {
+      var row = draft.rows[tr.dataset.itemId];
+      if (!row) return;  // the newly added unexpected line keeps its own default
+      tr.querySelector('.qty-input').value = row.qty;
+      tr.querySelector('[name=expiry_date]').value = row.expiry || '';
+    });
+    if (draft.date) receiveForm.querySelector('[name=actual_receipt_date]').value = draft.date;
+    if (draft.deliveredBy) receiveForm.querySelector('[name=delivered_by]').value = draft.deliveredBy;
+  })();
+
   rows.forEach(function (tr) {
     tr.querySelector('.qty-input').addEventListener('input', repaint);
   });

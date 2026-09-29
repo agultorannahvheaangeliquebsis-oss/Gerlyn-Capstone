@@ -75,11 +75,12 @@ one per row.
           <div class="field" style="max-width:220px; margin:0;">
             <label for="actual-receipt-date">Actual Receipt Date</label>
             <input id="actual-receipt-date" type="date" name="actual_receipt_date"
-                   value="{{ today|date:'Y-m-d' }}" required>
+                   value="{% if receive_draft.date %}{{ receive_draft.date }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}" required>
           </div>
           <div class="field" style="max-width:260px; margin:0;">
             <label for="delivered-by">Delivered by <span class="gv-meta">— courier or driver, optional</span></label>
-            <input id="delivered-by" type="text" name="delivered_by" maxlength="100" autocomplete="off">
+            <input id="delivered-by" type="text" name="delivered_by" maxlength="100" autocomplete="off"
+                   value="{{ receive_draft.delivered_by|default:'' }}">
           </div>
           <div class="field" style="margin:0;">
             <label>Received by</label>
@@ -122,14 +123,16 @@ one per row.
                 <td data-label="Unit Cost Snapshot" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}—{% endif %}</td>
                 <td data-label="Received This Shipment" class="num">
                   {# unlocalize: "1,200" is not a valid number-input value #}
+                  {# item.draft: what was typed before a rejected receipt (see delivery_list) #}
                   <input type="number" name="quantity_received" min="0"
                          {% if not item.is_unexpected %}max="{{ item.remaining_quantity|unlocalize }}"{% endif %}
                          class="qty-input"
-                         value="{% if item.is_unexpected %}0{% else %}{{ item.remaining_quantity|unlocalize }}{% endif %}"
+                         value="{% if item.draft %}{{ item.draft.qty }}{% elif item.is_unexpected %}0{% else %}{{ item.remaining_quantity|unlocalize }}{% endif %}"
                          style="max-width:120px; margin-left:auto;">
                 </td>
                 <td data-label="Expiry Date">
-                  <input type="date" name="expiry_date" style="max-width:150px;">
+                  <input type="date" name="expiry_date" style="max-width:150px;"
+                         value="{% if item.draft %}{{ item.draft.expiry }}{% endif %}">
                 </td>
                 <td data-label="Status"><span class="v-badge"></span> <span class="v-count"></span></td>
               </tr>

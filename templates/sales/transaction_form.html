@@ -178,6 +178,7 @@ a shared component other pages should pick up automatically.
 .pos-grand span:last-child { font: 700 22px/1.2 var(--font-sans); color: var(--action); font-variant-numeric: tabular-nums; }
 .pos-tender-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); margin-top: var(--s3); }
 .pos-tender-row .field { margin: 0; }
+.pos-exact-btn { margin-top: 6px; }
 .pos-submit { width: 100%; justify-content: center; margin-top: var(--s4); padding-top: 12px; padding-bottom: 12px; font-size: 15px; }
 .pos-cancel { display: block; text-align: center; margin-top: var(--s2); font-size: 14px; }
 
@@ -475,6 +476,8 @@ the same modal every other rejected action gets from internal_base.html.
             <label for="pos-amount-tendered">Amount Tendered</label>
             <input type="text" inputmode="decimal" id="pos-amount-tendered" name="amount_tendered"
                    placeholder="₱0.00" value="{{ pos_form_data.amount_tendered|default:'' }}" oninput="posRecalc()">
+            {# Exact change is the common case: one tap instead of retyping the amount due. #}
+            <button type="button" class="btn btn-sm pos-exact-btn" id="pos-exact-btn" onclick="posTenderExact()">Exact amount</button>
           </div>
           <div class="field">
             <label>Change</label>
@@ -780,6 +783,20 @@ function posPriceLine(card, price, qty, discountType) {
 function posSyncTenderVisibility() {
   var isCash = document.getElementById('pos-mode-of-payment').value === 'Cash';
   document.getElementById('pos-tender-row').hidden = !isCash;
+  // Required only while visible: a blank tender on a Cash sale is caught by
+  // the browser instead of a round trip to the server's identical check. A
+  // hidden required field would block GCash/Card submits, so it follows isCash.
+  document.getElementById('pos-amount-tendered').required = isCash;
+}
+
+// Fills Amount Tendered with the amount due as displayed (already rounded to
+// the centavo). The server still re-prices the cart and rejects a short tender.
+function posTenderExact() {
+  var due = (document.getElementById('pos-grand-total').textContent || '').replace(/[^0-9.]/g, '');
+  var input = document.getElementById('pos-amount-tendered');
+  input.value = due;
+  posRecalc();
+  input.focus();
 }
 
 function posUpdateTender(total) {
