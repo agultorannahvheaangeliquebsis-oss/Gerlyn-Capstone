@@ -17,6 +17,7 @@ from accounts.models import User
 from branches.models import Branch
 from core.querystrings import list_filter_querystring
 from core.scoping import branch_for_user, scope_queryset, user_can_access_branch
+from core.timebounds import local_range_bounds, range_from_request
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 
 
@@ -142,7 +143,34 @@ def billing_list(request):
     if branch_filter:
         records = records.filter(transaction__branch_id=branch_filter)
 
+    # Channel and fulfilment dropdowns — the same two as the Order Console
+    # (sales.views.transaction_list), filtering the bill's own order. Checked
+    # against the model's choices so a hand-typed value falls back to "all"
+    # instead of rendering an empty list.
+    channel_filter = request.GET.get('channel', '')
+    if channel_filter not in SalesTransaction.TransactionType.values:
+        channel_filter = ''
+    if channel_filter:
+        records = records.filter(transaction__transaction_type=channel_filter)
+
+    fulfillment_filter = request.GET.get('fulfillment', '')
+    if fulfillment_filter not in SalesTransaction.FulfillmentType.values:
+        fulfillment_filter = ''
+    if fulfillment_filter:
+        records = records.filter(transaction__fulfillment_type=fulfillment_filter)
+
     records = records.order_by('-date_recorded')
+
+    # The shared back-office range control (_daterange.html), same as the
+    # Dashboard, Reports, the audit log and Stock Adjustments. `range_start`
+    # is None for "All time". date_recorded is a DateTimeField, so the local
+    # calendar days are turned into aware bounds (inclusive of the whole end
+    # day) rather than compared with __date.
+    range_start, range_end, active_range = range_from_request(request)
+    range_dt_start, range_dt_end = local_range_bounds(range_start or range_end, range_end)
+    if range_start:
+        records = records.filter(date_recorded__gte=range_dt_start)
+    records = records.filter(date_recorded__lt=range_dt_end)
 
     status_filter = request.GET.get('status', '')
     counts = {
@@ -157,9 +185,17 @@ def billing_list(request):
         'cancelled': records.filter(status=BillingRecord.PaymentStatus.CANCELLED).count(),
     }
 
-    # Outstanding is a property of the whole (pre-filter) result set, exactly
-    # like the tab counts above — computing it after the status filter would
-    # zero it out on every tab except All and Pending.
+    # Outstanding totals the Pending bills in *the list being shown*, so it
+    # is taken after every narrowing filter above — including the date range
+    # — and only before the status filter, which is the one control that must
+    # not change it (computing it after would zero the tile out on every tab
+    # except All and Pending).
+    #
+    # The date range has to count. It is the same queryset the tab counts
+    # beside it are taken from, so excusing Outstanding from the range made
+    # one header disagree with itself: "Pending 3" under a total summing
+    # thirty bills. A reader narrowing to a month is asking what that month
+    # owes; the all-time backlog is one click away on "All time".
     outstanding = records.filter(
         status=BillingRecord.PaymentStatus.PENDING
     ).aggregate(total=Sum('amount_due'))['total'] or 0
@@ -175,8 +211,19 @@ def billing_list(request):
         'status_filter': status_filter,
         'outstanding': outstanding,
         'search_query': search_query,
+        'channel_filter': channel_filter,
+        'fulfillment_filter': fulfillment_filter,
         'branches': branches,
         'branch_filter': branch_filter,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [
+            ('q', search_query), ('status', status_filter),
+            ('channel', channel_filter), ('fulfillment', fulfillment_filter),
+            ('branch', branch_filter),
+        ],
         # The topbar branch chip renders this — same pattern as Floor Stock,
         # Warehouse Stock, Product Master List, Stock Adjustments, Receive
         # Delivery and the Order Console.
@@ -188,11 +235,18 @@ def billing_list(request):
         # be a hand-built query string that silently broke on a search term
         # containing "&" or "#". Every status tab appends its own
         # &status=... to this.
-        'filter_qs': list_filter_querystring(q=search_query, branch=branch_filter),
+        'filter_qs': list_filter_querystring(
+            q=search_query, branch=branch_filter,
+            channel=channel_filter, fulfillment=fulfillment_filter,
+        ),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along — same idea as
-        # _daterange.html's daterange_carry.
-        'branch_switch_carry': [('q', search_query), ('status', status_filter)],
+        # _daterange.html's daterange_carry. The range itself rides along
+        # via range_from_request's session fallback, as on the audit log.
+        'branch_switch_carry': [
+            ('q', search_query), ('status', status_filter),
+            ('channel', channel_filter), ('fulfillment', fulfillment_filter),
+        ],
     })
 
 
