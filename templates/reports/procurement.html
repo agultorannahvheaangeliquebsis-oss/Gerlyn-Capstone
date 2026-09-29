@@ -14,7 +14,7 @@ reports/reports_home.html for why it belongs to the page, not the toolbar.
 {% endcomment %}
 <div class="page-head">
   <div>
-    <h1>Reports</h1>
+    <h1>Procurement Report</h1>
   </div>
   {% include "_daterange.html" %}
 </div>
@@ -58,7 +58,7 @@ status here, not emphasis.
     {# Draft plus all open delivery states, per the view. #}
   </div>
   <div class="kpi-card">
-    <span class="label">Received Value</span>
+    <span class="label">Closed PO Value</span>
     <span class="value">₱{{ received_value|floatformat:2 }}</span>
   </div>
   <div class="kpi-card{% if pending_delivery %} warn{% endif %}">

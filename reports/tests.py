@@ -414,6 +414,44 @@ class BillingReportRowsLinkToBillingDetailTests(TestCase):
         self.assertIn(f'/billing/{record.pk}/', resp.content.decode())
 
 
+class ReportPagesNameThemselvesTests(TestCase):
+    """The four reports are separate pages, but every one headed itself
+    "Reports", so the only cue to which report was open was the tab
+    underline and the bar read as in-page tabs. Each page's <h1> must name
+    its report, and the switcher must mark exactly that link as the current
+    page while still linking to all four URLs.
+    """
+
+    PAGES = [
+        ('reports_dashboard', 'Sales Report'),
+        ('inventory_report', 'Inventory Report'),
+        ('procurement_report', 'Procurement Report'),
+        ('billing_report', 'Billing Report'),
+    ]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='report-heading-owner', password='pw', role=User.Role.OWNER
+        )
+
+    def test_each_report_page_names_itself_and_marks_its_nav_link(self):
+        client = Client()
+        client.force_login(self.owner)
+        for url_name, heading in self.PAGES:
+            with self.subTest(url_name):
+                url = reverse(url_name)
+                html = client.get(url).content.decode()
+
+                self.assertIn(f'<h1>{heading}</h1>', html)
+                self.assertNotIn('<h1>Reports</h1>', html)
+                self.assertIn('<nav class="report-tabs" aria-label="Reports">', html)
+                self.assertEqual(html.count('aria-current="page"'), 1)
+                self.assertIn(f'href="{url}" aria-current="page"', html)
+                for other, _ in self.PAGES:
+                    self.assertIn(f'href="{reverse(other)}"', html)
+
+
 class SalesByCategoryChartTests(TestCase):
     """Panel-review ask: a meaningful category donut on the Reports Sales tab,
     with the period and percentage basis it covers stated on the page, not

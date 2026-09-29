@@ -2060,10 +2060,6 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .report-tab svg { width: 16px; height: 16px; flex: none; }
 .report-tab:hover { color: var(--ink-900); }
 .report-tab.active { color: var(--action-700); border-bottom-color: var(--action); }
-@media (max-width: 860px) {
-  .report-tab-word { display: none; }
-}
-
 /* Status filter tabs — the Reports bar's underline language applied to
    filtering a list in place. Deliberately identical to .report-tab above
    (same 1.5px rule, same 2.5px active underline, same ink ramp): the two bars
