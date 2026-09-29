@@ -559,6 +559,20 @@ class Command(BaseCommand):
              [("SKU-008", 3, 95), ("SKU-002", 6, 26)]),
             (13, None, T, "Physical", "Cash", "Paid", "Completed", 1230,
              [("SKU-005", 30, 41)]),
+            # The rows above only ever produce Pending/Paid billing records —
+            # every other PaymentStatus (Rejected, Cancelled, Partially
+            # Refunded, Refunded) went unrepresented in demo data. These four
+            # cover the rest of the status set so Billing's list/filters and
+            # the Reports financials tab have at least one row of each to
+            # render against.
+            (2, "Pedro Ramos", M, "Online", "GCash", "Rejected", "Pending", 475,
+             [("SKU-010", 1, 345), ("SKU-002", 5, 26)]),
+            (3, "Maria Santos", G, "Online", "Pay at Store", "Cancelled", "Cancelled", 225,
+             [("SKU-004", 15, 15)]),
+            (10, "Ana Villanueva", T, "Online", "GCash", "Partially Refunded", "Completed", 690,
+             [("SKU-010", 2, 345)]),
+            (12, "Juan dela Cruz", M, "Online", "Cash on Delivery", "Refunded", "Completed", 156,
+             [("SKU-013", 13, 12)]),
         ]
         for days_ago, cust, branch_name, channel, mop, pay_status, order_status, total, items in orders:
             odate = (today - dt.timedelta(days=days_ago)).isoformat()
