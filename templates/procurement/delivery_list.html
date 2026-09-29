@@ -111,7 +111,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
   {% else %}
   <a class="filter-tab{% if not status_filter %} active{% endif %}" href="?{{ filter_qs }}">All <span class="count">{{ counts.all }}</span></a>
   <a class="filter-tab{% if status_filter == 'Approved' %} active{% endif %}" href="?{{ filter_qs }}&status=Approved">Approved <span class="count count-info">{{ counts.approved }}</span></a>
-  <a class="filter-tab{% if status_filter == 'Negotiating' %} active{% endif %}" href="?{{ filter_qs }}&status=Negotiating">Negotiating <span class="count count-warn">{{ counts.negotiating }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Negotiating' %} active{% endif %}" href="?{{ filter_qs }}&status=Negotiating">Negotiating <span class="count count-warn">{{ counts.negotiating }}</span>{% if counts.pending_owner_review %}<span class="count count-danger" title="Waiting on your response">{{ counts.pending_owner_review }} for you</span>{% endif %}</a>
   {% endif %}
   <a class="filter-tab{% if status_filter == 'Incoming' %} active{% endif %}" href="?{{ filter_qs }}&status=Incoming">Incoming <span class="count count-info">{{ counts.incoming }}</span></a>
   <a class="filter-tab{% if status_filter == 'Partially Received' %} active{% endif %}" href="?{{ filter_qs }}&status=Partially%20Received">Partially Received <span class="count count-warn">{{ counts.partially_received }}</span></a>

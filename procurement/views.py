@@ -113,6 +113,15 @@ def _procurement_list_context(request):
         'negotiating': procurements.filter(
             status__in=Procurement.NEGOTIATION_STATUSES
         ).count(),
+        # Of the negotiating count above, how many are sitting in the
+        # buyer's own inbox right now — Pending Supplier Review and Terms
+        # Agreed are both "waiting on supplier" from here, so only Pending
+        # Owner Review is ever the buyer's turn. Lets the Negotiating tab
+        # say "N for you" instead of making the buyer open every row in the
+        # tab to find out whose turn it is.
+        'pending_owner_review': procurements.filter(
+            status=Procurement.Status.PENDING_OWNER_REVIEW
+        ).count(),
         'incoming': procurements.filter(status=Procurement.Status.INCOMING).count(),
         'partially_received': procurements.filter(
             status=Procurement.Status.PARTIALLY_RECEIVED
@@ -1316,6 +1325,11 @@ def delivery_list(request):
         'approved': deliveries.filter(status=Procurement.Status.APPROVED).count(),
         'negotiating': deliveries.filter(
             status__in=Procurement.NEGOTIATION_STATUSES
+        ).count(),
+        # See procurement_list's matching count — the negotiating slice
+        # that's actually the buyer's turn to respond to.
+        'pending_owner_review': deliveries.filter(
+            status=Procurement.Status.PENDING_OWNER_REVIEW
         ).count(),
         'incoming': deliveries.filter(status=Procurement.Status.INCOMING).count(),
         'partially_received': deliveries.filter(
