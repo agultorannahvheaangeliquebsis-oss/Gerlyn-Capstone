@@ -189,6 +189,14 @@ class BillingDetailStateTests(TestCase):
         form = form.partition('</form>')[0]
         self.assertIn('<input type="hidden" name="status" value="Rejected">', form)
 
+    def test_view_order_is_offered_once_not_in_the_header_too(self):
+        """The header used to carry its own View Order beside the one on the
+        Order Information card — the same destination twice on one screen."""
+        record = self._record()
+        html = self._html(record)
+        order_url = reverse('transaction_detail', args=[record.transaction.pk])
+        self.assertEqual(html.count(f'href="{order_url}"'), 1)
+
     def test_pending_ready_instruction_is_method_specific(self):
         cash = self._record(method=BillingRecord.PaymentMethod.CASH)
         self.assertIn('Count ₱250.00 at the counter', self._html(cash))

@@ -149,23 +149,9 @@
     </h1>
   </div>
   {% comment %}
-  View Order is ordinary navigation to the canonical Order Detail workspace,
-  not a detail-modal trigger any more. Everything that CHANGES the order —
-  its status, its PWD review, its refunds — lives there, and stacking the
-  order inside an overlay on top of the billing record put those controls
-  two modals deep and left the order's own page unreachable from here.
-  Hidden when Billing itself is the thing being read inside the detail
-  overlay (?modal=1, from the Billing list): a link that navigates the page
-  behind the overlay away is not what that click means there.
-  No ?from=billing on it: that flag hides the order's Payment Status card,
-  which only made sense while the order opened stacked over this record.
-  Reached by navigation, the order is its full, ordinary self.
+  No View Order button in the header: the one on the Order Information card
+  below is the single link to the order, so it isn't offered twice.
   {% endcomment %}
-  {% if request.GET.modal != '1' %}
-  <div class="row" style="gap:var(--s2);">
-    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order</a>
-  </div>
-  {% endif %}
 </div>
 
 {% include "billing/_billing_next_step.html" %}
@@ -183,6 +169,12 @@ payment facts that are this page's actual subject.
 <div class="card card-pad od-card">
   <div class="bill-head">
     <h3>Order Information</h3>
+    {% comment %}
+    The page's one link to the order. Plain navigation to Order Detail (no
+    ?from=billing, which would hide the order's Payment Status card), and
+    hidden inside the ?modal=1 overlay, where navigating the page behind it
+    away is not what the click means.
+    {% endcomment %}
     {% if request.GET.modal != '1' %}
     <a class="btn btn-sm" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
     {% endif %}
