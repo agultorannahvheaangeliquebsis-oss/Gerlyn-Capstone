@@ -346,6 +346,7 @@ class UserManagementApiRolePolicyTests(TestCase):
                 'fullName': 'Registered Customer',
                 'contactNumber': '09171234567',
                 'address': '12 Real St, Baliuag, Bulacan',
+                'acceptTerms': True,
             },
             content_type='application/json',
         )
@@ -576,6 +577,7 @@ class RegistrationVerificationEmailTests(TestCase):
             'address': '12 Real St, Poblacion, Baliuag, Bulacan',
             'barangay': '031403001',
             'street_detail': '12 Real St',
+            'accept_terms': '1',
         }
         payload.update(overrides)
         return self.client.post(reverse('accounts:register'), payload)
@@ -807,6 +809,7 @@ class VerificationEmailDeliveryTests(TestCase):
                 'fullName': 'API Verify Customer',
                 'contactNumber': '09171234567',
                 'address': '12 Real St, Baliuag, Bulacan',
+                'acceptTerms': True,
             },
             content_type='application/json',
         )
@@ -840,6 +843,7 @@ class RegisterInputValidationTests(TestCase):
             'last_name': 'Customer',
             'contact_number': '09171234567',
             'address': '12 Real St, Poblacion, Baliuag, Bulacan',
+            'accept_terms': '1',
         }
         payload.update(overrides)
         return self.client.post(reverse('accounts:register'), payload)

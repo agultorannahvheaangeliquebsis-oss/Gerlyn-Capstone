@@ -235,6 +235,23 @@ Region/Province/City/Barangay dropdowns.
           </div>
         </div>
 
+        {% comment %}
+        Required, and required again in register_view, which is the real gate
+        — `required` here only saves the round trip. The links open in a new
+        tab so the typed-in form is still there when the visitor comes back.
+        {% endcomment %}
+        <div class="auth-consent">
+          <input id="accept_terms" type="checkbox" name="accept_terms" value="1"
+                 {% if form.accept_terms == '1' %}checked{% endif %} required>
+          <label for="accept_terms">
+            I agree to the
+            <a href="{% url 'accounts:terms_privacy' %}#terms" target="_blank" rel="noopener">Terms &amp; Conditions</a>
+            and have read the
+            <a href="{% url 'accounts:terms_privacy' %}#privacy" target="_blank" rel="noopener">Privacy Notice</a>,
+            which explains how GERLYN uses my personal data.
+          </label>
+        </div>
+
         <button type="submit" class="btn btn-primary auth-submit" id="register-submit">
           <span data-submit-label>Create Account</span>
         </button>
@@ -350,6 +367,18 @@ function registerAddressIsComplete() {
   }
   p1.addEventListener('input', check);
   p2.addEventListener('input', check);
+})();
+
+/* The consent box's own wording for the browser bubble, in place of the
+   generic "Please check this box". Cleared on change, or the message would
+   keep the box invalid after it is ticked. */
+(function () {
+  var box = document.getElementById('accept_terms');
+  if (!box) return;
+  box.addEventListener('invalid', function () {
+    box.setCustomValidity('Please tick this box to agree to the Terms & Conditions and Privacy Notice.');
+  });
+  box.addEventListener('change', function () { box.setCustomValidity(''); });
 })();
 
 /* Submit feedback. Creating an account is a full page POST that writes a

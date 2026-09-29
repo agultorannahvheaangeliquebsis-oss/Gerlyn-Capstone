@@ -1803,6 +1803,20 @@ body.shop-auth {
 }
 .auth-address-btn { margin-top: 8px; align-self: flex-start; }
 
+/* Terms/privacy consent, the last thing before the button. The box sits on
+   the first line of the label, not centred on a wrapped paragraph. */
+.auth-consent {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: var(--s1) 0 var(--s4);
+  font: 400 13px/1.5 var(--font-sans); color: var(--ink-700);
+}
+.auth-consent input[type="checkbox"] {
+  flex: none; width: 17px; height: 17px; margin: 2px 0 0;
+  accent-color: var(--action);
+}
+.auth-consent label { cursor: pointer; }
+.auth-consent a { font-weight: 600; color: var(--action); }
+
 /* ----------------------------------------------------------- responsive
    Widest breakpoint first, narrowing down. The order matters here: the two
    cards share .auth-card, so a max-width set for the narrow one at a later

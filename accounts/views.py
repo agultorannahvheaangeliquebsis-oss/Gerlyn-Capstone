@@ -8,6 +8,7 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import (
     BranchManagerProfile, OwnerProfile, StaffProfile, User,
@@ -932,7 +933,7 @@ def _register_form_values(request):
     keep = (
         'username', 'email', 'first_name', 'last_name', 'contact_number',
         'address', 'type', 'region', 'province', 'city', 'barangay',
-        'street_detail', 'latitude', 'longitude',
+        'street_detail', 'latitude', 'longitude', 'accept_terms',
     )
     return {k: request.POST.get(k, '') for k in keep}
 
@@ -1039,6 +1040,17 @@ def register_view(request):
             messages.error(request, 'Email already registered.')
             return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
+        # The checkbox's `required` is only a browser nicety — a POST built
+        # by hand skips it — so this is the actual gate. Exactly '1', not
+        # just "present", so a scripted accept_terms=false doesn't count.
+        if request.POST.get('accept_terms') != '1':
+            messages.error(
+                request,
+                'Please tick the box to agree to the Terms & Conditions and '
+                'Privacy Notice before creating your account.'
+            )
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+
         user = User.objects.create_user(
             username=username,
             email=email,
@@ -1056,6 +1068,8 @@ def register_view(request):
         profile.last_name = last_name
         profile.contact_number = contact_number
         profile.address = address
+        profile.terms_accepted_at = timezone.now()
+        profile.terms_version = CustomerProfile.TERMS_VERSION
         profile.save()
 
         # Guaranteed present (checked above) — every new account gets its one
@@ -1981,6 +1995,16 @@ def about_view(request):
     if request.user.role == User.Role.SUPPLIER:
         return render(request, 'procurement/supplier_about.html', {'active_page': 'about'})
     return render(request, 'accounts/about.html', {'active_page': 'about'})
+
+
+def terms_privacy_view(request):
+    """Terms & Conditions and Privacy Notice, public on purpose: the sign-up
+    form's consent box links here, and the person reading it has no account
+    yet. The Settings "Privacy & Data" page is the logged-in control panel,
+    not the policy itself."""
+    return render(request, 'accounts/terms_privacy.html', {
+        'terms_version': CustomerProfile.TERMS_VERSION,
+    })
 
 
 @login_required(login_url='accounts:login')
