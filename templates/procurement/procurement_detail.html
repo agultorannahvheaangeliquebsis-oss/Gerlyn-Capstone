@@ -590,7 +590,10 @@ banner rather than a full card (see .pd-negotiate-banner above).
         <tbody>
           {% for item in items %}
           <tr>
-            <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+            <td data-label="Product" class="strong">
+              {{ item.product.product_name }}
+              {% if item.is_unexpected %}<span class="pill pill-warn">Not ordered</span>{% endif %}
+            </td>
             <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
             <td data-label="Qty Received" class="num">{{ item.quantity_received }}</td>
             <td data-label="Unit Cost Snapshot" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}Pending confirmation{% endif %}</td>

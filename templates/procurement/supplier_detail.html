@@ -63,7 +63,8 @@ Owner-only controls; a Manager sees what is pending, read-only.
 {% endcomment %}
 {% if pending_offers or pending_requests %}
 <div class="card card-pad mb-4">
-  <h3 class="mb-4">Awaiting a decision</h3>
+  <h3{% if not can_edit %} class="mb-2"{% else %} class="mb-4"{% endif %}>Awaiting a decision</h3>
+  {% if not can_edit %}<p class="gv-meta mb-4">Only the Owner can approve or reject these.</p>{% endif %}
 
   {% for link in pending_offers %}
   <div class="row-between" style="padding:10px 0; border-bottom:1px solid var(--line); gap:12px; flex-wrap:wrap;">
