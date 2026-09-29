@@ -1,19 +1,25 @@
 {% load i18n_extra %}
 {% comment %}
-The order-status pill a CUSTOMER sees, in customer words.
+Canonical Order Status pill for SalesTransaction.order_status — one partial
+for every surface, staff or customer, that shows this field. Replaces the
+former split between this file (customer wording) and
+_order_status_pill_staff.html (staff wording); both are gone now that the
+audience is an explicit parameter instead of two near-duplicate files.
 
-SalesTransaction.order_status is an internal enum — "Preparing" and
-"Approved" are stages of the store's workflow, not answers to the question a
-shopper is actually asking ("has anyone looked at it yet, and when do I get
-it"). My Orders already translated them; the confirmation page printed the
-raw value straight out of the column, so the same order read "Pending" on
-one screen and "Waiting for the store" on the next. One file now, so a new
-status cannot be worded two ways again.
+Staff wording (default) prints the raw workflow stage names, except the
+"no status yet" state, which reads "Awaiting Fulfillment" rather than a bare
+"Pending" — Order Status and Payment Status both defaulted to "Pending"
+before, and on staff pages that show both (Order Console, Order Detail) the
+two were indistinguishable except by column header. Customer wording keeps
+its existing shopper-facing phrasing ("Being packed", "Confirmed", "Waiting
+for the store") — see docs/audit-report-2026-09-09.md U7/U9.
 
-Include with `status=`, e.g. {% include "partials/_order_status_pill.html" with status=sale.order_status %}
+Usage:
+  Staff:    {% include "partials/_order_status_pill.html" with status=transaction.order_status %}
+  Customer: {% include "partials/_order_status_pill.html" with status=sale.order_status customer=True %}
 {% endcomment %}
-{% if status == 'Completed' %}<span class="pill pill-ok">{% t "Completed" %}</span>
-{% elif status == 'Cancelled' %}<span class="pill pill-danger">{% t "Cancelled" %}</span>
-{% elif status == 'Preparing' %}<span class="pill pill-warn">{% t "Being packed" %}</span>
-{% elif status == 'Approved' %}<span class="pill pill-info">{% t "Confirmed" %}</span>
-{% else %}<span class="pill pill-neutral">{% t "Waiting for the store" %}</span>{% endif %}
+{% if status == 'Completed' %}<span class="pill pill-ok">{% if customer %}{% t "Completed" %}{% else %}Completed{% endif %}</span>
+{% elif status == 'Cancelled' %}<span class="pill pill-danger">{% if customer %}{% t "Cancelled" %}{% else %}Cancelled{% endif %}</span>
+{% elif status == 'Preparing' %}<span class="pill pill-warn">{% if customer %}{% t "Being packed" %}{% else %}Preparing{% endif %}</span>
+{% elif status == 'Approved' %}<span class="pill pill-info">{% if customer %}{% t "Confirmed" %}{% else %}Approved{% endif %}</span>
+{% else %}<span class="pill pill-neutral">{% if customer %}{% t "Waiting for the store" %}{% else %}Awaiting Fulfillment{% endif %}</span>{% endif %}

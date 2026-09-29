@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET
 from .models import BillingRecord
 from .api_views import user_can_access_billing_record
 from .validators import clean_reference_number
-from sales.models import SalesTransaction
+from sales.models import Refund, SalesTransaction
 from accounts.models import User
 from branches.models import Branch
 from core.querystrings import list_filter_querystring
@@ -196,6 +196,103 @@ def billing_list(request):
     })
 
 
+def _billing_activity(record, refunds):
+    """The billing events this record can actually prove, oldest first.
+
+    M4 limitation, stated here because it decides everything this function
+    may return: there is NO BillingStatusHistory table. BillingRecord keeps
+    only its current decision — confirmed_by / date_confirmed, plus
+    reject_reason while it is Rejected — and billing_confirm CLEARS all
+    three when a rejected payment is re-opened, so an earlier rejection
+    leaves nothing behind to render. Nothing below is inferred: every entry
+    is one timestamp persisted on this row (or a RefundEvent, which is
+    append-only and never edited), and a transition the schema cannot date
+    or attribute is simply not listed. This is deliberately not presented
+    as a complete history — see _billing_activity.html. A real
+    BillingStatusHistory model is a separate task.
+    """
+    S = BillingRecord.PaymentStatus
+    txn = record.transaction
+
+    events = [{
+        'when': record.date_recorded,
+        'what': 'Bill created',
+        # No actor: billing.signals.auto_create_billing_record writes this
+        # row when the order is created, so there is no "recorded by" on it
+        # to show. Inventing one from the sale's own staff would be a guess.
+        'who': '',
+        'note': f'{txn.order_number} — ₱{record.amount_due} due.',
+    }]
+
+    # date_confirmed is the single decision the row remembers. What that
+    # decision WAS comes from the row's own state, not from a guess:
+    #   - Rejected           -> it was a rejection (reject_reason says why)
+    #   - Paid / refunded    -> it was a verification (a refund only moves
+    #                           `status`; sales.refunds never touches the
+    #                           confirmer, see _apply_approval)
+    #   - Cancelled          -> a reject_reason proves a rejection (only a
+    #                           rejection ever writes one). Its ABSENCE proves
+    #                           nothing: a rejection from before reject_reason
+    #                           existed, then voided, leaves the same row as a
+    #                           verification that was voided. So no reason ->
+    #                           the decision is not listed at all, rather than
+    #                           guessed to be "verified".
+    #   - Pending            -> cleared on re-open; there is nothing to show
+    #                           and nothing is invented in its place.
+    if record.date_confirmed:
+        rejected = record.status == S.REJECTED or (
+            record.status == S.CANCELLED and record.reject_reason
+        )
+        verified = record.status in (S.PAID, S.PARTIALLY_REFUNDED, S.REFUNDED)
+        if rejected:
+            events.append({
+                'when': record.date_confirmed,
+                'what': 'Payment rejected',
+                'who': record.confirmed_by,
+                'note': record.reject_reason,
+            })
+        elif verified:
+            events.append({
+                'when': record.date_confirmed,
+                'what': 'Payment verified',
+                'who': record.confirmed_by,
+                'note': '',
+            })
+
+    if record.date_voided:
+        events.append({
+            'when': record.date_voided,
+            'what': 'Bill voided',
+            'who': record.voided_by,
+            'note': txn.cancel_reason or '',
+        })
+
+    # RefundEvent — the one append-only trail Billing can read honestly.
+    # Requested / approved / rejected, each with the actor and note
+    # sales.refunds itself wrote. Decisions stay on Sales & Orders; this
+    # only reports them.
+    # to_status as the verb it stands for — a Pending RefundEvent is the
+    # request being raised, not a refund that is "pending". Nothing is added
+    # or reinterpreted: one word per persisted status.
+    refund_verbs = {
+        Refund.Status.PENDING: 'requested',
+        Refund.Status.APPROVED: 'approved',
+        Refund.Status.REJECTED: 'rejected',
+    }
+    for refund in refunds:
+        for event in refund.events.all():
+            verb = refund_verbs.get(event.to_status, event.to_status.lower())
+            events.append({
+                'when': event.created_at,
+                'what': f'Refund {verb} — ₱{refund.total_amount}',
+                'who': event.actor,
+                'note': event.note,
+            })
+
+    events.sort(key=lambda e: e['when'])
+    return events
+
+
 @role_required(OWNER, BRANCH_MANAGER, STAFF)
 def billing_detail(request, pk):
     record = get_object_or_404(
@@ -214,15 +311,17 @@ def billing_detail(request, pk):
         messages.error(request, 'That billing record is not available to you.')
         return redirect('billing_list')
 
-    # Local import — sales.views imports payment_methods_for_channel from
-    # this module at load time, so importing sales.views back at module
-    # level here would be circular. Deferred the same way this module
-    # already defers other cross-app imports (e.g. core.module_permissions
-    # in billing_confirm below).
-    from sales.views import _order_progress
+    # Local: sales.views imports this module, so a top-level import would
+    # be circular.
+    from sales.views import _next_actions as _order_next_actions
 
     txn = record.transaction
     allowed_payment_methods = payment_methods_for_channel(txn.transaction_type)
+    refunds = list(
+        txn.refunds.select_related('requested_by', 'refunded_by').prefetch_related(
+            'items__sales_item__product', 'events__actor'
+        )
+    )
 
     return render(request, 'billing/billing_detail.html', {
         'record': record,
@@ -240,12 +339,39 @@ def billing_detail(request, pk):
             record.payment_method, record.reference_number,
             bool(record.proof_of_payment),
         ),
-        # Read-only order context (Order Progress, items) so a verifier
-        # doesn't have to leave this page for the common case — anything
-        # that changes the order itself (status, PWD discount, refunds)
-        # stays on transaction_detail, reached via "View Order".
+        # A-1 maker/checker, resolved here because the rule takes the request
+        # user as an argument and a template cannot pass one to a method
+        # call. Same context transaction_detail already builds for its own
+        # copy of these controls (billing_self_recorded there) — nothing new
+        # is being decided, an existing server rule is simply said out loud
+        # instead of only surfacing as a refusal after the click.
+        'is_self_recorded': record.is_self_confirmation(request.user),
+        # Read-only order context. Billing may write to BillingRecord;
+        # everything it shows from SalesTransaction is read, never written,
+        # and every order mutation is reached by navigating to the order.
+        # Hence order_status as a value to display and no stepper, no status
+        # control, no refund control on this page.
+        'order_status': txn.order_status,
+        # Whether "the order can now be marked Completed" is true for this
+        # reader — asked of sales.views._next_actions, the rule
+        # transaction_set_status itself enforces, rather than re-deriving
+        # the order state machine here. Display only.
+        'order_can_complete': (
+            SalesTransaction.OrderStatus.COMPLETED in _order_next_actions(txn, request.user)
+        ),
         'items': list(txn.items.select_related('product')),
-        'progress': _order_progress(txn),
+        # Refunds are Sales & Orders' to decide — read here only so a Paid
+        # record can say a request is waiting, and so the Activity block can
+        # list the refund decisions that actually happened (RefundEvent is
+        # append-only, the one real audit trail this page can draw on).
+        'refunds': refunds,
+        'pending_refunds': [
+            r for r in refunds if r.status == Refund.Status.PENDING
+        ],
+        # Same arithmetic reports.views already uses for a refunded bill
+        # (amount_due minus the order's approved refunds) — display only.
+        'remaining_after_refunds': record.amount_due - txn.refunded_amount,
+        'activity': _billing_activity(record, refunds),
     })
 
 
@@ -464,7 +590,25 @@ def billing_create(request, transaction_id):
                 )
                 record.sync_payment_method_to_sale()
 
-        messages.success(request, 'Billing record saved.')
+        # Recording a payment is a save, not a settlement — Verify/Reject
+        # (billing_confirm) is a separate step by a separate person (A-1
+        # maker/checker), and a plain "saved" leaves that unstated. When the
+        # user who just recorded it is also the one A-1 blocks from
+        # confirming it (is_self_confirmation), say so explicitly rather
+        # than let them discover it only after clicking Verify.
+        if record.is_self_confirmation(request.user):
+            messages.success(
+                request,
+                'Payment recorded. You can\'t verify this one yourself — '
+                'ask another staff member, a manager, or the owner to '
+                'confirm it.'
+            )
+        else:
+            messages.success(
+                request,
+                'Payment recorded. It still needs verification by another '
+                'staff member or manager.'
+            )
         if from_order:
             return redirect('transaction_detail', pk=txn.pk)
         return redirect('billing_detail', pk=record.pk)
@@ -478,9 +622,23 @@ def billing_confirm(request, pk):
         BillingRecord.objects.select_related('transaction'), pk=pk
     )
 
+    # Order Detail (sales.views.transaction_detail) now offers the same
+    # Verify/Reject/Re-open controls billing_detail always has, posting to
+    # this same view with return_to=order so staff never have to leave the
+    # order to finish confirming its payment. Every redirect below honours
+    # it — including the early refusals — so a user who arrived from the
+    # order is bounced back to the order, not into Billing, whatever the
+    # outcome. Defaults to billing_detail, same as before this existed.
+    return_to = request.POST.get('return_to')
+
+    def _back(pk=pk):
+        if return_to == 'order':
+            return redirect('transaction_detail', pk=record.transaction_id)
+        return redirect('billing_detail', pk=pk)
+
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         messages.error(request, 'You do not have permission to confirm payments.')
-        return redirect('billing_detail', pk=pk)
+        return _back()
 
     # Same scoping rule as billing_detail/billing_create — without this, any
     # Staff/Manager could confirm or reject a payment belonging to another
@@ -502,7 +660,7 @@ def billing_confirm(request, pk):
         }
         if new_status not in offered:
             messages.error(request, 'Invalid payment status.')
-            return redirect('billing_detail', pk=pk)
+            return _back()
 
         with transaction.atomic():
             # Re-fetch and lock so two confirmations racing the same record
@@ -527,7 +685,7 @@ def billing_confirm(request, pk):
                     "You can't confirm a payment you recorded yourself — ask "
                     "another staff member, a manager, or the owner."
                 )
-                return redirect('billing_detail', pk=pk)
+                return _back()
 
             if not locked.can_transition_to(new_status):
                 messages.error(
@@ -535,7 +693,7 @@ def billing_confirm(request, pk):
                     f'{locked.transaction.order_number}: a {locked.status} '
                     f'payment cannot be changed to {new_status}.'
                 )
-                return redirect('billing_detail', pk=pk)
+                return _back()
 
             # A remote method has no counter moment where handing over money
             # and confirming it are the same event — Mark as Paid is the only
@@ -552,7 +710,7 @@ def billing_confirm(request, pk):
                 blocked = locked.pwd_review_block_message()
                 if blocked:
                     messages.error(request, blocked)
-                    return redirect('billing_detail', pk=pk)
+                    return _back()
 
                 missing = BillingRecord.missing_payment_evidence(
                     locked.payment_method, locked.reference_number,
@@ -565,7 +723,7 @@ def billing_confirm(request, pk):
                         f'payment needs its {" and ".join(missing)} before it can '
                         f'be marked Paid — add it from "Edit payment details" first.'
                     )
-                    return redirect('billing_detail', pk=pk)
+                    return _back()
 
             # A rejection needs a reason on file — it is the only record of
             # why a payment wasn't accepted, read by both staff (the
@@ -579,7 +737,7 @@ def billing_confirm(request, pk):
                         f'{locked.transaction.order_number}: a reason is '
                         f'required to reject this payment.'
                     )
-                    return redirect('billing_detail', pk=pk)
+                    return _back()
                 locked.reject_reason = reason
 
             locked.status = new_status
@@ -596,7 +754,17 @@ def billing_confirm(request, pk):
             locked.save()
 
         verb = 're-opened' if new_status == BillingRecord.PaymentStatus.PENDING else f'marked as {new_status}'
-        messages.success(request, f'{record.transaction.order_number} payment {verb}.')
+        # What changed, and what it unlocks — Order Detail's Mark Completed
+        # button is gated on Paid (see sales.views._next_actions), and a
+        # customer-facing rejection/re-open both leave the order itself
+        # exactly where it was, so the next step is spelled out here rather
+        # than left for whoever reads the record to work out.
+        next_step = {
+            BillingRecord.PaymentStatus.PAID: ' The order can now be marked Completed.',
+            BillingRecord.PaymentStatus.REJECTED: ' The customer has been notified; record a new payment attempt when they pay again.',
+            BillingRecord.PaymentStatus.PENDING: ' It is awaiting a fresh payment attempt.',
+        }.get(new_status, '')
+        messages.success(request, f'{record.transaction.order_number} payment {verb}.{next_step}')
 
         if new_status == BillingRecord.PaymentStatus.REJECTED:
             from core.module_permissions import BILLING as BILLING_MODULE
@@ -633,4 +801,4 @@ def billing_confirm(request, pk):
                 locked, request.user, include_internal=False
             )
 
-    return redirect('billing_detail', pk=pk)
+    return _back()

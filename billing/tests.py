@@ -15,7 +15,7 @@ from django.db import connections
 from django.test import (
     Client, RequestFactory, TestCase, TransactionTestCase, override_settings,
 )
-from django.urls import Resolver404, resolve
+from django.urls import Resolver404, resolve, reverse
 from django.utils import timezone
 from django.views.static import serve
 
@@ -555,6 +555,130 @@ class BillingConfirmMakerCheckerTests(TestCase):
         )
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+
+class BillingConfirmReturnToOrderTests(TestCase):
+    """Financials UX Audit Phase 1 — Order Detail (sales.views.
+    transaction_detail) now posts to this same billing_confirm view with
+    return_to=order, so Verify/Reject/Re-open can be done without leaving
+    the order. Every redirect billing_confirm can take — success AND every
+    early refusal — must honour that flag; a user who came from the order
+    should never be bounced into Billing. No new transition/permission
+    logic here: this only proves the existing redirects respect the flag.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='r2o-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='R2O Branch', location='Baliuag', owner=cls.owner
+        )
+        cls.staff = User.objects.create_user(
+            username='r2o-staff', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff, defaults={'staff_name': 'Sam', 'branch': cls.branch}
+        )
+        cls.other_staff = User.objects.create_user(
+            username='r2o-staff-2', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.other_staff, defaults={'staff_name': 'Tara', 'branch': cls.branch}
+        )
+        for staff in (cls.staff, cls.other_staff):
+            # Same reason as BillingConfirmMakerCheckerTests — without the
+            # Billing module, ModulePermissionMiddleware bounces a Staff
+            # account before billing_confirm ever runs.
+            User.objects.filter(pk=staff.pk).update(
+                allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+            )
+            staff.refresh_from_db()
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def _pending_cash_record(self, staff=None):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=staff, total_amount=250,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        record.payment_method = BillingRecord.PaymentMethod.CASH
+        record.save(update_fields=['payment_method'])
+        return record
+
+    def test_verifying_from_order_returns_to_order_detail(self):
+        record = self._pending_cash_record()
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.owner).post(
+                f'/billing/{record.pk}/confirm/',
+                {'status': 'Paid', 'return_to': 'order'},
+            )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Paid')
+
+    def test_rejecting_from_order_returns_to_order_detail(self):
+        record = self._pending_cash_record()
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.owner).post(
+                f'/billing/{record.pk}/confirm/',
+                {'status': 'Rejected', 'reason': 'Reference unreadable.', 'return_to': 'order'},
+            )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Rejected')
+
+    def test_a_refused_self_confirmation_from_order_still_returns_to_the_order(self):
+        # The maker/checker refusal is an early-exit branch distinct from the
+        # success path below it — return_to has to be honoured there too, or
+        # the one case staff hit most (trying to verify their own sale) is
+        # the one that strands them in Billing instead of back on the order.
+        record = self._pending_cash_record(staff=self.staff)
+        response = self._client(self.staff).post(
+            f'/billing/{record.pk}/confirm/',
+            {'status': 'Paid', 'return_to': 'order'},
+        )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Pending')
+
+    def test_a_different_staff_member_verifying_from_order_returns_to_the_order(self):
+        record = self._pending_cash_record(staff=self.staff)
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.other_staff).post(
+                f'/billing/{record.pk}/confirm/',
+                {'status': 'Paid', 'return_to': 'order'},
+            )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Paid')
+        self.assertEqual(record.confirmed_by, self.other_staff)
+
+    def test_without_return_to_the_existing_billing_detail_redirect_is_unchanged(self):
+        record = self._pending_cash_record()
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.owner).post(
+                f'/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            )
+
+        self.assertRedirects(response, reverse('billing_detail', args=[record.pk]))
 
 
 class BillingConfirmAPIBranchScopeTests(TestCase):

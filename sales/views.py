@@ -626,6 +626,22 @@ def transaction_detail(request, pk):
         # The Mark Completed button is only live once the payment is Paid
         # (transaction_set_status enforces it; this just keeps the UI honest).
         'payment_is_paid': bool(billing and billing.status == BillingRecord.PaymentStatus.PAID),
+        # Verify/Reject/Re-open payment, right on the order (Financials UX
+        # Audit Phase 1) — the same controls billing_detail.html always had,
+        # posting to the same billing_confirm view (return_to=order), so
+        # nothing here duplicates its transitions, branch scoping or
+        # maker/checker rule. missing_evidence mirrors billing_detail's own
+        # context (BillingRecord.missing_payment_evidence) so Verify Payment
+        # is greyed out here for the same reason it would be refused there.
+        # is_self_confirmation takes the request user as an argument, which a
+        # template can't supply to a method call, so it's resolved here.
+        'billing_missing_evidence': (
+            BillingRecord.missing_payment_evidence(
+                billing.payment_method, billing.reference_number,
+                bool(billing.proof_of_payment),
+            ) if billing else []
+        ),
+        'billing_self_recorded': bool(billing and billing.is_self_confirmation(request.user)),
         # The Record Payment modal. Offered while nothing is verified yet — no
         # billing record, or a Pending one — and never from the billing record's
         # own overlay, which already has its own payment controls.

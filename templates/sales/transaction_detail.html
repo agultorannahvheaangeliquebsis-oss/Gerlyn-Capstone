@@ -153,7 +153,7 @@
   <div>
     <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
     <h1 class="mt-2">{{ transaction.order_number }}
-      {% include "partials/_order_status_pill_staff.html" with status=transaction.order_status %}
+      {% include "partials/_order_status_pill.html" with status=transaction.order_status %}
     </h1>
   </div>
   {% comment %}
@@ -286,7 +286,15 @@
       after what state the payment is in. See the comment on the href
       below for what it opens.
       {% endcomment %}
-      {% if can_record_payment %}
+      {% comment %}
+      billing_create is gated to the Billing module (ModulePermissionMiddleware
+      already refuses the POST/GET there for a Staff/Manager without it — see
+      core.module_permissions.BILLING). Order Console default STAFF only has
+      Sales/Order Console, not Billing, so without this check the button was
+      a live link into a permission redirect. Same "hide, don't widen either
+      module" precedent as templates/procurement/delivery_list.html.
+      {% endcomment %}
+      {% if can_record_payment and module_access.billing %}
       <a class="btn btn-primary btn-sm od-btn" href="{% url 'billing_create' transaction.pk %}"
          data-payment-open="record-payment-modal">Record Payment</a>
       {% endif %}
@@ -323,9 +331,70 @@
     <a class="btn btn-sm od-btn" href="{% url 'billing_proof' billing.pk %}" target="_blank" rel="noopener">View payment proof</a>
   </div>
   {% endif %}
+
+  {% comment %}
+  Verify / Reject / Re-open, right here — Financials UX Audit Phase 1. Same
+  billing_confirm view billing_detail.html posts to (same transitions, branch
+  scope, maker/checker rule, evidence and PWD gates); return_to=order only
+  changes where the redirect lands. Nothing here is a second implementation
+  of any of that — a forged POST is refused there exactly as it would be
+  from Billing.
+
+  Gated on module_access.billing (Phase 1 follow-up): billing_confirm is a
+  Billing-module url (core.module_permissions.BILLING), so a Staff/Manager
+  account without it is redirected away by ModulePermissionMiddleware the
+  moment they submit. Order Console's default modules include Sales/Order
+  Console but not Billing, so these buttons were live for every Staff
+  account reading its own order, verifier or not. Hiding them here is UX
+  only — the middleware is still what refuses the POST if one is forged.
+  {% endcomment %}
+  {% if module_access.billing and billing.status == "Pending" %}
+    {% if billing_self_recorded %}
+    <div class="banner banner-warning mt-4 mb-0">
+      <span>This payment was recorded by you. Another staff member or manager must verify it.</span>
+    </div>
+    {% else %}
+    {% if transaction.has_pending_pwd_request %}
+    <div class="banner banner-warning mt-4">
+      <span>This order has a PWD discount request waiting for verification, so the amount due
+        isn't final. Approve or reject it above before verifying payment.</span>
+    </div>
+    {% elif billing_missing_evidence %}
+    <div class="banner banner-warning mt-4">
+      <span>Needs its {{ billing_missing_evidence|join:" and " }} before it can be verified —
+        add it from "Record Payment" above.</span>
+    </div>
+    {% endif %}
+    <div class="od-card-actions">
+      <form method="POST" action="{% url 'billing_confirm' billing.pk %}" data-status-confirm>
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="order">
+        <button type="submit" name="status" value="Rejected" class="btn btn-danger btn-sm od-btn">Reject Payment</button>
+        {% include "partials/_billing_reject_confirm.html" with record=billing %}
+      </form>
+      <form method="POST" action="{% url 'billing_confirm' billing.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="order">
+        {% if transaction.has_pending_pwd_request or billing_missing_evidence %}
+        <button type="button" class="btn btn-primary btn-sm od-btn" disabled>Verify Payment</button>
+        {% else %}
+        <button type="submit" name="status" value="Paid" class="btn btn-primary btn-sm od-btn">Verify Payment</button>
+        {% endif %}
+      </form>
+    </div>
+    {% endif %}
+  {% elif module_access.billing and billing.status == "Rejected" %}
+    <div class="od-card-actions">
+      <form method="POST" action="{% url 'billing_confirm' billing.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="order">
+        <button type="submit" name="status" value="Pending" class="btn btn-sm od-btn">Re-open Payment</button>
+      </form>
+    </div>
+  {% endif %}
 </div>
 {% endif %}
-{% if not from_billing and can_record_payment %}
+{% if not from_billing and can_record_payment and module_access.billing %}
 {% include "partials/_record_payment_modal.html" %}
 {% endif %}
 

@@ -28,10 +28,10 @@ reason server-side.
         <div><dt>Total</dt><dd class="strong">₱{{ c.summary.total|floatformat:2 }}</dd></div>
         <div><dt>Payment</dt><dd>{{ c.summary.payment }}</dd></div>
         <div><dt>Status</dt><dd>
-          {% include "partials/_order_status_pill_staff.html" with status=c.summary.current %}
+          {% include "partials/_order_status_pill.html" with status=c.summary.current %}
           <span aria-hidden="true">→</span>
           <span class="sr-only">to</span>
-          {% include "partials/_order_status_pill_staff.html" with status=c.target %}
+          {% include "partials/_order_status_pill.html" with status=c.target %}
         </dd></div>
       </dl>
 

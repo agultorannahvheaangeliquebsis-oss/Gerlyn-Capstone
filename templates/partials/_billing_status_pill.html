@@ -1,16 +1,27 @@
+{% load i18n_extra %}
 {% comment %}
-Internal Billing status pill — the Owner/Manager/Staff-facing wording for
-BillingRecord.status, used everywhere that status is shown to staff (Billing
-Records list/detail, the Order Console's Pay Status column, the Order
-Detail's Payment Status card, and the Billing Report). Not the customer
-wording in _order_status_pill.html, which is a different field
-(SalesTransaction.order_status) worded for shoppers.
+Canonical Payment/Billing Status pill for BillingRecord.status — one partial
+for every surface, staff or customer, that shows this field. Replaces the
+former split between this file (staff wording, full five-state set) and
+_payment_status_pill.html (customer + staff via a `customer` flag, but only
+ever four states — Refunded and Partially Refunded fell through to the
+"unpaid" branch, so a refunded order's payment pill lied to the customer who
+viewed it). All five states are now handled for both audiences.
 
-Usage: {% include "partials/_billing_status_pill.html" with status=record.status %}
+Staff wording keeps the existing internal terms ("Voided" for Cancelled —
+the order behind it fell through, not a declined payment), except the
+"awaiting a decision" state, which reads "Awaiting Payment" rather than
+"Pending Verification" or a bare "Pending" — see _order_status_pill.html for
+the matching Order Status change and why the two needed to stop reading
+alike. Customer wording is unchanged from the old _payment_status_pill.html.
+
+Usage:
+  Staff:    {% include "partials/_billing_status_pill.html" with status=record.status %}
+  Customer: {% include "partials/_billing_status_pill.html" with status=billing.status customer=True %}
 {% endcomment %}
-{% if status == "Paid" %}<span class="pill pill-ok">Paid</span>
-{% elif status == "Rejected" %}<span class="pill pill-danger">Payment Verification Rejected</span>
-{% elif status == "Cancelled" %}<span class="pill pill-neutral">Cancelled</span>
-{% elif status == "Refunded" %}<span class="pill pill-info">Refunded</span>
-{% elif status == "Partially Refunded" %}<span class="pill pill-warn">Partially Refunded</span>
-{% else %}<span class="pill pill-warn">Pending Verification</span>{% endif %}
+{% if status == 'Paid' %}<span class="pill pill-ok">{% if customer %}{% t "Paid" %}{% else %}Paid{% endif %}</span>
+{% elif status == 'Rejected' %}<span class="pill pill-danger">{% if customer %}{% t "Rejected" %}{% else %}Rejected{% endif %}</span>
+{% elif status == 'Cancelled' %}<span class="pill pill-danger">{% if customer %}{% t "Cancelled" %}{% else %}Voided{% endif %}</span>
+{% elif status == 'Refunded' %}<span class="pill pill-info">{% if customer %}{% t "Refunded" %}{% else %}Refunded{% endif %}</span>
+{% elif status == 'Partially Refunded' %}<span class="pill pill-warn">{% if customer %}{% t "Partially Refunded" %}{% else %}Partially Refunded{% endif %}</span>
+{% else %}<span class="pill pill-warn">{% if customer %}{% t "Not yet paid" %}{% else %}Awaiting Payment{% endif %}</span>{% endif %}

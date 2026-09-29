@@ -59,11 +59,20 @@ class BillingDedicatedPagesTests(TestCase):
         self.assertNotIn('Re-open Payment', html)
 
     def test_rejected_record_shows_rejected_heading_and_reopen_action(self):
+        """M9 — Re-open Payment is the ONLY action on a Rejected record.
+
+        Editing used to be offered here too, but
+        BillingRecord.record_payment_details (and billing_create before it)
+        accepts a Pending record only, so that action could not do anything
+        except bounce with "this billing record has already been
+        processed." The workflow is Re-open -> Pending -> edit; the button
+        for a step the server refuses is not drawn.
+        """
         record = self._record(BillingRecord.PaymentStatus.REJECTED, customer=self.customer)
         html = self._get(record)
         self.assertIn('Payment Verification Rejected', html)
         self.assertIn('Re-open Payment', html)
-        self.assertIn('Edit payment details', html)
+        self.assertNotIn('Edit payment details', html)
         self.assertNotIn('Verify Payment', html)
 
     def test_paid_record_is_read_only(self):
@@ -99,7 +108,12 @@ class BillingDedicatedPagesTests(TestCase):
         self.assertIn('250.00', html)
         self.assertIn('GCash', html)
         self.assertIn('GC-TEST-001', html)
-        self.assertIn('Date recorded', html)
+        # M5 — date_recorded is auto_now_add, written when the ORDER is
+        # created (billing.signals.auto_create_billing_record), so it is the
+        # bill's creation time and not "when the payment was recorded" —
+        # a moment the schema does not store at all. Labelled for what it is.
+        self.assertIn('Bill created', html)
+        self.assertNotIn('Date recorded', html)
         # Status is shown once, in the heading pill (billing_detail.html no
         # longer repeats it as a "Payment status" table row).
         self.assertIn('Pending', html)
@@ -115,10 +129,17 @@ class BillingDedicatedPagesTests(TestCase):
         self.assertIn('View Order', html)
         self.assertIn(f'/sales/{record.transaction.pk}/', html)
 
-    def test_view_order_action_tags_the_link_as_opened_from_billing(self):
+    def test_view_order_action_is_the_canonical_order_url(self):
+        """Phase 4 D1 — this used to assert the link carried ?from=billing.
+        That flag belonged to the old stacked Billing -> Order overlay and
+        makes Order Detail hide its Payment Status card; View Order is now
+        ordinary navigation, so it opens the order as-is. (?from=billing
+        itself still exists — Sales honours it, and the billing_create links
+        still pass it — so the test below for that behaviour stays.)"""
         record = self._record(BillingRecord.PaymentStatus.PENDING, customer=self.customer)
         html = self._get(record)
-        self.assertIn(f'/sales/{record.transaction.pk}/?from=billing', html)
+        self.assertIn(f'href="/sales/{record.transaction.pk}/"', html)
+        self.assertNotIn(f'/sales/{record.transaction.pk}/?from=billing', html)
 
     def test_order_opened_from_billing_lists_items_instead_of_payment_status(self):
         record = self._record(BillingRecord.PaymentStatus.PENDING, customer=self.customer)

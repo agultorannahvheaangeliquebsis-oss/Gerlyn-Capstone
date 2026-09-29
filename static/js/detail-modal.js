@@ -123,13 +123,6 @@
     var back = bodyEl.querySelector('.back-link');
     if (back) back.parentNode.removeChild(back);
 
-    // The Billing Record modal is only ever opened from the order it
-    // belongs to (transaction_detail.html's "View billing record"), so its
-    // own "View Order" link just points back at the page already open
-    // behind this overlay.
-    var viewOrder = bodyEl.querySelector('.page-head a[data-detail-modal="Order"]');
-    if (viewOrder) viewOrder.parentNode.removeChild(viewOrder);
-
     // The div that wrapped the back-link and <h1> is empty now that both are
     // gone. Left in place it still counts as a flex item in .page-head's
     // space-between, so a lone surviving control (Print PO) gets shoved to

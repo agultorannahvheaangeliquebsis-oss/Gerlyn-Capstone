@@ -116,7 +116,11 @@ class RecordPaymentModalTests(TestCase):
             payment_method='GCash', reference_number='GC-2026-0001', proof_of_payment=png,
         )
         self.assertRedirects(response, self.detail_url)
-        self.assertIn('Billing record saved.', self._messages(response))
+        self.assertIn(
+            'Payment recorded. It still needs verification by another '
+            'staff member or manager.',
+            self._messages(response),
+        )
 
         self.record.refresh_from_db()
         self.assertEqual(self.record.payment_method, 'GCash')

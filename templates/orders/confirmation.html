@@ -24,7 +24,7 @@
     <h3 class="mb-4">Order Details</h3>
     <table class="gv-table kv-table" style="border:0;">
       <tbody>
-        <tr><td class="gv-meta">Status</td><td style="text-align:right;">{% include "partials/_order_status_pill.html" with status=sale.order_status %}</td></tr>
+        <tr><td class="gv-meta">Status</td><td style="text-align:right;">{% include "partials/_order_status_pill.html" with status=sale.order_status customer=True %}</td></tr>
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
         {% if sale.fulfillment_type == 'Delivery' %}

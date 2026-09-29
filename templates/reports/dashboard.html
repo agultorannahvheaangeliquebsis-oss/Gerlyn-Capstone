@@ -700,7 +700,7 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
             {% else %}<span class="tag">In-Store</span>{% endif %}</td>
           <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
           <td data-label="Status">
-            {% include "partials/_order_status_pill_staff.html" with status=t.order_status %}</td>
+            {% include "partials/_order_status_pill.html" with status=t.order_status %}</td>
         </tr>
         {% endfor %}
       </tbody>

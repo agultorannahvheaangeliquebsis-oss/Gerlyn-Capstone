@@ -5,10 +5,107 @@
 {% block extra_css %}
 <style>
   {% comment %}
+  Billing Detail's own rules, all prefixed bill- and page-scoped here rather
+  than added to gerlyn.css: they describe this page's Next Step notice,
+  payment/proof pair and activity log, and nothing else in the system draws
+  those. The shared families this page reuses verbatim — .card, .banner,
+  .pill, .btn, .od-facts / .od-sum / .od-h / .od-sub / .od-card /
+  .od-items-* / .gv-table — are untouched: no .od-* rule is redefined below,
+  only composed with. .od-head / .od-log / .od-when are NOT in that list:
+  they live in sales/transaction_detail.html's own style block, so this page
+  draws its heading row and activity log with .bill-head / .bill-log /
+  .bill-when instead.
+  {% endcomment %}
+
+  /* Next Step: the one thing this record is waiting for, and the control
+     that does it. Left edge tinted by state so Pending/Paid/Rejected are
+     told apart before the heading is read — the same semantic tokens the
+     .banner family uses, so nothing new is invented. */
+  .bill-next {
+    display: flex; flex-wrap: wrap; align-items: flex-start;
+    justify-content: space-between; gap: var(--s3) var(--s4);
+    margin-bottom: var(--s4); border-left: 4px solid var(--line);
+  }
+  .bill-next--action { border-left-color: var(--action); }
+  .bill-next--wait   { border-left-color: var(--warn-fg); }
+  .bill-next--done   { border-left-color: var(--ok-fg); }
+  .bill-next--danger { border-left-color: var(--danger-fg); }
+  .bill-next--muted  { border-left-color: var(--ink-400); }
+  .bill-next-main { flex: 1 1 320px; min-width: 0; }
+  .bill-next-h { margin: 0 0 var(--s2); }
+  .bill-next-p { margin: 0 0 var(--s2); font-size: 14.5px; color: var(--ink-700); max-width: 68ch; }
+  .bill-next-p:last-child { margin-bottom: 0; }
+  .bill-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); flex: 0 1 auto; }
+  .bill-refund-sum { max-width: 340px; margin-top: var(--s3); }
+
+  /* Card heading with its action on the same line (Order Information and
+     its link to the order), wrapping under the heading when the row runs
+     out of room. */
+  .bill-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2) var(--s3); margin: 0 0 var(--s3); flex-wrap: wrap; }
+  .bill-head h3 { margin: 0; min-width: 0; }
+
+  /* Payment facts and the proof that backs them, side by side: the verifier
+     compares one against the other, so the proof stopped living at the
+     bottom of the page under Order Items. */
+  .bill-pay { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--s4); align-items: start; margin-bottom: var(--s4); }
+  .bill-amount { padding-bottom: var(--s3); margin-bottom: var(--s3); border-bottom: 1px solid var(--line-soft); }
+  .bill-amount-label { display: block; font: 700 11.5px/1.3 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500); }
+  .bill-amount-value { display: block; margin-top: 2px; font: 700 28px/1.15 var(--font-sans); color: var(--action); font-variant-numeric: tabular-nums; }
+  .bill-amount-sub { display: block; margin-top: 4px; font-size: 13.5px; color: var(--ink-600); }
+  /* A wider basis than .od-facts' own 128px: these tiles carry a second
+     explanatory line (how the method settles, whether a reference is
+     required), which at 128px wrapped to four lines and made the row
+     taller than the proof beside it. */
+  .bill-facts { row-gap: var(--s3); }
+  .bill-facts > div { flex: 1 1 165px; }
+  .bill-missing { color: var(--danger-fg); font-weight: 600; margin: 0; }
+  .bill-proof-note { margin: var(--s2) 0 0; }
+  .bill-proof-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+  .bill-proof-missing p { margin: 0 0 4px; }
+  .bill-proof-missing p:last-child { margin-bottom: 0; }
+
+  /* Activity log — a rail-and-dot timeline, in a details shell of its own.
+     The summary chevron matches Order Detail's Status History. */
+  .bill-history { margin-bottom: var(--s4); }
+  .bill-history > summary {
+    cursor: pointer; padding: var(--s4); font: 700 14px/1.3 var(--font-sans);
+    display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; list-style: none;
+  }
+  .bill-history > summary::-webkit-details-marker { display: none; }
+  .bill-history > summary::before {
+    content: ""; width: 7px; height: 7px; border-right: 2px solid var(--ink-400);
+    border-bottom: 2px solid var(--ink-400); transform: rotate(-45deg); flex: none;
+  }
+  .bill-history[open] > summary::before { transform: rotate(45deg); margin-bottom: 4px; }
+  .bill-history > summary:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+  .bill-history > summary .gv-meta { font-weight: 400; font-size: 13.5px; }
+  /* The rail-and-dot timeline itself. .od-log is drawn by
+     sales/transaction_detail.html's own <style>, not gerlyn.css, so on this
+     page it never applied and the log fell back to a browser-numbered list.
+     Same look, under this page's own names. */
+  .bill-log { list-style: none; margin: 0; padding: 0 var(--s4) var(--s3); display: grid; gap: 0; }
+  .bill-log li { position: relative; padding: 0 0 var(--s3) 22px; font-size: 14.5px; }
+  .bill-log li::before {
+    content: ""; position: absolute; left: 2px; top: 4px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--brand);
+  }
+  .bill-log li::after {
+    content: ""; position: absolute; left: 6px; top: 15px; bottom: 0; width: 1px; background: var(--line-soft);
+  }
+  .bill-log li:last-child::after { display: none; }
+  .bill-log li:last-child { padding-bottom: 0; }
+  .bill-when { display: block; font-size: 13.5px; color: var(--ink-600); margin-bottom: 2px; }
+  .bill-log-note { margin: 0; padding: 0 var(--s4) var(--s4); max-width: 72ch; }
+  @media (prefers-reduced-motion: no-preference) {
+    .bill-history > summary::before { transition: transform .15s ease; }
+  }
+
+  {% comment %}
   Proof-of-payment zoom: a bare CSS :target lightbox, no JS needed. The
   thumbnail links to #proof-lightbox; the overlay only shows while that id
   is the page's URL fragment, and its own close control points back at the
-  page with no fragment. Degrades safely with no JS at all.
+  page with no fragment. Degrades safely with no JS at all. Unchanged —
+  only the block it sits in moved.
   {% endcomment %}
   #proof-lightbox {
     display: none; position: fixed; inset: 0; z-index: 200;
@@ -25,6 +122,21 @@
     background: var(--surface); color: var(--ink-900); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
   }
+
+  /* One column once the facts/proof pair no longer fits side by side, and
+     full-width actions on a phone so nothing is a 40px target in a corner.
+     900px matches .od-side's own breakpoint, so the two pages fold at the
+     same width. */
+  @media (max-width: 900px) {
+    .bill-pay { grid-template-columns: 1fr; }
+    .proof-frame img { max-width: 420px; }
+  }
+  @media (max-width: 560px) {
+    .bill-actions { width: 100%; }
+    .bill-actions form, .bill-actions .btn { flex: 1 1 auto; }
+    .bill-actions form .btn { width: 100%; }
+    .bill-amount-value { font-size: 24px; }
+  }
 </style>
 {% endblock %}
 
@@ -36,151 +148,56 @@
       {% include "partials/_billing_status_pill.html" with status=record.status %}
     </h1>
   </div>
+  {% comment %}
+  View Order is ordinary navigation to the canonical Order Detail workspace,
+  not a detail-modal trigger any more. Everything that CHANGES the order —
+  its status, its PWD review, its refunds — lives there, and stacking the
+  order inside an overlay on top of the billing record put those controls
+  two modals deep and left the order's own page unreachable from here.
+  Hidden when Billing itself is the thing being read inside the detail
+  overlay (?modal=1, from the Billing list): a link that navigates the page
+  behind the overlay away is not what that click means there.
+  No ?from=billing on it: that flag hides the order's Payment Status card,
+  which only made sense while the order opened stacked over this record.
+  Reached by navigation, the order is its full, ordinary self.
+  {% endcomment %}
+  {% if request.GET.modal != '1' %}
   <div class="row" style="gap:var(--s2);">
-    <a class="btn" data-detail-modal="Order" href="{% url 'transaction_detail' record.transaction.pk %}?from=billing">View Order</a>
-  </div>
-</div>
-
-{% if record.status == "Pending" %}
-{% if module_actions.billing.edit %}
-<div class="card card-pad mb-4">
-  <div class="row-between wrap">
-    <div class="grow">
-      <h3>Verify this payment</h3>
-      <p class="gv-meta mb-0">
-        The system records payment only — funds move outside it. Confirm once you have
-        seen the cash or checked the reference number.
-      </p>
-      {% if record.transaction.has_pending_pwd_request %}
-      <div class="banner banner-warning mt-2">
-        <span>This order has a PWD discount request waiting for verification, so the amount due
-          isn't final. <a href="{% url 'transaction_detail' record.transaction.pk %}">Approve or reject it on the order</a>
-          before verifying payment.</span>
-      </div>
-      {% elif missing_evidence %}
-      <div class="banner banner-warning mt-2">
-        <span>Needs its {{ missing_evidence|join:" and " }} before it can be verified —
-          add it from "Edit payment details" below.</span>
-      </div>
-      {% endif %}
-    </div>
-    <div class="row" style="gap:var(--s2);">
-      <form method="POST" action="{% url 'billing_confirm' record.pk %}" data-status-confirm>
-        {% csrf_token %}
-        <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
-        {% include "partials/_billing_reject_confirm.html" with record=record %}
-      </form>
-      <form method="POST" action="{% url 'billing_confirm' record.pk %}">
-        {% csrf_token %}
-        {% if record.transaction.has_pending_pwd_request or missing_evidence %}
-        {# P15 / evidence gate — billing_confirm refuses Paid regardless; this only keeps the button honest. #}
-        <button type="button" class="btn btn-primary" disabled>Verify Payment</button>
-        {% else %}
-        <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
-        {% endif %}
-      </form>
-    </div>
-  </div>
-</div>
-{% endif %}
-{% elif record.status == "Rejected" and module_actions.billing.edit %}
-<div class="card card-pad mb-4">
-  <div class="row-between wrap">
-    <div class="grow">
-      <h3>Payment Verification Rejected</h3>
-      {% if record.reject_reason %}
-      <p class="gv-meta mb-0"><strong>Reason:</strong> {{ record.reject_reason }}</p>
-      {% endif %}
-      <p class="gv-meta mb-0">
-        Re-open it if the customer is paying again, or if the rejection was a mistake —
-        it goes back to Pending for a fresh check.
-      </p>
-    </div>
-    <form method="POST" action="{% url 'billing_confirm' record.pk %}" class="row">
-      {% csrf_token %}
-      <button type="submit" name="status" value="Pending" class="btn">Re-open Payment</button>
-    </form>
-  </div>
-</div>
-{% endif %}
-
-{# ---- Order Progress: read-only. Anything that changes the order itself (status, PWD discount, refunds) stays on "View Order". ---- #}
-<div class="card card-pad od-card">
-  <h3 class="od-h">Order Progress</h3>
-  {% if progress.cancelled %}
-  <div class="banner banner-error mt-2 mb-0">
-    <span><strong>{{ record.transaction.order_number }} was cancelled</strong> — it will not move through the remaining stages.</span>
-  </div>
-  {% else %}
-  <div class="order-progress-track">
-    {% for step in progress.steps %}
-    <div class="order-progress-step {% if step.done %}done{% endif %} {% if step.current %}current{% endif %}">
-      <span class="dot">{% if step.done %}&#10003;{% else %}{{ forloop.counter }}{% endif %}</span>
-      <span class="order-progress-label">{{ step.name }}</span>
-    </div>
-    {% endfor %}
+    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order</a>
   </div>
   {% endif %}
 </div>
 
-<div class="od-side">
-  <div class="card card-pad">
-    <h3 class="mb-4">Payment Details</h3>
-    <table class="gv-table kv-table" style="border:0;">
-      <tbody>
-        <tr><td class="gv-meta">Order</td><td style="text-align:right;">{{ record.transaction.order_number }}</td></tr>
-        <tr><td class="gv-meta">Customer</td><td style="text-align:right;">
-          {% if record.transaction.customer %}{{ record.transaction.customer.get_full_name|default:record.transaction.customer.username }}
-          {% else %}Walk-in{% endif %}</td></tr>
-        <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ record.transaction.branch.branch_name }}</td></tr>
-        <tr><td class="gv-meta">Amount due</td><td class="num" style="text-align:right;">
-          <span class="gv-metric" style="color:var(--action);">₱{{ record.amount_due|floatformat:2 }}</span></td></tr>
-        <tr><td class="gv-meta">Method</td><td style="text-align:right;">{{ record.payment_method }}</td></tr>
-        <tr><td class="gv-meta">Reference no.</td><td class="sku" style="text-align:right;">{{ record.reference_number|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Date recorded</td><td style="text-align:right;">{{ record.date_recorded|date:"Y-m-d H:i" }}</td></tr>
-        <tr><td class="gv-meta">Confirmed by</td><td style="text-align:right;">{{ record.confirmed_by.username|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Date confirmed</td><td style="text-align:right;">{{ record.date_confirmed|date:"Y-m-d H:i"|default:"—" }}</td></tr>
-        {% if record.status == "Rejected" and record.reject_reason %}
-        <tr><td class="gv-meta">Reject reason</td><td style="text-align:right;">{{ record.reject_reason }}</td></tr>
-        {% endif %}
-        {% if record.status == "Cancelled" %}
-        <tr><td class="gv-meta">Cancelled by</td><td style="text-align:right;">{{ record.voided_by.username|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Date cancelled</td><td style="text-align:right;">{{ record.date_voided|date:"Y-m-d H:i"|default:"—" }}</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-    {% comment %}
-    Paid and Cancelled are both terminal (BillingRecord.ALLOWED_STATUS_
-    TRANSITIONS has no outbound edge from Paid, and none at all from
-    Cancelled) — "effectively read-only" means the UI should not dangle an
-    edit/upload action that only leads to billing_create's own bounce
-    message ("this order was cancelled — its billing record is closed").
-    Pending and Rejected are the only statuses a payment's details can still
-    change under. This opens the Record Payment modal in place instead of
-    navigating to a blank page — see _record_payment_modal.html.
-    {% endcomment %}
-    {% if module_actions.billing.edit and record.status == "Pending" or module_actions.billing.edit and record.status == "Rejected" %}
-      <a class="btn mt-4" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
-         data-payment-open="record-payment-modal">Edit payment details</a>
+{% include "billing/_billing_next_step.html" %}
+
+{% include "billing/_billing_payment_facts.html" %}
+
+{% comment %}
+Order Information — read-only. Billing may write to BillingRecord;
+everything it shows from SalesTransaction is read, and every order mutation
+is reached by navigating to the order. That is why the order status is a
+pill here and not a control, and why the Order Progress stepper is gone: it
+was a five-step tracker on a page with nothing to move it, drawn above the
+payment facts that are this page's actual subject.
+{% endcomment %}
+<div class="card card-pad od-card">
+  <div class="bill-head">
+    <h3>Order Information</h3>
+    {% if request.GET.modal != '1' %}
+    <a class="btn btn-sm" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
     {% endif %}
   </div>
-
-  <div class="card card-pad">
-    <h3 class="mb-4">Financial Summary</h3>
-    <dl class="od-sum">
-      {% if record.transaction.discount_type != 'None' %}
-      <div><dt>Less: discount</dt><dd class="od-credit">−₱{{ record.transaction.total_discount_amount|floatformat:2 }}</dd></div>
-      {% endif %}
-      {% if record.transaction.total_vat_amount %}
-      <div><dt>VAT (included)</dt><dd>₱{{ record.transaction.total_vat_amount|floatformat:2 }}</dd></div>
-      {% endif %}
-      <div class="od-total"><dt>Total</dt><dd>₱{{ record.transaction.total_amount|floatformat:2 }}</dd></div>
-      {% if record.transaction.refunded_amount %}
-      <div><dt>Less: refunded</dt><dd class="od-credit">−₱{{ record.transaction.refunded_amount|floatformat:2 }}</dd></div>
-      <div><dt>Net after refunds</dt><dd class="strong">₱{{ record.transaction.net_amount|floatformat:2 }}</dd></div>
-      {% endif %}
-    </dl>
-  </div>
+  <dl class="od-facts">
+    <div><dt>Order no.</dt><dd class="strong">{{ record.transaction.order_number }}</dd></div>
+    <div><dt>Customer</dt><dd>
+      {% if record.transaction.customer %}{{ record.transaction.customer.get_full_name|default:record.transaction.customer.username }}
+      {% else %}Walk-in{% endif %}</dd></div>
+    <div><dt>Branch</dt><dd>{{ record.transaction.branch.branch_name }}</dd></div>
+    <div><dt>Channel</dt><dd>{{ record.transaction.transaction_type }}</dd></div>
+    <div><dt>Fulfillment</dt><dd>{{ record.transaction.fulfillment_type|default:"—" }}</dd></div>
+    <div><dt>Order status</dt><dd>
+      {% include "partials/_order_status_pill.html" with status=order_status %}</dd></div>
+  </dl>
 </div>
 
 <div class="card card-pad od-card">
@@ -208,50 +225,15 @@
   </div>
 </div>
 
-<div class="card card-pad card-fill">
-  <h3 class="mb-4">Proof of Payment</h3>
-  <div class="card-fill-body">
-    {% if record.proof_of_payment %}
-      {# F-06: auth-gated billing_proof view, never the raw media path. #}
-      <a class="proof-frame" href="#proof-lightbox">
-        <img src="{% url 'billing_proof' record.pk %}" alt="Proof of payment">
-      </a>
-      <div id="proof-lightbox">
-        <a class="proof-lightbox-close" href="#" aria-label="Close">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </a>
-        <img src="{% url 'billing_proof' record.pk %}" alt="Proof of payment, full size">
-      </div>
-      <dl class="od-sum mt-4">
-        {% if record.transaction.total_vat_amount %}
-        <div><dt>VAT (included)</dt><dd>₱{{ record.transaction.total_vat_amount|floatformat:2 }}</dd></div>
-        {% endif %}
-        <div class="od-total"><dt>Total</dt><dd>₱{{ record.amount_due|floatformat:2 }}</dd></div>
-      </dl>
-    {% elif record.status == "Pending" or record.status == "Rejected" %}
-      {% if record.payment_method in proof_required_methods %}
-      <div class="empty">
-        <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
-        <h3>No proof uploaded</h3>
-        <p>Waiting for payment data from recorder.</p>
-      </div>
-      {% else %}
-      <div class="empty">
-        <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
-        <h3>No proof needed</h3>
-        <p>{{ record.payment_method }} doesn't require a screenshot or receipt.</p>
-      </div>
-      {% endif %}
-    {% else %}
-      <div class="empty">
-        <span class="glyph">{% include "partials/_empty_icon.html" with icon="image" %}</span>
-        <h3>No proof uploaded</h3>
-      </div>
-    {% endif %}
-  </div>
-</div>
+{% include "billing/_billing_activity.html" %}
 
-{% if module_actions.billing.edit and record.status == "Pending" or module_actions.billing.edit and record.status == "Rejected" %}
+{% comment %}
+The Record Payment dialog, for "Edit payment details" / "Upload proof".
+Pending only: billing_create refuses anything else (a Rejected record has
+to be re-opened first, which is what its own notice says), so the dialog is
+not even drawn where saving it would bounce.
+{% endcomment %}
+{% if record.status == "Pending" and module_actions.billing.edit %}
 {% include "partials/_record_payment_modal.html" with transaction=record.transaction billing=record return_to="billing" %}
 {% endif %}
 {% endblock %}
