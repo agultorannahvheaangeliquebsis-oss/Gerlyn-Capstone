@@ -147,7 +147,18 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
           {% else %}—{% endif %}
         </td>
         <td data-label="Actual Receipt" class="gv-meta">{{ p.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td>
-        <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
+        <td data-label="Total" class="num strong">
+          ₱{{ p.total_cost|floatformat:2 }}
+          {% if p.status == 'Received' or p.status == 'Partially Received' %}
+          {% if p.actual_received_cost != p.total_cost %}
+          {# Secondary to Total: what actually arrived, valued at confirmed cost — never gated on receipt_flag. #}
+          <div class="gv-meta">Actual ₱{{ p.actual_received_cost|floatformat:2 }}</div>
+          {% if p.unrecorded_cost_item_count %}
+          <div class="gv-meta">{{ p.unrecorded_cost_item_count }} cost{{ p.unrecorded_cost_item_count|pluralize }} unrecorded</div>
+          {% endif %}
+          {% endif %}
+          {% endif %}
+        </td>
         <td data-label="Status">
           {% include "partials/_po_status_pill.html" with status=p.status %}
           {% if p.status == 'Received' %}

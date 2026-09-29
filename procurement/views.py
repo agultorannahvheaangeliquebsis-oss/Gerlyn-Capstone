@@ -253,6 +253,21 @@ def _procurement_document_context(proc, request):
     # with legacy orders whose items were edited after the header was saved.
     line_sum = sum((i.line_total for i in items), 0)
 
+    # A second, separate figure: what actually arrived, valued at each line's
+    # confirmed cost. Only meaningful once the order has been received, so it
+    # is gated on the two receipt statuses — on an Approved PO nothing has
+    # arrived yet, and a document being sent TO the supplier must not
+    # announce "actual received ₱0.00". Deliberately not gated on
+    # receipt_flag: that field is set by the receiving workflow and can lag
+    # or be absent, while this is always derivable from the items themselves.
+    received_states = (
+        Procurement.Status.RECEIVED, Procurement.Status.PARTIALLY_RECEIVED,
+    )
+    actual_received_cost = proc.actual_received_cost
+    received_differs = (
+        proc.status in received_states and actual_received_cost != proc.total_cost
+    )
+
     supplier_profile = getattr(proc.supplier, 'supplier_profile', None)
 
     return {
@@ -260,6 +275,8 @@ def _procurement_document_context(proc, request):
         'items': items,
         'line_sum': line_sum,
         'totals_disagree': line_sum != proc.total_cost,
+        'actual_received_cost': actual_received_cost,
+        'received_differs': received_differs,
         'supplier_profile': supplier_profile,
         # Signature-block names, pre-resolved so the template never chains a
         # lookup through a FK that may be null. Any of the three can legally
@@ -1253,6 +1270,10 @@ def delivery_list(request):
     deliveries = procurements_visible_to(
         request.user,
         Procurement.objects.select_related('branch', 'supplier')
+        # actual_received_cost/unrecorded_cost_item_count (rendered per row
+        # for Received/Partially Received) walk procurement.items.all() —
+        # without this, that's a fresh query per row on this list.
+        .prefetch_related('items')
         .exclude(status=Procurement.Status.DRAFT),
     )
     staff_delivery_view = request.user.role == User.Role.STAFF

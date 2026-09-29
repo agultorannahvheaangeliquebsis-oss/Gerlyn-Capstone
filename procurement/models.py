@@ -265,6 +265,32 @@ class Procurement(models.Model):
     def __str__(self):
         return f"{self.po_number or f'Procurement #{self.id}'} - {self.branch} - {self.status}"
 
+    @property
+    def actual_received_cost(self):
+        """What was actually received, valued at each line's confirmed cost.
+
+        Distinct from total_cost (the committed/ordered PO value, unchanged
+        by receiving) and from the sum of line_total (which values ordered
+        quantity, not received quantity). Computed on the fly from
+        ProcurementItem.received_line_total — never persisted, never
+        gated on receipt_flag.
+        """
+        return sum((item.received_line_total for item in self.items.all()), 0)
+
+    @property
+    def unrecorded_cost_item_count(self):
+        """How many received lines have no unit cost on file.
+
+        These contribute ₱0 to actual_received_cost not because they were
+        free, but because their cost is unknown — callers that display
+        actual_received_cost should surface this count as a caveat rather
+        than let a ₱0 line read as "received for free".
+        """
+        return sum(
+            1 for item in self.items.all()
+            if item.quantity_received > 0 and item.unit_cost_snapshot is None
+        )
+
     class Meta:
         constraints = [
             models.CheckConstraint(
@@ -340,6 +366,19 @@ class ProcurementItem(models.Model):
         """
         quantity = self.quantity_received if self.is_unexpected else self.quantity_ordered
         return quantity * (self.unit_cost_snapshot or 0)
+
+    @property
+    def received_line_total(self):
+        """Quantity actually received x the confirmed supplier-cost snapshot.
+
+        Unlike line_total (which values ordered quantity, or received
+        quantity only for unexpected lines), this always values what
+        physically arrived — the building block for
+        Procurement.actual_received_cost. An unrecorded cost
+        (unit_cost_snapshot is None) contributes ₱0 here; that means
+        unknown, not free.
+        """
+        return self.quantity_received * (self.unit_cost_snapshot or 0)
 
     @property
     def cost_price(self):

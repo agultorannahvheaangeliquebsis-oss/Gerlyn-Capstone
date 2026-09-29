@@ -695,3 +695,54 @@ class NonPerformingProductsReportTests(TestCase):
         body = resp.content.decode()
         self.assertIn('Non-Performing &amp; Near-Expiry Products', body)
         self.assertIn('Non-Performing + Near-Expiry', body)
+
+
+class ProcurementCsvActualReceivedCostTests(TestCase):
+    """The procurement export carried only the committed order total, so a
+    partial delivery reconciled against the wrong figure in a spreadsheet."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import date
+
+        from inventory.models import Product
+        from procurement.models import ProcurementItem
+
+        cls.owner = User.objects.create_user(
+            username='csv-arc-owner', password='pw', role=User.Role.OWNER
+        )
+        branch = Branch.objects.create(
+            branch_name='CSV ARC Branch', location='Baliuag', owner=cls.owner,
+        )
+        supplier = User.objects.create_user(
+            username='csv-arc-supplier', password='pw', role=User.Role.SUPPLIER
+        )
+        product = Product.objects.create(
+            sku_code='SKU-CSV-ARC', product_name='Item', unit_price=Decimal('10.00'),
+        )
+        cls.po = Procurement.objects.create(
+            branch=branch, supplier=supplier, owner=cls.owner,
+            order_date=date(2026, 1, 1),
+            status=Procurement.Status.PARTIALLY_RECEIVED,
+            total_cost=Decimal('50.00'),
+        )
+        ProcurementItem.objects.create(
+            procurement=cls.po, product=product,
+            quantity_ordered=10, quantity_received=4,
+            unit_cost_snapshot=Decimal('5.00'),
+        )
+
+    def test_export_carries_both_the_ordered_and_the_received_total(self):
+        client = Client()
+        client.force_login(self.owner)
+        body = client.get(
+            reverse('export_csv', args=['procurement'])
+        ).content.decode()
+
+        header, *rows = [line for line in body.splitlines() if line.strip()]
+        self.assertIn('Total Cost (PHP)', header)
+        self.assertIn('Actual Received Cost (PHP)', header)
+
+        row = next(r for r in rows if self.po.po_number in r)
+        self.assertIn('50.00', row)
+        self.assertIn('20.00', row)

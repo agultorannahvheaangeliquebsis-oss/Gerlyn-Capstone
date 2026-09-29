@@ -605,6 +605,18 @@ banner rather than a full card (see .pd-negotiate-banner above).
           <tr class="pd-items-foot">
             <td colspan="5">
               <div class="row-between"><span class="strong">Total cost</span><span class="gv-metric" style="color:var(--action);">₱{{ procurement.total_cost|floatformat:2 }}</span></div>
+              {% if procurement.status == 'Received' or procurement.status == 'Partially Received' %}
+              {% if procurement.actual_received_cost != procurement.total_cost %}
+              {# Factual note: what actually arrived (valued at confirmed cost) vs the committed order total. #}
+              <div class="row-between gv-meta mt-2">
+                <span>Actual Received Cost</span>
+                <span>₱{{ procurement.actual_received_cost|floatformat:2 }}</span>
+              </div>
+              {% if procurement.unrecorded_cost_item_count %}
+              <div class="gv-meta mt-2">{{ procurement.unrecorded_cost_item_count }} item{{ procurement.unrecorded_cost_item_count|pluralize }} with cost not yet recorded</div>
+              {% endif %}
+              {% endif %}
+              {% endif %}
             </td>
           </tr>
         </tfoot>

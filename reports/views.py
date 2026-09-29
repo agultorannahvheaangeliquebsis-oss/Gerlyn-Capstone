@@ -2994,11 +2994,13 @@ def export_csv(request, kind):
             ])
 
     elif kind == 'procurement':
-        qs = Procurement.objects.select_related('branch', 'supplier', 'supplier__supplier_profile')
+        qs = Procurement.objects.select_related(
+            'branch', 'supplier', 'supplier__supplier_profile'
+        ).prefetch_related('items')  # actual_received_cost walks items.all() per row
         qs = scope_queryset(qs, request.user, 'branch')  # fails closed — see 'sales'
         writer.writerow([
             'PO Number', 'Branch', 'Supplier', 'Order Date', 'Delivery Date',
-            'Status', 'Receipt Flag', 'Total Cost (PHP)',
+            'Status', 'Receipt Flag', 'Total Cost (PHP)', 'Actual Received Cost (PHP)',
         ])
         for p in qs.order_by('-order_date'):
             supplier = ''
@@ -3010,6 +3012,7 @@ def export_csv(request, kind):
             writer.writerow([
                 p.po_number, p.branch.branch_name if p.branch else '', supplier,
                 p.order_date, p.delivery_date or '', p.status, p.receipt_flag, p.total_cost,
+                p.actual_received_cost,
             ])
 
     elif kind == 'billing':
