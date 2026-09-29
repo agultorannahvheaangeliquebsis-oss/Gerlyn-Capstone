@@ -327,13 +327,19 @@ class ProcurementItem(models.Model):
 
     @property
     def line_total(self):
-        """Ordered quantity x the confirmed supplier-cost snapshot.
+        """Quantity x the confirmed supplier-cost snapshot.
 
         Both procurement_detail.html and the printable PO render this column;
         without it the template's `item.line_total` silently resolved to
         nothing and every line printed as ₱0.00.
+
+        Unexpected items (added during receiving) are created with
+        quantity_ordered=0, so they must be valued by quantity_received
+        instead — otherwise a received item with a real unit cost still
+        prices out at ₱0.00.
         """
-        return self.quantity_ordered * (self.unit_cost_snapshot or 0)
+        quantity = self.quantity_received if self.is_unexpected else self.quantity_ordered
+        return quantity * (self.unit_cost_snapshot or 0)
 
     @property
     def cost_price(self):
