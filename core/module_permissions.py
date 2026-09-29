@@ -105,7 +105,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-stock-transfer-approve', 'api-stock-transfer-release',
             'api-stock-transfer-acknowledge',
         ],
-        DELETE: [],
+        DELETE: ['pos_sales_import_undo'],
     },
     ALERTS: {
         'label': 'Alerts Center',

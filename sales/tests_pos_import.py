@@ -182,3 +182,73 @@ class PosSalesImportTests(TestCase):
         self.assertEqual(StockMovement.objects.count(), 0)
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity_on_hand, 20)
+
+    def test_owner_can_undo_import_and_restore_inventory_atomically(self):
+        self.upload([self.row(invoice='OR-UNDO')])
+        self.confirm()
+        import_batch = PosSalesImport.objects.get()
+        sale = SalesTransaction.objects.get()
+
+        response = self.client.post(
+            reverse('pos_sales_import_undo', args=[import_batch.pk]),
+            {'reason': 'Wrong daily export selected'},
+        )
+
+        self.assertRedirects(response, reverse('pos_sales_import_history'))
+        import_batch.refresh_from_db()
+        sale.refresh_from_db()
+        self.inventory.refresh_from_db()
+        self.assertIsNotNone(import_batch.reversed_at)
+        self.assertEqual(import_batch.reversed_by, self.owner)
+        self.assertEqual(import_batch.reversal_reason, 'Wrong daily export selected')
+        self.assertEqual(sale.order_status, SalesTransaction.OrderStatus.CANCELLED)
+        self.assertIn('Wrong daily export selected', sale.cancel_reason)
+        self.assertEqual(sale.billing_record.status, 'Cancelled')
+        self.assertEqual(self.inventory.quantity_on_hand, 20)
+        self.assertTrue(StockMovement.objects.filter(
+            reference_id=sale.pk, quantity_change=2,
+        ).exists())
+
+    def test_import_cannot_be_undone_twice(self):
+        self.upload([self.row(invoice='OR-ONCE')])
+        self.confirm()
+        import_batch = PosSalesImport.objects.get()
+        url = reverse('pos_sales_import_undo', args=[import_batch.pk])
+        self.client.post(url, {'reason': 'Wrong upload'})
+
+        self.client.post(url, {'reason': 'Try again'})
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 20)
+        self.assertEqual(StockMovement.objects.filter(quantity_change=2).count(), 1)
+
+    def test_undo_failure_rolls_back_all_reversals(self):
+        self.upload([self.row(invoice='OR-U1'), self.row(invoice='OR-U2')])
+        self.confirm()
+        import_batch = PosSalesImport.objects.get()
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity_on_hand, 16)
+        from sales.views import _reverse_stock as real_reverse
+        calls = {'count': 0}
+
+        def fail_second(transaction, actor):
+            calls['count'] += 1
+            if calls['count'] == 2:
+                raise RuntimeError('simulated reversal failure')
+            return real_reverse(transaction, actor)
+
+        with mock.patch('sales.views._reverse_stock', side_effect=fail_second):
+            with self.assertRaises(RuntimeError):
+                self.client.post(
+                    reverse('pos_sales_import_undo', args=[import_batch.pk]),
+                    {'reason': 'Wrong upload'},
+                )
+
+        import_batch.refresh_from_db()
+        self.inventory.refresh_from_db()
+        self.assertIsNone(import_batch.reversed_at)
+        self.assertEqual(self.inventory.quantity_on_hand, 16)
+        self.assertFalse(SalesTransaction.objects.exclude(
+            order_status=SalesTransaction.OrderStatus.COMPLETED,
+        ).exists())
+        self.assertEqual(StockMovement.objects.filter(quantity_change__gt=0).count(), 0)

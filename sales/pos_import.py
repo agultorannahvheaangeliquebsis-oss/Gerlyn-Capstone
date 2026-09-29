@@ -15,7 +15,10 @@ from openpyxl import load_workbook
 from billing.models import BillingRecord
 from inventory.models import Inventory, Product
 
-from .models import PosSalesImport, SalesItem, SalesTransaction
+from .models import (
+    OrderStatusChange, OrderStatusHistory, PosSalesImport, SalesItem,
+    SalesTransaction,
+)
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -494,3 +497,75 @@ def commit_pos_import(*, rows, branch, filename, actor):
             billing.date_confirmed = timezone.now()
             billing.save()
         return batch, preview
+
+
+def reverse_pos_import(*, import_id, actor, reason):
+    """Atomically undo a confirmed import while preserving its audit trail."""
+    from .views import _reverse_stock
+
+    reason = (reason or '').strip()
+    if not reason:
+        raise PosImportError('Enter a reason for undoing this import.')
+    if len(reason) > 255:
+        raise PosImportError('The reversal reason cannot exceed 255 characters.')
+
+    with transaction.atomic():
+        import_batch = (
+            PosSalesImport.objects.select_for_update()
+            .select_related('branch')
+            .get(pk=import_id)
+        )
+        if import_batch.reversed_at:
+            raise PosImportError('This POS import has already been undone.')
+
+        transactions = list(
+            import_batch.transactions.select_for_update()
+            .select_related('billing_record')
+            .order_by('pk')
+        )
+        if not transactions:
+            raise PosImportError('This import has no linked transactions to undo.')
+
+        for sale in transactions:
+            if sale.source != 'ZANK POS' or sale.order_status != SalesTransaction.OrderStatus.COMPLETED:
+                raise PosImportError(
+                    f'{sale.order_number} is no longer an unchanged completed POS sale, '
+                    'so this import cannot be safely undone.'
+                )
+            if sale.refunds.exists():
+                raise PosImportError(
+                    f'{sale.order_number} has a refund record. Resolve it before undoing the import.'
+                )
+            billing = sale.billing_record
+            if not billing.can_transition_to(BillingRecord.PaymentStatus.CANCELLED):
+                raise PosImportError(
+                    f'The payment for {sale.order_number} can no longer be cancelled safely.'
+                )
+
+        for sale in transactions:
+            _reverse_stock(sale, actor)
+            previous = sale.order_status
+            sale.order_status = SalesTransaction.OrderStatus.CANCELLED
+            sale.cancel_reason = f'ZANK POS import #{import_batch.pk} undone: {reason}'[:255]
+            sale.save(update_fields=['order_status', 'cancel_reason'])
+            OrderStatusHistory.objects.create(
+                transaction=sale, from_status=previous,
+                to_status=SalesTransaction.OrderStatus.CANCELLED,
+                actor=actor, note=sale.cancel_reason,
+            )
+            OrderStatusChange.objects.create(
+                transaction=sale, from_status=previous,
+                to_status=SalesTransaction.OrderStatus.CANCELLED,
+                changed_by=actor, reason=sale.cancel_reason,
+            )
+            billing = sale.billing_record
+            billing.status = BillingRecord.PaymentStatus.CANCELLED
+            billing.voided_by = actor
+            billing.date_voided = timezone.now()
+            billing.save(update_fields=['status', 'voided_by', 'date_voided'])
+
+        import_batch.reversed_at = timezone.now()
+        import_batch.reversed_by = actor
+        import_batch.reversal_reason = reason
+        import_batch.save(update_fields=['reversed_at', 'reversed_by', 'reversal_reason'])
+        return import_batch

@@ -9,6 +9,7 @@ urlpatterns = [
     path('pos-import/confirm/', views.pos_sales_import_confirm, name='pos_sales_import_confirm'),
     path('pos-import/cancel/', views.pos_sales_import_cancel, name='pos_sales_import_cancel'),
     path('pos-import/history/', views.pos_sales_import_history, name='pos_sales_import_history'),
+    path('pos-import/history/<int:pk>/undo/', views.pos_sales_import_undo, name='pos_sales_import_undo'),
     path('<int:pk>/', views.transaction_detail, name='transaction_detail'),
     path('<int:pk>/receipt/', views.transaction_receipt, name='transaction_receipt'),
     # Order lifecycle: Pending -> Approved -> Preparing -> Completed / Cancelled

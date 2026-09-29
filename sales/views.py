@@ -20,7 +20,7 @@ from branches.models import Branch
 from core.people import person_display_name
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.module_permissions import (
-    ADD, BILLING, EDIT, SALES_POS, VIEW, user_can_perform_module_action,
+    ADD, BILLING, DELETE, EDIT, SALES_POS, VIEW, user_can_perform_module_action,
 )
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from inventory.alerts import stock_status
@@ -33,7 +33,10 @@ from .models import (
     SalesItemBatchConsumption, SalesTransaction,
     PosSalesImport,
 )
-from .pos_import import PosImportError, build_preview, commit_pos_import, parse_pos_file
+from .pos_import import (
+    PosImportError, build_preview, commit_pos_import, parse_pos_file,
+    reverse_pos_import,
+)
 from .pricing import price_cart, PWD_SENIOR_DISCOUNT_RATE, VAT_RATE
 from .pwd_requests import (
     DISCOUNT_BLOCKED_BILLING_STATUSES, DiscountError, apply_discount,
@@ -538,7 +541,42 @@ def pos_sales_import_history(request):
     imports = scope_queryset(
         PosSalesImport.objects.select_related('branch', 'imported_by'), request.user
     )
-    return render(request, 'sales/pos_import_history.html', {'imports': imports})
+    can_undo = (
+        request.user.role in [OWNER, BRANCH_MANAGER]
+        and user_can_perform_module_action(request.user, SALES_POS, DELETE)
+    )
+    return render(request, 'sales/pos_import_history.html', {
+        'imports': imports, 'can_undo': can_undo,
+    })
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def pos_sales_import_undo(request, pk):
+    if (
+        request.user.role not in [OWNER, BRANCH_MANAGER]
+        or not user_can_perform_module_action(request.user, SALES_POS, DELETE)
+    ):
+        messages.error(request, 'You do not have permission to undo POS imports.')
+        return redirect('pos_sales_import_history')
+    import_batch = get_object_or_404(
+        scope_queryset(PosSalesImport.objects.all(), request.user), pk=pk,
+    )
+    try:
+        audit_context.set_action_label('Undid ZANK POS daily sales import')
+        reverse_pos_import(
+            import_id=import_batch.pk, actor=request.user,
+            reason=request.POST.get('reason'),
+        )
+    except PosImportError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f'ZANK POS import #{import_batch.pk} was undone. Its sales were cancelled '
+            'and their sold quantities were returned to branch inventory.',
+        )
+    return redirect('pos_sales_import_history')
 
 
 @login_required(login_url='accounts:login')

@@ -448,6 +448,12 @@ class PosSalesImport(models.Model):
     gross_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     net_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     validation_errors = models.JSONField(default=list, blank=True)
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reversed_pos_sales_imports',
+    )
+    reversal_reason = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ['-imported_at', '-pk']
