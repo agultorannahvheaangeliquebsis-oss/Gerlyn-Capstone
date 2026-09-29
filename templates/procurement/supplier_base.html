@@ -102,6 +102,15 @@
     .sp-help-card p { margin: 0 0 10px; font: 400 12.5px/1.45 var(--font-sans); color: var(--ink-600); }
     .sp-help-card a { color: var(--action-700); font: 600 12.5px/1 var(--font-sans); text-decoration: underline; }
     .app.sidebar-collapsed .sp-help-card { display: none; }
+    /* Collapsed rail: the hover highlight is ALWAYS a fixed 44x44 circle centred
+       in the rail — gerlyn.css already rounds it, but its width/height come from
+       the hovered row's measured box, and a row measured mid collapse/expand
+       animation is still ~279px wide (a wide pill spilling past the rail). Size
+       and horizontal position are pure CSS here; JS only supplies the row's Y. */
+    .app.sidebar-collapsed .sb-highlight {
+      left: 50%; margin-left: -22px; width: 44px !important; height: 44px !important;
+      border-radius: 50%; box-shadow: none;
+    }
 
     /* ----------------------------------------------------------- topbar */
     .sp-topbar {
@@ -367,8 +376,13 @@
     .sp-pp-table td { padding: 14px 16px; border-bottom: 1px solid var(--sp-row); font-size: 13.5px; vertical-align: middle; }
     .sp-pp-table th.num, .sp-pp-table td.num { text-align: right; }
     .sp-pp-table th.end, .sp-pp-table td.end { text-align: right; }
-    .sp-pp-price-input { width: 100%; height: 36px; border-radius: 7px; border: 1px solid var(--sp-border); padding: 0 8px; text-align: right; font: 400 15px/1.4 var(--font-sans); box-sizing: border-box; }
+    .sp-pp-price-input, input.sp-pp-price-input[type="number"] { width: 100%; height: 36px; min-height: 36px; border-radius: 7px; border: 1px solid var(--sp-border); padding: 0 8px; text-align: right; font: 400 15px/1.4 var(--font-sans); box-sizing: border-box; }
     .sp-pp-row.is-hidden { display: none; }
+    .sp-pp-view { display: contents; }
+    .sp-pp-view[hidden] { display: none; }
+    .sp-pp-back { display: block; margin: 0 0 6px; padding: 0; border: 0; background: none; cursor: pointer; font: 500 12.5px/1.4 var(--font-sans); color: var(--sp-muted); }
+    .sp-pp-back:hover { text-decoration: underline; }
+    .sp-pp-footer .row { margin-left: auto; }
     .sp-pp-footer { margin: 0; padding: 16px 28px; border-top: 1px solid var(--line); background: var(--surface-2); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .sp-pp-footer p { margin: 0; font: 400 12.5px/1.4 var(--font-sans); color: var(--sp-muted); }
     .sp-pp-footer .row { display: flex; gap: 10px; }
@@ -556,10 +570,12 @@
 "Products & pricing" modal — on every page (it's part of the shared shell),
 same endpoints as always: supplier_set_product_cost (per-row Save),
 supplier_product_self_add / supplier_product_request_add (the "+ Offer a
-new product" flow, its own focused modal below).
+new product" flow swaps this same modal's content — offer and request
+views below — rather than opening a second modal).
 {% endcomment %}
 <div class="modal-overlay" id="pp-modal">
   <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="pp-modal-title">
+    <div class="sp-pp-view" data-pp-view="list">
     <div class="modal-head">
       <div>
         <h2 id="pp-modal-title">Products &amp; pricing</h2>
@@ -576,7 +592,7 @@ new product" flow, its own focused modal below).
           <input type="text" id="ppSearch" placeholder="Search your products">
         </div>
         {% if available_products %}
-        <button type="button" class="sp-pp-add-btn" onclick="closeModal('pp-modal'); openModal('offer-product-modal');">
+        <button type="button" class="sp-pp-add-btn" onclick="ppShowView('offer')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Offer a new product
         </button>
@@ -679,25 +695,22 @@ new product" flow, its own focused modal below).
         <button type="button" class="sp-btn-outline" onclick="closeModal('pp-modal')">Close</button>
       </div>
     </div>
-  </div>
-</div>
+    </div>{# /list view #}
 
-{% comment %}
-"Offer a new product" — its own small modal, same two forms/endpoints
-(supplier_product_self_add, supplier_product_request_add) the old page-flow
-version used. Opened from the "Products & pricing" modal's toolbar button.
-{% endcomment %}
-<div class="modal-overlay" id="offer-product-modal">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="offer-product-title" style="max-width:560px;">
-    <div class="modal-head">
-      <h2 id="offer-product-title">Offer a product</h2>
-      <button type="button" class="modal-close" onclick="closeModal('offer-product-modal')" aria-label="Close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-    <div class="modal-body">
+    {# ---- Offer a product (same modal, second view) ---- #}
+    <div class="sp-pp-view" data-pp-view="offer" hidden>
+      <div class="modal-head">
+        <div>
+          <button type="button" class="sp-pp-back" onclick="ppShowView('list')">&larr; Back to price list</button>
+          <h2 id="pp-offer-title">Offer a product</h2>
+        </div>
+        <button type="button" class="modal-close" onclick="closeModal('pp-modal')" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
       {% if available_products %}
-      <form method="POST" action="{% url 'supplier_product_self_add' %}" class="stack" style="gap:14px;">
+      <form id="offer-form" method="POST" action="{% url 'supplier_product_self_add' %}" class="stack" style="gap:14px;">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.get_full_path }}">
         <div class="field" style="margin:0;">
@@ -719,7 +732,6 @@ version used. Opened from the "Products & pricing" modal's toolbar button.
             <input id="add-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
           </div>
         </div>
-        <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Offer</button>
       </form>
       {% if products_narrowed %}
       <p class="gv-meta mt-2 mb-0">Showing products in your category. <a href="?all_products=1">Show all products</a></p>
@@ -731,38 +743,65 @@ version used. Opened from the "Products & pricing" modal's toolbar button.
       </p>
       {% endif %}
 
-      <details class="mt-4">
-        <summary class="strong" style="cursor:pointer;">Not in the list? Request a new product</summary>
-        <form method="POST" action="{% url 'supplier_product_request_add' %}" class="stack mt-4" style="gap:14px;">
-          {% csrf_token %}
-          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <p class="mt-4 mb-0"><button type="button" class="sp-pp-back" style="margin:0;" onclick="ppShowView('request')">Not in the list? Request a new product</button></p>
+      </div>
+      <div class="sp-pp-footer">
+        <p>GERLYN will review your offer before it can be used in POs.</p>
+        <div class="row">
+          <button type="button" class="sp-btn-outline" onclick="ppShowView('list')">Cancel</button>
+          {% if available_products %}<button type="submit" form="offer-form" class="sp-btn-primary">Offer</button>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# ---- Request a new product (same modal, third view) ---- #}
+    <div class="sp-pp-view" data-pp-view="request" hidden>
+      <div class="modal-head">
+        <div>
+          <button type="button" class="sp-pp-back" onclick="ppShowView('offer')">&larr; Back to offer a product</button>
+          <h2 id="pp-request-title">Request a new product</h2>
+        </div>
+        <button type="button" class="modal-close" onclick="closeModal('pp-modal')" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+      <form id="request-form" method="POST" action="{% url 'supplier_product_request_add' %}" class="stack" style="gap:14px;">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="field" style="margin:0;">
+          <label for="req-name">Product name</label>
+          <input id="req-name" type="text" name="product_name" maxlength="150" required>
+        </div>
+        <div class="row wrap" style="gap:12px;">
           <div class="field" style="margin:0;">
-            <label for="req-name">Product name</label>
-            <input id="req-name" type="text" name="product_name" maxlength="150" required>
-          </div>
-          <div class="row wrap" style="gap:12px;">
-            <div class="field" style="margin:0;">
-              <label for="req-unit">Unit</label>
-              <select id="req-unit" name="unit_of_measure" required>
-                {% for value, label in unit_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="field" style="margin:0;">
-              <label for="req-cost">Your unit cost (₱)</label>
-              <input id="req-cost" type="number" name="proposed_cost" min="0.01" step="0.01" required style="width:130px; text-align:right;">
-            </div>
-            <div class="field" style="margin:0;">
-              <label for="req-lead">Lead time (days)</label>
-              <input id="req-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
-            </div>
+            <label for="req-unit">Unit</label>
+            <select id="req-unit" name="unit_of_measure" required>
+              {% for value, label in unit_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select>
           </div>
           <div class="field" style="margin:0;">
-            <label for="req-note">Details <span class="gv-meta">— optional</span></label>
-            <input id="req-note" type="text" name="note" maxlength="300" placeholder="Brand, size, pack…">
+            <label for="req-cost">Your unit cost (₱)</label>
+            <input id="req-cost" type="number" name="proposed_cost" min="0.01" step="0.01" required style="width:130px; text-align:right;">
           </div>
-          <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Send request</button>
-        </form>
-      </details>
+          <div class="field" style="margin:0;">
+            <label for="req-lead">Lead time (days)</label>
+            <input id="req-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
+          </div>
+        </div>
+        <div class="field" style="margin:0;">
+          <label for="req-note">Details <span class="gv-meta">— optional</span></label>
+          <input id="req-note" type="text" name="note" maxlength="300" placeholder="Brand, size, pack…">
+        </div>
+      </form>
+      </div>
+      <div class="sp-pp-footer">
+        <p>GERLYN will review your request before the product is added.</p>
+        <div class="row">
+          <button type="button" class="sp-btn-outline" onclick="ppShowView('list')">Cancel</button>
+          <button type="submit" form="request-form" class="sp-btn-primary">Send request</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -807,6 +846,77 @@ document.addEventListener('DOMContentLoaded', function () {
     applyCollapsed(next);
     try { localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch (e) {}
   });
+})();
+
+// ------------------------------------------------- sidebar hover highlight
+// Same sliding "magic move" highlight sidebar.js gives the internal rail: one
+// .sb-highlight element (gerlyn.css already styles it — a green fill that is a
+// plain 44px circle when collapsed) that eases behind whichever row is hovered
+// or focused, and rests behind the active row otherwise. The tooltip is the
+// same too: internal has no custom one, just each row's native title="…"
+// (already set on the three links above). This is only the highlight half of
+// sidebar.js — the supplier rail has no tree groups, so none of that comes
+// along — and it does not touch the collapse handler above.
+(function () {
+  var app = document.getElementById('app');
+  var sbNav = document.querySelector('.sb-nav');
+  var sidebarEl = document.getElementById('sidebar');
+  if (!app || !sbNav) return;
+
+  var highlight = document.createElement('div');
+  highlight.className = 'sb-highlight';
+  highlight.setAttribute('aria-hidden', 'true');
+  sbNav.insertBefore(highlight, sbNav.firstChild);
+
+  var HL_INSET_X = 8;   // sidebar.js: card is 8px narrower on the right when expanded
+  var hoverTarget = null;
+
+  function activeRow() { return sbNav.querySelector('.sb-item--active'); }
+  function place(el, visible) {
+    if (!el) { highlight.style.opacity = '0'; return; }
+    if (app.classList.contains('sidebar-collapsed')) {
+      // Size + centring come from CSS (fixed 44px circle); only the row's Y is
+      // measured, and rows keep the same Y whatever the rail's width is doing.
+      highlight.style.transform = 'translate(0px, ' + el.offsetTop + 'px)';
+    } else {
+      highlight.style.transform = 'translate(' + el.offsetLeft + 'px, ' + el.offsetTop + 'px)';
+      highlight.style.width = (el.offsetWidth - HL_INSET_X) + 'px';
+      highlight.style.height = el.offsetHeight + 'px';
+    }
+    highlight.style.opacity = visible ? '1' : '0';
+  }
+  function target(el) {
+    highlight.classList.toggle('sb-highlight--rest', !!el && el === activeRow());
+    place(el, true);
+  }
+  function settle() {
+    var el = hoverTarget || activeRow();
+    highlight.classList.toggle('sb-highlight--rest', !!el && el === activeRow());
+    place(el || sbNav.querySelector('.sb-item'), !!el);
+  }
+
+  sbNav.addEventListener('mouseover', function (e) {
+    var el = e.target.closest('.sb-item');
+    if (el && el !== hoverTarget && sbNav.contains(el)) { hoverTarget = el; target(el); }
+  });
+  sbNav.addEventListener('mouseleave', function () { hoverTarget = null; settle(); });
+  sbNav.addEventListener('focusin', function (e) {
+    var el = e.target.closest('.sb-item');
+    if (el) { hoverTarget = el; target(el); }
+  });
+  sbNav.addEventListener('focusout', function (e) {
+    if (!sbNav.contains(e.relatedTarget)) { hoverTarget = null; settle(); }
+  });
+  // Collapsing/expanding animates the rail's width; re-measure once it lands.
+  if (sidebarEl) {
+    sidebarEl.addEventListener('transitionend', function (e) {
+      if (e.target === sidebarEl && e.propertyName === 'width') settle();
+    });
+  }
+  window.addEventListener('resize', settle);
+  var railToggle = document.getElementById('sidebarToggle');
+  if (railToggle) railToggle.addEventListener('click', function () { settle(); });
+  settle();
 })();
 
 // ------------------------------------------------------------ avatar menu
@@ -858,7 +968,17 @@ if (ppSearch && ppTable) {
 
 // --------------------------------------------------------------- modals
 function openModal(id) {
+  if (id === 'pp-modal') ppShowView('list');
   document.getElementById(id).classList.add('is-open');
+}
+// Products & pricing is one modal with three views (list / offer / request);
+// swapping views never stacks a second modal on top.
+function ppShowView(name) {
+  document.querySelectorAll('#pp-modal [data-pp-view]').forEach(function (v) {
+    v.hidden = v.getAttribute('data-pp-view') !== name;
+  });
+  var card = document.querySelector('#pp-modal .modal-card');
+  if (card) card.setAttribute('aria-labelledby', name === 'list' ? 'pp-modal-title' : 'pp-' + name + '-title');
 }
 function closeModal(id) {
   document.getElementById(id).classList.remove('is-open');
