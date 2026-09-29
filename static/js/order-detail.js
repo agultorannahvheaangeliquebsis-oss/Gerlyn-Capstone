@@ -79,14 +79,23 @@
   }
 
   function open(modal, trigger) {
-    if (active) return;
+    if (active) {
+      if (active.modal === modal) return;
+      // Opened from inside another dialog (Billing's View proof -> Replace
+      // proof): swap one for the other, and hand focus back to whatever
+      // opened the first dialog once this one closes.
+      var outer = active.trigger;
+      close();
+      trigger = outer || trigger;
+    }
     active = { modal: modal, trigger: trigger || null, bodyOverflow: document.body.style.overflow };
     syncFields(modal);
     syncSaveState(modal);
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
-    var first = modal.querySelector('[data-payment-method]');
+    // A dialog with no form (View proof) starts on its close button.
+    var first = modal.querySelector('[data-payment-method]') || modal.querySelector('[data-payment-close]');
     if (first) first.focus();
   }
 

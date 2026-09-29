@@ -19,10 +19,17 @@ What this replaces, and why:
     BillingRecord.REFERENCE_REQUIRED_METHODS / PROOF_REQUIRED_METHODS lists
     billing_confirm enforces.
 
-Upload proof is the existing Record Payment dialog
-(partials/_record_payment_modal.html -> billing_create), not a new upload
-path, and is offered only while the record is Pending — billing_create
-accepts nothing else.
+The proof is reached from the button at the top right of the Payment card,
+not a second card beside it: "View proof" opens #proof-view-modal (the image,
+Download, and Replace proof while Pending); "Upload proof" — drawn in the
+warning tone so a missing required proof can't be missed — opens the existing
+Record Payment dialog (partials/_record_payment_modal.html -> billing_create),
+not a new upload path, and is offered only while the record is Pending —
+billing_create accepts nothing else. Both dialogs are opened/closed by
+static/js/order-detail.js ([data-payment-open] / [data-payment-close]).
+
+Anything that writes (Upload proof, Replace proof) is behind
+module_actions.billing.edit; viewing and downloading are not.
 
 Needs from billing_detail: record, missing_evidence,
 reference_required_methods, proof_required_methods, remaining_after_refunds.
@@ -30,7 +37,21 @@ reference_required_methods, proof_required_methods, remaining_after_refunds.
 {% with txn=record.transaction %}
 <div class="bill-pay">
   <div class="card card-pad bill-pay-facts">
-    <h3 class="od-h">Payment</h3>
+    <div class="bill-head">
+      <h3>Payment</h3>
+      {% if record.proof_of_payment %}
+      <button type="button" class="btn btn-sm" data-payment-open="proof-view-modal">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5-9 9"/></svg>
+        View proof
+      </button>
+      {% elif record.payment_method in proof_required_methods and record.status == "Pending" and module_actions.billing.edit %}
+      <a class="btn btn-sm bill-proof-cta" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
+         data-payment-open="record-payment-modal">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload proof
+      </a>
+      {% endif %}
+    </div>
 
     <div class="bill-amount">
       <span class="bill-amount-label">Amount due</span>
@@ -77,6 +98,36 @@ reference_required_methods, proof_required_methods, remaining_after_refunds.
             <span class="bill-missing">Required — not on file yet</span>
           {% else %}
             <span class="gv-meta">Not required for {{ record.payment_method }}</span>
+          {% endif %}
+        </dd>
+      </div>
+
+      {% comment %}The proof's state as a fact beside the reference it backs; the image
+         itself is behind the View proof button above.{% endcomment %}
+      <div class="bill-pay-proof">
+        <dt>Payment proof</dt>
+        <dd>
+          {% if record.proof_of_payment %}
+            On file
+            {% if record.payment_method not in proof_required_methods %}
+            {% comment %}Not silently dropped: it is on file, it just isn't what this
+               method has to leave behind.{% endcomment %}
+            <span class="od-sub">Attached — not required for {{ record.payment_method }}.</span>
+            {% elif record.status == "Pending" %}
+            <span class="od-sub">Check it against the reference number before verifying.</span>
+            {% endif %}
+          {% elif record.payment_method in proof_required_methods %}
+            <span class="bill-missing">Required — not on file yet</span>
+            {% if record.status == "Pending" %}
+            <span class="od-sub">Proof of payment is required for {{ record.payment_method }} and isn't on file. Upload the customer's screenshot or receipt photo.</span>
+            {% else %}
+            {% comment %}Rejected / terminal: billing_create only accepts a Pending record,
+               so there is no upload to offer — the way back is Re-open Payment.{% endcomment %}
+            <span class="od-sub">Proof of payment is required for {{ record.payment_method }}. Nothing can be uploaded against a {{ record.status|lower }} record.</span>
+            {% endif %}
+          {% else %}
+            <span class="gv-meta">No proof needed</span>
+            <span class="od-sub">{{ record.payment_method }} doesn't require a screenshot or receipt.</span>
           {% endif %}
         </dd>
       </div>
@@ -132,55 +183,47 @@ reference_required_methods, proof_required_methods, remaining_after_refunds.
     </dl>
   </div>
 
-  <div class="card card-pad bill-pay-proof">
-    <h3 class="od-h">Payment proof</h3>
-    {% if record.proof_of_payment %}
-      {# F-06: the auth-gated billing_proof stream, never the raw media path. #}
-      <a class="proof-frame" href="#proof-lightbox">
-        <img src="{% url 'billing_proof' record.pk %}" alt="Proof of payment">
-      </a>
-      <div id="proof-lightbox">
-        <a class="proof-lightbox-close" href="#" aria-label="Close">
+  {% if record.proof_of_payment %}
+  {% comment %}View proof. A .modal-overlay opened and closed by order-detail.js, the
+     same way as the Record Payment dialog, so Escape, the backdrop, focus
+     trapping and focus return all behave the same. F-06: the image is the
+     auth-gated billing_proof stream, never the raw media path; lazy so it is
+     only fetched once the dialog is actually opened.{% endcomment %}
+  <div class="modal-overlay" id="proof-view-modal" aria-hidden="true">
+    <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="proof-view-title">
+      <div class="modal-head">
+        <h2 id="proof-view-title">Payment proof</h2>
+        <button type="button" class="modal-close" data-payment-close aria-label="Close">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <dl class="od-facts">
+          <div><dt>Method</dt><dd>{{ record.payment_method }}</dd></div>
+          <div><dt>Reference no.</dt><dd>{% if record.reference_number %}<span class="sku">{{ record.reference_number }}</span>{% else %}<span class="gv-meta">None recorded</span>{% endif %}</dd></div>
+          <div><dt>Amount due</dt><dd class="strong">₱{{ record.amount_due|floatformat:2 }}</dd></div>
+        </dl>
+        <a class="bill-proof-full" href="{% url 'billing_proof' record.pk %}" target="_blank" rel="noopener">
+          <img src="{% url 'billing_proof' record.pk %}" loading="lazy" alt="Proof of payment for {{ txn.order_number }}">
         </a>
-        <img src="{% url 'billing_proof' record.pk %}" alt="Proof of payment, full size">
-      </div>
-      {% if record.payment_method not in proof_required_methods %}
-      {% comment %}Not silently dropped: it is on file, it just isn't what this method
-         has to leave behind.{% endcomment %}
-      <p class="gv-meta bill-proof-note">Attached — not required for {{ record.payment_method }}.</p>
-      {% else %}
-      <p class="gv-meta bill-proof-note">Click to zoom.{% if record.status == "Pending" %} Check it against the reference number before verifying.{% endif %}</p>
-      {% endif %}
-      {% comment %}The existing payment_proof_download endpoint (gerlyn_is/urls.py),
-         same branch/record gate as billing_proof — surfaced, not changed.{% endcomment %}
-      <div class="bill-proof-actions">
-        <a class="btn btn-sm" href="{% url 'payment_proof_download' record.pk %}" download>Download</a>
-      </div>
-    {% elif record.payment_method in proof_required_methods %}
-      <div class="bill-proof-missing">
-        <p class="bill-missing">Proof of payment is required for {{ record.payment_method }} and isn't on file.</p>
-        {% if record.status == "Pending" %}
-        <p class="gv-meta">Upload the customer's screenshot or receipt photo — the payment can't be verified without it.</p>
-        {% if module_actions.billing.edit %}
-        <div class="bill-proof-actions">
-          <a class="btn btn-primary btn-sm" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
-             data-payment-open="record-payment-modal">Upload proof</a>
-        </div>
-        {% endif %}
-        {% else %}
-        {% comment %}Rejected / terminal: billing_create only accepts a Pending record,
-           so there is no action to offer here — the way back is Re-open
-           Payment above.{% endcomment %}
-        <p class="gv-meta">Nothing can be uploaded against a {{ record.status|lower }} record.</p>
+        {% if record.status == "Pending" and record.payment_method in proof_required_methods %}
+        <p class="gv-meta mb-0">Check the amount and reference on the screenshot against the details above before verifying.</p>
         {% endif %}
       </div>
-    {% else %}
-      <div class="bill-proof-missing">
-        <p class="strong mb-0">No proof needed</p>
-        <p class="gv-meta">{{ record.payment_method }} doesn't require a screenshot or receipt.</p>
+      <div class="modal-foot">
+        {% comment %}The existing payment_proof_download endpoint (gerlyn_is/urls.py),
+           same branch/record gate as billing_proof — surfaced, not changed.{% endcomment %}
+        <a class="btn" href="{% url 'payment_proof_download' record.pk %}" download>Download</a>
+        {% if record.status == "Pending" and module_actions.billing.edit %}
+        {% comment %}Swaps this dialog for Record Payment (order-detail.js closes one and
+           opens the other). Pending only, like the dialog it opens.{% endcomment %}
+        <a class="btn" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
+           data-payment-open="record-payment-modal">Replace proof</a>
+        {% endif %}
+        <button type="button" class="btn btn-primary" data-payment-close>Close</button>
       </div>
-    {% endif %}
+    </div>
   </div>
+  {% endif %}
 </div>
 {% endwith %}

@@ -26,7 +26,9 @@ from accounts.models import StaffProfile, User
 from billing.models import BillingRecord
 from billing.tests import _valid_png_file
 from branches.models import Branch
-from core.module_permissions import BILLING, DEFAULT_STAFF_MODULES
+from core.module_permissions import (
+    BILLING, DEFAULT_STAFF_MODULES, default_module_actions,
+)
 from inventory.models import Product
 from sales.models import (
     Refund, RefundEvent, RefundItem, SalesItem, SalesTransaction,
@@ -506,6 +508,78 @@ class BillingDetailStateTests(TestCase):
 
         self.client.force_login(self.owner)
         self.assertEqual(self.client.get(download).status_code, 200)
+
+    # -- the Payment card's proof button -------------------------------------
+
+    @staticmethod
+    def _payment_head(html):
+        """The Payment card's heading row, where the proof button sits."""
+        card = html.partition('bill-pay-facts')[2]
+        return card.partition('<dl')[0]
+
+    def test_missing_required_proof_puts_upload_in_the_payment_header(self):
+        record = self._record(
+            method=BillingRecord.PaymentMethod.GCASH, reference='GC-1'
+        )
+        head = self._payment_head(self._html(record))
+        self.assertIn('Upload proof', head)
+        self.assertIn('bill-proof-cta', head)
+        self.assertIn('data-payment-open="record-payment-modal"', head)
+        self.assertNotIn('View proof', head)
+
+    def test_proof_on_file_puts_view_proof_in_the_header_and_a_dialog(self):
+        record = self._record(
+            method=BillingRecord.PaymentMethod.GCASH, reference='GC-1', proof=True
+        )
+        html = self._html(record)
+        head = self._payment_head(html)
+        self.assertIn('View proof', head)
+        self.assertIn('data-payment-open="proof-view-modal"', head)
+        self.assertNotIn('Upload proof', head)
+        self.assertIn('id="proof-view-modal"', html)
+        # Pending: the dialog hands over to Record Payment to replace it.
+        self.assertIn('Replace proof', html)
+
+    def test_view_proof_on_a_closed_bill_offers_no_replace(self):
+        record = self._record(
+            status=BillingRecord.PaymentStatus.PAID,
+            method=BillingRecord.PaymentMethod.GCASH, reference='GC-1', proof=True,
+        )
+        html = self._html(record)
+        self.assertIn('View proof', self._payment_head(html))
+        self.assertIn('id="proof-view-modal"', html)
+        self.assertNotIn('Replace proof', html)
+        self.assertNotIn('id="record-payment-modal"', html)
+
+    def test_missing_proof_on_a_rejected_bill_offers_no_upload(self):
+        record = self._record(
+            status=BillingRecord.PaymentStatus.REJECTED,
+            method=BillingRecord.PaymentMethod.GCASH, reference='GC-1',
+            reject_reason='No screenshot.',
+        )
+        html = self._html(record)
+        self.assertIn('Required — not on file yet', html)
+        self.assertNotIn('Upload proof', html)
+        self.assertNotIn('id="proof-view-modal"', html)
+
+    def test_proof_write_actions_are_behind_the_billing_edit_permission(self):
+        """View and Download are reading; Upload/Replace write through
+        billing_create, so they follow module_actions.billing.edit — the
+        same gate the Next Step card's Edit payment details sits behind."""
+        missing = self._record(
+            method=BillingRecord.PaymentMethod.GCASH, reference='GC-1'
+        )
+        on_file = self._record(
+            method=BillingRecord.PaymentMethod.GCASH, reference='GC-1', proof=True
+        )
+        User.objects.filter(pk=self.staff.pk).update(
+            module_actions={**default_module_actions(), BILLING: []}
+        )
+
+        self.assertNotIn('Upload proof', self._html(missing, user=self.staff))
+        viewed = self._html(on_file, user=self.staff)
+        self.assertIn('View proof', viewed)
+        self.assertNotIn('Replace proof', viewed)
 
     # -- Order Information, read-only --------------------------------------
 
