@@ -1,0 +1,27 @@
+{% comment %}
+Status pill for a Procurement (purchase order) — buyer/staff-facing plain
+language. Same statuses the supplier sees worded from their own side in
+procurement/supplier_portal.html; here the three back-and-forth statuses are
+translated for whoever is on the buyer's side of that same negotiation, so
+the badge says whose turn it is instead of an internal status name.
+Usage: {% include "partials/_po_status_pill.html" with status=p.status %}
+Pass print=True for plain, unstyled text only — po_print.html's status line,
+where a colored badge doesn't belong on a printed document.
+{% endcomment %}
+{% if print %}{% if status == "Received" %}Received
+{% elif status == "Partially Received" %}Partially Received
+{% elif status == "Incoming" %}Incoming
+{% elif status == "Terms Agreed" %}Terms agreed — waiting on supplier to confirm
+{% elif status == "Pending Owner Review" %}Your turn — respond
+{% elif status == "Pending Supplier Review" %}Waiting on supplier
+{% elif status == "Approved" %}Approved
+{% elif status == "Cancelled" %}Cancelled
+{% else %}Draft{% endif %}{% else %}{% if status == "Received" %}<span class="pill pill-ok">Received</span>
+{% elif status == "Partially Received" %}<span class="pill pill-warn">Partially Received</span>
+{% elif status == "Incoming" %}<span class="pill pill-info">Incoming</span>
+{% elif status == "Terms Agreed" %}<span class="pill pill-ok">Terms agreed — waiting on supplier to confirm</span>
+{% elif status == "Pending Owner Review" %}<span class="pill pill-warn">Your turn — respond</span>
+{% elif status == "Pending Supplier Review" %}<span class="pill pill-warn">Waiting on supplier</span>
+{% elif status == "Approved" %}<span class="pill pill-info">Approved</span>
+{% elif status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>
+{% else %}<span class="pill pill-neutral">Draft</span>{% endif %}{% endif %}

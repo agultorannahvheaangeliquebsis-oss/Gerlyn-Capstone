@@ -149,17 +149,11 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
         <td data-label="Actual Receipt" class="gv-meta">{{ p.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
         <td data-label="Status">
+          {% include "partials/_po_status_pill.html" with status=p.status %}
           {% if p.status == 'Received' %}
-            <span class="pill pill-ok">Received</span>
             {% if p.receipt_flag == 'Discrepancy' %}<div class="gv-meta mt-2">Discrepancy</div>
             {% elif p.receipt_flag == 'Partial' %}<div class="gv-meta mt-2">Partial</div>{% endif %}
-          {% elif p.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
-          {% elif p.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
-          {% elif p.status == 'Terms Agreed' %}<span class="pill pill-ok">Terms Agreed</span>
-          {% elif p.status == 'Pending Owner Review' or p.status == 'Pending Supplier Review' %}<span class="pill pill-warn">{{ p.status }}</span>
-          {% elif p.status == 'Approved' %}<span class="pill pill-info">Approved</span>
-          {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
-          {% else %}<span class="pill">{{ p.status }}</span>{% endif %}
+          {% endif %}
         </td>
         <td data-label="Action">
           <span class="row-actions row-actions--delivery">

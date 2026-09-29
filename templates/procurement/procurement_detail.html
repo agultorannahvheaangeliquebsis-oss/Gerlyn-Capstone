@@ -202,14 +202,7 @@
   <div>
     <a class="back-link" href="{% url 'procurement_list' %}">Purchase Orders</a>
     <h1 class="mt-2">{{ procurement.po_number }}
-      {% if procurement.status == 'Received' %}<span class="pill pill-ok">Received</span>
-      {% elif procurement.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
-      {% elif procurement.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
-      {% elif procurement.status == 'Terms Agreed' %}<span class="pill pill-ok">Terms Agreed</span>
-      {% elif procurement.status == 'Pending Owner Review' or procurement.status == 'Pending Supplier Review' %}<span class="pill pill-warn">{{ procurement.status }}</span>
-      {% elif procurement.status == 'Approved' %}<span class="pill pill-info">Approved</span>
-      {% elif procurement.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
-      {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
+      {% include "partials/_po_status_pill.html" with status=procurement.status %}
     </h1>
   </div>
   {% comment %}

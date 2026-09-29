@@ -77,14 +77,7 @@ not a status, so it keeps the unclassed neutral default.
         <td data-label="Actual Receipt">{{ p.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td>
         <td data-label="Total" class="num strong">₱{{ p.total_cost|floatformat:2 }}</td>
         <td data-label="Status">
-          {% if p.status == 'Received' %}<span class="pill pill-ok">Received</span>
-          {% elif p.status == 'Partially Received' %}<span class="pill pill-warn">Partially Received</span>
-          {% elif p.status == 'Incoming' %}<span class="pill pill-info">Incoming</span>
-          {% elif p.status == 'Terms Agreed' %}<span class="pill pill-ok">Terms Agreed</span>
-          {% elif p.status == 'Pending Owner Review' or p.status == 'Pending Supplier Review' %}<span class="pill pill-warn">{{ p.status }}</span>
-          {% elif p.status == 'Approved' %}<span class="pill pill-info">Approved</span>
-          {% elif p.status == 'Cancelled' %}<span class="pill pill-danger">Cancelled</span>
-          {% else %}<span class="pill pill-neutral">Draft</span>{% endif %}
+          {% include "partials/_po_status_pill.html" with status=p.status %}
         </td>
         <td data-label="Action">
           <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order"

@@ -19,7 +19,7 @@
         {% if transfer.status == 'Acknowledged' %}<span class="pill pill-ok">Acknowledged</span>
         {% elif transfer.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
         {% elif transfer.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
-        {% elif transfer.status == 'Released' %}<span class="pill pill-warn">Released</span>
+        {% elif transfer.status == 'Released' %}<span class="pill pill-info">Released</span>
         {% elif transfer.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
         {% else %}<span class="pill pill-info">{{ transfer.status }}</span>{% endif %}
       </h1>

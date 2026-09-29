@@ -263,7 +263,7 @@ across the full width leave the default block padding as empty card.
             {% if t.status == 'Acknowledged' %}<span class="pill pill-ok">Acknowledged</span>
             {% elif t.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
             {% elif t.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
-            {% elif t.status == 'Released' %}<span class="pill pill-warn">Released</span>
+            {% elif t.status == 'Released' %}<span class="pill pill-info">Released</span>
             {% elif t.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
             {% else %}<span class="pill pill-info">{{ t.status }}</span>{% endif %}
           </td>

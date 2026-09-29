@@ -7,5 +7,5 @@ Usage: {% include "partials/_return_status_pill.html" with status=ret.status %}
 {% elif status == "Acknowledged" %}<span class="pill pill-info">Acknowledged</span>
 {% elif status == "Requested" %}<span class="pill pill-warn">Awaiting supplier</span>
 {% elif status == "Rejected" %}<span class="pill pill-danger">Rejected by supplier</span>
-{% elif status == "Cancelled" %}<span class="pill pill-neutral">Cancelled</span>
+{% elif status == "Cancelled" %}<span class="pill pill-danger">Cancelled</span>
 {% else %}<span class="pill pill-neutral">{{ status }}</span>{% endif %}
