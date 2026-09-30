@@ -258,6 +258,17 @@
   </p>
   {% endif %}
 
+  {# refund deadline: shown whenever this order has completed, regardless of who's looking or whether any items are still claimable #}
+  {% if refund_window_closes %}
+  <p class="gv-meta od-note">
+    {% if transaction.refund_window_expired %}
+    Refund window closed on {{ refund_window_closes|date:"j M Y, g:i a" }} ({{ transaction.REFUND_WINDOW.days }} days after completion).
+    {% else %}
+    Refund window closes {{ refund_window_closes|date:"j M Y, g:i a" }} ({{ transaction.REFUND_WINDOW.days }} days after completion).
+    {% endif %}
+  </p>
+  {% endif %}
+
   {% if next_actions %}
   <div class="od-move">
     {% for item in next_action_items %}

@@ -1731,7 +1731,10 @@ class RefundTests(TestCase):
         self.assertEqual(Refund.objects.count(), 0)
 
     def test_the_refund_window_blocks_an_old_order(self):
-        txn = self._order(quantity=5, completed_at=timezone.now() - timedelta(days=4))
+        txn = self._order(
+            quantity=5,
+            completed_at=timezone.now() - SalesTransaction.REFUND_WINDOW - timedelta(days=1),
+        )
         item = txn.items.get()
 
         page = self._detail(txn)
@@ -1742,7 +1745,10 @@ class RefundTests(TestCase):
 
     @mock.patch('core.notifications.notify')
     def test_within_the_refund_window_still_works(self, mock_notify):
-        txn = self._order(quantity=5, completed_at=timezone.now() - timedelta(days=2))
+        txn = self._order(
+            quantity=5,
+            completed_at=timezone.now() - SalesTransaction.REFUND_WINDOW + timedelta(days=1),
+        )
         item = txn.items.get()
 
         self._refund(txn, item, 1)
