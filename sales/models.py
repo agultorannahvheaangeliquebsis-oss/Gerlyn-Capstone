@@ -300,7 +300,7 @@ class SalesTransaction(models.Model):
     # A refund is only offered within this many days of completion — a
     # grocery-appropriate return window, not a statutory one. One named
     # constant instead of a bare "3" wherever the rule is checked.
-    REFUND_WINDOW = timedelta(days=3)
+    REFUND_WINDOW = timedelta(days=7)
 
     # P14 — the running total of APPROVED refunds against this order, kept in
     # step by sales.refunds.approve_refund under the same row lock that flips

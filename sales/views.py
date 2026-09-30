@@ -698,6 +698,13 @@ def transaction_detail(request, pk):
         # method the view enforces so the two cannot drift apart.
         'can_apply_discount': can_edit_sales and _can_offer_discount(txn, billing),
         'discount_choices': _pos_discount_choices(),
+        # The refund deadline itself, shown whether or not a refund is still
+        # possible — refundable_items can be empty for reasons other than the
+        # window (role, branch, nothing left unclaimed), so this is surfaced
+        # on its own instead of only implied by the form disappearing.
+        'refund_window_closes': (
+            txn.completed_at + SalesTransaction.REFUND_WINDOW if txn.completed_at else None
+        ),
         # Refunds (P14). Asked here so the form is only drawn when
         # sales.refunds would accept it — request_refund re-checks against
         # locked rows, so a forged POST is refused server-side regardless.
