@@ -116,7 +116,7 @@ a shared component other pages should pick up automatically.
   max-height: calc(100vh - 94px); overflow-y: auto;
   display: flex; flex-direction: column;
 }
-.pos-sum-section { padding: var(--s4); border-bottom: 1px solid var(--line); }
+.pos-sum-section { padding: var(--s4); border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .pos-sum-section:last-child { border-bottom: 0; }
 .pos-sum-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
 .pos-sum-head h2, .pos-sum-head h3 { margin: 0; color: var(--ink-900); }
@@ -135,7 +135,17 @@ a shared component other pages should pick up automatically.
 .pos-clear-btn:disabled { opacity: .5; cursor: default; }
 .pos-clear-btn svg { width: 14px; height: 14px; }
 
-.pos-cart { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); }
+/*
+A long order used to push the payment block below the fold: the panel was one
+long scroll, so the more lines the cashier added the further they had to scroll
+to reach the amount due. The list now caps at roughly three rows and scrolls
+inside itself, which keeps the payment block in the same place on a one-line
+sale and a twenty-line one.
+*/
+.pos-cart {
+  display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3);
+  max-height: 40vh; overflow-y: auto; scrollbar-width: thin; padding-right: 4px;
+}
 .pos-cart-empty { text-align: center; padding: var(--s6) 0 var(--s2); margin: 0; }
 .pos-cart-item {
   display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--s3);
@@ -190,6 +200,8 @@ a shared component other pages should pick up automatically.
 @media (max-width: 1100px) {
   .pos-shell { grid-template-columns: minmax(0, 1fr); }
   .pos-summary { position: static; max-height: none; overflow: visible; }
+  /* The panel is the page here, so the list scrolls with it as it always did. */
+  .pos-cart { max-height: none; overflow: visible; padding-right: 0; }
 }
 @media (max-width: 560px) {
   .pos-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
