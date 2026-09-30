@@ -184,10 +184,10 @@ def active_supplier_product_links(supplier):
 def unassigned_product_ids(supplier, product_ids, *, lock=False):
     """Return requested product IDs outside ``supplier``'s active catalog.
 
-    Both the server-rendered PO form and the DRF serializer call this helper,
-    so a client cannot bypass the filtered picker by posting a different
-    product ID.  ``lock`` is used immediately before order creation to close
-    the validation/write race with a concurrent catalog removal.
+    This is an informational catalog comparison, not a purchase-order
+    eligibility rule: PO creation may include products without a supplier
+    link. ``lock`` remains available to catalog-management callers that need
+    a stable comparison during a write.
     """
     requested = {int(product_id) for product_id in product_ids}
     links = active_supplier_product_links(supplier)

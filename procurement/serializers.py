@@ -10,8 +10,7 @@ from django.utils import timezone
 from .models import DeliveryReceipt, Procurement, ProcurementItem, SupplierProduct
 from .services import (
     ExternalOrderError, SupplierCostError, record_external_order,
-    snapshot_supplier_costs, unassigned_product_ids,
-    validate_expected_delivery_date,
+    snapshot_supplier_costs, validate_expected_delivery_date,
 )
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
 from accounts.models import User
@@ -249,17 +248,6 @@ class ProcurementWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError({
                 'fundingNote': 'Describe the funding source when you choose Other.'
             })
-        """Items must belong to the supplier's current product catalog."""
-        product_ids = [item['productId'] for item in attrs.get('items', [])]
-        if product_ids and unassigned_product_ids(
-            attrs.get('supplierId'), product_ids
-        ):
-            raise serializers.ValidationError({
-                'items': (
-                    'One or more products are not active products assigned '
-                    'to the selected supplier.'
-                ),
-            })
         return attrs
 
     def create(self, validated_data):
@@ -279,20 +267,6 @@ class ProcurementWriteSerializer(serializers.Serializer):
                 }) from exc
 
         with transaction.atomic():
-            # Re-check while locking the selected catalog rows. Validation
-            # above gives a useful 400 before any write; this second check
-            # prevents a concurrent unlink from slipping between validation
-            # and creation.
-            if unassigned_product_ids(
-                supplier, [item['productId'] for item in items_data], lock=True
-            ):
-                raise serializers.ValidationError({
-                    'items': (
-                        'One or more products are no longer assigned to the '
-                        'selected supplier.'
-                    ),
-                })
-
             proc = Procurement.objects.create(
                 branch=branch,
                 supplier=supplier,

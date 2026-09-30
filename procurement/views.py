@@ -61,7 +61,7 @@ from .services import (
     receive_replacement, remove_supplier_product, reschedule_delivery,
     record_external_order, respond_to_return, returnable_lines, review_offer, review_product_request,
     set_funding, settle_with_credit, ship_return, transfer_supplier_products,
-    unassigned_product_ids, validate_expected_delivery_date,
+    validate_expected_delivery_date,
 )
 from .serializers import (
     ProcurementReadSerializer,
@@ -429,8 +429,9 @@ def _procurement_form_context(user):
         suppliers = _po_suppliers_for_user(user)
 
     # Keep each relationship row instead of flattening to Product because
-    # default cost belongs to a supplier/product pair. These are the only
-    # options the PO JavaScript will put in a product selector.
+    # default cost belongs to a supplier/product pair. The PO picker uses
+    # these links to put preferred products first and show known costs, while
+    # still offering the full product list for manual selection.
     links = list(
         SupplierProduct.objects.approved().filter(supplier__in=suppliers)
         .select_related('product')
@@ -585,13 +586,13 @@ def procurement_add(request):
     if len(parsed_product_ids) != len(set(parsed_product_ids)):
         errors.append('Each product may appear only once on a purchase order.')
 
-    if supplier and parsed_product_ids and unassigned_product_ids(
-        supplier, parsed_product_ids
-    ):
-        errors.append(
-            'The order was not created — every item must be an active product '
-            'assigned to the selected supplier.'
+    existing_product_ids = set(
+        Product.objects.filter(pk__in=parsed_product_ids).values_list(
+            'pk', flat=True
         )
+    )
+    if set(parsed_product_ids) - existing_product_ids:
+        errors.append('Choose a valid product for every order item.')
 
     if errors:
         context = _procurement_list_context(request)
@@ -609,26 +610,6 @@ def procurement_add(request):
     is_owner = request.user.role == User.Role.OWNER
 
     with transaction.atomic():
-        # Re-check while locking the selected mapping rows. Validation above
-        # gives a useful error before any write; this closes the smaller race
-        # with a concurrent supplier-catalog removal.
-        if unassigned_product_ids(supplier, parsed_product_ids, lock=True):
-            context = _procurement_list_context(request)
-            context.update({
-                'po_errors': [
-                    'The supplier catalog changed while you were creating '
-                    'the order. Review the items and try again.'
-                ],
-                'po_form_data': request.POST,
-                'po_restore_rows': [
-                    {'product_id': pid, 'quantity': qty}
-                    for pid, qty in zip(product_ids, quantities) if pid
-                ],
-            })
-            return render(
-                request, 'procurement/procurement_form.html', context
-            )
-
         # Who raises the order decides whether it is already authorized.
         # Every PO used to be created Ordered no matter who submitted this
         # form, so a Branch Manager could commit spend against a supplier

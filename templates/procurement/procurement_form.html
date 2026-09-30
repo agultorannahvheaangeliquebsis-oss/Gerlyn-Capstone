@@ -125,29 +125,26 @@ flash-modal pattern as Walk-in Sale's pos_errors.
 
 {% comment %}
 A purchase order needs somewhere to send it and something to put on it.
-With either list empty the form below would be a required <select> with
-no options — unfillable, unsubmittable, and silent about why. Show what
-is missing and the way out of it instead of a dead form.
+Supplier-product links are recommendations, not an eligibility rule, so
+only a genuinely missing supplier or product list blocks this form.
 {% endcomment %}
-{% if not suppliers or not supplier_product_options %}
+{% if not suppliers or not products %}
 <div class="card">
   <div class="empty">
     <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
-    {% if not suppliers and not supplier_product_options %}
-      <h3>No orderable supplier catalog yet</h3>
-      <p>Add an active supplier and assign products to that supplier before creating a purchase order.</p>
+    {% if not suppliers and not products %}
+      <h3>Suppliers and products are needed</h3>
+      <p>Add an active supplier and at least one product before creating a purchase order.</p>
       <div class="row mt-2">
         <a class="btn btn-primary" href="{% url 'supplier_add' %}">Add supplier</a>
-        <a class="btn" href="{% url 'supplier_list' %}">Manage supplier products</a>
       </div>
     {% elif not suppliers %}
       <h3>No suppliers to order from</h3>
       <p>A purchase order is addressed to a supplier. Add the supplier you buy from, then come back to place the order.</p>
       <a class="btn btn-primary mt-2" href="{% url 'supplier_add' %}">Add supplier</a>
     {% else %}
-      <h3>No products assigned to a supplier</h3>
-      <p>Assign at least one product to an active supplier before creating a purchase order.</p>
-      <a class="btn btn-primary mt-2" href="{% url 'supplier_list' %}">Manage supplier products</a>
+      <h3>No products available</h3>
+      <p>Add at least one product before creating a purchase order.</p>
     {% endif %}
   </div>
 </div>
@@ -167,14 +164,16 @@ is missing and the way out of it instead of a dead form.
         the supplier after this order is approved. You'll see that step on the order's page.</p>
 
       {% comment %}
-      P21 - shown when the chosen supplier has no approved products: nothing
-      can be ordered from them yet, so the submit button steps aside instead
-      of offering an empty dropdown.
+      Supplier-product links are preferred suggestions. If none exist, make
+      the manual path explicit without blocking the order.
       {% endcomment %}
       <div class="banner banner-warn" id="po-no-catalog" hidden>
-        This supplier has no approved products yet, so there is nothing to order from them.
-        Ask them to offer products in their portal, or add them on their
-        <a href="{% url 'supplier_list' %}">supplier page</a>.
+        <strong>No products currently linked to this supplier</strong><br>
+        You can still create a purchase order and manually select products.
+        <div class="row mt-2">
+          <button type="button" class="btn btn-primary btn-sm" id="po-manual-select">Create Purchase Order</button>
+          <a class="btn btn-sm" href="{% url 'supplier_list' %}">Manage Supplier Products</a>
+        </div>
       </div>
 
       {% comment %}
@@ -194,7 +193,7 @@ is missing and the way out of it instead of a dead form.
         <div class="item-row po-row">
           <div class="field field-product">
             <label class="po-row-label">Product</label>
-            {# JavaScript hides products not carried by the selected supplier. #}
+            {# JavaScript puts linked products first, followed by the full catalog. #}
             <select name="product_id" class="js-product" required onchange="poRecalc()">
               <option value="">Choose a product</option>
               {% for p in products %}
@@ -309,13 +308,13 @@ normal case.
 {% endcomment %}
 {% if po_restore_rows %}{{ po_restore_rows|json_script:"po-restore-rows" }}{% endif %}
 {{ supplier_catalog|json_script:"po-supplier-catalog" }}
-{% comment %}Full product list for the JS to rebuild each row's dropdown from: option[hidden] is ignored by several mobile browsers, so a filtered row only ever contains the supplier's own products.{% endcomment %}
+{% comment %}Full product list for manual selection; supplier links only influence ordering and known-cost display.{% endcomment %}
 {{ product_options|json_script:"po-all-products" }}
 {% endif %}
 {% endblock %}
 
 {% block extra_js %}
-{% if suppliers and supplier_product_options %}
+{% if suppliers and products %}
 <script>
 var poRows = document.getElementById('po-item-rows');
 var poTpl = document.getElementById('po-row-template');
@@ -326,28 +325,42 @@ function poSupplierProducts() {
   return poCatalog[poSupplier.value] || {};
 }
 var poAllProducts = JSON.parse(document.getElementById('po-all-products').textContent);
-// Rebuild the row's dropdown from scratch so it holds only this supplier's
-// approved products. Hiding options is not enough: option[hidden] is ignored
-// by several mobile browsers, which would show (and let you pick) the rest.
-function poFilterProducts(select) {
+// Supplier links are suggestions: put linked products first, but always keep
+// every product available for an Owner/authorized user to choose manually.
+function poPopulateProducts(select) {
   var available = poSupplierProducts();
   var keep = select.value;
-  while (select.options.length > 1) select.remove(1);
-  poAllProducts.forEach(function (p) {
-    if (!Object.prototype.hasOwnProperty.call(available, p.id)) return;
-    var option = document.createElement('option');
-    option.value = p.id;
-    option.textContent = p.name;
-    select.appendChild(option);
+  while (select.children.length > 1) select.removeChild(select.lastElementChild);
+
+  var linked = poAllProducts.filter(function (p) {
+    return Object.prototype.hasOwnProperty.call(available, p.id);
   });
-  select.value = Object.prototype.hasOwnProperty.call(available, keep) ? keep : '';
+  var other = poAllProducts.filter(function (p) {
+    return !Object.prototype.hasOwnProperty.call(available, p.id);
+  });
+
+  function addGroup(label, products) {
+    if (!products.length) return;
+    var group = document.createElement('optgroup');
+    group.label = label;
+    products.forEach(function (p) {
+      var option = document.createElement('option');
+      option.value = p.id;
+      option.textContent = p.name;
+      group.appendChild(option);
+    });
+    select.appendChild(group);
+  }
+
+  addGroup('Linked to this supplier', linked);
+  addGroup(linked.length ? 'Other products' : 'All products', other);
+  select.value = keep;
 }
-// Nothing orderable from the chosen supplier: say so and stand the form down.
+// Explain the missing links while leaving the full manual picker and submit
+// action available.
 function poSyncCatalogNotice() {
   var empty = Object.keys(poSupplierProducts()).length === 0;
   document.getElementById('po-no-catalog').hidden = !empty;
-  var submit = document.getElementById('po-submit-btn');
-  if (submit) submit.disabled = empty;
 }
 // Optional category filter: narrow the supplier dropdown to one supplier
 // category, then let the normal supplier-change path refilter the items.
@@ -376,7 +389,7 @@ if (poCategory) poCategory.addEventListener('change', poFilterSuppliers);
 function poAddRow() {
   poRows.appendChild(poTpl.content.cloneNode(true));
   var last = poRows.lastElementChild;
-  poFilterProducts(last.querySelector('.js-product'));
+  poPopulateProducts(last.querySelector('.js-product'));
   poSyncRemoveButtons();
   poRecalc();
 }
@@ -440,9 +453,15 @@ function poRecalc() {
 })();
 
 poSupplier.addEventListener('change', function () {
-  poRows.querySelectorAll('.js-product').forEach(poFilterProducts);
+  poRows.querySelectorAll('.js-product').forEach(poPopulateProducts);
   poSyncCatalogNotice();
   poRecalc();
+});
+
+document.getElementById('po-manual-select').addEventListener('click', function () {
+  document.getElementById('po-no-catalog').hidden = true;
+  var firstProduct = poRows.querySelector('.js-product');
+  if (firstProduct) firstProduct.focus();
 });
 
 (function () {
@@ -455,7 +474,7 @@ poSupplier.addEventListener('change', function () {
       var row = poRows.lastElementChild;
       row.querySelector('.js-product').value = item.product_id;
       row.querySelector('.js-qty').value = item.quantity;
-      poFilterProducts(row.querySelector('.js-product'));
+      poPopulateProducts(row.querySelector('.js-product'));
     });
   } else {
     poAddRow();

@@ -288,11 +288,13 @@ views can never drift apart.
 - **Suppliers & purchase orders** —
   *Categories:* a supplier has one category from a managed list (Procurement →
   Suppliers → Supplier Categories, Owner-edited). *Offers:* a supplier's own "add a
-  product" is a **Proposed** offer with its cost; nothing is orderable until the Owner
-  approves it, and a product not yet on the master list is requested and only created on
-  approval. Suppliers can remove their own products, but not while one of their open
-  orders needs it. A PO can only list products the chosen supplier has an *approved*
-  offer for (web and API). *Funding:* every PO records where the money comes from
+  product" is a **Proposed** offer with its cost; it becomes a preferred PO suggestion
+  after Owner approval, and a product not yet on the master list is requested and only
+  created on approval. Supplier-product links preserve known costs and rank suggestions,
+  but they do not restrict PO creation: authorized users can manually choose any product
+  from the master list on both the web form and API. Suppliers can remove their own
+  product links, but not while one of their open orders needs one. *Funding:* every PO
+  records where the money comes from
   (Cash on Hand, Bank Transfer, GCash, Owner's Funds, or Other + note); editable until
   the terms are agreed. *Optional supplier portal:* approval saves the PO in the system.
   A supplier may negotiate and acknowledge it through their account, but their login is
