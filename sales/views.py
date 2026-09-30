@@ -418,9 +418,9 @@ def transaction_list(request):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    return render(
-        request, 'sales/transaction_list.html', _transaction_list_context(request)
-    )
+    context = _transaction_list_context(request)
+    context.update(_pos_import_modal_context(request))
+    return render(request, 'sales/transaction_list.html', context)
 
 
 def _pos_import_denied(request, action=ADD):
@@ -452,36 +452,68 @@ def _pos_import_branch(request, branch_id):
     return branch
 
 
+def _pos_import_modal_context(request):
+    """What the Import POS Sales modal needs, or {} when this user can't import.
+
+    Same gate as _pos_import_denied(ADD), but as data: the Order Console and
+    the import history only show the button (and render the modal) when it
+    would actually work, instead of redirecting on click.
+    """
+    if (
+        request.user.role not in [OWNER, BRANCH_MANAGER, STAFF]
+        or not user_can_perform_module_action(request.user, SALES_POS, ADD)
+    ):
+        return {}
+    fixed = _pos_user_branch(request)
+    if fixed is POS_BRANCH_UNASSIGNED:
+        return {}
+    return {
+        'can_import_pos': True,
+        'pos_import_branches': _pos_import_branches(request),
+        'pos_import_selected_branch_id': fixed.pk if fixed else None,
+    }
+
+
+def _render_pos_import_modal(request, error=None, selected_branch=None):
+    """The Order Console with the upload modal open (first visit or a failed upload)."""
+    context = _transaction_list_context(request)
+    context.update(_pos_import_modal_context(request))
+    if selected_branch is not None:
+        context['pos_import_selected_branch_id'] = selected_branch.pk
+    context.update({'show_pos_import_modal': True, 'pos_import_error': error})
+    return render(request, 'sales/transaction_list.html', context)
+
+
 @login_required(login_url='accounts:login')
 def pos_sales_import(request):
     denied = _pos_import_denied(request)
     if denied:
         return denied
-    context = {'branches': _pos_import_branches(request), 'fixed_branch': _pos_user_branch(request)}
     if request.method != 'POST':
-        return render(request, 'sales/pos_import.html', context)
+        return _render_pos_import_modal(request)
 
     branch = _pos_import_branch(request, request.POST.get('branch'))
     upload = request.FILES.get('pos_file')
     if branch is None:
-        context['error'] = 'Select a branch your account is allowed to access.'
-    elif upload is None:
-        context['error'] = 'Choose a CSV or Excel (.xlsx) file.'
-    else:
-        try:
-            rows = parse_pos_file(upload)
-            preview = build_preview(rows, branch)
-        except PosImportError as exc:
-            context['error'] = str(exc)
-        else:
-            request.session['pos_sales_import'] = {
-                'filename': upload.name.rsplit('/', 1)[-1].rsplit('\\', 1)[-1],
-                'branch_id': branch.pk,
-                'rows': rows,
-            }
-            request.session.modified = True
-            context.update({'branch': branch, 'preview': preview, 'filename': upload.name})
-    return render(request, 'sales/pos_import.html', context)
+        return _render_pos_import_modal(request, 'Select a branch your account is allowed to access.')
+    if upload is None:
+        return _render_pos_import_modal(
+            request, 'Choose a CSV or Excel (.xlsx) file.', selected_branch=branch,
+        )
+    try:
+        rows = parse_pos_file(upload)
+        preview = build_preview(rows, branch)
+    except PosImportError as exc:
+        return _render_pos_import_modal(request, str(exc), selected_branch=branch)
+    request.session['pos_sales_import'] = {
+        'filename': upload.name.rsplit('/', 1)[-1].rsplit('\\', 1)[-1],
+        'branch_id': branch.pk,
+        'rows': rows,
+    }
+    request.session.modified = True
+    return render(request, 'sales/pos_import.html', {
+        'branch': branch, 'preview': preview, 'filename': upload.name,
+    })
 
 
 @login_required(login_url='accounts:login')
@@ -505,7 +537,6 @@ def pos_sales_import_confirm(request):
         )
     except (PosImportError, _OrderActionError, IntegrityError) as exc:
         context = {
-            'branches': _pos_import_branches(request), 'fixed_branch': _pos_user_branch(request),
             'branch': branch, 'filename': state['filename'],
             'preview': build_preview(state['rows'], branch),
             'error': str(exc) or 'The import could not be saved. Nothing was changed.',
@@ -547,6 +578,7 @@ def pos_sales_import_history(request):
     )
     return render(request, 'sales/pos_import_history.html', {
         'imports': imports, 'can_undo': can_undo,
+        **_pos_import_modal_context(request),
     })
 
 

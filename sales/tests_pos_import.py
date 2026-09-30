@@ -8,7 +8,7 @@ from django.test import TestCase
 from django.urls import reverse
 from openpyxl import Workbook
 
-from accounts.models import User
+from accounts.models import BranchManagerProfile, User
 from branches.models import Branch
 from inventory.models import Inventory, Product, StockMovement
 
@@ -133,7 +133,62 @@ class PosSalesImportTests(TestCase):
             'branch': self.branch.pk, 'pos_file': upload,
         })
         self.assertContains(response, 'Missing required column(s)')
+        self.assertContains(response, 'banner banner-error')
         self.assertEqual(SalesTransaction.objects.count(), 0)
+
+    def test_order_console_hosts_closed_upload_modal(self):
+        response = self.client.get(reverse('transaction_list'))
+        self.assertTemplateUsed(response, 'sales/_pos_import_modal.html')
+        self.assertContains(response, 'id="open-pos-import-modal"')
+        self.assertContains(response, 'id="pos-import-modal" data-autoopen="0"')
+
+    def test_import_history_hosts_upload_modal(self):
+        response = self.client.get(reverse('pos_sales_import_history'))
+        self.assertTemplateUsed(response, 'sales/_pos_import_modal.html')
+        self.assertContains(response, 'id="open-pos-import-modal"')
+
+    def test_get_import_url_opens_modal_over_order_console(self):
+        response = self.client.get(reverse('pos_sales_import'))
+        self.assertTemplateUsed(response, 'sales/transaction_list.html')
+        self.assertContains(response, 'id="pos-import-modal" data-autoopen="1"')
+
+    def test_failed_upload_reopens_modal_with_error_and_branch_kept(self):
+        response = self.client.post(reverse('pos_sales_import'), {
+            'branch': self.branch.pk,
+            'pos_file': SimpleUploadedFile('daily.txt', b'not a supported file'),
+        })
+        self.assertTemplateUsed(response, 'sales/transaction_list.html')
+        self.assertContains(response, 'id="pos-import-modal" data-autoopen="1"')
+        self.assertContains(response, f'<option value="{self.branch.pk}" selected>')
+
+    def test_successful_upload_renders_review_page_not_modal(self):
+        response = self.upload([self.row()])
+        self.assertTemplateUsed(response, 'sales/pos_import.html')
+        self.assertTemplateNotUsed(response, 'sales/_pos_import_modal.html')
+
+    def test_manager_modal_is_pinned_to_their_own_branch(self):
+        other = Branch.objects.create(branch_name='Annex', location='Pulilan', owner=self.owner)
+        manager = User.objects.create_user(
+            username='manager', password='pw', role=User.Role.BRANCH_MANAGER,
+        )
+        BranchManagerProfile.objects.update_or_create(
+            user=manager, defaults={'manager_name': 'manager', 'branch': self.branch},
+        )
+        self.client.force_login(manager)
+
+        response = self.client.get(reverse('transaction_list'))
+        self.assertContains(response, f'<option value="{self.branch.pk}" selected>')
+        self.assertNotContains(response, f'<option value="{other.pk}"')
+
+    def test_unassigned_manager_gets_no_import_button_or_modal(self):
+        stranded = User.objects.create_user(
+            username='stranded', password='pw', role=User.Role.BRANCH_MANAGER,
+        )
+        self.client.force_login(stranded)
+
+        response = self.client.get(reverse('transaction_list'))
+        self.assertTemplateNotUsed(response, 'sales/_pos_import_modal.html')
+        self.assertNotContains(response, 'id="open-pos-import-modal"')
 
     def test_customer_cannot_access_import(self):
         customer = User.objects.create_user(

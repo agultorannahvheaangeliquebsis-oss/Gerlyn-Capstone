@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head">
   <div><a class="back-link" href="{% url 'transaction_list' %}">Order Console</a><h1 class="mt-2">ZANK POS Import History</h1></div>
-  <a class="btn btn-primary" href="{% url 'pos_sales_import' %}">Import POS Sales</a>
+  {% if can_import_pos %}<button type="button" class="btn btn-primary" id="open-pos-import-modal">Import POS Sales</button>{% endif %}
 </div>
 <p class="gv-meta">The original upload is not stored. “Undo Import” reverses its saved sales and inventory effects while retaining an audit record of what happened.</p>
 <div class="card table-wrap">
@@ -26,4 +26,14 @@
     </tbody>
   </table>
 </div>
+
+{% if can_import_pos %}{% include "sales/_pos_import_modal.html" %}{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if can_import_pos %}
+<script>
+  initModal({ modalId: 'pos-import-modal', openerIds: ['open-pos-import-modal'], closerIds: ['close-pos-import-modal', 'cancel-pos-import-modal'] });
+</script>
+{% endif %}
 {% endblock %}

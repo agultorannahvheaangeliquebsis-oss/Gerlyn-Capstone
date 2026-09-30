@@ -1,38 +1,20 @@
 {% extends "internal_base.html" %}
 {% block title %}Import ZANK POS Sales{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
-{% block branch_scope %}{% if branch %}{{ branch.branch_name }}{% elif fixed_branch %}{{ fixed_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_scope %}{% if branch %}{{ branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
     <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
     <h1 class="mt-2">ZANK POS Daily Sales Import</h1>
-    <p class="gv-meta">Upload the daily CSV or Excel export. Products are matched to existing records by SKU or barcode.</p>
+    <p class="gv-meta">Review the parsed file below. Nothing is saved until you confirm.</p>
   </div>
   <a class="btn" href="{% url 'pos_sales_import_history' %}">Import History</a>
 </div>
 
-{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% if error %}<div class="banner banner-error">{{ error }}</div>{% endif %}
 
-{% if not preview %}
-<div class="card card-pad" style="max-width:760px;">
-  <h2>Upload POS file</h2>
-  <form method="post" enctype="multipart/form-data" class="stack">{% csrf_token %}
-    <label>GerlynPLUS branch
-      <select name="branch" required>
-        <option value="">Select branch</option>
-        {% for item in branches %}<option value="{{ item.pk }}" {% if fixed_branch.pk == item.pk %}selected{% endif %}>{{ item.branch_name }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>ZANK POS export (.csv or .xlsx)
-      <input type="file" name="pos_file" accept=".csv,.xlsx" required>
-    </label>
-    <p class="gv-meta">Maximum file size: 10 MB. Invalid rows and unmatched products are shown in preview and are never silently created or discarded.</p>
-    <div><button class="btn btn-primary" type="submit">Preview Import</button></div>
-  </form>
-</div>
-{% else %}
 <div class="card card-pad">
   <div class="row" style="justify-content:space-between; gap:16px; flex-wrap:wrap;">
     <div><h2 style="margin:0;">Review before importing</h2><span class="gv-meta">{{ filename }} · {{ branch.branch_name }}</span></div>
@@ -48,8 +30,8 @@
     <span>Gross <b>₱{{ preview.summary.gross_total|floatformat:2 }}</b></span>
     <span>Net <b>₱{{ preview.summary.net_total|floatformat:2 }}</b></span>
   </div>
-  {% if preview.summary.invalid_rows %}<div class="alert alert-danger">Invalid rows will be skipped. Review every message below and correct the source file if those sales should be imported.</div>{% endif %}
-  {% if preview.summary.duplicates %}<div class="alert alert-warning">Duplicate invoices already imported for this branch will be skipped.</div>{% endif %}
+  {% if preview.summary.invalid_rows %}<div class="banner banner-error">Invalid rows will be skipped. Review every message below and correct the source file if those sales should be imported.</div>{% endif %}
+  {% if preview.summary.duplicates %}<div class="banner banner-warning">Duplicate invoices already imported for this branch will be skipped.</div>{% endif %}
 
   <div class="table-wrap">
     <table class="gv-table">
@@ -81,5 +63,4 @@
     <form method="post" action="{% url 'pos_sales_import_confirm' %}">{% csrf_token %}<button class="btn btn-primary" type="submit" {% if not preview.summary.valid_transactions %}disabled{% endif %}>Import Valid Transactions</button></form>
   </div>
 </div>
-{% endif %}
 {% endblock %}
