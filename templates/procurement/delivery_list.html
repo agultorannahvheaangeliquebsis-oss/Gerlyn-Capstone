@@ -114,6 +114,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
   <a class="filter-tab{% if status_filter == 'Negotiating' %} active{% endif %}" href="?{{ filter_qs }}&status=Negotiating">Negotiating <span class="count count-warn">{{ counts.negotiating }}</span>{% if counts.pending_owner_review %}<span class="count count-danger" title="Waiting on your response">{{ counts.pending_owner_review }} for you</span>{% endif %}</a>
   {% endif %}
   <a class="filter-tab{% if status_filter == 'Incoming' %} active{% endif %}" href="?{{ filter_qs }}&status=Incoming">Incoming <span class="count count-info">{{ counts.incoming }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Communicated/Ordered' %} active{% endif %}" href="?{{ filter_qs }}&status=Communicated%2FOrdered">Communicated/Ordered <span class="count count-info">{{ counts.communicated }}</span></a>
   <a class="filter-tab{% if status_filter == 'Partially Received' %} active{% endif %}" href="?{{ filter_qs }}&status=Partially%20Received">Partially Received <span class="count count-warn">{{ counts.partially_received }}</span></a>
   <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?{{ filter_qs }}&status=Received">Received <span class="count count-ok">{{ counts.received }}</span></a>
   {% if not staff_delivery_view %}<a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>{% endif %}
@@ -173,7 +174,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
             — the full PO (line items, supplier, cost) without leaving this
             list or its scroll position, same as Purchase Orders' own list.
             {% endcomment %}
-            {% if staff_delivery_view and can_receive and p.status == 'Incoming' %}
+            {% if staff_delivery_view and can_receive and p.status == 'Communicated/Ordered' or staff_delivery_view and can_receive and p.status == 'Incoming' %}
             <a class="btn btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive Delivery</a>
             {% elif staff_delivery_view and can_receive and p.status == 'Partially Received' %}
             <a class="btn btn-primary" href="{% url 'delivery_receive' p.pk %}">Continue Receiving</a>
@@ -182,7 +183,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
             {% else %}
             <a class="icon-btn icon-btn-action" href="{% url 'delivery_detail' p.pk %}" data-detail-modal="Purchase Order"
                title="View details" aria-label="View details for {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
-            {% if can_receive and p.status == 'Incoming' or can_receive and p.status == 'Partially Received' %}
+            {% if can_receive and p.status == 'Communicated/Ordered' or can_receive and p.status == 'Incoming' or can_receive and p.status == 'Partially Received' %}
             <a class="btn btn-primary" href="{% url 'delivery_receive' p.pk %}">Receive</a>
             {% endif %}
             {% endif %}
@@ -199,7 +200,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
             <p>Try clearing the search or branch filter.</p>
             {% else %}
             <h3>No deliveries yet</h3>
-            <p>Incoming and partially received deliveries will appear here when they are ready for receiving.</p>
+            <p>Approved, communicated, and incoming purchase orders will appear here as they move toward receiving.</p>
             {% if not staff_delivery_view %}<a class="btn btn-primary mt-2" href="{% url 'procurement_list' %}">View purchase orders</a>{% endif %}
             {% endif %}
           </div>

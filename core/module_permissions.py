@@ -179,7 +179,11 @@ MODULE_PERMISSION_REGISTRY = {
         'label': 'Deliveries',
         VIEW: ['delivery_list', 'delivery_detail'],
         ADD: ['delivery_add_unexpected'],
-        EDIT: ['delivery_receive', 'delivery_scan'], DELETE: [],
+        EDIT: [
+            'delivery_receive', 'delivery_scan',
+            'procurement_mark_communicated',
+            'api-procurement-communicate',
+        ], DELETE: [],
     },
     REPORTS: {
         'label': 'Reports Dashboard',

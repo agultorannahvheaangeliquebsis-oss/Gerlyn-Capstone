@@ -294,7 +294,12 @@ views can never drift apart.
   orders needs it. A PO can only list products the chosen supplier has an *approved*
   offer for (web and API). *Funding:* every PO records where the money comes from
   (Cash on Hand, Bank Transfer, GCash, Owner's Funds, or Other + note); editable until
-  the terms are agreed. *Receiving:* each shipment records who received it and,
+  the terms are agreed. *Optional supplier portal:* approval saves the PO in the system.
+  A supplier may negotiate and acknowledge it through their account, but their login is
+  not required: Owner/Manager/Staff with delivery-edit access can record agreed terms
+  after a phone call, message, or email and mark it **Communicated/Ordered**. That state
+  is immediately eligible for store-verified receiving; a later portal acknowledgement
+  is informational. *Receiving:* each shipment records who received it and,
   optionally, the courier (`DeliveryReceipt`); stock is only added at that validated
   receipt. *Returns:* goods can be sent back against a received PO — supplier
   acknowledges, the store ships (units leave the **warehouse** exactly once, as

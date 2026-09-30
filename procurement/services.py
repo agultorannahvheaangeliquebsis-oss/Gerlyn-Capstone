@@ -34,6 +34,10 @@ class SupplierCostError(Exception):
     """A purchase order cannot be confirmed without supplier-owned costs."""
 
 
+class ExternalOrderError(Exception):
+    """Externally communicated terms are incomplete or no longer applicable."""
+
+
 def validate_expected_delivery_date(value, *, today=None):
     """Apply the shared future-action rule to procurement delivery dates."""
     return validate_today_or_future(value, today=today)
@@ -103,6 +107,62 @@ def apply_agreed_terms(procurement):
     procurement.total_cost = total
     procurement.save(update_fields=['delivery_date', 'total_cost'])
     return total
+
+
+def record_external_order(
+    procurement, *, actor, delivery_date, unit_costs, method, note=''
+):
+    """Lock terms agreed by phone/message and mark the approved PO ordered.
+
+    This is the non-portal counterpart to supplier negotiation plus final
+    confirmation. It records the same immutable cost/date snapshots, so the
+    receiving and reporting paths do not need separate business rules.
+    ``procurement`` must already be row-locked by the caller.
+    """
+    if not procurement.can_transition_to(Procurement.Status.COMMUNICATED):
+        raise ExternalOrderError(
+            f'{procurement.po_number} cannot be communicated while it is '
+            f'{procurement.status}.'
+        )
+    if method not in Procurement.CommunicationMethod.values:
+        raise ExternalOrderError('Choose how the purchase order was communicated.')
+
+    try:
+        validate_expected_delivery_date(delivery_date)
+    except ValidationError as exc:
+        raise ExternalOrderError(f'Delivery date: {exc.messages[0]}') from exc
+
+    items = list(procurement.items.filter(is_unexpected=False))
+    if not items:
+        raise ExternalOrderError('The purchase order has no orderable items.')
+
+    total = Decimal('0.00')
+    for item in items:
+        cost = unit_costs.get(item.pk)
+        if cost is None or cost <= 0:
+            product_name = item.product.product_name if item.product else 'a removed product'
+            raise ExternalOrderError(f'Enter a valid unit cost for {product_name}.')
+        item.proposed_unit_cost = cost
+        item.unit_cost_snapshot = cost
+        item.save(update_fields=['proposed_unit_cost', 'unit_cost_snapshot'])
+        total += item.quantity_ordered * cost
+
+    now = timezone.now()
+    procurement.proposed_delivery_date = delivery_date
+    procurement.delivery_date = delivery_date
+    procurement.proposed_by = actor
+    procurement.total_cost = total
+    procurement.communication_method = method
+    procurement.communication_note = (note or '').strip()[:300]
+    procurement.communicated_by = actor
+    procurement.communicated_at = now
+    procurement.status = Procurement.Status.COMMUNICATED
+    procurement.save(update_fields=[
+        'proposed_delivery_date', 'delivery_date', 'proposed_by', 'total_cost',
+        'communication_method', 'communication_note', 'communicated_by',
+        'communicated_at', 'status',
+    ])
+    return procurement
 
 
 def active_supplier_product_links(supplier):

@@ -275,7 +275,7 @@ supplier_portal), so on their own Ordered PO this card would show nothing
 they're actually allowed to submit. Hiding it here matches the backend
 guard rather than leaving a dead-end form.
 {% endcomment %}
-{% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
+{% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Communicated/Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
   {% if user.role != "SUPPLIER" %}
 <div class="card card-pad mb-4">
   <div class="status-update-block">
@@ -340,6 +340,55 @@ guard rather than leaving a dead-end form.
   {% endif %}
 {% endif %}
 
+{% if can_mark_communicated %}
+<div class="card card-pad mb-4">
+  <h3>Supplier contacted outside the system?</h3>
+  <p class="gv-meta">Record the agreed terms after calling or messaging the supplier. Supplier login and acknowledgement are optional; recording this makes the PO available for verified receiving.</p>
+  <form method="POST" action="{% url 'procurement_mark_communicated' procurement.pk %}">
+    {% csrf_token %}
+    <div class="grid-2">
+      <div class="field">
+        <label for="communication-method">Contact method</label>
+        <select id="communication-method" name="communication_method" required>
+          <option value="">Choose method</option>
+          {% for value, label in communication_methods %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="communication-delivery-date">Agreed delivery date</label>
+        <input id="communication-delivery-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" value="{{ procurement.proposed_delivery_date|date:'Y-m-d' }}" required>
+      </div>
+    </div>
+    <table class="gv-table kv-table mt-2" style="border:0;">
+      <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Agreed unit cost</th></tr></thead>
+      <tbody>
+        {% for item in items %}{% if not item.is_unexpected %}
+        <tr>
+          <td>{{ item.product.product_name }}</td>
+          <td class="num">{{ item.quantity_ordered }}</td>
+          <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" value="{% firstof item.proposed_unit_cost item.unit_cost_snapshot '' %}" style="width:120px;" required></td>
+        </tr>
+        {% endif %}{% endfor %}
+      </tbody>
+    </table>
+    <div class="field mt-4">
+      <label for="communication-note">Contact note <span class="gv-meta">— optional</span></label>
+      <input id="communication-note" type="text" name="communication_note" maxlength="300" placeholder="e.g. Confirmed by Ana through Viber">
+    </div>
+    <button type="submit" class="btn btn-primary mt-2">Mark Communicated/Ordered</button>
+  </form>
+</div>
+{% endif %}
+
+{% if procurement.status == "Communicated/Ordered" %}
+<div class="banner banner-info mb-4">
+  <strong>PO communicated outside the system.</strong>
+  {{ procurement.get_communication_method_display }}{% if procurement.communicated_at %} on {{ procurement.communicated_at|date:"Y-m-d H:i" }}{% endif %}.
+  {% if procurement.supplier_acknowledged_at %}The supplier acknowledged it in the portal.{% else %}Supplier portal acknowledgement is optional; delivery can still be received and verified.{% endif %}
+  {% if procurement.communication_note %}<div class="gv-meta mt-1">{{ procurement.communication_note }}</div>{% endif %}
+</div>
+{% endif %}
+
 {% comment %}
 NEGOTIATION — price and delivery date, agreed between the buyer and the
 supplier once the PO is Approved. See procurement.views' NEGOTIATION
@@ -393,6 +442,13 @@ banner rather than a full card (see .pd-negotiate-banner above).
 
   {% if user.role == "SUPPLIER" and procurement.supplier_id == user.id and procurement.status == "Approved" or user.role == "SUPPLIER" and procurement.supplier_id == user.id and procurement.status == "Pending Supplier Review" %}
     {% comment %}Supplier's turn: propose (first offer, or a counter to the buyer's counter), or accept the buyer's terms as-is.{% endcomment %}
+    {% if procurement.status == "Approved" and not procurement.supplier_acknowledged_at %}
+    <form method="POST" action="{% url 'procurement_supplier_respond' procurement.pk %}" class="mb-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="acknowledge">
+      <button type="submit" class="btn">Acknowledge PO</button>
+    </form>
+    {% endif %}
     {% if procurement.status == "Pending Supplier Review" %}
     <form method="POST" action="{% url 'procurement_supplier_respond' procurement.pk %}" class="mb-4">
       {% csrf_token %}
@@ -483,6 +539,17 @@ banner rather than a full card (see .pd-negotiate-banner above).
     <button type="submit" class="btn btn-quiet">Cancel this order</button>
   </form>
   {% endif %}
+</div>
+{% endif %}
+
+{% if procurement.status == "Communicated/Ordered" and user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
+<div class="card card-pad mb-4">
+  <h3>Acknowledge purchase order</h3>
+  <p class="gv-meta">The store recorded this PO as communicated. Acknowledgement helps them track it, but delivery processing does not depend on it.</p>
+  <form method="POST" action="{% url 'procurement_supplier_confirm' procurement.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Acknowledge PO</button>
+  </form>
 </div>
 {% endif %}
 

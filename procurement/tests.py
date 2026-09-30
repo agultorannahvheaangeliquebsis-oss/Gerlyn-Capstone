@@ -22,6 +22,7 @@ from inventory.models import (
     Batch, Product, StockMovement, Warehouse, WarehouseStock,
 )
 from procurement.models import Procurement, ProcurementItem, SupplierProduct
+from procurement.access import STAFF_ACTIVE_DELIVERY_STATUSES
 
 
 class ProcurementTransitionMapTests(TestCase):
@@ -33,14 +34,19 @@ class ProcurementTransitionMapTests(TestCase):
         S = Procurement.Status
         self.assertEqual(Procurement.ALLOWED_TRANSITIONS, {
             S.DRAFT: {S.APPROVED, S.CANCELLED},
-            S.APPROVED: {S.PENDING_OWNER_REVIEW, S.CANCELLED},
+            S.APPROVED: {S.PENDING_OWNER_REVIEW, S.COMMUNICATED, S.CANCELLED},
             S.PENDING_OWNER_REVIEW: {
-                S.PENDING_SUPPLIER_REVIEW, S.TERMS_AGREED, S.CANCELLED,
+                S.PENDING_SUPPLIER_REVIEW, S.TERMS_AGREED,
+                S.COMMUNICATED, S.CANCELLED,
             },
             S.PENDING_SUPPLIER_REVIEW: {
-                S.PENDING_OWNER_REVIEW, S.TERMS_AGREED, S.CANCELLED,
+                S.PENDING_OWNER_REVIEW, S.TERMS_AGREED,
+                S.COMMUNICATED, S.CANCELLED,
             },
-            S.TERMS_AGREED: {S.INCOMING, S.CANCELLED},
+            S.TERMS_AGREED: {S.COMMUNICATED, S.INCOMING, S.CANCELLED},
+            S.COMMUNICATED: {
+                S.INCOMING, S.PARTIALLY_RECEIVED, S.RECEIVED, S.CANCELLED,
+            },
             S.INCOMING: {
                 S.PARTIALLY_RECEIVED, S.RECEIVED, S.CANCELLED,
             },
@@ -54,6 +60,7 @@ class ProcurementTransitionMapTests(TestCase):
         self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.ORDERED))
         self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.CANCELLED))
         self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.PENDING_OWNER_REVIEW))
+        self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.COMMUNICATED))
         self.assertTrue(Procurement(status=S.PENDING_OWNER_REVIEW).can_transition_to(S.TERMS_AGREED))
         self.assertTrue(Procurement(status=S.PENDING_OWNER_REVIEW).can_transition_to(S.PENDING_SUPPLIER_REVIEW))
         self.assertTrue(Procurement(status=S.PENDING_SUPPLIER_REVIEW).can_transition_to(S.TERMS_AGREED))
@@ -480,17 +487,17 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
         self.assertContains(response, self.incoming.po_number)
         self.assertContains(response, self.partial.po_number)
         self.assertNotContains(response, self.received.po_number)
-        self.assertNotContains(response, self.approved.po_number)
-        self.assertNotContains(response, self.negotiating.po_number)
+        self.assertContains(response, self.approved.po_number)
+        self.assertContains(response, self.negotiating.po_number)
         self.assertNotContains(response, self.cancelled.po_number)
         self.assertNotContains(response, self.foreign_incoming.po_number)
         self.assertNotContains(response, '>Approved <')
         self.assertNotContains(response, '>Negotiating <')
         self.assertNotContains(response, '>Cancelled <')
         self.assertNotContains(response, '<th>Branch</th>')
-        self.assertEqual(response.context['counts']['active'], 2)
+        self.assertEqual(response.context['counts']['active'], 4)
         self.assertEqual(response.context['counts']['received'], 1)
-        self.assertEqual(response.context['counts']['approved'], 0)
+        self.assertEqual(response.context['counts']['approved'], 1)
 
     def test_staff_delivery_actions_follow_receiving_status(self):
         active = self.client.get(reverse('delivery_list'))
@@ -506,27 +513,27 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
     def test_staff_empty_state_describes_the_receiving_queue(self):
         Procurement.objects.filter(
             branch=self.home_branch,
-            status__in=Procurement.AWAITING_DELIVERY_STATUSES,
+            status__in=STAFF_ACTIVE_DELIVERY_STATUSES,
         ).delete()
 
         response = self.client.get(reverse('delivery_list'))
 
         self.assertContains(
             response,
-            'Incoming and partially received deliveries will appear here '
-            'when they are ready for receiving.',
+            'Approved, communicated, and incoming purchase orders will '
+            'appear here as they move toward receiving.',
         )
 
-    def test_staff_cannot_force_hidden_status_with_query_parameter(self):
+    def test_staff_can_filter_approved_orders_to_record_external_contact(self):
         response = self.client.get(
             reverse('delivery_list'), {'status': Procurement.Status.APPROVED}
         )
 
-        self.assertNotContains(response, self.approved.po_number)
+        self.assertContains(response, self.approved.po_number)
         self.assertNotContains(response, self.negotiating.po_number)
-        self.assertEqual(response.context['status_filter'], '')
+        self.assertEqual(response.context['status_filter'], Procurement.Status.APPROVED)
 
-    def test_staff_cannot_open_approval_or_negotiation_records_directly(self):
+    def test_staff_can_open_approval_or_negotiation_records_but_not_receive_them(self):
         for procurement in (self.approved, self.negotiating):
             with self.subTest(status=procurement.status):
                 delivery_response = self.client.get(
@@ -538,18 +545,21 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
                 receive_response = self.client.get(
                     reverse('delivery_receive', args=[procurement.pk])
                 )
-                self.assertRedirects(
-                    delivery_response, reverse('procurement_list')
+                self.assertEqual(delivery_response.status_code, 200)
+                self.assertEqual(procurement_response.status_code, 200)
+                self.assertEqual(receive_response.status_code, 302)
+                procurement.refresh_from_db()
+                self.assertEqual(
+                    procurement.status,
+                    Procurement.Status.APPROVED
+                    if procurement == self.approved
+                    else Procurement.Status.PENDING_OWNER_REVIEW,
                 )
-                self.assertRedirects(
-                    procurement_response, reverse('procurement_list')
-                )
-                self.assertEqual(receive_response.status_code, 404)
 
                 response = self.client.get(
                     reverse('api-procurement-detail', args=[procurement.pk])
                 )
-                self.assertEqual(response.status_code, 404)
+                self.assertEqual(response.status_code, 200)
 
     def test_staff_cannot_access_another_branch_delivery(self):
         html_response = self.client.get(
@@ -577,6 +587,8 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
                 self.incoming.po_number,
                 self.partial.po_number,
                 self.received.po_number,
+                self.approved.po_number,
+                self.negotiating.po_number,
             },
         )
         self.assertEqual(
@@ -585,6 +597,8 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
                 Procurement.Status.INCOMING,
                 Procurement.Status.PARTIALLY_RECEIVED,
                 Procurement.Status.RECEIVED,
+                Procurement.Status.APPROVED,
+                Procurement.Status.PENDING_OWNER_REVIEW,
             },
         )
 

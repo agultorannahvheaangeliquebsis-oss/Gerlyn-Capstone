@@ -12,12 +12,16 @@ from .models import Procurement
 
 
 STAFF_DELIVERY_STATUSES = frozenset({
+    Procurement.Status.APPROVED,
+    *Procurement.NEGOTIATION_STATUSES,
+    Procurement.Status.COMMUNICATED,
     Procurement.Status.INCOMING,
     Procurement.Status.PARTIALLY_RECEIVED,
     Procurement.Status.RECEIVED,
 })
 
-STAFF_ACTIVE_DELIVERY_STATUSES = Procurement.AWAITING_DELIVERY_STATUSES
+STAFF_ACTIVE_DELIVERY_STATUSES = frozenset({Procurement.Status.APPROVED}) \
+    | Procurement.NEGOTIATION_STATUSES | Procurement.AWAITING_DELIVERY_STATUSES
 
 
 def procurements_visible_to(user, queryset=None):

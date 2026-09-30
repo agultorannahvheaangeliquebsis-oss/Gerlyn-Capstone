@@ -10,6 +10,7 @@ Usage: {% include "procurement/_po_document_status.html" with status=procurement
 {% if status == "Received" %}Received
 {% elif status == "Partially Received" %}Partially Received
 {% elif status == "Incoming" %}Incoming
+{% elif status == "Communicated/Ordered" %}Communicated/Ordered â€” supplier acknowledgement optional
 {% elif status == "Terms Agreed" %}Terms agreed — awaiting supplier confirmation
 {% elif status == "Pending Owner Review" %}Awaiting buyer response
 {% elif status == "Pending Supplier Review" %}Awaiting supplier response

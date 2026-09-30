@@ -17,6 +17,8 @@ urlpatterns = [
          name='procurement_set_funding'),
     path('<int:pk>/reschedule/', views.procurement_reschedule,
          name='procurement_reschedule'),
+    path('<int:pk>/communicate/', views.procurement_mark_communicated,
+         name='procurement_mark_communicated'),
 
     # Goods returned to the supplier (P17)
     path('<int:pk>/return/', views.supplier_return_add, name='supplier_return_add'),

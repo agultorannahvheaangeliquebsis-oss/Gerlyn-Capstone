@@ -5,6 +5,7 @@ from .views import (
     ProcurementStatusUpdateAPIView,
     SupplierListAPIView,
     SupplierProductListAPIView,
+    ProcurementCommunicateAPIView,
 )
 
 urlpatterns = [
@@ -17,4 +18,5 @@ urlpatterns = [
     ),
     path('<int:pk>/', ProcurementDetailAPIView.as_view(), name='api-procurement-detail'),
     path('<int:pk>/update_status/', ProcurementStatusUpdateAPIView.as_view(), name='api-procurement-status'),
+    path('<int:pk>/communicate/', ProcurementCommunicateAPIView.as_view(), name='api-procurement-communicate'),
 ]

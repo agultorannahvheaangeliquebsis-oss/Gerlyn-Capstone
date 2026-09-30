@@ -31,6 +31,14 @@ back to after POSTing — see _supplier_next_redirect in procurement/views.py).
 
 {% if o.status == 'Approved' or o.status == 'Pending Supplier Review' %}
 <div class="sp-confirm-box">
+  {% if o.status == 'Approved' and not o.supplier_acknowledged_at %}
+  <form method="POST" action="{% url 'procurement_supplier_respond' o.pk %}" style="margin-bottom:12px;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="acknowledge">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <button type="submit" class="sp-btn-outline">Acknowledge PO</button>
+  </form>
+  {% endif %}
   {% if o.status == 'Pending Supplier Review' %}
   <p>{{ o.branch.branch_name }} countered — delivery {{ o.proposed_delivery_date|date:"M j, Y" }}. Accept, or send your own counter below.</p>
   <form method="POST" action="{% url 'procurement_supplier_respond' o.pk %}" style="margin-bottom:12px;">
@@ -75,6 +83,15 @@ back to after POSTing — see _supplier_next_redirect in procurement/views.py).
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next_url }}">
     <button type="submit" class="sp-confirm-btn">Confirm &amp; start preparing</button>
+  </form>
+</div>
+{% elif o.status == 'Communicated/Ordered' %}
+<div class="sp-confirm-box">
+  <p>This PO was communicated outside the portal for delivery on {{ o.delivery_date|date:"M j, Y" }}. You may acknowledge it here; the store can receive it either way.</p>
+  <form method="POST" action="{% url 'procurement_supplier_confirm' o.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <button type="submit" class="sp-confirm-btn">Acknowledge PO</button>
   </form>
 </div>
 {% elif o.status == 'Incoming' %}

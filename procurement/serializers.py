@@ -1,5 +1,7 @@
 # procurement/serializers.py
 
+from decimal import Decimal
+
 from rest_framework import serializers
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -7,7 +9,8 @@ from django.utils import timezone
 
 from .models import DeliveryReceipt, Procurement, ProcurementItem, SupplierProduct
 from .services import (
-    SupplierCostError, snapshot_supplier_costs, unassigned_product_ids,
+    ExternalOrderError, SupplierCostError, record_external_order,
+    snapshot_supplier_costs, unassigned_product_ids,
     validate_expected_delivery_date,
 )
 from inventory.models import Product, Inventory, Batch, Warehouse, WarehouseStock, StockMovement
@@ -101,6 +104,10 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
     fundingNote      = serializers.CharField(source='funding_note', read_only=True)
     items            = ProcurementItemSerializer(many=True, read_only=True)
     receipts         = serializers.SerializerMethodField()
+    communicatedAt   = serializers.DateTimeField(source='communicated_at', read_only=True, allow_null=True)
+    communicationMethod = serializers.CharField(source='communication_method', read_only=True)
+    communicationNote = serializers.CharField(source='communication_note', read_only=True)
+    supplierAcknowledgedAt = serializers.DateTimeField(source='supplier_acknowledged_at', read_only=True, allow_null=True)
 
     class Meta:
         model  = Procurement
@@ -122,6 +129,10 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
             'fundingNote',
             'items',
             'receipts',
+            'communicatedAt',
+            'communicationMethod',
+            'communicationNote',
+            'supplierAcknowledgedAt',
         ]
 
     def get_receipts(self, obj) -> list:
@@ -318,6 +329,53 @@ class ProcurementReceivedItemSerializer(serializers.Serializer):
     the actual delivered quantity for one ProcurementItem."""
     itemId = serializers.IntegerField()
     quantityReceived = serializers.IntegerField(min_value=0)
+
+
+class ProcurementExternalCostSerializer(serializers.Serializer):
+    itemId = serializers.IntegerField()
+    unitCost = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
+
+
+class ProcurementExternalOrderSerializer(serializers.Serializer):
+    """Terms confirmed by phone/message instead of through supplier login."""
+    deliveryDate = serializers.DateField(validators=[validate_expected_delivery_date])
+    communicationMethod = serializers.ChoiceField(
+        choices=Procurement.CommunicationMethod.choices,
+    )
+    communicationNote = serializers.CharField(
+        required=False, allow_blank=True, max_length=300,
+    )
+    unitCosts = ProcurementExternalCostSerializer(many=True, min_length=1)
+
+    def validate_unitCosts(self, value):
+        ids = [entry['itemId'] for entry in value]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError('Each PO item may appear only once.')
+        return value
+
+    def update(self, instance, validated_data):
+        costs = {
+            entry['itemId']: entry['unitCost']
+            for entry in validated_data['unitCosts']
+        }
+        expected = set(
+            instance.items.filter(is_unexpected=False).values_list('pk', flat=True)
+        )
+        if set(costs) != expected:
+            raise serializers.ValidationError({
+                'unitCosts': 'Provide one agreed unit cost for every PO item.'
+            })
+        try:
+            return record_external_order(
+                instance,
+                actor=self.context['request'].user,
+                delivery_date=validated_data['deliveryDate'],
+                unit_costs=costs,
+                method=validated_data['communicationMethod'],
+                note=validated_data.get('communicationNote', ''),
+            )
+        except ExternalOrderError as exc:
+            raise serializers.ValidationError({'detail': str(exc)}) from exc
 
 
 class ProcurementStatusSerializer(serializers.Serializer):
