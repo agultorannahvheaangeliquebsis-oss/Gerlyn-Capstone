@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db import models as dj_models
 from django.db import transaction
 from django.db import IntegrityError
@@ -15,6 +16,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.models import User
 from billing.models import BillingRecord
+from billing.validators import clean_reference_number
 from billing.views import payment_methods_for_channel
 from branches.models import Branch
 from core.people import person_display_name
@@ -23,6 +25,7 @@ from core.module_permissions import (
     ADD, BILLING, DELETE, EDIT, SALES_POS, VIEW, user_can_perform_module_action,
 )
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
+from core.timebounds import local_range_bounds, range_from_request
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 from audit import context as audit_context
@@ -221,6 +224,19 @@ def _pos_context(request):
             c for c in SalesTransaction.ModeOfPayment.choices
             if c[0] in POS_PAYMENT_METHODS
         ],
+        # Which methods have to leave payment evidence behind, straight from
+        # the model so the counter form shows the same two fields Billing's
+        # own "Record payment" form does, for the same methods. The template
+        # only decides what is VISIBLE; transaction_add re-checks the same
+        # rule through BillingRecord.missing_payment_evidence on submit.
+        'pos_reference_required_methods': sorted(
+            m for m in BillingRecord.REFERENCE_REQUIRED_METHODS
+            if m in POS_PAYMENT_METHODS
+        ),
+        'pos_proof_required_methods': sorted(
+            m for m in BillingRecord.PROOF_REQUIRED_METHODS
+            if m in POS_PAYMENT_METHODS
+        ),
         'pos_discount_choices': _pos_discount_choices(),
         'pos_discount_rate_pct': int(PWD_SENIOR_DISCOUNT_RATE * 100),
         'pos_vat_rate_pct': int(VAT_RATE * 100),
@@ -275,7 +291,19 @@ def _transaction_list_context(request):
     if fulfillment_filter:
         transactions = transactions.filter(fulfillment_type=fulfillment_filter)
 
-    # Counts per tab are computed BEFORE the status filter is applied.
+    # The shared back-office range control (_daterange.html), same as the
+    # Dashboard, Reports, the audit log and Billing. transaction_date is a
+    # DateTimeField, so local calendar days are turned into aware bounds
+    # (inclusive of the whole end day) rather than compared with __date.
+    range_start, range_end, active_range = range_from_request(request)
+    range_dt_start, range_dt_end = local_range_bounds(range_start or range_end, range_end)
+    if range_start:
+        transactions = transactions.filter(transaction_date__gte=range_dt_start)
+    transactions = transactions.filter(transaction_date__lt=range_dt_end)
+
+    # Counts per tab are computed BEFORE the status filter is applied, but
+    # AFTER the date range — a reader narrowed to a week should see that
+    # week's tab counts, not the all-time totals.
     base = transactions
     counts = {
         'all': base.count(),
@@ -314,6 +342,15 @@ def _transaction_list_context(request):
         'can_pos': can_pos,
         'over_committed_ids': over_committed_ids,
         'over_committed_count': over_committed_count,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [
+            ('q', search_query), ('status', status_filter),
+            ('channel', channel_filter), ('fulfillment', fulfillment_filter),
+            ('branch', branch_filter),
+        ],
         # Every active filter except `status` — the status tabs below build
         # their href off this (O-3), so adding a new filter to the toolbar
         # (fulfillment, here) can't quietly fall out of the tab links. Same
@@ -1848,6 +1885,22 @@ def transaction_add(request):
     mode_of_payment = request.POST.get('mode_of_payment') or SalesTransaction.ModeOfPayment.CASH
     if mode_of_payment not in POS_PAYMENT_METHODS:
         mode_of_payment = SalesTransaction.ModeOfPayment.CASH
+
+    # --- payment evidence for a remote method (GCash / Card) -----------------
+    # No payment gateway is integrated, so for a settlement that did not cross
+    # the counter the reference number and the screenshot ARE the record that
+    # it happened (billing.models, X-2). The cashier has the customer's own
+    # confirmation screen in front of them at the moment of the sale, so it is
+    # captured here rather than left for a second trip through Billing's
+    # "Record payment" form — where it had to be filled in anyway before
+    # billing_confirm would let the payment be marked Paid.
+    #
+    # WHICH method needs WHAT is BillingRecord.missing_payment_evidence, the
+    # same one definition billing_create, billing_confirm, the API serializer
+    # and online checkout all read, so the counter cannot drift from Billing.
+    reference_number = (request.POST.get('reference_number') or '').strip()
+    proof_of_payment = request.FILES.get('proof_of_payment')
+
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity')
 
@@ -1987,6 +2040,53 @@ def transaction_add(request):
         elif amount_tendered is None:
             errors.append('Amount tendered must be a number.')
 
+    # Anything the chosen method does not need is dropped rather than stored:
+    # a reference typed before switching to Cash must not ride along onto a
+    # sale that has no reference by definition. Same rule, same order, as
+    # billing_create.
+    #
+    # A field that fails its own format check is reported once, by that check
+    # — `reported` keeps missing_payment_evidence from naming it a second time
+    # as simply absent, which read as two unrelated complaints about one field.
+    reported = set()
+    if mode_of_payment not in BillingRecord.REFERENCE_REQUIRED_METHODS:
+        reference_number = ''
+    elif reference_number:
+        try:
+            # Length, characters, and GCash's own 13-digit rule
+            # (billing.validators — shared with the API and checkout).
+            reference_number = clean_reference_number(reference_number, mode_of_payment)
+        except ValidationError as e:
+            errors.append(e.messages[0])
+            reference_number = ''
+            reported.add('reference number')
+    if mode_of_payment not in BillingRecord.PROOF_REQUIRED_METHODS:
+        proof_of_payment = None
+    elif proof_of_payment:
+        # The model field is an ImageField, but assigning an uploaded file
+        # straight onto it skips Django's form-layer image check entirely —
+        # a renamed .html would save and serve with its own content type.
+        # Same guard billing_create and checkout use.
+        from billing.views import _validate_proof_of_payment
+        try:
+            _validate_proof_of_payment(proof_of_payment)
+        except ValidationError as e:
+            errors.append(e.message)
+            proof_of_payment = None
+            reported.add('proof of payment')
+    missing = [
+        part for part in BillingRecord.missing_payment_evidence(
+            mode_of_payment, reference_number, bool(proof_of_payment)
+        )
+        if part not in reported
+    ]
+    if missing:
+        errors.append(
+            f'A {mode_of_payment} sale needs its {" and ".join(missing)} '
+            f'before it can be recorded — without it the payment cannot be '
+            f'matched to this sale or verified.'
+        )
+
     if not errors:
         # Prices resolved and the total computed up front — same order as the
         # DRF API's create() — instead of creating the transaction at
@@ -2101,6 +2201,11 @@ def transaction_add(request):
                         billing.payment_method = (
                             mode_of_payment if mode_of_payment in POS_PAYMENT_METHODS else 'Cash'
                         )
+                        # Already cleaned and checked above, and blank for a
+                        # method that has no reference of its own.
+                        billing.reference_number = reference_number
+                        if proof_of_payment:
+                            billing.proof_of_payment = proof_of_payment
                         if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
                             billing.status = 'Paid'
                             billing.confirmed_by = request.user
@@ -2126,9 +2231,13 @@ def transaction_add(request):
                     if txn.order_status == SalesTransaction.OrderStatus.PENDING:
                         messages.success(
                             request,
+                            # The reference and proof were captured with the
+                            # sale, so what is still outstanding is only the
+                            # separate verification step (A-1 maker/checker),
+                            # not recording the payment at all.
                             f'Sale {txn.order_number} recorded — ₱{total}. It stays '
-                            f'Pending until the {mode_of_payment} payment is recorded '
-                            f'and verified.'
+                            f'Pending until the {mode_of_payment} payment is verified '
+                            f'by someone else.'
                         )
                     else:
                         messages.success(request, f'Sale {txn.order_number} recorded — ₱{total}.')
@@ -2150,6 +2259,13 @@ def transaction_add(request):
     context.update({
         'pos_errors': errors,
         'pos_form_data': request.POST,
+        # A file input cannot be repopulated from the server — the browser
+        # will not let a page pre-fill one. So a cashier who attached a valid
+        # screenshot and tripped over the reference number instead has silently
+        # lost it, and fixing the reference would fail again on a proof that
+        # looks attached. Say so on the field rather than let them find out on
+        # the second submit.
+        'pos_proof_was_posted': bool(request.FILES.get('proof_of_payment')),
         'pos_restore_rows': [
             {'product_id': pid, 'quantity': qty}
             for pid, qty in zip(product_ids, quantities) if pid
