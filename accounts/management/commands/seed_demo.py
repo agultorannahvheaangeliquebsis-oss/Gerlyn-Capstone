@@ -3,8 +3,8 @@ seed_demo — populate GerlynPLUS with believable demo data.
 
 Matches the UI mockups: 3 branches, the 15-product catalog, per-branch stock
 (including the 6 low/critical-stock alerts), 8 suppliers, 7 purchase orders,
-and 10 orders — so every screen renders with real data and the 5 acceptance
-scenarios can be demonstrated.
+6 supplier returns (one per status), and 10 orders — so every screen renders
+with real data and the 5 acceptance scenarios can be demonstrated.
 
 Usage:
     python manage.py seed_demo            # create if empty (idempotent master data)
@@ -40,7 +40,13 @@ from inventory.models import (
     Warehouse,
     WarehouseStock,
 )
-from procurement.models import Procurement, ProcurementItem, SupplierProduct
+from procurement.models import (
+    Procurement,
+    ProcurementItem,
+    SupplierProduct,
+    SupplierReturn,
+    SupplierReturnItem,
+)
 from sales.models import SalesItem, SalesTransaction
 
 PASSWORD = "demo1234"
@@ -85,6 +91,11 @@ class Command(BaseCommand):
         else:
             self._say("  Purchase orders already present — skipped.")
 
+        if not SupplierReturn.objects.exists():
+            self._supplier_returns(branches, suppliers, owner, products)
+        else:
+            self._say("  Supplier returns already present — skipped.")
+
         if not SalesTransaction.objects.exists():
             self._orders(branches, staff, customers, products)
         else:
@@ -103,6 +114,8 @@ class Command(BaseCommand):
         SalesItem.objects.all().delete()
         BillingRecord.objects.all().delete()
         SalesTransaction.objects.all().delete()
+        SupplierReturnItem.objects.all().delete()
+        SupplierReturn.objects.all().delete()
         ProcurementItem.objects.all().delete()
         SupplierProduct.objects.all().delete()
         Batch.objects.all().delete()
@@ -133,7 +146,8 @@ class Command(BaseCommand):
         tables = [
             m._meta.db_table
             for m in (
-                SalesItem, BillingRecord, SalesTransaction, ProcurementItem,
+                SalesItem, BillingRecord, SalesTransaction,
+                SupplierReturnItem, SupplierReturn, ProcurementItem,
                 SupplierProduct,
                 Batch, Procurement, Inventory, WarehouseStock, Warehouse,
                 Product, ProductCategory, Branch, Notification,
@@ -519,6 +533,100 @@ class Command(BaseCommand):
                     cost_price=D(cost),
                 )
 
+    # ------------------------------------------------------- supplier returns
+    def _supplier_returns(self, branches, suppliers, owner, products):
+        """One SupplierReturn per status (P17), so the Supplier Returns tab
+        has a row to click through for every status pill and detail-page
+        action without waiting on real request/ship/settle traffic.
+
+        Set directly on the model rather than via procurement.services —
+        same approach as _purchase_orders above, which sets PO status
+        directly instead of walking the real approve/receive flow.
+        """
+        T, M = "Tarcan", "Makinabang"
+        P = products
+        Status = SupplierReturn.Status
+        Reason = SupplierReturn.Reason
+        Resolution = SupplierReturn.Resolution
+        today = timezone.now()
+
+        def po(supplier_name, branch_name):
+            return Procurement.objects.get(
+                supplier=suppliers[supplier_name], branch=branches[branch_name],
+                status=Procurement.Status.RECEIVED,
+            )
+
+        def item(procurement, sku):
+            return ProcurementItem.objects.get(procurement=procurement, product=P[sku])
+
+        century_t = po("Century Pacific Food Inc.", T)
+        monde_m = po("Monde Nissin Corporation", M)
+        nestle_t = po("Nestlé Philippines Inc.", T)
+
+        # (procurement, sku, qty, reason, notes, status, [optional fields...])
+        rows = [
+            dict(proc=century_t, sku="SKU-001", qty=10, reason=Reason.DAMAGED,
+                 notes="Crushed cases found on the pallet.",
+                 status=Status.REQUESTED, days_ago=1),
+            dict(proc=monde_m, sku="SKU-004", qty=15, reason=Reason.WRONG_ITEM,
+                 notes="Delivered 300g packs instead of the 150g SKU ordered.",
+                 status=Status.ACKNOWLEDGED, days_ago=4, responded_days_ago=3),
+            dict(proc=nestle_t, sku="SKU-007", qty=5, reason=Reason.QUALITY,
+                 notes="Seals looked tampered with on 5 units.",
+                 status=Status.REJECTED, days_ago=6, responded_days_ago=5,
+                 supplier_note="Inspected on our end — seals are intact and within spec."),
+            dict(proc=century_t, sku="SKU-005", qty=20, reason=Reason.EXPIRED,
+                 notes="Batch expires before it would sell through.",
+                 status=Status.SHIPPED, days_ago=9, responded_days_ago=8,
+                 shipped_days_ago=6,
+                 shipping_note="Handed to the supplier's delivery crew."),
+            dict(proc=nestle_t, sku="SKU-008", qty=8, reason=Reason.DAMAGED,
+                 notes="Dented cans from the same delivery.",
+                 status=Status.SETTLED, days_ago=15, responded_days_ago=14,
+                 shipped_days_ago=12,
+                 shipping_note="Sent back with the next Nestlé pickup.",
+                 resolution=Resolution.CREDIT, credit_reference="CN-2026-0043",
+                 credit_amount=D("664.00"), settled_days_ago=5),
+            dict(proc=monde_m, sku="SKU-004", qty=5, reason=Reason.OTHER,
+                 notes="Store no longer needs a replacement; written off instead.",
+                 status=Status.CANCELLED, days_ago=2),
+        ]
+
+        for row in rows:
+            line = item(row["proc"], row["sku"])
+            ret = SupplierReturn.objects.create(
+                procurement=row["proc"], supplier=row["proc"].supplier,
+                branch=row["proc"].branch, reason=row["reason"],
+                notes=row["notes"], status=row["status"], requested_by=owner,
+            )
+            SupplierReturnItem.objects.create(
+                supplier_return=ret, procurement_item=line, product=line.product,
+                quantity_returned=row["qty"],
+                quantity_replaced=(
+                    row["qty"] if row.get("resolution") == Resolution.REPLACEMENT else 0
+                ),
+            )
+
+            update_fields = {"created_at": today - dt.timedelta(days=row["days_ago"])}
+            if "responded_days_ago" in row:
+                update_fields["responded_at"] = today - dt.timedelta(days=row["responded_days_ago"])
+            if "supplier_note" in row:
+                update_fields["supplier_note"] = row["supplier_note"]
+            if "shipped_days_ago" in row:
+                update_fields["shipped_at"] = today - dt.timedelta(days=row["shipped_days_ago"])
+                update_fields["shipped_by"] = owner
+                update_fields["shipping_note"] = row["shipping_note"]
+            if "settled_days_ago" in row:
+                update_fields["settled_at"] = today - dt.timedelta(days=row["settled_days_ago"])
+                update_fields["settled_by"] = owner
+            if "resolution" in row:
+                update_fields["resolution"] = row["resolution"]
+            if "credit_reference" in row:
+                update_fields["credit_reference"] = row["credit_reference"]
+            if "credit_amount" in row:
+                update_fields["credit_amount"] = row["credit_amount"]
+            SupplierReturn.objects.filter(pk=ret.pk).update(**update_fields)
+
     # ------------------------------------------------------------------ orders
     def _orders(self, branches, staff, customers, products):
         T, M, G = "Tarcan", "Makinabang", "Tiaong Baliwag Mini Mart"
@@ -619,6 +727,7 @@ class Command(BaseCommand):
         low = Inventory.objects.filter(restock=True).count()
         self.stdout.write(f"  Low/critical .... {low}")
         self.stdout.write(f"  Purchase orders . {Procurement.objects.count()}")
+        self.stdout.write(f"  Supplier returns  {SupplierReturn.objects.count()}")
         self.stdout.write(f"  Orders .......... {SalesTransaction.objects.count()}")
         self.stdout.write(f"  Billing records . {BillingRecord.objects.count()}")
         self.stdout.write(self.style.MIGRATE_HEADING("\n  Logins (password: demo1234)"))

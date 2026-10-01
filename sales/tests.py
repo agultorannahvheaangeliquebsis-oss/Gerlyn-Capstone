@@ -32,6 +32,37 @@ from sales.views import transaction_refund
 SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
 
 
+def pos_payment_evidence(method):
+    """The reference number / proof a walk-in of `method` must post.
+
+    A remote method settles away from the counter, so transaction_add asks
+    BillingRecord.missing_payment_evidence for the same evidence Billing's own
+    Record Payment form does — GCash needs both, Card the screenshot, Cash
+    neither. Built from the model's own sets so a method moving between them
+    does not leave every POS test posting the wrong fields.
+
+    Shared with sales.tests_pos_payment_evidence, which covers the rule itself.
+    """
+    import io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    payload = {}
+    if method in BillingRecord.REFERENCE_REQUIRED_METHODS:
+        # GCash's own rule is exactly 13 digits (billing.validators).
+        payload['reference_number'] = '1234567890123'
+    if method in BillingRecord.PROOF_REQUIRED_METHODS:
+        # A genuinely valid PNG — the upload check opens it with Pillow.
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new('RGB', (2, 2), color='white').save(buf, format='PNG')
+        payload['proof_of_payment'] = SimpleUploadedFile(
+            'proof.png', buf.getvalue(), content_type='image/png'
+        )
+    return payload
+
+
 class WalkInSaleFormTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -162,6 +193,7 @@ class WalkInSaleFormTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            **pos_payment_evidence('GCash'),
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.staff, staff)
@@ -490,6 +522,7 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            **pos_payment_evidence('GCash'),
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.mode_of_payment, 'GCash')
@@ -783,6 +816,7 @@ class VoidPreservesConfirmationTrailTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            **pos_payment_evidence('GCash'),
         })
         txn = SalesTransaction.objects.get()
         billing = txn.billing_record
@@ -994,6 +1028,9 @@ class PaymentGatesOrderCompletionTests(TestCase):
         }
         if method == 'Cash':
             payload['amount_tendered'] = '1000'
+        # GCash/Card settle away from the counter, so the sale now carries
+        # their reference/screenshot the way Billing always demanded.
+        payload.update(pos_payment_evidence(method))
         payload.update(extra)
         response = self.client.post(reverse('transaction_add'), payload)
         return SalesTransaction.objects.latest('pk'), response

@@ -230,7 +230,8 @@ the same modal every other rejected action gets from internal_base.html.
 {% include "partials/_flash_modal.html" with flash_source=pos_errors level="error" %}
 {% endif %}
 
-<form method="POST" action="{% url 'transaction_add' %}" id="pos-form">
+{# multipart: the GCash/Card proof of payment below is a file upload. #}
+<form method="POST" action="{% url 'transaction_add' %}" id="pos-form" enctype="multipart/form-data">
   {% csrf_token %}
 
   <div class="pos-shell">
@@ -352,6 +353,37 @@ the same modal every other rejected action gets from internal_base.html.
               <option value="{{ value }}" {% if pos_form_data.mode_of_payment == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+        </div>
+
+        {% comment %}
+        Payment evidence for a method that did not settle at the counter. No
+        payment gateway is integrated, so the reference number and the
+        screenshot are the only record a GCash or Card payment happened, and
+        the cashier has the customer's confirmation screen in front of them
+        right now. Shown only for the methods that need each field — the two
+        lists come from BillingRecord, so this form and Billing's own Record
+        Payment form ask for the same things. transaction_add re-checks the
+        same rule on submit; hiding a field is not a validation.
+        {% endcomment %}
+        <div class="field" id="pos-reference-field" hidden>
+          <label for="pos-reference-number">Reference Number <span class="gv-meta">— required</span></label>
+          <input type="text" id="pos-reference-number" name="reference_number" maxlength="100"
+                 autocomplete="off" value="{{ pos_form_data.reference_number|default:'' }}"
+                 placeholder="e.g. BT-2026-0001">
+        </div>
+
+        <div class="field" id="pos-proof-field" hidden>
+          <label for="pos-proof-of-payment">Proof of Payment <span class="gv-meta">— required · screenshot or photo</span></label>
+          <input type="file" id="pos-proof-of-payment" name="proof_of_payment" accept="image/*"
+                 style="padding-top:10px;">
+          {% if pos_proof_was_posted %}
+          {# See pos_proof_was_posted in sales.views.transaction_add. #}
+          <p class="gv-meta" style="margin:4px 0 0; color:var(--danger-fg);">
+            Attach the proof again — a file cannot be kept when the form comes back with an error.
+          </p>
+          {% else %}
+          <p class="gv-meta" style="margin:4px 0 0;">A photo or screenshot of the customer's payment confirmation.</p>
+          {% endif %}
         </div>
 
         {% if pos_cancelled_orders %}
@@ -529,12 +561,20 @@ product_id -> branch_id -> {qty, status}, both ids as strings. See
 sales.views._pos_stock_map. Same json_script pattern as pos-restore-rows.
 {% endcomment %}
 {{ pos_stock_map|json_script:"pos-stock-map" }}
+{# Which methods need a reference / a proof — from BillingRecord, see _pos_context. #}
+{{ pos_reference_required_methods|json_script:"pos-reference-required-methods" }}
+{{ pos_proof_required_methods|json_script:"pos-proof-required-methods" }}
 {% endblock %}
 
 {% block extra_js %}
 <script src="{% static 'js/vendor/html5-qrcode.min.js' %}"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script src="{% static 'js/qty-stepper.js' %}"></script>
+{% comment %}
+GCash's 13-digit reference rule, shown inline before the round trip. Loaded
+without defer, like billing_form.html — the block below calls it directly.
+{% endcomment %}
+<script src="{% static 'js/gcash-reference.js' %}"></script>
 <script>
 // USB/Bluetooth scanners type into whatever holds focus, so the scan field
 // gets it as soon as the page is ready. Absent until a branch is chosen.
@@ -1046,6 +1086,46 @@ function posRecalc() {
     posRecalc();
   }
   toggle.addEventListener('change', sync);
+  sync();
+})();
+
+// Reference number / proof of payment, shown for exactly the methods that
+// need them. Deliberately NOT hung off posRecalc(), which returns early
+// before a branch is chosen — Mode of Payment is already selectable then,
+// so these fields have to follow it in that state too.
+//
+// Hiding a field is a convenience, never the check: transaction_add asks
+// BillingRecord.missing_payment_evidence about every submit regardless.
+(function () {
+  var method = document.getElementById('pos-mode-of-payment');
+  var refField = document.getElementById('pos-reference-field');
+  var refInput = document.getElementById('pos-reference-number');
+  var proofField = document.getElementById('pos-proof-field');
+  var proofInput = document.getElementById('pos-proof-of-payment');
+  if (!method || !refField || !proofField) return;
+
+  var needsRef = JSON.parse(
+    document.getElementById('pos-reference-required-methods').textContent);
+  var needsProof = JSON.parse(
+    document.getElementById('pos-proof-required-methods').textContent);
+
+  function sync() {
+    var wantsRef = needsRef.indexOf(method.value) !== -1;
+    var wantsProof = needsProof.indexOf(method.value) !== -1;
+    refField.hidden = !wantsRef;
+    // Required only while visible — a hidden required field would block a
+    // Cash submit outright, the same trap posSyncTenderVisibility avoids.
+    refInput.required = wantsRef;
+    // Guarded: the POS is the busiest screen in the system, and a script that
+    // failed to load must not take the whole payment panel down with it.
+    if (window.GerlynGCashRef) {
+      window.GerlynGCashRef.sync(refInput, method.value === 'GCash');
+    }
+    proofField.hidden = !wantsProof;
+    proofInput.required = wantsProof;
+  }
+
+  method.addEventListener('change', sync);
   sync();
 })();
 
