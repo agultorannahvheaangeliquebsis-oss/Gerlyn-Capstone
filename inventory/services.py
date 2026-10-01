@@ -211,7 +211,7 @@ def _notify_expiry_write_off(breakdown):
     fires for the manual per-batch "Write off" action."""
     from django.urls import reverse
 
-    from core.module_permissions import FLOOR_STOCK, WAREHOUSE_STOCK
+    from core.module_permissions import ALERTS, FLOOR_STOCK, WAREHOUSE_STOCK
     from core.notifications import EVENT_EXPIRY_WRITE_OFF, notify_event
 
     branches = Branch.objects.in_bulk({key[0] for key in breakdown})
@@ -222,6 +222,7 @@ def _notify_expiry_write_off(breakdown):
         names = ', '.join(dict.fromkeys(entry['products']))  # de-duplicated, order kept
         location_label = 'Floor Stock' if location == Batch.Location.FLOOR else 'Warehouse Stock'
         module = FLOOR_STOCK if location == Batch.Location.FLOOR else WAREHOUSE_STOCK
+        stock_page = 'inventory_list' if location == Batch.Location.FLOOR else 'warehouse_stock_list'
         notify_event(
             EVENT_EXPIRY_WRITE_OFF,
             f'{entry["batch_count"]} batch{"" if entry["batch_count"] == 1 else "es"} '
@@ -233,6 +234,12 @@ def _notify_expiry_write_off(breakdown):
             branch=branch,
             action_url=f'{reverse("alerts_center")}#expired',
             action_label='Review Expiry',
+            # Recipients are picked by Floor/Warehouse Stock access; only those
+            # who also have Alerts access can open the Alerts Center.
+            link_options=[
+                (ALERTS, f'{reverse("alerts_center")}#expired', 'Review Expiry'),
+                (module, reverse(stock_page), f'View {location_label}'),
+            ],
             required_module=module,
         )
 

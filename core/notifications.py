@@ -389,11 +389,23 @@ def notify_customer(customer, title, message, action_url='', action_label=''):
     return 1
 
 
+def _link_for_recipient(user, link_options):
+    """(url, label) of the first option whose module `user` can open, or
+    ('', '') when none of them is - no link at all beats a button that bounces
+    the recipient back to their dashboard with a permission message."""
+    from core.module_permissions import user_can_access_module
+
+    for module_code, url, label in link_options:
+        if user_can_access_module(user, module_code):
+            return url, label
+    return '', ''
+
+
 def notify_event(event_type, title, message, *, branch=None, actor=None,
                  related_users=None, action_url='', action_label='',
                  reference_type='', reference_id='', audience_overrides=None,
                  deduplicate=False, priority=None, audiences=None,
-                 required_module=None):
+                 required_module=None, link_options=None):
     """Dispatch one matrix event and return the number of rows created.
 
     ``related_users`` supplies relational audiences named by the rule, such
@@ -403,6 +415,14 @@ def notify_event(event_type, title, message, *, branch=None, actor=None,
     message or link while preserving one recipient policy.  Expiry scans use
     ``deduplicate=True`` so the daily command creates at most one notice per
     recipient and batch.
+
+    ``link_options`` is an ordered list of ``(module_code, url, label)`` for
+    notices whose recipients are chosen by one module but which point at a page
+    behind another (e.g. selected for Warehouse Stock access, linked to the
+    Alerts Center). Each recipient gets the first option their own grants let
+    them open, so nobody is handed a link that redirects them away. It replaces
+    ``action_url``/``action_label`` for internal recipients; an audience
+    override that names its own link still wins.
     """
     from accounts.models import Notification, User
 
@@ -472,6 +492,8 @@ def notify_event(event_type, title, message, *, branch=None, actor=None,
         row_message = content.get('message', message)
         row_url = content.get('action_url', action_url)
         row_label = content.get('action_label', action_label)
+        if link_options and 'action_url' not in content:
+            row_url, row_label = _link_for_recipient(user, link_options)
 
         is_customer = user.role == User.Role.CUSTOMER
         is_supplier = user.role == User.Role.SUPPLIER

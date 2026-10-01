@@ -1,0 +1,4 @@
+{% comment %}One Alerts Center row's actions, computed and permission-gated in
+inventory/alert_actions.py. `row.note` explains why the row has no primary
+action for this viewer (e.g. the warehouse is empty and they cannot raise a PO).{% endcomment %}
+{% for a in row.actions %}<a class="btn btn-sm{% if a.primary %} btn-primary{% endif %}" href="{{ a.url }}">{{ a.label }}</a>{% endfor %}{% if row.note %}<span class="gv-meta">{{ row.note }}</span>{% endif %}{% if not row.actions and not row.note and not has_extra %}<span class="gv-meta">—</span>{% endif %}

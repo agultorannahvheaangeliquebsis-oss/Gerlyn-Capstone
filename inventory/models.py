@@ -372,7 +372,7 @@ class WarehouseStock(models.Model):
     def _notify_stock_crossing(self, critical):
         from django.urls import reverse
 
-        from core.module_permissions import WAREHOUSE_STOCK
+        from core.module_permissions import ALERTS, WAREHOUSE_STOCK
         from core.notifications import (
             EVENT_LOW_STOCK, PRIORITY_CRITICAL, PRIORITY_MEDIUM, notify_event,
         )
@@ -398,6 +398,13 @@ class WarehouseStock(models.Model):
             EVENT_LOW_STOCK, title, message, branch=branch,
             action_url=f'{reverse("alerts_center")}#warehouse',
             action_label='Review Warehouse Stock',
+            # Recipients are picked by Warehouse Stock access, which is not the
+            # Alerts module the deep link sits behind: send anyone without it
+            # to the warehouse list instead of a page that turns them away.
+            link_options=[
+                (ALERTS, f'{reverse("alerts_center")}#warehouse', 'Review Warehouse Stock'),
+                (WAREHOUSE_STOCK, reverse('warehouse_stock_list'), 'View Warehouse Stock'),
+            ],
             reference_type='warehouse_stock', reference_id=self.pk,
             priority=priority, required_module=WAREHOUSE_STOCK,
         )
@@ -528,6 +535,7 @@ class Inventory(models.Model):
                 self._notify_stock_crossing(critical=False)
 
     def _notify_stock_crossing(self, critical):
+        from core.module_permissions import ALERTS, FLOOR_STOCK
         from core.notifications import (
             EVENT_LOW_STOCK, PRIORITY_CRITICAL, PRIORITY_MEDIUM, notify_event,
         )
@@ -550,6 +558,12 @@ class Inventory(models.Model):
         notify_event(
             EVENT_LOW_STOCK, title, message, branch=self.branch,
             action_url=reverse('inventory_list'), action_label='View Floor Stock',
+            # The Alerts Center is where the restock / purchase-order actions
+            # live; recipients without Alerts access keep the Floor Stock page.
+            link_options=[
+                (ALERTS, f'{reverse("alerts_center")}#floor', 'Review Low Stock'),
+                (FLOOR_STOCK, reverse('inventory_list'), 'View Floor Stock'),
+            ],
             reference_type='inventory', reference_id=self.pk,
             priority=priority,
         )

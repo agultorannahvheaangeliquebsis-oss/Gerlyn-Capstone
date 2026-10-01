@@ -1190,6 +1190,13 @@ class AlertsCenterLowStockActionTests(TestCase):
             product=self.product, branch=self.branch,
             quantity_on_hand=1, reorder_level=10,
         )
+        # The branch's warehouse holds the product, so restocking the floor
+        # from it is possible. (With an empty warehouse the row offers
+        # Create PO instead - see inventory/tests_alert_actions.py.)
+        WarehouseStock.objects.create(
+            warehouse=self.branch.warehouse, product=self.product,
+            quantity_on_hand=50, reorder_level=5,
+        )
         self.client.force_login(self.owner)
 
     def test_the_row_action_opens_the_request_to_floor_modal_for_that_branch(self):

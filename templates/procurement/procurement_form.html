@@ -329,7 +329,10 @@ var poAllProducts = JSON.parse(document.getElementById('po-all-products').textCo
 // by several mobile browsers, which would show (and let you pick) the rest.
 function poFilterProducts(select) {
   var available = poSupplierProducts();
-  var keep = select.value;
+  // A row prefilled from a link (?product=) with no supplier chosen yet has
+  // nothing to keep: remember the product and show it once a supplier who
+  // carries it is picked. Cleared as soon as the user chooses for themselves.
+  var keep = select.value || select.dataset.pendingProduct || '';
   while (select.options.length > 1) select.remove(1);
   poAllProducts.forEach(function (p) {
     if (!Object.prototype.hasOwnProperty.call(available, p.id)) return;
@@ -451,9 +454,13 @@ poSupplier.addEventListener('change', function () {
     restore.forEach(function (item) {
       poAddRow();
       var row = poRows.lastElementChild;
-      row.querySelector('.js-product').value = item.product_id;
+      var productSelect = row.querySelector('.js-product');
+      productSelect.dataset.pendingProduct = item.product_id;
+      productSelect.addEventListener('change', function () {
+        delete productSelect.dataset.pendingProduct;
+      });
       row.querySelector('.js-qty').value = item.quantity;
-      poFilterProducts(row.querySelector('.js-product'));
+      poFilterProducts(productSelect);
     });
   } else {
     poAddRow();

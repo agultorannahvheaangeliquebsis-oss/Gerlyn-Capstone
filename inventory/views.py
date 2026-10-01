@@ -32,6 +32,9 @@ from .services import (
     validate_opening_stock_rows,
 )
 from .alerts import alert_summary, stock_status
+from .alert_actions import (
+    ALERT_TAB_HASHES, decorate_alerts, overdue_order_url,
+)
 from accounts.models import User
 from branches.models import Branch
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
@@ -1467,6 +1470,9 @@ def alerts_center(request):
 
     branch_ids = [int(branch_filter)] if branch_filter else branch_ids_for_user(request.user)
     summary = alert_summary(branch_ids)
+    # What each row lets THIS viewer do (request stock / create PO / history),
+    # decided by their grants - see inventory/alert_actions.py.
+    decorate_alerts(request.user, summary)
 
     # Purchase orders past their delivery date (P18). Imported here because
     # procurement already depends on inventory, not the other way round.
@@ -1475,8 +1481,10 @@ def alerts_center(request):
     today = timezone.localdate()
     for po in overdue_deliveries:
         po.late_days = (today - po.delivery_date).days
+        po.action_url = overdue_order_url(request.user, po)
 
     return render(request, 'inventory/alerts_center.html', {
+        'alert_tab_hashes': ALERT_TAB_HASHES,
         'overdue_deliveries': overdue_deliveries,
         'critical_count': summary['critical_count'],
         'low_count': summary['low_count'],

@@ -453,6 +453,49 @@ def _procurement_form_context(user):
     }
 
 
+def _po_prefill_from_query(request, context):
+    """Prefill for the Create Purchase Order page from ?branch=&product=&quantity=
+    - what the Alerts Center's "Create PO" link sends - as (po_form_data,
+    po_restore_rows), the same shapes a rejected submit hands back.
+
+    A convenience only, never trusted: the branch must be one this user may
+    actually raise a PO for (context['branches'] is already scoped - an Owner's
+    every branch, a Manager's own), the product must exist, the quantity is a
+    plain positive integer, and the real submit re-validates all of it. Anything
+    that does not check out is dropped and the page opens as if it were not
+    there. The supplier is preselected only when exactly one supplier this user
+    can order from carries the product; with several, the product waits for the
+    user to choose one (see poFilterProducts in procurement_form.html)."""
+    params = request.GET
+
+    def plain_int(raw):
+        raw = (raw or '').strip()
+        return int(raw) if raw.isascii() and raw.isdigit() and len(raw) <= 7 else None
+
+    form_data = {}
+    branch_id = plain_int(params.get('branch'))
+    if branch_id is not None and any(b.pk == branch_id for b in context['branches']):
+        form_data['branch'] = str(branch_id)
+
+    rows = None
+    product_id = plain_int(params.get('product'))
+    if product_id is not None and Product.objects.filter(pk=product_id).exists():
+        quantity = plain_int(params.get('quantity'))
+        rows = [{
+            'product_id': str(product_id),
+            'quantity': quantity if quantity and quantity > 0 else 1,
+        }]
+        carriers = [
+            supplier_id
+            for supplier_id, catalog in context['supplier_catalog'].items()
+            if str(product_id) in catalog
+        ]
+        if len(carriers) == 1:
+            form_data['supplier'] = carriers[0]
+
+    return (form_data or None), rows
+
+
 @login_required(login_url='accounts:login')
 def procurement_add(request):
     """The "Create Purchase Order" page — its own page (see
@@ -468,7 +511,10 @@ def procurement_add(request):
         return redirect('procurement_list')
 
     if request.method != 'POST':
-        return render(request, 'procurement/procurement_form.html', _procurement_list_context(request))
+        context = _procurement_list_context(request)
+        form_data, restore_rows = _po_prefill_from_query(request, context)
+        context.update({'po_form_data': form_data, 'po_restore_rows': restore_rows})
+        return render(request, 'procurement/procurement_form.html', context)
 
     if request.user.role == User.Role.BRANCH_MANAGER:
         try:

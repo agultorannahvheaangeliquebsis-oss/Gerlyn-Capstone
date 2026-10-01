@@ -78,7 +78,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <td data-label="Supplier">{{ po.supplier.supplier_profile.supplier_name|default:po.supplier.username }}</td>
         <td data-label="Was due" class="gv-meta">{{ po.delivery_date|date:"Y-m-d" }}</td>
         <td data-label="Days late" class="num strong" style="color:var(--danger-fg);">{{ po.late_days }}</td>
-        <td data-label="Action" class="end"><a class="btn btn-sm" href="{% url 'delivery_list' %}">Deliveries</a></td>
+        <td data-label="Action" class="end">{% if po.action_url %}<a class="btn btn-sm" href="{{ po.action_url }}">View {{ po.po_number }}</a>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -147,10 +147,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            {% comment %}Straight into the Request Stock to Floor modal, branch pre-selected — this is a
-            restock from the branch's own warehouse, not a write-off/correction (that's what New
-            Stock Adjustment is for), so it should never have pointed there in the first place.{% endcomment %}
-            <a class="btn btn-sm btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1&amp;branch={{ row.branch.pk }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Request Stock to Floor</a>
+            {% include "inventory/_alert_actions.html" %}
           </span>
         </td>
       </tr>
@@ -202,7 +199,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Action">
           <span class="row-actions">
-            <a class="btn btn-sm btn-primary" href="{% url 'procurement_add' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Create PO</a>
+            {% include "inventory/_alert_actions.html" %}
           </span>
         </td>
       </tr>
@@ -232,7 +229,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         <th>Location</th>
         <th class="num">Qty</th>
         <th>Expiry Date</th>
-        {% if module_actions.alerts.delete %}<th class="end">Actions</th>{% endif %}
+        <th class="end">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -246,16 +243,17 @@ opens instead of standing alone as a figure that double-counts its neighbour.
         </td>
         <td data-label="Qty" class="num strong" style="color:var(--danger-fg);">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date" class="strong" style="color:var(--danger-fg);">{{ row.expiry_date|date:"Y-m-d" }}</td>
-        {% if module_actions.alerts.delete %}<td data-label="Actions">
-          <button type="button" class="btn btn-sm btn-danger"
-                  onclick="openWriteOffConfirm({{ row.batch_id }}, '{{ row.product.product_name|escapejs }}', '{{ row.branch.branch_name|escapejs }}', {{ row.quantity_on_hand }}, '{{ row.location }}')">
-            Write Off
-          </button>
-        </td>{% endif %}
+        <td data-label="Actions">
+          <span class="row-actions">
+            {% if module_actions.alerts.delete %}<button type="button" class="btn btn-sm btn-danger"
+                    onclick="openWriteOffConfirm({{ row.batch_id }}, '{{ row.product.product_name|escapejs }}', '{{ row.branch.branch_name|escapejs }}', {{ row.quantity_on_hand }}, '{{ row.location }}')">Write Off</button>{% endif %}
+            {% include "inventory/_alert_actions.html" with has_extra=module_actions.alerts.delete %}
+          </span>
+        </td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="{% if module_actions.alerts.delete %}6{% else %}5{% endif %}">
+        <td colspan="6">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing expired</h3>
@@ -311,6 +309,7 @@ Product Master List's image-delete confirm).
         <th class="num">Qty</th>
         <th>Expiry Date</th>
         <th class="num">Days Left</th>
+        <th class="end">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -325,10 +324,15 @@ Product Master List's image-delete confirm).
         <td data-label="Qty" class="num">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date">{{ row.expiry_date|date:"Y-m-d" }}</td>
         <td data-label="Days Left" class="num" style="color:var(--warn-fg);">{{ row.days_until_expiry }}</td>
+        <td data-label="Actions">
+          <span class="row-actions">
+            {% include "inventory/_alert_actions.html" %}
+          </span>
+        </td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="6">
+        <td colspan="7">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing expiring soon</h3>
@@ -353,6 +357,7 @@ Product Master List's image-delete confirm).
         <th class="num">Qty</th>
         <th>Expiry Date</th>
         <th class="num">Days Left</th>
+        <th class="end">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -367,10 +372,15 @@ Product Master List's image-delete confirm).
         <td data-label="Qty" class="num">{{ row.quantity_on_hand }}</td>
         <td data-label="Expiry Date">{{ row.expiry_date|date:"Y-m-d" }}</td>
         <td data-label="Days Left" class="num gv-meta">{{ row.days_until_expiry }}</td>
+        <td data-label="Actions">
+          <span class="row-actions">
+            {% include "inventory/_alert_actions.html" %}
+          </span>
+        </td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="6">
+        <td colspan="7">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing approaching expiry</h3>
@@ -385,6 +395,7 @@ Product Master List's image-delete confirm).
 {% endblock %}
 
 {% block extra_js %}
+{{ alert_tab_hashes|json_script:"alert-tab-hashes" }}
 <script>
   var ALERT_PANELS = ['floor', 'warehouse', 'expired', 'soon', 'approaching'];
 
@@ -395,16 +406,17 @@ Product Master List's image-delete confirm).
     });
   }
 
-  // Deep-link support so the Dashboard's "Needs attention" rows (DESIGN.md 2b)
-  // can open the right tab: #expiring -> Expired (most urgent first), #warehouse
-  // -> Low Warehouse Stock, anything else -> Low Floor Stock. Panel contents are
-  // untouched; this only picks which one starts open.
+  // Deep-link support: notifications and the Dashboard's "Needs attention" rows
+  // link here with a #hash. The hash -> panel map lives in
+  // inventory/alert_actions.ALERT_TAB_HASHES and is passed in below, so every
+  // hash any link uses is defined in exactly one place. Unknown hashes open
+  // the first panel. Panel contents are untouched; this only picks which one
+  // starts open.
   (function () {
+    var HASHES = JSON.parse(document.getElementById('alert-tab-hashes').textContent);
     function applyHash() {
-      if (window.location.hash === '#expiring') showTab('expired');
-      else if (window.location.hash === '#soon') showTab('soon');
-      else if (window.location.hash === '#warehouse') showTab('warehouse');
-      else showTab('floor');
+      var name = window.location.hash.replace(/^#/, '');
+      showTab(Object.prototype.hasOwnProperty.call(HASHES, name) ? HASHES[name] : 'floor');
     }
     applyHash();
     window.addEventListener('hashchange', applyHash);
