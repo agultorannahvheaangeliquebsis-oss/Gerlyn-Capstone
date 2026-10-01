@@ -1,0 +1,59 @@
+{% comment %}
+Terms & Conditions and Privacy Notice wording. Shared by the standalone
+policy page (accounts/terms_privacy.html) and the sign-up consent modal
+(accounts/_terms_privacy_modal.html) so there is exactly one copy to update
+when CustomerProfile.TERMS_VERSION bumps.
+
+id_prefix: prepended to the section/heading ids, so the modal's copy (opened
+alongside register.html, which never renders the standalone page in the same
+DOM) doesn't have to worry about colliding ids — pass "modal-" there, leave
+it blank for the standalone page's own #terms / #privacy anchors.
+{% endcomment %}
+<section class="account-card policy-card" id="{{ id_prefix }}terms" aria-labelledby="{{ id_prefix }}terms-title">
+  <div class="account-card-head">
+    <h2 class="account-card-title" id="{{ id_prefix }}terms-title">Terms &amp; Conditions</h2>
+  </div>
+  <div class="account-card-body policy-body">
+    <h3>Your account</h3>
+    <p>Give accurate details when you sign up and keep them up to date. Keep your password private. You are responsible for orders placed from your account.</p>
+
+    <h3>Orders and prices</h3>
+    <p>Orders depend on stock at the branch that fulfils them. The price you pay is the one shown at checkout. A branch may cancel an order it cannot fill.</p>
+
+    <h3>Payment</h3>
+    <p>We record and verify payments made by cash, GCash, card, bank transfer, cash on delivery or at the store. We do not process card payments on this site. An order paid by transfer is confirmed only after staff verify the payment.</p>
+
+    <h3>Delivery</h3>
+    <p>Orders are delivered to the address saved on your account. You can change it in Settings before you order.</p>
+
+    <h3>Fair use</h3>
+    <p>Do not misuse the site: no automated sign-ups, no attempts to reach other people's accounts, and no false orders. We may deactivate accounts that do.</p>
+
+    <h3>Changes</h3>
+    <p>We may update these terms. The version above shows which wording is current.</p>
+  </div>
+</section>
+
+<section class="account-card policy-card" id="{{ id_prefix }}privacy" aria-labelledby="{{ id_prefix }}privacy-title">
+  <div class="account-card-head">
+    <h2 class="account-card-title" id="{{ id_prefix }}privacy-title">Privacy Notice</h2>
+  </div>
+  <div class="account-card-body policy-body">
+    <p>GERLYN handles your personal data in line with the Data Privacy Act of 2012 (Republic Act No. 10173).</p>
+
+    <h3>What we collect</h3>
+    <p>Your name, username, email address, delivery address, and contact number if you give one. We also keep your orders, the payment records and proofs you submit, and your sign-in sessions. Your password is stored only in a form that cannot be read back.</p>
+
+    <h3>Why we use it</h3>
+    <p>To run your account, prepare and deliver your orders, verify payments, send account emails such as email verification, and keep the site secure.</p>
+
+    <h3>Who sees it</h3>
+    <p>Only GERLYN staff who need it for your order or account. We do not sell your data. Our internal activity log records that a detail changed, not the detail itself.</p>
+
+    <h3>How long we keep it</h3>
+    <p>For as long as your account is active, and afterwards only as long as sales and tax records require. Past orders stay in our sales records, but you can ask us to remove your personal details from your account.</p>
+
+    <h3>Your rights</h3>
+    <p>You may ask to see, correct or erase your personal data, object to its use, or get a copy of it. You can edit your details in Settings and deactivate your account under Settings › Privacy &amp; Data. For anything else, contact any GERLYN branch. You may also complain to the National Privacy Commission.</p>
+  </div>
+</section>
