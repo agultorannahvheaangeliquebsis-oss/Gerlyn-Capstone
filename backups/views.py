@@ -103,7 +103,7 @@ def backup_run_now(request):
     if service.active_run_exists():
         messages.info(request, 'A backup is already running.')
     else:
-        service.spawn_backup_process('manual')
+        service.spawn_backup_process('manual', triggered_by_id=request.user.pk)
         messages.success(request, 'Backup started. Refresh this page in a minute to see the result.')
     return redirect('backup_status')
 

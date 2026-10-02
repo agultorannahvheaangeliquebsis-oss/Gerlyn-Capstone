@@ -35,6 +35,12 @@
       <option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
+  <select name="branch" aria-label="Filter by branch">
+    <option value="">All branches</option>
+    {% for b in branches %}
+      <option value="{{ b.id }}" {% if filters.branch == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+    {% endfor %}
+  </select>
   <button type="submit" class="btn btn-primary">Filter</button>
   {% if querystring %}<a class="btn" href="{% url 'audit_log_list' %}">Clear</a>{% endif %}
   </div>

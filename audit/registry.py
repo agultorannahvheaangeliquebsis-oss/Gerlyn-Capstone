@@ -152,6 +152,16 @@ REGISTRY = {
     # --- core ----------------------------------------------------------------
     'core.StoreSetting': AuditConfig('Store settings', branch_path=''),
     'core.HomeHeroSlide': AuditConfig('Homepage slide', branch_path=''),
+    # --- backups (KATRINA-BACKUP-002) -----------------------------------------
+    # Not branch-scoped — a backup covers the whole database. reap_stuck_runs'
+    # bulk .update() of an abandoned run is not captured (see the module
+    # docstring's "Known limits" — QuerySet.update() emits no signals); every
+    # run still gets its own create + at least one save()-driven update row
+    # from _finish(), so the lifecycle and who triggered it stay visible here.
+    'backups.BackupRun': AuditConfig('Backup run', branch_path=''),
+    'backups.RestoreTestRecord': AuditConfig(
+        'Restore test', repr_field='backup_used', branch_path='',
+    ),
 }
 
 

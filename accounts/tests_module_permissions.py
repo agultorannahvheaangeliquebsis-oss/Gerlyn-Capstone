@@ -5,6 +5,7 @@ from accounts.models import User
 from branches.models import Branch
 from core.module_permissions import (
     ADD,
+    ALERTS,
     DELETE,
     EDIT,
     BILLING,
@@ -48,6 +49,15 @@ class ModuleActionRouteTests(SimpleTestCase):
         self.assertEqual(
             supplier['allowed_modules'], [PROCUREMENT, DELIVERIES]
         )
+
+        # KATRINA-RBAC-001: the expiry write-off (ALERTS: DELETE) has always
+        # been open to Branch Manager and Staff in inventory.views.
+        # expiry_write_off itself — the default matrix must grant it too,
+        # or the view's own role check is never reached.
+        self.assertIn(ALERTS, manager['allowed_modules'])
+        self.assertIn(DELETE, manager['module_actions'][ALERTS])
+        self.assertIn(ALERTS, staff['allowed_modules'])
+        self.assertIn(DELETE, staff['module_actions'][ALERTS])
 
 
 class ConfigurableModulePermissionTests(TestCase):

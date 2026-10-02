@@ -348,11 +348,11 @@ the same modal every other rejected action gets from internal_base.html.
         {% endif %}
 
         <div class="field">
-          <label for="pos-receipt-reference">Receipt / Reference Number <span class="gv-meta">— required</span></label>
+          <label for="pos-receipt-reference">Receipt / Reference Number <span class="gv-meta">— optional</span></label>
           <input type="text" id="pos-receipt-reference" name="receipt_reference" maxlength="100"
-                 autocomplete="off" required value="{{ pos_form_data.receipt_reference|default:'' }}"
-                 placeholder="From the original POS receipt or transaction">
-          <p class="gv-meta" style="margin:4px 0 0;">Used with the branch to prevent duplicates with imported POS sales.</p>
+                 autocomplete="off" value="{{ pos_form_data.receipt_reference|default:'' }}"
+                 placeholder="Only if reconciling an existing POS receipt">
+          <p class="gv-meta" style="margin:4px 0 0;">Leave blank for a first-time sale with nothing to reconcile. Fill in only when this entry is a fallback for a transaction already on the imported POS file — it is then checked against that branch's other entries to prevent duplicates.</p>
         </div>
 
         <div class="field">

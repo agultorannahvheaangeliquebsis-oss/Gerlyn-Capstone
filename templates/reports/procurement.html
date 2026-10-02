@@ -28,7 +28,7 @@ above.
 {% endcomment %}
 <form method="GET" class="toolbar-card no-print">
   <div class="toolbar-actions">
-    <a class="btn" href="{% url 'export_csv' 'procurement' %}">
+    <a class="btn" href="{% url 'export_csv' 'procurement' %}?{{ export_query }}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
       Export CSV
     </a>

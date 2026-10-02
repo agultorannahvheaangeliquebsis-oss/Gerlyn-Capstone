@@ -19,10 +19,19 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--trigger', default='manual', help='Who started it: cron / manual.')
+        parser.add_argument(
+            '--triggered-by', dest='triggered_by', default=None,
+            help='User id who clicked Run Now (KATRINA-BACKUP-002). Unset for cron/scheduler.',
+        )
 
     def handle(self, *args, **options):
+        triggered_by_id = options['triggered_by']
         try:
-            runs = run_backup(trigger=options['trigger'][:10])
+            triggered_by_id = int(triggered_by_id) if triggered_by_id is not None else None
+        except ValueError:
+            triggered_by_id = None
+        try:
+            runs = run_backup(trigger=options['trigger'][:10], triggered_by_id=triggered_by_id)
         except BackupInProgress as exc:
             raise CommandError(str(exc))
         except Exception as exc:
@@ -33,6 +42,7 @@ class Command(BaseCommand):
                 run_id=uuid.uuid4().hex, kind=BackupRun.Kind.MANIFEST,
                 trigger=options['trigger'][:10], status=BackupRun.Status.FAILED,
                 finished_at=timezone.now(), error=f'{type(exc).__name__}: {exc}'[:2000],
+                triggered_by_id=triggered_by_id,
             )
             raise CommandError(f'The backup crashed: {type(exc).__name__}: {exc}')
 

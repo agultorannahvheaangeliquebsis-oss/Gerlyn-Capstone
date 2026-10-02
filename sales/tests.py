@@ -199,7 +199,11 @@ class WalkInSaleFormTests(TestCase):
         )
         self.assertEqual(SalesTransaction.objects.count(), 1)
 
-    def test_manual_entry_requires_the_original_receipt_reference(self):
+    def test_a_first_time_sale_needs_no_receipt_reference(self):
+        """KATRINA-REG-001 / BR-KAT-002: the reference is only for
+        reconciling against an imported/external POS transaction. A
+        legitimate first-time walk-in sale has nothing to reference and
+        must not be blocked for lacking one."""
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk,
             'mode_of_payment': 'Cash',
@@ -208,12 +212,26 @@ class WalkInSaleFormTests(TestCase):
             'amount_tendered': '100',
         })
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            'Enter the receipt/reference number from the original transaction.',
-            response.context['pos_errors'],
-        )
-        self.assertFalse(SalesTransaction.objects.exists())
+        self.assertEqual(response.status_code, 302)
+        txn = SalesTransaction.objects.get()
+        self.assertEqual(txn.source, 'Manual Entry')
+        # None, not '' — stays outside the branch + pos_invoice_number
+        # uniqueness rule, so a second reference-less sale at this branch
+        # (below) is not treated as a duplicate of this one.
+        self.assertIsNone(txn.pos_invoice_number)
+
+    def test_two_reference_less_sales_at_one_branch_are_not_duplicates(self):
+        for _ in range(2):
+            response = self.client.post(reverse('transaction_add'), {
+                'branch': self.branch.pk,
+                'mode_of_payment': 'Cash',
+                'product_id': [str(self.product.pk)],
+                'quantity': ['1'],
+                'amount_tendered': '100',
+            })
+            self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(SalesTransaction.objects.count(), 2)
 
     def test_manual_reference_can_be_reused_at_another_branch(self):
         other = Branch.objects.create(

@@ -2038,9 +2038,12 @@ def transaction_add(request):
                 'That receipt/reference number is already recorded for this branch. '
                 'Check the POS import before creating a manual entry.'
             )
-    if not receipt_reference:
-        errors.append('Enter the receipt/reference number from the original transaction.')
-    elif len(receipt_reference) > 100:
+    # Optional: a legitimate first-time walk-in sale has nothing to
+    # reference and must not be blocked for lacking one (KATRINA-REG-001).
+    # Only a sale that IS reconciling against an imported/external POS
+    # transaction supplies this, and only then is it validated/deduplicated
+    # — see the two checks above and the race-closing recheck below.
+    if receipt_reference and len(receipt_reference) > 100:
         errors.append('Receipt/reference number cannot exceed 100 characters.')
     if not line_items:
         errors.append('Add at least one item with a quantity.')
@@ -2183,7 +2186,7 @@ def transaction_add(request):
                     # case-only variants that some database collations would
                     # otherwise treat differently.
                     Branch.objects.select_for_update().get(pk=branch_id)
-                    if SalesTransaction.objects.filter(
+                    if receipt_reference and SalesTransaction.objects.filter(
                         branch_id=branch_id,
                         pos_invoice_number__iexact=receipt_reference,
                     ).exists():
@@ -2227,7 +2230,11 @@ def transaction_add(request):
                         change_amount=change_amount,
                         replaces_id=replaces_id,
                         source='Manual Entry',
-                        pos_invoice_number=receipt_reference,
+                        # None (not '') when no reference was given, so a
+                        # plain walk-in sale stays outside the branch +
+                        # pos_invoice_number uniqueness rule — see the
+                        # model's own comment on that constraint.
+                        pos_invoice_number=receipt_reference or None,
                     )
 
                     for line in priced['lines']:

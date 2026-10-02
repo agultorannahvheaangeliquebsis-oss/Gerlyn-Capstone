@@ -230,7 +230,12 @@ ROLE_DEFAULT_ACTIONS = {
         FLOOR_STOCK: [ADD],
         WAREHOUSE_STOCK: [],
         WITHDRAWALS: [ADD, EDIT],
-        ALERTS: [],
+        # DELETE here is the expiry write-off (inventory.views.
+        # expiry_write_off), not a destructive delete — it only ever zeroes
+        # a lot that is ALREADY expired. The view itself has always allowed
+        # Owner/Branch Manager/Staff; this default previously didn't match
+        # (KATRINA-RBAC-001).
+        ALERTS: [DELETE],
         SALES_POS: [ADD, EDIT],
         BILLING: [EDIT],
         PROCUREMENT: [ADD, EDIT, DELETE],
@@ -242,7 +247,10 @@ ROLE_DEFAULT_ACTIONS = {
         FLOOR_STOCK: [ADD],
         WAREHOUSE_STOCK: [],
         WITHDRAWALS: [ADD, EDIT],
-        ALERTS: [],
+        # See the Branch Manager row above — same fix, same reasoning. The
+        # view's own docstring calls this "a safe operational fallback"
+        # open to Staff by design.
+        ALERTS: [DELETE],
         SALES_POS: [ADD, EDIT],
         BILLING: [EDIT],
         PROCUREMENT: [],

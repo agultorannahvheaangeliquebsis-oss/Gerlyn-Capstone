@@ -837,6 +837,23 @@ def _dashboard_branch_breakdown(sales_qs, start, end, prev_start, prev_end):
     return branch_breakdown, prev_branch_totals
 
 
+def _procurement_net_adjustment(procurement_qs, start, end):
+    """The supplier-return/credit deduction for one date-scoped slice of
+    `procurement_qs` — same PROCUREMENT_COST_STATUSES narrowing
+    _dashboard_daily_series applies, so this subtracts from exactly the POs
+    that slice's gross figure already includes, nothing more.
+
+    KATRINA-REPORT-001: the Dashboard's "Procurement Cost" KPI used to stay
+    gross while the Procurement Report (and its API mirror) moved to Net —
+    same label, two different numbers for the same scope. This is the one
+    adjustment both now subtract, so the headline figures agree again.
+    """
+    scoped = procurement_qs.filter(
+        status__in=PROCUREMENT_COST_STATUSES, order_date__gte=start, order_date__lte=end,
+    )
+    return procurement_return_totals(scoped)['net_adjustment']
+
+
 def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     """
     The single data source for the Dashboard's date-range-scoped surfaces
@@ -859,6 +876,18 @@ def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     totals = _dashboard_range_totals(daily)
     atv_points = _dashboard_atv_points(daily)
     prev_totals = _dashboard_range_totals(prev_daily)
+
+    # Net, not gross — see _procurement_net_adjustment. Subtracted from the
+    # already-summed range total rather than threaded through the daily
+    # series/trend line: a return's value is attributed to the scope it
+    # belongs to for reporting purposes, not to a specific calendar day, so
+    # there is no "which day" to re-bucket it into. The sparkline under the
+    # KPI card therefore still traces the shape of gross day-by-day
+    # spending; only the headline figure and its delta pill read Net.
+    totals['procurement_cost'] -= _procurement_net_adjustment(procurement_qs, start, end)
+    prev_totals['procurement_cost'] -= _procurement_net_adjustment(
+        procurement_qs, prev_start, prev_end,
+    )
 
     branch_breakdown, prev_branch_totals = _dashboard_branch_breakdown(
         sales_qs, start, end, prev_start, prev_end
@@ -1323,7 +1352,13 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
             'range_header': range_label, 'show_legend': False,
         },
         {
-            'key': 'procurement_cost', 'label': 'Procurement Cost', 'unit': 'currency',
+            # Label reads 'Net Procurement' (KATRINA-REPORT-001) — totals
+            # and prev here are already net of supplier returns/credits
+            # (see _dashboard_metrics/_procurement_net_adjustment), the
+            # same definition the Procurement Report's own Net Procurement
+            # card uses. The dict key stays 'procurement_cost' so the panel
+            # toggle/template/JS wiring keyed on it needs no other change.
+            'key': 'procurement_cost', 'label': 'Net Procurement', 'unit': 'currency',
             'tier': 'primary',
             'value_display': f'₱{totals["procurement_cost"]:,.2f}',
             'delta': _delta_pill(
@@ -2928,19 +2963,27 @@ def export_csv(request, kind):
     user_branch = get_user_branch(request.user)
     today = timezone.localdate()
 
-    # The sales export follows the daily-sales range when the link names one
-    # (the Sales Report and the Reports hub both do). Only an EXPLICIT range
-    # narrows it: falling back to the session's last selection, as the pages
-    # do, would quietly shrink a bulk export a caller expected to be complete.
-    sales_range = None
-    if kind == 'sales' and any(
+    # The export follows its report page's active date range when the link
+    # names one (every report page's own Export CSV link does, via
+    # export_query — see reports_dashboard/procurement_report/billing_
+    # report). Only an EXPLICIT range narrows it: falling back to the
+    # session's last selection, as the pages do, would quietly shrink a bulk
+    # export a caller expected to be complete. Inventory has no range of its
+    # own to follow — it is a live snapshot, same as the Inventory Report
+    # tab (KATRINA-REPORT-002).
+    explicit_range = None
+    redirect_target = {
+        'sales': 'sales_report', 'procurement': 'procurement_report', 'billing': 'billing_report',
+    }.get(kind)
+    if redirect_target and any(
         key in request.GET for key in ('range', 'date', 'date_from', 'date_to', 'month')
     ):
         problem = range_problem(request)
         if problem:
             messages.error(request, f'Could not export: {problem}')
-            return redirect('sales_report')
-        sales_range = range_from_request(request)[:2]
+            return redirect(redirect_target)
+        explicit_range = range_from_request(request)[:2]
+    sales_range = explicit_range if kind == 'sales' else None
 
     response = HttpResponse(content_type='text/csv')
     scope = user_branch.branch_name.replace(' ', '-') if user_branch else 'all-branches'
@@ -2999,6 +3042,16 @@ def export_csv(request, kind):
             'branch', 'supplier', 'supplier__supplier_profile'
         ).prefetch_related('items')  # actual_received_cost walks items.all() per row
         qs = scope_queryset(qs, request.user, 'branch')  # fails closed — see 'sales'
+        if explicit_range:
+            range_start, range_end = explicit_range
+            # order_date is a plain DateField, same comparison
+            # procurement_report itself uses — no local_range_bounds needed.
+            qs = qs.filter(order_date__lte=range_end)
+            if range_start is not None:
+                qs = qs.filter(order_date__gte=range_start)
+            branch_param = request.GET.get('branch')
+            if branch_param and request.user.role == User.Role.OWNER:
+                qs = qs.filter(branch_id=branch_param)
         writer.writerow([
             'PO Number', 'Branch', 'Supplier', 'Order Date', 'Delivery Date',
             'Status', 'Receipt Flag', 'Total Cost (PHP)', 'Actual Received Cost (PHP)',
@@ -3019,6 +3072,20 @@ def export_csv(request, kind):
     elif kind == 'billing':
         qs = BillingRecord.objects.select_related('transaction', 'transaction__branch')
         qs = scope_queryset(qs, request.user, 'transaction__branch')  # fails closed
+        if explicit_range:
+            range_start, range_end = explicit_range
+            # date_recorded is a DateTimeField — half-open local bounds,
+            # same reasoning billing_report itself documents (see
+            # core.timebounds: a date_recorded__date lookup silently
+            # matches nothing on this MySQL deployment).
+            _, period_end = local_range_bounds(range_end, range_end)
+            qs = qs.filter(date_recorded__lt=period_end)
+            if range_start is not None:
+                period_start, _ = local_range_bounds(range_start, range_start)
+                qs = qs.filter(date_recorded__gte=period_start)
+            branch_param = request.GET.get('branch')
+            if branch_param and request.user.role == User.Role.OWNER:
+                qs = qs.filter(transaction__branch_id=branch_param)
         writer.writerow([
             'Order Number', 'Branch', 'Date Recorded', 'Amount Due (PHP)',
             'Payment Method', 'Reference Number', 'Status', 'Confirmed By',
@@ -3132,6 +3199,13 @@ def billing_report(request):
         'payment_breakdown': payment_breakdown,
         'user_branch': user_branch,
         'active_page': 'reports',
+        # KATRINA-REPORT-002: so Export CSV downloads the rows this page is
+        # showing, not the branch's whole history — same pattern as
+        # reports_dashboard's own export_query.
+        'export_query': urlencode(
+            _range_carry(active_range, range_start, range_end)
+            + ([('branch', branch_filter)] if branch_filter else [])
+        ),
     })
 
 
@@ -3386,4 +3460,11 @@ def procurement_report(request):
         },
         'user_branch': user_branch,
         'active_page': 'reports',
+        # KATRINA-REPORT-002: so Export CSV downloads the rows this page is
+        # showing, not the branch's whole history — same pattern as
+        # reports_dashboard's own export_query.
+        'export_query': urlencode(
+            _range_carry(active_range, range_start, range_end)
+            + ([('branch', branch_filter)] if branch_filter else [])
+        ),
     })
