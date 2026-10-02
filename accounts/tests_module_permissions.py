@@ -179,10 +179,10 @@ class ConfigurableModulePermissionTests(TestCase):
         self.assertEqual(self.manager.module_actions[PRODUCTS], [ADD, EDIT])
         self.assertNotIn(DELETE, self.manager.module_actions[PRODUCTS])
 
-    def test_user_edit_modal_renders_the_detailed_matrix(self):
+    def test_user_edit_page_renders_the_detailed_matrix(self):
         self.client.force_login(self.owner)
         response = self.client.get(
-            reverse('accounts:user_list'), {'edit': self.manager.pk}
+            reverse('accounts:user_edit', args=[self.manager.pk])
         )
 
         self.assertEqual(response.status_code, 200)

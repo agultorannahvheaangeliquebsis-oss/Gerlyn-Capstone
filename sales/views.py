@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models as dj_models
 from django.db import transaction
 from django.db import IntegrityError
@@ -1043,16 +1043,44 @@ class _OrderActionError(Exception):
     partially applying a rejected action."""
 
 
-@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def transaction_set_status(request, pk, new_status):
-    """Advance an order through its lifecycle."""
+    """Advance an order through its lifecycle.
+
+    Staff-only, with one carve-out: a customer may cancel their own order
+    while it is still Pending or Approved — the same self-serve window
+    orders.customer_views.track_order's Cancel button offers. That button
+    posts here rather than to a second implementation, so the
+    history/billing/notification side effects below (and their own
+    "only transaction_set_status writes these" docstrings — see
+    OrderStatusHistory, OrderStatusChange, billing.BillingRecord's B-1
+    comment) stay true instead of drifting against a parallel copy.
+    _next_actions already lists 'Cancelled' as reachable from Pending/
+    Approved with no role check, so no change was needed there — only here,
+    where @role_required used to block a customer before the view body ran.
+    """
     txn = get_object_or_404(SalesTransaction, pk=pk)
 
-    if not user_can_access_branch(request.user, txn.branch_id):
-        messages.error(request, 'That order belongs to another branch.')
-        return redirect('transaction_list')
+    is_self_cancel = (
+        request.user.is_authenticated
+        and request.user.role == 'CUSTOMER'
+        and txn.customer_id == request.user.id
+        and new_status == SalesTransaction.OrderStatus.CANCELLED
+        and txn.order_status in (
+            SalesTransaction.OrderStatus.PENDING, SalesTransaction.OrderStatus.APPROVED,
+        )
+    )
+    if not is_self_cancel:
+        if not request.user.is_authenticated:
+            return redirect(settings.LOGIN_URL)
+        if request.user.role not in (OWNER, BRANCH_MANAGER, STAFF):
+            raise PermissionDenied("Your role does not have access to this action.")
+        if not user_can_access_branch(request.user, txn.branch_id):
+            messages.error(request, 'That order belongs to another branch.')
+            return redirect('transaction_list')
 
     if request.method != 'POST':
+        if is_self_cancel:
+            return redirect('orders:track_order', transaction_id=pk)
         return redirect('transaction_detail', pk=pk)
 
     try:
@@ -1297,7 +1325,13 @@ def transaction_set_status(request, pk, new_status):
                 )
     except _OrderActionError as e:
         messages.error(request, str(e))
+        if is_self_cancel:
+            return redirect('orders:track_order', transaction_id=pk)
         return redirect('transaction_detail', pk=pk)
+
+    if is_self_cancel:
+        messages.success(request, f'{txn.order_number} has been cancelled.')
+        return redirect('orders:track_order', transaction_id=pk)
 
     messages.success(request, f'{txn.order_number} is now {new_status}.')
     if skipped_products:

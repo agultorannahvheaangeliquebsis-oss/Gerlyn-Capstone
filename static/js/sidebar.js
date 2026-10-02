@@ -127,15 +127,16 @@
 
   /* The bottom-nav "More" menu, the topbar's branch-switch dropdown
      (partials/_branch_switch.html, used across every module with a branch
-     filter), the topbar's account (avatar) menu, and the Update status
-     dropdown on procurement_detail.html (.status-select): close any of
-     these when the user taps/clicks anywhere outside, since <details> only
-     closes natively on re-toggle. Delegated on document, so this also
-     covers .status-select instances injected later via the detail-modal's
-     innerHTML swap (procurement_list.html's data-detail-modal) — this
-     script only runs once, but a document-level listener doesn't care when
-     its target entered the DOM. */
-  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open], .avatar-menu[open], .status-select[open], .bill-more[open]';
+     filter), the topbar's account (avatar) menu, the Update status
+     dropdown on procurement_detail.html (.status-select), and a table row's
+     "..." actions menu (.row-menu, first used on User Management): close
+     any of these when the user taps/clicks anywhere outside, since
+     <details> only closes natively on re-toggle. Delegated on document, so
+     this also covers .status-select instances injected later via the
+     detail-modal's innerHTML swap (procurement_list.html's
+     data-detail-modal) — this script only runs once, but a document-level
+     listener doesn't care when its target entered the DOM. */
+  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open], .avatar-menu[open], .status-select[open], .bill-more[open], .row-menu[open]';
   document.addEventListener('click', function (e) {
     document.querySelectorAll(AUTOCLOSE_SEL).forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;
@@ -192,6 +193,42 @@
     var details = item.closest('.bill-more');
     if (details) details.open = false;
   });
+
+  /* A table row's "..." actions menu (templates/accounts/user_list.html's
+     .row-menu, extra_css block): same close-on-pick as the Billing "More"
+     menu above — several of these items (Deactivate, Delete personal data)
+     open a confirm dialog of their own via data-confirm, and the menu
+     shouldn't still be open behind it. */
+  document.addEventListener('click', function (e) {
+    var item = e.target.closest && e.target.closest('.row-menu-item');
+    if (!item) return;
+    var details = item.closest('.row-menu');
+    if (details) details.open = false;
+  });
+
+  /* .row-menu-panel (templates/accounts/user_list.html's extra_css block)
+     opens below the trigger by default; this flips it upward
+     (.row-menu--flip) when there isn't room below. Checked against both the
+     viewport AND the nearest .table-wrap's own bottom edge — .table-wrap
+     sets overflow-x:auto, which per spec forces its overflow-y to clip too
+     (a 'visible' axis computes to 'auto' once its sibling axis isn't
+     'visible'), so a panel that only checked the viewport would still get
+     silently cut off by the table's own box for the last row or two. Same
+     'toggle' + capture-phase reasoning as .status-select--flip above. */
+  document.addEventListener('toggle', function (e) {
+    var el = e.target;
+    if (!el.classList || !el.classList.contains('row-menu')) return;
+    if (!el.open) { el.classList.remove('row-menu--flip'); return; }
+    var panel = el.querySelector('.row-menu-panel');
+    if (!panel) return;
+    var rect = el.getBoundingClientRect();
+    var needed = panel.offsetHeight || 200;
+    var wrap = el.closest('.table-wrap');
+    var limit = wrap ? Math.min(wrap.getBoundingClientRect().bottom, window.innerHeight) : window.innerHeight;
+    var fitsBelow = rect.bottom + needed <= limit;
+    var fitsAbove = rect.top - needed >= 0;
+    el.classList.toggle('row-menu--flip', !fitsBelow && fitsAbove);
+  }, true);
 
   /* Sliding nav highlight ("magic move"): one absolutely-positioned element
      inside .sb-nav that slides and resizes to sit behind whichever row is

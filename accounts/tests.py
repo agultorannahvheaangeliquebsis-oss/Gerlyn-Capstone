@@ -1,8 +1,9 @@
-"""Add/Edit User, Supplier and Branch moved from their own pages into modals
-on their list pages. The forms' save logic was left alone — these cover the
-two things the move did change (the GET route and the error path), plus the
-writes themselves, so a regression in either shows up here rather than in a
-browser.
+"""Add User/Supplier/Branch are modals on their list pages; Edit Supplier and
+Edit Branch are too, but Edit User is its own page (accounts:user_edit,
+templates/accounts/user_edit.html) — a detailed permission matrix doesn't fit
+a modal well. The forms' save logic was left alone — these cover the GET
+route and the error path for each shape, plus the writes themselves, so a
+regression in either shows up here rather than in a browser.
 """
 import re
 from datetime import timedelta
@@ -67,15 +68,17 @@ class UserModalFlowTests(TestCase):
         )
         self.client.force_login(self.owner)
 
-    def test_get_add_and_edit_urls_redirect_to_the_list(self):
+    def test_get_add_url_redirects_to_the_list(self):
         self.assertRedirects(
             self.client.get(reverse('accounts:user_add')),
             reverse('accounts:user_list') + '?add=1',
         )
-        self.assertRedirects(
-            self.client.get(reverse('accounts:user_edit', args=[self.owner.pk])),
-            reverse('accounts:user_list') + f'?edit={self.owner.pk}',
-        )
+
+    def test_get_edit_url_renders_its_own_page(self):
+        response = self.client.get(reverse('accounts:user_edit', args=[self.owner.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'accounts/user_edit.html')
+        self.assertEqual(response.context['target'].pk, self.owner.pk)
 
     def test_inviting_a_manager_creates_an_inactive_account_and_sets_their_branch(self):
         response = self.client.post(reverse('accounts:user_add'), {
@@ -139,20 +142,22 @@ class UserModalFlowTests(TestCase):
         self.assertFalse(User.objects.filter(email='shopper@example.com').exists())
 
     def test_customer_is_absent_from_add_edit_and_filter_role_choices(self):
-        response = self.client.get(
-            reverse('accounts:user_list'), {'edit': self.owner.pk}
+        list_response = self.client.get(reverse('accounts:user_list'))
+        edit_response = self.client.get(
+            reverse('accounts:user_edit', args=[self.owner.pk])
         )
 
         expected_roles = set(USER_MANAGEMENT_ROLES)
         self.assertEqual(
-            {value for value, _label in response.context['role_choices']},
+            {value for value, _label in list_response.context['role_choices']},
             expected_roles,
         )
         self.assertEqual(
-            {value for value, _label in response.context['form_role_choices']},
+            {value for value, _label in edit_response.context['form_role_choices']},
             expected_roles,
         )
-        self.assertNotContains(response, '<option value="CUSTOMER"')
+        self.assertNotContains(list_response, '<option value="CUSTOMER"')
+        self.assertNotContains(edit_response, '<option value="CUSTOMER"')
 
     def test_customer_cannot_be_converted_through_internal_edit_url(self):
         customer = User.objects.create_user(
@@ -190,7 +195,7 @@ class UserModalFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(
             'A username and a valid role are required.',
-            response.context['edit_errors'],
+            response.context['errors'],
         )
         staff.refresh_from_db()
         self.assertEqual(staff.role, User.Role.STAFF)
@@ -230,10 +235,10 @@ class UserModalFlowTests(TestCase):
             'contact_number': 'not-a-number',
         })
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context['show_edit_modal'])
+        self.assertTemplateUsed(response, 'accounts/user_edit.html')
         self.assertIn(
             'Enter a valid PH mobile number, e.g. 0917 123 4567 or +63 917 123 4567.',
-            response.context['edit_errors'],
+            response.context['errors'],
         )
         staff.refresh_from_db()
         self.assertEqual(staff.staff_profile.contact_number, '')
@@ -253,7 +258,7 @@ class UserModalFlowTests(TestCase):
             'contact_number': '0917-123-4567',
         })
         self.assertEqual(response.status_code, 200)
-        self.assertIn('That contact number is already in use.', response.context['edit_errors'])
+        self.assertIn('That contact number is already in use.', response.context['errors'])
 
     def test_non_owner_cannot_post(self):
         staff = User.objects.create_user(

@@ -16,9 +16,12 @@ def _load(name):
 
 
 def regions():
+    # Sorted by region_code, not name: an alphabetical name sort puts
+    # "Region IX" ("I" < "V") before Region V-VIII and X, out of the order
+    # shoppers expect from the Roman-numeral labels.
     return sorted(
         ({'code': r['region_code'], 'name': r['region_name']} for r in _load('region')),
-        key=lambda r: r['name']
+        key=lambda r: r['code']
     )
 
 

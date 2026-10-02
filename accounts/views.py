@@ -424,24 +424,28 @@ def user_list(request):
         return redirect('accounts:home')
 
     context = _user_list_context(request)
-
-    edit_pk = request.GET.get('edit')
-    if edit_pk:
-        target = User.objects.filter(
-            pk=edit_pk, role__in=USER_MANAGEMENT_ROLES
-        ).first()
-        if target:
-            profile = _profile_for(target)
-            context.update({
-                'show_edit_modal': True,
-                'edit_target': target,
-                'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
-                'edit_modules': target.allowed_modules or [],
-                'edit_permission_rows': permission_rows(
-                    target.allowed_modules, target.module_actions
-                ),
-            })
     return render(request, 'accounts/user_list.html', context)
+
+
+def _user_edit_context(request, target, *, branch_id=None, modules=None,
+                        actions=None, errors=None, form_data=None):
+    """Context for the dedicated Edit User page — GET (current values) and a
+    rejected POST (posted values + errors) both render the same template
+    through this."""
+    profile = _profile_for(target)
+    if modules is None:
+        modules = target.allowed_modules or []
+    return {
+        'target': target,
+        'branch_id': branch_id if branch_id is not None else (
+            getattr(profile, 'branch_id', None) if profile else None
+        ),
+        'permission_rows': permission_rows(modules, actions or target.module_actions),
+        'errors': errors or [],
+        'form_data': form_data,
+        'branches': Branch.objects.all(),
+        'form_role_choices': USER_MANAGEMENT_ROLE_CHOICES,
+    }
 
 
 @login_required(login_url='accounts:login')
@@ -454,12 +458,13 @@ def user_form(request, pk=None):
         User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
     ) if pk else None
 
-    if request.method != 'POST':
-        flag = f'edit={pk}' if target else 'add=1'
-        return redirect(f"{reverse('accounts:user_list')}?{flag}")
-
     if target is None:
+        if request.method != 'POST':
+            return redirect(f"{reverse('accounts:user_list')}?add=1")
         return _user_invite_submit(request)
+
+    if request.method != 'POST':
+        return render(request, 'accounts/user_edit.html', _user_edit_context(request, target))
 
     role = request.POST.get('role')
     username = request.POST.get('username', '').strip()
@@ -605,19 +610,11 @@ def user_form(request, pk=None):
         messages.success(request, f'User "{username}" saved.')
         return redirect('accounts:user_list')
 
-    context = _user_list_context(request)
-    context.update({
-        'show_edit_modal': True,
-        'edit_target': target,
-        'edit_branch_id': branch_id,
-        'edit_modules': submitted_modules,
-        'edit_permission_rows': permission_rows(
-            submitted_modules, submitted_actions
-        ),
-        'edit_errors': errors,
-        'edit_form_data': request.POST,
-    })
-    return render(request, 'accounts/user_list.html', context)
+    context = _user_edit_context(
+        request, target, branch_id=branch_id, modules=submitted_modules,
+        actions=submitted_actions, errors=errors, form_data=request.POST,
+    )
+    return render(request, 'accounts/user_edit.html', context)
 
 
 def _user_invite_submit(request):

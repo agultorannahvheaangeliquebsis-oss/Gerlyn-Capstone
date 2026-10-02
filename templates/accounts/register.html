@@ -1,5 +1,6 @@
 {% extends "public_base.html" %}
 {% load static %}
+{% load i18n_extra %}
 {% block title %}Create Account — GERLYN{% endblock %}
 {% block body_class %}shop shop-auth{% endblock %}
 
@@ -464,4 +465,45 @@ function registerAddressIsComplete() {
   });
 })();
 </script>
+{% endblock %}
+
+{% comment %}
+Trimmed, not dropped: the full four-column sitemap (brand blurb, Categories,
+Quick Links, Visit Us) is more page than a sign-up screen should offer —
+every extra link is a way to leave the one task this page exists for, and
+Categories in particular invites browsing away mid-signup. Quick Links and
+Visit Us stay because they're where a stuck shopper actually needs to go
+(back to the shop, or to a real branch); the brand mark is already in the
+topbar above, so repeating it here only to drop it next to the sitemap
+would leave an orphaned half-column.
+{% endcomment %}
+{% block footer %}
+<footer class="shop-footer">
+  <div class="shop-wrap footer-grid footer-grid-compact">
+    <nav class="footer-col" aria-labelledby="foot-links">
+      <h2 class="footer-title" id="foot-links">{% t "Quick Links" %}</h2>
+      <ul>
+        <li><a href="/">{% t "Home" %}</a></li>
+        <li><a href="{% url 'orders:catalog' %}">{% t "Shop all products" %}</a></li>
+        <li><a href="{% url 'about' %}">{% t "About Us" %}</a></li>
+      </ul>
+    </nav>
+
+    <div class="footer-col" aria-labelledby="foot-visit">
+      <h2 class="footer-title" id="foot-visit">{% t "Visit Us" %}</h2>
+      <ul class="footer-branches">
+        {% for b in nav_branches %}
+        <li>
+          <span class="footer-branch-nm">{{ b.branch_name }}</span>
+          {% if b.location %}<span class="footer-branch-loc">{{ b.location }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="shop-wrap footer-legal">
+    <p>{% t "© 2026 GERLYN · Baliuag, Bulacan · All rights reserved." %}</p>
+  </div>
+</footer>
 {% endblock %}

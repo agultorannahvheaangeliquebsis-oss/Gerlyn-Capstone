@@ -507,7 +507,6 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .ap-map-fallback { position: absolute; z-index: 0; inset: auto 12px 10px; margin: 0; text-align: center; color: var(--ink-500); font-size: 11.5px; }
 .ap-map-help { margin: -6px 0 0; }
 .ap-map-attribution { margin: -8px 0 0; font-size: 11px; }
-.ap-coordinate-grid { gap: 10px; }
 .ap-reverse-confirm { padding: 10px 12px; border: 1px solid var(--line); background: var(--surface-soft, #f8faf8); }
 .ap-reverse-confirm p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.45; }
 .ap-reverse-confirm p:last-child { margin: 7px 0 0; }
@@ -740,3 +739,13 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 .policy-body h3:first-child { margin-top: 0; }
 .policy-body p { margin: 0; }
 .policy-body > p:first-child { margin-bottom: 4px; }
+
+/* ── Register page footer (trimmed) ─────────────────────────────────────
+   storefront.css's .footer-grid gives its FIRST column 1.4fr, sized for
+   the brand/blurb column the full footer leads with. This page drops that
+   column, so without this override its first column (Quick Links) would
+   inherit that same 1.4fr and sit wider than Visit Us beside it. */
+.footer-grid-compact { grid-template-columns: 1fr 1fr; }
+@media (max-width: 560px) {
+  .footer-grid-compact { grid-template-columns: 1fr; }
+}

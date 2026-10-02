@@ -93,12 +93,38 @@
 
   {% comment %}
   S-10 — the page named the branch but gave no way to actually reach it if
-  something about the order needs sorting out. Deliberately just contact
-  info, not a self-serve cancel button: whether an order can still be
-  changed depends on state the shopper isn't shown here (has staff started
-  preparing it, is it past the point of no return), so "cancel" stays a
-  staff-side action reached through the branch, not a button on this page.
+  something about the order needs sorting out.
+
+  Cancel is now self-serve ONLY for the window where that state question has
+  one knowable answer: Pending or Approved means the store hasn't started on
+  it yet (can_cancel, set in orders.customer_views.track_order), so nothing
+  "in progress" could be undone by stopping here. Once it's Preparing or
+  later, whether it can still be changed depends on state this page doesn't
+  show (how far staff got), so that stays the staff-side action reached
+  through the branch below.
+
+  The form posts to sales.views.transaction_set_status — the same endpoint
+  the staff Order Detail page uses — rather than a second cancel
+  implementation, so the history/billing/notification side effects it
+  already owns apply here too instead of risking drifting out of sync.
   {% endcomment %}
+  {% if can_cancel %}
+  <div class="card card-pad mt-4">
+    <h3 class="mb-4">Need to cancel this order?</h3>
+    <p class="gv-meta mb-4">This is only available while your order is still {{ sale.order_status }} — the branch hasn't started preparing it yet.</p>
+    <form method="POST" action="{% url 'transaction_set_status' pk=sale.pk new_status='Cancelled' %}"
+          data-confirm="This cancels {{ sale.order_number }}. This cannot be undone."
+          data-confirm-title="Cancel this order?"
+          data-confirm-variant="danger"
+          data-confirm-ok="Cancel order"
+          data-confirm-dismiss="Keep order">
+      {% csrf_token %}
+      <input type="hidden" name="reason" value="Cancelled by the customer.">
+      <button type="submit" class="btn btn-danger">Cancel order</button>
+    </form>
+  </div>
+  {% endif %}
+
   <div class="card card-pad mt-4">
     <h3 class="mb-4">Questions about this order?</h3>
     <p class="gv-meta mb-4">For changes or cancellations, contact the branch handling it directly.</p>

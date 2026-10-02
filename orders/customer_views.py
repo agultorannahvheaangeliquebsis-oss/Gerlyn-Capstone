@@ -582,10 +582,15 @@ def product_detail(request, product_id):
     branch_stock = []
     for branch in branches:
         inv = Inventory.objects.sellable().filter(product=product, branch=branch).first()
+        qty = inv.available_qty if inv else 0
         branch_stock.append({
             'branch': branch,
-            'available': bool(inv and inv.available_qty > 0),
-            'qty': inv.available_qty if inv else 0,
+            'available': bool(inv and qty > 0),
+            'qty': qty,
+            # Same tiering the cart line items use (S-4) — no more
+            # hardcoded "<= 10" in the template disagreeing with what
+            # Inventory's own reorder_level says is actually low.
+            'stock_status': stock_status(qty, inv.reorder_level if inv else 0),
         })
 
     # "Recently viewed" rail. A short list of product ids kept in the session,
@@ -874,6 +879,15 @@ def select_branch(request):
         'location_used': location,
         'continue_url': continue_url,
         'next': continue_url,
+        # Lets the template offer "Use my saved address" instead of the
+        # generic "Continue without sharing location" — same POST
+        # (customer_fulfillment_location already falls back to this address
+        # when no browser location is shared), just named so a shopper with
+        # one on file can pick it without a geolocation prompt first.
+        'has_saved_address': bool(
+            request.user.is_authenticated
+            and request.user.addresses.filter(is_default=True).exists()
+        ),
     })
 
 
@@ -1692,6 +1706,13 @@ def track_order(request, transaction_id):
         'steps': steps,
         'cancelled': cancelled,
         'blurb': STATUS_BLURB.get(sale.order_status, ''),
+        # Only while the store hasn't started on it yet — once it's
+        # Preparing, whether it can still be stopped depends on state the
+        # shopper isn't shown here, so that stays a staff-side call reached
+        # through the branch (see the "Questions about this order?" card).
+        'can_cancel': sale.order_status in (
+            SalesTransaction.OrderStatus.PENDING, SalesTransaction.OrderStatus.APPROVED,
+        ),
     })
 
 

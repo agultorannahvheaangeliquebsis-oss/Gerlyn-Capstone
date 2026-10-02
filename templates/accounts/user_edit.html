@@ -1,0 +1,179 @@
+{% extends "internal_base.html" %}
+{% block title %}Edit User — {{ target.username }}{% endblock %}
+{% block page_subtitle %}Administration{% endblock %}
+
+{% block content %}
+<form method="POST" action="{% url 'accounts:user_edit' target.pk %}" id="edit-user-form">
+  {% csrf_token %}
+
+  <div class="page-head">
+    <div>
+      <a class="back-link" href="{% url 'accounts:user_list' %}">User Management</a>
+      <h1 class="mt-2">Edit User</h1>
+    </div>
+    <div class="row">
+      <a href="{% url 'accounts:user_list' %}" class="btn">Cancel</a>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+    </div>
+  </div>
+
+  {% if errors %}
+  <div class="banner banner-error">
+    {% for err in errors %}<div>{{ err }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card card-pad">
+  <div class="stack">
+  <div class="grid-2">
+    <div class="field">
+      <label for="edit-user-first-name">First Name</label>
+      <input id="edit-user-first-name" type="text" name="first_name"
+             value="{% firstof form_data.first_name target.first_name '' %}">
+    </div>
+    <div class="field">
+      <label for="edit-user-last-name">Last Name</label>
+      <input id="edit-user-last-name" type="text" name="last_name"
+             value="{% firstof form_data.last_name target.last_name '' %}">
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="edit-user-username">Username</label>
+    <input id="edit-user-username" type="text" name="username" required
+           value="{% firstof form_data.username target.username '' %}">
+  </div>
+
+  <div class="field">
+    <label for="edit-user-email">Email</label>
+    <input id="edit-user-email" type="email" name="email"
+           value="{% firstof form_data.email target.email '' %}">
+  </div>
+
+  <div class="field">
+    <label for="edit-user-contact-number">Mobile Number</label>
+    <input id="edit-user-contact-number" type="tel" name="contact_number"
+           placeholder="+63 9XX XXX XXXX"
+           value="{% firstof form_data.contact_number target.get_role_profile.contact_number '' %}">
+  </div>
+
+  <div class="grid-2">
+    <div class="field">
+      <label for="edit-user-role">Role</label>
+      <select id="edit-user-role" name="role" required>
+        {% for value, label in form_role_choices %}
+          <option value="{{ value }}" {% if form_data.role == value or not form_data and target.role == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="edit-user-branch">Assigned Branch <span class="gv-meta">— managers &amp; staff only</span></label>
+      <select id="edit-user-branch" name="branch">
+        <option value="">— None (Owner sees all) —</option>
+        {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_id|stringformat:"s" == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="field" id="edit-user-modules-field">
+    <label>Detailed Permissions <span class="gv-meta">— managers &amp; staff only</span></label>
+    <p class="gv-meta" style="margin:0 0 8px;">View is required for every other action. Role and assigned-branch restrictions still apply.</p>
+    <div class="table-wrap">
+      <table class="gv-table permission-matrix">
+        <thead>
+          <tr>
+            <th>Module</th>
+            <th class="center">View</th>
+            <th class="center">Add</th>
+            <th class="center">Edit</th>
+            <th class="center">Delete</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in permission_rows %}
+          <tr data-module-permission-row>
+            <td>{{ row.label }}</td>
+            <td class="center"><input type="checkbox" name="allowed_modules" value="{{ row.code }}" data-view-permission aria-label="View {{ row.label }}" {% if row.view %}checked{% endif %}></td>
+            <td class="center">{% if row.supports_add %}<input type="checkbox" name="module_actions" value="{{ row.code }}:add" data-action-permission aria-label="Add in {{ row.label }}" {% if row.add %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
+            <td class="center">{% if row.supports_edit %}<input type="checkbox" name="module_actions" value="{{ row.code }}:edit" data-action-permission aria-label="Edit in {{ row.label }}" {% if row.edit %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
+            <td class="center">{% if row.supports_delete %}<input type="checkbox" name="module_actions" value="{{ row.code }}:delete" data-action-permission aria-label="Delete in {{ row.label }}" {% if row.delete %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="edit-user-password">
+      Password
+      <span class="gv-meta">— leave blank to keep the current one</span>
+    </label>
+    <input id="edit-user-password" type="password" name="password"
+           placeholder="Enter password" autocomplete="new-password">
+  </div>
+
+  <div class="banner banner-info">
+    A manager or staff member only ever sees their assigned branch's data.
+    The Owner sees every branch.
+  </div>
+  </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  /* Assigned Branch and Detailed Permissions only ever mean anything for a
+     Branch Manager or Staff — same sync behavior the Add/Edit modals used
+     to share on the list page (see user_list.html's history), kept here
+     now that Edit is its own page. Clearing the branch value on disable
+     matters as much as the disable: a half-filled branch left behind after
+     switching the role to Owner would post nothing (disabled fields are
+     not submitted) yet still read as assigned on screen. */
+  var role = document.getElementById('edit-user-role');
+  var branch = document.getElementById('edit-user-branch');
+  var modulesField = document.getElementById('edit-user-modules-field');
+  var moduleChecks = modulesField ? modulesField.querySelectorAll('input[type="checkbox"]') : [];
+
+  function syncBranchField() {
+    var scoped = role.value === 'BRANCH_MANAGER' || role.value === 'STAFF';
+    branch.disabled = !scoped;
+    if (!scoped) branch.value = '';
+
+    if (modulesField) modulesField.style.display = scoped ? '' : 'none';
+    moduleChecks.forEach(function (cb) { cb.disabled = !scoped; });
+    if (modulesField) {
+      modulesField.querySelectorAll('[data-view-permission]').forEach(function (cb) {
+        cb.dispatchEvent(new Event('change'));
+      });
+    }
+  }
+
+  if (role && branch) {
+    role.addEventListener('change', syncBranchField);
+    syncBranchField();
+  }
+
+  document.querySelectorAll('[data-module-permission-row]').forEach(function (row) {
+    var viewPermission = row.querySelector('[data-view-permission]');
+    var actionPermissions = row.querySelectorAll('[data-action-permission]');
+    if (!viewPermission) return;
+
+    function syncActionPermissions() {
+      var scoped = !role || role.value === 'BRANCH_MANAGER' || role.value === 'STAFF';
+      actionPermissions.forEach(function (permission) {
+        permission.disabled = !scoped || !viewPermission.checked;
+        if (!viewPermission.checked) permission.checked = false;
+      });
+    }
+
+    viewPermission.addEventListener('change', syncActionPermissions);
+    syncActionPermissions();
+  });
+})();
+</script>
+{% endblock %}
