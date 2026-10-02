@@ -3645,7 +3645,7 @@ def transfer_flag_discrepancy(request, pk):
     """
     Destination-branch staff flags a discrepancy: the quantity actually
     received differs from what was released. The floor inventory is corrected
-    by the difference and an ADJUSTMENT stock movement is logged for the trail.
+    per product and a TRANSFER_DISCREPANCY movement is logged for the trail.
     """
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER

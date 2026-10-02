@@ -266,9 +266,10 @@ class SalesTransaction(models.Model):
         help_text="amount_tendered minus total_amount, frozen at sale time."
     )
 
-    # File-based POS import traceability.  Null POS invoice numbers keep
-    # ordinary GerlynPLUS orders outside the uniqueness rule; imported rows
-    # always carry one, and branch + invoice is the duplicate key.
+    # External receipt/reference traceability. POS imports and the manual
+    # exception form both write this value, so branch + receipt/reference is
+    # one shared duplicate key regardless of which path reaches the system
+    # first. Online orders and older records may remain null.
     source = models.CharField(max_length=30, blank=True, default='GerlynPLUS')
     pos_invoice_number = models.CharField(max_length=100, null=True, blank=True)
     pos_terminal_id = models.CharField(max_length=100, blank=True)

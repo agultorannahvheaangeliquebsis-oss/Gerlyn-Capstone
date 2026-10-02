@@ -1,9 +1,8 @@
 """Evaluator #4 — fewer dead ends and re-dos in Purchase Order receiving.
 
-Every exit of delivery_receive used to land on procurement_detail, which the
-module gate reserves for PROCUREMENT. Default Staff only hold DELIVERIES, so
-their every receipt (and every count mistake) ended on a "no access" bounce.
-A fixable count mistake also threw the receiver out of the Receive modal.
+Successful exits may land on procurement_detail because the permission matrix
+now gives Staff read-only Purchase Order access. A fixable count mistake still
+keeps the receiver in the Receive modal.
 """
 import datetime as dt
 
@@ -49,24 +48,21 @@ class ReceivingExitTests(ProcurementAuthorizationBase):
             **kw,
         )
 
-    def test_precondition_default_staff_lack_procurement(self):
-        self.assertNotIn(PROCUREMENT, DEFAULT_STAFF_MODULES)
+    def test_precondition_default_staff_can_view_procurement(self):
+        self.assertIn(PROCUREMENT, DEFAULT_STAFF_MODULES)
 
-    def test_staff_full_receipt_lands_on_received_tab_not_a_bounce(self):
+    def test_staff_full_receipt_lands_on_the_viewable_po(self):
         resp = self._receive(self.staff, 10)
-        self.assertEqual(
-            resp['Location'], f"{reverse('delivery_list')}?status=Received")
+        self.assertEqual(resp['Location'], reverse('procurement_detail', args=[self.po.pk]))
         page = self.client.get(resp['Location'])
         self.assertEqual(page.status_code, 200)
         text = ' '.join(str(m) for m in get_messages(page.wsgi_request))
         self.assertIn('received in full', text)
         self.assertNotIn('access', text.lower())
 
-    def test_staff_partial_receipt_lands_on_partially_received_tab(self):
+    def test_staff_partial_receipt_lands_on_the_viewable_po(self):
         resp = self._receive(self.staff, 4)
-        self.assertEqual(
-            resp['Location'],
-            f"{reverse('delivery_list')}?status=Partially+Received")
+        self.assertEqual(resp['Location'], reverse('procurement_detail', args=[self.po.pk]))
 
     def test_owner_still_lands_on_the_po(self):
         resp = self._receive(self.owner, 10)
@@ -88,13 +84,12 @@ class ReceivingExitTests(ProcurementAuthorizationBase):
         resp = self._receive(self.staff, 0)
         self.assertEqual(resp['Location'], reverse('delivery_receive', args=[self.po.pk]))
 
-    def test_staff_opening_an_already_received_po_is_not_bounced(self):
+    def test_staff_opening_an_already_received_po_lands_on_the_po(self):
         self.po.status = Procurement.Status.RECEIVED
         self.po.save(update_fields=['status'])
         self.client.force_login(self.staff)
         resp = self.client.get(reverse('delivery_receive', args=[self.po.pk]))
-        self.assertEqual(
-            resp['Location'], f"{reverse('delivery_list')}?status=Received")
+        self.assertEqual(resp['Location'], reverse('procurement_detail', args=[self.po.pk]))
 
     def test_rejected_count_reopens_the_modal_with_what_was_typed(self):
         self.client.force_login(self.manager)

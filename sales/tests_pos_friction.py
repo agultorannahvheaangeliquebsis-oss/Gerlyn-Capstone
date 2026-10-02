@@ -38,6 +38,7 @@ class NextWalkInSaleShortcutTests(TestCase):
     def _ring_cash_sale(self):
         self.client.force_login(self.staff)
         resp = self.client.post(reverse('transaction_add'), {
+            'receipt_reference': 'PF-MANUAL-1',
             'mode_of_payment': 'Cash', 'amount_tendered': '100',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
         })
@@ -49,7 +50,7 @@ class NextWalkInSaleShortcutTests(TestCase):
     def test_detail_after_record_sale_offers_the_next_sale(self):
         txn = self._ring_cash_sale()
         resp = self.client.get(reverse('transaction_detail', args=[txn.pk]))
-        self.assertContains(resp, 'New Walk-in Sale')
+        self.assertContains(resp, 'Manual Sales Entry')
         self.assertContains(resp, f'href="{reverse("transaction_add")}"')
 
     def test_receipt_offers_the_next_sale(self):

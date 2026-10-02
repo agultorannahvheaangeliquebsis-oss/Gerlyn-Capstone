@@ -7,6 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import User
+from audit.models import AuditLog
 from branches.models import Branch
 from core.models import HomeHeroSlide, StoreSetting
 from sales.models import SalesTransaction
@@ -235,6 +236,22 @@ class HeroDraftWorkflowTests(TestCase):
         self.assertEqual(HomeHeroSlide.rotator_slides()[0].headline, "Draft headline")
         self.assertFalse(HomeHeroSlide.has_pending_changes())
         self.assertEqual(HomeHeroSlide.objects.count(), 1)  # shadow gone
+
+    def test_apply_records_the_draft_to_live_audit_update(self):
+        self.client.force_login(self.owner)
+        self.client.post(reverse("hero_slide_save"), self._edit_payload())
+
+        self.client.post(reverse("hero_draft_apply"), {})
+
+        audit_row = AuditLog.objects.filter(
+            entity='core.HomeHeroSlide',
+            record_id=str(self.slide.pk),
+            action=AuditLog.Action.UPDATE,
+            action_label='Published homepage changes',
+        ).latest('id')
+        self.assertEqual(audit_row.actor_id, self.owner.pk)
+        self.assertEqual(audit_row.before, {'is_draft': True})
+        self.assertEqual(audit_row.after, {'is_draft': False})
 
     def test_cancel_restores_the_previous_version(self):
         self.client.force_login(self.owner)

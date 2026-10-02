@@ -15,11 +15,11 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
   <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
     {% include "_daterange.html" %}
     {% if can_pos %}
-    {% if can_import_pos %}<button type="button" class="btn" id="open-pos-import-modal">Import POS Sales</button>{% endif %}
-    <a class="btn btn-primary" href="{% url 'transaction_add' %}">
+    <a class="btn" href="{% url 'transaction_add' %}" title="Use only for transactions not captured in the existing POS import.">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-      New Walk-in Sale
+      Manual Sales Entry
     </a>
+    {% if can_import_pos %}<button type="button" class="btn btn-primary" id="open-pos-import-modal">Import POS Sales</button>{% endif %}
     {% endif %}
   </div>
 </div>
@@ -107,6 +107,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       <tr data-filter-text="{{ t.order_number }} {% if t.customer %}{{ t.customer.first_name }} {{ t.customer.last_name }} {{ t.customer.username }}{% endif %}">
         <td data-label="Order ID" class="sku strong">{{ t.order_number }}
           {% if t.source == "ZANK POS" %}<br><span class="tag">ZANK {{ t.pos_invoice_number }}</span>{% endif %}
+          {% if t.source == "Manual Entry" %}<br><span class="tag">Manual {{ t.pos_invoice_number }}</span>{% endif %}
         </td>
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
         <td data-label="Customer">
@@ -144,7 +145,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
             <h3>No orders here</h3>
             <p>{% if status_filter or search_query %}Nothing matches this filter — try “All”.{% else %}Orders appear as customers buy online or staff record walk-in sales.{% endif %}</p>
-            {% if can_pos %}<a class="btn btn-primary mt-2" href="{% url 'transaction_add' %}">New Walk-in Sale</a>{% endif %}
+            {% if can_pos %}<a class="btn mt-2" href="{% url 'transaction_add' %}">Manual Sales Entry</a>{% endif %}
           </div>
         </td>
       </tr>

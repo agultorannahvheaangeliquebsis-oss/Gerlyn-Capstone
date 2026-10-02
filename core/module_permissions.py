@@ -105,7 +105,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-stock-transfer-approve', 'api-stock-transfer-release',
             'api-stock-transfer-acknowledge',
         ],
-        DELETE: ['pos_sales_import_undo'],
+        DELETE: [],
     },
     ALERTS: {
         'label': 'Alerts Center',
@@ -130,7 +130,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-sales-refunds', 'api-sales-refund-approve',
             'api-sales-refund-reject', 'api-sales-pwd-request',
         ],
-        DELETE: [],
+        DELETE: ['pos_sales_import_undo'],
     },
     BILLING: {
         'label': 'Billing',
@@ -211,11 +211,67 @@ for _code, _config in MODULE_PERMISSION_REGISTRY.items():
 
 ALL_MODULE_CODES = list(MODULE_PERMISSION_REGISTRY.keys())
 
-# Preserve the pre-existing Staff default: only the modules the Staff role
-# historically used. Action grants cannot open any module without View.
-DEFAULT_STAFF_MODULES = [
-    FLOOR_STOCK, WAREHOUSE_STOCK, SALES_POS, DELIVERIES,
-]
+# Defaults are the attached GerlynPLUS permission matrix expressed in the
+# application's existing module/action vocabulary.  Some matrix rows (for
+# example receiving and verifying a delivery) are workflow operations rather
+# than literal CRUD operations; those are registered as ``edit`` above.
+# Role checks still put the upper bound on what a grant can authorize.
+ROLE_DEFAULT_ACTIONS = {
+    'OWNER': {
+        code: [
+            action for action in WRITE_ACTIONS
+            if MODULE_PERMISSION_REGISTRY[code][action]
+        ]
+        for code in ALL_MODULE_CODES
+    },
+    'BRANCH_MANAGER': {
+        PRODUCTS: [],
+        FLOOR_STOCK: [ADD],
+        WAREHOUSE_STOCK: [],
+        WITHDRAWALS: [ADD, EDIT],
+        ALERTS: [],
+        SALES_POS: [ADD, EDIT],
+        BILLING: [EDIT],
+        PROCUREMENT: [ADD],
+        DELIVERIES: [EDIT],
+        REPORTS: [],
+    },
+    'STAFF': {
+        PRODUCTS: [],
+        FLOOR_STOCK: [ADD],
+        WAREHOUSE_STOCK: [],
+        WITHDRAWALS: [ADD, EDIT],
+        ALERTS: [],
+        SALES_POS: [ADD, EDIT],
+        BILLING: [EDIT],
+        PROCUREMENT: [],
+        DELIVERIES: [EDIT],
+        REPORTS: [],
+    },
+    # Supplier/customer portals have their own action-level role checks.  The
+    # entries here still describe their matrix defaults for role switching and
+    # keep irrelevant internal modules unchecked.
+    'SUPPLIER': {
+        code: [] for code in ALL_MODULE_CODES
+    },
+    'CUSTOMER': {
+        code: [] for code in ALL_MODULE_CODES
+    },
+}
+
+ROLE_DEFAULT_MODULES = {
+    'OWNER': list(ALL_MODULE_CODES),
+    'BRANCH_MANAGER': list(ALL_MODULE_CODES),
+    'STAFF': [
+        PRODUCTS, FLOOR_STOCK, WAREHOUSE_STOCK, WITHDRAWALS, ALERTS,
+        SALES_POS, BILLING, PROCUREMENT, DELIVERIES,
+    ],
+    'SUPPLIER': [PROCUREMENT, DELIVERIES],
+    'CUSTOMER': [SALES_POS, BILLING],
+}
+
+# Kept as a public compatibility constant for notification and test code.
+DEFAULT_STAFF_MODULES = list(ROLE_DEFAULT_MODULES['STAFF'])
 
 URL_NAME_TO_MODULE = {
     url_name: code
@@ -231,24 +287,41 @@ for _code, _config in MODULE_PERMISSION_REGISTRY.items():
 
 
 def default_allowed_modules():
-    """Default View grants for a Manager; Staff defaults are signal-managed."""
-    return list(ALL_MODULE_CODES)
+    """Default View grants for a Manager; other roles are signal-managed."""
+    return list(ROLE_DEFAULT_MODULES['BRANCH_MANAGER'])
 
 
 def default_module_actions():
-    """Backward-compatible write grants; View remains the prerequisite.
+    """Default Manager actions used by the model field callable."""
+    return role_permission_defaults('BRANCH_MANAGER')['module_actions']
 
-    Existing role checks still prevent privilege escalation. Keeping all
-    actions present means an old module grant retains its historical behavior
-    until the Owner customizes the new matrix.
+
+def role_permission_defaults(role):
+    """Return a fresh, normalized permission payload for ``role``.
+
+    Returning copies is important because JSONField values and the browser's
+    role-switch payload are both mutable.
     """
+    modules = list(ROLE_DEFAULT_MODULES.get(role, []))
+    configured_actions = ROLE_DEFAULT_ACTIONS.get(role, {})
     return {
-        code: [
-            action for action in WRITE_ACTIONS
-            if MODULE_PERMISSION_REGISTRY[code][action]
-        ]
-        for code in ALL_MODULE_CODES
+        'allowed_modules': modules,
+        'module_actions': {
+            code: [
+                action for action in WRITE_ACTIONS
+                if (
+                    action in configured_actions.get(code, [])
+                    and MODULE_PERMISSION_REGISTRY[code][action]
+                )
+            ]
+            for code in ALL_MODULE_CODES
+        },
     }
+
+
+def role_permission_defaults_for_ui(roles):
+    """JSON-serializable role defaults consumed by the edit-page script."""
+    return {role: role_permission_defaults(role) for role in roles}
 
 
 def normalize_module_actions(value):

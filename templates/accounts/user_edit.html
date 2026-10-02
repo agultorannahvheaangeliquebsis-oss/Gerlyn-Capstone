@@ -5,6 +5,7 @@
 {% block content %}
 <form method="POST" action="{% url 'accounts:user_edit' target.pk %}" id="edit-user-form">
   {% csrf_token %}
+  <input type="hidden" name="permissions_submitted" value="1">
 
   <div class="page-head">
     <div>
@@ -125,36 +126,45 @@
 {% endblock %}
 
 {% block extra_js %}
+{{ role_permission_defaults|json_script:"role-permission-defaults" }}
 <script>
 (function () {
-  /* Assigned Branch and Detailed Permissions only ever mean anything for a
-     Branch Manager or Staff — same sync behavior the Add/Edit modals used
-     to share on the list page (see user_list.html's history), kept here
-     now that Edit is its own page. Clearing the branch value on disable
-     matters as much as the disable: a half-filled branch left behind after
-     switching the role to Owner would post nothing (disabled fields are
-     not submitted) yet still read as assigned on screen. */
   var role = document.getElementById('edit-user-role');
   var branch = document.getElementById('edit-user-branch');
   var modulesField = document.getElementById('edit-user-modules-field');
-  var moduleChecks = modulesField ? modulesField.querySelectorAll('input[type="checkbox"]') : [];
+  var defaultsElement = document.getElementById('role-permission-defaults');
+  var roleDefaults = defaultsElement ? JSON.parse(defaultsElement.textContent) : {};
 
   function syncBranchField() {
     var scoped = role.value === 'BRANCH_MANAGER' || role.value === 'STAFF';
     branch.disabled = !scoped;
     if (!scoped) branch.value = '';
+    modulesField.style.display = scoped ? '' : 'none';
+    modulesField.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+      cb.disabled = !scoped;
+    });
+  }
 
-    if (modulesField) modulesField.style.display = scoped ? '' : 'none';
-    moduleChecks.forEach(function (cb) { cb.disabled = !scoped; });
-    if (modulesField) {
-      modulesField.querySelectorAll('[data-view-permission]').forEach(function (cb) {
-        cb.dispatchEvent(new Event('change'));
-      });
-    }
+  function loadRoleDefaults() {
+    var defaults = roleDefaults[role.value] || {
+      allowed_modules: [], module_actions: {}
+    };
+    var allowed = defaults.allowed_modules || [];
+    modulesField.querySelectorAll('[data-view-permission]').forEach(function (cb) {
+      cb.checked = allowed.indexOf(cb.value) !== -1;
+    });
+    modulesField.querySelectorAll('[data-action-permission]').forEach(function (cb) {
+      var parts = cb.value.split(':');
+      var actions = defaults.module_actions[parts[0]] || [];
+      cb.checked = allowed.indexOf(parts[0]) !== -1 && actions.indexOf(parts[1]) !== -1;
+    });
   }
 
   if (role && branch) {
-    role.addEventListener('change', syncBranchField);
+    role.addEventListener('change', function () {
+      syncBranchField();
+      loadRoleDefaults();
+    });
     syncBranchField();
   }
 
@@ -163,16 +173,18 @@
     var actionPermissions = row.querySelectorAll('[data-action-permission]');
     if (!viewPermission) return;
 
-    function syncActionPermissions() {
-      var scoped = !role || role.value === 'BRANCH_MANAGER' || role.value === 'STAFF';
-      actionPermissions.forEach(function (permission) {
-        permission.disabled = !scoped || !viewPermission.checked;
-        if (!viewPermission.checked) permission.checked = false;
+    viewPermission.addEventListener('change', function () {
+      if (!viewPermission.checked) {
+        actionPermissions.forEach(function (permission) {
+          permission.checked = false;
+        });
+      }
+    });
+    actionPermissions.forEach(function (permission) {
+      permission.addEventListener('change', function () {
+        if (permission.checked) viewPermission.checked = true;
       });
-    }
-
-    viewPermission.addEventListener('change', syncActionPermissions);
-    syncActionPermissions();
+    });
   });
 })();
 </script>
