@@ -3,6 +3,44 @@
 {% block title %}{{ ret.return_number }}{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 
+{% block extra_css %}
+<style>
+  {% comment %}
+  Return Progress: the same display-only stepper family as Purchase Orders'
+  Order Progress / Order Console's Order Progress (see gerlyn.css's "Order/
+  billing detail component family" — .order-progress-*, .od-card, .od-facts).
+  Rejected/Cancelled both stop the happy path rather than sitting on it, so
+  they read as a banner instead of a dot, same as a cancelled PO or a
+  cancelled sales order.
+  {% endcomment %}
+  .rd-stopped-banner {
+    flex: 1 1 320px; min-width: 0;
+    background: var(--danger-bg); border: 1px solid var(--danger-fg);
+    border-radius: var(--r-card); padding: var(--s4);
+  }
+  .rd-stopped-banner h3 { margin: 0 0 4px; }
+  .rd-stopped-banner p { margin: 0; }
+
+  {% comment %}
+  Actions share the stepper's row (.order-progress-row, from the same
+  component family) instead of sitting in their own card beside Return
+  details — same placement as Order Console's status control beside Order
+  Progress. At most two of ship/settle/cancel ever apply at once (Acknowledged
+  is the only status with two), so each renders as one compact inline form —
+  label-less inputs (sr-only label, placeholder) and a button — rather than
+  the stacked, captioned fields a standalone card had room for.
+  {% endcomment %}
+  .od-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s3); flex: 0 1 auto; }
+  .od-action-inline { display: flex; align-items: center; gap: 8px; }
+  .od-action-inline input[type=text], .od-action-inline input[type=number] { min-height: var(--touch); }
+  @media (max-width: 560px) {
+    .od-actions, .od-action-inline { width: 100%; }
+    .od-action-inline input { flex: 1 1 auto; min-width: 0; }
+    .od-action-inline .btn { flex: none; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -11,90 +49,102 @@
   </div>
 </div>
 
-{% if ret.status == "Requested" %}
-<div class="banner banner-info mb-4">Waiting for the supplier to acknowledge or reject this return. No stock has moved yet.</div>
-{% elif ret.status == "Acknowledged" %}
-<div class="banner banner-info mb-4">The supplier acknowledged this return. Ship the goods back to take them out of warehouse stock.</div>
-{% elif ret.status == "Rejected" %}
-<div class="banner banner-error mb-4"><strong>The supplier rejected this return.</strong>{% if ret.supplier_note %} Reason: {{ ret.supplier_note }}{% endif %} No stock has moved — cancel it, or <a href="{% url 'procurement_detail' ret.procurement.pk %}#returns">raise a new one</a>.</div>
-{% elif ret.status == "Shipped" %}
-<div class="banner banner-info mb-4">The goods have been sent back. Settle this return one of two ways: record a credit note, or receive replacement goods below.</div>
-{% endif %}
-
-<div class="grid-2 mb-4">
-  <div class="card card-pad">
-    <h3 class="mb-4">Return details</h3>
-    <table class="gv-table kv-table" style="border:0;">
-      <tbody>
-        <tr><td class="gv-meta">Purchase order</td><td style="text-align:right;"><a href="{% url 'procurement_detail' ret.procurement.pk %}">{{ ret.procurement.po_number }}</a></td></tr>
-        <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ ret.branch.branch_name|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Supplier</td><td style="text-align:right;">{% if ret.supplier %}{{ ret.supplier.supplier_profile.supplier_name|default:ret.supplier.username }}{% else %}—{% endif %}</td></tr>
-        <tr><td class="gv-meta">Reason</td><td style="text-align:right;">{{ ret.get_reason_display }}</td></tr>
-        {% if ret.notes %}<tr><td class="gv-meta">Notes</td><td style="text-align:right;">{{ ret.notes }}</td></tr>{% endif %}
-        <tr><td class="gv-meta">Raised</td><td class="gv-meta" style="text-align:right;">{{ ret.created_at|date:"Y-m-d H:i" }}{% if ret.requested_by %} by {{ ret.requested_by.username }}{% endif %}</td></tr>
-        {% if ret.responded_at %}<tr><td class="gv-meta">Supplier answered</td><td class="gv-meta" style="text-align:right;">{{ ret.responded_at|date:"Y-m-d H:i" }}</td></tr>{% endif %}
-        {% if ret.shipped_at %}<tr><td class="gv-meta">Shipped back</td><td class="gv-meta" style="text-align:right;">{{ ret.shipped_at|date:"Y-m-d H:i" }}{% if ret.shipped_by %} by {{ ret.shipped_by.username }}{% endif %}{% if ret.shipping_note %}<div>{{ ret.shipping_note }}</div>{% endif %}</td></tr>{% endif %}
-        {% if ret.status == "Settled" %}
-        <tr><td class="gv-meta">Settled by</td><td style="text-align:right;">{{ ret.resolution }}{% if ret.resolution == "Credit Note" %} — {{ ret.credit_reference }} (₱{{ ret.credit_amount|floatformat:2 }}){% endif %}</td></tr>
-        <tr><td class="gv-meta">Settled</td><td class="gv-meta" style="text-align:right;">{{ ret.settled_at|date:"Y-m-d H:i" }}</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-  </div>
-
-  {% if can_cancel or can_ship or can_settle %}
-  <div class="card card-pad">
-    <h3 class="mb-4">Actions</h3>
-
-    {% if can_ship %}
-    <form method="POST" action="{% url 'supplier_return_ship' ret.pk %}" class="mb-4"
-          data-confirm="The returned units are taken out of warehouse stock now. This can't be undone."
-          data-confirm-title="Ship these goods back?"
-          data-confirm-variant="warn"
-          data-confirm-ok="Ship back">
-      {% csrf_token %}
-      <div class="field">
-        <label for="ship-note">Shipping note <span class="gv-meta">— optional (courier, waybill)</span></label>
-        <input id="ship-note" type="text" name="shipping_note" maxlength="200">
+{# ---- top: Return Progress as a full-width banner, the stepper/banner and the actions that move it share one row ---- #}
+<div class="card card-pad od-card">
+  <h3 class="od-h">Return Progress</h3>
+  <div class="order-progress-row">
+    {% if return_progress.stopped %}
+    <div class="rd-stopped-banner">
+      {% if ret.status == "Rejected" %}
+      <h3>The supplier rejected this return.</h3>
+      <p class="gv-meta mb-0">{% if ret.supplier_note %}Reason: {{ ret.supplier_note }}. {% endif %}No stock has moved — cancel it, or <a href="{% url 'procurement_detail' ret.procurement.pk %}#returns">raise a new one</a>.</p>
+      {% else %}
+      <h3>{{ ret.return_number }} was cancelled</h3>
+      <p class="gv-meta mb-0">No stock moved on this return.</p>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="order-progress-track">
+      {% for step in return_progress.steps %}
+      <div class="order-progress-step {% if step.done %}done{% endif %} {% if step.current %}current{% endif %}">
+        <span class="dot">{% if step.done %}&#10003;{% else %}{{ forloop.counter }}{% endif %}</span>
+        <span class="order-progress-label">{{ step.name }}</span>
       </div>
-      <button type="submit" class="btn btn-primary">Ship goods back</button>
-    </form>
+      {% endfor %}
+    </div>
     {% endif %}
 
-    {% if can_settle %}
-    <form method="POST" action="{% url 'supplier_return_credit' ret.pk %}" class="mb-4"
-          data-confirm="{{ ret.return_number }} will be marked Settled by credit note. This can't be undone."
-          data-confirm-title="Record this credit note?"
-          data-confirm-ok="Record credit">
-      {% csrf_token %}
-      <h4 class="mb-2">Settle with a credit note</h4>
-      <div class="row wrap" style="gap:12px; align-items:flex-end;">
-        <div class="field" style="margin:0;">
-          <label for="credit-ref">Credit note reference</label>
-          <input id="credit-ref" type="text" name="credit_reference" maxlength="60" required>
-        </div>
-        <div class="field" style="margin:0;">
-          <label for="credit-amt">Amount (₱)</label>
-          <input id="credit-amt" type="number" name="credit_amount" min="0.01" step="0.01" required style="width:130px; text-align:right;">
-        </div>
+    {% if can_cancel or can_ship or can_settle %}
+    <div class="od-actions">
+      {% if can_ship %}
+      <form method="POST" action="{% url 'supplier_return_ship' ret.pk %}" class="od-action-inline"
+            data-confirm="The returned units are taken out of warehouse stock now. This can't be undone."
+            data-confirm-title="Ship these goods back?"
+            data-confirm-variant="warn"
+            data-confirm-ok="Ship back">
+        {% csrf_token %}
+        <label class="sr-only" for="ship-note">Shipping note</label>
+        <input id="ship-note" type="text" name="shipping_note" maxlength="200" placeholder="Shipping note (optional)">
+        <button type="submit" class="btn btn-primary">Ship goods back</button>
+      </form>
+      {% endif %}
+
+      {% if can_settle %}
+      <form method="POST" action="{% url 'supplier_return_credit' ret.pk %}" class="od-action-inline"
+            data-confirm="{{ ret.return_number }} will be marked Settled by credit note. This can't be undone."
+            data-confirm-title="Record this credit note?"
+            data-confirm-ok="Record credit">
+        {% csrf_token %}
+        <label class="sr-only" for="credit-ref">Credit note reference</label>
+        <input id="credit-ref" type="text" name="credit_reference" maxlength="60" required placeholder="Credit note ref.">
+        <label class="sr-only" for="credit-amt">Amount</label>
+        <input id="credit-amt" type="number" name="credit_amount" min="0.01" step="0.01" required placeholder="Amount (₱)" style="width:110px; text-align:right;">
         <button type="submit" class="btn btn-primary">Record credit</button>
-      </div>
-    </form>
-    {% endif %}
+      </form>
+      {% endif %}
 
-    {% if can_cancel %}
-    <form method="POST" action="{% url 'supplier_return_cancel' ret.pk %}"
-          data-confirm="{{ ret.return_number }} is closed and the supplier is told. No stock has moved, so nothing else changes."
-          data-confirm-title="Cancel this return?"
-          data-confirm-variant="danger"
-          data-confirm-ok="Cancel return"
-          data-confirm-dismiss="Keep return">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-quiet">Cancel this return</button>
-    </form>
+      {% if can_cancel %}
+      <form method="POST" action="{% url 'supplier_return_cancel' ret.pk %}" class="od-action-inline"
+            data-confirm="{{ ret.return_number }} is closed and the supplier is told. No stock has moved, so nothing else changes."
+            data-confirm-title="Cancel this return?"
+            data-confirm-variant="danger"
+            data-confirm-ok="Cancel return"
+            data-confirm-dismiss="Keep return">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-quiet">Cancel this return</button>
+      </form>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
+
+  {% if not return_progress.stopped %}
+  {% if ret.status == "Requested" %}
+  <p class="gv-meta mt-2 mb-0">Waiting for the supplier to acknowledge or reject this return. No stock has moved yet.</p>
+  {% elif ret.status == "Acknowledged" %}
+  <p class="gv-meta mt-2 mb-0">The supplier acknowledged this return. Ship the goods back to take them out of warehouse stock.</p>
+  {% elif ret.status == "Shipped" %}
+  <p class="gv-meta mt-2 mb-0">The goods have been sent back. Settle this return one of two ways: record a credit note, or receive replacement goods below.</p>
   {% endif %}
+  {% endif %}
+</div>
+
+<div class="card card-pad od-card mb-4">
+  <h3 class="od-h">Return details</h3>
+  <dl class="od-facts">
+    <div><dt>Purchase order</dt><dd><a href="{% url 'procurement_detail' ret.procurement.pk %}">{{ ret.procurement.po_number }}</a></dd></div>
+    <div><dt>Branch</dt><dd>{{ ret.branch.branch_name|default:"—" }}</dd></div>
+    <div><dt>Supplier</dt><dd>{% if ret.supplier %}{{ ret.supplier.supplier_profile.supplier_name|default:ret.supplier.username }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Reason</dt><dd>{{ ret.get_reason_display }}</dd></div>
+    {% if ret.notes %}<div class="wide"><dt>Notes</dt><dd>{{ ret.notes }}</dd></div>{% endif %}
+    <div><dt>Raised</dt><dd>{{ ret.created_at|date:"Y-m-d H:i" }}{% if ret.requested_by %}<span class="od-sub">by {{ ret.requested_by.username }}</span>{% endif %}</dd></div>
+    {% if ret.responded_at %}<div><dt>Supplier answered</dt><dd>{{ ret.responded_at|date:"Y-m-d H:i" }}</dd></div>{% endif %}
+    {% if ret.shipped_at %}<div><dt>Shipped back</dt><dd>{{ ret.shipped_at|date:"Y-m-d H:i" }}{% if ret.shipped_by %}<span class="od-sub">by {{ ret.shipped_by.username }}</span>{% endif %}{% if ret.shipping_note %}<span class="od-sub">{{ ret.shipping_note }}</span>{% endif %}</dd></div>{% endif %}
+    {% if ret.status == "Settled" %}
+    <div><dt>Settled by</dt><dd>{{ ret.resolution }}{% if ret.resolution == "Credit Note" %} — {{ ret.credit_reference }} (₱{{ ret.credit_amount|floatformat:2 }}){% endif %}</dd></div>
+    <div><dt>Settled</dt><dd>{{ ret.settled_at|date:"Y-m-d H:i" }}</dd></div>
+    {% endif %}
+  </dl>
 </div>
 
 {% if can_settle %}

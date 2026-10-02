@@ -6,26 +6,15 @@
 {% block extra_css %}
 <style>
   {% comment %}
-  Update status is a two-row layout: description on top, controls below,
-  left-aligned under it. Column + align-items:flex-start keeps the form its
-  own natural width instead of the flex default (align-items: stretch)
-  blowing the select out to the card's full width.
+  Dropdown + Update button, grouped as one form action row and placed as the
+  second child of .order-progress-row (gerlyn.css) beside .order-progress-track
+  — same shape as Order Console's own .od-actions (transaction_detail.html):
+  the status control sits beside the stepper it moves instead of in a
+  separate card below. .order-progress-row's own justify-content:space-between
+  pushes this to the row's end; flex:none keeps it shrink-to-fit rather than
+  stretching into the row's leftover space.
   {% endcomment %}
-  .status-update-block { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); }
-
-  {% comment %}
-  Dropdown + Update button, grouped as one form action row — scoped to this
-  card rather than reusing .row, since the mobile stack below needs
-  align-items:stretch and .row is used too widely elsewhere to safely
-  override. No flex-wrap: .status-update-block above sizes this row via
-  shrink-to-fit (align-items:flex-start), and a *wrapping* flex container's
-  shrink-to-fit width collapses to its single widest child rather than the
-  sum of its children — the select and button would drop onto separate
-  lines even with hundreds of spare pixels going unused. The row's own
-  max-width (.status-select's 280px, plus the button and gap) is narrow
-  enough that nowrap never overflows above the stack breakpoint.
-  {% endcomment %}
-  .status-update-form { display: flex; align-items: center; gap: var(--s3); }
+  .status-update-form { display: flex; align-items: center; gap: var(--s3); flex: none; }
 
   {% comment %}
   Update status used to be a plain <select>, then a <details> whose panel
@@ -42,16 +31,9 @@
   overlay that closes itself on outside click/Escape (status-select is in
   sidebar.js's AUTOCLOSE_SEL) and flips to open upward when there isn't room
   below (also sidebar.js, see .status-select--flip), not a layout
-  participant.
-
-  This page is also reachable inside the detail-modal overlay
-  (data-detail-modal on the Purchase Orders/Deliveries lists), which injects
-  the response via innerHTML — so any <script> here would never run there.
-  <details> and radio inputs need none: open/close is native, and the
-  trigger's own label is kept in sync with :has() below rather than JS.
-  sidebar.js is loaded globally and delegates on document, so its
-  autoclose/flip handling applies here too even though this markup didn't
-  exist when the page first loaded.
+  participant. No JS is required for the control itself to work — <details>
+  and radio inputs are native — so it degrades cleanly if a script fails to
+  load, same reasoning as every other disclosure on this page.
   {% endcomment %}
   .status-select { position: relative; min-width: 170px; flex: 1 1 220px; max-width: 280px; }
   .status-select-trigger {
@@ -91,7 +73,7 @@
   width:100% (not a fixed min-width) so the panel lines up edge-to-edge with
   its own trigger, whose width varies with viewport — see the mobile stack
   below. z-index matches the other anchored panels in this file (30): it's
-  meant to sit over Order Details/Delivery, same as any of them sit over
+  meant to sit over whatever card is below it, same as any of them sit over
   whatever is below them.
   {% endcomment %}
   .status-select-panel {
@@ -116,15 +98,16 @@
 
   {% comment %}
   Narrow enough that dropdown + button no longer fit comfortably side by
-  side: stack them instead of shrinking either one. align-items:stretch
-  (column flex's own default) gives both the same width for free — but the
-  row itself is still shrink-to-fit under .status-update-block's
-  align-items:flex-start, so without align-self:stretch here it would only
-  ever be as wide as its widest child (the select or the button, whichever
-  wins) instead of the full card width the stacked controls should fill.
+  side: stack them instead of shrinking either one. .status-update-form is
+  now a direct child of .order-progress-row (gerlyn.css, flex-wrap:wrap), so
+  it already drops to its own line below the stepper at this width — width:
+  100% (not align-self:stretch, which only affects the wrapped line's cross
+  axis) is what makes it fill that line instead of shrink-to-fit.
+  align-items:stretch (column flex's own default) then gives the select and
+  button that same full width.
   {% endcomment %}
   @media (max-width: 480px) {
-    .status-update-form { flex-direction: column; align-items: stretch; align-self: stretch; }
+    .status-update-form { flex-direction: column; align-items: stretch; width: 100%; }
     {% comment %}
     .status-select's flex: 1 1 220px above is a row-layout sizing (220px is
     a target *width*). Flipping the form to column without resetting it
@@ -147,58 +130,65 @@
   .pd-negotiate-banner {
     display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s4);
     flex-wrap: wrap; background: var(--warn-bg); border: 1px solid var(--warn-fg);
-    border-radius: var(--r-card); padding: var(--s4);
+    border-radius: var(--r-card); padding: var(--s4); margin-bottom: var(--s4);
   }
   .pd-negotiate-banner h3 { margin: 0 0 4px; color: var(--warn-fg); }
   .pd-negotiate-banner p { margin: 0; }
   .pd-negotiate-banner .btn-quiet { flex: none; white-space: nowrap; }
 
   {% comment %}
-  Top row: two side-by-side fact panels — Delivery & receipt validation on
-  the left, Order Details (plus the funding form, when editable) on the
-  right. Order items/Receipts/Returns all live below in .pd-below, spanning
-  the full width instead of sharing a column with either fact panel, since
-  the items table needs more room than a sidebar column gives it.
+  od-side normally holds exactly two cards (see gerlyn.css's "Order/billing
+  detail component family"). Procurement has four fact cards worth keeping,
+  not two, so each column is its own od-workspace (a plain vertical stack —
+  display:flex/flex-direction:column/gap, already generic) rather than a
+  bare card: Delivery & receipt validation pairs with the Funding source
+  form on the left (both about how/when this order is fulfilled); Order
+  Details pairs with Financial Summary on the right (both reference facts
+  about the order itself), mirroring Order Console's own Order
+  Details/Financial Summary pairing. The nested od-workspace still picks up
+  gerlyn.css's own margin-bottom though, so it needs zeroing here the same
+  way .od-workspace > .od-card already is.
   {% endcomment %}
-  .pd-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); align-items: start; margin-bottom: var(--s4); }
-  .pd-top-col { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
-  .pd-below { display: flex; flex-direction: column; gap: var(--s4); }
-  .pd-top-grid .card, .pd-below .card { margin: 0; }
-  @media (max-width: 900px) {
-    .pd-top-grid { grid-template-columns: 1fr; }
-  }
+  .od-side > .od-workspace { margin-bottom: 0; }
   {% comment %}
-  This page is also reachable inside the detail-modal overlay (see the
-  status-select comment above), whose .modal-card caps out at 860px
-  regardless of the viewport — so on an ordinary monitor the @media query
-  above never fires there, and the 1fr/1fr split lands on a ~800px box
-  instead of a full-width page. Force the single-column stack
-  unconditionally in the modal instead of guessing a second breakpoint
-  number that would only coincidentally match 860px.
+  .od-side is used directly here (not wrapped in an outer .od-workspace the
+  way transaction_detail.html does it), so it never picks up gerlyn.css's
+  .od-card/.od-workspace/.od-history margin-bottom and sits flush against
+  the Order Items card below it.
   {% endcomment %}
-  .detail-modal .pd-top-grid { grid-template-columns: 1fr; }
+  .od-side { margin-bottom: var(--s4); }
 
   {% comment %}
-  In the modal the title already sits in .modal-head, so by the time
-  detail-modal.js is done dressing the fragment, .page-head here holds
-  nothing but Print PO/Download PDF — two buttons stranded in the same
-  amount of space a full title-and-buttons row would take, with nothing
-  left in it to explain why they're floating there. A rule under the strip
-  (same shape as the "Order items" card header's border-bottom above) reads
-  it as the record's own action toolbar sitting under the header, not a
-  stray control adrift in blank surface.
+  Reschedule form folded into the Delivery & receipt validation card
+  (instead of its own full-width card above it) so a single delivery date
+  correction doesn't read as a 4th, unrelated box. Same divider shape as
+  .od-sum .od-total in gerlyn.css: border-top + margin/padding-top to set
+  the action apart from the facts above it without a separate card.
   {% endcomment %}
-  .detail-modal .modal-body .page-head {
-    padding-bottom: var(--s4);
-    border-bottom: 1px solid var(--line);
-  }
+  .pd-resched { border-top: 1px solid var(--line-soft); margin-top: var(--s3); padding-top: var(--s3); }
 
-  .pd-items-foot td { border-top: 1px solid var(--line); padding-top: var(--s3); }
+  {% comment %}
+  Order Progress stepper: gerlyn.css's shared .order-progress-track caps at
+  1040px (sized for the narrower billing/order-console cards it was first
+  built for). This page's card runs close to the full content width, so
+  that cap left the dots clustered in the middle with large empty margins
+  on both sides instead of the steps balancing across the card. Scoped
+  here, not in gerlyn.css, per the project's rule against rippling
+  one-page visual changes into the shared component.
+  {% endcomment %}
+  .order-progress-track { max-width: none; }
+  {% comment %}
+  .od-h already supplies margin-bottom: var(--s3) under the "Order
+  Progress" heading; .order-progress-row's own margin-top: var(--s3) (set
+  in gerlyn.css) stacks on top of that and doubles the gap to the stepper
+  versus every other card's header-to-content spacing. Zeroed here to match.
+  {% endcomment %}
+  .order-progress-row { margin-top: 0; }
 
   {% comment %}
   Plain disclosure, not a popover (compare .status-select above, which is
-  anchored/floating) — opening it pushes the negotiation card below down,
-  which is fine since this sits above it in normal flow either way.
+  anchored/floating) — opening it pushes whatever sits below it down, which
+  is fine since this sits in normal flow either way.
   {% endcomment %}
   .pd-manual-comm summary {
     display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
@@ -209,6 +199,49 @@
   .pd-manual-comm-caret { color: var(--ink-500); flex: none; transition: transform .15s ease; }
   .pd-manual-comm[open] .pd-manual-comm-caret { transform: rotate(180deg); }
   .pd-manual-comm-body { padding-top: var(--s4); margin-top: var(--s4); border-top: 1px solid var(--line); }
+  .pd-manual-comm-submit { display: flex; justify-content: flex-end; }
+
+  {% comment %}
+  Status History: secondary, so it is a collapsed row that names the latest
+  step, and opens into one line per step. Verbatim copy of
+  transaction_detail.html's own od-history/od-log rules — kept page-scoped
+  here rather than promoted to gerlyn.css, same call Billing's detail page
+  already made (see gerlyn.css's "Order/billing detail component family"
+  comment: status history stays page-specific).
+  {% endcomment %}
+  .od-history > summary {
+    display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+    min-height: var(--touch); padding: 8px var(--s4); cursor: pointer; list-style: none;
+    font-weight: 600; color: var(--ink-900);
+  }
+  .od-history > summary::-webkit-details-marker { display: none; }
+  .od-history > summary::before {
+    content: ""; flex: none; width: 7px; height: 7px; margin: 0 4px 2px 2px;
+    border-right: 2px solid var(--ink-500); border-bottom: 2px solid var(--ink-500);
+    transform: rotate(-45deg);
+  }
+  .od-history[open] > summary::before { transform: rotate(45deg); margin-bottom: 4px; }
+  .od-history > summary:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+  .od-history > summary .gv-meta { font-weight: 400; font-size: 13.5px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .od-history > summary::before { transition: transform .15s ease; }
+  }
+  .od-log { list-style: none; margin: 0; padding: 0 var(--s4) var(--s3); display: grid; gap: 0; }
+  .od-log li { position: relative; padding: 0 0 var(--s3) 22px; font-size: 14.5px; }
+  .od-log li::before {
+    content: ""; position: absolute; left: 2px; top: 4px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--brand);
+  }
+  .od-log li::after {
+    content: ""; position: absolute; left: 6px; top: 15px; bottom: 0; width: 1px; background: var(--line-soft);
+  }
+  .od-log li:last-child::after { display: none; }
+  .od-log li:last-child { padding-bottom: 0; }
+  .od-log .od-when { display: block; font-size: 13.5px; color: var(--ink-600); margin-bottom: 2px; }
+
+  @media (max-width: 860px) {
+    .od-btn { min-height: var(--touch); }
+  }
 </style>
 {% endblock %}
 
@@ -222,13 +255,12 @@
   </div>
   {% comment %}
   Available at every status: a cancelled or draft PO still gets printed for
-  the paper file, and the document itself says which it is.
-
-  data-detail-modal so the document opens in the same overlay every other
-  record does, instead of navigating the window away to a page whose only
-  way back was the browser's Back button. po_print.html extends
-  base_template, so the ?modal=1 fetch gets the bare document and its own
-  Print button calls window.print() from inside the overlay.
+  the paper file, and the document itself says which it is. Print PO is the
+  one control on this page that still opens in the shared overlay — it is a
+  document preview (po_print.html), not the order record itself, so it is
+  unaffected by this page becoming a standalone destination. po_print.html
+  extends base_template, so the ?modal=1 fetch gets the bare document and
+  its own Print button calls window.print() from inside the overlay.
   {% endcomment %}
   <div class="row" style="gap:var(--s2);">
     <a class="btn" data-detail-modal="Purchase Order"
@@ -243,8 +275,110 @@
   </div>
 </div>
 
+{# ---- top: Order Progress as a full-width banner, same shape as Order Console's ---- #}
+{% comment %}
+The stepper and the status-change control share one row, same as Order
+Console's own .order-progress-row (transaction_detail.html) — Update status
+used to be a separate card below this one; moved in here so the control
+sits beside what it moves instead of reading as a second, disconnected
+step. Restricted to the three statuses where a plain status bump still
+makes unambiguous sense: Draft (cancel only — approval is the Approve card
+below), and Incoming/Partially Received (record a receipt, or cancel).
+Approved and every negotiation status (Pending Owner/Supplier Review, Terms
+Agreed) are owned entirely by the negotiation card further down instead,
+including its own Cancel action.
+
+user.role != "SUPPLIER" (UIUX-006): every option this card can ever offer a
+Supplier viewer (Received, Cancelled) is one procurement_update_status
+already refuses them — Drafts are never visible to a Supplier (see
+supplier_portal), so on their own Ordered PO this would show nothing
+they're actually allowed to submit.
+{% endcomment %}
+<div class="card card-pad od-card">
+  <h3 class="od-h">Order Progress</h3>
+  {% if progress.cancelled %}
+  <div class="banner banner-error mt-2 mb-0">
+    <span><strong>{{ procurement.po_number }} was cancelled</strong> — it will not move through the remaining stages.</span>
+  </div>
+  {% else %}
+  <div class="order-progress-row">
+    <div class="order-progress-track">
+      {% for step in progress.steps %}
+      <div class="order-progress-step {% if step.done %}done{% endif %} {% if step.current %}current{% endif %}">
+        <span class="dot">{% if step.done %}&#10003;{% else %}{{ forloop.counter }}{% endif %}</span>
+        <span class="order-progress-label">{{ step.name }}</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Communicated/Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
+      {% if user.role != "SUPPLIER" %}
+    {% comment %}
+    One form, two outcomes, and only one of them is destructive — hence
+    data-confirm-when. Received hands off to the Deliveries screen, which
+    already has its own review step, so stopping for it would tax the
+    common path to guard the rare one.
+    {% endcomment %}
+    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="status-update-form"
+          data-confirm="{{ procurement.po_number }} will be closed as cancelled. Stock already received is not affected."
+          data-confirm-title="Cancel this purchase order?"
+          data-confirm-variant="warn"
+          data-confirm-ok="Cancel PO"
+          data-confirm-dismiss="Keep PO"
+          data-confirm-when="status=Cancelled">
+      {% csrf_token %}
+      {% comment %}
+      On a draft, Cancel is the only option here — approval is the step that
+      moves it to Approved, and that lives in the Approve card below, the
+      Owner's alone (procurement_update_status refuses approval here
+      too, so this is the matching UI, not the guard itself). Whichever
+      status the PO is already in is left out of its own options — picking
+      it would just re-submit the current status, which can_transition_to
+      rejects as "cannot change a {status} order to {status}". Default value
+      matches whichever option comes first, same as a native select with no
+      `selected` option.
+      {% endcomment %}
+      <details class="status-select">
+        <summary class="status-select-trigger">
+          {% if procurement.status != "Draft" %}<span class="status-select-value" data-for="Received">Record receipt</span>{% endif %}
+          <span class="status-select-value" data-for="Cancelled">Cancelled</span>
+          <svg class="status-select-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="status-select-panel">
+          {% if procurement.status != "Draft" %}
+          <label class="status-select-option">
+            <input type="radio" name="status" value="Received" class="sr-only" checked>Record receipt
+          </label>
+          {% endif %}
+          <label class="status-select-option">
+            <input type="radio" name="status" value="Cancelled" class="sr-only"{% if procurement.status == "Draft" %} checked{% endif %}>Cancelled
+          </label>
+        </div>
+      </details>
+      <button type="submit" class="btn btn-primary">Update</button>
+    </form>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Communicated/Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
+    {% if user.role != "SUPPLIER" %}
+  <p class="gv-meta od-note">
+    {% if procurement.status == "Draft" %}
+    A draft can only be cancelled from here — approval is what moves it to
+    <strong>Approved</strong>.
+    {% else %}
+    Recording a receipt adds the delivered quantities to
+    {{ procurement.branch.branch_name }}'s stock.
+    {% endif %}
+  </p>
+    {% endif %}
+  {% endif %}
+  {% endif %}
+</div>
+
 {% if procurement.status == "Draft" %}
-<div class="card card-pad mb-4">
+<div class="card card-pad od-card">
   <div class="row-between wrap">
     <div class="grow">
       <h3>Waiting for approval</h3>
@@ -273,88 +407,6 @@
 </div>
 {% endif %}
 
-{% comment %}
-Restricted to the three statuses where a plain status bump still makes
-unambiguous sense: Draft (cancel only — approval is the Approve card
-above), and Incoming/Partially Received (record a receipt, or cancel).
-Approved and every negotiation status (Pending Owner/Supplier Review,
-Terms Agreed) are owned entirely by the negotiation card below instead,
-including its own Cancel action — Incoming is reachable only through the
-supplier's own final confirmation once Terms Agreed, never a bare status
-POST here (that used to be a way to skip negotiation entirely).
-
-user.role != "SUPPLIER" (UIUX-006): every option this card can ever offer a
-Supplier viewer (Received, Cancelled) is one procurement_update_status
-already refuses them — Drafts are never visible to a Supplier (see
-supplier_portal), so on their own Ordered PO this card would show nothing
-they're actually allowed to submit. Hiding it here matches the backend
-guard rather than leaving a dead-end form.
-{% endcomment %}
-{% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Communicated/Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
-  {% if user.role != "SUPPLIER" %}
-<div class="card card-pad mb-4">
-  <div class="status-update-block">
-    <div>
-      <h3>Update status</h3>
-      <p class="gv-meta mb-0">
-        {% if procurement.status == "Draft" %}
-        A draft can only be cancelled from here — approval is what moves it to
-        <strong>Approved</strong>.
-        {% else %}
-        Recording a receipt adds the delivered quantities to
-        {{ procurement.branch.branch_name }}'s stock.
-        {% endif %}
-      </p>
-    </div>
-    {% comment %}
-    One form, two outcomes, and only one of them is destructive — hence
-    data-confirm-when. Received hands off to the Deliveries screen, which
-    already has its own review step, so stopping for it would tax the
-    common path to guard the rare one.
-    {% endcomment %}
-    <form method="POST" action="{% url 'procurement_update_status' procurement.pk %}" class="status-update-form"
-          data-confirm="{{ procurement.po_number }} will be closed as cancelled. Stock already received is not affected."
-          data-confirm-title="Cancel this purchase order?"
-          data-confirm-variant="warn"
-          data-confirm-ok="Cancel PO"
-          data-confirm-dismiss="Keep PO"
-          data-confirm-when="status=Cancelled">
-      {% csrf_token %}
-      {% comment %}
-      On a draft, Cancel is the only option here — approval is the step that
-      moves it to Approved, and that lives in the Approve card above, the
-      Owner's alone (procurement_update_status refuses approval here
-      too, so this is the matching UI, not the guard itself). Whichever
-      status the PO is already in is left out of its own options — picking
-      it would just re-submit the current status, which can_transition_to
-      rejects as "cannot change a {status} order to {status}". Default value
-      matches whichever option comes first, same as a native select with no
-      `selected` option.
-      {% endcomment %}
-      <details class="status-select">
-        <summary class="status-select-trigger">
-          {% if procurement.status != "Draft" %}<span class="status-select-value" data-for="Received">Record receipt</span>{% endif %}
-          <span class="status-select-value" data-for="Cancelled">Cancelled</span>
-          <svg class="status-select-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-        </summary>
-        <div class="status-select-panel">
-          {% if procurement.status != "Draft" %}
-          <label class="status-select-option">
-            <input type="radio" name="status" value="Received" class="sr-only" checked>Record receipt
-          </label>
-          {% endif %}
-          <label class="status-select-option">
-            <input type="radio" name="status" value="Cancelled" class="sr-only"{% if procurement.status == "Draft" %} checked{% endif %}>Cancelled
-          </label>
-        </div>
-      </details>
-      <button type="submit" class="btn btn-primary">Update</button>
-    </form>
-  </div>
-</div>
-  {% endif %}
-{% endif %}
-
 {% if can_mark_communicated %}
 {% comment %}
 Collapsed by default, not a second full-width card competing with the
@@ -368,7 +420,7 @@ four), with nothing saying they're either/or. Same <details>-as-disclosure
 shape as .status-select above and .faq-item (accounts/help_center.html);
 no JS needed.
 {% endcomment %}
-<details class="card card-pad mb-4 pd-manual-comm">
+<details class="card card-pad od-card pd-manual-comm">
   <summary class="pd-manual-comm-summary">
     <span>
       <span class="pd-manual-comm-title">Agreed terms by phone or message instead?</span><br>
@@ -409,14 +461,16 @@ no JS needed.
         <label for="communication-note">Contact note <span class="gv-meta">— optional</span></label>
         <input id="communication-note" type="text" name="communication_note" maxlength="300" placeholder="e.g. Confirmed by Ana through Viber">
       </div>
-      <button type="submit" class="btn btn-primary mt-2">Mark Communicated/Ordered</button>
+      <div class="pd-manual-comm-submit mt-2">
+        <button type="submit" class="btn btn-primary">Mark Communicated/Ordered</button>
+      </div>
     </form>
   </div>
 </details>
 {% endif %}
 
 {% if procurement.status == "Communicated/Ordered" %}
-<div class="banner banner-info mb-4">
+<div class="banner banner-info">
   <strong>PO communicated outside the system.</strong>
   {{ procurement.get_communication_method_display }}{% if procurement.communicated_at %} on {{ procurement.communicated_at|date:"Y-m-d H:i" }}{% endif %}.
   {% if procurement.supplier_acknowledged_at %}The supplier acknowledged it in the portal.{% else %}Supplier portal acknowledgement is optional; delivery can still be received and verified.{% endif %}
@@ -438,7 +492,7 @@ Approved order, before the supplier has made a first offer. No proposed
 terms to show, no form to fill in, so it reads as an integrated status
 banner rather than a full card (see .pd-negotiate-banner above).
 {% endcomment %}
-<div class="pd-negotiate-banner mb-4">
+<div class="pd-negotiate-banner">
   <div>
     <h3>Negotiate price &amp; delivery date</h3>
     <p class="gv-meta mb-0">Waiting for the supplier to propose a delivery date and pricing.</p>
@@ -457,7 +511,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
   {% endif %}
 </div>
 {% elif procurement.status == "Approved" or procurement.status == "Pending Owner Review" or procurement.status == "Pending Supplier Review" or procurement.status == "Terms Agreed" %}
-<div class="card card-pad mb-4">
+<div class="card card-pad od-card">
   <h3 class="mb-4">Negotiate price &amp; delivery date</h3>
 
   {% if procurement.proposed_delivery_date %}
@@ -578,7 +632,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
 {% endif %}
 
 {% if procurement.status == "Communicated/Ordered" and user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
-<div class="card card-pad mb-4">
+<div class="card card-pad od-card">
   <h3>Acknowledge purchase order</h3>
   <p class="gv-meta">The store recorded this PO as communicated. Acknowledgement helps them track it, but delivery processing does not depend on it.</p>
   <form method="POST" action="{% url 'procurement_supplier_confirm' procurement.pk %}">
@@ -589,74 +643,52 @@ banner rather than a full card (see .pd-negotiate-banner above).
 {% endif %}
 
 {% if days_overdue %}
-<div class="banner banner-error mb-4">
+<div class="banner banner-error">
   <strong>{{ days_overdue }} day{{ days_overdue|pluralize }} overdue.</strong>
   This order was due {{ procurement.delivery_date|date:"Y-m-d" }} and has not been fully delivered.
   Reschedule the delivery below, or cancel the order.
 </div>
 {% endif %}
 
-{% if can_reschedule %}
-<div class="card card-pad mb-4">
-  <h3 class="mb-4">Delivery date</h3>
-  <form method="POST" action="{% url 'procurement_reschedule' procurement.pk %}" class="row wrap" style="gap:12px; align-items:flex-end;">
-    {% csrf_token %}
-    <div class="field" style="margin:0;">
-      <label for="resched-date">New delivery date</label>
-      <input id="resched-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" value="{{ procurement.delivery_date|date:'Y-m-d' }}" required>
-    </div>
-    <button type="submit" class="btn">Reschedule</button>
-    <span class="gv-meta">The supplier is told, and overdue tracking starts over.</span>
-  </form>
-</div>
-{% endif %}
-
-<div class="pd-top-grid">
-  <div class="pd-top-col">
-    <div class="card card-pad">
-      <h3 class="mb-2">Delivery &amp; receipt validation</h3>
-      <p class="gv-meta mb-0">
+{# ---- workspace: Delivery/Funding and Order Details/Financial Summary side by side ---- #}
+<div class="od-side">
+  <div class="od-workspace">
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Delivery &amp; receipt validation</h3>
+      <p class="od-note gv-meta">
         Stock is only added after a receipt is validated — this keeps the digital
         records matching the physical goods.
       </p>
-      <table class="gv-table kv-table mt-4" style="border:0;">
-        <tbody>
-          <tr><td class="gv-meta">Expected delivery</td><td style="text-align:right;">{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</td></tr>
-          <tr><td class="gv-meta">Actual receipt</td><td style="text-align:right;">{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</td></tr>
-          <tr><td class="gv-meta">Receipt flag</td><td style="text-align:right;">
-            {% if procurement.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
-            {% elif procurement.receipt_flag == 'Partial' %}<span class="pill pill-warn">Partial</span>
-            {% else %}<span class="pill pill-ok">None</span>{% endif %}</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="pd-top-col">
-    <div class="card card-pad">
-      <h3 class="mb-4">Order Details</h3>
-      <table class="gv-table kv-table" style="border:0;">
-        <tbody>
-          <tr><td class="gv-meta">Branch</td><td class="strong" style="text-align:right;">{{ procurement.branch.branch_name }}</td></tr>
-          <tr><td class="gv-meta">Supplier</td><td style="text-align:right;">
-            {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</td></tr>
-          <tr><td class="gv-meta">Order date</td><td style="text-align:right;">{{ procurement.order_date|date:"Y-m-d" }}</td></tr>
-          <tr><td class="gv-meta">Funding source</td><td style="text-align:right;">
-            {% if procurement.funding_source %}<span class="tag">{{ procurement.funding_source }}</span>{% if procurement.funding_note %}<div class="gv-meta">{{ procurement.funding_note }}</div>{% endif %}{% else %}<span class="gv-meta">Not recorded</span>{% endif %}</td></tr>
-          <tr><td class="gv-meta">Raised by</td><td style="text-align:right;">
-            {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</td></tr>
-        </tbody>
-      </table>
+      <dl class="od-facts">
+        <div><dt>Expected delivery</dt><dd>{{ procurement.delivery_date|date:"Y-m-d"|default:"—" }}</dd></div>
+        <div><dt>Actual receipt</dt><dd>{{ procurement.actual_receipt_date|date:"Y-m-d"|default:"—" }}</dd></div>
+        <div><dt>Receipt flag</dt><dd>
+          {% if procurement.receipt_flag == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
+          {% elif procurement.receipt_flag == 'Partial' %}<span class="pill pill-warn">Partial</span>
+          {% else %}<span class="pill pill-ok">None</span>{% endif %}</dd></div>
+      </dl>
+      {% if can_reschedule %}
+      {# Folded in rather than its own card: it's a correction to the same "Expected delivery" fact above, not a separate topic. #}
+      <form method="POST" action="{% url 'procurement_reschedule' procurement.pk %}" class="row wrap pd-resched" style="gap:12px; align-items:flex-end;">
+        {% csrf_token %}
+        <div class="field" style="margin:0;">
+          <label for="resched-date">New delivery date</label>
+          <input id="resched-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" value="{{ procurement.delivery_date|date:'Y-m-d' }}" required>
+        </div>
+        <button type="submit" class="btn">Reschedule</button>
+        <span class="gv-meta">The supplier is told, and overdue tracking starts over.</span>
+      </form>
+      {% endif %}
     </div>
 
     {% if can_edit_funding %}
-    <div class="card card-pad">
-      <h3 class="mb-4">Funding source</h3>
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Funding source</h3>
       <form method="POST" action="{% url 'procurement_set_funding' procurement.pk %}">
         {% csrf_token %}
         <div class="stack">
           <div class="field">
-            <label for="fund-source">Where the money comes from</label>
+            <label for="fund-source">Funding source</label>
             <select id="fund-source" name="funding_source" required>
               <option value="">Choose…</option>
               {% for value, label in funding_choices %}
@@ -665,7 +697,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
             </select>
           </div>
           <div class="field">
-            <label for="fund-note">Note <span class="gv-meta">— required for Other</span></label>
+            <label for="fund-note">Note <span class="gv-meta">— required if Other is selected</span></label>
             <input id="fund-note" type="text" name="funding_note" maxlength="200" value="{{ procurement.funding_note }}">
           </div>
         </div>
@@ -677,14 +709,48 @@ banner rather than a full card (see .pd-negotiate-banner above).
     </div>
     {% endif %}
   </div>
+
+  <div class="od-workspace">
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Order Details</h3>
+      <dl class="od-facts">
+        <div><dt>Branch</dt><dd>{{ procurement.branch.branch_name }}</dd></div>
+        <div><dt>Supplier</dt><dd>
+          {% if procurement.supplier %}{{ procurement.supplier.supplier_profile.supplier_name|default:procurement.supplier.username }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Order date</dt><dd>{{ procurement.order_date|date:"Y-m-d" }}</dd></div>
+        <div><dt>Funding source</dt><dd>
+          {% if procurement.funding_source %}<span class="tag">{{ procurement.funding_source }}</span>{% if procurement.funding_note %}<span class="od-sub">{{ procurement.funding_note }}</span>{% endif %}{% else %}<span class="gv-meta">Not recorded</span>{% endif %}</dd></div>
+        <div><dt>Raised by</dt><dd>
+          {% if procurement.created_by %}{{ procurement.created_by.username }}{% else %}—{% endif %}</dd></div>
+      </dl>
+    </div>
+
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Financial Summary</h3>
+      <dl class="od-sum">
+        <div class="od-total"><dt>Total cost</dt><dd>₱{{ procurement.total_cost|floatformat:2 }}</dd></div>
+        {% if procurement.status == 'Received' or procurement.status == 'Partially Received' %}
+        {% if procurement.actual_received_cost != procurement.total_cost %}
+        {# Factual note: what actually arrived (valued at confirmed cost) vs the committed order total. #}
+        <div><dt>Actual received cost</dt><dd>₱{{ procurement.actual_received_cost|floatformat:2 }}</dd></div>
+        {% if procurement.unrecorded_cost_item_count %}
+        <div><dt>Cost not yet recorded</dt><dd>{{ procurement.unrecorded_cost_item_count }} item{{ procurement.unrecorded_cost_item_count|pluralize }}</dd></div>
+        {% endif %}
+        {% endif %}
+        {% endif %}
+      </dl>
+    </div>
+  </div>
 </div>
 
-<div class="pd-below">
-    <div class="card table-wrap">
-      <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
-        <h3 class="mb-0">Order items &amp; received quantities <span class="pill pill-neutral">{{ items|length }} line item{{ items|length|pluralize }}</span></h3>
-      </div>
-      <table class="gv-table">
+{# ---- items, receipts and returns-to-supplier: full width, stacked ---- #}
+<div class="od-workspace">
+  <div class="card card-pad od-card">
+    <div class="od-items-block">
+      <h4 class="od-items-head">
+        Order Items &amp; Received Quantities <span class="tag">{{ items|length }} item{{ items|length|pluralize }}</span>
+      </h4>
+      <table class="gv-table od-table od-items" style="border:0;">
         <thead>
           <tr><th>Product</th><th class="num">Qty Ordered</th><th class="num">Qty Received</th>
               <th class="num">Unit Cost Snapshot</th><th class="num">Line Total</th></tr>
@@ -705,82 +771,97 @@ banner rather than a full card (see .pd-negotiate-banner above).
           <tr><td colspan="5"><div class="empty"><h3>No items on this order</h3></div></td></tr>
           {% endfor %}
         </tbody>
-        {% if items %}
-        <tfoot>
-          <tr class="pd-items-foot">
-            <td colspan="5">
-              <div class="row-between"><span class="strong">Total cost</span><span class="gv-metric" style="color:var(--action);">₱{{ procurement.total_cost|floatformat:2 }}</span></div>
-              {% if procurement.status == 'Received' or procurement.status == 'Partially Received' %}
-              {% if procurement.actual_received_cost != procurement.total_cost %}
-              {# Factual note: what actually arrived (valued at confirmed cost) vs the committed order total. #}
-              <div class="row-between gv-meta mt-2">
-                <span>Actual Received Cost</span>
-                <span>₱{{ procurement.actual_received_cost|floatformat:2 }}</span>
-              </div>
-              {% if procurement.unrecorded_cost_item_count %}
-              <div class="gv-meta mt-2">{{ procurement.unrecorded_cost_item_count }} item{{ procurement.unrecorded_cost_item_count|pluralize }} with cost not yet recorded</div>
-              {% endif %}
-              {% endif %}
-              {% endif %}
-            </td>
-          </tr>
-        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  {% if receipts %}
+  <div class="card table-wrap">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Receipt</th><th>Receipt date</th><th>Received by</th><th>Delivered by</th><th>Recorded</th></tr>
+      </thead>
+      <tbody>
+        {% for r in receipts %}
+        <tr>
+          <td data-label="Receipt" class="strong">#{{ forloop.counter }}</td>
+          <td data-label="Receipt date">{{ r.receipt_date|date:"Y-m-d"|default:"—" }}</td>
+          <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
+          <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
+          <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+        {% if r.lines.all %}
+        <tr>
+          <td></td>
+          <td colspan="4" class="gv-meta">
+            {% for line in r.lines.all %}{{ line.item.product.product_name }} &times;{{ line.quantity_received }}{% if not forloop.last %}, {% endif %}{% endfor %}
+          </td>
+        </tr>
         {% endif %}
-      </table>
-    </div>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
-    {% if receipts %}
-    <div class="card table-wrap">
-      <table class="gv-table">
-        <thead>
-          <tr><th>Receipt</th><th>Receipt date</th><th>Received by</th><th>Delivered by</th><th>Recorded</th></tr>
-        </thead>
-        <tbody>
-          {% for r in receipts %}
-          <tr>
-            <td data-label="Receipt" class="strong">#{{ forloop.counter }}</td>
-            <td data-label="Receipt date">{{ r.receipt_date|date:"Y-m-d"|default:"—" }}</td>
-            <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
-            <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
-            <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
-          </tr>
-          {% if r.lines.all %}
-          <tr>
-            <td></td>
-            <td colspan="4" class="gv-meta">
-              {% for line in r.lines.all %}{{ line.item.product.product_name }} &times;{{ line.quantity_received }}{% if not forloop.last %}, {% endif %}{% endfor %}
-            </td>
-          </tr>
-          {% endif %}
-          {% endfor %}
-        </tbody>
-      </table>
+  {% if can_return_goods or supplier_returns %}
+  <div class="card table-wrap" id="returns">
+    <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+      <h3>Returns to supplier</h3>
+      {% if can_return_goods %}<a class="btn btn-sm" href="{% url 'supplier_return_add' procurement.pk %}">Return goods</a>{% endif %}
     </div>
-    {% endif %}
-
-    {% if can_return_goods or supplier_returns %}
-    <div class="card table-wrap" id="returns">
-      <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
-        <h3>Returns to supplier</h3>
-        {% if can_return_goods %}<a class="btn btn-sm" href="{% url 'supplier_return_add' procurement.pk %}">Return goods</a>{% endif %}
-      </div>
-      <table class="gv-table">
-        <thead><tr><th>Return</th><th>Reason</th><th>Status</th><th>Raised</th><th class="end">Action</th></tr></thead>
-        <tbody>
-          {% for r in supplier_returns %}
-          <tr>
-            <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
-            <td data-label="Reason">{{ r.get_reason_display }}</td>
-            <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
-            <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
-            <td data-label="Action" class="end"><a class="btn btn-sm" href="{% url 'supplier_return_detail' r.pk %}">View</a></td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="5"><span class="gv-meta">No returns yet. If part of this delivery was damaged, wrong or short-dated, choose Return goods.</span></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
+    <table class="gv-table">
+      <thead><tr><th>Return</th><th>Reason</th><th>Status</th><th>Raised</th><th class="end">Action</th></tr></thead>
+      <tbody>
+        {% for r in supplier_returns %}
+        <tr>
+          <td data-label="Return" class="sku strong">{{ r.return_number }}</td>
+          <td data-label="Reason">{{ r.get_reason_display }}</td>
+          <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
+          <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
+          <td data-label="Action" class="end"><a class="icon-btn icon-btn-action" href="{% url 'supplier_return_detail' r.pk %}"
+             title="View" aria-label="View return {{ r.return_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><span class="gv-meta">No returns yet. If part of this delivery was damaged, wrong or short-dated, choose Return goods.</span></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 </div>
+
+{# ---- status history: every milestone this PO has a timestamp for — collapsed, it is the secondary record ---- #}
+{% comment %}
+status_timeline is procurement.views._procurement_timeline: a derived,
+read-only list built from timestamps Procurement/DeliveryReceipt already
+store. There is no history table for purchase orders and no
+cancelled_at/cancel_reason field, so a Cancelled order has no row for the
+cancellation itself — the status pill above already says Cancelled.
+{% endcomment %}
+<details class="card od-history">
+  <summary>
+    Status History
+    <span class="gv-meta">
+      {% with last=status_timeline|last %}
+      {% if last %}({{ status_timeline|length }}) · last: {{ last.label }}, {{ last.when|date:"j M Y, g:i a" }}{% endif %}
+      {% endwith %}
+    </span>
+  </summary>
+  {% if status_timeline %}
+  <ol class="od-log">
+    {% for h in status_timeline %}
+    <li>
+      <span class="od-when">{{ h.when|date:"j M Y, g:i a" }}</span>
+      <span>
+        <strong>{{ h.label }}</strong>
+        {% if h.note %}<span class="od-sub">{{ h.note }}</span>{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="gv-meta" style="margin:0; padding:0 var(--s4) var(--s3);">No status history recorded for this order.</p>
+  {% endif %}
+</details>
 {% endblock %}

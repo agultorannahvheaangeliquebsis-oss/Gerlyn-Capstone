@@ -460,7 +460,11 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
             return Procurement.objects.create(
                 branch=branch or cls.home_branch,
                 supplier=cls.supplier,
-                order_date=dt.date(2026, 1, 1),
+                # Recent, not a fixed historical date — the delivery_list/
+                # procurement_list toolbar's shared range control (DESIGN.md
+                # §2e) defaults to the last 30 days, and this test's own
+                # date isn't the thing under test.
+                order_date=timezone.localdate(),
                 status=status,
                 total_cost=0,
             )

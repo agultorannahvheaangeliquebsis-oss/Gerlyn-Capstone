@@ -78,6 +78,20 @@ class BillingRecord(models.Model):
         PaymentStatus.CANCELLED: set(),
     }
 
+    # The only targets a human may ever pick directly — billing_confirm's own
+    # Mark as Paid / Reject / Re-open buttons, and BillingConfirmSerializer's
+    # `status` field. CANCELLED, PARTIALLY_REFUNDED and REFUNDED stay in
+    # ALLOWED_STATUS_TRANSITIONS above only so sales.views
+    # (transaction_set_status / transaction_refund) can route through
+    # can_transition_to like every other caller — never through this set.
+    # Before this existed, BillingConfirmSerializer.status was a bare
+    # ChoiceField over all six PaymentStatus values with nothing narrowing it
+    # back down, so any ordinary Billing-access API caller could PATCH a
+    # Pending record straight to Cancelled, or a Paid one to Refunded —
+    # bypassing the order's own cancellation/refund workflow (stock reversal,
+    # RefundEvent, the Owner/Branch-Manager-only refund approval) entirely.
+    HUMAN_CONFIRMABLE_STATUSES = {PaymentStatus.PENDING, PaymentStatus.PAID, PaymentStatus.REJECTED}
+
     # What each method has to leave behind before it can be saved or verified.
     # No payment gateway is integrated, so for a remote settlement the
     # reference number and the screenshot ARE the record that it happened:

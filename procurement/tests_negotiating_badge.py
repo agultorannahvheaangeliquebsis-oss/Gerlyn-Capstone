@@ -4,10 +4,9 @@ Negotiating folds three statuses together, and only one of them — Pending
 Owner Review — is ever the buyer's turn. The count alone made the buyer open
 every row in the tab to find out whether any of them was waiting on them.
 """
-import datetime as dt
-
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import User
 from branches.models import Branch
@@ -29,7 +28,11 @@ class NegotiatingBadgeTests(TestCase):
     def po(self, status):
         return Procurement.objects.create(
             branch=self.branch, supplier=self.supplier, owner=self.owner,
-            order_date=dt.date(2026, 1, 1), status=status, total_cost=0,
+            # Recent, not a fixed historical date — procurement_list/
+            # delivery_list's shared range control (DESIGN.md §2e) defaults
+            # to the last 30 days, and this test's own date isn't the thing
+            # under test.
+            order_date=timezone.localdate(), status=status, total_cost=0,
         )
 
     def _get(self, url_name):
@@ -74,7 +77,7 @@ class NegotiatingBadgeTests(TestCase):
         self.po(P.PENDING_OWNER_REVIEW)
         Procurement.objects.create(
             branch=other, supplier=self.supplier, owner=self.owner,
-            order_date=dt.date(2026, 1, 1), status=P.PENDING_OWNER_REVIEW, total_cost=0,
+            order_date=timezone.localdate(), status=P.PENDING_OWNER_REVIEW, total_cost=0,
         )
 
         self.client.force_login(manager)

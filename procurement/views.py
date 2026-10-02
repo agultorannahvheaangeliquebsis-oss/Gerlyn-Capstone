@@ -4,7 +4,7 @@
 #   SECTION 2 — new DRF API views (what React calls)
 
 import io
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 
@@ -32,6 +32,7 @@ from core.scoping import (
 )
 from core.people import person_display_name
 from core.querystrings import list_filter_querystring
+from core.timebounds import local_range_bounds, range_from_request
 from core.permissions import (
     BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
 )
@@ -90,6 +91,14 @@ def _procurement_list_context(request):
 
     procurements = procurements_visible_to(request.user, procurements)
 
+    search_query = request.GET.get('q', '')
+    if search_query:
+        procurements = procurements.filter(
+            Q(po_number__icontains=search_query) |
+            Q(supplier__supplier_profile__supplier_name__icontains=search_query) |
+            Q(supplier__username__icontains=search_query)
+        )
+
     # Owner-only branch filter — Manager/Staff are already pinned to their
     # own branch's orders (and Supplier to their own orders) above, so a
     # selector would do nothing for them.
@@ -99,6 +108,15 @@ def _procurement_list_context(request):
         branch_filter = ''
     if branch_filter:
         procurements = procurements.filter(branch_id=branch_filter)
+
+    # The shared back-office range control (_daterange.html), same as
+    # Billing/the Order Console. order_date is a plain DateField (no
+    # timezone conversion needed, unlike a DateTimeField — see
+    # core.timebounds), so the resolved dates are compared directly.
+    range_start, range_end, active_range = range_from_request(request)
+    if range_start:
+        procurements = procurements.filter(order_date__gte=range_start)
+    procurements = procurements.filter(order_date__lte=range_end)
 
     procurements = procurements.order_by('-order_date')
 
@@ -153,6 +171,7 @@ def _procurement_list_context(request):
         'procurements': procurements,
         'counts': counts,
         'status_filter': status_filter,
+        'search_query': search_query,
         'today': timezone.localdate(),
         'awaiting_delivery_statuses': Procurement.AWAITING_DELIVERY_STATUSES,
         'can_create': can_create,
@@ -169,13 +188,18 @@ def _procurement_list_context(request):
         # branch picker (see _procurement_form_context below) — the topbar
         # switcher gets its own key so the two can never collide.
         'switch_branches': switch_branches,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [('q', search_query), ('status', status_filter), ('branch', branch_filter)],
         # O-3 — one urlencoded filter string for the status tabs, same fix
         # as Billing/the Order Console: a tab's href used to be hand-built
         # and silently dropped the branch filter on every click.
-        'filter_qs': list_filter_querystring(branch=branch_filter),
+        'filter_qs': list_filter_querystring(q=search_query, branch=branch_filter),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along.
-        'branch_switch_carry': [('status', status_filter)],
+        'branch_switch_carry': [('q', search_query), ('status', status_filter)],
     }
     if can_create:
         # suppliers/products/branches/user_branch, plus the (more correct,
@@ -199,6 +223,87 @@ def _can_read_procurement(user, proc):
     return user_can_read_procurement(user, proc)
 
 
+# Order Progress: a display-only simplification of Procurement's 9-state
+# status graph into 5 milestones, the same role as
+# sales.views._order_progress/ORDER_PROGRESS_STEPS — purely what the
+# stepper on the detail page draws. Never read by can_transition_to or any
+# POST handler, so it can never drift into gating anything.
+PROCUREMENT_PROGRESS_STEPS = ['Draft', 'Approved', 'Terms Agreed', 'Incoming', 'Received']
+
+_PROGRESS_STEP_BY_STATUS = {
+    Procurement.Status.DRAFT: 0,
+    Procurement.Status.APPROVED: 1,
+    # The three negotiation sub-statuses and the manual Communicated/Ordered
+    # bypass all mean the same thing on the stepper: the two sides are
+    # settling how the order ships. Approved reads as done the moment
+    # negotiation starts, whichever path got there.
+    Procurement.Status.PENDING_OWNER_REVIEW: 2,
+    Procurement.Status.PENDING_SUPPLIER_REVIEW: 2,
+    Procurement.Status.TERMS_AGREED: 2,
+    Procurement.Status.COMMUNICATED: 2,
+    # Partially Received still reads as "Incoming" on the track — the items
+    # table and receipt_flag pill already carry the partial-vs-full
+    # distinction, so the stepper doesn't need a sixth dot for it.
+    Procurement.Status.INCOMING: 3,
+    Procurement.Status.PARTIALLY_RECEIVED: 3,
+    Procurement.Status.RECEIVED: 4,
+}
+
+
+def _procurement_progress(proc):
+    cancelled = proc.status == Procurement.Status.CANCELLED
+    current = 0 if cancelled else _PROGRESS_STEP_BY_STATUS.get(proc.status, 0)
+    return {
+        'cancelled': cancelled,
+        'steps': [
+            {
+                'name': name,
+                'done': (not cancelled) and i < current,
+                'current': (not cancelled) and i == current,
+            }
+            for i, name in enumerate(PROCUREMENT_PROGRESS_STEPS)
+        ],
+    }
+
+
+def _procurement_timeline(proc, receipts):
+    """Status History for the detail page: a derived, read-only timeline
+    built from timestamps Procurement/DeliveryReceipt already store. There
+    is no OrderStatusHistory-equivalent table for purchase orders, and no
+    cancelled_at/cancel_reason field either — so a cancelled order gets no
+    row here. The status pill above already says Cancelled; inventing a
+    timestamp nothing recorded would be worse than leaving it out.
+    """
+    created_at = timezone.make_aware(datetime.combine(proc.order_date, datetime.min.time()))
+    timeline = [{'when': created_at, 'label': 'Created as Draft', 'note': None}]
+
+    if proc.authorized_at:
+        timeline.append({'when': proc.authorized_at, 'label': 'Approved', 'note': None})
+
+    if proc.communicated_at:
+        timeline.append({
+            'when': proc.communicated_at,
+            'label': f'Communicated/Ordered ({proc.get_communication_method_display()})',
+            'note': proc.communication_note or None,
+        })
+
+    if proc.supplier_acknowledged_at:
+        timeline.append({
+            'when': proc.supplier_acknowledged_at,
+            'label': 'Supplier acknowledged', 'note': None,
+        })
+
+    for i, r in enumerate(sorted(receipts, key=lambda r: r.received_at), start=1):
+        timeline.append({
+            'when': r.received_at,
+            'label': f'Receipt #{i} recorded',
+            'note': f'Received by {r.received_by_name}' if r.received_by_name else None,
+        })
+
+    timeline.sort(key=lambda step: step['when'])
+    return timeline
+
+
 @login_required(login_url='accounts:login')
 def procurement_detail(request, pk):
     proc = get_object_or_404(
@@ -213,7 +318,12 @@ def procurement_detail(request, pk):
     is_supplier_party = (
         request.user.role == User.Role.SUPPLIER and proc.supplier_id == request.user.id
     )
+    receipts = list(proc.receipts.select_related('received_by').prefetch_related(
+        'lines__item__product'
+    ))
     return render(request, 'procurement/procurement_detail.html', {
+        'progress': _procurement_progress(proc),
+        'status_timeline': _procurement_timeline(proc, receipts),
         'supplier_returns': proc.supplier_returns.select_related('supplier'),
         # Whether the negotiation card has a form for *this* viewer to act on
         # right now, vs. just a status message — see the template's
@@ -259,9 +369,7 @@ def procurement_detail(request, pk):
             and not proc.funding_locked
         ),
         'procurement': proc, 'items': items,
-        'receipts': proc.receipts.select_related('received_by').prefetch_related(
-            'lines__item__product'
-        ),
+        'receipts': receipts,
     })
 
 
@@ -1386,6 +1494,14 @@ def delivery_list(request):
     if branch_filter:
         deliveries = deliveries.filter(branch_id=branch_filter)
 
+    # The shared back-office range control (_daterange.html), same as
+    # Purchase Orders/Billing. order_date is a plain DateField (no timezone
+    # conversion needed, unlike a DateTimeField — see core.timebounds).
+    range_start, range_end, active_range = range_from_request(request)
+    if range_start:
+        deliveries = deliveries.filter(order_date__gte=range_start)
+    deliveries = deliveries.filter(order_date__lte=range_end)
+
     deliveries = deliveries.order_by('-order_date')
 
     status_filter = request.GET.get('status', '')
@@ -1487,6 +1603,11 @@ def delivery_list(request):
         # Warehouse Stock, Product Master List and Stock Adjustments.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [('q', search_query), ('status', status_filter), ('branch', branch_filter)],
         # O-3 — one urlencoded filter string for the status tabs, same fix as
         # Purchase Orders/Billing: a tab's href used to be hand-built and
         # silently dropped other filters.
@@ -3573,6 +3694,25 @@ def supplier_return_list(request):
         return redirect('accounts:home')
 
     returns = _store_returns(request.user).prefetch_related('items__product')
+
+    search_query = request.GET.get('q', '')
+    if search_query:
+        returns = returns.filter(
+            Q(return_number__icontains=search_query) |
+            Q(procurement__po_number__icontains=search_query) |
+            Q(supplier__supplier_profile__supplier_name__icontains=search_query) |
+            Q(supplier__username__icontains=search_query)
+        )
+
+    # The shared back-office range control (_daterange.html), same as
+    # Purchase Orders/Billing. created_at is a DateTimeField, so local
+    # calendar days are turned into aware bounds (see core.timebounds).
+    range_start, range_end, active_range = range_from_request(request)
+    range_dt_start, range_dt_end = local_range_bounds(range_start or range_end, range_end)
+    if range_start:
+        returns = returns.filter(created_at__gte=range_dt_start)
+    returns = returns.filter(created_at__lt=range_dt_end)
+
     counts = {status: 0 for status in SupplierReturn.Status.values}
     for status in returns.values_list('status', flat=True):
         counts[status] = counts.get(status, 0) + 1
@@ -3588,6 +3728,16 @@ def supplier_return_list(request):
         'counts': counts,
         'total_count': sum(counts.values()),
         'status_filter': status_filter,
+        'search_query': search_query,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [('q', search_query), ('status', status_filter)],
+        # O-3 — one urlencoded filter string for the status tabs, same fix as
+        # Purchase Orders/Deliveries/Billing: a tab's href used to be
+        # hand-built and silently dropped other filters.
+        'filter_qs': list_filter_querystring(q=search_query),
         'status_tabs': [
             (value, label, counts.get(value, 0))
             for value, label in SupplierReturn.Status.choices
@@ -3662,6 +3812,36 @@ def supplier_return_add(request, pk):
     return redirect('supplier_return_detail', pk=ret.pk)
 
 
+# Same display-only-stepper idea as _procurement_progress, sized to
+# SupplierReturn's own 4-step happy path. Rejected and Cancelled are both
+# "stopped here" outcomes rather than points on the path, so they get the
+# banner treatment instead of a dot.
+RETURN_PROGRESS_STEPS = ['Requested', 'Acknowledged', 'Shipped', 'Settled']
+
+_RETURN_STEP_BY_STATUS = {
+    SupplierReturn.Status.REQUESTED: 0,
+    SupplierReturn.Status.ACKNOWLEDGED: 1,
+    SupplierReturn.Status.SHIPPED: 2,
+    SupplierReturn.Status.SETTLED: 3,
+}
+
+
+def _return_progress(ret):
+    stopped = ret.status in (SupplierReturn.Status.REJECTED, SupplierReturn.Status.CANCELLED)
+    current = 0 if stopped else _RETURN_STEP_BY_STATUS.get(ret.status, 0)
+    return {
+        'stopped': stopped,
+        'steps': [
+            {
+                'name': name,
+                'done': (not stopped) and i < current,
+                'current': (not stopped) and i == current,
+            }
+            for i, name in enumerate(RETURN_PROGRESS_STEPS)
+        ],
+    }
+
+
 @login_required(login_url='accounts:login')
 def supplier_return_detail(request, pk):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
@@ -3676,6 +3856,7 @@ def supplier_return_detail(request, pk):
     S = SupplierReturn.Status
     return render(request, 'procurement/supplier_return_detail.html', {
         'ret': ret,
+        'return_progress': _return_progress(ret),
         'items': ret.items.select_related('product', 'procurement_item'),
         'receipts': ret.replacement_receipts.select_related('received_by'),
         'can_manage': can_manage,

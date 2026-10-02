@@ -171,7 +171,7 @@ for this to be built from existing primitives, and that includes the grid.
         {% for p in procurements %}
         <tr>
           <td data-label="PO ID" class="sku strong">
-            <a href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order">{{ p.po_number }}</a></td>
+            <a href="{% url 'procurement_detail' p.pk %}">{{ p.po_number }}</a></td>
           <td data-label="Branch">{{ p.branch.branch_name }}</td>
           <td data-label="Supplier">
             {% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</td>

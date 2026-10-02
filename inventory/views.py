@@ -1773,7 +1773,7 @@ def _inventory_list_context(request):
         ],
         'can_adjust': can_adjust,
         'can_edit_reorder': can_edit_reorder,
-        'adjust_products': Product.objects.order_by('product_name'),
+        'adjust_products': Product.objects.select_related('category').order_by('product_name'),
         'adjust_stock_levels': adjust_stock_levels,
     }
 
@@ -2387,7 +2387,7 @@ def _warehouse_stock_list_context(request):
             request_warehouse_stock = [
                 s for s in WarehouseStock.objects.filter(
                     warehouse=request_warehouse
-                ).select_related('product').sellable()
+                ).select_related('product', 'product__category').sellable()
                 if s.available_qty > 0
             ]
 
@@ -2743,7 +2743,7 @@ def _transfer_list_context(request):
     if create_target_branch:
         create_floor_stock = Inventory.objects.filter(
             branch=create_target_branch, quantity_on_hand__gt=0
-        ).select_related('product')
+        ).select_related('product', 'product__category')
 
     return {
         'transfers': transfers,
@@ -2811,6 +2811,7 @@ def _transfer_list_context(request):
         'month_label': today.strftime('%B'),
         'create_target_branch': create_target_branch,
         'create_floor_stock': create_floor_stock,
+        'categories': cached_categories(),
         # Write-offs only — Branch Restock has its own dedicated flow (the
         # Request Stock to Floor modal on Warehouse Stock).
         'write_off_purposes': [

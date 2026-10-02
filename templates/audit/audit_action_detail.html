@@ -3,6 +3,7 @@
 {% block page_subtitle %}System &amp; Monitoring{% endblock %}
 
 {% block content %}
+<div class="audit-page">
 <div class="page-head">
   <div>
     <a class="back-link" href="{% url 'audit_log_list' %}">Audit Log</a>
@@ -58,7 +59,7 @@ same way it always has.
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr>
+      <tr class="audit-row audit-row--{{ r.log.action }}">
         <td data-label="Action">
           {% if r.log.action == 'create' %}<span class="pill pill-ok">Created</span>
           {% elif r.log.action == 'delete' %}<span class="pill pill-danger">Deleted</span>
@@ -92,5 +93,6 @@ same way it always has.
       {% endfor %}
     </tbody>
   </table>
+</div>
 </div>
 {% endblock %}

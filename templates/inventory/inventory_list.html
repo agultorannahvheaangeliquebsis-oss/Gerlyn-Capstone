@@ -33,6 +33,16 @@ partials/_branch_switch.html.
     max-height: calc(100vh - 64px);
     display: flex; flex-direction: column;
   }
+  #adjust-modal .modal-card { max-width: 560px; }
+  {% comment %}
+  width:auto on both selects, because gerlyn.css's shared select rule sets
+  width:100% — with flex-basis:auto that becomes each select's flex-basis, so
+  the category select (flex-shrink:0) claimed the whole row and the product
+  select (flex-shrink:1) got squeezed to ~0 width instead of sharing the row.
+  {% endcomment %}
+  .adjust-product-filters { display: flex; gap: var(--s2); }
+  .adjust-product-filters select { flex: 0 0 auto; min-width: 150px; width: auto; }
+  .adjust-product-filters select[name="product_id"] { flex: 1 1 auto; min-width: 0; width: auto; }
   .modal-head {
     display: flex; align-items: center; justify-content: space-between;
     padding: var(--s4) var(--s6);
@@ -348,12 +358,19 @@ across the full width leave the default block padding as empty card.
 
       <div class="field">
         <label for="adjust-product">Product <span style="color:var(--danger-dot);">*</span></label>
-        <select id="adjust-product" name="product_id" required>
-          <option value="">— Select a product —</option>
-          {% for p in adjust_products %}
-            <option value="{{ p.id }}" {% if adjust_form_data.product_id|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>{{ p.product_name }}</option>
-          {% endfor %}
-        </select>
+        <div class="adjust-product-filters">
+          <select id="adjust-product-category" aria-label="Filter products by category">
+            <option value="">All Categories</option>
+            {% for c in categories %}<option value="{{ c.id }}">{{ c.category_name }}</option>{% endfor %}
+          </select>
+          <select id="adjust-product" name="product_id" required>
+            <option value="">— Select a product —</option>
+            {% for p in adjust_products %}
+              <option value="{{ p.id }}" data-category="{{ p.category_id|default:'' }}" {% if adjust_form_data.product_id|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>{{ p.product_name }}{% if p.category %} ({{ p.category.category_name }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <span class="gv-meta">Narrow by category first if the list is long, or just start typing a product name.</span>
       </div>
 
       {% if user_branch %}
@@ -516,7 +533,28 @@ sidebar.js, shared by every page that includes partials/_branch_switch.html.{% e
   var scanBtn = document.getElementById('adjust-barcode-scan-btn');
   var status = document.getElementById('adjust-barcode-status');
   var productSelect = document.getElementById('adjust-product');
+  var productCategorySelect = document.getElementById('adjust-product-category');
   var branchSelect = document.getElementById('adjust-branch');
+
+  // Category filter narrows the Product list — options outside the chosen
+  // category are hidden rather than removed, so their values are still
+  // there (and selection restored) if the filter is cleared again.
+  if (productCategorySelect) {
+    productCategorySelect.addEventListener('change', function () {
+      var cat = productCategorySelect.value;
+      var options = productSelect.options;
+      for (var i = 0; i < options.length; i++) {
+        var opt = options[i];
+        if (!opt.value) continue;
+        var matches = !cat || opt.dataset.category === cat;
+        opt.hidden = !matches;
+      }
+      if (productSelect.value && productSelect.selectedOptions[0] && productSelect.selectedOptions[0].hidden) {
+        productSelect.value = '';
+        updateCountDifference();
+      }
+    });
+  }
   var countedInput = document.getElementById('adjust-counted-quantity');
   var systemEl = document.getElementById('adjust-system-quantity');
   var differenceEl = document.getElementById('adjust-difference');

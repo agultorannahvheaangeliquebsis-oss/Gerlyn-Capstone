@@ -161,11 +161,6 @@ order_status, remaining_after_refunds.
       {% endif %}
     </p>
   </div>
-  {% if order_status != "Completed" and request.GET.modal != '1' %}
-  <div class="bill-actions">
-    <a class="btn btn-primary" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
-  </div>
-  {% endif %}
 </section>
 
 {% elif record.status == "Rejected" %}
@@ -213,11 +208,6 @@ order_status, remaining_after_refunds.
     <p class="bill-next-p"><strong>Reason:</strong> {{ txn.cancel_reason }}</p>
     {% endif %}
   </div>
-  {% if request.GET.modal != '1' %}
-  <div class="bill-actions">
-    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
-  </div>
-  {% endif %}
 </section>
 
 {% elif record.status == "Partially Refunded" %}
@@ -234,11 +224,6 @@ order_status, remaining_after_refunds.
       <div class="od-total"><dt>Remaining</dt><dd>₱{{ remaining_after_refunds|floatformat:2 }}</dd></div>
     </dl>
   </div>
-  {% if request.GET.modal != '1' %}
-  <div class="bill-actions">
-    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
-  </div>
-  {% endif %}
 </section>
 
 {% elif record.status == "Refunded" %}
@@ -251,11 +236,6 @@ order_status, remaining_after_refunds.
       not here.
     </p>
   </div>
-  {% if request.GET.modal != '1' %}
-  <div class="bill-actions">
-    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
-  </div>
-  {% endif %}
 </section>
 {% endif %}
 

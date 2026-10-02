@@ -13,13 +13,31 @@ already pinned to their own branch's orders.{% endcomment %}
   <div>
     <h1>Purchase Orders</h1>
   </div>
-  {% if can_create %}
-  <a class="btn btn-primary" href="{% url 'procurement_add' %}">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    Create PO
-  </a>
-  {% endif %}
+  <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
+    {% include "_daterange.html" %}
+    {% if can_create %}
+    <a class="btn btn-primary" href="{% url 'procurement_add' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Create PO
+    </a>
+    {% endif %}
+  </div>
 </div>
+
+<form method="GET" class="toolbar toolbar-search">
+  {# Keep the chosen range when the toolbar filters are submitted — same as Billing and the Order Console. #}
+  <input type="hidden" name="range" value="{{ active_range }}">
+  <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+  <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+  {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
+  <div class="search-field">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search purchase orders">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
+    </button>
+    <input type="search" name="q" placeholder="Search PO number or supplier…" value="{{ search_query }}" autocomplete="off" aria-label="Search by PO number or supplier">
+  </div>
+  <input type="hidden" name="status" value="{{ status_filter }}">
+</form>
 
 {% comment %}
 No summary line above this bar. There was one — "3 pending delivery · 0 draft ·
@@ -81,7 +99,7 @@ not a status, so it keeps the unclassed neutral default.
           {% include "partials/_po_status_pill.html" with status=p.status %}
         </td>
         <td data-label="Action">
-          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order"
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}"
                title="View" aria-label="View purchase order {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
@@ -90,9 +108,14 @@ not a status, so it keeps the unclassed neutral default.
         <td colspan="9">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
+            {% if search_query or branch_filter %}
+            <h3>No purchase orders match</h3>
+            <p>Try clearing the search or branch filter.</p>
+            {% else %}
             <h3>No purchase orders</h3>
             <p>Purchase orders record what you ordered from suppliers and update stock when received.</p>
             {% if can_create %}<a class="btn btn-primary mt-2" href="{% url 'procurement_add' %}">Create PO</a>{% endif %}
+            {% endif %}
           </div>
         </td>
       </tr>

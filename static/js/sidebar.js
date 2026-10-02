@@ -209,11 +209,15 @@
   /* .row-menu-panel (templates/accounts/user_list.html's extra_css block)
      opens below the trigger by default; this flips it upward
      (.row-menu--flip) when there isn't room below. Checked against both the
-     viewport AND the nearest .table-wrap's own bottom edge — .table-wrap
-     sets overflow-x:auto, which per spec forces its overflow-y to clip too
-     (a 'visible' axis computes to 'auto' once its sibling axis isn't
+     viewport AND the nearest .table-wrap's own edges — .table-wrap sets
+     overflow-x:auto, which per spec forces its overflow-y to clip too (a
+     'visible' axis computes to 'auto' once its sibling axis isn't
      'visible'), so a panel that only checked the viewport would still get
-     silently cut off by the table's own box for the last row or two. Same
+     silently cut off by the table's own box. That cuts both ways: the top
+     bound matters for the first row or two of a short table (e.g. Branch
+     Management with 3 rows) — without it, fitsAbove only checked the
+     viewport's top (y=0), so the menu would flip up and get clipped by the
+     card instead, which looks the same as never having the fix. Same
      'toggle' + capture-phase reasoning as .status-select--flip above. */
   document.addEventListener('toggle', function (e) {
     var el = e.target;
@@ -224,9 +228,11 @@
     var rect = el.getBoundingClientRect();
     var needed = panel.offsetHeight || 200;
     var wrap = el.closest('.table-wrap');
-    var limit = wrap ? Math.min(wrap.getBoundingClientRect().bottom, window.innerHeight) : window.innerHeight;
-    var fitsBelow = rect.bottom + needed <= limit;
-    var fitsAbove = rect.top - needed >= 0;
+    var wrapRect = wrap ? wrap.getBoundingClientRect() : null;
+    var bottomLimit = wrapRect ? Math.min(wrapRect.bottom, window.innerHeight) : window.innerHeight;
+    var topLimit = wrapRect ? Math.max(wrapRect.top, 0) : 0;
+    var fitsBelow = rect.bottom + needed <= bottomLimit;
+    var fitsAbove = rect.top - needed >= topLimit;
     el.classList.toggle('row-menu--flip', !fitsBelow && fitsAbove);
   }, true);
 

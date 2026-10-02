@@ -222,7 +222,10 @@ class OverdueDisplayTests(OverdueBase):
         today = timezone.localdate()
         return Procurement.objects.create(
             branch=self.branch, supplier=self.supplier, status=P.INCOMING,
-            order_date=today - dt.timedelta(days=30), total_cost=0,
+            # Within delivery_list's shared range control's default last-30-
+            # days window (DESIGN.md §2e) — order_date isn't the thing under
+            # test here, `days` (how overdue the delivery is) is.
+            order_date=today - dt.timedelta(days=10), total_cost=0,
             delivery_date=today - dt.timedelta(days=days))
 
     def test_days_overdue_property(self):
