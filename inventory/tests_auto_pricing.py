@@ -13,6 +13,7 @@ from django.urls import reverse
 from accounts.models import Notification, User
 from audit.models import AuditLog
 from core.models import StoreSetting
+from core.module_permissions import EDIT, PRODUCTS, default_module_actions
 from inventory import pricing
 from inventory.models import Product, ProductCategory, ProductPriceTier
 from procurement.models import SupplierProduct, SupplierProductRequest
@@ -272,7 +273,21 @@ class ApplySuggestedPriceViewTests(PricingBase):
             entity='inventory.Product', record_id=str(self.item.pk),
             action_label='Applied the computed selling price').exists())
 
-    def test_manager_may_apply(self):
+    def test_manager_needs_the_products_edit_grant(self):
+        # Branch Managers get no Product edit by default (role matrix), and
+        # applying a price is a product edit, so it is gated the same way.
+        self.client.force_login(self.manager)
+        self.client.post(self.url)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.unit_price, Decimal('100.00'))
+
+    def test_manager_with_products_edit_may_apply(self):
+        self.manager.allowed_modules = [PRODUCTS]
+        self.manager.module_actions = {
+            code: ([EDIT] if code == PRODUCTS else [])
+            for code in default_module_actions()
+        }
+        self.manager.save(update_fields=['allowed_modules', 'module_actions'])
         self.client.force_login(self.manager)
         self.client.post(self.url)
         self.item.refresh_from_db()
