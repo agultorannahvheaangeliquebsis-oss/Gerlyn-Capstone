@@ -894,6 +894,28 @@ class StockTransferItem(models.Model):
         )
 
 
+class StockTransferEvent(models.Model):
+    """Append-style business history for a withdrawal/request transition."""
+
+    transfer = models.ForeignKey(
+        StockTransfer, on_delete=models.CASCADE, related_name='events',
+    )
+    from_status = models.CharField(max_length=15, blank=True)
+    to_status = models.CharField(max_length=15, choices=StockTransfer.Status.choices)
+    actor = models.ForeignKey(
+        'accounts.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='stock_transfer_events',
+    )
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+
+    def __str__(self):
+        return f'{self.transfer.slip_number}: {self.from_status or "Created"} -> {self.to_status}'
+
+
 class StockMovement(models.Model):
     # --- unchanged ---
     class MovementType(models.TextChoices):

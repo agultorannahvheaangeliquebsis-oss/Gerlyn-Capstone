@@ -216,18 +216,7 @@ across the full width leave the default block padding as empty card.
           <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
           <span class="tag">{{ t.purpose }}</span>
         </div>
-        <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
-          {% csrf_token %}
-          <label class="gv-meta" for="qty-{{ t.pk }}">Received</label>
-          <input id="qty-{{ t.pk }}" type="number" name="received_qty" min="0" inputmode="numeric">
-          <button class="btn btn-primary btn-sm" type="submit">Confirm receipt</button>
-        </form>
-        <form method="post" action="{% url 'transfer_flag_discrepancy' t.pk %}">
-          {% csrf_token %}
-          <input type="number" name="received_qty" min="0" placeholder="Qty" inputmode="numeric" aria-label="Quantity actually received">
-          <input type="text" name="flag_reason" placeholder="Reason" aria-label="Reason for the discrepancy">
-          <button class="btn btn-danger btn-sm" type="submit">Flag discrepancy</button>
-        </form>
+        <a class="btn btn-primary btn-sm" href="{% url 'transfer_detail' t.pk %}">Confirm Received on Floor</a>
       </div>
     {% endif %}{% endfor %}
   </div>

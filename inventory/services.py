@@ -14,14 +14,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from branches.models import Branch
 from .models import (
     Batch, Inventory, OpeningStockImport, OpeningStockImportRow, Product,
-    StockMovement, WarehouseStock,
+    StockMovement, StockTransfer, StockTransferEvent, StockTransferItem,
+    Warehouse, WarehouseStock,
 )
 
 
@@ -39,6 +41,344 @@ class OpeningStockValidationError(OpeningStockError):
 
 class ExpiryProcessingError(Exception):
     """An expired lot could not be reconciled with its aggregate stock row."""
+
+
+class StockTransferRequestError(Exception):
+    """A stock request violates its source/destination business rules."""
+
+
+class StockTransferReceiptError(Exception):
+    """A transfer receipt cannot be reconciled safely."""
+
+
+def transfers_visible_to(user, queryset=None):
+    """Transfers involving the user's branch; Owners see every transfer."""
+    from core.scoping import branch_ids_for_user
+
+    qs = queryset if queryset is not None else StockTransfer.objects.all()
+    branch_ids = branch_ids_for_user(user)
+    if branch_ids is None:
+        return qs
+    return qs.filter(
+        Q(source_branch_id__in=branch_ids) |
+        Q(destination_branch_id__in=branch_ids)
+    ).distinct()
+
+
+def warehouse_available_quantity(product, branch, *, lock=False):
+    qs = WarehouseStock.objects
+    if lock:
+        qs = qs.select_for_update()
+    stock = qs.filter(
+        warehouse__branch=branch, product=product,
+    ).first()
+    if stock is None:
+        return 0
+    batch_available = Batch.available_quantity(
+        product, branch, Batch.Location.WAREHOUSE,
+    )
+    return stock.quantity_on_hand if batch_available is None else min(
+        stock.quantity_on_hand, batch_available,
+    )
+
+
+def record_transfer_event(transfer, from_status, to_status, actor, note=''):
+    return StockTransferEvent.objects.create(
+        transfer=transfer,
+        from_status=from_status or '',
+        to_status=to_status,
+        actor=actor,
+        note=(note or '').strip(),
+    )
+
+
+def _notify_new_stock_request(transfer_id):
+    from core.module_permissions import WITHDRAWALS
+    from core.notifications import (
+        CATEGORY_PROCUREMENT, PRIORITY_MEDIUM, notify,
+    )
+
+    transfer = StockTransfer.objects.select_related(
+        'source_branch', 'destination_branch', 'requested_by',
+    ).get(pk=transfer_id)
+    destination = transfer.destination_branch.branch_name if transfer.destination_branch else 'No destination'
+    notify(
+        CATEGORY_PROCUREMENT,
+        PRIORITY_MEDIUM,
+        f'Stock request {transfer.slip_number} needs source approval',
+        f'{destination} requested stock from {transfer.source_branch.branch_name}. '
+        'No stock will move until the source branch approves and releases it.',
+        branch=transfer.source_branch,
+        action_url=reverse('transfer_detail', args=[transfer.pk]),
+        action_label='Review Request',
+        required_module=WITHDRAWALS,
+        reference_type='inventory.StockTransfer',
+        reference_id=transfer.pk,
+        exclude_user=transfer.requested_by,
+    )
+
+
+def create_stock_transfer(
+    *, actor, source_branch_id=None, destination_branch_id=None, purpose,
+    items, transfer_date=None, notes='',
+):
+    """Create a validated Pending transfer without moving stock.
+
+    Restricted users always request *for* their assigned branch. For a
+    Branch Restock they may name another active branch as the source, but the
+    local warehouse must be exhausted for every requested product first.
+    Non-restock purposes are local floor write-offs and never have a
+    destination branch.
+    """
+    from accounts.models import User
+    from audit.context import set_action_label
+    from core.scoping import branch_for_user
+
+    if actor.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF):
+        raise StockTransferRequestError('Your account cannot create stock requests.')
+
+    normalized = []
+    seen = set()
+    for item in items:
+        try:
+            product_id = int(item['product_id'])
+            quantity = int(item['quantity'])
+        except (KeyError, TypeError, ValueError):
+            raise StockTransferRequestError('Every item needs a valid product and quantity.')
+        if quantity <= 0:
+            raise StockTransferRequestError('Requested quantities must be greater than zero.')
+        if product_id in seen:
+            raise StockTransferRequestError('A product can appear only once in a stock request.')
+        seen.add(product_id)
+        normalized.append((product_id, quantity))
+    if not normalized:
+        raise StockTransferRequestError('Add at least one product to the stock request.')
+
+    products = Product.objects.in_bulk(seen)
+    if len(products) != len(seen):
+        raise StockTransferRequestError('One or more selected products no longer exist.')
+
+    assigned_branch = branch_for_user(actor)
+    is_restock = purpose == StockTransfer.Purpose.BRANCH_RESTOCK
+
+    if actor.role != User.Role.OWNER:
+        if assigned_branch is None:
+            raise StockTransferRequestError('No branch is assigned to your account.')
+        try:
+            requested_destination_id = (
+                int(destination_branch_id) if destination_branch_id else None
+            )
+        except (TypeError, ValueError) as exc:
+            raise StockTransferRequestError('Choose a valid destination branch.') from exc
+        if requested_destination_id and requested_destination_id != assigned_branch.pk:
+            raise StockTransferRequestError(
+                'Staff and Managers can request stock only for their assigned branch.'
+            )
+        destination_branch = assigned_branch if is_restock else None
+        local_branch = assigned_branch
+    else:
+        owner_branch_id = destination_branch_id if is_restock else source_branch_id
+        if not owner_branch_id:
+            raise StockTransferRequestError('Choose the branch this request is for.')
+        local_branch = Branch.objects.filter(pk=owner_branch_id, is_active=True).first()
+        if local_branch is None:
+            raise StockTransferRequestError('Choose an active destination branch.')
+        destination_branch = local_branch if is_restock else None
+
+    if is_restock:
+        source_id = source_branch_id or local_branch.pk
+        source_branch = Branch.objects.filter(pk=source_id, is_active=True).first()
+        if source_branch is None:
+            raise StockTransferRequestError('Choose an active source branch.')
+    else:
+        if destination_branch_id:
+            raise StockTransferRequestError('A write-off cannot have a destination branch.')
+        source_branch = local_branch
+
+    try:
+        warehouse = Warehouse.objects.get(branch=source_branch)
+    except Warehouse.DoesNotExist as exc:
+        raise StockTransferRequestError(
+            f'No warehouse is configured for {source_branch.branch_name}.'
+        ) from exc
+
+    if is_restock and source_branch.pk != local_branch.pk:
+        local_products = []
+        for product_id, _quantity in normalized:
+            product = products[product_id]
+            if warehouse_available_quantity(product, local_branch) > 0:
+                local_products.append(product.product_name)
+        if local_products:
+            raise StockTransferRequestError(
+                'Use the destination branch warehouse first for: '
+                + ', '.join(local_products)
+                + '. Request the remaining shortage from another branch after local stock is released.'
+            )
+
+    unavailable = []
+    for product_id, _quantity in normalized:
+        product = products[product_id]
+        available = (
+            warehouse_available_quantity(product, source_branch)
+            if is_restock else
+            (Inventory.objects.filter(
+                product=product, branch=source_branch,
+            ).values_list('quantity_on_hand', flat=True).first() or 0)
+        )
+        if available <= 0:
+            unavailable.append(product.product_name)
+    if unavailable:
+        location = 'warehouse' if is_restock else 'floor'
+        raise StockTransferRequestError(
+            f'No available {location} stock for: ' + ', '.join(unavailable) + '.'
+        )
+
+    set_action_label('Created a stock transfer request')
+    with transaction.atomic():
+        transfer = StockTransfer.objects.create(
+            warehouse=warehouse,
+            source_branch=source_branch,
+            destination_branch=destination_branch,
+            purpose=purpose,
+            requested_by=actor,
+            status=StockTransfer.Status.PENDING,
+            transfer_date=transfer_date or timezone.localdate(),
+            notes=(notes or '').strip(),
+        )
+        for product_id, quantity in normalized:
+            StockTransferItem.objects.create(
+                transfer=transfer,
+                product_id=product_id,
+                quantity_requested=quantity,
+                quantity_approved=0,
+            )
+        record_transfer_event(
+            transfer, '', StockTransfer.Status.PENDING, actor,
+            f'Requested from {source_branch.branch_name}'
+            + (f' for {destination_branch.branch_name}' if destination_branch else ''),
+        )
+        transaction.on_commit(lambda pk=transfer.pk: _notify_new_stock_request(pk))
+    return transfer
+
+
+def reconcile_transfer_receipt(*, transfer_id, actor, received_by_item, reason):
+    """Reconcile a released restock per product and record one atomic event.
+
+    The release already credited the destination floor. A short delivery
+    removes only the missing units for that product; an over-delivery adds
+    only its extra units. Aggregate-only correction is deliberately refused
+    because it cannot say which product changed on a multi-item slip.
+    """
+    from core.scoping import user_can_access_branch
+
+    reason = (reason or '').strip()
+    if not reason:
+        raise StockTransferReceiptError('A reason is required to flag a discrepancy.')
+
+    try:
+        normalized = {int(item_id): int(qty) for item_id, qty in received_by_item.items()}
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise StockTransferReceiptError('Enter a valid received quantity for every item.') from exc
+    if any(qty < 0 for qty in normalized.values()):
+        raise StockTransferReceiptError('Received quantities cannot be negative.')
+
+    with transaction.atomic():
+        transfer = StockTransfer.objects.select_for_update().select_related(
+            'destination_branch',
+        ).get(pk=transfer_id)
+        if not user_can_access_branch(actor, transfer.destination_branch_id):
+            raise StockTransferReceiptError(
+                'That stock transfer belongs to another branch.'
+            )
+        if transfer.status != StockTransfer.Status.RELEASED:
+            raise StockTransferReceiptError(
+                'Only released withdrawals can be flagged.'
+            )
+        if transfer.destination_branch_id is None:
+            raise StockTransferReceiptError('This withdrawal has no receiving branch.')
+
+        items = list(transfer.items.select_related('product').order_by('pk'))
+        expected_ids = {item.pk for item in items}
+        if set(normalized) != expected_ids:
+            raise StockTransferReceiptError(
+                'Enter a received quantity for every item on the withdrawal.'
+            )
+
+        differences = {
+            item.pk: normalized[item.pk] - item.quantity_released for item in items
+        }
+        if not any(differences.values()):
+            raise StockTransferReceiptError(
+                'All quantities match the release. Confirm receipt instead.'
+            )
+
+        # Lock and validate every affected aggregate before changing any row.
+        inventories = {}
+        for item in items:
+            difference = differences[item.pk]
+            if difference == 0:
+                continue
+            inventory, _ = Inventory.objects.select_for_update().get_or_create(
+                product=item.product,
+                branch=transfer.destination_branch,
+                defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+            )
+            if difference < 0 and inventory.quantity_on_hand < -difference:
+                raise StockTransferReceiptError(
+                    f'Cannot reconcile {item.product.product_name}: destination floor '
+                    f'has {inventory.quantity_on_hand}, but {-difference} units must be removed.'
+                )
+            inventories[item.pk] = inventory
+
+        for item in items:
+            difference = differences[item.pk]
+            if difference == 0:
+                continue
+            inventory = inventories[item.pk]
+            before = inventory.quantity_on_hand
+            inventory.quantity_on_hand += difference
+            inventory.save()
+            StockMovement.objects.create(
+                inventory=inventory,
+                location_type=StockMovement.LocationType.FLOOR,
+                movement_type=StockMovement.MovementType.ADJUSTMENT,
+                quantity_change=difference,
+                quantity_before=before,
+                quantity_after=inventory.quantity_on_hand,
+                reference_id=transfer.pk,
+                notes=f'Discrepancy on {transfer.slip_number}: {reason}',
+                created_by=actor,
+            )
+            if difference < 0:
+                Batch.consume_fefo(
+                    item.product, transfer.destination_branch,
+                    Batch.Location.FLOOR, -difference, include_expired=True,
+                )
+            else:
+                Batch.objects.create(
+                    product=item.product,
+                    branch=transfer.destination_branch,
+                    location=Batch.Location.FLOOR,
+                    quantity=difference,
+                    received_date=timezone.localdate(),
+                    expiry_date=None,
+                    notes=f'Discrepancy on {transfer.slip_number}: {reason}',
+                )
+
+        previous = transfer.status
+        transfer.status = StockTransfer.Status.DISCREPANCY
+        transfer.acknowledged_by = actor
+        transfer.received_qty = sum(normalized.values())
+        transfer.flag_reason = reason
+        transfer.save()
+        record_transfer_event(
+            transfer, previous, transfer.status, actor,
+            f'{reason} Received per item: '
+            + ', '.join(
+                f'{item.product.product_name}={normalized[item.pk]}' for item in items
+            ),
+        )
+    return transfer
 
 
 @dataclass(frozen=True)
