@@ -27,6 +27,7 @@ from .two_factor import (
 )
 from core.module_permissions import (
     ALL_MODULE_CODES, MODULE_PERMISSION_REGISTRY, WRITE_ACTIONS, permission_rows,
+    role_permission_defaults, role_permission_defaults_for_ui,
 )
 
 
@@ -441,6 +442,9 @@ def _user_edit_context(request, target, *, branch_id=None, modules=None,
             getattr(profile, 'branch_id', None) if profile else None
         ),
         'permission_rows': permission_rows(modules, actions or target.module_actions),
+        'role_permission_defaults': role_permission_defaults_for_ui(
+            USER_MANAGEMENT_ROLES
+        ),
         'errors': errors or [],
         'form_data': form_data,
         'branches': Branch.objects.all(),
@@ -491,6 +495,22 @@ def user_form(request, pk=None):
             and MODULE_PERMISSION_REGISTRY[code][action]
         ):
             submitted_actions[code].append(action)
+
+    # A non-JavaScript client changing only the role must get the same reset
+    # as the browser's role-change handler. A normal matrix submission remains
+    # authoritative, including an intentional "uncheck everything" override.
+    has_permission_payload = (
+        request.POST.get('permissions_submitted') == '1'
+        or 'allowed_modules' in request.POST
+        or 'module_actions' in request.POST
+    )
+    if role != target.role and not has_permission_payload:
+        defaults = role_permission_defaults(role)
+        submitted_modules = defaults['allowed_modules']
+        submitted_actions = defaults['module_actions']
+    elif not has_permission_payload:
+        submitted_modules = list(target.allowed_modules or [])
+        submitted_actions = target.module_actions
 
     # The same checks, collected rather than redirected — a redirect
     # discarded the whole form, and this one has several fields to retype.
@@ -578,10 +598,6 @@ def user_form(request, pk=None):
             profile.contact_number = new_contact_number
             profile.save()
 
-        # Module access only ever means anything for Staff/Manager (Owner is
-        # exempt, Supplier/Customer have their own separate portals) — left
-        # untouched for any other role rather than overwritten with an
-        # empty list that would just be ignored anyway.
         if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
             target.allowed_modules = submitted_modules
             target.module_actions = submitted_actions

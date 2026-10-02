@@ -7,10 +7,15 @@ from core.module_permissions import (
     ADD,
     DELETE,
     EDIT,
+    BILLING,
+    DELIVERIES,
+    PROCUREMENT,
     PRODUCTS,
+    REPORTS,
     VIEW,
     default_module_actions,
     required_action_for_request,
+    role_permission_defaults,
 )
 from inventory.models import Product
 
@@ -28,6 +33,21 @@ class ModuleActionRouteTests(SimpleTestCase):
         self.assertEqual(required_action_for_request('product_delete', 'POST'), DELETE)
         self.assertEqual(required_action_for_request('procurement_add', 'POST'), ADD)
         self.assertEqual(required_action_for_request('delivery_scan', 'POST'), EDIT)
+
+    def test_role_defaults_match_the_permission_matrix(self):
+        manager = role_permission_defaults(User.Role.BRANCH_MANAGER)
+        staff = role_permission_defaults(User.Role.STAFF)
+        supplier = role_permission_defaults(User.Role.SUPPLIER)
+
+        self.assertIn(PRODUCTS, manager['allowed_modules'])
+        self.assertNotIn(ADD, manager['module_actions'][PRODUCTS])
+        self.assertIn(ADD, manager['module_actions'][PROCUREMENT])
+        self.assertIn(BILLING, staff['allowed_modules'])
+        self.assertIn(EDIT, staff['module_actions'][BILLING])
+        self.assertNotIn(REPORTS, staff['allowed_modules'])
+        self.assertEqual(
+            supplier['allowed_modules'], [PROCUREMENT, DELIVERIES]
+        )
 
 
 class ConfigurableModulePermissionTests(TestCase):
@@ -194,6 +214,8 @@ class ConfigurableModulePermissionTests(TestCase):
         # Reports has no create operation, so the matrix shows N/A rather
         # than a checkbox that could never authorize anything.
         self.assertNotContains(response, 'value="reports:add"')
+        self.assertContains(response, 'id="role-permission-defaults"')
+        self.assertNotContains(response, 'permission.disabled')
 
     def test_actions_for_an_unviewable_module_are_discarded(self):
         self.client.force_login(self.owner)
@@ -210,3 +232,24 @@ class ConfigurableModulePermissionTests(TestCase):
         self.manager.refresh_from_db()
         self.assertEqual(self.manager.allowed_modules, [])
         self.assertEqual(self.manager.module_actions[PRODUCTS], [])
+
+    def test_role_change_without_browser_script_resets_to_role_defaults(self):
+        staff_defaults = role_permission_defaults(User.Role.STAFF)
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            reverse('accounts:user_edit', args=[self.manager.pk]),
+            {
+                'username': self.manager.username,
+                'role': User.Role.STAFF,
+                'branch': self.branch.pk,
+            },
+        )
+
+        self.assertRedirects(response, reverse('accounts:user_list'))
+        self.manager.refresh_from_db()
+        self.assertEqual(
+            self.manager.allowed_modules, staff_defaults['allowed_modules']
+        )
+        self.assertEqual(
+            self.manager.module_actions, staff_defaults['module_actions']
+        )
