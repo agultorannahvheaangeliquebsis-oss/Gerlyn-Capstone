@@ -94,7 +94,8 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     "supplier_category_edit": "suppliers", "supplier_category_delete": "suppliers",
     "procurement_list": "procurement", "procurement_add": "procurement",
     "procurement_detail": "procurement", "procurement_update_status": "procurement",
-    "delivery_list": "deliveries", "delivery_receive": "deliveries",
+    "delivery_list": "deliveries", "delivery_detail": "deliveries",
+    "delivery_receive": "deliveries",
     # Financials
     "transaction_list": "orders", "transaction_add": "orders",
     "transaction_detail": "orders", "transaction_set_status": "orders",

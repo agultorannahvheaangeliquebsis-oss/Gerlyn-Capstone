@@ -26,6 +26,7 @@ class Procurement(models.Model):
         PENDING_OWNER_REVIEW = 'Pending Owner Review', 'Pending Owner Review'
         PENDING_SUPPLIER_REVIEW = 'Pending Supplier Review', 'Pending Supplier Review'
         TERMS_AGREED = 'Terms Agreed', 'Terms Agreed'
+        COMMUNICATED = 'Communicated/Ordered', 'Communicated/Ordered'
         INCOMING = 'Incoming', 'Incoming'
         PARTIALLY_RECEIVED = 'Partially Received', 'Partially Received'
         RECEIVED = 'Received', 'Received'
@@ -38,11 +39,17 @@ class Procurement(models.Model):
         OWNER_FUNDS = "Owner's Funds", "Owner's Funds"
         OTHER = 'Other', 'Other'
 
+    class CommunicationMethod(models.TextChoices):
+        PHONE = 'Phone', 'Phone call'
+        MESSAGE = 'Message', 'Messaging / chat'
+        EMAIL = 'Email', 'Email'
+        OTHER = 'Other', 'Other'
+
     # Once the buyer and supplier have agreed terms the spend is committed, so
     # where the money comes from stops being editable. Cancelled is locked too:
     # a closed order's paperwork shouldn't change.
     FUNDING_LOCKED_STATUSES = frozenset({
-        Status.TERMS_AGREED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
+        Status.TERMS_AGREED, Status.COMMUNICATED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
         Status.RECEIVED, Status.CANCELLED,
     })
 
@@ -78,14 +85,24 @@ class Procurement(models.Model):
     # refuses every negotiation-related target (see that view).
     ALLOWED_TRANSITIONS = {
         Status.DRAFT: {Status.APPROVED, Status.CANCELLED},
-        Status.APPROVED: {Status.PENDING_OWNER_REVIEW, Status.CANCELLED},
+        Status.APPROVED: {
+            Status.PENDING_OWNER_REVIEW, Status.COMMUNICATED, Status.CANCELLED,
+        },
         Status.PENDING_OWNER_REVIEW: {
-            Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED, Status.CANCELLED,
+            Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED,
+            Status.COMMUNICATED, Status.CANCELLED,
         },
         Status.PENDING_SUPPLIER_REVIEW: {
-            Status.PENDING_OWNER_REVIEW, Status.TERMS_AGREED, Status.CANCELLED,
+            Status.PENDING_OWNER_REVIEW, Status.TERMS_AGREED,
+            Status.COMMUNICATED, Status.CANCELLED,
         },
-        Status.TERMS_AGREED: {Status.INCOMING, Status.CANCELLED},
+        Status.TERMS_AGREED: {
+            Status.COMMUNICATED, Status.INCOMING, Status.CANCELLED,
+        },
+        Status.COMMUNICATED: {
+            Status.INCOMING, Status.PARTIALLY_RECEIVED,
+            Status.RECEIVED, Status.CANCELLED,
+        },
         Status.INCOMING: {
             Status.PARTIALLY_RECEIVED, Status.RECEIVED, Status.CANCELLED,
         },
@@ -98,7 +115,9 @@ class Procurement(models.Model):
 
     # Statuses in which goods are still expected from the supplier against a
     # delivery_date the two sides already agreed.
-    AWAITING_DELIVERY_STATUSES = frozenset({Status.INCOMING, Status.PARTIALLY_RECEIVED})
+    AWAITING_DELIVERY_STATUSES = frozenset({
+        Status.COMMUNICATED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
+    })
 
     def days_overdue(self, today=None):
         """Whole days past the agreed delivery date; 0 when not late, not
@@ -130,7 +149,7 @@ class Procurement(models.Model):
     })
     # Every status short of Received/Cancelled, including Draft.
     OPEN_STATUSES = frozenset({Status.DRAFT, Status.APPROVED}) | NEGOTIATION_STATUSES | frozenset({
-        Status.INCOMING, Status.PARTIALLY_RECEIVED,
+        Status.COMMUNICATED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
     })
     # Same, but Draft excluded — Draft has no owner/authorized_at yet and
     # commits no spend, so it's left out of anything counting "committed"
@@ -150,6 +169,7 @@ class Procurement(models.Model):
     # so both read the same real span rather than a hand-copied status list.
     SUPPLIER_ACTION_STATUSES = frozenset({
         Status.APPROVED, Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED,
+        Status.COMMUNICATED,
     })
 
     # --- existing fields (untouched) ----------------------------------------
@@ -224,6 +244,20 @@ class Procurement(models.Model):
         help_text='Who submitted the currently pending price/date proposal.',
     )
 
+    # An approved PO may be sent outside the portal. These fields preserve
+    # who communicated it and how, while the supplier account remains an
+    # optional acknowledgement channel rather than a workflow dependency.
+    communication_method = models.CharField(
+        max_length=12, choices=CommunicationMethod.choices, blank=True,
+    )
+    communication_note = models.CharField(max_length=300, blank=True)
+    communicated_at = models.DateTimeField(null=True, blank=True)
+    communicated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='communicated_procurements',
+    )
+    supplier_acknowledged_at = models.DateTimeField(null=True, blank=True)
+
     # --- new fields ---------------------------------------------------------
     po_number = models.CharField(
         max_length=20, unique=True, blank=True,
@@ -264,6 +298,32 @@ class Procurement(models.Model):
 
     def __str__(self):
         return f"{self.po_number or f'Procurement #{self.id}'} - {self.branch} - {self.status}"
+
+    @property
+    def actual_received_cost(self):
+        """What was actually received, valued at each line's confirmed cost.
+
+        Distinct from total_cost (the committed/ordered PO value, unchanged
+        by receiving) and from the sum of line_total (which values ordered
+        quantity, not received quantity). Computed on the fly from
+        ProcurementItem.received_line_total — never persisted, never
+        gated on receipt_flag.
+        """
+        return sum((item.received_line_total for item in self.items.all()), 0)
+
+    @property
+    def unrecorded_cost_item_count(self):
+        """How many received lines have no unit cost on file.
+
+        These contribute ₱0 to actual_received_cost not because they were
+        free, but because their cost is unknown — callers that display
+        actual_received_cost should surface this count as a caveat rather
+        than let a ₱0 line read as "received for free".
+        """
+        return sum(
+            1 for item in self.items.all()
+            if item.quantity_received > 0 and item.unit_cost_snapshot is None
+        )
 
     class Meta:
         constraints = [
@@ -327,13 +387,32 @@ class ProcurementItem(models.Model):
 
     @property
     def line_total(self):
-        """Ordered quantity x the confirmed supplier-cost snapshot.
+        """Quantity x the confirmed supplier-cost snapshot.
 
         Both procurement_detail.html and the printable PO render this column;
         without it the template's `item.line_total` silently resolved to
         nothing and every line printed as ₱0.00.
+
+        Unexpected items (added during receiving) are created with
+        quantity_ordered=0, so they must be valued by quantity_received
+        instead — otherwise a received item with a real unit cost still
+        prices out at ₱0.00.
         """
-        return self.quantity_ordered * (self.unit_cost_snapshot or 0)
+        quantity = self.quantity_received if self.is_unexpected else self.quantity_ordered
+        return quantity * (self.unit_cost_snapshot or 0)
+
+    @property
+    def received_line_total(self):
+        """Quantity actually received x the confirmed supplier-cost snapshot.
+
+        Unlike line_total (which values ordered quantity, or received
+        quantity only for unexpected lines), this always values what
+        physically arrived — the building block for
+        Procurement.actual_received_cost. An unrecorded cost
+        (unit_cost_snapshot is None) contributes ₱0 here; that means
+        unknown, not free.
+        """
+        return self.quantity_received * (self.unit_cost_snapshot or 0)
 
     @property
     def cost_price(self):

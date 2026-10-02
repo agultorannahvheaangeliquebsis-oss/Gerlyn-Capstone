@@ -81,5 +81,6 @@ urlpatterns = [
     path('profile/language/', views.language_view, name='language'),
     path('help-center/', views.help_center_view, name='help_center'),
     path('about/', views.about_view, name='about'),
+    path('terms-privacy/', views.terms_privacy_view, name='terms_privacy'),
 ]
 

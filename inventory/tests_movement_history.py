@@ -317,13 +317,28 @@ class SilentPathClosureTests(_HistoryFixture):
 
     def test_patch_cannot_change_quantity_on_hand(self):
         self.client.force_login(self.owner)
+        original_reorder = self.ws_a.reorder_level
         response = self.client.patch(
             self.url(), data=self.patch_body(quantityOnHand=999),
+            content_type='application/json')
+        # The whole request is rejected (not silently trimmed), so nothing in
+        # it is applied - including the otherwise-editable reorder level.
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('quantityOnHand', response.json())
+        self.ws_a.refresh_from_db()
+        self.assertEqual(self.ws_a.quantity_on_hand, 40)
+        self.assertEqual(self.ws_a.reorder_level, original_reorder)
+        self.assertFalse(StockMovement.objects.exists())
+
+        # Sending the current quantity back is not a change, so the editable
+        # field still works through the same endpoint.
+        response = self.client.patch(
+            self.url(), data=self.patch_body(quantityOnHand=40),
             content_type='application/json')
         self.assertEqual(response.status_code, 200, response.content)
         self.ws_a.refresh_from_db()
         self.assertEqual(self.ws_a.quantity_on_hand, 40)
-        self.assertEqual(self.ws_a.reorder_level, 5)  # the editable field still works
+        self.assertEqual(self.ws_a.reorder_level, 5)
         self.assertEqual(response.json()['quantityOnHand'], 40)
         self.assertFalse(StockMovement.objects.exists())
 
@@ -332,9 +347,11 @@ class SilentPathClosureTests(_HistoryFixture):
         response = self.client.put(
             self.url(), data=self.patch_body(quantityOnHand=0),
             content_type='application/json')
-        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('quantityOnHand', response.json())
         self.ws_a.refresh_from_db()
         self.assertEqual(self.ws_a.quantity_on_hand, 40)
+        self.assertFalse(StockMovement.objects.exists())
 
     def test_serializer_marks_quantity_read_only(self):
         from inventory.serializers import WarehouseStockSerializer

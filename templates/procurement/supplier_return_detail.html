@@ -18,7 +18,7 @@
 {% elif ret.status == "Rejected" %}
 <div class="banner banner-error mb-4"><strong>The supplier rejected this return.</strong>{% if ret.supplier_note %} Reason: {{ ret.supplier_note }}{% endif %} No stock has moved — cancel it, or raise a new one.</div>
 {% elif ret.status == "Shipped" %}
-<div class="banner banner-info mb-4">The goods have been sent back. Record the credit note, or receive the replacement, to settle this return.</div>
+<div class="banner banner-info mb-4">The goods have been sent back. Settle this return one of two ways: record a credit note, or receive replacement goods below.</div>
 {% endif %}
 
 <div class="grid-2 mb-4">

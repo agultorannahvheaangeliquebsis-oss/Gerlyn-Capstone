@@ -99,11 +99,11 @@ orders, filtered, now that it's a real page.
       <div class="sp-resp-row">
         <div class="sp-resp-main">
           <div class="sp-resp-po">{{ o.po_number }}</div>
-          <div class="sp-resp-meta">Placed {{ o.order_date|date:"Y-m-d" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }} · requested by {{ o.branch.branch_name }}</div>
+          <div class="sp-resp-meta">Placed {{ o.order_date|date:"M j, Y" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }} · requested by {{ o.branch.branch_name }}</div>
         </div>
         <div class="sp-resp-total">₱{{ o.total_cost|floatformat:2 }}</div>
         <a class="sp-resp-btn" href="{% url 'supplier_purchase_orders' %}?status=NeedsAction">
-          {% if o.status == 'Terms Agreed' %}Confirm{% else %}Respond{% endif %}
+          {% if o.status == 'Communicated/Ordered' %}Acknowledge{% elif o.status == 'Terms Agreed' %}Confirm{% else %}Respond{% endif %}
         </a>
       </div>
       {% endfor %}
@@ -180,7 +180,7 @@ filterable/paginated table lives on supplier_purchase_orders now.
       <tr>
         <td data-label="Order">
           <div class="sp-order-po">{{ o.po_number }}</div>
-          <div class="sp-order-meta">{{ o.order_date|date:"Y-m-d" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }}</div>
+          <div class="sp-order-meta">{{ o.order_date|date:"M j, Y" }} · {{ o.items.all|length }} item{{ o.items.all|length|pluralize }}</div>
         </td>
         <td data-label="Branch">{{ o.branch.branch_name }}</td>
         <td data-label="Total" class="num sp-order-total">₱{{ o.total_cost|floatformat:2 }}</td>

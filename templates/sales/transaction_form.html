@@ -116,7 +116,7 @@ a shared component other pages should pick up automatically.
   max-height: calc(100vh - 94px); overflow-y: auto;
   display: flex; flex-direction: column;
 }
-.pos-sum-section { padding: var(--s4); border-bottom: 1px solid var(--line); }
+.pos-sum-section { padding: var(--s4); border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .pos-sum-section:last-child { border-bottom: 0; }
 .pos-sum-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
 .pos-sum-head h2, .pos-sum-head h3 { margin: 0; color: var(--ink-900); }
@@ -135,7 +135,17 @@ a shared component other pages should pick up automatically.
 .pos-clear-btn:disabled { opacity: .5; cursor: default; }
 .pos-clear-btn svg { width: 14px; height: 14px; }
 
-.pos-cart { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); }
+/*
+A long order used to push the payment block below the fold: the panel was one
+long scroll, so the more lines the cashier added the further they had to scroll
+to reach the amount due. The list now caps at roughly three rows and scrolls
+inside itself, which keeps the payment block in the same place on a one-line
+sale and a twenty-line one.
+*/
+.pos-cart {
+  display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3);
+  max-height: 40vh; overflow-y: auto; scrollbar-width: thin; padding-right: 4px;
+}
 .pos-cart-empty { text-align: center; padding: var(--s6) 0 var(--s2); margin: 0; }
 .pos-cart-item {
   display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--s3);
@@ -178,6 +188,7 @@ a shared component other pages should pick up automatically.
 .pos-grand span:last-child { font: 700 22px/1.2 var(--font-sans); color: var(--action); font-variant-numeric: tabular-nums; }
 .pos-tender-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); margin-top: var(--s3); }
 .pos-tender-row .field { margin: 0; }
+.pos-exact-btn { margin-top: 6px; }
 .pos-submit { width: 100%; justify-content: center; margin-top: var(--s4); padding-top: 12px; padding-bottom: 12px; font-size: 15px; }
 .pos-cancel { display: block; text-align: center; margin-top: var(--s2); font-size: 14px; }
 
@@ -189,6 +200,8 @@ a shared component other pages should pick up automatically.
 @media (max-width: 1100px) {
   .pos-shell { grid-template-columns: minmax(0, 1fr); }
   .pos-summary { position: static; max-height: none; overflow: visible; }
+  /* The panel is the page here, so the list scrolls with it as it always did. */
+  .pos-cart { max-height: none; overflow: visible; padding-right: 0; }
 }
 @media (max-width: 560px) {
   .pos-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
@@ -217,7 +230,8 @@ the same modal every other rejected action gets from internal_base.html.
 {% include "partials/_flash_modal.html" with flash_source=pos_errors level="error" %}
 {% endif %}
 
-<form method="POST" action="{% url 'transaction_add' %}" id="pos-form">
+{# multipart: the GCash/Card proof of payment below is a file upload. #}
+<form method="POST" action="{% url 'transaction_add' %}" id="pos-form" enctype="multipart/form-data">
   {% csrf_token %}
 
   <div class="pos-shell">
@@ -339,6 +353,37 @@ the same modal every other rejected action gets from internal_base.html.
               <option value="{{ value }}" {% if pos_form_data.mode_of_payment == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+        </div>
+
+        {% comment %}
+        Payment evidence for a method that did not settle at the counter. No
+        payment gateway is integrated, so the reference number and the
+        screenshot are the only record a GCash or Card payment happened, and
+        the cashier has the customer's confirmation screen in front of them
+        right now. Shown only for the methods that need each field — the two
+        lists come from BillingRecord, so this form and Billing's own Record
+        Payment form ask for the same things. transaction_add re-checks the
+        same rule on submit; hiding a field is not a validation.
+        {% endcomment %}
+        <div class="field" id="pos-reference-field" hidden>
+          <label for="pos-reference-number">Reference Number <span class="gv-meta">— required</span></label>
+          <input type="text" id="pos-reference-number" name="reference_number" maxlength="100"
+                 autocomplete="off" value="{{ pos_form_data.reference_number|default:'' }}"
+                 placeholder="e.g. BT-2026-0001">
+        </div>
+
+        <div class="field" id="pos-proof-field" hidden>
+          <label for="pos-proof-of-payment">Proof of Payment <span class="gv-meta">— required · screenshot or photo</span></label>
+          <input type="file" id="pos-proof-of-payment" name="proof_of_payment" accept="image/*"
+                 style="padding-top:10px;">
+          {% if pos_proof_was_posted %}
+          {# See pos_proof_was_posted in sales.views.transaction_add. #}
+          <p class="gv-meta" style="margin:4px 0 0; color:var(--danger-fg);">
+            Attach the proof again — a file cannot be kept when the form comes back with an error.
+          </p>
+          {% else %}
+          <p class="gv-meta" style="margin:4px 0 0;">A photo or screenshot of the customer's payment confirmation.</p>
+          {% endif %}
         </div>
 
         {% if pos_cancelled_orders %}
@@ -475,6 +520,8 @@ the same modal every other rejected action gets from internal_base.html.
             <label for="pos-amount-tendered">Amount Tendered</label>
             <input type="text" inputmode="decimal" id="pos-amount-tendered" name="amount_tendered"
                    placeholder="₱0.00" value="{{ pos_form_data.amount_tendered|default:'' }}" oninput="posRecalc()">
+            {# Exact change is the common case: one tap instead of retyping the amount due. #}
+            <button type="button" class="btn btn-sm pos-exact-btn" id="pos-exact-btn" onclick="posTenderExact()">Exact amount</button>
           </div>
           <div class="field">
             <label>Change</label>
@@ -514,12 +561,20 @@ product_id -> branch_id -> {qty, status}, both ids as strings. See
 sales.views._pos_stock_map. Same json_script pattern as pos-restore-rows.
 {% endcomment %}
 {{ pos_stock_map|json_script:"pos-stock-map" }}
+{# Which methods need a reference / a proof — from BillingRecord, see _pos_context. #}
+{{ pos_reference_required_methods|json_script:"pos-reference-required-methods" }}
+{{ pos_proof_required_methods|json_script:"pos-proof-required-methods" }}
 {% endblock %}
 
 {% block extra_js %}
 <script src="{% static 'js/vendor/html5-qrcode.min.js' %}"></script>
 <script src="{% static 'js/barcode-scanner.js' %}"></script>
 <script src="{% static 'js/qty-stepper.js' %}"></script>
+{% comment %}
+GCash's 13-digit reference rule, shown inline before the round trip. Loaded
+without defer, like billing_form.html — the block below calls it directly.
+{% endcomment %}
+<script src="{% static 'js/gcash-reference.js' %}"></script>
 <script>
 // USB/Bluetooth scanners type into whatever holds focus, so the scan field
 // gets it as soon as the page is ready. Absent until a branch is chosen.
@@ -780,6 +835,20 @@ function posPriceLine(card, price, qty, discountType) {
 function posSyncTenderVisibility() {
   var isCash = document.getElementById('pos-mode-of-payment').value === 'Cash';
   document.getElementById('pos-tender-row').hidden = !isCash;
+  // Required only while visible: a blank tender on a Cash sale is caught by
+  // the browser instead of a round trip to the server's identical check. A
+  // hidden required field would block GCash/Card submits, so it follows isCash.
+  document.getElementById('pos-amount-tendered').required = isCash;
+}
+
+// Fills Amount Tendered with the amount due as displayed (already rounded to
+// the centavo). The server still re-prices the cart and rejects a short tender.
+function posTenderExact() {
+  var due = (document.getElementById('pos-grand-total').textContent || '').replace(/[^0-9.]/g, '');
+  var input = document.getElementById('pos-amount-tendered');
+  input.value = due;
+  posRecalc();
+  input.focus();
 }
 
 function posUpdateTender(total) {
@@ -1017,6 +1086,46 @@ function posRecalc() {
     posRecalc();
   }
   toggle.addEventListener('change', sync);
+  sync();
+})();
+
+// Reference number / proof of payment, shown for exactly the methods that
+// need them. Deliberately NOT hung off posRecalc(), which returns early
+// before a branch is chosen — Mode of Payment is already selectable then,
+// so these fields have to follow it in that state too.
+//
+// Hiding a field is a convenience, never the check: transaction_add asks
+// BillingRecord.missing_payment_evidence about every submit regardless.
+(function () {
+  var method = document.getElementById('pos-mode-of-payment');
+  var refField = document.getElementById('pos-reference-field');
+  var refInput = document.getElementById('pos-reference-number');
+  var proofField = document.getElementById('pos-proof-field');
+  var proofInput = document.getElementById('pos-proof-of-payment');
+  if (!method || !refField || !proofField) return;
+
+  var needsRef = JSON.parse(
+    document.getElementById('pos-reference-required-methods').textContent);
+  var needsProof = JSON.parse(
+    document.getElementById('pos-proof-required-methods').textContent);
+
+  function sync() {
+    var wantsRef = needsRef.indexOf(method.value) !== -1;
+    var wantsProof = needsProof.indexOf(method.value) !== -1;
+    refField.hidden = !wantsRef;
+    // Required only while visible — a hidden required field would block a
+    // Cash submit outright, the same trap posSyncTenderVisibility avoids.
+    refInput.required = wantsRef;
+    // Guarded: the POS is the busiest screen in the system, and a script that
+    // failed to load must not take the whole payment panel down with it.
+    if (window.GerlynGCashRef) {
+      window.GerlynGCashRef.sync(refInput, method.value === 'GCash');
+    }
+    proofField.hidden = !wantsProof;
+    proofInput.required = wantsProof;
+  }
+
+  method.addEventListener('change', sync);
   sync();
 })();
 

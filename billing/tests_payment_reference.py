@@ -81,11 +81,15 @@ class BillingCreateReferenceTests(_PaymentReferenceBase):
             data['proof_of_payment'] = _proof()
         return client.post(f'/billing/create/{txn.pk}/', data)
 
+    # The general rule (length, characters, whitespace) is what every method
+    # except GCash still uses, so these run as Bank Transfer. GCash's own
+    # 13-digit rule is GCashReferenceTests below.
+
     def test_a_reference_at_the_column_limit_is_stored_exactly(self):
         txn = self._txn()
         reference = 'A' * 100
 
-        response = self._save(txn, reference)
+        response = self._save(txn, reference, method='Bank Transfer')
 
         record = txn.billing_record
         self.assertRedirects(response, f'/billing/{record.pk}/')
@@ -95,7 +99,7 @@ class BillingCreateReferenceTests(_PaymentReferenceBase):
     def test_an_overlong_reference_is_refused_not_crashed_or_truncated(self):
         txn = self._txn()
 
-        response = self._save(txn, 'A' * 101)
+        response = self._save(txn, 'A' * 101, method='Bank Transfer')
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'billing/billing_form.html')
@@ -109,7 +113,7 @@ class BillingCreateReferenceTests(_PaymentReferenceBase):
         for bad in ('<script>alert(1)</script>', 'GC-1\x00', 'GC-1;DROP', 'GC-1"'):
             with self.subTest(reference=bad):
                 txn = self._txn()
-                response = self._save(txn, bad)
+                response = self._save(txn, bad, method='Bank Transfer')
 
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(any('letters, numbers' in m for m in _messages(response)))
@@ -120,7 +124,7 @@ class BillingCreateReferenceTests(_PaymentReferenceBase):
     def test_whitespace_is_normalised_before_it_is_stored(self):
         txn = self._txn()
 
-        self._save(txn, '  GC-2026 \t  0001\n ')
+        self._save(txn, '  GC-2026 \t  0001\n ', method='Bank Transfer')
 
         record = txn.billing_record
         record.refresh_from_db()
@@ -128,7 +132,7 @@ class BillingCreateReferenceTests(_PaymentReferenceBase):
 
     def test_a_normalised_reference_is_found_by_the_billing_search(self):
         txn = self._txn()
-        self._save(txn, 'GC-2026   0001')
+        self._save(txn, 'GC-2026   0001', method='Bank Transfer')
 
         client = Client()
         client.force_login(self.owner)
@@ -155,7 +159,10 @@ class BillingPaymentAPIReferenceTests(_PaymentReferenceBase):
     def test_a_valid_reference_is_persisted_and_returned(self):
         record = self._txn().billing_record
 
-        response = self._pay(record, referenceNumber='  GC-2026   0001 ')
+        response = self._pay(
+            record, paymentMethod='Bank Transfer',
+            referenceNumber='  GC-2026   0001 ',
+        )
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['referenceNumber'], 'GC-2026 0001')
@@ -165,7 +172,9 @@ class BillingPaymentAPIReferenceTests(_PaymentReferenceBase):
     def test_an_overlong_reference_is_a_400_not_a_500_or_a_truncation(self):
         record = self._txn().billing_record
 
-        response = self._pay(record, referenceNumber='B' * 101)
+        response = self._pay(
+            record, paymentMethod='Bank Transfer', referenceNumber='B' * 101,
+        )
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('referenceNumber', response.json())
@@ -175,7 +184,9 @@ class BillingPaymentAPIReferenceTests(_PaymentReferenceBase):
     def test_markup_is_a_400(self):
         record = self._txn().billing_record
 
-        response = self._pay(record, referenceNumber='<b>GC-1</b>')
+        response = self._pay(
+            record, paymentMethod='Bank Transfer', referenceNumber='<b>GC-1</b>',
+        )
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('referenceNumber', response.json())
@@ -198,7 +209,7 @@ class BillingPaymentAPIReferenceTests(_PaymentReferenceBase):
         is confirmed underneath it, then the save lands. It must be refused —
         not write every column of the stale copy over the Paid record."""
         record = self._txn().billing_record
-        record.reference_number = 'GC-ORIGINAL'
+        record.reference_number = '1111111111111'
         record.proof_of_payment.save('first.png', _proof(), save=False)
         record.save()
         stale = BillingRecord.objects.get(pk=record.pk)  # Pending, as read
@@ -207,7 +218,7 @@ class BillingPaymentAPIReferenceTests(_PaymentReferenceBase):
         )
 
         serializer = BillingPaymentSerializer(
-            stale, data={'paymentMethod': 'GCash', 'referenceNumber': 'GC-CHANGED'},
+            stale, data={'paymentMethod': 'GCash', 'referenceNumber': '2222222222222'},
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         with self.assertRaises(ValidationError):
@@ -216,11 +227,13 @@ class BillingPaymentAPIReferenceTests(_PaymentReferenceBase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
         self.assertEqual(record.confirmed_by, self.owner)
-        self.assertEqual(record.reference_number, 'GC-ORIGINAL')
+        self.assertEqual(record.reference_number, '1111111111111')
 
 
 class CheckoutReferenceTests(StorefrontShopperTestCase):
-    """Online checkout — the shopper's GCash reference."""
+    """Online checkout — the shopper's GCash reference. Checkout only takes a
+    reference for GCash, so the length and character rules here are GCash's:
+    exactly 13 digits."""
 
     def _check_out(self, reference):
         return self.client.post(reverse('orders:checkout'), {
@@ -232,10 +245,10 @@ class CheckoutReferenceTests(StorefrontShopperTestCase):
         }, follow=True)
 
     def test_an_overlong_reference_is_refused_and_no_order_is_placed(self):
-        response = self._check_out('C' * 101)
+        response = self._check_out('1' * 101)
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
-        self.assertTrue(any('100 characters' in m for m in _messages(response)))
+        self.assertTrue(any('exactly 13 digits' in m for m in _messages(response)))
         # One field to fix, not a restart.
         self.assertEqual(self.client.session['cart'], {str(self.product.pk): 2})
 
@@ -243,10 +256,115 @@ class CheckoutReferenceTests(StorefrontShopperTestCase):
         response = self._check_out('<script>x</script>')
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
-        self.assertTrue(any('letters, numbers' in m for m in _messages(response)))
+        self.assertTrue(any('digits only' in m for m in _messages(response)))
 
-    def test_a_valid_reference_is_stored_normalised(self):
-        self._check_out(' GC-2026  0001 ')
+    def test_a_valid_reference_is_stored_as_bare_digits(self):
+        self._check_out(' 2026 000 000001 ')
 
         sale = SalesTransaction.objects.get()
-        self.assertEqual(sale.billing_record.reference_number, 'GC-2026 0001')
+        self.assertEqual(sale.billing_record.reference_number, '2026000000001')
+
+
+class GCashReferenceTests(_PaymentReferenceBase):
+    """GCash references are exactly 13 digits — one rule, all three doors
+    (billing.validators.clean_gcash_reference)."""
+
+    GOOD = '1234567890123'
+
+    def test_clean_accepts_13_digits_with_or_without_separators(self):
+        from billing.validators import clean_reference_number
+
+        for raw in ('1234567890123', '1234 567 890123', ' 1234-567-890123 ',
+                    '1234\t567\n890123', '１２３４５６７８９０１２３'):
+            with self.subTest(raw=raw):
+                self.assertEqual(clean_reference_number(raw, 'GCash'), self.GOOD)
+
+    def test_clean_refuses_anything_else(self):
+        from billing.validators import clean_reference_number
+
+        cases = {
+            '123456789012': 'exactly 13 digits',    # one short
+            '12345678901234': 'exactly 13 digits',  # one long
+            'GC-2026-0001': 'digits only',
+            '123456789012A': 'digits only',
+            '١٢٣٤٥٦٧٨٩٠١٢٣': 'digits only',          # Arabic-Indic digits
+            '1234567890123;': 'digits only',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValidationError) as ctx:
+                    clean_reference_number(raw, 'GCash')
+                self.assertIn(expected, ctx.exception.messages[0])
+
+    def test_blank_is_left_to_the_required_rule(self):
+        from billing.validators import clean_reference_number
+
+        self.assertEqual(clean_reference_number('   ', 'GCash'), '')
+        self.assertEqual(clean_reference_number(None, 'GCash'), '')
+
+    def test_other_methods_keep_the_general_rule(self):
+        from billing.validators import clean_reference_number
+
+        self.assertEqual(
+            clean_reference_number('BT/2026/17', 'Bank Transfer'), 'BT/2026/17',
+        )
+
+    def test_the_form_refuses_a_malformed_gcash_reference(self):
+        txn = self._txn()
+        client = Client()
+        client.force_login(self.owner)
+
+        response = client.post(f'/billing/create/{txn.pk}/', {
+            'payment_method': 'GCash', 'reference_number': 'GC-2026-0001',
+            'proof_of_payment': _proof(),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any('GCash reference' in m for m in _messages(response)))
+        record = txn.billing_record
+        record.refresh_from_db()
+        self.assertEqual(record.reference_number, '')
+
+    def test_the_form_stores_a_gcash_reference_as_bare_digits(self):
+        txn = self._txn()
+        client = Client()
+        client.force_login(self.owner)
+
+        client.post(f'/billing/create/{txn.pk}/', {
+            'payment_method': 'GCash', 'reference_number': '1234 567 890123',
+            'proof_of_payment': _proof(),
+        })
+
+        record = txn.billing_record
+        record.refresh_from_db()
+        self.assertEqual(record.reference_number, self.GOOD)
+
+    def test_the_api_refuses_a_malformed_gcash_reference(self):
+        record = self._txn().billing_record
+        client = APIClient()
+        client.force_login(self.owner)
+
+        response = client.patch(
+            f'/api/billing/{record.pk}/pay/',
+            {'paymentMethod': 'GCash', 'referenceNumber': '12345',
+             'proofOfPayment': _proof()},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('referenceNumber', response.json())
+
+    def test_the_api_stores_a_gcash_reference_as_bare_digits(self):
+        record = self._txn().billing_record
+        client = APIClient()
+        client.force_login(self.owner)
+
+        response = client.patch(
+            f'/api/billing/{record.pk}/pay/',
+            {'paymentMethod': 'GCash', 'referenceNumber': '1234-567-890123',
+             'proofOfPayment': _proof()},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['referenceNumber'], self.GOOD)

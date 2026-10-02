@@ -119,7 +119,14 @@ class ConfirmationDialogRenderingTests(_OrderStatusBase):
         html = page.content.decode()
 
         self.assertEqual(page.context['next_actions'], ['Approved', 'Cancelled'])
-        self.assertEqual(html.count('data-status-confirm'), 1)
+        # Scoped to the per-step forms themselves (.od-move), not the whole
+        # page: the Pending billing record billing.signals auto-creates for
+        # this order draws its own Reject Payment dialog on the same page
+        # (Financials UX Audit Phase 1), which is a second, unrelated use of
+        # this same generic data-status-confirm hook — counting the whole
+        # page would conflate the two.
+        move_html = html.split('<div class="od-move">')[1].split('<div class="card')[0]
+        self.assertEqual(move_html.count('data-status-confirm'), 1)
         approved = [i for i in page.context['next_action_items'] if i['status'] == 'Approved']
         self.assertIsNone(approved[0]['confirm'])
 

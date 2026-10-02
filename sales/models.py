@@ -8,6 +8,7 @@
 from datetime import timedelta
 
 from django.db import models, transaction
+from django.utils import timezone
 from branches.models import Branch
 from inventory.models import Product
 from accounts.models import User
@@ -46,6 +47,9 @@ class SalesTransaction(models.Model):
         CASH = 'Cash', 'Cash'
         GCASH = 'GCash', 'GCash'
         CARD = 'Card', 'Card'
+        MAYA = 'Maya', 'Maya'
+        QR_PH = 'QR Ph', 'QR Ph'
+        CHARGE_SALE = 'Charge Sale', 'Charge Sale'
         # Online-order options. The system only RECORDS these — no payment
         # gateway is integrated (see Chapter 1, Limitation 1).
         COD = 'Cash on Delivery', 'Cash on Delivery'
@@ -113,7 +117,7 @@ class SalesTransaction(models.Model):
     # (selected window plus the one before it). The §2e "All time" preset
     # also takes a MIN() on it. No Meta ordering or index exists on this
     # model, so this is the one the queries actually need.
-    transaction_date = models.DateTimeField(auto_now_add=True, db_index=True)
+    transaction_date = models.DateTimeField(default=timezone.now, db_index=True)
     total_amount = models.DecimalField(
         max_digits=12, decimal_places=2, default=0
     )
@@ -262,6 +266,26 @@ class SalesTransaction(models.Model):
         help_text="amount_tendered minus total_amount, frozen at sale time."
     )
 
+    # File-based POS import traceability.  Null POS invoice numbers keep
+    # ordinary GerlynPLUS orders outside the uniqueness rule; imported rows
+    # always carry one, and branch + invoice is the duplicate key.
+    source = models.CharField(max_length=30, blank=True, default='GerlynPLUS')
+    pos_invoice_number = models.CharField(max_length=100, null=True, blank=True)
+    pos_terminal_id = models.CharField(max_length=100, blank=True)
+    pos_cashier_id = models.CharField(max_length=100, blank=True)
+    pos_gross_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_vatable_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_vat_exempt_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_zero_rated_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_senior_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_pwd_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_wholesale_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_promo_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_import = models.ForeignKey(
+        'PosSalesImport', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='transactions',
+    )
+
     # --- refunds --------------------------------------------------------------
     # When this order actually became Completed — set by transaction_set_status
     # the moment it moves there, and at creation for a walk-in Cash sale (which
@@ -276,7 +300,7 @@ class SalesTransaction(models.Model):
     # A refund is only offered within this many days of completion — a
     # grocery-appropriate return window, not a statutory one. One named
     # constant instead of a bare "3" wherever the rule is checked.
-    REFUND_WINDOW = timedelta(days=3)
+    REFUND_WINDOW = timedelta(days=7)
 
     # P14 — the running total of APPROVED refunds against this order, kept in
     # step by sales.refunds.approve_refund under the same row lock that flips
@@ -382,6 +406,12 @@ class SalesTransaction(models.Model):
         )
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['branch', 'pos_invoice_number'],
+                name='sales_unique_branch_pos_invoice',
+            ),
+        ]
         indexes = [
             # Every branch-scoped surface in the back office filters on
             # exactly this pair — core.scoping narrows to a branch, then the
@@ -397,6 +427,39 @@ class SalesTransaction(models.Model):
                 name='sales_txn_branch_date_idx',
             ),
         ]
+
+
+class PosSalesImport(models.Model):
+    """One confirmed ZANK daily-sales file and its audit summary."""
+
+    original_filename = models.CharField(max_length=255)
+    branch = models.ForeignKey(
+        Branch, on_delete=models.PROTECT, related_name='pos_sales_imports'
+    )
+    imported_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='pos_sales_imports',
+    )
+    imported_at = models.DateTimeField(auto_now_add=True)
+    successful_transactions = models.PositiveIntegerField(default=0)
+    skipped_duplicates = models.PositiveIntegerField(default=0)
+    failed_rows = models.PositiveIntegerField(default=0)
+    total_rows = models.PositiveIntegerField(default=0)
+    gross_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    net_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    validation_errors = models.JSONField(default=list, blank=True)
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reversed_pos_sales_imports',
+    )
+    reversal_reason = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ['-imported_at', '-pk']
+
+    def __str__(self):
+        return f'ZANK POS import #{self.pk} - {self.original_filename}'
 
 
 class SalesItem(models.Model):
@@ -432,6 +495,23 @@ class SalesItem(models.Model):
         max_digits=10, decimal_places=2, default=0,
         help_text="PWD/Senior discount taken off this line"
     )
+
+    # Original ZANK line values. Product/quantity/unit_price above continue
+    # to drive existing reports and receipts; these preserve what the file
+    # actually said for reconciliation without mutating Product records.
+    pos_sku = models.CharField(max_length=50, blank=True)
+    pos_barcode = models.CharField(max_length=64, blank=True)
+    pos_description = models.TextField(blank=True)
+    pos_unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    pos_gross_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_net_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_vatable_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_vat_exempt_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_zero_rated_sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_senior_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_pwd_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_wholesale_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    pos_promo_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
         # unit_price is the price this line was actually sold at — for a

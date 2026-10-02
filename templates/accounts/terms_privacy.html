@@ -1,0 +1,30 @@
+{% extends "public_base.html" %}
+{% load static %}
+
+{% block title %}Terms & Privacy — GERLYN{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Public: the sign-up consent box links to #terms and #privacy here, and the
+visitor following it has no account yet. When the wording below changes,
+bump CustomerProfile.TERMS_VERSION so new consents record the new version.
+{% endcomment %}
+<div class="account-wrap policy-wrap">
+
+  <nav class="breadcrumb" aria-label="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">›</span>
+    <span class="current">Terms &amp; Privacy</span>
+  </nav>
+
+  <h1 class="gv-page-title">Terms &amp; Privacy</h1>
+  <p class="gv-meta policy-version">Version {{ terms_version }}</p>
+
+  {% include "accounts/_terms_privacy_content.html" %}
+
+</div>
+{% endblock %}

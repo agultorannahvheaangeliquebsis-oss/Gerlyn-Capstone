@@ -890,40 +890,64 @@ def _dashboard_metrics(sales_qs, procurement_qs, start, end):
     }
 
 
-def _delta_pill(current, previous, compare_label, prev_window_empty=False):
+def _percentage_change(current, previous):
+    """Return the unmodified percentage change, or ``None`` for a zero baseline."""
+    if float(previous) == 0:
+        return None
+    return ((float(current) - float(previous)) / float(previous)) * 100
+
+
+def _format_percentage_change(pct):
+    """Format a change for a KPI pill without altering the underlying value."""
+    capped = abs(pct) > 100
+    return {
+        'display': '>100%' if capped else f'{abs(pct):.1f}%',
+        'capped': capped,
+        'tooltip': f'Actual change: {pct:+.1f}%' if capped else '',
+    }
+
+
+def _delta_pill(current, previous, compare_label, prev_window_empty=False,
+                favorable_when='up'):
     """
     Period-over-period change as a status pill (DESIGN.md §2a) — the shared
     .pill-ok/.pill-danger/.pill-neutral trio, not a bespoke up/down/flat set.
 
-    Direction is reported uniformly (up = ok) across all four KPIs, matching
-    both the approved mockup and the cards this replaces. Note that reads as
-    "rising" rather than "good" on Procurement Cost; giving that card an
-    inverted polarity is a product decision, not a rendering one.
+    ``favorable_when`` defines the metric's business polarity: ``'up'`` for
+    sales, transactions and average value, ``'down'`` for inverse metrics,
+    and ``None`` when direction is informational (procurement cost without a
+    budget). ``pct`` always retains the unrounded calculation. Only ``text``
+    is capped, and ``tooltip`` exposes the rounded exact value when capped.
 
-    Returns None when there is nothing to compare against at all. A bare
-    `if not previous` used to answer that, which conflated two unrelated
-    facts under one string:
-
-      * the previous window is empty  — true of the RANGE, so it is true of
-        all four metrics at once. Four cards each saying "No previous 24 days
-        to compare" says nothing four times, in the most prominent slot on
-        every card. The caller states it once instead, and gets None here.
-      * the previous window has data but THIS metric was zero — true of one
-        metric. The old string was simply false in that case: a previous
-        window did exist. Percentage change from zero is undefined, so the
-        pill names the fact rather than inventing a number.
-
-    `pct` is returned alongside the rendered strings so a caller can grade
-    the change without re-deriving it — see _delta_tint. It is None on the
-    neutral branch, where no percentage exists to report.
+    A zero baseline never enters the percentage formula: positive current
+    values are labelled New and two zero values are labelled No change.
+    ``prev_window_empty`` is kept for call compatibility because the metric's
+    own zero-baseline state, not unrelated activity in the window, decides
+    what the card says.
     """
-    if prev_window_empty:
-        return None
-    if not previous:
-        return {'text': f'None in the {compare_label}', 'pill': 'pill-neutral',
-                'pct': None, 'dir': None}
-    pct = round(((float(current) - float(previous)) / float(previous)) * 100, 1)
-    rising = pct >= 0
+    pct = _percentage_change(current, previous)
+    if pct is None:
+        text = 'No change' if float(current) == 0 else (
+            'New' if float(current) > 0 else 'No prior-period baseline'
+        )
+        return {
+            'text': f'{text} vs {compare_label}', 'pill': 'pill-neutral',
+            'pct': None, 'dir': None, 'capped': False, 'tooltip': '',
+            'favorable': None,
+        }
+    if pct == 0:
+        return {
+            'text': f'No change vs {compare_label}', 'pill': 'pill-neutral',
+            'pct': pct, 'dir': None, 'capped': False, 'tooltip': '',
+            'favorable': None,
+        }
+
+    rising = pct > 0
+    if favorable_when is None:
+        favorable = None
+    else:
+        favorable = rising == (favorable_when == 'up')
+    formatted = _format_percentage_change(pct)
     # `dir` rather than a ▲/▼ baked into `text`. The triangles were font
     # characters produced by the view, so no template could size or align them
     # and they rode high against the pill's 13px/1.6 text. reports/_delta_arrow
@@ -931,21 +955,25 @@ def _delta_pill(current, previous, compare_label, prev_window_empty=False):
     # for, and `text` goes back to being a plain sentence a screen reader can
     # read without announcing a shape.
     return {
-        'text': f'{"+" if rising else ""}{pct}% vs {compare_label}',
-        'pill': 'pill-ok' if rising else 'pill-danger',
+        'text': f'{formatted["display"]} vs {compare_label}',
+        'pill': ('pill-neutral' if favorable is None else
+                 'pill-ok' if favorable else 'pill-danger'),
         'pct': pct,
         'dir': 'up' if rising else 'down',
+        'capped': formatted['capped'],
+        'tooltip': formatted['tooltip'],
+        'favorable': favorable,
     }
 
 
-# How far a decline has to run before the whole KPI card takes a tint, and
+# How far an unfavorable change has to run before the whole KPI card takes a tint, and
 # before that tint escalates. Both are existing modifiers — .kpi-card.warn and
 # .kpi-card.danger, the same pair the stock and billing cards already use —
 # so this grades an existing treatment rather than adding a new one.
 #
-# Deliberately NOT the pill's own threshold. The pill reports direction, so any
-# decline at all turns it .pill-danger; that is one small element saying
-# "down", next to three others. The tint repaints an entire card, and at -0.4%
+# Deliberately NOT the pill's own threshold. Any unfavorable change turns its
+# pill dangerous; that is one small status element. The tint repaints an
+# entire card, and at 0.4%
 # that reads as an incident rather than as the noise it is. So the tint stays
 # off until a decline is worth a second look, and only reaches danger when it
 # is steep enough to be the reason someone opened the report.
@@ -958,16 +986,15 @@ def _delta_tint(delta):
     The .kpi-card modifier a delta pill implies, or '' for no tint.
 
     Graded off the pill's own `pct` rather than a second comparison, so a
-    card can never be tinted in a direction its pill contradicts. Rises and
-    the neutral "None in the previous N days" case are untinted: neither is
-    a problem, and tinting them would spend the page's only two alarm
-    colours on states nobody needs to act on.
+    card can never be tinted in a direction its pill contradicts. Favorable,
+    neutral, and zero-baseline comparisons are untinted.
     """
-    if not delta or delta.get('pct') is None:
+    if not delta or delta.get('pct') is None or delta.get('favorable') is not False:
         return ''
-    if delta['pct'] <= KPI_TINT_DANGER_PCT:
+    magnitude = abs(delta['pct'])
+    if magnitude >= abs(KPI_TINT_DANGER_PCT):
         return 'danger'
-    if delta['pct'] <= KPI_TINT_WARN_PCT:
+    if magnitude >= abs(KPI_TINT_WARN_PCT):
         return 'warn'
     return ''
 
@@ -989,9 +1016,13 @@ def _range_carry(active_range, range_start, range_end):
     return carry
 
 
-def _kpi_delta(current, previous, compare_label, prev_window_empty):
+def _kpi_delta(current, previous, compare_label, prev_window_empty,
+               favorable_when='up'):
     """A delta pill carrying the card tint it implies, or None (see _delta_pill)."""
-    delta = _delta_pill(current, previous, compare_label, prev_window_empty)
+    delta = _delta_pill(
+        current, previous, compare_label, prev_window_empty,
+        favorable_when=favorable_when,
+    )
     if delta:
         delta['tint'] = _delta_tint(delta)
     return delta
@@ -1193,13 +1224,9 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
     txn_count = totals['txn_count']
     prev_empty = metrics['prev_window_empty']
 
-    # Said once, above the rail, instead of once per card. Empty string when a
-    # comparison exists, so the template renders nothing rather than a box
-    # explaining that everything is normal.
-    compare_note = (
-        f'Nothing was recorded in the {compare_label}, so there is no change to show yet.'
-        if prev_empty else ''
-    )
+    # Retained as part of the payload contract. Zero baselines are now
+    # described on their individual cards, so no rail-wide note is needed.
+    compare_note = ''
 
     def x_fraction(day):
         return 0.0 if period_days <= 1 else (day - start).days / (period_days - 1)
@@ -1298,7 +1325,10 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
             'key': 'procurement_cost', 'label': 'Procurement Cost', 'unit': 'currency',
             'tier': 'primary',
             'value_display': f'₱{totals["procurement_cost"]:,.2f}',
-            'delta': _delta_pill(totals['procurement_cost'], prev['procurement_cost'], compare_label, prev_empty),
+            'delta': _delta_pill(
+                totals['procurement_cost'], prev['procurement_cost'], compare_label,
+                prev_empty, favorable_when=None,
+            ),
             'values': procurement_cost_values,
             'labels': procurement_cost_labels,
             'x_fractions': procurement_cost_x_fractions,
@@ -1992,6 +2022,7 @@ def operational_dashboard(request):
         'inventory_value': inventory_value,
         'inventory_units': inventory_units,
         'inventory_low_critical': inventory_low_critical,
+        'inventory_low_critical_display': f'{inventory_low_critical:,}',
         'top_products': top_products,
 
         # --- Always-every-branch comparison charts ---
@@ -2164,10 +2195,7 @@ def reports_dashboard(request):
     )
     compare_label = f'previous {period_days} day{_plural(period_days)}'
     prev_window_empty = not (prev['sales'] or prev['txn_count'])
-    kpi_compare_note = (
-        f'Nothing was recorded in the {compare_label}, so there is no change to show yet.'
-        if prev_window_empty else ''
-    )
+    kpi_compare_note = ''
 
     return render(request, 'reports/reports_home.html', {
         'transactions': sales_qs,
@@ -2177,7 +2205,9 @@ def reports_dashboard(request):
         'category_chart': category_chart,
         'sales_series': sales_series,
         'total_orders': total_orders,
+        'total_orders_display': f'{total_orders:,}',
         'total_sales': total_sales,
+        'total_sales_display': f'{total_sales:,.2f}',
         # Gross/Refund not currently rendered by reports_home.html (it only
         # ever showed one "Total Sales" figure) — carried in context so the
         # Net Sales figure above them is auditable, and for the web/API
@@ -2186,7 +2216,9 @@ def reports_dashboard(request):
         'gross_sales': gross_sales,
         'refund_value': refund_value,
         'avg_order_value': avg_order_value,
+        'avg_order_value_display': f'{avg_order_value:,.2f}',
         'online_orders': online_orders,
+        'online_orders_display': f'{online_orders:,}',
         # Committed-but-unfulfilled pipeline (Pending / Approved / Preparing),
         # rendered as a quiet line under the rail — see the template.
         'pipeline_total': pipeline_total,
@@ -2962,11 +2994,13 @@ def export_csv(request, kind):
             ])
 
     elif kind == 'procurement':
-        qs = Procurement.objects.select_related('branch', 'supplier', 'supplier__supplier_profile')
+        qs = Procurement.objects.select_related(
+            'branch', 'supplier', 'supplier__supplier_profile'
+        ).prefetch_related('items')  # actual_received_cost walks items.all() per row
         qs = scope_queryset(qs, request.user, 'branch')  # fails closed — see 'sales'
         writer.writerow([
             'PO Number', 'Branch', 'Supplier', 'Order Date', 'Delivery Date',
-            'Status', 'Receipt Flag', 'Total Cost (PHP)',
+            'Status', 'Receipt Flag', 'Total Cost (PHP)', 'Actual Received Cost (PHP)',
         ])
         for p in qs.order_by('-order_date'):
             supplier = ''
@@ -2978,6 +3012,7 @@ def export_csv(request, kind):
             writer.writerow([
                 p.po_number, p.branch.branch_name if p.branch else '', supplier,
                 p.order_date, p.delivery_date or '', p.status, p.receipt_flag, p.total_cost,
+                p.actual_received_cost,
             ])
 
     elif kind == 'billing':

@@ -1,0 +1,39 @@
+{% extends "internal_base.html" %}
+{% block title %}ZANK POS Import History{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a class="back-link" href="{% url 'transaction_list' %}">Order Console</a><h1 class="mt-2">ZANK POS Import History</h1></div>
+  {% if can_import_pos %}<button type="button" class="btn btn-primary" id="open-pos-import-modal">Import POS Sales</button>{% endif %}
+</div>
+<p class="gv-meta">The original upload is not stored. “Undo Import” reverses its saved sales and inventory effects while retaining an audit record of what happened.</p>
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead><tr><th>Imported</th><th>File</th><th>Branch</th><th>User</th><th>Status</th><th class="num">Successful</th><th class="num">Duplicates</th><th class="num">Failed rows</th><th class="num">Gross</th><th class="num">Net</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for item in imports %}
+      <tr>
+        <td class="gv-meta">{{ item.imported_at|date:"Y-m-d H:i" }}</td><td>{{ item.original_filename }}</td><td>{{ item.branch.branch_name }}</td>
+        <td>{{ item.imported_by.get_full_name|default:item.imported_by.username|default:"System" }}</td>
+        <td>{% if item.reversed_at %}<span class="pill pill-danger">Undone</span><div class="gv-meta">{{ item.reversed_at|date:"Y-m-d H:i" }} by {{ item.reversed_by.username|default:"System" }}</div>{% else %}<span class="pill pill-ok">Imported</span>{% endif %}</td>
+        <td class="num">{{ item.successful_transactions }}</td><td class="num">{{ item.skipped_duplicates }}</td><td class="num">{{ item.failed_rows }}</td>
+        <td class="num">₱{{ item.gross_total|floatformat:2 }}</td><td class="num strong">₱{{ item.net_total|floatformat:2 }}</td>
+        <td>{% if can_undo and not item.reversed_at %}<form method="post" action="{% url 'pos_sales_import_undo' item.pk %}" class="stack" data-confirm="Undo this entire POS import? All linked sales will be cancelled and their quantities returned to inventory. This cannot be repeated.">{% csrf_token %}<input name="reason" maxlength="255" required placeholder="Reason for undo"><button class="btn btn-sm" type="submit">Undo Import</button></form>{% else %}—{% endif %}</td>
+      </tr>
+      {% if item.reversal_reason %}<tr><td></td><td colspan="10"><span class="gv-meta"><b>Undo reason:</b> {{ item.reversal_reason }}</span></td></tr>{% endif %}
+      {% if item.validation_errors %}<tr><td></td><td colspan="10"><details><summary>{{ item.validation_errors|length }} validation error record(s)</summary>{% for error in item.validation_errors %}<div class="gv-meta">Row {{ error.row }} · {{ error.invoice|default:"No invoice" }}: {{ error.errors|join:"; " }}</div>{% endfor %}</details></td></tr>{% endif %}
+    {% empty %}<tr><td colspan="11"><div class="empty"><h3>No POS imports yet</h3><p>Confirmed ZANK POS imports will appear here.</p></div></td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if can_import_pos %}{% include "sales/_pos_import_modal.html" %}{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if can_import_pos %}
+<script>
+  initModal({ modalId: 'pos-import-modal', openerIds: ['open-pos-import-modal'], closerIds: ['close-pos-import-modal', 'cancel-pos-import-modal'] });
+</script>
+{% endif %}
+{% endblock %}

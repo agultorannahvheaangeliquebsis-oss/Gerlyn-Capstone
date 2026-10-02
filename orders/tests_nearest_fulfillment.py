@@ -256,7 +256,9 @@ class AutomaticFulfillmentWorkflowTests(TestCase):
         )
 
         self.assertEqual(self.client.session['cart'], {str(self.product_a.pk): 1})
-        self.assertContains(response, 'No single branch can fulfill every item')
+        self.assertContains(response, 'currently be fulfilled by one branch')
+        self.assertContains(response, 'Rice')
+        self.assertContains(response, 'Oil')
 
     @override_settings(DEFAULT_FULFILLMENT_BRANCH_ID=None)
     def test_denied_geolocation_uses_fallback(self):
@@ -360,4 +362,56 @@ class AutomaticFulfillmentWorkflowTests(TestCase):
         }, follow=True)
 
         self.assertEqual(SalesTransaction.objects.count(), 1)
-        self.assertContains(response, 'No single branch can fulfill every item')
+        self.assertContains(response, 'currently be fulfilled by one branch')
+        self.assertContains(response, 'Rice')
+
+
+class NoSingleBranchMessageTests(TestCase):
+    """_no_single_branch_message names what is blocking the order, and falls
+    back to the flat wording when there is nothing to name."""
+
+    def test_it_names_the_products_that_fell_short(self):
+        from orders.customer_views import _no_single_branch_message
+        from orders.services import FulfillmentResolution
+
+        rice = Product.objects.create(
+            sku_code='NSB-A', product_name='Rice', unit_price=Decimal('100.00'),
+        )
+        oil = Product.objects.create(
+            sku_code='NSB-B', product_name='Oil', unit_price=Decimal('80.00'),
+        )
+        message = _no_single_branch_message(
+            FulfillmentResolution(
+                branch=None, distance_km=None, strategy='none',
+                unavailable_product_ids=(rice.pk, oil.pk),
+            )
+        )
+
+        self.assertIn('Rice', message)
+        self.assertIn('Oil', message)
+        self.assertIn('currently be fulfilled by one branch', message)
+
+    def test_no_ids_falls_back_to_the_flat_message(self):
+        from orders.customer_views import NO_SINGLE_BRANCH, _no_single_branch_message
+        from orders.services import FulfillmentResolution
+
+        self.assertEqual(
+            _no_single_branch_message(
+                FulfillmentResolution(branch=None, distance_km=None, strategy='none')
+            ),
+            NO_SINGLE_BRANCH,
+        )
+
+    def test_ids_that_no_longer_name_a_product_fall_back_too(self):
+        from orders.customer_views import NO_SINGLE_BRANCH, _no_single_branch_message
+        from orders.services import FulfillmentResolution
+
+        self.assertEqual(
+            _no_single_branch_message(
+                FulfillmentResolution(
+                    branch=None, distance_km=None, strategy='none',
+                    unavailable_product_ids=(999999,),
+                )
+            ),
+            NO_SINGLE_BRANCH,
+        )

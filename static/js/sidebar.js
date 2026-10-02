@@ -135,7 +135,7 @@
      innerHTML swap (procurement_list.html's data-detail-modal) — this
      script only runs once, but a document-level listener doesn't care when
      its target entered the DOM. */
-  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open], .avatar-menu[open], .status-select[open]';
+  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open], .avatar-menu[open], .status-select[open], .bill-more[open]';
   document.addEventListener('click', function (e) {
     document.querySelectorAll(AUTOCLOSE_SEL).forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;
@@ -178,6 +178,18 @@
     var option = e.target.closest && e.target.closest('.status-select-option');
     if (!option) return;
     var details = option.closest('.status-select');
+    if (details) details.open = false;
+  });
+
+  /* Billing Detail's "More" menu (billing/_billing_more_menu.html): picking
+     a row closes it, the same as the Update status panel above. Edit opens
+     the Record Payment dialog and Reject opens its confirm dialog (both
+     outside the menu), so the menu shouldn't be left hanging open behind
+     them. The click's own action (submit / open) still runs. */
+  document.addEventListener('click', function (e) {
+    var item = e.target.closest && e.target.closest('.bill-more-item');
+    if (!item) return;
+    var details = item.closest('.bill-more');
     if (details) details.open = false;
   });
 

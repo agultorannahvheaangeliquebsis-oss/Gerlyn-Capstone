@@ -110,20 +110,29 @@ class RecordPaymentModalOnBillingPageTests(TestCase):
         self.assertTrue(any('reference number' in m for m in self._messages(response)))
 
         response = self.client.post(create_url, {
-            'payment_method': 'GCash', 'reference_number': 'GC-BILLING-1',
+            'payment_method': 'GCash', 'reference_number': '2026000000101',
             'proof_of_payment': _valid_png_file(), 'return_to': 'billing',
         })
         self.assertRedirects(response, reverse('billing_detail', args=[record.pk]))
         record.refresh_from_db()
-        self.assertEqual(record.reference_number, 'GC-BILLING-1')
+        self.assertEqual(record.reference_number, '2026000000101')
 
-    # -- Verify Payment disabled when evidence is missing ------------------------
+    # -- Verify Payment is not offered when evidence is missing ------------------
 
-    def test_verify_is_disabled_when_evidence_is_missing(self):
+    def test_verify_is_not_offered_when_evidence_is_missing(self):
+        """A bill with no evidence on file has nothing to verify YET, so the
+        Next Step block asks for the details instead of offering a decision.
+
+        This used to draw Verify Payment disabled, which said "you may not
+        do this" where the truth is "this is not the step you are on" — the
+        step is recording the reference/proof, and Edit payment details is
+        the primary action for it. billing_confirm refuses Paid either way.
+        """
         record = self._gcash_record()  # GCash, no reference/proof
         html = self._html(record)
-        self.assertIn('<button type="button" class="btn btn-primary" disabled>Verify Payment</button>', html)
+        self.assertNotIn('Verify Payment', html)
         self.assertIn('reference number', html)
+        self.assertIn('Edit payment details', html)
 
     def test_verify_is_enabled_for_cash(self):
         txn = self._txn(method=SalesTransaction.ModeOfPayment.CASH)
@@ -136,11 +145,20 @@ class RecordPaymentModalOnBillingPageTests(TestCase):
 
     # -- the empty-state Proof panel ----------------------------------------------
 
-    def test_proof_panel_shows_a_passive_notice_not_an_upload_button(self):
+    def test_proof_panel_asks_for_the_required_proof_and_offers_the_upload(self):
+        """Required-but-missing proof says so, and hands over the action.
+
+        The panel used to read "Waiting for payment data from recorder." on
+        a page whose own primary action is recording exactly that, so the
+        reader was told to wait for themselves. It now states that
+        {method} requires proof and opens the same Record Payment dialog —
+        no new upload path.
+        """
         record = self._gcash_record()  # GCash, no proof
         html = self._html(record)
-        self.assertIn('Waiting for payment data from recorder.', html)
-        self.assertNotIn('Upload proof', html)
+        self.assertIn('Proof of payment is required for GCash', html)
+        self.assertIn('Upload proof', html)
+        self.assertIn('data-payment-open="record-payment-modal"', html)
 
     def test_proof_panel_says_no_proof_needed_for_cash(self):
         txn = self._txn(method=SalesTransaction.ModeOfPayment.CASH)

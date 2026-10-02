@@ -1,0 +1,16 @@
+{% comment %}
+The Reject Payment form, with no visible button of its own: it is submitted
+by the "Reject Payment" row in _billing_more_menu.html through form=, so the
+confirm dialog it carries sits outside the menu's <details> and still shows
+once the menu closes. order-status-confirm.js opens the dialog on submit
+exactly as it did when the trigger lived inside the form.
+
+Both this and the menu are drawn only behind module_actions.billing.edit —
+see _billing_next_step.html, which includes the pair.
+
+Needs: record.
+{% endcomment %}
+<form method="POST" action="{% url 'billing_confirm' record.pk %}" id="bill-reject-form" data-status-confirm>
+  {% csrf_token %}
+  {% include "partials/_billing_reject_confirm.html" with record=record %}
+</form>

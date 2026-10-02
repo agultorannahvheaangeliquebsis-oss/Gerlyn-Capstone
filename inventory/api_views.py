@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, filters
+from rest_framework import viewsets, status, filters, mixins
 from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -29,6 +29,10 @@ from .serializers import (
 )
 from accounts.models import User
 from .views import _InsufficientStockError
+from .services import (
+    StockTransferReceiptError, reconcile_transfer_receipt,
+    record_transfer_event, transfers_visible_to,
+)
 
 
 # Branch scoping lives in core.scoping so the API and the template views can
@@ -246,7 +250,7 @@ class WarehouseViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-class WarehouseStockViewSet(viewsets.ModelViewSet):
+class WarehouseStockViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
     """
     /api/warehouse-stock/
     Mirrors warehouse_stock_list: Owner sees every warehouse, Manager/Staff
@@ -271,23 +275,33 @@ class WarehouseStockViewSet(viewsets.ModelViewSet):
         # only for the Owner and [] for an unassigned account — it fails CLOSED.
         return scope_queryset(qs, self.request.user, 'warehouse__branch')
 
-    def create(self, request, *args, **kwargs):
-        denied = check_owner_or_manager(request)
-        if denied:
-            return denied
-        return super().create(request, *args, **kwargs)
-
     def update(self, request, *args, **kwargs):
         denied = check_owner_or_manager(request)
         if denied:
             return denied
+        instance = self.get_object()
+        for field_name in ('quantityOnHand', 'quantity_on_hand'):
+            if field_name not in request.data:
+                continue
+            submitted = request.data[field_name]
+            if isinstance(submitted, bool):
+                submitted_quantity = None
+            else:
+                try:
+                    submitted_quantity = int(submitted)
+                except (TypeError, ValueError):
+                    submitted_quantity = None
+            if submitted_quantity != instance.quantity_on_hand:
+                return Response(
+                    {
+                        field_name: (
+                            'Warehouse quantity is read-only. Use the appropriate '
+                            'audited receiving or stock-movement workflow.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         return super().update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        denied = check_owner_or_manager(request)
-        if denied:
-            return denied
-        return super().destroy(request, *args, **kwargs)
 
 
 class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -395,10 +409,10 @@ class StockTransferListCreateAPIView(APIView):
         qs = StockTransfer.objects.select_related(
             'source_branch', 'destination_branch', 'requested_by',
             'approved_by', 'acknowledged_by', 'warehouse',
-        ).prefetch_related('items__product').all()
+        ).prefetch_related('items__product', 'events__actor').all()
 
         # Fails closed for an unassigned Manager/Staff — see WarehouseStockViewSet.
-        qs = scope_queryset(qs, request.user, 'source_branch')
+        qs = transfers_visible_to(request.user, qs)
 
         status_filter = request.query_params.get('status')
         if status_filter:
@@ -415,7 +429,7 @@ class StockTransferListCreateAPIView(APIView):
             User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
         ]:
             return Response(
-                {'detail': 'You do not have permission to create stock withdrawals.'},
+                {'detail': 'You do not have permission to create stock transfers or write-offs.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -441,7 +455,7 @@ class StockTransferDetailAPIView(APIView):
             StockTransfer.objects.select_related(
                 'source_branch', 'destination_branch', 'requested_by',
                 'approved_by', 'acknowledged_by', 'warehouse',
-            ).prefetch_related('items__product'),
+            ).prefetch_related('items__product', 'events__actor'),
             pk=pk
         )
         # A slip concerns two branches, so either side may view it — mirrors
@@ -468,62 +482,89 @@ class StockTransferApproveAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        transfer = get_object_or_404(StockTransfer, pk=pk)
-        if not user_can_access_branch(request.user, transfer.source_branch_id):
-            return Response(
-                {'detail': 'That stock withdrawal belongs to another branch.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        if transfer.status != StockTransfer.Status.PENDING:
-            return Response(
-                {'detail': 'This transfer has already been processed.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         serializer = StockTransferApproveSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         data = serializer.validated_data
 
         with transaction.atomic():
+            transfer = get_object_or_404(
+                StockTransfer.objects.select_for_update(), pk=pk,
+            )
+            if not user_can_access_branch(request.user, transfer.source_branch_id):
+                return Response(
+                    {'detail': 'That stock transfer or write-off belongs to another branch.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if transfer.status != StockTransfer.Status.PENDING:
+                return Response(
+                    {'detail': 'This transfer has already been processed.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+            )
+
             if data['action'] == 'approve':
-                items_map = {int(k): v for k, v in data['items'].items()}
-                items = transfer.items.select_related('product').all()
+                try:
+                    items_map = {int(k): v for k, v in data['items'].items()}
+                except (TypeError, ValueError):
+                    return Response(
+                        {'items': 'Every item key must be a valid transfer-item id.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                items = list(transfer.items.select_related('product').all())
+                if set(items_map) != {item.pk for item in items}:
+                    return Response(
+                        {'items': 'Provide an approved quantity for every transfer item only.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                is_restock = transfer.is_warehouse_floor_transfer
 
                 for item in items:
                     approved_qty = items_map.get(item.id, 0)
-                    try:
-                        # Locked for the rest of this transaction so a second,
-                        # concurrently-approved transfer against the same
-                        # product can't read the same not-yet-committed
-                        # quantity_on_hand (mirrors the template path's fix).
-                        ws = WarehouseStock.objects.select_for_update().get(
+                    if is_restock:
+                        stock = WarehouseStock.objects.select_for_update().filter(
                             warehouse=transfer.warehouse, product=item.product
-                        )
-                    except WarehouseStock.DoesNotExist:
+                        ).first()
+                        location_label = 'warehouse'
+                    else:
+                        stock = Inventory.objects.select_for_update().filter(
+                            branch=transfer.source_branch, product=item.product,
+                        ).first()
+                        location_label = 'floor'
+                    if stock is None:
+                        transaction.set_rollback(True)
                         return Response(
-                            {'detail': f'{item.product.product_name} not found in warehouse.'},
+                            {'detail': f'{item.product.product_name} not found in {location_label} stock.'},
                             status=status.HTTP_400_BAD_REQUEST
                         )
-                    if approved_qty > ws.quantity_on_hand:
+                    if approved_qty > stock.quantity_on_hand:
+                        transaction.set_rollback(True)
                         return Response(
                             {'detail': (
-                                f'Not enough warehouse stock for '
-                                f'{item.product.product_name}. Available: {ws.quantity_on_hand}'
+                                f'Not enough {location_label} stock for '
+                                f'{item.product.product_name}. Available: {stock.quantity_on_hand}'
                             )},
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     item.quantity_approved = approved_qty
                     item.save()
 
+                previous = transfer.status
                 transfer.status = StockTransfer.Status.APPROVED
                 transfer.approved_by = request.user
                 transfer.save()
+                record_transfer_event(
+                    transfer, previous, transfer.status, request.user, 'Request approved.',
+                )
 
             else:  # reject
+                previous = transfer.status
                 transfer.status = StockTransfer.Status.REJECTED
                 transfer.approved_by = request.user
                 transfer.save()
+                record_transfer_event(
+                    transfer, previous, transfer.status, request.user,
+                    request.data.get('reason') or 'Request rejected.',
+                )
 
         return Response(StockTransferSerializer(transfer).data)
 
@@ -546,7 +587,7 @@ class StockTransferReleaseAPIView(APIView):
         transfer = get_object_or_404(StockTransfer, pk=pk)
         if not user_can_access_branch(request.user, transfer.source_branch_id):
             return Response(
-                {'detail': 'That stock withdrawal belongs to another branch.'},
+                {'detail': 'That stock transfer belongs to another branch.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if transfer.status != StockTransfer.Status.APPROVED:
@@ -554,12 +595,28 @@ class StockTransferReleaseAPIView(APIView):
                 {'detail': 'Transfer must be approved before it can be released.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        if transfer.is_write_off:
+            return self._complete_write_off(request, transfer.pk)
 
         try:
             with transaction.atomic():
+                transfer = StockTransfer.objects.select_for_update().get(pk=pk)
+                if not user_can_access_branch(request.user, transfer.source_branch_id):
+                    return Response(
+                        {'detail': 'That stock transfer belongs to another branch.'},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+                if transfer.status != StockTransfer.Status.APPROVED:
+                    return Response(
+                        {'detail': 'Transfer must be approved before it can be released.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 for item in transfer.items.select_related('product').all():
                     if item.quantity_approved <= 0:
                         continue
+                    item.quantity_released = item.quantity_approved
+                    item.release_method = StockTransferItem.ReleaseMethod.MANUAL
+                    item.save(update_fields=['quantity_released', 'release_method'])
 
                     # Locked + re-checked against the CURRENT quantity_on_hand
                     # rather than trusting the snapshot from approval time —
@@ -594,12 +651,12 @@ class StockTransferReleaseAPIView(APIView):
                         quantity_before=qty_before_warehouse,
                         quantity_after=ws.quantity_on_hand,
                         reference_id=transfer.pk,
-                        notes=f'Stock withdrawal {transfer.slip_number}',
+                        notes=f'Transfer {transfer.slip_number}: warehouse dispatch',
                         created_by=request.user,
                     )
 
                     if transfer.destination_branch:
-                        inv, _ = Inventory.objects.get_or_create(
+                        inv, _ = Inventory.objects.select_for_update().get_or_create(
                             product=item.product,
                             branch=transfer.destination_branch,
                             defaults={'quantity_on_hand': 0, 'reorder_level': 0}
@@ -616,7 +673,7 @@ class StockTransferReleaseAPIView(APIView):
                             quantity_before=qty_before_floor,
                             quantity_after=inv.quantity_on_hand,
                             reference_id=transfer.pk,
-                            notes=f'Stock withdrawal {transfer.slip_number}',
+                            notes=f'Transfer {transfer.slip_number}: received on floor',
                             created_by=request.user,
                         )
 
@@ -654,11 +711,81 @@ class StockTransferReleaseAPIView(APIView):
                                       f'(no matching warehouse batch found)',
                             )
 
+                previous = transfer.status
                 transfer.status = StockTransfer.Status.RELEASED
                 transfer.save()
+                record_transfer_event(
+                    transfer, previous, transfer.status, request.user,
+                    'Stock released by the source branch.',
+                )
         except _InsufficientStockError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        return Response(StockTransferSerializer(transfer).data)
+
+    def _complete_write_off(self, request, transfer_id):
+        try:
+            with transaction.atomic():
+                transfer = StockTransfer.objects.select_for_update().get(pk=transfer_id)
+                if not user_can_access_branch(request.user, transfer.source_branch_id):
+                    return Response(
+                        {'detail': 'That write-off belongs to another branch.'},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+                if transfer.status != StockTransfer.Status.APPROVED:
+                    return Response(
+                        {'detail': 'Transfer must be approved before it can be released.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                for item in transfer.items.select_related('product'):
+                    quantity = item.quantity_approved
+                    if quantity <= 0:
+                        continue
+                    inventory = get_object_or_404(
+                        Inventory.objects.select_for_update(),
+                        branch=transfer.source_branch, product=item.product,
+                    )
+                    if quantity > inventory.quantity_on_hand:
+                        raise _InsufficientStockError(
+                            f'Not enough floor stock for {item.product.product_name} to '
+                            f'write off — available: {inventory.quantity_on_hand}, '
+                            f'approved: {quantity}.'
+                        )
+                    before = inventory.quantity_on_hand
+                    inventory.quantity_on_hand -= quantity
+                    inventory.save()
+                    StockMovement.objects.create(
+                        inventory=inventory,
+                        location_type=StockMovement.LocationType.FLOOR,
+                        movement_type=StockMovement.MovementType.WRITE_OFF,
+                        quantity_change=-quantity,
+                        quantity_before=before,
+                        quantity_after=inventory.quantity_on_hand,
+                        reference_id=transfer.pk,
+                        notes=f'Write-off {transfer.slip_number} — {transfer.get_purpose_display()}',
+                        created_by=request.user,
+                    )
+                    Batch.consume_fefo(
+                        item.product, transfer.source_branch,
+                        Batch.Location.FLOOR, quantity, include_expired=True,
+                    )
+                    item.quantity_released = quantity
+                    item.release_method = StockTransferItem.ReleaseMethod.MANUAL
+                    item.save(update_fields=['quantity_released', 'release_method'])
+
+                previous = transfer.status
+                transfer.status = StockTransfer.Status.ACKNOWLEDGED
+                transfer.acknowledged_by = request.user
+                transfer.received_qty = sum(
+                    item.quantity_released for item in transfer.items.all()
+                )
+                transfer.save()
+                record_transfer_event(
+                    transfer, previous, transfer.status, request.user,
+                    'Floor stock written off by the source branch.',
+                )
+        except _InsufficientStockError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(StockTransferSerializer(transfer).data)
 
 
@@ -674,21 +801,28 @@ class StockTransferAcknowledgeAPIView(APIView):
     permission_classes = [IsAuthenticated, HasModuleAccess]
 
     def patch(self, request, pk):
-        if request.user.role not in [User.Role.STAFF, User.Role.BRANCH_MANAGER]:
+        if request.user.role not in [
+            User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER,
+        ]:
             return Response(
-                {'detail': 'Only Staff or Branch Managers can acknowledge a delivery.'},
+                {'detail': 'Only Staff, Branch Managers, or Owners can confirm stock received on the floor.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         transfer = get_object_or_404(StockTransfer, pk=pk)
+        if not transfer.is_warehouse_floor_transfer:
+            return Response(
+                {'detail': 'Write-offs do not have a floor-receipt step.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not user_can_access_branch(request.user, transfer.destination_branch_id):
             return Response(
-                {'detail': 'That stock withdrawal belongs to another branch.'},
+                {'detail': 'That stock transfer belongs to another branch.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         if transfer.status != StockTransfer.Status.RELEASED:
             return Response(
-                {'detail': 'Transfer must be Released before it can be acknowledged.'},
+                {'detail': 'Stock must be moved to the floor before receipt can be confirmed.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -697,21 +831,57 @@ class StockTransferAcknowledgeAPIView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         data = serializer.validated_data
 
-        total_approved = sum(item.quantity_approved for item in transfer.items.all())
-        is_match = data['receivedQty'] == total_approved
+        total_released = sum(item.quantity_released for item in transfer.items.all())
+        is_match = data['receivedQty'] == total_released
 
         if not is_match and not data.get('flagReason'):
             return Response(
-                {'flagReason': 'Required when received quantity does not match approved quantity.'},
+                {'flagReason': 'Required when received quantity does not match released quantity.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        if not is_match:
+            if not data.get('items'):
+                return Response(
+                    {'items': 'Per-item received quantities are required for a discrepancy.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if sum(data['items'].values()) != data['receivedQty']:
+                return Response(
+                    {'receivedQty': 'Must equal the sum of the per-item quantities.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                transfer = reconcile_transfer_receipt(
+                    transfer_id=pk,
+                    actor=request.user,
+                    received_by_item=data['items'],
+                    reason=data['flagReason'],
+                )
+            except StockTransferReceiptError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(StockTransferSerializer(transfer).data)
 
-        transfer.received_qty = data['receivedQty']
-        transfer.flag_reason = data.get('flagReason', '')
-        transfer.acknowledged_by = request.user
-        transfer.status = (
-            StockTransfer.Status.ACKNOWLEDGED if is_match else StockTransfer.Status.DISCREPANCY
-        )
-        transfer.save()
+        with transaction.atomic():
+            transfer = StockTransfer.objects.select_for_update().get(pk=pk)
+            if not user_can_access_branch(request.user, transfer.destination_branch_id):
+                return Response(
+                    {'detail': 'That stock transfer belongs to another branch.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if transfer.status != StockTransfer.Status.RELEASED:
+                return Response(
+                    {'detail': 'Stock must be moved to the floor before receipt can be confirmed.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            previous = transfer.status
+            transfer.received_qty = data['receivedQty']
+            transfer.flag_reason = ''
+            transfer.acknowledged_by = request.user
+            transfer.status = StockTransfer.Status.ACKNOWLEDGED
+            transfer.save()
+            record_transfer_event(
+                transfer, previous, transfer.status, request.user,
+                f'Confirmed receipt of {data["receivedQty"]} units.',
+            )
 
         return Response(StockTransferSerializer(transfer).data)

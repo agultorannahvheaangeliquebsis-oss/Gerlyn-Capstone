@@ -1,9 +1,9 @@
-"""Supplier-catalog restrictions on purchase-order creation."""
+"""Supplier catalogs suggest PO products without restricting creation."""
 
 import datetime as dt
 from decimal import Decimal
 
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -86,6 +86,14 @@ class SupplierProductPOBase(TestCase):
         }
 
 
+@override_settings(STORAGES={
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+})
 class SupplierProductPOTemplateTests(SupplierProductPOBase):
     def setUp(self):
         self.client = Client()
@@ -117,22 +125,46 @@ class SupplierProductPOTemplateTests(SupplierProductPOBase):
         self.assertEqual(order.supplier, self.supplier)
         self.assertEqual(order.items.get().product, self.assigned)
 
-    def test_unassigned_product_post_is_rejected_without_partial_order(self):
+    def test_unassigned_product_can_be_ordered(self):
         response = self.client.post(
             reverse('procurement_add'), self.html_payload(self.unassigned)
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'assigned to the selected supplier')
-        self.assertFalse(Procurement.objects.exists())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Procurement.objects.get().items.get().product, self.unassigned)
 
-    def test_product_assigned_to_another_supplier_is_rejected(self):
+    def test_product_linked_to_another_supplier_can_be_ordered(self):
         response = self.client.post(
             reverse('procurement_add'), self.html_payload(self.other_assigned)
         )
 
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            Procurement.objects.get().items.get().product, self.other_assigned
+        )
+
+    def test_supplier_with_no_links_can_still_receive_an_order(self):
+        SupplierProduct.objects.filter(supplier=self.supplier).delete()
+
+        page = self.client.get(reverse('procurement_add'))
+        response = self.client.post(
+            reverse('procurement_add'), self.html_payload(self.unassigned)
+        )
+
+        self.assertContains(page, 'No products currently linked to this supplier')
+        self.assertContains(page, 'You can still create a purchase order')
+        self.assertContains(page, 'Manage Supplier Products')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Procurement.objects.get().items.get().product, self.unassigned)
+
+    def test_unknown_product_id_is_still_rejected(self):
+        payload = self.html_payload(self.unassigned)
+        payload['product_id'] = ['999999']
+
+        response = self.client.post(reverse('procurement_add'), payload)
+
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'assigned to the selected supplier')
+        self.assertContains(response, 'Choose a valid product')
         self.assertFalse(Procurement.objects.exists())
 
     def test_inactive_supplier_is_not_orderable_even_with_a_mapping(self):
@@ -170,15 +202,38 @@ class SupplierProductPOAPITests(SupplierProductPOBase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(Procurement.objects.get().items.get().product, self.assigned)
 
-    def test_api_rejects_unassigned_product_without_partial_order(self):
+    def test_api_accepts_unassigned_product(self):
         response = self.client.post(
             reverse('api-procurement-list'),
             self.api_payload(self.unassigned),
             format='json',
         )
 
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Procurement.objects.get().items.get().product, self.unassigned)
+
+    def test_api_accepts_product_when_supplier_has_no_links(self):
+        SupplierProduct.objects.filter(supplier=self.supplier).delete()
+
+        response = self.client.post(
+            reverse('api-procurement-list'),
+            self.api_payload(self.unassigned),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Procurement.objects.get().items.get().product, self.unassigned)
+
+    def test_api_still_rejects_unknown_product_id(self):
+        payload = self.api_payload(self.unassigned)
+        payload['items'][0]['productId'] = 999999
+
+        response = self.client.post(
+            reverse('api-procurement-list'), payload, format='json'
+        )
+
         self.assertEqual(response.status_code, 400)
-        self.assertIn('assigned to the selected supplier', str(response.data))
+        self.assertIn('products not found', str(response.data))
         self.assertFalse(Procurement.objects.exists())
 
     def test_api_rejects_inactive_supplier_and_hides_its_catalog(self):

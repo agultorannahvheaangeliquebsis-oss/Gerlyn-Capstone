@@ -318,6 +318,10 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   font: 500 13px/1.4 var(--font-sans);
   color: var(--danger-fg);
 }
+/* The same message under a plain (non-floating-label) input, e.g. the GCash
+   reference field — no pull-up margin, and the input itself turns red. */
+.field-error--ref { margin: 0; }
+.field input.is-invalid { border-color: var(--danger-dot); }
 
 /* ----------------------------------------------------------------- cards */
 .card {
@@ -388,7 +392,7 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .kpi-card.warn .value { color: var(--warn-fg); }
 
 /* .pill is nowrap everywhere else (table/list status never truncates), but the
-   Reports/Dashboard delta pill's text is a full sentence ("-100.0% vs previous
+   Reports/Dashboard delta pill's text is a full sentence ("100.0% vs previous
    30 days") next to a card that can shrink to ~200px on a narrow viewport —
    nowrap there just pushes the overflow past the card edge instead of
    preventing it. Wrapping is scoped to these two card shells (.kpi-card and
@@ -2056,10 +2060,6 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .report-tab svg { width: 16px; height: 16px; flex: none; }
 .report-tab:hover { color: var(--ink-900); }
 .report-tab.active { color: var(--action-700); border-bottom-color: var(--action); }
-@media (max-width: 860px) {
-  .report-tab-word { display: none; }
-}
-
 /* Status filter tabs — the Reports bar's underline language applied to
    filtering a list in place. Deliberately identical to .report-tab above
    (same 1.5px rule, same 2.5px active underline, same ink ramp): the two bars

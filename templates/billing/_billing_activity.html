@@ -1,0 +1,67 @@
+{% comment %}
+Activity — the billing events this record can actually prove, collapsed
+because it is the secondary record (same shape as Order Detail's Status
+History).
+
+M4 limitation, deliberately visible to the reader rather than papered over:
+there is no BillingStatusHistory table. A BillingRecord keeps only its
+CURRENT decision — confirmed_by / date_confirmed, and reject_reason while it
+is Rejected — and billing_confirm clears all three when a rejected payment
+is re-opened. So a payment that was rejected and then re-opened leaves
+nothing behind to list, and this block says so instead of inventing a
+timestamp, an actor or a transition for it. Every line comes from a
+persisted field (billing.views._billing_activity has the per-field
+reasoning) or from RefundEvent, which sales.refunds writes append-only and
+never edits.
+
+A real BillingStatusHistory model — every billing transition with its actor,
+time and reason — is a separate task, not something this template can fake.
+
+Refund decisions are Sales & Orders' to make: they are reported here, never
+offered here.
+
+Needs from billing_detail: activity, pending_refunds.
+{% endcomment %}
+{% if pending_refunds %}
+{% comment %}Only what the Refund row itself holds: the amount, who raised it, when.
+   The decision is taken on the order.{% endcomment %}
+<div class="banner banner-warning">
+  <div class="banner-text">
+    <strong>A refund request is awaiting approval.</strong>
+    {% for refund in pending_refunds %}
+    <span class="od-sub">₱{{ refund.total_amount|floatformat:2 }} ({{ refund.refund_type|lower }}),
+      requested by {% if refund.requested_by %}{{ refund.requested_by.get_full_name|default:refund.requested_by.username }}{% else %}—{% endif %}
+      on {{ refund.requested_at|date:"j M Y, g:i a" }} — {{ refund.get_reason_code_display }}.</span>
+    {% endfor %}
+    <span class="od-sub">Approve or reject it on the order; Billing only reports it.</span>
+  </div>
+</div>
+{% endif %}
+
+<details class="card bill-history">
+  <summary>
+    Activity
+    <span class="gv-meta">
+      {% with last=activity|last %}
+      {% if last %}({{ activity|length }}) · last: {{ last.what }}, {{ last.when|date:"j M Y, g:i a" }}{% endif %}
+      {% endwith %}
+    </span>
+  </summary>
+  <ol class="bill-log">
+    {% for event in activity %}
+    <li>
+      <span class="bill-when">{{ event.when|date:"j M Y, g:i a" }}</span>
+      <span>
+        <strong>{{ event.what }}</strong>
+        {% if event.who %}<span class="gv-meta">· {{ event.who.get_full_name|default:event.who.username }}</span>{% endif %}
+        {% if event.note %}<span class="od-sub">{{ event.note }}</span>{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ol>
+  <p class="gv-meta bill-log-note">
+    Only events this record still holds evidence of are listed. Billing keeps no status
+    history of its own, so an earlier rejection that was later re-opened leaves no trace —
+    nothing is inferred to fill the gap.
+  </p>
+</details>

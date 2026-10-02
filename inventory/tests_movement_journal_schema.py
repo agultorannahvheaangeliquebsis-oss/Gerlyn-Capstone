@@ -223,3 +223,64 @@ class BackfillMigrationTests(_JournalFixture):
         self.run_backfill()
         m.refresh_from_db()
         self.assertEqual(m.reference_type, RT.STOCK_TRANSFER)
+
+
+class TransferDomainReferenceTypeTests(_JournalFixture):
+    """Merge with the transfer/write-off domain split: those flows write
+    TRANSFER_DISCREPANCY and WRITE_OFF movements with a reference_id (the
+    StockTransfer slip) and no explicit reference_type, so the journal has to
+    classify them itself."""
+
+    def test_transfer_discrepancy_is_typed_as_a_stock_transfer(self):
+        m = self.floor_move(MT.TRANSFER_DISCREPANCY, reference_id=7)
+        self.assertEqual(m.reference_type, RT.STOCK_TRANSFER)
+
+    def test_write_off_is_typed_as_a_stock_transfer(self):
+        m = self.floor_move(MT.WRITE_OFF, reference_id=7)
+        self.assertEqual(m.reference_type, RT.STOCK_TRANSFER)
+
+    def test_no_reference_id_still_means_no_type_for_these_movements(self):
+        for movement_type in (MT.TRANSFER_DISCREPANCY, MT.WRITE_OFF):
+            with self.subTest(movement_type):
+                self.assertEqual(self.floor_move(movement_type).reference_type, '')
+
+
+class MergeMigrationRepairTests(_JournalFixture):
+    """0032 runs after both inventory branches, whichever order they ran in.
+    Main's 0030 re-types old rows; if it ran before our 0031 backfill, those
+    rows were left without a reference_type."""
+
+    repair = staticmethod(importlib.import_module(
+        'inventory.migrations.0032_merge_journal_and_transfer_domains'
+    ).fill_reference_type_for_retyped_movements)
+
+    def run_repair(self):
+        self.repair(django_apps, None)
+
+    def test_retyped_rows_with_a_reference_get_the_stock_transfer_type(self):
+        a = self.floor_move(MT.TRANSFER_DISCREPANCY, reference_id=3)
+        b = self.floor_move(MT.WRITE_OFF, reference_id=4)
+        self.legacy(a, b)
+        self.run_repair()
+        a.refresh_from_db()
+        b.refresh_from_db()
+        self.assertEqual(a.reference_type, RT.STOCK_TRANSFER)
+        self.assertEqual(b.reference_type, RT.STOCK_TRANSFER)
+
+    def test_rows_without_a_reference_id_or_of_other_types_are_untouched(self):
+        no_ref = self.floor_move(MT.WRITE_OFF)
+        other = self.floor_move(MT.SALE, reference_id=9)
+        self.legacy(no_ref, other)
+        self.run_repair()
+        no_ref.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(no_ref.reference_type, '')
+        self.assertEqual(other.reference_type, '')
+
+    def test_it_never_overwrites_a_set_value_and_is_idempotent(self):
+        m = self.floor_move(
+            MT.TRANSFER_DISCREPANCY, reference_id=5, reference_type=RT.BATCH)
+        self.run_repair()
+        self.run_repair()
+        m.refresh_from_db()
+        self.assertEqual(m.reference_type, RT.BATCH)

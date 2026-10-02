@@ -6,7 +6,7 @@ own grants let them use - a button that bounces the user back to their
 dashboard with a flash message is worse than no button.
 
 Per alert type:
-  Floor low        Warehouse has stock  -> Request Stock to Floor
+  Floor low        Warehouse has stock  -> Request Floor Refill
                    Warehouse is empty   -> Create PO (never both: a transfer
                                            from an empty warehouse cannot work)
   Warehouse low    -> Create PO
@@ -113,7 +113,7 @@ def decorate_alerts(user, summary):
         if available.get((row['product'].pk, row['branch'].pk), 0) > 0:
             if perms.can_request:
                 actions.append(_link(
-                    'request', 'Request Stock to Floor',
+                    'request', 'Request Floor Refill',
                     request_stock_url(row['branch']), primary=True))
         else:
             if perms.can_create_po:

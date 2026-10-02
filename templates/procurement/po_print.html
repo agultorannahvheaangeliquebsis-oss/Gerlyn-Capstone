@@ -187,6 +187,22 @@ it print too, so nobody signs a document with a broken figure.
 </div>
 {% endif %}
 
+{% if received_differs %}
+{% comment %}
+A separate, factual note — not the integrity warning above. Whenever what
+actually arrived (valued at confirmed cost) differs from the committed
+total, say so: a partial delivery, an over-receipt, or an unexpected item.
+Only shown once the order has actually been received. TOTAL COST below
+always stays the committed total.
+{% endcomment %}
+<div class="banner banner-info">
+  Actual received: ₱{{ actual_received_cost|floatformat:2 }} vs ₱{{ procurement.total_cost|floatformat:2 }} ordered.
+  {% if procurement.unrecorded_cost_item_count %}
+  {{ procurement.unrecorded_cost_item_count }} item{{ procurement.unrecorded_cost_item_count|pluralize }} with cost not yet recorded.
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="po-doc">
 
   {% if procurement.status == 'Cancelled' %}
@@ -263,7 +279,7 @@ it print too, so nobody signs a document with a broken figure.
     </div>
     <div class="po-term">
       <div class="k">Status</div>
-      <div class="v">{{ procurement.status }}</div>
+      <div class="v">{% include "procurement/_po_document_status.html" with status=procurement.status %}</div>
     </div>
   </div>
 

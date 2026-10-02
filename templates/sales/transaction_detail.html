@@ -153,7 +153,7 @@
   <div>
     <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
     <h1 class="mt-2">{{ transaction.order_number }}
-      {% include "partials/_order_status_pill_staff.html" with status=transaction.order_status %}
+      {% include "partials/_order_status_pill.html" with status=transaction.order_status %}
     </h1>
   </div>
   {% comment %}
@@ -161,13 +161,25 @@
   page, not a modal — transaction_receipt.html is a dedicated print page
   with its own back link and Print button (window.print()).
   {% endcomment %}
+  <div class="row wrap">
   {% if transaction.order_status == "Completed" %}
-  <a class="btn btn-primary"
+  <a class="btn btn-outline"
      href="{% url 'transaction_receipt' transaction.pk %}">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z"/></svg>
     Print Receipt
   </a>
   {% endif %}
+  {% comment %}
+  Walk-in Sale lands here after Record Sale. Without this the cashier had to
+  go back to the Order Console and press New Walk-in Sale again for every
+  customer. Full page only — over the Order Console (?modal=1) that button
+  is already on screen. module_access mirrors the gate transaction_add sits
+  behind, so the link never leads to a "no access" bounce.
+  {% endcomment %}
+  {% if transaction.transaction_type == "Physical" and module_access.sales_pos and base_template == "internal_base.html" %}
+  <a class="btn btn-primary" href="{% url 'transaction_add' %}">New Walk-in Sale</a>
+  {% endif %}
+  </div>
 </div>
 
 {# ---- top: Order Progress as a full-width banner, the stepper and the control that moves it in one card ---- #}
@@ -246,6 +258,17 @@
   </p>
   {% endif %}
 
+  {# refund deadline: shown whenever this order has completed, regardless of who's looking or whether any items are still claimable #}
+  {% if refund_window_closes %}
+  <p class="gv-meta od-note">
+    {% if transaction.refund_window_expired %}
+    Refund window closed on {{ refund_window_closes|date:"j M Y, g:i a" }} ({{ transaction.REFUND_WINDOW.days }} days after completion).
+    {% else %}
+    Refund window closes {{ refund_window_closes|date:"j M Y, g:i a" }} ({{ transaction.REFUND_WINDOW.days }} days after completion).
+    {% endif %}
+  </p>
+  {% endif %}
+
   {% if next_actions %}
   <div class="od-move">
     {% for item in next_action_items %}
@@ -286,7 +309,15 @@
       after what state the payment is in. See the comment on the href
       below for what it opens.
       {% endcomment %}
-      {% if can_record_payment %}
+      {% comment %}
+      billing_create is gated to the Billing module (ModulePermissionMiddleware
+      already refuses the POST/GET there for a Staff/Manager without it — see
+      core.module_permissions.BILLING). Order Console default STAFF only has
+      Sales/Order Console, not Billing, so without this check the button was
+      a live link into a permission redirect. Same "hide, don't widen either
+      module" precedent as templates/procurement/delivery_list.html.
+      {% endcomment %}
+      {% if can_record_payment and module_access.billing %}
       <a class="btn btn-primary btn-sm od-btn" href="{% url 'billing_create' transaction.pk %}"
          data-payment-open="record-payment-modal">Record Payment</a>
       {% endif %}
@@ -323,9 +354,70 @@
     <a class="btn btn-sm od-btn" href="{% url 'billing_proof' billing.pk %}" target="_blank" rel="noopener">View payment proof</a>
   </div>
   {% endif %}
+
+  {% comment %}
+  Verify / Reject / Re-open, right here — Financials UX Audit Phase 1. Same
+  billing_confirm view billing_detail.html posts to (same transitions, branch
+  scope, maker/checker rule, evidence and PWD gates); return_to=order only
+  changes where the redirect lands. Nothing here is a second implementation
+  of any of that — a forged POST is refused there exactly as it would be
+  from Billing.
+
+  Gated on module_access.billing (Phase 1 follow-up): billing_confirm is a
+  Billing-module url (core.module_permissions.BILLING), so a Staff/Manager
+  account without it is redirected away by ModulePermissionMiddleware the
+  moment they submit. Order Console's default modules include Sales/Order
+  Console but not Billing, so these buttons were live for every Staff
+  account reading its own order, verifier or not. Hiding them here is UX
+  only — the middleware is still what refuses the POST if one is forged.
+  {% endcomment %}
+  {% if module_access.billing and billing.status == "Pending" %}
+    {% if billing_self_recorded %}
+    <div class="banner banner-warning mt-4 mb-0">
+      <span>This payment was recorded by you. Another staff member or manager must verify it.</span>
+    </div>
+    {% else %}
+    {% if transaction.has_pending_pwd_request %}
+    <div class="banner banner-warning mt-4">
+      <span>This order has a PWD discount request waiting for verification, so the amount due
+        isn't final. Approve or reject it above before verifying payment.</span>
+    </div>
+    {% elif billing_missing_evidence %}
+    <div class="banner banner-warning mt-4">
+      <span>Needs its {{ billing_missing_evidence|join:" and " }} before it can be verified —
+        add it from "Record Payment" above.</span>
+    </div>
+    {% endif %}
+    <div class="od-card-actions">
+      <form method="POST" action="{% url 'billing_confirm' billing.pk %}" data-status-confirm>
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="order">
+        <button type="submit" name="status" value="Rejected" class="btn btn-danger btn-sm od-btn">Reject Payment</button>
+        {% include "partials/_billing_reject_confirm.html" with record=billing %}
+      </form>
+      <form method="POST" action="{% url 'billing_confirm' billing.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="order">
+        {% if transaction.has_pending_pwd_request or billing_missing_evidence %}
+        <button type="button" class="btn btn-primary btn-sm od-btn" disabled>Verify Payment</button>
+        {% else %}
+        <button type="submit" name="status" value="Paid" class="btn btn-primary btn-sm od-btn">Verify Payment</button>
+        {% endif %}
+      </form>
+    </div>
+    {% endif %}
+  {% elif module_access.billing and billing.status == "Rejected" %}
+    <div class="od-card-actions">
+      <form method="POST" action="{% url 'billing_confirm' billing.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="order">
+        <button type="submit" name="status" value="Pending" class="btn btn-sm od-btn">Re-open Payment</button>
+      </form>
+    </div>
+  {% endif %}
 </div>
 {% endif %}
-{% if not from_billing and can_record_payment %}
+{% if not from_billing and can_record_payment and module_access.billing %}
 {% include "partials/_record_payment_modal.html" %}
 {% endif %}
 
@@ -429,6 +521,12 @@ page already open behind this overlay — Order Details is unaffected by that.
           {% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}
           {% else %}Walk-in{% endif %}</dd></div>
         <div><dt>Placed on</dt><dd>{{ transaction.transaction_date|date:"j M Y, g:i a" }}</dd></div>
+        {% if transaction.source == "ZANK POS" %}
+        <div><dt>Source</dt><dd><span class="tag">ZANK POS</span></dd></div>
+        <div><dt>POS Invoice / OR</dt><dd class="sku">{{ transaction.pos_invoice_number }}</dd></div>
+        <div><dt>Terminal / Station</dt><dd>{{ transaction.pos_terminal_id|default:"—" }}</dd></div>
+        <div><dt>POS Cashier / Staff</dt><dd>{{ transaction.pos_cashier_id|default:"—" }}</dd></div>
+        {% endif %}
         {% comment %}
         X-3 — recorded_by, not staff: staff is STAFF-role-only by its own
         limit_choices_to, so a sale the Owner or a Branch Manager rang up

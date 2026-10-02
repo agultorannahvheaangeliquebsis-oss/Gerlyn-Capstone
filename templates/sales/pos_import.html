@@ -1,0 +1,66 @@
+{% extends "internal_base.html" %}
+{% block title %}Import ZANK POS Sales{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% block branch_scope %}{% if branch %}{{ branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
+    <h1 class="mt-2">ZANK POS Daily Sales Import</h1>
+    <p class="gv-meta">Review the parsed file below. Nothing is saved until you confirm.</p>
+  </div>
+  <a class="btn" href="{% url 'pos_sales_import_history' %}">Import History</a>
+</div>
+
+{% if error %}<div class="banner banner-error">{{ error }}</div>{% endif %}
+
+<div class="card card-pad">
+  <div class="row" style="justify-content:space-between; gap:16px; flex-wrap:wrap;">
+    <div><h2 style="margin:0;">Review before importing</h2><span class="gv-meta">{{ filename }} · {{ branch.branch_name }}</span></div>
+  </div>
+  <div class="kpi-row compact mt-2">
+    <div class="kpi-card"><span class="label">Transactions</span><span class="value">{{ preview.summary.valid_transactions }}</span></div>
+    <div class="kpi-card"><span class="label">Valid rows</span><span class="value">{{ preview.summary.valid_rows }}</span></div>
+    <div class="kpi-card{% if preview.summary.invalid_rows %} danger{% endif %}"><span class="label">Invalid rows</span><span class="value">{{ preview.summary.invalid_rows }}</span></div>
+    <div class="kpi-card{% if preview.summary.duplicates %} warn{% endif %}"><span class="label">Duplicates</span><span class="value">{{ preview.summary.duplicates }}</span></div>
+  </div>
+  <div class="row" style="gap:24px; flex-wrap:wrap; margin:16px 0;">
+    <span><b>{{ preview.summary.quantity_total }}</b> units</span>
+    <span>Gross <b>₱{{ preview.summary.gross_total|floatformat:2 }}</b></span>
+    <span>Net <b>₱{{ preview.summary.net_total|floatformat:2 }}</b></span>
+  </div>
+  {% if preview.summary.invalid_rows %}<div class="banner banner-error">Invalid rows will be skipped. Review every message below and correct the source file if those sales should be imported.</div>{% endif %}
+  {% if preview.summary.duplicates %}<div class="banner banner-warning">Duplicate invoices already imported for this branch will be skipped.</div>{% endif %}
+
+  <div class="table-wrap">
+    <table class="gv-table">
+      <thead><tr><th>Row</th><th>Invoice / OR</th><th>Date / Time</th><th>Product</th><th class="num">Qty</th><th class="num">Net</th><th>Payment</th><th>Validation</th></tr></thead>
+      <tbody>
+      {% for row in preview.rows %}
+        <tr>
+          <td class="gv-meta">{{ row.row_number }}</td>
+          <td class="sku">{{ row.invoice|default:"—" }}</td>
+          <td class="gv-meta">{{ row.transaction_at|default:"—" }}</td>
+          <td><span class="strong">{{ row.product_name|default:row.description|default:"Unmatched product" }}</span><br><span class="gv-meta">SKU {{ row.sku|default:"—" }} · Barcode {{ row.barcode|default:"—" }}</span></td>
+          <td class="num">{{ row.quantity|default:"—" }}</td>
+          <td class="num">₱{{ row.net|default:"0.00" }}</td>
+          <td>{{ row.payment|default:row.payment_raw|default:"—" }}</td>
+          <td>
+            {% if row.status == "valid" %}<span class="pill pill-ok">Valid</span>
+            {% elif row.status == "duplicate" %}<span class="pill pill-warn">Duplicate</span>
+            {% else %}<span class="pill pill-danger">Invalid</span>{% endif %}
+            {% for message in row.errors %}<div class="gv-meta" style="color:var(--danger-fg);">{{ message }}</div>{% endfor %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="gv-meta">Confirmation is atomic: if saving a transaction or updating inventory fails, no transactions, billing records, stock movements, or import history are left behind.</p>
+  <div class="row" style="gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+    <form method="post" action="{% url 'pos_sales_import_cancel' %}">{% csrf_token %}<button class="btn" type="submit">Cancel</button></form>
+    <form method="post" action="{% url 'pos_sales_import_confirm' %}">{% csrf_token %}<button class="btn btn-primary" type="submit" {% if not preview.summary.valid_transactions %}disabled{% endif %}>Import Valid Transactions</button></form>
+  </div>
+</div>
+{% endblock %}

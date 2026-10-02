@@ -56,12 +56,12 @@ the header lands.
           <div>
             <div class="order-row-head">
               <span class="order-row-num">{{ o.order_number }}</span>
-              {% include "partials/_order_status_pill.html" with status=o.order_status %}
+              {% include "partials/_order_status_pill.html" with status=o.order_status customer=True %}
             </div>
             <div class="order-row-meta">
               {{ o.transaction_date|date:"F d, Y" }} · {{ o.branch.branch_name }}
               · {{ o.mode_of_payment }}
-              · {% include "partials/_payment_status_pill.html" with status=o.billing_record.status customer=True %}
+              · {% include "partials/_billing_status_pill.html" with status=o.billing_record.status customer=True %}
             </div>
           </div>
           <div class="order-row-side">

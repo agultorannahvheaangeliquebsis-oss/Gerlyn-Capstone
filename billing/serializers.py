@@ -64,7 +64,9 @@ class BillingPaymentSerializer(serializers.Serializer):
         reference = ''
         if method in BillingRecord.REFERENCE_REQUIRED_METHODS:
             try:
-                reference = clean_reference_number(data.get('referenceNumber', ''))
+                reference = clean_reference_number(
+                    data.get('referenceNumber', ''), method
+                )
             except DjangoValidationError as e:
                 raise serializers.ValidationError({'referenceNumber': e.messages})
         has_proof = bool(

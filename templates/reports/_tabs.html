@@ -1,19 +1,28 @@
 {% comment %}
-Shared green-underline tab bar for the Reports section.
+Shared green-underline switcher for the Reports section.
 Usage: {% include "reports/_tabs.html" with active="sales" %}
 `active` is one of: sales | inventory | procurement | billing
+
+Each link is its own page and URL, not an in-page panel, so this is a <nav>
+with aria-current rather than a tablist. The page's <h1> names the report
+("Sales Report"), which is why the labels here are the bare category — the
+bar is for scanning and switching, the heading is for "where am I".
 {% endcomment %}
-<div class="report-tabs">
-  <a class="report-tab {% if active == 'sales' %}active{% endif %}" href="{% url 'reports_dashboard' %}">
-    Sales <span class="report-tab-word">Report</span>
+<nav class="report-tabs" aria-label="Reports">
+  <a class="report-tab {% if active == 'sales' %}active{% endif %}" href="{% url 'reports_dashboard' %}"{% if active == 'sales' %} aria-current="page"{% endif %}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+    Sales
   </a>
-  <a class="report-tab {% if active == 'inventory' %}active{% endif %}" href="{% url 'inventory_report' %}">
-    Inventory <span class="report-tab-word">Report</span>
+  <a class="report-tab {% if active == 'inventory' %}active{% endif %}" href="{% url 'inventory_report' %}"{% if active == 'inventory' %} aria-current="page"{% endif %}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4M12 21V11"/></svg>
+    Inventory
   </a>
-  <a class="report-tab {% if active == 'procurement' %}active{% endif %}" href="{% url 'procurement_report' %}">
-    Procurement <span class="report-tab-word">Report</span>
+  <a class="report-tab {% if active == 'procurement' %}active{% endif %}" href="{% url 'procurement_report' %}"{% if active == 'procurement' %} aria-current="page"{% endif %}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5h13v10H1zM14 8h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+    Procurement
   </a>
-  <a class="report-tab {% if active == 'billing' %}active{% endif %}" href="{% url 'billing_report' %}">
-    Billing <span class="report-tab-word">Report</span>
+  <a class="report-tab {% if active == 'billing' %}active{% endif %}" href="{% url 'billing_report' %}"{% if active == 'billing' %} aria-current="page"{% endif %}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3z"/><path d="M9 8h6M9 12h6"/></svg>
+    Billing
   </a>
-</div>
+</nav>

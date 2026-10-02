@@ -812,13 +812,10 @@ class Batch(models.Model):
 
 class StockTransfer(models.Model):
     """
-    A stock withdrawal: goods issued out of the warehouse under an
-    approval chain (request -> approve -> release -> acknowledge),
-    either to a branch or as a write-off.
-
-    Named "Stock Withdrawals" in the UI. Not to be confused with
-    stock_adjustment_add, which is a direct count correction with no
-    approval chain and keeps the name "Stock Adjustment".
+    Legacy persistence model shared by two explicit proxy domains:
+    WarehouseFloorTransfer and StockWriteOff. Keeping this table preserves
+    every existing slip number, foreign key, URL, and API identifier while
+    new workflow code uses the correctly scoped proxy.
 
     slip_number/WS- are left alone on purpose: they identify records
     that already exist.
@@ -916,8 +913,56 @@ class StockTransfer(models.Model):
             f"{self.status}"
         )
 
+    @property
+    def is_warehouse_floor_transfer(self):
+        return self.purpose == self.Purpose.BRANCH_RESTOCK
+
+    @property
+    def is_write_off(self):
+        return not self.is_warehouse_floor_transfer
+
+    @property
+    def workflow_name(self):
+        return 'Warehouse to Floor Transfer' if self.is_warehouse_floor_transfer else 'Stock Write-off'
+
     class Meta:
         ordering = ['-created_at']
+
+
+class WarehouseFloorTransferManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+        )
+
+
+class WarehouseFloorTransfer(StockTransfer):
+    """Warehouse stock requested and moved to a destination sales floor."""
+
+    objects = WarehouseFloorTransferManager()
+
+    class Meta:
+        proxy = True
+        verbose_name = 'Warehouse-to-floor transfer'
+        verbose_name_plural = 'Warehouse-to-floor transfers'
+
+
+class StockWriteOffManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+        )
+
+
+class StockWriteOff(StockTransfer):
+    """Floor stock permanently removed for a recorded write-off reason."""
+
+    objects = StockWriteOffManager()
+
+    class Meta:
+        proxy = True
+        verbose_name = 'Stock write-off'
+        verbose_name_plural = 'Stock write-offs'
 
 
 class StockTransferItem(models.Model):
@@ -964,6 +1009,28 @@ class StockTransferItem(models.Model):
         )
 
 
+class StockTransferEvent(models.Model):
+    """Append-style business history for a withdrawal/request transition."""
+
+    transfer = models.ForeignKey(
+        StockTransfer, on_delete=models.CASCADE, related_name='events',
+    )
+    from_status = models.CharField(max_length=15, blank=True)
+    to_status = models.CharField(max_length=15, choices=StockTransfer.Status.choices)
+    actor = models.ForeignKey(
+        'accounts.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='stock_transfer_events',
+    )
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+
+    def __str__(self):
+        return f'{self.transfer.slip_number}: {self.from_status or "Created"} -> {self.to_status}'
+
+
 class StockMovement(models.Model):
     # --- unchanged ---
     class MovementType(models.TextChoices):
@@ -974,6 +1041,8 @@ class StockMovement(models.Model):
         MANUAL_IN = 'Manual In', 'Manual Stock In'
         MANUAL_OUT = 'Manual Out', 'Manual Stock Out'
         ADJUSTMENT = 'Adjustment', 'Stock Adjustment'
+        WRITE_OFF = 'Write-off', 'Stock Write-off'
+        TRANSFER_DISCREPANCY = 'Transfer Discrepancy', 'Transfer Receipt Discrepancy'
         OPENING_BALANCE = 'Opening Balance', 'Opening Balance'
         OPENING_BALANCE_REVERSAL = 'Opening Reversal', 'Opening Balance Reversal'
         EXPIRY_WRITE_OFF = 'Expiry Write-off', 'Expiry Write-off'
@@ -1001,8 +1070,10 @@ class StockMovement(models.Model):
 
     # movement_type -> the reference_type its reference_id always is. ADJUSTMENT
     # is deliberately absent: it is used for a void reversal (a sales
-    # transaction), a withdrawal-slip discrepancy (a transfer) and a manual
-    # count correction (no reference at all), so its writers say which.
+    # transaction) and a manual count correction (no reference at all), so its
+    # writers say which. A withdrawal-slip discrepancy (TRANSFER_DISCREPANCY)
+    # and a floor write-off (WRITE_OFF) are their own types and always
+    # reference the StockTransfer slip.
     _REFERENCE_TYPE_BY_MOVEMENT = {
         MovementType.SALE: ReferenceType.SALES_TRANSACTION,
         MovementType.CUSTOMER_RETURN: ReferenceType.SALES_TRANSACTION,
@@ -1011,6 +1082,8 @@ class StockMovement(models.Model):
         MovementType.WAREHOUSE_TO_FLOOR: ReferenceType.STOCK_TRANSFER,
         MovementType.FLOOR_TO_WAREHOUSE: ReferenceType.STOCK_TRANSFER,
         MovementType.MANUAL_OUT: ReferenceType.STOCK_TRANSFER,
+        MovementType.TRANSFER_DISCREPANCY: ReferenceType.STOCK_TRANSFER,
+        MovementType.WRITE_OFF: ReferenceType.STOCK_TRANSFER,
         MovementType.EXPIRY_WRITE_OFF: ReferenceType.BATCH,
         MovementType.OPENING_BALANCE: ReferenceType.OPENING_STOCK_IMPORT,
         MovementType.OPENING_BALANCE_REVERSAL: ReferenceType.OPENING_STOCK_IMPORT,

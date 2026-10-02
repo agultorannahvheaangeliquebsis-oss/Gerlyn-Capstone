@@ -7,7 +7,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from .serializers import UserSerializer, UserAdminSerializer, UserCreateSerializer, UserUpdateSerializer
-from .models import User
+from django.utils import timezone
+from .models import CustomerProfile, User
 from .role_policy import USER_MANAGEMENT_ROLES
 from .rate_limit import clear_failed_logins, is_login_locked_out, register_failed_login
 from .services import VerificationEmailDeliveryError, send_verification_email
@@ -226,6 +227,18 @@ class RegisterCustomerView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Same gate as register_view's consent checkbox — without it this
+        # endpoint would be the way around it. An explicit true only; a
+        # missing key or "false" is a refusal, not a default.
+        if request.data.get('acceptTerms') not in (True, 'true', '1'):
+            return Response(
+                {'acceptTerms': [
+                    'You must agree to the Terms & Conditions and Privacy '
+                    'Notice to create an account.'
+                ]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Keep account and signal-created profile updates all-or-nothing.
         with transaction.atomic():
             user = User.objects.create_user(
@@ -240,6 +253,8 @@ class RegisterCustomerView(APIView):
             profile.last_name = name_parts[1] if len(name_parts) > 1 else ''
             profile.contact_number = contact_number
             profile.address = address
+            profile.terms_accepted_at = timezone.now()
+            profile.terms_version = CustomerProfile.TERMS_VERSION
             profile.save()
 
         # Match the server-rendered registration flow. Delivery remains

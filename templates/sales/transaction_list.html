@@ -12,15 +12,23 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
   <div>
     <h1>Order Management Console</h1>
   </div>
-  {% if can_pos %}
-  <a class="btn btn-primary" href="{% url 'transaction_add' %}">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    New Walk-in Sale
-  </a>
-  {% endif %}
+  <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
+    {% include "_daterange.html" %}
+    {% if can_pos %}
+    {% if can_import_pos %}<button type="button" class="btn" id="open-pos-import-modal">Import POS Sales</button>{% endif %}
+    <a class="btn btn-primary" href="{% url 'transaction_add' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      New Walk-in Sale
+    </a>
+    {% endif %}
+  </div>
 </div>
 
-<form method="GET" class="toolbar toolbar-search" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
+<form method="GET" action="{% url 'transaction_list' %}" class="toolbar toolbar-search" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
+  {# Keep the chosen range when the toolbar filters are submitted — same as Billing and the audit log. #}
+  <input type="hidden" name="range" value="{{ active_range }}">
+  <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+  <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
   <div class="search-field">
     <button type="submit" class="search-btn" title="Search" aria-label="Search orders">
       <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
@@ -97,7 +105,9 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
     <tbody>
       {% for t in transactions %}
       <tr data-filter-text="{{ t.order_number }} {% if t.customer %}{{ t.customer.first_name }} {{ t.customer.last_name }} {{ t.customer.username }}{% endif %}">
-        <td data-label="Order ID" class="sku strong">{{ t.order_number }}</td>
+        <td data-label="Order ID" class="sku strong">{{ t.order_number }}
+          {% if t.source == "ZANK POS" %}<br><span class="tag">ZANK {{ t.pos_invoice_number }}</span>{% endif %}
+        </td>
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
         <td data-label="Customer">
           {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}
@@ -115,7 +125,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
           {% include "partials/_billing_status_pill.html" with status=t.billing_record.status %}
         </td>
         <td data-label="Order Status">
-          {% include "partials/_order_status_pill_staff.html" with status=t.order_status %}
+          {% include "partials/_order_status_pill.html" with status=t.order_status %}
           {% if t.pk in over_committed_ids %}
           <span class="pill pill-warn" title="One or more items on this order are promised beyond the branch's current floor stock.">Over-committed</span>
           {% endif %}
@@ -153,4 +163,15 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
   </table>
 </div>
 
+{% if can_import_pos %}{% include "sales/_pos_import_modal.html" %}{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if can_import_pos %}
+<script>
+  // initModal comes from static/js/modal.js. X/Escape/overlay-click only hide
+  // the dialog; nothing is uploaded until the form is submitted.
+  initModal({ modalId: 'pos-import-modal', openerIds: ['open-pos-import-modal'], closerIds: ['close-pos-import-modal', 'cancel-pos-import-modal'] });
+</script>
+{% endif %}
 {% endblock %}

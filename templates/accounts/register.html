@@ -235,6 +235,26 @@ Region/Province/City/Barangay dropdowns.
           </div>
         </div>
 
+        {% comment %}
+        Required, and required again in register_view, which is the real gate
+        — `required` here only saves the round trip. The links open the
+        policy in #terms-privacy-modal (below, outside this form) so the
+        typed-in form is still there when the visitor closes it; the href
+        still points at the standalone page, so the link still works with
+        JS off or opened in a new tab.
+        {% endcomment %}
+        <div class="auth-consent">
+          <input id="accept_terms" type="checkbox" name="accept_terms" value="1"
+                 {% if form.accept_terms == '1' %}checked{% endif %} required>
+          <label for="accept_terms">
+            I agree to the
+            <a href="{% url 'accounts:terms_privacy' %}#terms" data-open-terms-modal="terms">Terms &amp; Conditions</a>
+            and have read the
+            <a href="{% url 'accounts:terms_privacy' %}#privacy" data-open-terms-modal="privacy">Privacy Notice</a>,
+            which explains how GERLYN uses my personal data.
+          </label>
+        </div>
+
         <button type="submit" class="btn btn-primary auth-submit" id="register-submit">
           <span data-submit-label>Create Account</span>
         </button>
@@ -253,6 +273,7 @@ Outside .auth-band, and outside the form above it. The picker carries a
 resolves by throwing the inner one away.
 {% endcomment %}
 {% include "accounts/_address_picker_modal.html" %}
+{% include "accounts/_terms_privacy_modal.html" %}
 {% endblock %}
 
 {% block extra_js %}
@@ -350,6 +371,55 @@ function registerAddressIsComplete() {
   }
   p1.addEventListener('input', check);
   p2.addEventListener('input', check);
+})();
+
+/* Terms & Privacy modal: the two consent links open #terms-privacy-modal
+   in place instead of navigating away, so the form the visitor already
+   filled in is still there when they close it. Scrolling .modal-body to
+   the tapped section (rather than two separate modals) is what lets one
+   include of _terms_privacy_content.html serve both links. */
+(function () {
+  var modal = document.getElementById('terms-privacy-modal');
+  if (!modal) return;
+  var body = document.getElementById('terms-privacy-modal-body');
+
+  function openModal(section) {
+    modal.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+    var target = document.getElementById('modal-' + section);
+    if (target) target.scrollIntoView({ block: 'start' });
+  }
+  function closeModal() {
+    modal.classList.remove('is-open');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('[data-open-terms-modal]').forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      openModal(link.getAttribute('data-open-terms-modal'));
+    });
+  });
+  document.getElementById('close-terms-privacy-modal').addEventListener('click', closeModal);
+  document.getElementById('terms-privacy-modal-done').addEventListener('click', closeModal);
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal) closeModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
+  });
+})();
+
+/* The consent box's own wording for the browser bubble, in place of the
+   generic "Please check this box". Cleared on change, or the message would
+   keep the box invalid after it is ticked. */
+(function () {
+  var box = document.getElementById('accept_terms');
+  if (!box) return;
+  box.addEventListener('invalid', function () {
+    box.setCustomValidity('Please tick this box to agree to the Terms & Conditions and Privacy Notice.');
+  });
+  box.addEventListener('change', function () { box.setCustomValidity(''); });
 })();
 
 /* Submit feedback. Creating an account is a full page POST that writes a

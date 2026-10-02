@@ -1,0 +1,262 @@
+{% comment %}
+Next Step — the one thing this billing record is waiting for, and the
+control that does it.
+
+Billing Detail used to open with a stepper it could not move and a card
+headed "Verify this payment" that said the same thing whether the payment
+was ready to verify, still missing its reference number, or recorded by the
+very person reading it (who is not allowed to verify it). This block answers
+"what happens next, and can I do it?" first, so the facts below it are read
+in context instead of instead of it.
+
+Every branch below draws only the actions the server would actually accept:
+  - Verify / Reject post to billing_confirm, which re-checks the transition
+    (BillingRecord.ALLOWED_STATUS_TRANSITIONS), the branch scope, the A-1
+    maker/checker rule (is_self_confirmation), the PWD gate
+    (pwd_review_block_message) and the evidence rule
+    (missing_payment_evidence). Nothing here is a second implementation of
+    any of them — a forged POST is refused there exactly as before.
+  - Edit payment details opens the Record Payment dialog
+    (partials/_record_payment_modal.html) and posts to billing_create,
+    which only accepts a still-Pending record. It is therefore offered on
+    Pending and NOT on Rejected: the documented route out of Rejected is
+    Re-open Payment -> Pending -> edit, and dangling an edit action that
+    billing_create would bounce is what this block exists to stop.
+  - Everything the order owns — its status, its PWD review, its refunds —
+    is reached by navigating to the order. Billing may write to
+    BillingRecord; what it shows from SalesTransaction is read-only.
+
+Needs from billing_detail: record, is_self_recorded, missing_evidence,
+order_status, remaining_after_refunds.
+{% endcomment %}
+{% with txn=record.transaction %}
+
+{% if record.status == "Pending" %}
+  {% if is_self_recorded %}
+  {% comment %}A-1 — the recorder is not the checker. billing_confirm refuses BOTH
+     Paid and Rejected for this user, so neither button is drawn; editing
+     the details they recorded is still theirs to do.{% endcomment %}
+  <section class="card card-pad bill-next bill-next--wait">
+    <div class="bill-next-main">
+      <h3 class="bill-next-h">Waiting for another verifier</h3>
+      <p class="bill-next-p">
+        You recorded this payment. Another staff member, a manager, or the owner has to verify it.
+      </p>
+    </div>
+    {% if module_actions.billing.edit %}
+    <div class="bill-actions">
+      <a class="btn btn-primary" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
+         data-payment-open="record-payment-modal">Edit payment details</a>
+    </div>
+    {% endif %}
+  </section>
+
+  {% elif txn.has_pending_pwd_request %}
+  {% comment %}P15, unchanged: the amount due is not final until the PWD ID has been
+     seen, so Paid is blocked (billing_confirm refuses it) — the button is
+     drawn disabled rather than removed, because the blocker is temporary
+     and the review that clears it is one link away. Rejecting a payment
+     settles nothing, so it stays available.{% endcomment %}
+  <section class="card card-pad bill-next bill-next--wait">
+    <div class="bill-next-main">
+      <h3 class="bill-next-h">PWD discount review comes first</h3>
+      <p class="bill-next-p">
+        This order has a PWD discount request waiting for verification, so the amount due
+        isn't final. <a href="{% url 'transaction_detail' record.transaction.pk %}">Approve or reject it on the order</a>
+        before verifying payment.
+      </p>
+    </div>
+    {% if module_actions.billing.edit %}
+    {% include "billing/_billing_reject_form.html" %}
+    <div class="bill-actions">
+      <button type="button" class="btn btn-primary" disabled>Verify Payment</button>
+      {% include "billing/_billing_more_menu.html" %}
+    </div>
+    {% endif %}
+  </section>
+
+  {% elif missing_evidence %}
+  {% comment %}There is nothing to verify yet — a GCash/bank/card payment with no
+     reference number or no screenshot has left no evidence that it
+     happened. Verify Payment is not drawn at all (billing_confirm refuses
+     it), because the step in front of the reader is recording what is
+     missing, not deciding on it.{% endcomment %}
+  <section class="card card-pad bill-next bill-next--wait">
+    <div class="bill-next-main">
+      <h3 class="bill-next-h">Waiting for the payment details</h3>
+      <p class="bill-next-p">
+        A {{ record.payment_method }} payment needs its {{ missing_evidence|join:" and " }} on file
+        before anyone can verify it. Record that first — verification is a separate step,
+        taken by someone else.
+      </p>
+    </div>
+    {% if module_actions.billing.edit %}
+    <div class="bill-actions">
+      <form method="POST" action="{% url 'billing_confirm' record.pk %}" data-status-confirm>
+        {% csrf_token %}
+        <button type="submit" name="status" value="Rejected" class="btn btn-danger">Reject Payment</button>
+        {% include "partials/_billing_reject_confirm.html" with record=record %}
+      </form>
+      <a class="btn btn-primary" href="{% url 'billing_create' record.transaction.pk %}?from=billing"
+         data-payment-open="record-payment-modal">Edit payment details</a>
+    </div>
+    {% endif %}
+  </section>
+
+  {% else %}
+  {% comment %}Ready to verify. The instruction is method-specific because what a
+     verifier physically checks is: cash in the drawer, a rider's handover,
+     a reference number against the receiving account, a terminal slip.{% endcomment %}
+  <section class="card card-pad bill-next bill-next--action">
+    <div class="bill-next-main">
+      <h3 class="bill-next-h">Verify this payment</h3>
+      <p class="bill-next-p">
+        {% if record.payment_method == "Cash" %}
+          Count ₱{{ record.amount_due|floatformat:2 }} at the counter, then verify it here.
+        {% elif record.payment_method == "Cash on Delivery" %}
+          Confirm the rider collected ₱{{ record.amount_due|floatformat:2 }} on delivery, then verify it here.
+        {% elif record.payment_method == "Pay at Store" %}
+          Confirm the customer paid ₱{{ record.amount_due|floatformat:2 }} at the counter, then verify it here.
+        {% elif record.payment_method == "Card" %}
+          Check the terminal slip against the proof on file, then verify it here.
+        {% else %}
+          Check reference {{ record.reference_number }} and the proof on file against the
+          receiving account, then verify it here.
+        {% endif %}
+        The system records payment only — funds move outside it.
+      </p>
+    </div>
+    {% if module_actions.billing.edit %}
+    {% include "billing/_billing_reject_form.html" %}
+    <div class="bill-actions">
+      <form method="POST" action="{% url 'billing_confirm' record.pk %}">
+        {% csrf_token %}
+        <button type="submit" name="status" value="Paid" class="btn btn-primary">Verify Payment</button>
+      </form>
+      {% include "billing/_billing_more_menu.html" %}
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+{% elif record.status == "Paid" %}
+<section class="card card-pad bill-next bill-next--done">
+  <div class="bill-next-main">
+    <h3 class="bill-next-h">Payment verified</h3>
+    {% comment %}Only the parts of "who / when" the row actually holds: a POS cash sale
+       is saved Paid with no date_confirmed, and a blank or a dangling "." is
+       not information. Neither on file -> no sentence at all. No "." after
+       the date: "g:i a" already ends in "a.m." / "p.m.".
+       order_can_complete is sales.views._next_actions — the same check
+       transaction_set_status enforces — so "can now be marked Completed" is
+       only said where that step really is next (not, say, an online order
+       still Pending or Approved).{% endcomment %}
+    <p class="bill-next-p">
+      {% if record.confirmed_by %}Verified by {{ record.confirmed_by.get_full_name|default:record.confirmed_by.username }}{% if record.date_confirmed %} on {{ record.date_confirmed|date:"j M Y, g:i a" }}{% else %}.{% endif %}{% elif record.date_confirmed %}Verified on {{ record.date_confirmed|date:"j M Y, g:i a" }}{% endif %}
+      A verified payment is final — it cannot be re-opened or edited.
+      {% if order_can_complete %}
+      The order can now be marked Completed, on the order itself.
+      {% elif order_status != "Completed" and order_status != "Cancelled" %}
+      Any further steps for the order are taken on the order itself.
+      {% endif %}
+    </p>
+  </div>
+  {% if order_status != "Completed" and request.GET.modal != '1' %}
+  <div class="bill-actions">
+    <a class="btn btn-primary" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
+  </div>
+  {% endif %}
+</section>
+
+{% elif record.status == "Rejected" %}
+<section class="card card-pad bill-next bill-next--danger">
+  <div class="bill-next-main">
+    <h3 class="bill-next-h">Payment Verification Rejected</h3>
+    <p class="bill-next-p">
+      Rejected by {% if record.confirmed_by %}{{ record.confirmed_by.get_full_name|default:record.confirmed_by.username }}{% else %}—{% endif %}
+      {% if record.date_confirmed %}on {{ record.date_confirmed|date:"j M Y, g:i a" }}{% else %}.{% endif %}
+    </p>
+    {% if record.reject_reason %}
+    {% comment %}The one place the reason is shown. It is not repeated in the payment
+       facts below — it belongs to this decision, not to the payment.{% endcomment %}
+    <p class="bill-next-p"><strong>Reason:</strong> {{ record.reject_reason }}</p>
+    {% endif %}
+    <p class="bill-next-p">
+      Re-open it if the customer is paying again, or if the rejection was a mistake. That
+      puts it back to Pending, clears this decision, and lets the payment details be
+      edited and checked again — payment details cannot be changed while it is Rejected.
+    </p>
+  </div>
+  {% if module_actions.billing.edit %}
+  <div class="bill-actions">
+    <form method="POST" action="{% url 'billing_confirm' record.pk %}">
+      {% csrf_token %}
+      <button type="submit" name="status" value="Pending" class="btn btn-primary">Re-open Payment</button>
+    </form>
+  </div>
+  {% endif %}
+</section>
+
+{% elif record.status == "Cancelled" %}
+<section class="card card-pad bill-next bill-next--muted">
+  <div class="bill-next-main">
+    <h3 class="bill-next-h">This bill is closed</h3>
+    <p class="bill-next-p">
+      {{ txn.order_number }} was cancelled, so nothing is owed on it and no payment can be
+      recorded or verified against this record.
+      {% if record.voided_by or record.date_voided %}
+      Voided by {% if record.voided_by %}{{ record.voided_by.get_full_name|default:record.voided_by.username }}{% else %}—{% endif %}
+      {% if record.date_voided %}on {{ record.date_voided|date:"j M Y, g:i a" }}{% else %}.{% endif %}
+      {% endif %}
+    </p>
+    {% if txn.cancel_reason %}
+    <p class="bill-next-p"><strong>Reason:</strong> {{ txn.cancel_reason }}</p>
+    {% endif %}
+  </div>
+  {% if request.GET.modal != '1' %}
+  <div class="bill-actions">
+    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
+  </div>
+  {% endif %}
+</section>
+
+{% elif record.status == "Partially Refunded" %}
+<section class="card card-pad bill-next bill-next--muted">
+  <div class="bill-next-main">
+    <h3 class="bill-next-h">Part of this payment was refunded</h3>
+    <p class="bill-next-p">
+      The payment was verified and some of it has since been handed back. Refunds are
+      raised and approved on the order, not here.
+    </p>
+    <dl class="od-sum bill-refund-sum">
+      <div><dt>Original payment</dt><dd>₱{{ record.amount_due|floatformat:2 }}</dd></div>
+      <div><dt>Refunded</dt><dd class="od-credit">−₱{{ txn.refunded_amount|floatformat:2 }}</dd></div>
+      <div class="od-total"><dt>Remaining</dt><dd>₱{{ remaining_after_refunds|floatformat:2 }}</dd></div>
+    </dl>
+  </div>
+  {% if request.GET.modal != '1' %}
+  <div class="bill-actions">
+    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
+  </div>
+  {% endif %}
+</section>
+
+{% elif record.status == "Refunded" %}
+<section class="card card-pad bill-next bill-next--muted">
+  <div class="bill-next-main">
+    <h3 class="bill-next-h">Fully refunded</h3>
+    <p class="bill-next-p">
+      All ₱{{ txn.refunded_amount|floatformat:2 }} of this payment has been handed back — nothing
+      remains against {{ txn.order_number }}. Refunds are raised and approved on the order,
+      not here.
+    </p>
+  </div>
+  {% if request.GET.modal != '1' %}
+  <div class="bill-actions">
+    <a class="btn" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% endwith %}

@@ -231,6 +231,18 @@ class CustomerProfile(models.Model):
     contact_number = models.CharField(max_length=20, blank=True, validators=[validate_ph_mobile_number])
     address        = models.TextField(blank=True)
 
+    # Bump when the Terms & Conditions or Privacy Notice wording changes, so a
+    # consent can always be matched to the version the customer agreed to.
+    TERMS_VERSION = '2026-09-29'
+
+    # Recorded once, at sign-up, by register_view — which refuses the form
+    # without the consent box ticked. Only the time and a version code are
+    # kept, never the policy text or anything typed. Both stay blank for
+    # accounts that existed before the checkbox did: "no consent on record",
+    # not a guess that one was given.
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    terms_version     = models.CharField(max_length=20, blank=True)
+
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
 

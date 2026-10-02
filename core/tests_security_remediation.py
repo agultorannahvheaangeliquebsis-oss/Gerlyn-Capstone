@@ -161,6 +161,7 @@ class SecurityAuditRemediationTests(TestCase):
                 'fullName': 'Secure Customer',
                 'contactNumber': '09170000000',
                 'address': 'Baliuag, Bulacan',
+                'acceptTerms': True,
             },
             content_type='application/json',
         )

@@ -96,7 +96,7 @@ MODULE_PERMISSION_REGISTRY = {
         DELETE: ['api-warehouse-stock-detail', 'api-warehouse-detail'],
     },
     WITHDRAWALS: {
-        'label': 'Stock Withdrawals',
+        'label': 'Stock Transfers',
         VIEW: [
             'transfer_list', 'transfer_detail',
             'api-stock-transfer-list', 'api-stock-transfer-detail',
@@ -108,7 +108,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-stock-transfer-approve', 'api-stock-transfer-release',
             'api-stock-transfer-acknowledge',
         ],
-        DELETE: [],
+        DELETE: ['pos_sales_import_undo'],
     },
     ALERTS: {
         'label': 'Alerts Center',
@@ -119,9 +119,13 @@ MODULE_PERMISSION_REGISTRY = {
         'label': 'Sales / Order Console',
         VIEW: [
             'transaction_list', 'transaction_detail', 'transaction_receipt',
+            'pos_sales_import_history',
             'api-sales-list', 'api-sales-detail', 'api-sales-refunds',
         ],
-        ADD: ['transaction_add', 'api-sales-list'],
+        ADD: [
+            'transaction_add', 'pos_sales_import', 'pos_sales_import_confirm',
+            'pos_sales_import_cancel', 'api-sales-list',
+        ],
         EDIT: [
             'transaction_set_status', 'transaction_apply_discount',
             'transaction_pwd_request_review', 'transaction_refund',
@@ -176,9 +180,13 @@ MODULE_PERMISSION_REGISTRY = {
     },
     DELIVERIES: {
         'label': 'Deliveries',
-        VIEW: ['delivery_list'],
+        VIEW: ['delivery_list', 'delivery_detail'],
         ADD: ['delivery_add_unexpected'],
-        EDIT: ['delivery_receive', 'delivery_scan'], DELETE: [],
+        EDIT: [
+            'delivery_receive', 'delivery_scan',
+            'procurement_mark_communicated',
+            'api-procurement-communicate',
+        ], DELETE: [],
     },
     REPORTS: {
         'label': 'Reports Dashboard',

@@ -65,15 +65,12 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       <span class="label">{{ card.label }}</span>
       <span class="value">{{ card.value_display }}</span>
       {% comment %}
-      No pill when there is nothing to compare against. _delta_pill returns
-      None for that, rather than a pill reading "No previous 24 days to
-      compare" — which every card rendered identically, in the most prominent
-      slot each one has, pushing the actual figure into second place. The
-      reason is a property of the range, not of four separate metrics, so it
-      is stated once below the rail instead.
+      Percentage display and zero-baseline safeguards come from the shared
+      _delta_pill helper; the template only supplies the direction icon and
+      exposes the exact-change tooltip when the visible value is capped.
       {% endcomment %}
       {% if card.delta %}
-      <span class="stat-status"><span class="pill {{ card.delta.pill }}">{% include "reports/_delta_arrow.html" with dir=card.delta.dir %}{{ card.delta.text }}</span></span>
+      <span class="stat-status"><span class="pill {{ card.delta.pill }}"{% if card.delta.tooltip %} title="{{ card.delta.tooltip }}"{% endif %}>{% include "reports/_delta_arrow.html" with dir=card.delta.dir %}{{ card.delta.text }}</span></span>
       {% endif %}
     </button>
     {% endfor %}
@@ -88,7 +85,7 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
     {% endcomment %}
     <div class="kpi-card{% if inventory_low_critical %} danger{% endif %}">
       <span class="label">Low / Critical Items</span>
-      <span class="value">{{ inventory_low_critical }}</span>
+      <span class="value">{{ inventory_low_critical_display }}</span>
     </div>
   </div>
   {% if kpi_compare_note %}
@@ -506,6 +503,10 @@ status. Rows are built from reports/views.py::_recent_activity.
       <h3>Recent Activity</h3>
       <p class="gv-meta mb-0">Not filtered by the selected range</p>
     </div>
+    {# The full who-changed-what trail behind this feed; same Owner gate as the sidebar's Audit Log row. #}
+    {% if request.user.role == 'OWNER' or request.user.is_superuser %}
+    <a class="link-more" href="{% url 'audit_log_list' %}">Audit log <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
+    {% endif %}
   </div>
   {% for e in recent_activity %}
   <a href="{{ e.url }}" class="feed-row">
@@ -623,7 +624,7 @@ text. Anything spanning lines must use {% templatetag openblock %} comment {% te
       <h3>Restock Suggestions</h3>
       <p class="gv-meta mb-0">{{ low_stock_count }} floor stock item{{ low_stock_count|pluralize }} at or below reorder level</p>
     </div>
-    <a class="btn btn-primary" href="{% url 'transfer_create' %}">Create Stock Adjustment</a>
+    <a class="btn btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1">Request Floor Refill</a>
   </div>
   <div class="table-wrap">
     <table class="gv-table">
@@ -700,7 +701,7 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
             {% else %}<span class="tag">In-Store</span>{% endif %}</td>
           <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
           <td data-label="Status">
-            {% include "partials/_order_status_pill_staff.html" with status=t.order_status %}</td>
+            {% include "partials/_order_status_pill.html" with status=t.order_status %}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -26,7 +26,7 @@
       {% for r in rows %}
       <tr>
         <td data-label="Branch" class="strong">{{ r.branch.branch_name }}
-          {% if not r.branch.is_active %}<span class="pill pill-warn">Inactive</span>{% endif %}
+          {% if not r.branch.is_active %}<span class="pill pill-neutral">Inactive</span>{% endif %}
         </td>
         <td data-label="Location" class="gv-meta">{{ r.branch.location|default:"—" }}</td>
         <td data-label="Manager">
@@ -119,7 +119,7 @@
       {% endcomment %}
       <div class="banner banner-info">
         A warehouse is created automatically for the new branch, so it can receive
-        deliveries and issue stock withdrawals right away.
+        deliveries and request stock transfers right away.
       </div>
     </form>
 

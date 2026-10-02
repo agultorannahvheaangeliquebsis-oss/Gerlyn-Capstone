@@ -1,10 +1,7 @@
-"""P21 — a purchase order can only list products the chosen supplier has an
-approved offer for. The form narrows itself (supplier category filter, per-
-supplier product lists) and the server enforces the same rule on both doors:
-the template view and the DRF endpoint."""
+"""Supplier-product links rank PO suggestions without limiting selection."""
 import json
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import SupplierCategory, User
@@ -13,6 +10,14 @@ from inventory.models import Product
 from procurement.models import Procurement, SupplierProduct
 
 
+@override_settings(STORAGES={
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+})
 class FilteredPoItemsTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -86,13 +91,18 @@ class FilteredPoItemsTests(TestCase):
     def test_product_options_for_the_row_dropdowns_are_emitted(self):
         response = self.client.get(reverse('procurement_add'))
         self.assertContains(response, 'id="po-all-products"')
+        self.assertContains(response, 'Linked to this supplier')
+        self.assertContains(response, 'Other products')
         options = response.context['product_options']
         self.assertIn({'id': str(self.tuna.pk), 'name': 'P21 Tuna'}, options)
 
     def test_form_explains_a_supplier_with_nothing_approved(self):
         response = self.client.get(reverse('procurement_add'))
         self.assertContains(response, 'id="po-no-catalog"')
-        self.assertContains(response, 'no approved products yet')
+        self.assertContains(response, 'No products currently linked to this supplier')
+        self.assertContains(response, 'You can still create a purchase order')
+        self.assertContains(response, 'Create Purchase Order')
+        self.assertContains(response, 'Manage Supplier Products')
 
     # ---- what the server accepts ----------------------------------------------
 
@@ -100,20 +110,23 @@ class FilteredPoItemsTests(TestCase):
         self._post_form(self.canned_supplier, self.tuna)
         self.assertEqual(Procurement.objects.count(), 1)
 
-    def test_web_rejects_another_suppliers_product(self):
+    def test_web_accepts_another_suppliers_product(self):
         response = self._post_form(self.canned_supplier, self.cola)
-        self.assertContains(response, 'assigned to the selected supplier')
-        self.assertFalse(Procurement.objects.exists())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Procurement.objects.get().items.get().product, self.cola)
 
-    def test_web_rejects_a_mixed_order_and_creates_nothing(self):
+    def test_web_accepts_a_mixed_linked_and_manual_order(self):
         response = self._post_form(self.canned_supplier, self.tuna, self.cola)
-        self.assertContains(response, 'P21 Cola')
-        self.assertFalse(Procurement.objects.exists())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            set(Procurement.objects.get().items.values_list('product_id', flat=True)),
+            {self.tuna.pk, self.cola.pk},
+        )
 
-    def test_web_rejects_an_offer_still_awaiting_approval(self):
+    def test_web_accepts_a_product_without_an_approved_link(self):
         response = self._post_form(self.canned_supplier, self.beans)
-        self.assertContains(response, 'assigned to the selected supplier')
-        self.assertFalse(Procurement.objects.exists())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Procurement.objects.get().items.get().product, self.beans)
 
     def _api_post(self, supplier, product):
         return self.client.post(
@@ -128,6 +141,6 @@ class FilteredPoItemsTests(TestCase):
 
     def test_api_matches_the_web_rules(self):
         self.assertEqual(self._api_post(self.canned_supplier, self.tuna).status_code, 201)
-        self.assertEqual(self._api_post(self.canned_supplier, self.cola).status_code, 400)
-        self.assertEqual(self._api_post(self.canned_supplier, self.beans).status_code, 400)
-        self.assertEqual(Procurement.objects.count(), 1)
+        self.assertEqual(self._api_post(self.canned_supplier, self.cola).status_code, 201)
+        self.assertEqual(self._api_post(self.canned_supplier, self.beans).status_code, 201)
+        self.assertEqual(Procurement.objects.count(), 3)

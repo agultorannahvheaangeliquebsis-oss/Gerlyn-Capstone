@@ -133,10 +133,6 @@
   font: 600 12.5px/1.5 var(--font-sans);
   border: 1px solid rgba(255,255,255,.3);
 }
-.member-since {
-  font: 400 13px/1 var(--font-sans);
-  color: rgba(255,255,255,.75);
-}
 
 /* ── Stats row ─────────────────────────────────────────────────── */
 /* Flex, not a fixed 2-column grid: the row currently renders a single stat
@@ -727,3 +723,20 @@ input.is-invalid { border-color: var(--danger-dot) !important; }
 /* Tighter than a card body: this is a drawer, and the switches carry their
    own row padding. */
 .prefs-panel .account-card-body { padding: 6px 24px 10px; }
+
+/* ── Terms & Privacy (public) ───────────────────────────────────────────
+   One reading column, no settings sidebar: the page is public and the
+   sign-up form links straight to #terms / #privacy. scroll-margin keeps the
+   anchored card's heading clear of the sticky shop header. */
+.policy-wrap { max-width: 760px; }
+.account-wrap .policy-version { margin: -8px 0 14px; font-size: 13px; }
+.policy-card { margin-bottom: 16px; scroll-margin-top: 96px; }
+.policy-card .account-card-title { margin: 0; }
+.policy-body { font: 400 14px/1.6 var(--font-sans); color: var(--ink-700); }
+.policy-body h3 {
+  margin: 16px 0 4px;
+  font: 600 14px/1.4 var(--font-sans); color: var(--ink-900);
+}
+.policy-body h3:first-child { margin-top: 0; }
+.policy-body p { margin: 0; }
+.policy-body > p:first-child { margin-bottom: 4px; }

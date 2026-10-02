@@ -113,19 +113,23 @@ class RecordPaymentModalTests(TestCase):
         expected = png.read()
         png.seek(0)
         response = self._save(
-            payment_method='GCash', reference_number='GC-2026-0001', proof_of_payment=png,
+            payment_method='GCash', reference_number='2026000000001', proof_of_payment=png,
         )
         self.assertRedirects(response, self.detail_url)
-        self.assertIn('Billing record saved.', self._messages(response))
+        self.assertIn(
+            'Payment recorded. It still needs verification by another '
+            'staff member or manager.',
+            self._messages(response),
+        )
 
         self.record.refresh_from_db()
         self.assertEqual(self.record.payment_method, 'GCash')
-        self.assertEqual(self.record.reference_number, 'GC-2026-0001')
+        self.assertEqual(self.record.reference_number, '2026000000001')
         self.assertTrue(self.record.proof_of_payment)
 
         # The order page now lists the reference and links the proof...
         html = self._html()
-        self.assertIn('GC-2026-0001', html)
+        self.assertIn('2026000000001', html)
         proof_url = reverse('billing_proof', args=[self.record.pk])
         self.assertIn(f'href="{proof_url}"', html)
 
@@ -136,7 +140,7 @@ class RecordPaymentModalTests(TestCase):
         self.assertEqual(b''.join(proof.streaming_content), expected)
 
     def test_a_missing_proof_sends_the_cashier_back_with_the_dialog_reopened(self):
-        response = self._save(payment_method='GCash', reference_number='GC-1')
+        response = self._save(payment_method='GCash', reference_number='1000000000001')
         self.assertRedirects(response, self.detail_url + '?record_payment=1')
         self.assertTrue(any('proof of payment' in m for m in self._messages(response)))
         self.record.refresh_from_db()
@@ -153,7 +157,7 @@ class RecordPaymentModalTests(TestCase):
     def test_a_file_that_is_not_an_image_is_refused(self):
         fake = SimpleUploadedFile('proof.png', b'<html>not an image</html>', content_type='image/png')
         response = self._save(
-            payment_method='GCash', reference_number='GC-2', proof_of_payment=fake,
+            payment_method='GCash', reference_number='1000000000002', proof_of_payment=fake,
         )
         self.assertRedirects(response, self.detail_url + '?record_payment=1')
         self.assertTrue(any('not a valid image' in m for m in self._messages(response)))

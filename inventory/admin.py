@@ -50,8 +50,21 @@ class InventoryAdmin(admin.ModelAdmin):
     # On-hand quantity is a ledgered figure: it may only change through the
     # flows that write a StockMovement (receiving, transfers, sales,
     # adjustments). The admin is a place to look, so the counters and the
-    # values derived from them are read-only; reorder_level stays editable.
-    readonly_fields = ('quantity_on_hand', 'restock', 'last_stock_update')
+    # values derived from them are read-only; reorder_level stays editable,
+    # and rows cannot be added or deleted here.
+    fields = (
+        'product', 'branch', 'quantity_on_hand', 'reorder_level',
+        'restock', 'last_stock_update',
+    )
+    readonly_fields = (
+        'product', 'branch', 'quantity_on_hand', 'restock', 'last_stock_update',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(StockMovement)

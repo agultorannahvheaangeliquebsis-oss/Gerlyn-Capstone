@@ -12,9 +12,15 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
   <div>
     <h1>Billing Records</h1>
   </div>
+  {% include "_daterange.html" %}
 </div>
 
 <form method="GET" class="toolbar toolbar-search">
+  {# Keep the chosen range when the filters are submitted — same as the audit log. #}
+  <input type="hidden" name="range" value="{{ active_range }}">
+  <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
+  <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
+  {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
   <div class="search-field">
     <button type="submit" class="search-btn" title="Search" aria-label="Search billing records">
       <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
@@ -26,10 +32,27 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
   _branch_switch.html) — see branch_chip above. Owner only in practice — a
   Manager/Staff account is already pinned to its own branch's records.
   {% endcomment %}
+  <div class="search-filters">
+    {# Same two dropdowns as the Order Console, filtering each bill's order. #}
+    <select name="channel" onchange="this.form.submit()" aria-label="Filter by channel">
+      <option value="">All Channels</option>
+      <option value="Online" {% if channel_filter == "Online" %}selected{% endif %}>Online</option>
+      <option value="Physical" {% if channel_filter == "Physical" %}selected{% endif %}>In-Store</option>
+    </select>
+    <select name="fulfillment" onchange="this.form.submit()" aria-label="Filter by fulfilment">
+      <option value="">Delivery &amp; Pickup</option>
+      <option value="Delivery" {% if fulfillment_filter == "Delivery" %}selected{% endif %}>Delivery only</option>
+      <option value="Pickup" {% if fulfillment_filter == "Pickup" %}selected{% endif %}>Pickup only</option>
+    </select>
+  </div>
   <input type="hidden" name="status" value="{{ status_filter }}">
 </form>
 
 <div class="kpi-row compact">
+  {% comment %}Outstanding follows the search, the dropdowns and the date range, exactly
+     like the tab counts beside it. The range control in the page head is what
+     says which window this is — the same arrangement as the Dashboard and
+     Reports, so the tile is not annotated separately.{% endcomment %}
   <div class="kpi-card{% if outstanding %} danger{% endif %}">
     <span class="label">Outstanding</span>
     <span class="value">₱{{ outstanding|floatformat:2 }}</span>
@@ -91,9 +114,9 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
         <td colspan="8">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span>
-            {% if search_query or branch_filter %}
+            {% if search_query or branch_filter or channel_filter or fulfillment_filter or active_range != 'all' %}
             <h3>No billing records match</h3>
-            <p>Try clearing the search or branch filter.</p>
+            <p>Try clearing the search or filters, or widening the date range.</p>
             {% else %}
             <h3>No billing records</h3>
             <p>A billing record is created automatically for every sale.</p>

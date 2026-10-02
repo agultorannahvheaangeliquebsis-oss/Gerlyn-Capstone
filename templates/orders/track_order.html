@@ -80,7 +80,7 @@
         <tr><td class="gv-meta">Branch</td><td style="text-align:right;">{{ sale.branch.branch_name }}</td></tr>
         <tr><td class="gv-meta">Payment method</td><td style="text-align:right;">{{ sale.mode_of_payment }}</td></tr>
         <tr><td class="gv-meta">Payment status</td><td style="text-align:right;">
-          {% include "partials/_payment_status_pill.html" with status=billing.status customer=True %}</td></tr>
+          {% include "partials/_billing_status_pill.html" with status=billing.status customer=True %}</td></tr>
         {% if sale.fulfillment_type == 'Delivery' %}
         <tr><td class="gv-meta">Deliver to</td><td style="text-align:right;">{{ sale.delivery_address }}</td></tr>
         {% else %}

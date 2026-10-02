@@ -1,0 +1,29 @@
+{% comment %}
+Read-in-place version of accounts/terms_privacy.html, opened from the sign-up
+consent checkbox so a visitor can read the policy without losing the form
+they've already started filling in. The standalone page still exists — this
+is a convenience on top of it, not a replacement — and both pull the actual
+wording from the same accounts/_terms_privacy_content.html include.
+
+openTermsPrivacyModal(section) in register.html's own script opens this and
+scrolls .modal-body to the "modal-terms" or "modal-privacy" section.
+{% endcomment %}
+<div class="modal-overlay" id="terms-privacy-modal">
+  <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="terms-privacy-modal-title">
+    <div class="modal-head">
+      <h2 id="terms-privacy-modal-title">Terms &amp; Privacy</h2>
+      <button type="button" class="modal-close" id="close-terms-privacy-modal" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body" id="terms-privacy-modal-body">
+      {% include "accounts/_terms_privacy_content.html" with id_prefix="modal-" %}
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-primary" id="terms-privacy-modal-done">Close</button>
+    </div>
+  </div>
+</div>

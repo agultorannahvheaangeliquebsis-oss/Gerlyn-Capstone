@@ -13,6 +13,7 @@ from importlib import import_module
 from unittest import mock
 
 from django.conf import settings
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.db import connections
 from django.db.models import Sum
@@ -23,12 +24,43 @@ from django.utils import timezone
 from accounts.models import BranchManagerProfile, Notification, StaffProfile, User
 from billing.models import BillingRecord
 from branches.models import Branch
-from core.module_permissions import DEFAULT_STAFF_MODULES, SALES_POS
+from core.module_permissions import BILLING, DEFAULT_STAFF_MODULES, SALES_POS
 from inventory.models import Batch, Inventory, Product, StockMovement
 from sales.models import OrderNumberSequence, Refund, RefundItem, SalesItem, SalesTransaction
 from sales.views import transaction_refund
 
 SessionStore = import_module(settings.SESSION_ENGINE).SessionStore
+
+
+def pos_payment_evidence(method):
+    """The reference number / proof a walk-in of `method` must post.
+
+    A remote method settles away from the counter, so transaction_add asks
+    BillingRecord.missing_payment_evidence for the same evidence Billing's own
+    Record Payment form does — GCash needs both, Card the screenshot, Cash
+    neither. Built from the model's own sets so a method moving between them
+    does not leave every POS test posting the wrong fields.
+
+    Shared with sales.tests_pos_payment_evidence, which covers the rule itself.
+    """
+    import io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    payload = {}
+    if method in BillingRecord.REFERENCE_REQUIRED_METHODS:
+        # GCash's own rule is exactly 13 digits (billing.validators).
+        payload['reference_number'] = '1234567890123'
+    if method in BillingRecord.PROOF_REQUIRED_METHODS:
+        # A genuinely valid PNG — the upload check opens it with Pillow.
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new('RGB', (2, 2), color='white').save(buf, format='PNG')
+        payload['proof_of_payment'] = SimpleUploadedFile(
+            'proof.png', buf.getvalue(), content_type='image/png'
+        )
+    return payload
 
 
 class WalkInSaleFormTests(TestCase):
@@ -161,6 +193,7 @@ class WalkInSaleFormTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            **pos_payment_evidence('GCash'),
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.staff, staff)
@@ -489,6 +522,7 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            **pos_payment_evidence('GCash'),
         })
         txn = SalesTransaction.objects.get()
         self.assertEqual(txn.mode_of_payment, 'GCash')
@@ -782,6 +816,7 @@ class VoidPreservesConfirmationTrailTests(TestCase):
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'GCash',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
+            **pos_payment_evidence('GCash'),
         })
         txn = SalesTransaction.objects.get()
         billing = txn.billing_record
@@ -900,6 +935,11 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.exclude(pk=original.pk).get()
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertEqual(new_order.replaces_id, original.pk)
+        # A link that stuck says nothing extra.
+        self.assertNotIn(
+            'could not be found',
+            ' '.join(str(m) for m in get_messages(response.wsgi_request)),
+        )
 
         original.refresh_from_db()
         self.assertEqual(list(original.replaced_by.all()), [new_order])
@@ -914,6 +954,11 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.exclude(pk=still_pending.pk).get()
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertIsNone(new_order.replaces_id)
+        # ...and the cashier is told, rather than the link vanishing silently.
+        self.assertIn(
+            'could not be found',
+            ' '.join(str(m) for m in get_messages(response.wsgi_request)),
+        )
 
     def test_replaces_is_dropped_if_the_cancelled_order_is_a_different_branch(self):
         Inventory.objects.create(
@@ -932,6 +977,10 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         new_order = SalesTransaction.objects.get(branch=self.branch)
         self.assertRedirects(response, reverse('transaction_detail', args=[new_order.pk]))
         self.assertIsNone(new_order.replaces_id)
+        self.assertIn(
+            'could not be found',
+            ' '.join(str(m) for m in get_messages(response.wsgi_request)),
+        )
 
 
 class PaymentGatesOrderCompletionTests(TestCase):
@@ -979,6 +1028,9 @@ class PaymentGatesOrderCompletionTests(TestCase):
         }
         if method == 'Cash':
             payload['amount_tendered'] = '1000'
+        # GCash/Card settle away from the counter, so the sale now carries
+        # their reference/screenshot the way Billing always demanded.
+        payload.update(pos_payment_evidence(method))
         payload.update(extra)
         response = self.client.post(reverse('transaction_add'), payload)
         return SalesTransaction.objects.latest('pk'), response
@@ -1090,6 +1142,269 @@ class PaymentGatesOrderCompletionTests(TestCase):
         self.assertEqual(txn.order_status, 'Cancelled')
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity_on_hand, 50)
+
+
+class OrderDetailPaymentVerificationTests(TestCase):
+    """Financials UX Audit Phase 1 — Order Detail's Payment Status card
+    grows Verify/Reject (and Re-open) controls, so a payment can be checked
+    without leaving the order. These only prove the card *draws* the right
+    thing for each state; billing_confirm's own tests
+    (billing.tests.BillingConfirmReturnToOrderTests and friends) prove the
+    transitions, scoping and maker/checker rule it posts to."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='odpv-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='ODPV Branch', location='Baliuag', owner=cls.owner
+        )
+        cls.staff = User.objects.create_user(
+            username='odpv-staff', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff, defaults={'staff_name': 'Sam', 'branch': cls.branch}
+        )
+        User.objects.filter(pk=cls.staff.pk).update(
+            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+        )
+        cls.staff.refresh_from_db()
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def _gcash_order(self, staff=None, reference='', proof=False):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=staff, total_amount=250,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        # billing.signals auto-creates the record as Cash regardless of the
+        # transaction's own mode_of_payment — set explicitly, or these tests'
+        # "reference/proof missing" scenarios would be evaluated against Cash,
+        # which needs neither and always reports nothing missing.
+        record.payment_method = BillingRecord.PaymentMethod.GCASH
+        record.reference_number = reference
+        record.save(update_fields=['payment_method', 'reference_number'])
+        if proof:
+            from billing.tests import _valid_png_file
+            record.proof_of_payment.save('proof.png', _valid_png_file(), save=True)
+        return txn
+
+    def test_pending_payment_offers_verify_and_reject(self):
+        txn = self._gcash_order(reference='GC-1', proof=True)
+        page = self._client(self.owner).get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertContains(page, 'Verify Payment')
+        self.assertContains(page, 'Reject Payment')
+        self.assertContains(page, f"action=\"{reverse('billing_confirm', args=[txn.billing_record.pk])}\"")
+        self.assertContains(page, 'name="return_to" value="order"')
+
+    def test_self_recorded_payment_shows_inline_message_not_a_dead_button(self):
+        txn = self._gcash_order(staff=self.staff, reference='GC-1', proof=True)
+        page = self._client(self.staff).get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertContains(
+            page,
+            'This payment was recorded by you. Another staff member or '
+            'manager must verify it.',
+        )
+        self.assertNotContains(page, 'Reject Payment')
+        self.assertNotContains(page, '>Verify Payment<')
+
+    def test_missing_evidence_disables_verify_but_still_offers_reject(self):
+        txn = self._gcash_order()  # no reference, no proof
+        page = self._client(self.owner).get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertContains(page, 'Needs its reference number and proof of payment')
+        self.assertContains(page, '<button type="button" class="btn btn-primary btn-sm od-btn" disabled>Verify Payment</button>')
+        self.assertContains(page, 'Reject Payment')
+
+    def test_pending_pwd_request_blocks_verify(self):
+        txn = self._gcash_order(reference='GC-1', proof=True)
+        txn.transaction_type = SalesTransaction.TransactionType.ONLINE
+        txn.pwd_request_status = SalesTransaction.PwdRequestStatus.PENDING
+        txn.save(update_fields=['transaction_type', 'pwd_request_status'])
+        page = self._client(self.owner).get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertContains(page, 'PWD discount request waiting for verification')
+        self.assertContains(page, '<button type="button" class="btn btn-primary btn-sm od-btn" disabled>Verify Payment</button>')
+
+    def test_rejected_payment_offers_reopen(self):
+        txn = self._gcash_order(reference='GC-1', proof=True)
+        BillingRecord.objects.filter(pk=txn.billing_record.pk).update(status='Rejected')
+        page = self._client(self.owner).get(reverse('transaction_detail', args=[txn.pk]))
+
+        self.assertContains(page, 'Re-open Payment')
+
+    def test_verifying_from_order_detail_redirects_back_with_a_success_message(self):
+        txn = self._gcash_order(reference='GC-1', proof=True)
+        record = txn.billing_record
+        client = self._client(self.owner)
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = client.post(
+                reverse('billing_confirm', args=[record.pk]),
+                {'status': 'Paid', 'return_to': 'order'},
+                follow=True,
+            )
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        messages_ = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('marked as Paid' in m for m in messages_))
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Paid')
+
+
+class OrderDetailPaymentModuleGateTests(TestCase):
+    """Financials UX Audit Phase 1 follow-up — transaction_detail is gated to
+    the Sales/Order Console module (SALES_POS), not Billing, so a Staff
+    account could reach Order Detail with SALES_POS alone and see live
+    Verify/Reject/Re-open/Record Payment buttons that ModulePermissionMiddleware
+    would then bounce away from billing_confirm/billing_create (both are
+    Billing-module urls — see core.module_permissions.BILLING). These prove
+    the Order Detail template now hides those actions for a user who cannot
+    actually use them, without changing what the backend accepts — the
+    default-STAFF and STAFF+BILLING backend outcomes are already covered by
+    billing.tests.BillingAPIModulePermissionTests and
+    BillingConfirmReturnToOrderTests; this class is about what the page
+    *draws*, plus one test tying the two together."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='odpg-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='ODPG Branch', location='Baliuag', owner=cls.owner
+        )
+        # Default STAFF: Sales/Order Console but not Billing — exactly the
+        # mismatch this audit is about.
+        cls.staff_sales_only = User.objects.create_user(
+            username='odpg-staff-sales', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff_sales_only, defaults={'staff_name': 'Sales', 'branch': cls.branch}
+        )
+        User.objects.filter(pk=cls.staff_sales_only.pk).update(
+            allowed_modules=list(DEFAULT_STAFF_MODULES)  # SALES_POS, no BILLING
+        )
+        cls.staff_sales_only.refresh_from_db()
+        assert SALES_POS in cls.staff_sales_only.allowed_modules
+        assert BILLING not in cls.staff_sales_only.allowed_modules
+
+        # Same Staff role, but the Owner has also granted Billing.
+        cls.staff_with_billing = User.objects.create_user(
+            username='odpg-staff-billing', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff_with_billing, defaults={'staff_name': 'Billing', 'branch': cls.branch}
+        )
+        User.objects.filter(pk=cls.staff_with_billing.pk).update(
+            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+        )
+        cls.staff_with_billing.refresh_from_db()
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def _gcash_order(self, staff=None, reference='GC-1', proof=True):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=staff, total_amount=250,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        record.payment_method = BillingRecord.PaymentMethod.GCASH
+        record.reference_number = reference
+        record.save(update_fields=['payment_method', 'reference_number'])
+        if proof:
+            from billing.tests import _valid_png_file
+            record.proof_of_payment.save('proof.png', _valid_png_file(), save=True)
+        return txn
+
+    def test_staff_with_sales_pos_only_sees_no_verify_or_reject(self):
+        txn = self._gcash_order()
+        page = self._client(self.staff_sales_only).get(
+            reverse('transaction_detail', args=[txn.pk])
+        )
+
+        self.assertNotContains(page, '>Verify Payment<')
+        self.assertNotContains(page, 'Reject Payment')
+        # The payment facts (Payment Status card) are still readable — only
+        # the actions the user can't complete are gone.
+        self.assertContains(page, 'Billing no.')
+
+    def test_staff_with_sales_pos_only_sees_no_reopen(self):
+        txn = self._gcash_order()
+        BillingRecord.objects.filter(pk=txn.billing_record.pk).update(status='Rejected')
+        page = self._client(self.staff_sales_only).get(
+            reverse('transaction_detail', args=[txn.pk])
+        )
+
+        self.assertNotContains(page, 'Re-open Payment')
+
+    def test_staff_with_sales_pos_only_sees_no_record_payment_link(self):
+        # No billing record at all — Record Payment is the button that opens
+        # billing_create, also a Billing-module url.
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, total_amount=250,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        txn.billing_record.delete()
+        page = self._client(self.staff_sales_only).get(
+            reverse('transaction_detail', args=[txn.pk])
+        )
+
+        self.assertNotContains(page, 'Record Payment')
+
+    def test_staff_with_both_modules_still_sees_the_actions(self):
+        txn = self._gcash_order()
+        page = self._client(self.staff_with_billing).get(
+            reverse('transaction_detail', args=[txn.pk])
+        )
+
+        self.assertContains(page, '>Verify Payment<')
+        self.assertContains(page, 'Reject Payment')
+
+    def test_authorized_verifier_can_still_confirm_from_the_order(self):
+        """The Owner (always authorized, module system doesn't apply) can
+        still verify from Order Detail — the template gate doesn't get in
+        an authorized user's way."""
+        txn = self._gcash_order()
+        record = txn.billing_record
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.owner).post(
+                reverse('billing_confirm', args=[record.pk]),
+                {'status': 'Paid', 'return_to': 'order'},
+            )
+
+        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Paid')
+
+    def test_hiding_the_button_matches_the_backend_still_refusing_the_post(self):
+        """Ties the UI gate to the server gate this task must not weaken:
+        the same Staff account the page now hides Verify Payment from is
+        still refused if it posts to billing_confirm directly."""
+        txn = self._gcash_order()
+        record = txn.billing_record
+
+        response = self._client(self.staff_sales_only).post(
+            reverse('billing_confirm', args=[record.pk]),
+            {'status': 'Paid', 'return_to': 'order'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(
+            response.url, reverse('transaction_detail', args=[txn.pk])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Pending')
+        self.assertIsNone(record.confirmed_by)
 
 
 class RefundTests(TestCase):
@@ -1453,7 +1768,10 @@ class RefundTests(TestCase):
         self.assertEqual(Refund.objects.count(), 0)
 
     def test_the_refund_window_blocks_an_old_order(self):
-        txn = self._order(quantity=5, completed_at=timezone.now() - timedelta(days=4))
+        txn = self._order(
+            quantity=5,
+            completed_at=timezone.now() - SalesTransaction.REFUND_WINDOW - timedelta(days=1),
+        )
         item = txn.items.get()
 
         page = self._detail(txn)
@@ -1464,7 +1782,10 @@ class RefundTests(TestCase):
 
     @mock.patch('core.notifications.notify')
     def test_within_the_refund_window_still_works(self, mock_notify):
-        txn = self._order(quantity=5, completed_at=timezone.now() - timedelta(days=2))
+        txn = self._order(
+            quantity=5,
+            completed_at=timezone.now() - SalesTransaction.REFUND_WINDOW + timedelta(days=1),
+        )
         item = txn.items.get()
 
         self._refund(txn, item, 1)

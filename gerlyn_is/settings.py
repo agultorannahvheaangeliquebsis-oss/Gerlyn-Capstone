@@ -442,6 +442,13 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+if TESTING:
+    # Tests render templates without running collectstatic first. Production
+    # keeps manifest hashing; the suite uses plain static URLs so missing or
+    # newly added assets do not turn unrelated view tests into 500 errors.
+    STORAGES['staticfiles'] = {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    }
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

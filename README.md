@@ -233,6 +233,14 @@ views can never drift apart.
 - **Stock moves exactly once** — walk-in sales deduct at the point of sale; online
   orders deduct when marked *Completed*. Deliveries add stock only on receipt validation
   (business rule 13), and re-receiving is blocked.
+- **ZANK POS daily-sales import** — authorized Sales / Order Console users can upload
+  a ZANK CSV or `.xlsx` export, select an accessible branch, and review valid rows,
+  invalid rows, unmatched SKUs/barcodes, duplicate invoice/branch pairs, and totals
+  before confirming. Confirmation atomically creates completed walk-in sales, paid
+  billing records, and normal floor-stock movements. Imported sales retain the source
+  invoice, terminal, cashier, tax, discount, and line values, and every confirmed file
+  appears in branch-scoped import history. The import is file-based; no ZANK service or
+  payment gateway is contacted.
 - **Audit trail** — every stock change writes a `StockMovement` row recording the
   before/after quantities, the reason, and who did it.
 - **Audit Log** — `audit/` records every create, edit and delete on the models listed in
@@ -280,13 +288,20 @@ views can never drift apart.
 - **Suppliers & purchase orders** —
   *Categories:* a supplier has one category from a managed list (Procurement →
   Suppliers → Supplier Categories, Owner-edited). *Offers:* a supplier's own "add a
-  product" is a **Proposed** offer with its cost; nothing is orderable until the Owner
-  approves it, and a product not yet on the master list is requested and only created on
-  approval. Suppliers can remove their own products, but not while one of their open
-  orders needs it. A PO can only list products the chosen supplier has an *approved*
-  offer for (web and API). *Funding:* every PO records where the money comes from
+  product" is a **Proposed** offer with its cost; it becomes a preferred PO suggestion
+  after Owner approval, and a product not yet on the master list is requested and only
+  created on approval. Supplier-product links preserve known costs and rank suggestions,
+  but they do not restrict PO creation: authorized users can manually choose any product
+  from the master list on both the web form and API. Suppliers can remove their own
+  product links, but not while one of their open orders needs one. *Funding:* every PO
+  records where the money comes from
   (Cash on Hand, Bank Transfer, GCash, Owner's Funds, or Other + note); editable until
-  the terms are agreed. *Receiving:* each shipment records who received it and,
+  the terms are agreed. *Optional supplier portal:* approval saves the PO in the system.
+  A supplier may negotiate and acknowledge it through their account, but their login is
+  not required: Owner/Manager/Staff with delivery-edit access can record agreed terms
+  after a phone call, message, or email and mark it **Communicated/Ordered**. That state
+  is immediately eligible for store-verified receiving; a later portal acknowledgement
+  is informational. *Receiving:* each shipment records who received it and,
   optionally, the courier (`DeliveryReceipt`); stock is only added at that validated
   receipt. *Returns:* goods can be sent back against a received PO — supplier
   acknowledges, the store ships (units leave the **warehouse** exactly once, as

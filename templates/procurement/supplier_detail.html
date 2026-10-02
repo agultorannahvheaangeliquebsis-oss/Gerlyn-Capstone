@@ -11,7 +11,101 @@ supplier.
 Transfer is a metadata change only; procurement.services says why past orders
 are deliberately not rewritten. The banner above the table says the same thing
 in the user's words, because "transfer" reads like it might rewrite history.
+
+Layout follows the shared detail-page family the order and billing detail
+pages already use — .od-side for the two facts cards, .od-facts for the
+label-over-value tiles, .od-items for the compact in-card table. This page
+used to hand-roll all three out of .grid-2, a borderless .kv-table with
+per-cell inline text-align, and .row-between rows carrying their own
+padding/border-bottom, so it read as a different kind of screen to every
+other record detail in the system.
 {% endcomment %}
+
+{% block extra_css %}
+<style>
+  {% comment %}
+  Page-scoped (sd-*) rather than new shared components: per
+  feedback-scope-visual-changes-to-named-pages, only this screen wants a
+  panel whose header, bulk bar and table are one card.
+  {% endcomment %}
+  .sd-panel { overflow: hidden; margin-bottom: var(--s4); }
+  .sd-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--s4); flex-wrap: wrap; padding: var(--s4) var(--s6);
+  }
+  .sd-panel-head h2 { margin: 0; font-size: 18px; }
+  .sd-panel-head .gv-meta { margin: 2px 0 0; }
+
+  {% comment %}
+  The selection bar sits between the header and the table as a strip of the
+  same card, so the count it reports is unmistakably about the rows below it.
+  Its own tint switches on once something is ticked — the destination picker
+  and its submit are inert until then, and a flat grey bar gave no sign of
+  that.
+  {% endcomment %}
+  .sd-bulk {
+    display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+    padding: 10px var(--s6);
+    border-top: 1px solid var(--line-soft);
+    background: var(--surface-2);
+  }
+  .sd-bulk.is-active { background: var(--green-50); }
+  {% comment %}
+  Count, picker and submit are left-packed as one phrase rather than pushed to
+  opposite ends of the bar: at desk width the split left ~700px of nothing
+  between the sentence and the control it describes.
+  {% endcomment %}
+  .sd-bulk-count { font: 500 13.5px/1.4 var(--font-sans); color: var(--ink-600); }
+  .sd-bulk.is-active .sd-bulk-count { font-weight: 700; color: var(--ink-900); }
+  .sd-bulk select { width: auto; min-width: 200px; max-width: 280px; }
+
+  {% comment %}
+  .card already rounds its corners and the panel clips to them, so the table
+  inside must not round its own or the two radii fight along the bottom edge.
+  {% endcomment %}
+  .sd-panel > .table-wrap { border-top: 1px solid var(--line-soft); border-radius: 0; }
+
+  {% comment %}
+  Offers and new-product requests: one row each, separated by a hairline
+  rather than every row drawing its own bottom border (which left a stray
+  line under the last one, inside the card's padding).
+  {% endcomment %}
+  .sd-review-row { padding: var(--s3) 0; border-top: 1px solid var(--line-soft); }
+  .sd-review-row:first-child { border-top: 0; padding-top: 0; }
+  .sd-review-row:last-child { padding-bottom: 0; }
+  .sd-review-main {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--s3); flex-wrap: wrap;
+  }
+  .sd-review-form { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: flex-end; }
+  .sd-review-form .field { margin: 0; }
+  {% comment %}
+  The whole reject control is one unbreakable unit — its field and its submit
+  mean nothing apart — so it opts out of the wrapper's wrapping and out of
+  shrinking. Without flex:none it shrank to the field's own width and pushed
+  its own submit onto a second line.
+  {% endcomment %}
+  .sd-review-reject { display: flex; flex-wrap: nowrap; gap: var(--s2); flex: none; }
+  {% comment %}
+  Typed on the element, not the class alone: the base control rule is
+  input[type=text], whose attribute selector already scores a class, so a
+  bare .sd-review-note loses to its width:100% and every field here ran the
+  card's full width. This is what the inline widths these classes replaced
+  were quietly buying.
+  {% endcomment %}
+  .sd-review-form input.sd-review-note { width: 230px; min-width: 0; }
+  .sd-review-form input.sd-review-price { width: 120px; text-align: right; }
+
+  @media (max-width: 860px) {
+    .sd-panel-head { align-items: stretch; flex-direction: column; }
+    .sd-panel-head .btn { width: 100%; justify-content: center; }
+    .sd-bulk select, .sd-bulk .btn { flex: 1 1 100%; max-width: none; }
+    .sd-bulk-count { flex: 1 1 100%; }
+    .sd-review-reject { flex-wrap: wrap; }
+    .sd-review-form input.sd-review-note, .sd-review-form input.sd-review-price { width: 100%; }
+  }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -27,32 +121,57 @@ in the user's words, because "transfer" reads like it might rewrite history.
   {% endif %}
 </div>
 
-<div class="grid-2 mb-4">
-  <div class="card card-pad">
-    <h3 class="mb-4">Supplier Details</h3>
-    <table class="gv-table kv-table" style="border:0;">
-      <tbody>
-        <tr><td class="gv-meta">Category</td><td style="text-align:right;">
-          {% if profile.category %}<span class="tag">{{ profile.category.name }}</span>{% else %}—{% endif %}</td></tr>
-        <tr><td class="gv-meta">Contact person</td><td style="text-align:right;">{{ profile.contact_person|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Contact number</td><td class="num" style="text-align:right;">{{ profile.contact_number|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Email</td><td style="text-align:right;">{{ supplier.email|default:"—" }}</td></tr>
-        <tr><td class="gv-meta">Address</td><td style="text-align:right;">{{ profile.address|default:"—" }}</td></tr>
-      </tbody>
-    </table>
+<div class="od-side mb-4">
+  <div class="card card-pad od-card">
+    <h3 class="od-h">Supplier Details</h3>
+    {% comment %}
+    Label-over-value tiles, the same shape the order and billing detail pages
+    use for a record's read-only facts. Address takes .wide because it is the
+    one field that runs to a full line.
+    {% endcomment %}
+    <dl class="od-facts">
+      <div><dt>Category</dt><dd>
+        {% if profile.category %}<span class="tag">{{ profile.category.name }}</span>{% else %}—{% endif %}</dd></div>
+      <div><dt>Contact person</dt><dd>{{ profile.contact_person|default:"—" }}</dd></div>
+      <div><dt>Contact number</dt><dd class="num">{{ profile.contact_number|default:"—" }}</dd></div>
+      <div><dt>Email</dt><dd>{{ supplier.email|default:"—" }}</dd></div>
+      <div class="wide"><dt>Address</dt><dd>{{ profile.address|default:"—" }}</dd></div>
+    </dl>
   </div>
 
-  <div class="card card-pad">
-    <h3 class="mb-4">Recent Orders</h3>
-    {% for o in recent_orders %}
-    <div class="row-between" style="padding:7px 0; border-bottom:1px solid var(--line);">
-      <a href="{% url 'procurement_detail' o.pk %}" class="strong">{{ o.po_number }}</a>
-      <span class="gv-meta">{{ o.branch.branch_name }} · {{ o.order_date|date:"d M Y" }}</span>
-      <span class="num">₱{{ o.total_cost|floatformat:2 }}</span>
-    </div>
-    {% empty %}
-    <p class="gv-meta">No purchase orders have been raised with this supplier yet.</p>
-    {% endfor %}
+  <div class="card card-pad od-card">
+    <h3 class="od-h">Recent Orders</h3>
+    {% comment %}
+    A table rather than a stack of .row-between rows: the three pieces of an
+    order line — number, where and when, how much — are columns, and only a
+    table keeps the peso amounts on one right edge instead of letting each
+    row's branch name push them out of line.
+    {% endcomment %}
+    {% if recent_orders %}
+    <table class="gv-table od-table od-items" style="border:0;">
+      <thead>
+        <tr><th>Order</th><th>Branch</th><th class="num">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for o in recent_orders %}
+        <tr>
+          <td data-label="Order" class="strong">
+            <a href="{% url 'procurement_detail' o.pk %}">{{ o.po_number }}</a>
+            <div class="gv-meta">{{ o.order_date|date:"d M Y" }}</div>
+          </td>
+          <td data-label="Branch">{{ o.branch.branch_name }}</td>
+          <td data-label="Total" class="num strong">₱{{ o.total_cost|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    {% comment %}
+    No table at all rather than an empty one: three column headings over a
+    single apologetic sentence is more chrome than content.
+    {% endcomment %}
+    <p class="gv-meta mb-0">No purchase orders have been raised with this supplier yet.</p>
+    {% endif %}
   </div>
 </div>
 
@@ -62,45 +181,51 @@ master list. Nothing here can be put on a purchase order until approved.
 Owner-only controls; a Manager sees what is pending, read-only.
 {% endcomment %}
 {% if pending_offers or pending_requests %}
-<div class="card card-pad mb-4">
-  <h3 class="mb-4">Awaiting a decision</h3>
+<div class="card card-pad od-card">
+  <h3 class="od-h">Awaiting a decision</h3>
+  {% if not can_edit %}<p class="gv-meta od-note">Only the Owner can approve or reject these.</p>{% endif %}
 
   {% for link in pending_offers %}
-  <div class="row-between" style="padding:10px 0; border-bottom:1px solid var(--line); gap:12px; flex-wrap:wrap;">
-    <div>
-      <div class="strong">{{ link.product.product_name }}</div>
-      <div class="gv-meta">{{ link.product.sku_code }} · offered at ₱{{ link.current_cost_price|floatformat:2 }}{% if link.lead_time_days %} · {{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }} lead time{% endif %}</div>
+  <div class="sd-review-row">
+    <div class="sd-review-main">
+      <div>
+        <div class="strong">{{ link.product.product_name }}</div>
+        <div class="gv-meta">{{ link.product.sku_code }} · offered at ₱{{ link.current_cost_price|floatformat:2 }}{% if link.lead_time_days %} · {{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }} lead time{% endif %}</div>
+      </div>
+      {% if can_edit %}
+      <div class="sd-review-form">
+        <form method="POST" action="{% url 'supplier_offer_review' supplier.pk link.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="decision" value="approve">
+          <button type="submit" class="btn btn-sm btn-primary">Approve</button>
+        </form>
+        <form method="POST" action="{% url 'supplier_offer_review' supplier.pk link.pk %}" class="sd-review-reject">
+          {% csrf_token %}
+          <input type="hidden" name="decision" value="reject">
+          <input type="text" name="note" maxlength="200" class="sd-review-note"
+                 placeholder="Reason (shown to supplier)"
+                 aria-label="Rejection reason for {{ link.product.product_name }}">
+          <button type="submit" class="btn btn-sm btn-danger">Reject</button>
+        </form>
+      </div>
+      {% endif %}
     </div>
-    {% if can_edit %}
-    <div class="row-actions">
-      <form method="POST" action="{% url 'supplier_offer_review' supplier.pk link.pk %}" style="display:inline;">
-        {% csrf_token %}
-        <input type="hidden" name="decision" value="approve">
-        <button type="submit" class="btn btn-sm btn-primary">Approve</button>
-      </form>
-      <form method="POST" action="{% url 'supplier_offer_review' supplier.pk link.pk %}" style="display:inline;" class="row" >
-        {% csrf_token %}
-        <input type="hidden" name="decision" value="reject">
-        <input type="text" name="note" maxlength="200" placeholder="Reason (shown to supplier)" aria-label="Rejection reason for {{ link.product.product_name }}" style="width:200px;">
-        <button type="submit" class="btn btn-sm btn-danger">Reject</button>
-      </form>
-    </div>
-    {% endif %}
   </div>
   {% endfor %}
 
   {% for req in pending_requests %}
-  <div style="padding:10px 0; border-bottom:1px solid var(--line);">
+  <div class="sd-review-row">
     <div class="strong">{{ req.product_name }} <span class="tag">New product</span></div>
     <div class="gv-meta">{{ req.unit_of_measure }} · offered at ₱{{ req.proposed_cost|floatformat:2 }}{% if req.lead_time_days %} · {{ req.lead_time_days }} day{{ req.lead_time_days|pluralize }} lead time{% endif %}{% if req.note %} · {{ req.note }}{% endif %}</div>
     {% if can_edit %}
-    <form method="POST" action="{% url 'supplier_request_review' supplier.pk req.pk %}" class="row wrap mt-2" style="gap:10px; align-items:flex-end;">
+    <form method="POST" action="{% url 'supplier_request_review' supplier.pk req.pk %}" class="sd-review-form mt-2">
       {% csrf_token %}
-      <div class="field" style="margin:0;">
+      <div class="field">
         <label for="rq-price-{{ req.pk|unlocalize }}">Retail price (₱)</label>
-        <input id="rq-price-{{ req.pk|unlocalize }}" type="number" name="unit_price" min="0.01" step="0.01" style="width:120px; text-align:right;">
+        <input id="rq-price-{{ req.pk|unlocalize }}" type="number" name="unit_price" min="0.01" step="0.01"
+               class="sd-review-price">
       </div>
-      <div class="field" style="margin:0;">
+      <div class="field">
         <label for="rq-cat-{{ req.pk|unlocalize }}">Category</label>
         <select id="rq-cat-{{ req.pk|unlocalize }}" name="category">
           <option value="">No category</option>
@@ -108,7 +233,9 @@ Owner-only controls; a Manager sees what is pending, read-only.
         </select>
       </div>
       <button type="submit" name="decision" value="approve" class="btn btn-sm btn-primary">Approve &amp; create product</button>
-      <input type="text" name="note" maxlength="200" placeholder="Reason if rejecting" aria-label="Rejection reason for {{ req.product_name }}" style="width:180px;">
+      <input type="text" name="note" maxlength="200" class="sd-review-note"
+             placeholder="Reason if rejecting"
+             aria-label="Rejection reason for {{ req.product_name }}">
       <button type="submit" name="decision" value="reject" class="btn btn-sm btn-danger" formnovalidate>Reject</button>
     </form>
     {% endif %}
@@ -117,33 +244,38 @@ Owner-only controls; a Manager sees what is pending, read-only.
 </div>
 {% endif %}
 
-<div class="page-head">
-  <div>
-    <h2>Products</h2>
-    <p class="gv-meta mb-0">{{ links|length }} product{{ links|length|pluralize }} mapped to this supplier.</p>
-  </div>
-  {% if can_add %}
-  <button type="button" class="btn btn-primary" id="open-add-product-modal">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    Add Product
-  </button>
-  {% endif %}
-</div>
-
 {% if can_edit and links %}
 {% comment %}
 The bulk bar and the table live in ONE form, so the checkboxes the table
 renders are the same inputs the transfer posts. A separate form around the bar
-would submit nothing.
+would submit nothing. The form now opens outside the panel card rather than
+between the bar and the table, so header, bar and table are one card.
 {% endcomment %}
 <form method="POST" action="{% url 'supplier_product_transfer' supplier.pk %}" id="transfer-form"
       data-confirm="The selected products will move to the chosen supplier. Past purchase orders are not changed."
       data-confirm-title="Transfer these products?"
       data-confirm-ok="Transfer">
   {% csrf_token %}
-  <div class="toolbar">
-    <span class="gv-meta" id="selection-count">No products selected</span>
-    <select name="to_supplier" class="grow" style="max-width:280px;">
+{% endif %}
+
+<section class="card sd-panel">
+  <div class="sd-panel-head">
+    <div>
+      <h2>Products</h2>
+      <p class="gv-meta mb-0">{{ links|length }} product{{ links|length|pluralize }} mapped to this supplier.</p>
+    </div>
+    {% if can_add %}
+    <button type="button" class="btn btn-primary" id="open-add-product-modal">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Add Product
+    </button>
+    {% endif %}
+  </div>
+
+  {% if can_edit and links %}
+  <div class="sd-bulk" id="bulk-bar">
+    <span class="sd-bulk-count" id="selection-count">No products selected</span>
+    <select name="to_supplier" aria-label="Destination supplier">
       <option value="">Transfer selected to…</option>
       {% for s in other_suppliers %}
       <option value="{{ s.pk }}">{{ s.supplier_profile.supplier_name|default:s.username }}</option>
@@ -151,66 +283,73 @@ would submit nothing.
     </select>
     <button class="btn" type="submit" id="transfer-btn" disabled>Transfer</button>
   </div>
-{% endif %}
+  {% endif %}
 
-<div class="card table-wrap">
-  <table class="gv-table" id="supplier-products">
-    <thead>
-      <tr>
-        {% if can_edit and links %}<th style="width:34px;"><input type="checkbox" id="select-all" aria-label="Select all products"></th>{% endif %}
-        <th>Product</th><th>Category</th><th>Supplier SKU</th>
-        <th class="num">Current Cost</th><th class="num">Lead Time</th><th>Preferred</th>
-        {% if can_edit or can_delete %}<th class="end">Actions</th>{% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for link in links %}
-      <tr>
-        {% if can_edit and links %}
-        <td><input type="checkbox" name="product_ids" value="{{ link.product_id }}"
-                   class="row-select" aria-label="Select {{ link.product.product_name }}"></td>
-        {% endif %}
-        <td data-label="Product" class="strong">
-          {{ link.product.product_name }}
-          <div class="gv-meta">{{ link.product.sku_code }}</div>
-        </td>
-        <td data-label="Category">{{ link.product.category.category_name|default:"—" }}</td>
-        <td data-label="Supplier SKU" class="gv-meta">{{ link.supplier_sku|default:"—" }}</td>
-        <td data-label="Current Cost" class="num">
-          {% if link.current_cost_price is not None %}₱{{ link.current_cost_price|floatformat:2 }}{% else %}Awaiting supplier{% endif %}</td>
-        <td data-label="Lead Time" class="num">
-          {% if link.lead_time_days %}{{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }}{% else %}—{% endif %}</td>
-        <td data-label="Preferred">
-          {% if link.is_preferred %}<span class="pill pill-ok">Preferred</span>{% else %}—{% endif %}</td>
-        {% if can_edit or can_delete %}
-        <td data-label="Actions">
-          <span class="row-actions">
-            {% comment %}
-            Per-row transfer posts to the same endpoint as the bulk bar with a
-            single product_ids value, so both paths hit identical rules. The
-            destination select is inside the row form — the bulk bar's select
-            belongs to the other form and would not be submitted here.
-            {% endcomment %}
-            {% if can_edit %}<button type="button" class="icon-btn icon-btn-action" data-open-row-transfer="{{ link.pk }}"
-                    title="Transfer" aria-label="Transfer {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></button>
-            {% endif %}
-            {% if can_delete %}<button type="submit" form="remove-{{ link.pk }}" class="icon-btn icon-btn-danger"
-                    title="Remove" aria-label="Remove {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-            {% endif %}
-          </span>
-        </td>
-        {% endif %}
-      </tr>
-      {% empty %}
-      <tr><td colspan="8"><div class="empty">
-        <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
-        <h3>No products mapped yet</h3>
-        <p>Add the products you buy from this supplier so purchase orders can be raised against them.</p>
-      </div></td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <div class="table-wrap">
+    <table class="gv-table" id="supplier-products">
+      <thead>
+        <tr>
+          {% if can_edit and links %}<th style="width:34px;"><input type="checkbox" id="select-all" aria-label="Select all products"></th>{% endif %}
+          <th>Product</th><th>Category</th><th>Supplier SKU</th>
+          <th class="num">Current Cost</th><th class="num">Lead Time</th><th>Preferred</th>
+          {% if can_edit or can_delete %}<th class="end">Actions</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for link in links %}
+        <tr>
+          {% if can_edit and links %}
+          <td><input type="checkbox" name="product_ids" value="{{ link.product_id }}"
+                     class="row-select" aria-label="Select {{ link.product.product_name }}"></td>
+          {% endif %}
+          <td data-label="Product" class="strong">
+            {{ link.product.product_name }}
+            <div class="gv-meta">{{ link.product.sku_code }}</div>
+          </td>
+          <td data-label="Category">{{ link.product.category.category_name|default:"—" }}</td>
+          <td data-label="Supplier SKU" class="gv-meta">{{ link.supplier_sku|default:"—" }}</td>
+          <td data-label="Current Cost" class="num">
+            {% if link.current_cost_price is not None %}₱{{ link.current_cost_price|floatformat:2 }}
+            {% else %}<span class="gv-meta">Awaiting supplier</span>{% endif %}</td>
+          <td data-label="Lead Time" class="num">
+            {% if link.lead_time_days %}{{ link.lead_time_days }} day{{ link.lead_time_days|pluralize }}{% else %}—{% endif %}</td>
+          <td data-label="Preferred">
+            {% if link.is_preferred %}<span class="pill pill-ok">Preferred</span>{% else %}—{% endif %}</td>
+          {% if can_edit or can_delete %}
+          <td data-label="Actions">
+            <span class="row-actions">
+              {% comment %}
+              Per-row transfer posts to the same endpoint as the bulk bar with a
+              single product_ids value, so both paths hit identical rules. The
+              destination select is inside the row form — the bulk bar's select
+              belongs to the other form and would not be submitted here.
+              {% endcomment %}
+              {% if can_edit %}<button type="button" class="icon-btn icon-btn-action" data-open-row-transfer="{{ link.pk }}"
+                      title="Transfer" aria-label="Transfer {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></button>
+              {% endif %}
+              {% if can_delete %}<button type="submit" form="remove-{{ link.pk }}" class="icon-btn icon-btn-danger"
+                      title="Remove" aria-label="Remove {{ link.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+              {% endif %}
+            </span>
+          </td>
+          {% endif %}
+        </tr>
+        {% empty %}
+        {% comment %}
+        The checkbox column only renders when there are rows to tick, so an
+        empty table is six columns plus Actions — the old fixed colspan of 8
+        overshot it by one or two and left the panel a dangling cell wide.
+        {% endcomment %}
+        <tr><td colspan="{% if can_edit or can_delete %}7{% else %}6{% endif %}"><div class="empty">
+          <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
+          <h3>No products mapped yet</h3>
+          <p>Add the products you buy from this supplier so purchase orders can be raised against them.</p>
+        </div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 {% if can_edit and links %}
 </form>
@@ -342,11 +481,13 @@ submit the transfer instead. Each button references its form by id.
   // --- bulk selection -------------------------------------------------
   // The Transfer button stays disabled until something is ticked, so the
   // "select at least one product" server error is a backstop rather than
-  // the normal way of finding out.
+  // the normal way of finding out. The bar's own tint follows the same
+  // state, so the disabled button is not the only sign of it.
   var selectAll = document.getElementById('select-all');
   var rows = Array.prototype.slice.call(document.querySelectorAll('.row-select'));
   var btn = document.getElementById('transfer-btn');
   var count = document.getElementById('selection-count');
+  var bar = document.getElementById('bulk-bar');
 
   function sync() {
     var n = rows.filter(function (r) { return r.checked; }).length;
@@ -354,6 +495,7 @@ submit the transfer instead. Each button references its form by id.
     count.textContent = n === 0
       ? 'No products selected'
       : n + ' product' + (n === 1 ? '' : 's') + ' selected';
+    if (bar) { bar.classList.toggle('is-active', n > 0); }
     if (selectAll) {
       selectAll.checked = n === rows.length && n > 0;
       selectAll.indeterminate = n > 0 && n < rows.length;

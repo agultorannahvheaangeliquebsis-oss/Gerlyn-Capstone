@@ -11,7 +11,13 @@ Usage: {% include "partials/_billing_reject_confirm.html" with record=record %}
 
 Everything here is display only: billing_confirm re-validates the reason,
 the transition and the maker/checker rule server-side.
+
+The hidden status input is what the dialog's own Reject button posts: a
+form submits only its submitter's name/value, and that button (unlike the
+trigger that opened the dialog) has none, so without it the request would
+arrive with no status and be refused as "Invalid payment status."
 {% endcomment %}
+<input type="hidden" name="status" value="Rejected">
 <div class="modal-overlay" data-status-modal aria-hidden="true">
   <div class="modal-card confirm-card status-confirm-card" role="alertdialog" aria-modal="true"
        aria-labelledby="billing-reject-title" aria-describedby="billing-reject-notes">

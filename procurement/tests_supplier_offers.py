@@ -2,8 +2,9 @@
 remove a product from its catalog.
 
 A supplier's self-add is now a Proposed offer the Owner must approve before it
-can appear on a purchase order; products that aren't on the master list are
-requested and only become real products when the Owner approves them.
+can appear as a preferred supplier-product link; products that aren't on the
+master list are requested and only become real products when the Owner
+approves them.
 """
 import datetime as dt
 from decimal import Decimal
@@ -81,11 +82,8 @@ class OfferTests(OfferBase):
         self.assertFalse(Notification.objects.filter(
             user=self.manager, event_type='supplier_offer_for_review').exists())
 
-    def test_proposed_offer_cannot_go_on_a_purchase_order(self):
+    def test_proposed_offer_is_not_required_to_manually_order_a_product(self):
         self.offer(self.rice)
-        # Some supplier must have an approved product or the modal shows its
-        # "nothing orderable yet" state instead of the form and its errors.
-        self.link(supplier=self.other_supplier, product=self.sugar)
         self.client.force_login(self.owner)
         response = self.client.post(reverse('procurement_add'), {
             'branch': self.branch.pk, 'supplier': self.supplier.pk,
@@ -93,8 +91,8 @@ class OfferTests(OfferBase):
             'product_id': [str(self.rice.pk)],
             'quantity_ordered': ['10'], 'cost_price': ['50'],
         })
-        self.assertContains(response, 'assigned to the selected supplier')
-        self.assertFalse(Procurement.objects.exists())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Procurement.objects.get().items.get().product, self.rice)
 
     def test_proposed_offer_is_absent_from_the_po_catalog_until_approved(self):
         self.offer(self.rice)

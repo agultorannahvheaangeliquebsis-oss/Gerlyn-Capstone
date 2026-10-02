@@ -15,7 +15,7 @@ from django.db import connections
 from django.test import (
     Client, RequestFactory, TestCase, TransactionTestCase, override_settings,
 )
-from django.urls import Resolver404, resolve
+from django.urls import Resolver404, resolve, reverse
 from django.utils import timezone
 from django.views.static import serve
 
@@ -557,6 +557,130 @@ class BillingConfirmMakerCheckerTests(TestCase):
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
 
 
+class BillingConfirmReturnToOrderTests(TestCase):
+    """Financials UX Audit Phase 1 — Order Detail (sales.views.
+    transaction_detail) now posts to this same billing_confirm view with
+    return_to=order, so Verify/Reject/Re-open can be done without leaving
+    the order. Every redirect billing_confirm can take — success AND every
+    early refusal — must honour that flag; a user who came from the order
+    should never be bounced into Billing. No new transition/permission
+    logic here: this only proves the existing redirects respect the flag.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='r2o-owner', password='pw', role=User.Role.OWNER
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='R2O Branch', location='Baliuag', owner=cls.owner
+        )
+        cls.staff = User.objects.create_user(
+            username='r2o-staff', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.staff, defaults={'staff_name': 'Sam', 'branch': cls.branch}
+        )
+        cls.other_staff = User.objects.create_user(
+            username='r2o-staff-2', password='pw', role=User.Role.STAFF
+        )
+        StaffProfile.objects.update_or_create(
+            user=cls.other_staff, defaults={'staff_name': 'Tara', 'branch': cls.branch}
+        )
+        for staff in (cls.staff, cls.other_staff):
+            # Same reason as BillingConfirmMakerCheckerTests — without the
+            # Billing module, ModulePermissionMiddleware bounces a Staff
+            # account before billing_confirm ever runs.
+            User.objects.filter(pk=staff.pk).update(
+                allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+            )
+            staff.refresh_from_db()
+
+    def _client(self, user):
+        client = Client()
+        client.force_login(user)
+        return client
+
+    def _pending_cash_record(self, staff=None):
+        txn = SalesTransaction.objects.create(
+            branch=self.branch, staff=staff, total_amount=250,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+        )
+        record = txn.billing_record
+        record.payment_method = BillingRecord.PaymentMethod.CASH
+        record.save(update_fields=['payment_method'])
+        return record
+
+    def test_verifying_from_order_returns_to_order_detail(self):
+        record = self._pending_cash_record()
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.owner).post(
+                f'/billing/{record.pk}/confirm/',
+                {'status': 'Paid', 'return_to': 'order'},
+            )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Paid')
+
+    def test_rejecting_from_order_returns_to_order_detail(self):
+        record = self._pending_cash_record()
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.owner).post(
+                f'/billing/{record.pk}/confirm/',
+                {'status': 'Rejected', 'reason': 'Reference unreadable.', 'return_to': 'order'},
+            )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Rejected')
+
+    def test_a_refused_self_confirmation_from_order_still_returns_to_the_order(self):
+        # The maker/checker refusal is an early-exit branch distinct from the
+        # success path below it — return_to has to be honoured there too, or
+        # the one case staff hit most (trying to verify their own sale) is
+        # the one that strands them in Billing instead of back on the order.
+        record = self._pending_cash_record(staff=self.staff)
+        response = self._client(self.staff).post(
+            f'/billing/{record.pk}/confirm/',
+            {'status': 'Paid', 'return_to': 'order'},
+        )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Pending')
+
+    def test_a_different_staff_member_verifying_from_order_returns_to_the_order(self):
+        record = self._pending_cash_record(staff=self.staff)
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.other_staff).post(
+                f'/billing/{record.pk}/confirm/',
+                {'status': 'Paid', 'return_to': 'order'},
+            )
+
+        self.assertRedirects(
+            response, reverse('transaction_detail', args=[record.transaction_id])
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'Paid')
+        self.assertEqual(record.confirmed_by, self.other_staff)
+
+    def test_without_return_to_the_existing_billing_detail_redirect_is_unchanged(self):
+        record = self._pending_cash_record()
+        with mock.patch('billing.notifications.notify_payment_decision'):
+            response = self._client(self.owner).post(
+                f'/billing/{record.pk}/confirm/', {'status': 'Paid'},
+            )
+
+        self.assertRedirects(response, reverse('billing_detail', args=[record.pk]))
+
+
 class BillingConfirmAPIBranchScopeTests(TestCase):
     """F-02 — BillingConfirmAPIView.patch checked role but never branch
     scope: a Staff/Manager account could PATCH /api/billing/<pk>/confirm/
@@ -1050,7 +1174,7 @@ class BillingCreateValidationTests(TestCase):
 
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'reference_number': 'GC-1'},  # no payment_method at all
+            {'reference_number': '1000000000001'},  # no payment_method at all
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1068,7 +1192,7 @@ class BillingCreateValidationTests(TestCase):
         txn = self._pending_txn()
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'payment_method': '', 'reference_number': 'GC-2'},
+            {'payment_method': '', 'reference_number': '1000000000002'},
         )
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'billing/billing_form.html')
@@ -1083,14 +1207,14 @@ class BillingCreateValidationTests(TestCase):
 
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'payment_method': 'GCash', 'reference_number': 'GC-9',
+            {'payment_method': 'GCash', 'reference_number': '1000000000009',
              'proof_of_payment': _valid_png_file()},
         )
 
         self.assertRedirects(response, f'/billing/{record.pk}/')
         record.refresh_from_db()
         self.assertEqual(record.payment_method, 'GCash')
-        self.assertEqual(record.reference_number, 'GC-9')
+        self.assertEqual(record.reference_number, '1000000000009')
 
     def test_an_unrecognized_payment_method_is_rejected(self):
         """A value outside BillingRecord.PaymentMethod (a tampered POST, or
@@ -1103,7 +1227,7 @@ class BillingCreateValidationTests(TestCase):
 
         response = self._client().post(
             f'/billing/create/{txn.pk}/',
-            {'payment_method': 'Paid', 'reference_number': 'GC-3'},
+            {'payment_method': 'Paid', 'reference_number': '1000000000003'},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1123,7 +1247,7 @@ class BillingCreateValidationTests(TestCase):
             f'/billing/create/{txn.pk}/',
             {
                 'payment_method': 'GCash',
-                'reference_number': 'GC-4',
+                'reference_number': '1000000000004',
                 'proof_of_payment': ContentFile(
                     b'<html><body><script>alert(1)</script></body></html>',
                     name='receipt.html',
@@ -1157,7 +1281,7 @@ class BillingCreateValidationTests(TestCase):
             f'/billing/create/{txn.pk}/',
             {
                 'payment_method': 'GCash',
-                'reference_number': 'GC-5',
+                'reference_number': '1000000000005',
                 'proof_of_payment': ContentFile(valid_png_bytes, name='receipt.png'),
             },
         )
@@ -1247,9 +1371,9 @@ class PaymentEvidencePerMethodTests(TestCase):
         need = BillingRecord.missing_payment_evidence
         M = BillingRecord.PaymentMethod
         self.assertEqual(need(M.GCASH, '', False), ['reference number', 'proof of payment'])
-        self.assertEqual(need(M.GCASH, 'GC-1', False), ['proof of payment'])
+        self.assertEqual(need(M.GCASH, '1000000000001', False), ['proof of payment'])
         self.assertEqual(need(M.GCASH, '', True), ['reference number'])
-        self.assertEqual(need(M.GCASH, 'GC-1', True), [])
+        self.assertEqual(need(M.GCASH, '1000000000001', True), [])
         self.assertEqual(need(M.BANK_TRANSFER, 'BT-1', False), ['proof of payment'])
         self.assertEqual(need(M.CARD, '', False), ['proof of payment'])
         self.assertEqual(need(M.CARD, '', True), [])
@@ -1280,7 +1404,7 @@ class PaymentEvidencePerMethodTests(TestCase):
     def test_gcash_without_a_proof_is_not_saved(self):
         txn = self._txn()
         response = self._save_payment(
-            txn, payment_method='GCash', reference_number='GC-1'
+            txn, payment_method='GCash', reference_number='1000000000001'
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1301,14 +1425,14 @@ class PaymentEvidencePerMethodTests(TestCase):
     def test_gcash_with_both_saves(self):
         txn = self._txn()
         response = self._save_payment(
-            txn, payment_method='GCash', reference_number='GC-7',
+            txn, payment_method='GCash', reference_number='1000000000007',
             proof_of_payment=_valid_png_file(),
         )
 
         record = txn.billing_record
         self.assertRedirects(response, f'/billing/{record.pk}/')
         record.refresh_from_db()
-        self.assertEqual(record.reference_number, 'GC-7')
+        self.assertEqual(record.reference_number, '1000000000007')
         self.assertTrue(record.proof_of_payment)
 
     def test_a_proof_already_on_file_is_not_demanded_again(self):
@@ -1317,12 +1441,12 @@ class PaymentEvidencePerMethodTests(TestCase):
         record.proof_of_payment.save('first.png', _valid_png_file(), save=True)
 
         response = self._save_payment(
-            txn, payment_method='GCash', reference_number='GC-8'
+            txn, payment_method='GCash', reference_number='1000000000008'
         )
 
         self.assertRedirects(response, f'/billing/{record.pk}/')
         record.refresh_from_db()
-        self.assertEqual(record.reference_number, 'GC-8')
+        self.assertEqual(record.reference_number, '1000000000008')
 
     def test_card_needs_a_proof_but_not_a_reference(self):
         txn = self._txn(SalesTransaction.ModeOfPayment.CARD)
@@ -1385,7 +1509,7 @@ class PaymentEvidencePerMethodTests(TestCase):
         return record.status
 
     def test_gcash_cannot_be_verified_on_a_reference_alone(self):
-        record = self._record('GCash', reference='GC-1')
+        record = self._record('GCash', reference='1000000000001')
         self.assertEqual(self._mark_paid(record), 'Pending')
 
     def test_gcash_cannot_be_verified_on_a_proof_alone(self):
@@ -1393,7 +1517,7 @@ class PaymentEvidencePerMethodTests(TestCase):
         self.assertEqual(self._mark_paid(record), 'Pending')
 
     def test_gcash_verifies_with_both(self):
-        record = self._record('GCash', reference='GC-1', proof=True)
+        record = self._record('GCash', reference='1000000000001', proof=True)
         self.assertEqual(self._mark_paid(record), 'Paid')
 
     def test_card_verifies_on_a_proof_and_not_without(self):
@@ -1411,13 +1535,13 @@ class PaymentEvidencePerMethodTests(TestCase):
         request = RequestFactory().patch('/')
         request.user = self.owner
         short = BillingConfirmSerializer(
-            self._record('GCash', reference='GC-1'),
+            self._record('GCash', reference='1000000000001'),
             data={'status': 'Paid'}, context={'request': request},
         )
         self.assertFalse(short.is_valid())
 
         complete = BillingConfirmSerializer(
-            self._record('GCash', reference='GC-2', proof=True),
+            self._record('GCash', reference='1000000000002', proof=True),
             data={'status': 'Paid'}, context={'request': request},
         )
         self.assertTrue(complete.is_valid(), complete.errors)
@@ -1427,7 +1551,7 @@ class PaymentEvidencePerMethodTests(TestCase):
 
         record = self._record('Cash')
         missing_proof = BillingPaymentSerializer(
-            record, data={'paymentMethod': 'GCash', 'referenceNumber': 'GC-1'}
+            record, data={'paymentMethod': 'GCash', 'referenceNumber': '1000000000001'}
         )
         self.assertFalse(missing_proof.is_valid())
 

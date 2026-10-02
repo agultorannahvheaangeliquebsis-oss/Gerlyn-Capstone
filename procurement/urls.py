@@ -17,6 +17,8 @@ urlpatterns = [
          name='procurement_set_funding'),
     path('<int:pk>/reschedule/', views.procurement_reschedule,
          name='procurement_reschedule'),
+    path('<int:pk>/communicate/', views.procurement_mark_communicated,
+         name='procurement_mark_communicated'),
 
     # Goods returned to the supplier (P17)
     path('<int:pk>/return/', views.supplier_return_add, name='supplier_return_add'),
@@ -40,6 +42,7 @@ urlpatterns = [
 
     # Deliveries (receive a PO into stock)
     path('deliveries/', views.delivery_list, name='delivery_list'),
+    path('deliveries/<int:pk>/', views.procurement_detail, name='delivery_detail'),
     path('deliveries/<int:pk>/receive/', views.delivery_receive, name='delivery_receive'),
     path('deliveries/<int:pk>/scan/', views.delivery_scan, name='delivery_scan'),
     path('deliveries/<int:pk>/add-unexpected/', views.delivery_add_unexpected,

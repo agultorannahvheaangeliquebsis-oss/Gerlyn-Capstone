@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -15,11 +15,91 @@ from reports.views import (
     _dashboard_branch_breakdown,
     _dashboard_daily_series,
     _dashboard_range_totals,
+    _delta_pill,
+    _delta_tint,
+    _format_percentage_change,
     _non_performing_products,
+    _percentage_change,
     _previous_window,
     _sales_by_category_chart,
     UNCATEGORIZED_LABEL,
 )
+
+
+class KpiComparisonFormattingTests(SimpleTestCase):
+    label = 'previous 30 days'
+
+    def test_actual_percentage_is_retained_while_large_display_is_capped(self):
+        delta = _delta_pill(750.6, 100, self.label)
+
+        self.assertAlmostEqual(delta['pct'], 650.6)
+        self.assertEqual(delta['text'], '>100% vs previous 30 days')
+        self.assertEqual(delta['dir'], 'up')
+        self.assertEqual(delta['tooltip'], 'Actual change: +650.6%')
+
+    def test_normal_increase_uses_one_decimal_and_favorable_status(self):
+        delta = _delta_pill(185.4, 100, self.label)
+
+        self.assertEqual(delta['text'], '85.4% vs previous 30 days')
+        self.assertEqual(delta['dir'], 'up')
+        self.assertEqual(delta['pill'], 'pill-ok')
+        self.assertEqual(delta['tooltip'], '')
+
+    def test_decrease_uses_unsigned_magnitude_with_down_arrow(self):
+        delta = _delta_pill(33.8, 100, self.label)
+
+        self.assertEqual(delta['text'], '66.2% vs previous 30 days')
+        self.assertEqual(delta['dir'], 'down')
+        self.assertNotIn('-', delta['text'])
+        self.assertEqual(delta['pill'], 'pill-danger')
+
+    def test_zero_baselines_are_descriptive_instead_of_infinite(self):
+        new = _delta_pill(10, 0, self.label, prev_window_empty=True)
+        unchanged = _delta_pill(0, 0, self.label, prev_window_empty=True)
+
+        self.assertIsNone(new['pct'])
+        self.assertEqual(new['text'], 'New vs previous 30 days')
+        self.assertEqual(unchanged['text'], 'No change vs previous 30 days')
+
+    def test_equal_nonzero_values_show_no_change(self):
+        delta = _delta_pill(25, 25, self.label)
+
+        self.assertEqual(delta['pct'], 0)
+        self.assertEqual(delta['text'], 'No change vs previous 30 days')
+        self.assertIsNone(delta['dir'])
+
+    def test_procurement_change_is_neutral_in_both_directions(self):
+        increase = _delta_pill(120, 100, self.label, favorable_when=None)
+        decrease = _delta_pill(80, 100, self.label, favorable_when=None)
+
+        self.assertEqual(increase['pill'], 'pill-neutral')
+        self.assertEqual(decrease['pill'], 'pill-neutral')
+        self.assertEqual(_delta_tint(increase), '')
+        self.assertEqual(_delta_tint(decrease), '')
+
+    def test_decrease_can_be_favorable_for_inverse_kpis(self):
+        delta = _delta_pill(8, 10, self.label, favorable_when='down')
+
+        self.assertEqual(delta['dir'], 'down')
+        self.assertEqual(delta['pill'], 'pill-ok')
+        self.assertEqual(_delta_tint(delta), '')
+
+    def test_raw_calculation_and_formatter_are_separate(self):
+        pct = _percentage_change(1, 3)
+        formatted = _format_percentage_change(pct)
+
+        self.assertAlmostEqual(pct, -66.66666666666666)
+        self.assertEqual(formatted['display'], '66.7%')
+
+    def test_previous_window_is_immediately_preceding_and_equal_length(self):
+        end = timezone.localdate()
+        start = end - timedelta(days=29)
+
+        prev_start, prev_end, days = _previous_window(start, end)
+
+        self.assertEqual(days, 30)
+        self.assertEqual(prev_end, start - timedelta(days=1))
+        self.assertEqual(prev_start, start - timedelta(days=30))
 
 
 class RevenueExcludesCancelledAndPendingTests(TestCase):
@@ -123,6 +203,22 @@ class RevenueExcludesCancelledAndPendingTests(TestCase):
         ctx = self._client().get('/reports/').context
         self.assertEqual(ctx['pipeline_total'], self.PENDING)
         self.assertEqual(ctx['pipeline_count'], 1)
+
+    def test_low_stock_action_opens_floor_refill_not_writeoff(self):
+        product = Product.objects.create(
+            sku_code='SKU-DASH-LOW', product_name='Dashboard Low Stock', unit_price=10,
+        )
+        Inventory.objects.create(
+            product=product, branch=self.branch, quantity_on_hand=1, reorder_level=10,
+        )
+
+        response = self._client().get(reverse('accounts:owner_dashboard'))
+
+        self.assertContains(
+            response, f'{reverse("warehouse_stock_list")}?open_request=1',
+        )
+        self.assertContains(response, 'Request Floor Refill')
+        self.assertNotContains(response, 'Create Stock Adjustment')
 
     def test_cancelled_sale_still_listed_in_the_transactions_table(self):
         # Excluded from the money figures, not hidden from the audit trail.
@@ -332,6 +428,44 @@ class BillingReportRowsLinkToBillingDetailTests(TestCase):
         record = resp.context['records'][0]
 
         self.assertIn(f'/billing/{record.pk}/', resp.content.decode())
+
+
+class ReportPagesNameThemselvesTests(TestCase):
+    """The four reports are separate pages, but every one headed itself
+    "Reports", so the only cue to which report was open was the tab
+    underline and the bar read as in-page tabs. Each page's <h1> must name
+    its report, and the switcher must mark exactly that link as the current
+    page while still linking to all four URLs.
+    """
+
+    PAGES = [
+        ('reports_dashboard', 'Sales Report'),
+        ('inventory_report', 'Inventory Report'),
+        ('procurement_report', 'Procurement Report'),
+        ('billing_report', 'Billing Report'),
+    ]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='report-heading-owner', password='pw', role=User.Role.OWNER
+        )
+
+    def test_each_report_page_names_itself_and_marks_its_nav_link(self):
+        client = Client()
+        client.force_login(self.owner)
+        for url_name, heading in self.PAGES:
+            with self.subTest(url_name):
+                url = reverse(url_name)
+                html = client.get(url).content.decode()
+
+                self.assertIn(f'<h1>{heading}</h1>', html)
+                self.assertNotIn('<h1>Reports</h1>', html)
+                self.assertIn('<nav class="report-tabs" aria-label="Reports">', html)
+                self.assertEqual(html.count('aria-current="page"'), 1)
+                self.assertIn(f'href="{url}" aria-current="page"', html)
+                for other, _ in self.PAGES:
+                    self.assertIn(f'href="{reverse(other)}"', html)
 
 
 class SalesByCategoryChartTests(TestCase):
@@ -615,3 +749,54 @@ class NonPerformingProductsReportTests(TestCase):
         body = resp.content.decode()
         self.assertIn('Non-Performing &amp; Near-Expiry Products', body)
         self.assertIn('Non-Performing + Near-Expiry', body)
+
+
+class ProcurementCsvActualReceivedCostTests(TestCase):
+    """The procurement export carried only the committed order total, so a
+    partial delivery reconciled against the wrong figure in a spreadsheet."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import date
+
+        from inventory.models import Product
+        from procurement.models import ProcurementItem
+
+        cls.owner = User.objects.create_user(
+            username='csv-arc-owner', password='pw', role=User.Role.OWNER
+        )
+        branch = Branch.objects.create(
+            branch_name='CSV ARC Branch', location='Baliuag', owner=cls.owner,
+        )
+        supplier = User.objects.create_user(
+            username='csv-arc-supplier', password='pw', role=User.Role.SUPPLIER
+        )
+        product = Product.objects.create(
+            sku_code='SKU-CSV-ARC', product_name='Item', unit_price=Decimal('10.00'),
+        )
+        cls.po = Procurement.objects.create(
+            branch=branch, supplier=supplier, owner=cls.owner,
+            order_date=date(2026, 1, 1),
+            status=Procurement.Status.PARTIALLY_RECEIVED,
+            total_cost=Decimal('50.00'),
+        )
+        ProcurementItem.objects.create(
+            procurement=cls.po, product=product,
+            quantity_ordered=10, quantity_received=4,
+            unit_cost_snapshot=Decimal('5.00'),
+        )
+
+    def test_export_carries_both_the_ordered_and_the_received_total(self):
+        client = Client()
+        client.force_login(self.owner)
+        body = client.get(
+            reverse('export_csv', args=['procurement'])
+        ).content.decode()
+
+        header, *rows = [line for line in body.splitlines() if line.strip()]
+        self.assertIn('Total Cost (PHP)', header)
+        self.assertIn('Actual Received Cost (PHP)', header)
+
+        row = next(r for r in rows if self.po.po_number in r)
+        self.assertIn('50.00', row)
+        self.assertIn('20.00', row)

@@ -94,7 +94,7 @@ class FloorLowActionTests(_Fixture):
         request_url = f"{reverse('warehouse_stock_list')}?open_request=1&branch={self.branch.pk}"
         self.assertEqual(row['actions'][0]['url'], request_url)
         response = self.page(self.owner)
-        self.assertContains(response, 'Request Stock to Floor')
+        self.assertContains(response, 'Request Floor Refill')
         self.assertNotContains(response, reverse('procurement_add'))
 
     def test_empty_warehouse_offers_create_po_instead_of_request(self):
@@ -102,7 +102,7 @@ class FloorLowActionTests(_Fixture):
         row = self.floor_row(self.owner)
         self.assertEqual(self.kinds(row), ['po', 'history'])
         self.assertIn('needs a purchase order', row['note'])
-        self.assertNotContains(self.page(self.owner), 'Request Stock to Floor')
+        self.assertNotContains(self.page(self.owner), 'Request Floor Refill')
 
     def test_no_warehouse_row_at_all_counts_as_empty(self):
         self.assertEqual(self.kinds(self.floor_row(self.owner)), ['po', 'history'])
@@ -129,7 +129,7 @@ class FloorLowActionTests(_Fixture):
             'a-viewonly', User.Role.BRANCH_MANAGER, drop_actions=[WAREHOUSE_STOCK])
         row = self.floor_row(view_only)
         self.assertNotIn('request', self.kinds(row))
-        self.assertNotContains(self.page(view_only), 'Request Stock to Floor')
+        self.assertNotContains(self.page(view_only), 'Request Floor Refill')
 
     def test_create_po_is_owner_or_manager_only(self):
         # Manager: yes. Staff, even with Alerts access and every grant: no.

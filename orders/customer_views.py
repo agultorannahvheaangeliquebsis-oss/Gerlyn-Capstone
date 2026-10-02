@@ -58,6 +58,29 @@ NO_SINGLE_BRANCH = (
     'an item and try again.'
 )
 
+
+def _no_single_branch_message(resolution):
+    """NO_SINGLE_BRANCH, naming the product(s) actually blocking fulfillment.
+
+    unavailable_product_ids is the union of what fell short at every branch
+    resolve_nearest_branch tried, so it may name more than the one product a
+    shopper needs to act on — still a better hint than the flat message. Falls
+    back to NO_SINGLE_BRANCH when there is nothing to resolve (no active
+    branches at all) or the ids no longer name a real product.
+    """
+    product_ids = resolution.unavailable_product_ids
+    if not product_ids:
+        return NO_SINGLE_BRANCH
+    names = list(
+        Product.objects.filter(pk__in=product_ids).values_list('product_name', flat=True)
+    )
+    if not names:
+        return NO_SINGLE_BRANCH
+    return (
+        f"These products can't currently be fulfilled by one branch: "
+        f"{', '.join(names)}. Remove one of them or reduce the quantity, then try again."
+    )
+
 # Catalog sort orders. The dict is the single source of truth for both the
 # <select> the template renders and the validation of ?sort= — an unknown or
 # hand-edited value falls back to DEFAULT_SORT rather than 500ing on a
@@ -814,7 +837,7 @@ def select_branch(request):
         resolution = _resolve_cart_branch(request, notify_change=True)
         location = customer_fulfillment_location(request.user, request.session)
         if not resolution.branch:
-            messages.error(request, NO_SINGLE_BRANCH)
+            messages.error(request, _no_single_branch_message(resolution))
         elif status == 'granted':
             messages.success(
                 request,
@@ -890,7 +913,7 @@ def add_to_cart(request, product_id):
         request, proposed_cart, notify_change=True
     )
     if not resolution.branch:
-        error = NO_SINGLE_BRANCH
+        error = _no_single_branch_message(resolution)
         if is_ajax:
             return JsonResponse({'ok': False, 'error': error}, status=409)
         messages.error(request, error)
@@ -1016,7 +1039,7 @@ def update_cart(request, product_id):
                 messages.error(
                     request, f'Only {available} of {name} left at this branch.'
                 )
-            messages.error(request, NO_SINGLE_BRANCH)
+            messages.error(request, _no_single_branch_message(resolution))
             return redirect('orders:cart')
         cart = proposed_cart
         messages.success(request, f'{name} — {cart[key]} in your cart.')
@@ -1075,7 +1098,7 @@ def view_cart(request):
 
     resolution = _resolve_cart_branch(request, notify_change=True)
     if request.session.get('cart') and not resolution.branch:
-        messages.error(request, NO_SINGLE_BRANCH)
+        messages.error(request, _no_single_branch_message(resolution))
     items, total, dropped_items = _cart_items(request)
     if dropped_items:
         # S-1 — say what happened rather than leaving the shopper to notice
@@ -1185,7 +1208,7 @@ def checkout(request):
     displayed_branch_id = branch_id
     resolution = _resolve_cart_branch(request, cart, notify_change=True)
     if not resolution.branch:
-        messages.error(request, NO_SINGLE_BRANCH)
+        messages.error(request, _no_single_branch_message(resolution))
         return redirect('orders:cart')
     branch_id = resolution.branch.pk
     if branch_id != displayed_branch_id:
@@ -1266,7 +1289,9 @@ def checkout(request):
         # cleaned value is what is stored. billing.validators is the rule
         # billing_create and the pay API apply too.
         try:
-            reference_number = clean_reference_number(reference_number)
+            reference_number = clean_reference_number(
+                reference_number, mode_of_payment
+            )
         except ValidationError as e:
             messages.error(request, e.messages[0])
             return redirect('orders:cart')
@@ -1411,7 +1436,7 @@ def checkout(request):
         )
         locked_resolution = _resolve_cart_branch(request, cart)
         if not locked_resolution.branch:
-            messages.error(request, NO_SINGLE_BRANCH)
+            messages.error(request, _no_single_branch_message(locked_resolution))
             transaction.set_rollback(True)
             return redirect('orders:cart')
         if locked_resolution.branch.pk != branch_id:

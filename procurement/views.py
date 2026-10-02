@@ -27,7 +27,9 @@ from django.db.models import Count, F, Prefetch, Q
 
 from xhtml2pdf import pisa
 
-from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
+from core.scoping import (
+    branch_ids_for_user, scope_queryset, user_can_access_branch, branch_for_user,
+)
 from core.people import person_display_name
 from core.querystrings import list_filter_querystring
 from core.permissions import (
@@ -47,18 +49,23 @@ from .models import (
     Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
     SupplierReturn, DeliveryReceipt, DeliveryScanLog,
 )
+from .access import (
+    STAFF_ACTIVE_DELIVERY_STATUSES, procurements_visible_to,
+    user_can_read_procurement,
+)
 from .services import (
-    FundingError, OfferReviewError, RescheduleError, ReturnError,
+    ExternalOrderError, FundingError, OfferReviewError, RescheduleError, ReturnError,
     SupplierRemovalBlocked, SupplierTransferError,
     active_supplier_product_links, apply_agreed_terms,
     cancel_return, clean_funding, create_supplier_return,
     receive_replacement, remove_supplier_product, reschedule_delivery,
-    respond_to_return, returnable_lines, review_offer, review_product_request,
+    record_external_order, respond_to_return, returnable_lines, review_offer, review_product_request,
     set_funding, settle_with_credit, ship_return, transfer_supplier_products,
-    unassigned_product_ids, validate_expected_delivery_date,
+    validate_expected_delivery_date,
 )
 from .serializers import (
     ProcurementReadSerializer,
+    ProcurementExternalOrderSerializer,
     ProcurementWriteSerializer,
     ProcurementStatusSerializer,
 )
@@ -81,12 +88,7 @@ def _procurement_list_context(request):
 
     procurements = Procurement.objects.select_related('branch', 'supplier', 'owner').all()
 
-    if request.user.role == User.Role.SUPPLIER:
-        # Suppliers only ever see the orders addressed to them.
-        procurements = procurements.filter(supplier=request.user)
-    else:
-        # Owner = all branches; manager/staff = their own branch only.
-        procurements = scope_queryset(procurements, request.user)
+    procurements = procurements_visible_to(request.user, procurements)
 
     # Owner-only branch filter — Manager/Staff are already pinned to their
     # own branch's orders (and Supplier to their own orders) above, so a
@@ -112,7 +114,19 @@ def _procurement_list_context(request):
         'negotiating': procurements.filter(
             status__in=Procurement.NEGOTIATION_STATUSES
         ).count(),
+        # Of the negotiating count above, how many are sitting in the
+        # buyer's own inbox right now — Pending Supplier Review and Terms
+        # Agreed are both "waiting on supplier" from here, so only Pending
+        # Owner Review is ever the buyer's turn. Lets the Negotiating tab
+        # say "N for you" instead of making the buyer open every row in the
+        # tab to find out whose turn it is.
+        'pending_owner_review': procurements.filter(
+            status=Procurement.Status.PENDING_OWNER_REVIEW
+        ).count(),
         'incoming': procurements.filter(status=Procurement.Status.INCOMING).count(),
+        'communicated': procurements.filter(
+            status=Procurement.Status.COMMUNICATED
+        ).count(),
         'partially_received': procurements.filter(
             status=Procurement.Status.PARTIALLY_RECEIVED
         ).count(),
@@ -140,6 +154,7 @@ def _procurement_list_context(request):
         'counts': counts,
         'status_filter': status_filter,
         'today': timezone.localdate(),
+        'awaiting_delivery_statuses': Procurement.AWAITING_DELIVERY_STATUSES,
         'can_create': can_create,
         'po_errors': None,
         'po_field_errors': None,
@@ -181,9 +196,7 @@ def _can_read_procurement(user, proc):
     """Scoping the list is not enough — every per-order page must check too,
     or anyone can read another branch's (or a rival supplier's) order by
     editing the URL."""
-    if user.role == User.Role.SUPPLIER:
-        return proc.supplier_id == user.id
-    return user_can_access_branch(user, proc.branch_id)
+    return user_can_read_procurement(user, proc)
 
 
 @login_required(login_url='accounts:login')
@@ -230,6 +243,14 @@ def procurement_detail(request, pk):
             and user_can_perform_module_action(request.user, PROCUREMENT, EDIT)
             and proc.status in Procurement.AWAITING_DELIVERY_STATUSES
         ),
+        'can_mark_communicated': (
+            request.user.role in (
+                User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
+            )
+            and user_can_perform_module_action(request.user, DELIVERIES, EDIT)
+            and proc.can_transition_to(Procurement.Status.COMMUNICATED)
+        ),
+        'communication_methods': Procurement.CommunicationMethod.choices,
         'today': timezone.localdate(),
         'funding_choices': Procurement.FundingSource.choices,
         'can_edit_funding': (
@@ -254,6 +275,21 @@ def _procurement_document_context(proc, request):
     # with legacy orders whose items were edited after the header was saved.
     line_sum = sum((i.line_total for i in items), 0)
 
+    # A second, separate figure: what actually arrived, valued at each line's
+    # confirmed cost. Only meaningful once the order has been received, so it
+    # is gated on the two receipt statuses — on an Approved PO nothing has
+    # arrived yet, and a document being sent TO the supplier must not
+    # announce "actual received ₱0.00". Deliberately not gated on
+    # receipt_flag: that field is set by the receiving workflow and can lag
+    # or be absent, while this is always derivable from the items themselves.
+    received_states = (
+        Procurement.Status.RECEIVED, Procurement.Status.PARTIALLY_RECEIVED,
+    )
+    actual_received_cost = proc.actual_received_cost
+    received_differs = (
+        proc.status in received_states and actual_received_cost != proc.total_cost
+    )
+
     supplier_profile = getattr(proc.supplier, 'supplier_profile', None)
 
     return {
@@ -261,6 +297,8 @@ def _procurement_document_context(proc, request):
         'items': items,
         'line_sum': line_sum,
         'totals_disagree': line_sum != proc.total_cost,
+        'actual_received_cost': actual_received_cost,
+        'received_differs': received_differs,
         'supplier_profile': supplier_profile,
         # Signature-block names, pre-resolved so the template never chains a
         # lookup through a FK that may be null. Any of the three can legally
@@ -391,8 +429,9 @@ def _procurement_form_context(user):
         suppliers = _po_suppliers_for_user(user)
 
     # Keep each relationship row instead of flattening to Product because
-    # default cost belongs to a supplier/product pair. These are the only
-    # options the PO JavaScript will put in a product selector.
+    # default cost belongs to a supplier/product pair. The PO picker uses
+    # these links to put preferred products first and show known costs, while
+    # still offering the full product list for manual selection.
     links = list(
         SupplierProduct.objects.approved().filter(supplier__in=suppliers)
         .select_related('product')
@@ -465,7 +504,7 @@ def _po_prefill_from_query(request, context):
     that does not check out is dropped and the page opens as if it were not
     there. The supplier is preselected only when exactly one supplier this user
     can order from carries the product; with several, the product waits for the
-    user to choose one (see poFilterProducts in procurement_form.html)."""
+    user to choose one (see poPopulateProducts in procurement_form.html)."""
     params = request.GET
 
     def plain_int(raw):
@@ -593,13 +632,13 @@ def procurement_add(request):
     if len(parsed_product_ids) != len(set(parsed_product_ids)):
         errors.append('Each product may appear only once on a purchase order.')
 
-    if supplier and parsed_product_ids and unassigned_product_ids(
-        supplier, parsed_product_ids
-    ):
-        errors.append(
-            'The order was not created — every item must be an active product '
-            'assigned to the selected supplier.'
+    existing_product_ids = set(
+        Product.objects.filter(pk__in=parsed_product_ids).values_list(
+            'pk', flat=True
         )
+    )
+    if set(parsed_product_ids) - existing_product_ids:
+        errors.append('Choose a valid product for every order item.')
 
     if errors:
         context = _procurement_list_context(request)
@@ -617,26 +656,6 @@ def procurement_add(request):
     is_owner = request.user.role == User.Role.OWNER
 
     with transaction.atomic():
-        # Re-check while locking the selected mapping rows. Validation above
-        # gives a useful error before any write; this closes the smaller race
-        # with a concurrent supplier-catalog removal.
-        if unassigned_product_ids(supplier, parsed_product_ids, lock=True):
-            context = _procurement_list_context(request)
-            context.update({
-                'po_errors': [
-                    'The supplier catalog changed while you were creating '
-                    'the order. Review the items and try again.'
-                ],
-                'po_form_data': request.POST,
-                'po_restore_rows': [
-                    {'product_id': pid, 'quantity': qty}
-                    for pid, qty in zip(product_ids, quantities) if pid
-                ],
-            })
-            return render(
-                request, 'procurement/procurement_form.html', context
-            )
-
         # Who raises the order decides whether it is already authorized.
         # Every PO used to be created Ordered no matter who submitted this
         # form, so a Branch Manager could commit spend against a supplier
@@ -726,6 +745,7 @@ def procurement_update_status(request, pk):
             Procurement.Status.PENDING_OWNER_REVIEW,
             Procurement.Status.PENDING_SUPPLIER_REVIEW,
             Procurement.Status.TERMS_AGREED,
+            Procurement.Status.COMMUNICATED,
             Procurement.Status.INCOMING,
         ):
             messages.error(
@@ -1070,6 +1090,23 @@ def procurement_supplier_respond(request, pk):
     with transaction.atomic():
         locked = Procurement.objects.select_for_update().get(pk=pk)
 
+        if action == 'acknowledge':
+            if locked.status != Procurement.Status.APPROVED:
+                messages.error(
+                    request,
+                    f'{locked.po_number} is not waiting for an acknowledgement.',
+                )
+                return _supplier_next_redirect(request)
+            if locked.supplier_acknowledged_at is None:
+                locked.supplier_acknowledged_at = timezone.now()
+                locked.save(update_fields=['supplier_acknowledged_at'])
+            messages.success(
+                request,
+                f'{locked.po_number} acknowledged. You can submit delivery '
+                f'and pricing terms when ready.',
+            )
+            return _supplier_next_redirect(request)
+
         if action == 'accept':
             if locked.status != Procurement.Status.PENDING_SUPPLIER_REVIEW:
                 messages.error(
@@ -1192,20 +1229,25 @@ def procurement_supplier_confirm(request, pk):
 
     with transaction.atomic():
         locked = Procurement.objects.select_for_update().get(pk=pk)
-        if locked.status != Procurement.Status.TERMS_AGREED:
+        if locked.status not in (
+            Procurement.Status.TERMS_AGREED,
+            Procurement.Status.COMMUNICATED,
+        ):
             messages.error(request, f'{locked.po_number} is not ready to confirm.')
             return _supplier_next_redirect(request)
 
-        try:
-            apply_agreed_terms(locked)
-        except ValidationError as exc:
-            messages.error(
-                request,
-                f'Delivery date: {exc.messages[0]} Submit updated terms first.',
-            )
-            return redirect('supplier_portal')
+        if locked.status == Procurement.Status.TERMS_AGREED:
+            try:
+                apply_agreed_terms(locked)
+            except ValidationError as exc:
+                messages.error(
+                    request,
+                    f'Delivery date: {exc.messages[0]} Submit updated terms first.',
+                )
+                return redirect('supplier_portal')
         locked.status = Procurement.Status.INCOMING
-        locked.save(update_fields=['status'])
+        locked.supplier_acknowledged_at = timezone.now()
+        locked.save(update_fields=['status', 'supplier_acknowledged_at'])
 
     messages.success(
         request,
@@ -1215,6 +1257,64 @@ def procurement_supplier_confirm(request, pk):
 
     notify_incoming_delivery(locked, request.user)
     return _supplier_next_redirect(request)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def procurement_mark_communicated(request, pk):
+    """Record an approved PO sent to a supplier outside the portal.
+
+    Supplier login is intentionally not involved. Owner, Manager, or Staff
+    with Deliveries edit access may record the call/message, agreed delivery
+    date, and line costs; the PO then enters the receiving queue immediately.
+    """
+    if request.user.role not in (
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
+    ):
+        messages.error(request, 'You do not have permission to communicate this order.')
+        return redirect('delivery_list')
+    if not user_can_perform_module_action(request.user, DELIVERIES, EDIT):
+        messages.error(request, 'You do not have permission to communicate this order.')
+        return redirect('delivery_list')
+
+    proc = get_object_or_404(
+        procurements_visible_to(request.user, Procurement.objects.all()), pk=pk,
+    )
+    if not user_can_access_branch(request.user, proc.branch_id):
+        messages.error(request, 'That purchase order belongs to another branch.')
+        return redirect('delivery_list')
+
+    parsed, errors = _read_proposed_terms(request, proc)
+    if errors:
+        for error in errors:
+            messages.error(request, error)
+        return redirect('delivery_detail', pk=pk)
+    delivery_date, costs = parsed
+
+    try:
+        with transaction.atomic():
+            locked = Procurement.objects.select_for_update().get(pk=pk)
+            record_external_order(
+                locked,
+                actor=request.user,
+                delivery_date=delivery_date,
+                unit_costs=costs,
+                method=request.POST.get('communication_method', ''),
+                note=request.POST.get('communication_note', ''),
+            )
+    except ExternalOrderError as exc:
+        messages.error(request, str(exc))
+        return redirect('delivery_detail', pk=pk)
+
+    messages.success(
+        request,
+        f'{locked.po_number} marked Communicated/Ordered. It can now be '
+        f'received without supplier portal acknowledgement.',
+        extra_tags='sheet',
+    )
+    from .notifications import notify_incoming_delivery
+    notify_incoming_delivery(locked, request.user)
+    return redirect('delivery_detail', pk=pk)
 
 
 # =============================================================================
@@ -1249,6 +1349,7 @@ def _not_receivable_reason(proc):
             f'on terms.'
         )
     if proc.status not in (
+        Procurement.Status.COMMUNICATED,
         Procurement.Status.INCOMING,
         Procurement.Status.PARTIALLY_RECEIVED,
     ):
@@ -1260,6 +1361,24 @@ class _DeliveryStatusError(Exception):
     """Raised inside delivery_receive's atomic block (already processed, or
     a bad/out-of-range received quantity) so the whole block rolls back
     instead of partially crediting warehouse stock for a rejected receipt."""
+
+
+def _receiving_exit(request, proc):
+    """Where the receiving flow sends someone once it's done with a PO.
+
+    The PO's own page when they can open it. Otherwise the Deliveries list,
+    on the tab the PO now sits in: procurement_detail is gated to the
+    PROCUREMENT module, which default Staff accounts don't have (only
+    DELIVERIES), so sending them there bounced every receipt to a "no access"
+    page instead of showing the result.
+    """
+    from urllib.parse import urlencode
+
+    from core.module_permissions import PROCUREMENT, user_can_access_module
+
+    if user_can_access_module(request.user, PROCUREMENT):
+        return redirect('procurement_detail', pk=proc.pk)
+    return redirect(f"{reverse('delivery_list')}?{urlencode({'status': proc.status})}")
 
 
 def _safe_nonneg_int(value):
@@ -1279,13 +1398,19 @@ def delivery_list(request):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    deliveries = scope_queryset(
-        Procurement.objects.select_related('branch', 'supplier')
-        .exclude(status=Procurement.Status.DRAFT),
+    deliveries = procurements_visible_to(
         request.user,
+        Procurement.objects.select_related('branch', 'supplier')
+        # actual_received_cost/unrecorded_cost_item_count (rendered per row
+        # for Received/Partially Received) walk procurement.items.all() —
+        # without this, that's a fresh query per row on this list.
+        .prefetch_related('items')
+        .exclude(status=Procurement.Status.DRAFT),
     )
+    staff_delivery_view = request.user.role == User.Role.STAFF
 
     user_branch = branch_for_user(request.user)
+    can_access_multiple_branches = branch_ids_for_user(request.user) is None
 
     search_query = request.GET.get('q', '')
     if search_query:
@@ -1297,7 +1422,9 @@ def delivery_list(request):
     # Owner-only branch filter — Manager/Staff are already pinned to their own
     # branch's deliveries by scope_queryset() above, so a selector would do
     # nothing for them.
-    branch_filter = request.GET.get('branch', '') if not user_branch else ''
+    branch_filter = (
+        request.GET.get('branch', '') if can_access_multiple_branches else ''
+    )
     if branch_filter and not branch_filter.isdigit():
         branch_filter = ''
     if branch_filter:
@@ -1306,11 +1433,31 @@ def delivery_list(request):
     deliveries = deliveries.order_by('-order_date')
 
     status_filter = request.GET.get('status', '')
+    if staff_delivery_view and status_filter not in (
+        Procurement.Status.APPROVED,
+        'Negotiating',
+        Procurement.Status.COMMUNICATED,
+        Procurement.Status.INCOMING,
+        Procurement.Status.PARTIALLY_RECEIVED,
+        Procurement.Status.RECEIVED,
+    ):
+        status_filter = ''
     counts = {
         'all': deliveries.count(),
+        'active': deliveries.filter(
+            status__in=STAFF_ACTIVE_DELIVERY_STATUSES
+        ).count(),
         'approved': deliveries.filter(status=Procurement.Status.APPROVED).count(),
+        'communicated': deliveries.filter(
+            status=Procurement.Status.COMMUNICATED
+        ).count(),
         'negotiating': deliveries.filter(
             status__in=Procurement.NEGOTIATION_STATUSES
+        ).count(),
+        # See procurement_list's matching count — the negotiating slice
+        # that's actually the buyer's turn to respond to.
+        'pending_owner_review': deliveries.filter(
+            status=Procurement.Status.PENDING_OWNER_REVIEW
         ).count(),
         'incoming': deliveries.filter(status=Procurement.Status.INCOMING).count(),
         'partially_received': deliveries.filter(
@@ -1319,13 +1466,15 @@ def delivery_list(request):
         'received': deliveries.filter(status=Procurement.Status.RECEIVED).count(),
         'cancelled': deliveries.filter(status=Procurement.Status.CANCELLED).count(),
     }
-    if status_filter == 'Negotiating':
+    if staff_delivery_view and not status_filter:
+        deliveries = deliveries.filter(status__in=STAFF_ACTIVE_DELIVERY_STATUSES)
+    elif status_filter == 'Negotiating':
         deliveries = deliveries.filter(status__in=Procurement.NEGOTIATION_STATUSES)
     elif status_filter:
         deliveries = deliveries.filter(status=status_filter)
 
     from branches.models import Branch
-    branches = Branch.objects.all() if not user_branch else []
+    branches = Branch.objects.all() if can_access_multiple_branches else []
 
     # Receive Delivery is a modal on this list now (see delivery_receive's
     # GET branch, which is what actually lands here with ?receive=<pk> —
@@ -1338,11 +1487,16 @@ def delivery_list(request):
     receive_items = None
     addable_products = None
     can_receive = user_can_perform_module_action(request.user, DELIVERIES, EDIT)
+    receive_draft = None
     receive_pk = request.GET.get('receive')
     if can_receive and receive_pk and receive_pk.isdigit():
-        candidate = Procurement.objects.select_related('branch', 'supplier').filter(
+        candidate = procurements_visible_to(
+            request.user,
+            Procurement.objects.select_related('branch', 'supplier'),
+        ).filter(
             pk=receive_pk,
             status__in=[
+                Procurement.Status.COMMUNICATED,
                 Procurement.Status.INCOMING,
                 Procurement.Status.PARTIALLY_RECEIVED,
             ],
@@ -1355,6 +1509,15 @@ def delivery_list(request):
             addable_products = Product.objects.exclude(
                 pk__in=receive_items.values_list('product_id', flat=True)
             ).order_by('product_name')
+            # A receipt that failed validation comes back here with what was
+            # typed (see _stash_receive_draft), so the modal reopens with the
+            # user's counts rather than the defaults. Popped: shown once.
+            receive_draft = request.session.pop(_receive_draft_key(candidate.pk), None)
+            if receive_draft:
+                draft_rows = receive_draft.get('rows') or {}
+                receive_items = list(receive_items)
+                for item in receive_items:
+                    item.draft = draft_rows.get(str(item.pk))
 
     return render(request, 'procurement/delivery_list.html', {
         'deliveries': deliveries,
@@ -1384,7 +1547,43 @@ def delivery_list(request):
         'can_add_unexpected': user_can_perform_module_action(
             request.user, DELIVERIES, ADD
         ),
+        'staff_delivery_view': staff_delivery_view,
+        'show_branch_column': can_access_multiple_branches,
+        'receive_draft': receive_draft,
     })
+
+
+def _receive_draft_key(pk):
+    return f'receive_draft_{pk}'
+
+
+def _stash_receive_draft(request, pk):
+    """Keep a rejected receipt's typed values for the reopened Receive modal.
+
+    Only what the form showed — nothing here is trusted or saved; the next
+    Confirm Receipt posts and validates it all again.
+    """
+    item_ids = request.POST.getlist('item_id')
+    qtys = request.POST.getlist('quantity_received')
+    expiries = request.POST.getlist('expiry_date')
+    rows = {}
+    for idx, item_id in enumerate(item_ids):
+        rows[str(item_id)[:20]] = {
+            'qty': (qtys[idx] if idx < len(qtys) else '').strip()[:20],
+            'expiry': (expiries[idx] if idx < len(expiries) else '').strip()[:10],
+        }
+    receipt_date = request.POST.get('actual_receipt_date', '').strip()
+    try:
+        valid_date = bool(receipt_date) and parse_date(receipt_date) is not None
+    except ValueError:
+        valid_date = False
+    request.session[_receive_draft_key(pk)] = {
+        'rows': rows,
+        # An unparseable date would only blank the date input; the default
+        # (today) is the better thing to reopen with.
+        'date': receipt_date if valid_date else '',
+        'delivered_by': request.POST.get('delivered_by', '').strip()[:100],
+    }
 
 
 @login_required(login_url='accounts:login')
@@ -1402,7 +1601,11 @@ def delivery_receive(request, pk):
         return redirect('accounts:home')
 
     proc = get_object_or_404(
-        Procurement.objects.select_related('branch', 'supplier'), pk=pk
+        procurements_visible_to(
+            request.user,
+            Procurement.objects.select_related('branch', 'supplier'),
+        ),
+        pk=pk,
     )
 
     if not user_can_access_branch(request.user, proc.branch_id):
@@ -1411,11 +1614,11 @@ def delivery_receive(request, pk):
 
     if proc.status == Procurement.Status.RECEIVED:
         messages.info(request, f'{proc.po_number} was already received.')
-        return redirect('procurement_detail', pk=pk)
+        return _receiving_exit(request, proc)
     unreceivable = _not_receivable_reason(proc)
     if unreceivable:
         messages.error(request, unreceivable)
-        return redirect('procurement_detail', pk=pk)
+        return _receiving_exit(request, proc)
 
     if request.method == 'POST':
         # A received delivery stocks the WAREHOUSE, not the branch floor —
@@ -1444,6 +1647,7 @@ def delivery_receive(request, pk):
         )
         if receipt_date_raw and receipt_date is None:
             messages.error(request, 'Enter a valid actual receipt date.')
+            _stash_receive_draft(request, pk)
             return redirect('delivery_receive', pk=pk)
 
         try:
@@ -1573,7 +1777,16 @@ def delivery_receive(request, pk):
                 )
         except _DeliveryStatusError as e:
             messages.error(request, str(e))
-            return redirect('procurement_detail', pk=pk)
+            # A count problem (too many, none, not a number) is fixed in the
+            # Receive modal, so reopen it (delivery_receive's GET does) rather
+            # than leave the receiver on a page they'd have to navigate back
+            # from. A PO that stopped being receivable goes where it always
+            # would once finished.
+            proc.refresh_from_db(fields=['status'])
+            if _not_receivable_reason(proc):
+                return _receiving_exit(request, proc)
+            _stash_receive_draft(request, pk)
+            return redirect('delivery_receive', pk=pk)
 
         if has_remaining:
             messages.warning(
@@ -1623,7 +1836,8 @@ def delivery_receive(request, pk):
                 action_url=reverse('supplier_portal'),
                 action_label='View order',
             )
-        return redirect('procurement_detail', pk=pk)
+        proc.refresh_from_db(fields=['status'])
+        return _receiving_exit(request, proc)
 
     # Receive Delivery is a modal on the Receive Delivery list now — a
     # direct hit (bookmark, the "Receive" link on a dashboard, the back
@@ -1650,11 +1864,16 @@ def delivery_scan(request, pk):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
         return JsonResponse({'ok': False, 'detail': 'Access denied.'}, status=403)
 
-    proc = get_object_or_404(Procurement, pk=pk)
+    proc = get_object_or_404(
+        procurements_visible_to(request.user, Procurement.objects.all()), pk=pk
+    )
     if not user_can_access_branch(request.user, proc.branch_id):
         return JsonResponse({'ok': False, 'detail': 'Wrong branch.'}, status=403)
-    if proc.status in (Procurement.Status.RECEIVED, Procurement.Status.CANCELLED):
-        return JsonResponse({'ok': False, 'detail': 'This order is closed.'}, status=400)
+    if proc.status not in Procurement.AWAITING_DELIVERY_STATUSES:
+        return JsonResponse(
+            {'ok': False, 'detail': 'This order is not ready for receiving.'},
+            status=400,
+        )
 
     code = (request.POST.get('code') or '').strip()
     if not code:
@@ -1718,13 +1937,15 @@ def delivery_add_unexpected(request, pk):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    proc = get_object_or_404(Procurement, pk=pk)
+    proc = get_object_or_404(
+        procurements_visible_to(request.user, Procurement.objects.all()), pk=pk
+    )
     if not user_can_access_branch(request.user, proc.branch_id):
         messages.error(request, 'That purchase order belongs to another branch.')
         return redirect('delivery_list')
-    if proc.status in (Procurement.Status.RECEIVED, Procurement.Status.CANCELLED):
-        messages.error(request, f'{proc.po_number} is closed.')
-        return redirect('procurement_detail', pk=pk)
+    if proc.status not in Procurement.AWAITING_DELIVERY_STATUSES:
+        messages.error(request, f'{proc.po_number} is not ready for receiving.')
+        return _receiving_exit(request, proc)
 
     product = get_object_or_404(Product, pk=request.POST.get('product'))
 
@@ -3105,13 +3326,7 @@ class ProcurementListCreateAPIView(APIView):
         ).prefetch_related('items__product', 'receipts__received_by').order_by('-id')
 
         # Role-based filtering — mirrors the original template view logic
-        if user.role == User.Role.OWNER:
-            return qs
-        if user.role in [User.Role.BRANCH_MANAGER, User.Role.STAFF]:
-            return scope_queryset(qs, user)
-        if user.role == User.Role.SUPPLIER:
-            return qs.filter(supplier=user)
-        return qs.none()
+        return procurements_visible_to(user, qs)
 
     def get(self, request):
         procurements = self.get_queryset(request.user)
@@ -3156,9 +3371,7 @@ class ProcurementDetailAPIView(APIView):
         )
 
     def _can_access(self, user, proc):
-        if user.role == User.Role.SUPPLIER:
-            return proc.supplier_id == user.id
-        return user_can_access_branch(user, proc.branch_id)
+        return user_can_read_procurement(user, proc)
 
     def get(self, request, pk):
         proc = self.get_object(pk)
@@ -3240,6 +3453,17 @@ class ProcurementStatusUpdateAPIView(APIView):
 
         new_status = serializer.validated_data['status']
 
+        if new_status == Procurement.Status.COMMUNICATED:
+            return Response(
+                {
+                    'detail': (
+                        'Use the communicate endpoint with contact method, '
+                        'delivery date, and one agreed cost per item.'
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         with transaction.atomic():
             # Re-fetch and lock so a double-submit (double-click, retry)
             # can't both pass this same-transition check and both apply the
@@ -3275,6 +3499,35 @@ class ProcurementStatusUpdateAPIView(APIView):
 
         read_serializer = ProcurementReadSerializer(updated)
         return Response(read_serializer.data)
+
+
+class ProcurementCommunicateAPIView(APIView):
+    """Record external supplier contact without requiring a supplier login."""
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def post(self, request, pk):
+        if request.user.role not in [
+            User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
+        ]:
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        proc = get_object_or_404(
+            procurements_visible_to(request.user, Procurement.objects.all()), pk=pk,
+        )
+        if not user_can_access_branch(request.user, proc.branch_id):
+            return Response(
+                {'detail': 'That purchase order belongs to another branch.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = ProcurementExternalOrderSerializer(
+            data=request.data, context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            locked = Procurement.objects.select_for_update().get(pk=pk)
+            updated = serializer.update(locked, serializer.validated_data)
+        return Response(ProcurementReadSerializer(updated).data)
 
 
 class SupplierListAPIView(APIView):
