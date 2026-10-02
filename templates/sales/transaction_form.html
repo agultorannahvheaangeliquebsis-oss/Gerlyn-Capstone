@@ -1,12 +1,12 @@
 {% extends "internal_base.html" %}
 {% load l10n static %}
-{% block title %}Walk-in Sale{% endblock %}
+{% block title %}Manual Sales Entry{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block branch_scope %}{% if pos_user_branch %}{{ pos_user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 
 {% block extra_css %}
 {% comment %}
-Scoped to this page (Walk-in Sale) rather than gerlyn.css. The menu grid,
+Scoped to this page (Manual Sales Entry) rather than gerlyn.css. The menu grid,
 category tabs and order summary panel are shaped around this one form, not
 a shared component other pages should pick up automatically.
 {% endcomment %}
@@ -217,7 +217,8 @@ sale and a twenty-line one.
 <div class="page-head">
   <div>
     <a class="back-link" href="{% url 'transaction_list' %}">Order Console</a>
-    <h1 class="mt-2">Walk-in Sale</h1>
+    <h1 class="mt-2">Manual Sales Entry</h1>
+    <p class="gv-meta" style="margin:4px 0 0;">Use only for transactions not captured in the existing POS import.</p>
   </div>
 </div>
 
@@ -345,6 +346,14 @@ the same modal every other rejected action gets from internal_base.html.
             {% endif %}
           </div>
         {% endif %}
+
+        <div class="field">
+          <label for="pos-receipt-reference">Receipt / Reference Number <span class="gv-meta">— required</span></label>
+          <input type="text" id="pos-receipt-reference" name="receipt_reference" maxlength="100"
+                 autocomplete="off" required value="{{ pos_form_data.receipt_reference|default:'' }}"
+                 placeholder="From the original POS receipt or transaction">
+          <p class="gv-meta" style="margin:4px 0 0;">Used with the branch to prevent duplicates with imported POS sales.</p>
+        </div>
 
         <div class="field">
           <label for="pos-mode-of-payment">Mode of Payment</label>

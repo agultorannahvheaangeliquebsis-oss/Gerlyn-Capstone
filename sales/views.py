@@ -1873,7 +1873,7 @@ def transaction_refund_reject(request, refund_pk):
 
 
 # ─────────────────────────────────────────────
-# WALK-IN POS
+# MANUAL SALES ENTRY (fallback for sales absent from the imported POS file)
 # ─────────────────────────────────────────────
 
 @login_required(login_url='accounts:login')
@@ -1934,6 +1934,7 @@ def transaction_add(request):
     # and online checkout all read, so the counter cannot drift from Billing.
     reference_number = (request.POST.get('reference_number') or '').strip()
     proof_of_payment = request.FILES.get('proof_of_payment')
+    receipt_reference = (request.POST.get('receipt_reference') or '').strip()
 
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity')
@@ -2029,6 +2030,18 @@ def transaction_add(request):
             errors.append('That branch no longer exists. Please choose another branch.')
         elif not user_can_access_branch(request.user, branch_id_int):
             errors.append('That branch is not one your account can record sales for.')
+        elif receipt_reference and SalesTransaction.objects.filter(
+            branch_id=branch_id_int,
+            pos_invoice_number__iexact=receipt_reference,
+        ).exists():
+            errors.append(
+                'That receipt/reference number is already recorded for this branch. '
+                'Check the POS import before creating a manual entry.'
+            )
+    if not receipt_reference:
+        errors.append('Enter the receipt/reference number from the original transaction.')
+    elif len(receipt_reference) > 100:
+        errors.append('Receipt/reference number cannot exceed 100 characters.')
     if not line_items:
         errors.append('Add at least one item with a quantity.')
     if dropped_pids:
@@ -2165,6 +2178,19 @@ def transaction_add(request):
         if not errors:
             try:
                 with transaction.atomic():
+                    # The POS import takes the same branch lock. Serializing
+                    # both paths closes the preview/create race, including
+                    # case-only variants that some database collations would
+                    # otherwise treat differently.
+                    Branch.objects.select_for_update().get(pk=branch_id)
+                    if SalesTransaction.objects.filter(
+                        branch_id=branch_id,
+                        pos_invoice_number__iexact=receipt_reference,
+                    ).exists():
+                        raise _OrderActionError(
+                            'That receipt/reference number is already recorded for this '
+                            'branch. Check the POS import before creating a manual entry.'
+                        )
                     txn = SalesTransaction.objects.create(
                         branch_id=branch_id,
                         staff=request.user if request.user.role == STAFF else None,
@@ -2200,6 +2226,8 @@ def transaction_add(request):
                         amount_tendered=amount_tendered,
                         change_amount=change_amount,
                         replaces_id=replaces_id,
+                        source='Manual Entry',
+                        pos_invoice_number=receipt_reference,
                     )
 
                     for line in priced['lines']:

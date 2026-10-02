@@ -120,6 +120,19 @@ class PosSalesImportTests(TestCase):
         latest = PosSalesImport.objects.first()
         self.assertEqual(latest.skipped_duplicates, 1)
 
+    def test_manual_entry_reference_is_a_duplicate_for_pos_import(self):
+        SalesTransaction.objects.create(
+            branch=self.branch,
+            source='Manual Entry',
+            pos_invoice_number='OR-1001',
+            total_amount=Decimal('190.00'),
+        )
+
+        response = self.upload([self.row(invoice='or-1001')])
+
+        self.assertEqual(response.context['preview']['summary']['duplicates'], 1)
+        self.assertEqual(response.context['preview']['summary']['valid_transactions'], 0)
+
     def test_invalid_file_type_has_clear_error(self):
         response = self.client.post(reverse('pos_sales_import'), {
             'branch': self.branch.pk,
@@ -142,6 +155,13 @@ class PosSalesImportTests(TestCase):
         self.assertTemplateUsed(response, 'sales/_pos_import_modal.html')
         self.assertContains(response, 'id="open-pos-import-modal"')
         self.assertContains(response, 'id="pos-import-modal" data-autoopen="0"')
+        self.assertContains(
+            response,
+            'class="btn btn-primary" id="open-pos-import-modal">Import POS Sales',
+        )
+        self.assertContains(response, 'Manual Sales Entry')
+        header = response.content.decode()
+        self.assertLess(header.index('Manual Sales Entry'), header.index('Import POS Sales'))
 
     def test_import_history_hosts_upload_modal(self):
         response = self.client.get(reverse('pos_sales_import_history'))
