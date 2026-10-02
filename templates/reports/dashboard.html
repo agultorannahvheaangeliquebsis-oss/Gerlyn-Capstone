@@ -403,7 +403,7 @@ per-branch question in a way a branch-comparison chart is not.
       {% for row in inventory_value_by_branch.bars %}
       <div class="hbar-row">
         <span class="hbar-label">{{ row.name }}</span>
-        <div class="hbar-track"><span class="hbar-fill" style="width:{{ row.pct }}%;"></span></div>
+        <div class="hbar-track"><span class="hbar-fill" style="width:{{ row.width_pct }}%;"></span></div>
         <span class="hbar-value">₱{{ row.value|floatformat:0 }}</span>
       </div>
       {% endfor %}

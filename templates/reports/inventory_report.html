@@ -75,7 +75,7 @@ three tabs carry the control in .page-head.
       {% for row in chart.bars %}
       <div class="hbar-row">
         <span class="hbar-label">{{ row.name }}</span>
-        <div class="hbar-track"><span class="hbar-fill" style="width:{{ row.pct }}%;"></span></div>
+        <div class="hbar-track"><span class="hbar-fill" style="width:{{ row.width_pct }}%;"></span></div>
         <span class="hbar-value">₱{{ row.value|floatformat:0 }}</span>
       </div>
       {% endfor %}

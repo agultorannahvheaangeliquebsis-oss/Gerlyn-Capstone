@@ -93,7 +93,7 @@ Only Pending Collection is ever tinted; the money cards are plain.
         <td data-label="Payment Method" class="strong">{{ row.method }}</td>
         <td data-label="No. of Transactions" class="num">{{ row.count }}</td>
         <td data-label="Total Amount" class="num strong" style="color:var(--action-700);">₱{{ row.total|floatformat:2 }}</td>
-        <td data-label="% of Revenue" class="num gv-meta">{{ row.pct }}%</td>
+        <td data-label="% of Revenue" class="num gv-meta">{% if row.pct is None %}&mdash;{% else %}{{ row.pct }}%{% endif %}</td>
       </tr>
       {% empty %}
       <tr><td colspan="4"><div class="empty"><h3>No completed transactions yet</h3></div></td></tr>

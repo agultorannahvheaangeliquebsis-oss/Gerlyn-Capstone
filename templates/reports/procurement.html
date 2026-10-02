@@ -162,7 +162,7 @@ for this to be built from existing primitives, and that includes the grid.
       <p class="gv-meta">₱{{ spend_split.received|floatformat:2 }} received of ₱{{ spend_split.total|floatformat:2 }} ordered</p>
       <div class="meter" role="img"
            aria-label="{{ spend_split.pct }}% of committed spend received">
-        <span style="width: {{ spend_split.pct }}%;"></span>
+        <span style="width: {{ spend_split.width_pct }}%;"></span>
       </div>
       <p class="gv-meta mt-2 mb-0">₱{{ spend_split.outstanding|floatformat:2 }} still outstanding</p>
       {% else %}

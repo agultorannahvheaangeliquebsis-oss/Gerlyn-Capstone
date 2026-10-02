@@ -2358,25 +2358,38 @@ def _donut(rows, ramp, other_label):
         'box': DONUT_BOX, 'centre': DONUT_BOX / 2,
     }
     total = sum(value for _, value in rows)
-    if not total:
+    # A ring can only draw positive wedges. A net-negative row (refunds past
+    # its sales) is drawn as an empty wedge and left out of the denominator,
+    # so every share stays within 0-100% and the wedges still sum to 100%.
+    # `total` stays the real signed sum: it is the figure printed in the hole.
+    positive_total = sum(max(value, 0) for _, value in rows)
+    if not total or not positive_total:
         return {'total': 0, 'segments': [], 'circumference': 0,
                 'overflow': 0, **geometry}
 
+    # (name, value, weight): `value` is what the legend prints, `weight` what
+    # the wedge is drawn from. The folded group's weight is the sum of its
+    # members' positive parts, not max(sum, 0), so wedges still total 100%.
+    weighted = [(name, value, max(value, 0)) for name, value in rows]
     limit = len(ramp)
-    if len(rows) > limit:
-        folded = rows[limit - 1:]
-        head = rows[:limit - 1] + [(other_label, sum(v for _, v in folded))]
+    if len(weighted) > limit:
+        folded = weighted[limit - 1:]
+        head = weighted[:limit - 1] + [(
+            other_label,
+            sum(v for _, v, _ in folded),
+            sum(w for _, _, w in folded),
+        )]
     else:
         folded = []
-        head = list(rows)
+        head = weighted
 
     circumference = 2 * math.pi * DONUT_RADIUS
     gap = DONUT_GAP if len(head) > 1 else 0
 
     segments = []
     cursor = 0.0
-    for i, (name, value) in enumerate(head):
-        fraction = float(value) / float(total)
+    for i, (name, value, weight) in enumerate(head):
+        fraction = float(weight) / float(positive_total)
         arc = fraction * circumference
         is_other = bool(folded) and i == len(head) - 1
         segments.append({
@@ -2820,27 +2833,49 @@ def _nice_step(peak, tick_count=4):
     return step, math.ceil(peak / step)
 
 
+def _bar_width_pct(value):
+    """
+    A percentage safe to spend as a CSS ``width`` — clamped to 0-100, and 0
+    for anything that is not a finite number.
+
+    Only for drawing a bar or meter. The figure printed beside it stays the
+    real, unclamped ``pct`` so the label never lies about the data: a bar
+    cannot be longer than its track or shorter than empty, but a number can
+    honestly say 130%.
+    """
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(pct):
+        return 0.0
+    return round(min(max(pct, 0.0), 100.0), 1)
+
+
 def _inventory_value_chart(branch_summary):
     """
     Horizontal bar chart geometry for "Inventory Value by Branch" — one
     series (value), so no legend; bar length is a % of a nice rounded max.
     """
     peak = max((row['value'] for row in branch_summary), default=0)
-    if not peak:
+    # `<= 0`, not `not peak`: an all-negative series would otherwise reach
+    # _nice_step's log10 of a negative number.
+    if peak <= 0:
         return {'bars': [], 'ticks': []}
 
     step, tick_count = _nice_step(peak)
     chart_max = step * tick_count
     ticks = [_compact_currency(step * i) for i in range(tick_count + 1)]
 
-    bars = [
-        {
+    bars = []
+    for row in branch_summary:
+        pct = round((float(row['value']) / float(chart_max)) * 100, 1)
+        bars.append({
             'name': row['name'],
             'value': row['value'],
-            'pct': round((float(row['value']) / float(chart_max)) * 100, 1),
-        }
-        for row in branch_summary
-    ]
+            'pct': pct,
+            'width_pct': _bar_width_pct(pct),
+        })
     return {'bars': bars, 'ticks': ticks}
 
 
@@ -2904,12 +2939,24 @@ def _billing_payment_breakdown(completed_records, total_revenue, refunds_by_tran
         row['count'] += 1
         row['total'] += r.amount_due - refunds_by_transaction.get(r.transaction_id, 0)
 
+    # A share of revenue only means something when revenue is positive and no
+    # method is net-negative (refunds larger than its sales). Otherwise the
+    # rows would read like 150% and -50% of a total of 100%, so none of them
+    # gets a percentage: `pct` is None and the template shows a dash.
+    shares_are_meaningful = (
+        float(total_revenue or 0) > 0
+        and all(row['total'] >= 0 for row in by_method.values())
+    )
+
     rows = [
         {
             'method': method,
             'count': row['count'],
             'total': row['total'],
-            'pct': round((float(row['total']) / float(total_revenue)) * 100, 1) if total_revenue else 0,
+            'pct': (
+                round((float(row['total']) / float(total_revenue)) * 100, 1)
+                if shares_are_meaningful else None
+            ),
         }
         for method, row in by_method.items()
     ]
@@ -3421,6 +3468,9 @@ def procurement_report(request):
     for p in records:
         status_counts[p.status] = status_counts.get(p.status, 0) + 1
 
+    spend_total = received_value + active_value
+    spend_split_pct = round(received_value / spend_total * 100) if spend_total else 0
+
     return render(request, 'reports/procurement.html', {
         'procurements': records,
         'branches': Branch.objects.all() if show_branch_filter else [],
@@ -3455,8 +3505,9 @@ def procurement_report(request):
             'received': received_value,
             'outstanding': active_value,
             'total': received_value + active_value,
-            'pct': round(received_value / (received_value + active_value) * 100)
-            if (received_value + active_value) else 0,
+            'pct': spend_split_pct,
+            # Drawn width only; `pct` stays the figure the label prints.
+            'width_pct': _bar_width_pct(spend_split_pct),
         },
         'user_branch': user_branch,
         'active_page': 'reports',
