@@ -23,12 +23,15 @@ from .models import (
     ProductImportMappingTemplate, OpeningStockImport,
 )
 from .services import (
-    ExpiryProcessingError, OpeningStockDuplicateError, OpeningStockValidationError,
+    CountCorrectionError, ExpiryProcessingError, OpeningStockDuplicateError,
+    OpeningStockValidationError,
     canonical_opening_fingerprint, commit_opening_stock_import,
-    credit_floor_stock, expire_due_batches, opening_preview_summary,
+    correct_floor_stock_count, credit_floor_stock, expire_due_batches,
+    opening_preview_summary,
     parse_opening_stock_workbook, reverse_opening_stock_import,
     validate_opening_stock_rows, StockTransferRequestError,
-    StockTransferReceiptError, create_stock_transfer, record_transfer_event,
+    StockTransferReceiptError, create_stock_write_off,
+    create_warehouse_floor_transfer, record_transfer_event,
     reconcile_transfer_receipt, transfers_visible_to,
 )
 from .alerts import alert_summary, stock_status, suggested_reorder_qty
@@ -1565,6 +1568,19 @@ def _inventory_list_context(request):
     # Owner's branch picker, never to scope the data.
     user_branch = get_user_branch(request.user)
     records = scope_queryset(records, request.user, 'branch')
+    can_adjust = (
+        request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
+        and user_can_perform_module_action(request.user, FLOOR_STOCK, ADD)
+    )
+    # The correction modal lists every product, independently of the table's
+    # search/category filters, so its system quantities must come from the
+    # complete authorized branch scope rather than the filtered table rows.
+    adjust_stock_levels = {
+        f'{branch_id}:{product_id}': quantity
+        for branch_id, product_id, quantity in records.values_list(
+            'branch_id', 'product_id', 'quantity_on_hand'
+        )
+    } if can_adjust else {}
 
     search_query = request.GET.get('q', '')
     branch_filter = request.GET.get('branch', '')
@@ -1712,10 +1728,6 @@ def _inventory_list_context(request):
         active_branch = next(
             (b for b in all_branches if str(b.id) == branch_filter), None
         )
-    can_adjust = (
-        request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
-        and user_can_perform_module_action(request.user, FLOOR_STOCK, ADD)
-    )
     can_edit_reorder = (
         request.user.role in [User.Role.OWNER, User.Role.BRANCH_MANAGER]
         and user_can_perform_module_action(request.user, FLOOR_STOCK, EDIT)
@@ -1762,6 +1774,7 @@ def _inventory_list_context(request):
         'can_adjust': can_adjust,
         'can_edit_reorder': can_edit_reorder,
         'adjust_products': Product.objects.order_by('product_name'),
+        'adjust_stock_levels': adjust_stock_levels,
     }
 
 
@@ -1836,7 +1849,7 @@ def stock_adjustment_add(request):
     ordinary corrections and spot-counts, with the same StockMovement trail.
     """
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
-        messages.error(request, 'Only the Owner or a Branch Manager can make a stock adjustment.')
+        messages.error(request, 'Only the Owner or a Branch Manager can correct a stock count.')
         return redirect('inventory_list')
 
     if request.method != 'POST':
@@ -1855,11 +1868,12 @@ def stock_adjustment_add(request):
     else:
         messages.error(
             request,
-            'No branch is assigned to your account, so this adjustment cannot '
+            'No branch is assigned to your account, so this count correction cannot '
             'be recorded. Ask the Owner to assign you to a branch.'
         )
         return redirect('inventory_list')
-    quantity = request.POST.get('quantity', '').strip()
+    counted_quantity = request.POST.get('counted_quantity', '').strip()
+    reason = request.POST.get('reason', '').strip()
     expiry_date = request.POST.get('expiry_date', '').strip()
 
     product = Product.objects.filter(pk=product_id).first() if product_id else None
@@ -1870,8 +1884,10 @@ def stock_adjustment_add(request):
         errors.append('Choose a valid product — scan a barcode or pick one from the list.')
     if not branch:
         errors.append('Choose a valid branch.')
-    if not quantity.isdigit() or int(quantity) <= 0:
-        errors.append('Enter a quantity greater than zero.')
+    if not counted_quantity.isdigit():
+        errors.append('Enter a valid counted quantity of zero or more.')
+    if not reason:
+        errors.append('Enter a reason for the correction.')
     parsed_expiry = None
     if expiry_date:
         try:
@@ -1891,18 +1907,30 @@ def stock_adjustment_add(request):
         })
         return render(request, 'inventory/inventory_list.html', context)
 
-    credit_floor_stock(
-        product=product,
-        branch=branch,
-        quantity=int(quantity),
-        actor=request.user,
-        movement_type=StockMovement.MovementType.ADJUSTMENT,
-        notes=f'Manual stock adjustment by {request.user.get_full_name() or request.user.username}',
-        expiry_date=parsed_expiry,
-        received_date=timezone.localdate(),
-    )
+    try:
+        inventory, movement = correct_floor_stock_count(
+            product=product,
+            branch=branch,
+            counted_quantity=int(counted_quantity),
+            reason=reason,
+            actor=request.user,
+            expiry_date=parsed_expiry,
+        )
+    except CountCorrectionError as exc:
+        messages.error(request, str(exc))
+        context = _inventory_list_context(request)
+        context.update({
+            'show_adjust_modal': True,
+            'adjust_form_data': request.POST,
+        })
+        return render(request, 'inventory/inventory_list.html', context)
 
-    messages.success(request, f'Added {quantity} to {product.product_name} at {branch.branch_name}.')
+    messages.success(
+        request,
+        f'Count corrected for {product.product_name} at {branch.branch_name}: '
+        f'{movement.quantity_before} → {inventory.quantity_on_hand} '
+        f'({movement.quantity_change:+d}).',
+    )
     return redirect('inventory_list')
 
 
@@ -2487,16 +2515,25 @@ def _describe_movement(m):
         return product_name, f'{branch_name} Floor', f'{branch_name} Warehouse'
     if m.movement_type == mt.SALE:
         return product_name, f'{branch_name} Floor', 'Customer sale'
-    if m.movement_type == mt.MANUAL_OUT:
+    if m.movement_type in (mt.MANUAL_OUT, mt.WRITE_OFF):
         return product_name, f'{branch_name} Floor', 'Written off'
     if m.movement_type == mt.MANUAL_IN:
         return product_name, 'Manual entry', f'{branch_name} Floor'
     if m.movement_type == mt.ADJUSTMENT:
         return product_name, f'{branch_name} Floor', 'Correction'
+    if m.movement_type == mt.TRANSFER_DISCREPANCY:
+        return product_name, f'{branch_name} Floor', 'Transfer reconciliation'
     if m.movement_type == mt.OPENING_BALANCE:
         return product_name, 'Opening balance', f'{branch_name} Floor'
     if m.movement_type == mt.OPENING_BALANCE_REVERSAL:
         return product_name, f'{branch_name} Floor', 'Opening balance reversal'
+    if m.movement_type == mt.EXPIRY_WRITE_OFF:
+        location = 'Warehouse' if m.location_type == StockMovement.LocationType.WAREHOUSE else 'Floor'
+        return product_name, f'{branch_name} {location}', 'Expired stock write-off'
+    if m.movement_type == mt.CUSTOMER_RETURN:
+        return product_name, 'Customer return', f'{branch_name} Floor'
+    if m.movement_type == mt.SUPPLIER_RETURN:
+        return product_name, f'{branch_name} Warehouse', 'Supplier return'
     return product_name, '—', '—'
 
 
@@ -2529,8 +2566,31 @@ def _movement_log(branch_ids=None):
     rows = []
     for m in qs:
         product, source, destination = _describe_movement(m)
+        movement_label = {
+            StockMovement.MovementType.SALE: 'Sale',
+            StockMovement.MovementType.PROCUREMENT_RECEIVED: 'Supplier Delivery Received',
+            StockMovement.MovementType.WAREHOUSE_TO_FLOOR: 'Floor Refill',
+            StockMovement.MovementType.FLOOR_TO_WAREHOUSE: 'Returned to Warehouse',
+            StockMovement.MovementType.MANUAL_IN: 'Manual Stock Added',
+            StockMovement.MovementType.MANUAL_OUT: 'Manual Stock Removed',
+            StockMovement.MovementType.WRITE_OFF: 'Write-off',
+            StockMovement.MovementType.TRANSFER_DISCREPANCY: 'Transfer Quantity Difference',
+            StockMovement.MovementType.OPENING_BALANCE: 'Starting Stock',
+            StockMovement.MovementType.OPENING_BALANCE_REVERSAL: 'Starting Stock Reversal',
+            StockMovement.MovementType.EXPIRY_WRITE_OFF: 'Expired Stock Write-off',
+            StockMovement.MovementType.CUSTOMER_RETURN: 'Customer Return',
+            StockMovement.MovementType.SUPPLIER_RETURN: 'Supplier Return',
+        }.get(m.movement_type, m.movement_type)
+        if m.movement_type == StockMovement.MovementType.ADJUSTMENT:
+            if m.notes.startswith('Discrepancy on '):
+                movement_label = 'Transfer Quantity Difference'
+            elif m.notes.startswith('Voided order '):
+                movement_label = 'Voided Sale Restock'
+            else:
+                movement_label = 'Count Correction'
         rows.append({
             'movement': m,
+            'movement_label': movement_label,
             'product': product,
             'source': source,
             'destination': destination,
@@ -2573,6 +2633,10 @@ def _transfer_list_context(request):
     transfers = transfers_visible_to(request.user, transfers)
 
     # Filters from GET parameters
+    active_view = request.GET.get('view', 'transfers')
+    if active_view not in {'transfers', 'writeoffs', 'history'}:
+        active_view = 'transfers'
+
     search_query = request.GET.get('q', '')
     status_filter = request.GET.get('status', '')
     purpose_filter = request.GET.get('purpose', '')
@@ -2602,7 +2666,10 @@ def _transfer_list_context(request):
     if status_filter:
         transfers = transfers.filter(status=status_filter)
 
-    if purpose_filter:
+    # Reason filtering belongs to the Write-offs view. Warehouse-to-floor
+    # transfers have one fixed purpose (Branch Restock), so exposing the same
+    # purpose selector there makes the two workflows look interchangeable.
+    if purpose_filter and active_view == 'writeoffs':
         transfers = transfers.filter(purpose=purpose_filter)
 
     # Summary stats for the top cards, computed BEFORE the range filter below
@@ -2642,6 +2709,13 @@ def _transfer_list_context(request):
         transfers = transfers.filter(transfer_date__gte=range_start)
     transfers = transfers.filter(transfer_date__lte=range_end)
 
+    stock_transfers = transfers.filter(
+        purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+    )
+    write_offs = transfers.exclude(
+        purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+    )
+
     # The Movement Log tab shares this page, so the same branch choice narrows
     # it too — [int(branch_filter)] when the Owner has picked one, otherwise
     # the pre-existing role-based scoping (None = every branch for the Owner).
@@ -2662,7 +2736,10 @@ def _transfer_list_context(request):
 
     return {
         'transfers': transfers,
+        'stock_transfers': stock_transfers,
+        'write_offs': write_offs,
         'movement_log': _movement_log(movement_branch_ids),
+        'active_view': active_view,
         'search_query': search_query,
         'status_filter': status_filter,
         'purpose_filter': purpose_filter,
@@ -2672,7 +2749,7 @@ def _transfer_list_context(request):
         'range_end': range_end,
         'daterange_carry': [
             ('q', search_query), ('status', status_filter), ('purpose', purpose_filter),
-            ('branch', branch_filter),
+            ('branch', branch_filter), ('view', active_view),
         ],
         'branches': cached_branches() if not user_branch else [],
         'branch_filter': branch_filter,
@@ -2684,9 +2761,28 @@ def _transfer_list_context(request):
         # along — same idea as _daterange.html's daterange_carry, in reverse.
         'branch_switch_carry': [
             ('q', search_query), ('status', status_filter), ('purpose', purpose_filter),
+            ('view', active_view),
         ] + _range_carry(active_range, range_start, range_end),
-        'status_choices': StockTransfer.Status.choices,
-        'purpose_choices': StockTransfer.Purpose.choices,
+        'status_choices': [
+            (
+                value,
+                ('Completed' if active_view == 'writeoffs' else 'Received on Floor')
+                if value == StockTransfer.Status.ACKNOWLEDGED
+                else 'Moved - Awaiting Confirmation'
+                if value == StockTransfer.Status.RELEASED
+                else label,
+            )
+            for value, label in StockTransfer.Status.choices
+        ],
+        'purpose_choices': [
+            (
+                value,
+                'Damaged or Spoiled' if value == StockTransfer.Purpose.DAMAGED_SPOILED
+                else 'Used for Display or Sample' if value == StockTransfer.Purpose.SAMPLE_DISPLAY
+                else label,
+            )
+            for value, label in StockTransfer.Purpose.choices
+        ],
         'total_released_this_month': total_released_this_month,
         'pending_acknowledgment': pending_acknowledgment,
         'flagged_discrepancies': flagged_discrepancies,
@@ -2699,8 +2795,14 @@ def _transfer_list_context(request):
         # Write-offs only — Branch Restock has its own dedicated flow (the
         # Request Stock to Floor modal on Warehouse Stock).
         'write_off_purposes': [
-            c for c in StockTransfer.Purpose.choices
-            if c[0] != StockTransfer.Purpose.BRANCH_RESTOCK
+            (
+                value,
+                'Damaged or Spoiled' if value == StockTransfer.Purpose.DAMAGED_SPOILED
+                else 'Used for Display or Sample' if value == StockTransfer.Purpose.SAMPLE_DISPLAY
+                else label,
+            )
+            for value, label in StockTransfer.Purpose.choices
+            if value != StockTransfer.Purpose.BRANCH_RESTOCK
         ],
         'show_create_modal': request.GET.get('open_create') == '1',
         'can_create': user_can_perform_module_action(
@@ -2819,11 +2921,10 @@ def warehouse_stock_request(request):
         return render(request, 'inventory/warehouse_stock_list.html', context)
 
     try:
-        transfer = create_stock_transfer(
+        transfer = create_warehouse_floor_transfer(
             actor=request.user,
             source_branch_id=request.POST.get('source_branch_id'),
             destination_branch_id=target_branch.pk,
-            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
             transfer_date=transfer_date,
             notes=notes,
             items=[
@@ -2878,7 +2979,7 @@ def transfer_create(request):
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
     ]:
-        messages.error(request, 'You do not have permission to create stock withdrawals.')
+        messages.error(request, 'You do not have permission to record write-offs.')
         return redirect('transfer_list')
 
     if request.method != 'POST':
@@ -2918,10 +3019,9 @@ def transfer_create(request):
         return render(request, 'inventory/transfer_list.html', context)
 
     try:
-        transfer = create_stock_transfer(
+        transfer = create_stock_write_off(
             actor=request.user,
             source_branch_id=target_branch.pk,
-            destination_branch_id=None,
             purpose=purpose,
             transfer_date=transfer_date,
             notes=notes,
@@ -2999,7 +3099,7 @@ def transfer_approve(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.source_branch_id):
-        messages.error(request, 'That stock withdrawal belongs to another branch.')
+        messages.error(request, 'That stock transfer or write-off belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.PENDING:
@@ -3021,7 +3121,7 @@ def transfer_approve(request, pk):
             if action == 'approve':
                 items = list(transfer.items.all())
                 all_valid = True
-                is_restock = transfer.purpose == StockTransfer.Purpose.BRANCH_RESTOCK
+                is_restock = transfer.is_warehouse_floor_transfer
 
                 if len(approved_quantities) != len(items):
                     messages.error(
@@ -3122,7 +3222,7 @@ def transfer_complete(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.source_branch_id):
-        messages.error(request, 'That stock withdrawal belongs to another branch.')
+        messages.error(request, 'That stock transfer or write-off belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.APPROVED:
@@ -3130,7 +3230,7 @@ def transfer_complete(request, pk):
         return redirect('transfer_detail', pk=pk)
 
     if request.method == 'POST':
-        is_restock = transfer.purpose == StockTransfer.Purpose.BRANCH_RESTOCK
+        is_restock = transfer.is_warehouse_floor_transfer
 
         # What was actually picked off the shelf, per item — scanned or typed
         # on the release screen. A POST without these fields (the old direct
@@ -3235,7 +3335,7 @@ def transfer_complete(request, pk):
                             quantity_before=qty_before_warehouse,
                             quantity_after=ws.quantity_on_hand,
                             reference_id=transfer.pk,
-                            notes=f'Stock withdrawal {transfer.slip_number}',
+                            notes=f'Transfer {transfer.slip_number}: warehouse dispatch',
                             created_by=request.user,
                         )
 
@@ -3262,7 +3362,7 @@ def transfer_complete(request, pk):
                                 quantity_before=qty_before_floor,
                                 quantity_after=inv.quantity_on_hand,
                                 reference_id=transfer.pk,
-                                notes=f'Withdrawal Slip {transfer.slip_number}',
+                                notes=f'Transfer {transfer.slip_number}: received on floor',
                                 created_by=request.user,
                             )
 
@@ -3336,12 +3436,12 @@ def transfer_complete(request, pk):
                         StockMovement.objects.create(
                             inventory=inv,
                             location_type=StockMovement.LocationType.FLOOR,
-                            movement_type=StockMovement.MovementType.MANUAL_OUT,
+                            movement_type=StockMovement.MovementType.WRITE_OFF,
                             quantity_change=-qty_release,
                             quantity_before=qty_before_floor,
                             quantity_after=inv.quantity_on_hand,
                             reference_id=transfer.pk,
-                            notes=f'Withdrawal Slip {transfer.slip_number} — {transfer.purpose}',
+                            notes=f'Write-off {transfer.slip_number} — {transfer.get_purpose_display()}',
                             created_by=request.user,
                         )
                         # A write-off pulls from the floor's own nearest-
@@ -3370,7 +3470,10 @@ def transfer_complete(request, pk):
                 transfer.save()
                 record_transfer_event(
                     transfer, previous, transfer.status, request.user,
-                    'Stock released by the source branch.',
+                    (
+                        'Warehouse stock moved to the destination floor.'
+                        if is_restock else 'Approved floor stock written off.'
+                    ),
                 )
         except _InsufficientStockError as e:
             messages.error(request, str(e))
@@ -3383,14 +3486,14 @@ def transfer_complete(request, pk):
         if is_restock:
             messages.success(
                 request,
-                f'Withdrawal Slip {transfer.slip_number} released. '
+                f'Stock transfer {transfer.slip_number} moved. '
                 f'Stock has been moved to the store floor.{short_note}'
             )
         else:
             messages.success(
                 request,
-                f'Withdrawal Slip {transfer.slip_number} completed — '
-                f'floor stock adjusted for {transfer.purpose}.{short_note}'
+                f'Write-off {transfer.slip_number} completed — '
+                f'floor stock removed for {transfer.purpose}.{short_note}'
             )
         return redirect('transfer_detail', pk=pk)
 
@@ -3534,7 +3637,7 @@ def transfer_flag_discrepancy(request, pk):
     transfer = get_object_or_404(StockTransfer, pk=pk)
 
     if not user_can_access_branch(request.user, transfer.destination_branch_id):
-        messages.error(request, 'That stock withdrawal belongs to another branch.')
+        messages.error(request, 'That stock transfer belongs to another branch.')
         return redirect('transfer_list')
 
     if transfer.status != StockTransfer.Status.RELEASED:

@@ -145,11 +145,12 @@ class OpeningStockImportTests(TestCase):
             20,
         )
 
-    def test_manual_adjustment_uses_shared_batch_and_movement_service(self):
+    def test_count_correction_increase_updates_total_batch_and_audit_movement(self):
         response = self.client.post(reverse('stock_adjustment_add'), {
             'product_id': self.product.pk,
             'branch_id': self.branch.pk,
-            'quantity': '3',
+            'counted_quantity': '3',
+            'reason': 'Three units found during shelf count',
             'expiry_date': '2099-02-01',
         })
         self.assertEqual(response.status_code, 302)
@@ -158,16 +159,70 @@ class OpeningStockImportTests(TestCase):
             3,
         )
         self.assertTrue(Batch.objects.filter(quantity=3, expiry_date='2099-02-01').exists())
-        self.assertTrue(StockMovement.objects.filter(
+        movement = StockMovement.objects.get(
             movement_type=StockMovement.MovementType.ADJUSTMENT,
-            quantity_change=3,
-        ).exists())
+        )
+        self.assertEqual(movement.quantity_before, 0)
+        self.assertEqual(movement.quantity_after, 3)
+        self.assertEqual(movement.quantity_change, 3)
+        self.assertEqual(movement.created_by, self.owner)
+        self.assertIn('Three units found during shelf count', movement.notes)
 
-    def test_manual_adjustment_rejects_malformed_expiry(self):
+    def test_count_correction_decrease_consumes_batches_and_records_reason(self):
+        inventory = Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=10,
+        )
+        batch = Batch.objects.create(
+            product=self.product, branch=self.branch,
+            location=Batch.Location.FLOOR, quantity=10,
+            received_date='2026-01-01',
+        )
+
         response = self.client.post(reverse('stock_adjustment_add'), {
             'product_id': self.product.pk,
             'branch_id': self.branch.pk,
-            'quantity': '3',
+            'counted_quantity': '4',
+            'reason': 'Six units missing during physical count',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        inventory.refresh_from_db()
+        batch.refresh_from_db()
+        self.assertEqual(inventory.quantity_on_hand, 4)
+        self.assertEqual(batch.quantity, 4)
+        movement = StockMovement.objects.get(
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+        )
+        self.assertEqual(movement.quantity_before, 10)
+        self.assertEqual(movement.quantity_after, 4)
+        self.assertEqual(movement.quantity_change, -6)
+        self.assertIn('Six units missing during physical count', movement.notes)
+
+    def test_count_correction_requires_a_reason(self):
+        Inventory.objects.create(
+            product=self.product, branch=self.branch, quantity_on_hand=2,
+        )
+        response = self.client.post(reverse('stock_adjustment_add'), {
+            'product_id': self.product.pk,
+            'branch_id': self.branch.pk,
+            'counted_quantity': '3',
+            'reason': '   ',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Enter a reason for the correction.')
+        self.assertEqual(
+            Inventory.objects.get(product=self.product, branch=self.branch).quantity_on_hand,
+            2,
+        )
+        self.assertFalse(StockMovement.objects.exists())
+
+    def test_count_correction_rejects_malformed_expiry(self):
+        response = self.client.post(reverse('stock_adjustment_add'), {
+            'product_id': self.product.pk,
+            'branch_id': self.branch.pk,
+            'counted_quantity': '3',
+            'reason': 'Physical shelf count',
             'expiry_date': 'not-a-date',
         })
         self.assertEqual(response.status_code, 200)

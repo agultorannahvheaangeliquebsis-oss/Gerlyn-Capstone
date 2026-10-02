@@ -742,13 +742,10 @@ class Batch(models.Model):
 
 class StockTransfer(models.Model):
     """
-    A stock withdrawal: goods issued out of the warehouse under an
-    approval chain (request -> approve -> release -> acknowledge),
-    either to a branch or as a write-off.
-
-    Named "Stock Withdrawals" in the UI. Not to be confused with
-    stock_adjustment_add, which is a direct count correction with no
-    approval chain and keeps the name "Stock Adjustment".
+    Legacy persistence model shared by two explicit proxy domains:
+    WarehouseFloorTransfer and StockWriteOff. Keeping this table preserves
+    every existing slip number, foreign key, URL, and API identifier while
+    new workflow code uses the correctly scoped proxy.
 
     slip_number/WS- are left alone on purpose: they identify records
     that already exist.
@@ -846,8 +843,56 @@ class StockTransfer(models.Model):
             f"{self.status}"
         )
 
+    @property
+    def is_warehouse_floor_transfer(self):
+        return self.purpose == self.Purpose.BRANCH_RESTOCK
+
+    @property
+    def is_write_off(self):
+        return not self.is_warehouse_floor_transfer
+
+    @property
+    def workflow_name(self):
+        return 'Warehouse to Floor Transfer' if self.is_warehouse_floor_transfer else 'Stock Write-off'
+
     class Meta:
         ordering = ['-created_at']
+
+
+class WarehouseFloorTransferManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+        )
+
+
+class WarehouseFloorTransfer(StockTransfer):
+    """Warehouse stock requested and moved to a destination sales floor."""
+
+    objects = WarehouseFloorTransferManager()
+
+    class Meta:
+        proxy = True
+        verbose_name = 'Warehouse-to-floor transfer'
+        verbose_name_plural = 'Warehouse-to-floor transfers'
+
+
+class StockWriteOffManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+        )
+
+
+class StockWriteOff(StockTransfer):
+    """Floor stock permanently removed for a recorded write-off reason."""
+
+    objects = StockWriteOffManager()
+
+    class Meta:
+        proxy = True
+        verbose_name = 'Stock write-off'
+        verbose_name_plural = 'Stock write-offs'
 
 
 class StockTransferItem(models.Model):
@@ -926,6 +971,8 @@ class StockMovement(models.Model):
         MANUAL_IN = 'Manual In', 'Manual Stock In'
         MANUAL_OUT = 'Manual Out', 'Manual Stock Out'
         ADJUSTMENT = 'Adjustment', 'Stock Adjustment'
+        WRITE_OFF = 'Write-off', 'Stock Write-off'
+        TRANSFER_DISCREPANCY = 'Transfer Discrepancy', 'Transfer Receipt Discrepancy'
         OPENING_BALANCE = 'Opening Balance', 'Opening Balance'
         OPENING_BALANCE_REVERSAL = 'Opening Reversal', 'Opening Balance Reversal'
         EXPIRY_WRITE_OFF = 'Expiry Write-off', 'Expiry Write-off'

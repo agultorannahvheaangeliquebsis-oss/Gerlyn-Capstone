@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, filters
+from rest_framework import viewsets, status, filters, mixins
 from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -250,7 +250,7 @@ class WarehouseViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-class WarehouseStockViewSet(viewsets.ModelViewSet):
+class WarehouseStockViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
     """
     /api/warehouse-stock/
     Mirrors warehouse_stock_list: Owner sees every warehouse, Manager/Staff
@@ -275,23 +275,33 @@ class WarehouseStockViewSet(viewsets.ModelViewSet):
         # only for the Owner and [] for an unassigned account — it fails CLOSED.
         return scope_queryset(qs, self.request.user, 'warehouse__branch')
 
-    def create(self, request, *args, **kwargs):
-        denied = check_owner_or_manager(request)
-        if denied:
-            return denied
-        return super().create(request, *args, **kwargs)
-
     def update(self, request, *args, **kwargs):
         denied = check_owner_or_manager(request)
         if denied:
             return denied
+        instance = self.get_object()
+        for field_name in ('quantityOnHand', 'quantity_on_hand'):
+            if field_name not in request.data:
+                continue
+            submitted = request.data[field_name]
+            if isinstance(submitted, bool):
+                submitted_quantity = None
+            else:
+                try:
+                    submitted_quantity = int(submitted)
+                except (TypeError, ValueError):
+                    submitted_quantity = None
+            if submitted_quantity != instance.quantity_on_hand:
+                return Response(
+                    {
+                        field_name: (
+                            'Warehouse quantity is read-only. Use the appropriate '
+                            'audited receiving or stock-movement workflow.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         return super().update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        denied = check_owner_or_manager(request)
-        if denied:
-            return denied
-        return super().destroy(request, *args, **kwargs)
 
 
 class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -506,7 +516,7 @@ class StockTransferApproveAPIView(APIView):
                         {'items': 'Provide an approved quantity for every transfer item only.'},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-                is_restock = transfer.purpose == StockTransfer.Purpose.BRANCH_RESTOCK
+                is_restock = transfer.is_warehouse_floor_transfer
 
                 for item in items:
                     approved_qty = items_map.get(item.id, 0)
@@ -585,8 +595,8 @@ class StockTransferReleaseAPIView(APIView):
                 {'detail': 'Transfer must be approved before it can be released.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        if transfer.purpose != StockTransfer.Purpose.BRANCH_RESTOCK:
-            return self._release_writeoff(request, transfer.pk)
+        if transfer.is_write_off:
+            return self._complete_write_off(request, transfer.pk)
 
         try:
             with transaction.atomic():
@@ -641,7 +651,7 @@ class StockTransferReleaseAPIView(APIView):
                         quantity_before=qty_before_warehouse,
                         quantity_after=ws.quantity_on_hand,
                         reference_id=transfer.pk,
-                        notes=f'Stock withdrawal {transfer.slip_number}',
+                        notes=f'Transfer {transfer.slip_number}: warehouse dispatch',
                         created_by=request.user,
                     )
 
@@ -663,7 +673,7 @@ class StockTransferReleaseAPIView(APIView):
                             quantity_before=qty_before_floor,
                             quantity_after=inv.quantity_on_hand,
                             reference_id=transfer.pk,
-                            notes=f'Stock withdrawal {transfer.slip_number}',
+                            notes=f'Transfer {transfer.slip_number}: received on floor',
                             created_by=request.user,
                         )
 
@@ -713,7 +723,7 @@ class StockTransferReleaseAPIView(APIView):
 
         return Response(StockTransferSerializer(transfer).data)
 
-    def _release_writeoff(self, request, transfer_id):
+    def _complete_write_off(self, request, transfer_id):
         try:
             with transaction.atomic():
                 transfer = StockTransfer.objects.select_for_update().get(pk=transfer_id)
@@ -747,12 +757,12 @@ class StockTransferReleaseAPIView(APIView):
                     StockMovement.objects.create(
                         inventory=inventory,
                         location_type=StockMovement.LocationType.FLOOR,
-                        movement_type=StockMovement.MovementType.MANUAL_OUT,
+                        movement_type=StockMovement.MovementType.WRITE_OFF,
                         quantity_change=-quantity,
                         quantity_before=before,
                         quantity_after=inventory.quantity_on_hand,
                         reference_id=transfer.pk,
-                        notes=f'Stock withdrawal {transfer.slip_number} — {transfer.purpose}',
+                        notes=f'Write-off {transfer.slip_number} — {transfer.get_purpose_display()}',
                         created_by=request.user,
                     )
                     Batch.consume_fefo(
@@ -800,6 +810,11 @@ class StockTransferAcknowledgeAPIView(APIView):
             )
 
         transfer = get_object_or_404(StockTransfer, pk=pk)
+        if not transfer.is_warehouse_floor_transfer:
+            return Response(
+                {'detail': 'Write-offs do not have a floor-receipt step.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not user_can_access_branch(request.user, transfer.destination_branch_id):
             return Response(
                 {'detail': 'That stock transfer belongs to another branch.'},

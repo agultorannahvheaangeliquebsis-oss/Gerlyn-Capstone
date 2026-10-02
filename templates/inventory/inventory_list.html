@@ -81,7 +81,7 @@ partials/_branch_switch.html.
     {% endif %}
     <button type="button" class="btn btn-primary" id="open-adjust-modal">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-      Stock Adjustment
+      Correct Stock Count
     </button>
   </div>
   {% endif %}
@@ -319,7 +319,7 @@ across the full width leave the default block padding as empty card.
 <div class="modal-overlay{% if show_adjust_modal %} is-open{% endif %}" id="adjust-modal" data-autoopen="{% if show_adjust_modal %}1{% else %}0{% endif %}">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="adjust-modal-title">
     <div class="modal-head">
-      <h2 id="adjust-modal-title">Stock Adjustment</h2>
+      <h2 id="adjust-modal-title">Correct Stock Count</h2>
       <button type="button" class="modal-close" id="close-adjust-modal" aria-label="Close">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -331,9 +331,9 @@ across the full width leave the default block padding as empty card.
     <form method="POST" action="{% url 'stock_adjustment_add' %}" class="modal-body" id="adjust-form">
       {% csrf_token %}
       <p class="gv-meta" style="margin:0;">
-        Adds directly to floor stock for an individual count correction.
-        Use Import Opening Stock for migration; stock arriving from a supplier
-        should go through a Stock Withdrawal so it stays traceable to a delivery.
+        Enter the total quantity physically counted on the store floor. The system
+        will record the difference as a count correction. Supplier deliveries must
+        still be recorded through Supplier Deliveries, where they enter Warehouse Stock first.
       </p>
 
       <div class="field">
@@ -377,25 +377,42 @@ across the full width leave the default block padding as empty card.
 
       <div class="grid-2">
         <div class="field">
-          <label for="adjust-quantity">Quantity to Add to Stock <span style="color:var(--danger-dot);">*</span></label>
-          <input type="number" id="adjust-quantity" name="quantity" min="1"
-                 value="{{ adjust_form_data.quantity|default:'' }}" required
-                 aria-describedby="adjust-quantity-hint">
-          <span class="gv-meta" id="adjust-quantity-hint">Added on top of the current count — not the new total. This form can only increase stock.</span>
+          <label>Current System Quantity</label>
+          <div class="field-static" id="adjust-system-quantity">—</div>
         </div>
         <div class="field">
-          <label for="adjust-expiry">Expiry Date (optional)</label>
-          <input type="date" id="adjust-expiry" name="expiry_date" value="{{ adjust_form_data.expiry_date|default:'' }}">
+          <label for="adjust-counted-quantity">Counted Quantity <span style="color:var(--danger-dot);">*</span></label>
+          <input type="number" id="adjust-counted-quantity" name="counted_quantity" min="0"
+                 value="{{ adjust_form_data.counted_quantity|default:'' }}" required>
         </div>
+      </div>
+
+      <div class="field">
+        <label>Difference</label>
+        <div class="field-static" id="adjust-difference">—</div>
+        <span class="gv-meta">Counted Quantity minus Current System Quantity. A positive number adds stock; a negative number removes stock.</span>
+      </div>
+
+      <div class="field">
+        <label for="adjust-reason">Reason for Correction <span style="color:var(--danger-dot);">*</span></label>
+        <textarea id="adjust-reason" name="reason" rows="3" required
+                  placeholder="Example: Physical count found two damaged units not previously recorded">{{ adjust_form_data.reason|default:'' }}</textarea>
+      </div>
+
+      <div class="field">
+        <label for="adjust-expiry">Expiry Date for Added Units (optional)</label>
+        <input type="date" id="adjust-expiry" name="expiry_date" value="{{ adjust_form_data.expiry_date|default:'' }}">
+        <span class="gv-meta">Used only when the counted quantity is higher than the system quantity.</span>
       </div>
     </form>
 
     <div class="modal-foot">
       <button type="button" class="btn" id="cancel-adjust-modal">Cancel</button>
-      <button type="submit" form="adjust-form" class="btn btn-primary">Save Adjustment</button>
+      <button type="submit" form="adjust-form" class="btn btn-primary">Apply Count Correction</button>
     </div>
   </div>
 </div>
+{{ adjust_stock_levels|json_script:"adjust-stock-levels" }}
 {% endif %}
 
 {% if can_edit_reorder %}
@@ -499,6 +516,39 @@ sidebar.js, shared by every page that includes partials/_branch_switch.html.{% e
   var scanBtn = document.getElementById('adjust-barcode-scan-btn');
   var status = document.getElementById('adjust-barcode-status');
   var productSelect = document.getElementById('adjust-product');
+  var branchSelect = document.getElementById('adjust-branch');
+  var countedInput = document.getElementById('adjust-counted-quantity');
+  var systemEl = document.getElementById('adjust-system-quantity');
+  var differenceEl = document.getElementById('adjust-difference');
+  var stockLevels = JSON.parse(document.getElementById('adjust-stock-levels').textContent);
+  var fixedBranchId = '{% if user_branch %}{{ user_branch.id }}{% endif %}';
+
+  function selectedBranchId() {
+    return branchSelect ? branchSelect.value : fixedBranchId;
+  }
+
+  function updateCountDifference() {
+    var productId = productSelect.value;
+    var branchId = selectedBranchId();
+    if (!productId || !branchId) {
+      systemEl.textContent = '—';
+      differenceEl.textContent = '—';
+      return;
+    }
+    var systemQuantity = Number(stockLevels[branchId + ':' + productId] || 0);
+    systemEl.textContent = String(systemQuantity);
+    if (countedInput.value === '') {
+      differenceEl.textContent = '—';
+      return;
+    }
+    var difference = Number(countedInput.value) - systemQuantity;
+    differenceEl.textContent = (difference > 0 ? '+' : '') + String(difference);
+  }
+
+  productSelect.addEventListener('change', updateCountDifference);
+  if (branchSelect) branchSelect.addEventListener('change', updateCountDifference);
+  countedInput.addEventListener('input', updateCountDifference);
+  updateCountDifference();
 
   GerlynBarcodeScanner.attachBarcodeField(barcodeInput, {
     lookupUrl: '{% url "barcode_lookup" %}',
@@ -507,6 +557,7 @@ sidebar.js, shared by every page that includes partials/_branch_switch.html.{% e
     notFoundMessage: 'No existing product matches this code — select the product manually below.',
     onFound: function (product) {
       productSelect.value = String(product.id);
+      updateCountDifference();
     },
   });
 })();

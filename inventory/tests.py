@@ -15,7 +15,8 @@ from core.module_permissions import ADD, PRODUCTS, default_module_actions
 from inventory.alerts import batch_inventory_mismatches
 from inventory.models import (
     Batch, Inventory, Product, ProductCategory, ProductImportMappingTemplate,
-    Warehouse, WarehouseStock,
+    StockMovement, StockTransfer, StockWriteOff, Warehouse, WarehouseFloorTransfer,
+    WarehouseStock,
 )
 
 
@@ -837,9 +838,8 @@ class BatchInventoryReconciliationTests(TestCase):
 
 class AlertsCenterLowStockActionTests(TestCase):
     """The Low Floor Stock tab's row action restocks from the branch's own
-    warehouse — it must send staff to Warehouse Stock's own Request Stock to
-    Floor modal, not New Stock Adjustment (that's for write-offs/corrections,
-    a different action entirely that just happened to be wired here)."""
+    warehouse — it must send staff to Warehouse Stock's Request Floor Refill
+    modal, not the Record Write-off flow."""
 
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -860,7 +860,7 @@ class AlertsCenterLowStockActionTests(TestCase):
     def test_the_row_action_opens_the_request_to_floor_modal_for_that_branch(self):
         response = self.client.get(reverse('alerts_center'))
 
-        self.assertContains(response, 'Request Stock to Floor')
+        self.assertContains(response, 'Request Floor Refill')
         expected_href = (
             f"{reverse('warehouse_stock_list')}?open_request=1&amp;branch={self.branch.pk}"
         )
@@ -873,3 +873,102 @@ class AlertsCenterLowStockActionTests(TestCase):
 
         self.assertTrue(response.context['show_request_modal'])
         self.assertEqual(response.context['request_target_branch'], self.branch)
+
+
+class InventoryWorkflowTerminologyTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='workflow-owner', password='pw', role=User.Role.OWNER,
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Workflow Branch', location='Baliuag',
+        )
+        self.warehouse = Warehouse.objects.get(branch=self.branch)
+        self.product = Product.objects.create(
+            sku_code='SKU-WORKFLOW', product_name='Workflow Product', unit_price=10,
+        )
+        self.transfer = StockTransfer.objects.create(
+            warehouse=self.warehouse, source_branch=self.branch,
+            destination_branch=self.branch,
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+            requested_by=self.owner, transfer_date=date.today(),
+        )
+        self.write_off = StockTransfer.objects.create(
+            warehouse=self.warehouse, source_branch=self.branch,
+            destination_branch=None,
+            purpose=StockTransfer.Purpose.DAMAGED_SPOILED,
+            requested_by=self.owner, transfer_date=date.today(),
+        )
+        self.client.force_login(self.owner)
+
+    def test_transfer_and_writeoff_records_are_presented_on_separate_tabs(self):
+        transfers = self.client.get(
+            reverse('transfer_list'), {'view': 'transfers', 'range': 'all'},
+        )
+        self.assertContains(transfers, '<h1>Stock Transfers</h1>', html=True)
+        self.assertContains(transfers, self.transfer.slip_number)
+        self.assertNotContains(transfers, self.write_off.slip_number)
+
+        write_offs = self.client.get(
+            reverse('transfer_list'), {'view': 'writeoffs', 'range': 'all'},
+        )
+        self.assertContains(write_offs, '<h1>Write-offs</h1>', html=True)
+        self.assertContains(write_offs, 'Record Write-off')
+        self.assertContains(write_offs, self.write_off.slip_number)
+        self.assertNotContains(write_offs, self.transfer.slip_number)
+
+    def test_server_forms_create_the_explicit_workflow_domains(self):
+        WarehouseStock.objects.create(
+            warehouse=self.warehouse, product=self.product, quantity_on_hand=5,
+        )
+        transfer_response = self.client.post(reverse('warehouse_stock_request'), {
+            'branch_id': self.branch.pk,
+            'source_branch_id': self.branch.pk,
+            'product_id': [self.product.pk],
+            'quantity_requested': ['2'],
+        })
+        self.assertEqual(transfer_response.status_code, 302)
+        created_transfer = StockTransfer.objects.exclude(
+            pk__in=[self.transfer.pk, self.write_off.pk],
+        ).get(purpose=StockTransfer.Purpose.BRANCH_RESTOCK)
+        self.assertTrue(
+            WarehouseFloorTransfer.objects.filter(pk=created_transfer.pk).exists()
+        )
+
+        Inventory.objects.create(
+            branch=self.branch, product=self.product, quantity_on_hand=5,
+        )
+        Batch.objects.create(
+            branch=self.branch, product=self.product,
+            location=Batch.Location.FLOOR, quantity=5,
+            received_date=date.today(),
+        )
+        write_off_response = self.client.post(reverse('transfer_create'), {
+            'branch_id': self.branch.pk,
+            'purpose': StockTransfer.Purpose.DAMAGED_SPOILED,
+            'product_id': [self.product.pk],
+            'quantity_requested': ['1'],
+        })
+        self.assertEqual(write_off_response.status_code, 302)
+        created_write_off = StockTransfer.objects.exclude(
+            pk__in=[self.transfer.pk, self.write_off.pk, created_transfer.pk],
+        ).get()
+        self.assertTrue(StockWriteOff.objects.filter(pk=created_write_off.pk).exists())
+
+        completed = self.client.post(
+            reverse('transfer_complete', args=[created_write_off.pk]),
+        )
+        self.assertEqual(completed.status_code, 302)
+        self.assertTrue(StockMovement.objects.filter(
+            reference_id=created_write_off.pk,
+            movement_type=StockMovement.MovementType.WRITE_OFF,
+        ).exists())
+
+    def test_floor_stock_uses_count_correction_wording(self):
+        response = self.client.get(reverse('inventory_list'))
+        self.assertContains(response, 'Correct Stock Count')
+        self.assertContains(response, 'Current System Quantity')
+        self.assertContains(response, 'Counted Quantity')
+        self.assertContains(response, 'Difference')
+        self.assertContains(response, 'Reason for Correction')
+        self.assertContains(response, 'Supplier Deliveries')

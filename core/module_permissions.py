@@ -93,7 +93,7 @@ MODULE_PERMISSION_REGISTRY = {
         DELETE: ['api-warehouse-stock-detail', 'api-warehouse-detail'],
     },
     WITHDRAWALS: {
-        'label': 'Stock Withdrawals',
+        'label': 'Stock Transfers',
         VIEW: [
             'transfer_list', 'transfer_detail',
             'api-stock-transfer-list', 'api-stock-transfer-detail',

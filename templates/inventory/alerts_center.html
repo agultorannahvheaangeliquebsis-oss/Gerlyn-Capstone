@@ -150,7 +150,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
             {% comment %}Straight into the Request Stock to Floor modal, branch pre-selected — this is a
             restock from the branch's own warehouse, not a write-off/correction (that's what New
             Stock Adjustment is for), so it should never have pointed there in the first place.{% endcomment %}
-            <a class="btn btn-sm btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1&amp;branch={{ row.branch.pk }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Request Stock to Floor</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1&amp;branch={{ row.branch.pk }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Request Floor Refill</a>
           </span>
         </td>
       </tr>

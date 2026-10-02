@@ -57,18 +57,18 @@ authorised), so it should not be a second thing to learn.
 <div class="page-head">
   <div>
     <a class="back-link" href="{% url 'transfer_detail' transfer.pk %}">{{ transfer.slip_number }}</a>
-    <h1 class="mt-2">Release Stock</h1>
+    <h1 class="mt-2">{% if transfer.purpose == 'Branch Restock' %}Move Stock to Floor{% else %}Complete Write-off{% endif %}</h1>
   </div>
 </div>
 
 <div class="banner banner-info">
   {% if transfer.purpose == 'Branch Restock' %}
-    Releasing moves the picked quantities out of {{ transfer.warehouse.name }} and onto
-    {{ transfer.destination_branch.branch_name }}'s floor. The destination branch still
-    has to acknowledge receipt afterwards.
+    Moving the picked quantities takes them out of {{ transfer.warehouse.name }} and puts them on
+    {{ transfer.destination_branch.branch_name }}'s floor. The destination branch must still
+    confirm what arrived.
   {% else %}
-    This is a <strong>{{ transfer.purpose }}</strong> write-off — releasing deducts the picked
-    quantities from {{ transfer.source_branch.branch_name }}'s floor stock and closes the slip.
+    This is a <strong>{{ transfer.purpose }}</strong> write-off. Completing it deducts the picked
+    quantities from {{ transfer.source_branch.branch_name }}'s floor stock and closes the record.
     There is no receiving party.
   {% endif %}
 </div>
@@ -102,8 +102,8 @@ authorised), so it should not be a second thing to learn.
 
 <form method="POST" id="release-form"
       data-confirm="Stock will move as counted below. This cannot be undone from this screen."
-      data-confirm-title="Release this withdrawal?"
-      data-confirm-ok="Release stock">
+      data-confirm-title="{% if transfer.purpose == 'Branch Restock' %}Move this stock to the floor?{% else %}Complete this write-off?{% endif %}"
+      data-confirm-ok="{% if transfer.purpose == 'Branch Restock' %}Move stock{% else %}Complete write-off{% endif %}">
   {% csrf_token %}
   <div class="card table-wrap mb-4">
     <table class="gv-table" id="release-table">
@@ -145,7 +145,7 @@ authorised), so it should not be a second thing to learn.
   </div>
 
   <div class="row">
-    <button type="submit" class="btn btn-primary" id="release-btn">Release Stock</button>
+    <button type="submit" class="btn btn-primary" id="release-btn">{% if transfer.purpose == 'Branch Restock' %}Move Stock to Floor{% else %}Complete Write-off{% endif %}</button>
     <a href="{% url 'transfer_detail' transfer.pk %}" class="btn">Cancel</a>
   </div>
 </form>
@@ -265,7 +265,7 @@ authorised), so it should not be a second thing to learn.
           } else if (d.status === 'not_on_slip') {
             // No "add it anyway" here, unlike receiving: adding a line would
             // route around the approval this slip exists to enforce.
-            setStatus(d.product_name + ' is not on this withdrawal slip. Put it back, or '
+            setStatus(d.product_name + ' is not on this {% if transfer.purpose == "Branch Restock" %}stock transfer{% else %}write-off{% endif %}. Put it back, or '
                       + 'raise a new slip for it.', 'bad');
           } else {
             setStatus('No product matches ' + d.code + '.', 'bad');

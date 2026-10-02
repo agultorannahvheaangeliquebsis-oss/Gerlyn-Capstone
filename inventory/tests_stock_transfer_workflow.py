@@ -1,3 +1,6 @@
+from importlib import import_module
+
+from django.apps import apps as django_apps
 from django.test import TestCase
 from django.urls import reverse
 
@@ -5,8 +8,8 @@ from accounts.models import User
 from branches.models import Branch
 from core.module_permissions import WITHDRAWALS
 from inventory.models import (
-    Inventory, Product, StockMovement, StockTransfer, StockTransferEvent,
-    Warehouse, WarehouseStock,
+    Batch, Inventory, Product, StockMovement, StockTransfer, StockTransferEvent,
+    StockWriteOff, Warehouse, WarehouseFloorTransfer, WarehouseStock,
 )
 
 
@@ -91,6 +94,8 @@ class CrossBranchStockRequestTests(TestCase):
             list(transfer.events.values_list('to_status', flat=True)),
             [StockTransfer.Status.PENDING],
         )
+        self.assertTrue(WarehouseFloorTransfer.objects.filter(pk=transfer.pk).exists())
+        self.assertFalse(StockWriteOff.objects.filter(pk=transfer.pk).exists())
 
     def test_requester_cannot_redirect_stock_to_another_destination(self):
         self.client.force_login(self.staff_a)
@@ -209,11 +214,143 @@ class CrossBranchStockRequestTests(TestCase):
         self.assertTrue(
             StockMovement.objects.filter(
                 reference_id=transfer.pk,
-                movement_type=StockMovement.MovementType.ADJUSTMENT,
+                movement_type=StockMovement.MovementType.TRANSFER_DISCREPANCY,
                 quantity_change=-2,
             ).exists()
         )
+        self.assertFalse(StockMovement.objects.filter(
+            reference_id=transfer.pk,
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+        ).exists())
         self.assertEqual(
             StockTransferEvent.objects.filter(transfer=transfer).last().to_status,
             StockTransfer.Status.DISCREPANCY,
         )
+
+    def test_write_off_uses_its_own_domain_and_movement_type(self):
+        inventory = Inventory.objects.create(
+            branch=self.branch_a, product=self.product, quantity_on_hand=6,
+        )
+        Batch.objects.create(
+            branch=self.branch_a, product=self.product,
+            location=Batch.Location.FLOOR, quantity=6,
+            received_date='2026-01-01',
+        )
+        self.client.force_login(self.owner)
+        created = self.client.post(
+            reverse('api-stock-transfer-list'),
+            data={
+                'sourceBranchId': self.branch_a.pk,
+                'purpose': StockTransfer.Purpose.DAMAGED_SPOILED,
+                'items': [{'productId': self.product.pk, 'quantityRequested': 2}],
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        write_off_id = created.json()['id']
+        self.assertTrue(StockWriteOff.objects.filter(pk=write_off_id).exists())
+        self.assertFalse(WarehouseFloorTransfer.objects.filter(pk=write_off_id).exists())
+
+        item = StockTransfer.objects.get(pk=write_off_id).items.get()
+        approved = self.client.patch(
+            reverse('api-stock-transfer-approve', args=[write_off_id]),
+            data={'action': 'approve', 'items': {str(item.pk): 2}},
+            content_type='application/json',
+        )
+        self.assertEqual(approved.status_code, 200, approved.content)
+        completed = self.client.patch(
+            reverse('api-stock-transfer-release', args=[write_off_id]),
+            content_type='application/json',
+        )
+        self.assertEqual(completed.status_code, 200, completed.content)
+
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.quantity_on_hand, 4)
+        movement = StockMovement.objects.get(reference_id=write_off_id)
+        self.assertEqual(movement.movement_type, StockMovement.MovementType.WRITE_OFF)
+        self.assertIn('Write-off', movement.notes)
+        self.assertFalse(StockMovement.objects.filter(
+            reference_id=write_off_id,
+            movement_type__in=[
+                StockMovement.MovementType.ADJUSTMENT,
+                StockMovement.MovementType.MANUAL_OUT,
+            ],
+        ).exists())
+
+        receipt = self.client.patch(
+            reverse('api-stock-transfer-acknowledge', args=[write_off_id]),
+            data={'receivedQty': 2},
+            content_type='application/json',
+        )
+        self.assertEqual(receipt.status_code, 400)
+        self.assertIn('do not have a floor-receipt step', receipt.content.decode())
+
+
+class StockWorkflowMovementBackfillTests(TestCase):
+    def test_only_identifiable_legacy_transfer_and_writeoff_movements_are_reclassified(self):
+        owner = User.objects.create_user(
+            username='backfill-owner', password='pw', role=User.Role.OWNER,
+        )
+        branch = Branch.objects.create(
+            owner=owner, branch_name='Backfill Branch', location='Main',
+        )
+        product = Product.objects.create(
+            sku_code='SKU-BACKFILL', product_name='Backfill Product', unit_price=10,
+        )
+        inventory = Inventory.objects.create(
+            branch=branch, product=product, quantity_on_hand=5,
+        )
+        transfer = StockTransfer.objects.create(
+            warehouse=branch.warehouse, source_branch=branch,
+            destination_branch=branch,
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+            requested_by=owner,
+        )
+        write_off = StockTransfer.objects.create(
+            warehouse=branch.warehouse, source_branch=branch,
+            destination_branch=None,
+            purpose=StockTransfer.Purpose.DAMAGED_SPOILED,
+            requested_by=owner,
+        )
+        discrepancy = StockMovement.objects.create(
+            inventory=inventory,
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+            quantity_change=-1, quantity_before=5, quantity_after=4,
+            reference_id=transfer.pk,
+            notes=f'Discrepancy on {transfer.slip_number}: one missing',
+            created_by=owner,
+        )
+        legacy_write_off = StockMovement.objects.create(
+            inventory=inventory,
+            movement_type=StockMovement.MovementType.MANUAL_OUT,
+            quantity_change=-1, quantity_before=4, quantity_after=3,
+            reference_id=write_off.pk,
+            notes=f'Withdrawal Slip {write_off.slip_number} — Damaged/Spoiled',
+            created_by=owner,
+        )
+        unrelated = StockMovement.objects.create(
+            inventory=inventory,
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+            quantity_change=1, quantity_before=3, quantity_after=4,
+            reference_id=transfer.pk,
+            notes='Count correction — annual physical count',
+            created_by=owner,
+        )
+
+        migration = import_module(
+            'inventory.migrations.0030_separate_transfer_writeoff_domains'
+        )
+        migration.classify_existing_movements(django_apps, None)
+
+        discrepancy.refresh_from_db()
+        legacy_write_off.refresh_from_db()
+        unrelated.refresh_from_db()
+        self.assertEqual(
+            discrepancy.movement_type,
+            StockMovement.MovementType.TRANSFER_DISCREPANCY,
+        )
+        self.assertEqual(
+            legacy_write_off.movement_type,
+            StockMovement.MovementType.WRITE_OFF,
+        )
+        self.assertEqual(unrelated.movement_type, StockMovement.MovementType.ADJUSTMENT)

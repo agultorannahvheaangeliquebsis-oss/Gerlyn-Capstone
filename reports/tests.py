@@ -204,6 +204,22 @@ class RevenueExcludesCancelledAndPendingTests(TestCase):
         self.assertEqual(ctx['pipeline_total'], self.PENDING)
         self.assertEqual(ctx['pipeline_count'], 1)
 
+    def test_low_stock_action_opens_floor_refill_not_writeoff(self):
+        product = Product.objects.create(
+            sku_code='SKU-DASH-LOW', product_name='Dashboard Low Stock', unit_price=10,
+        )
+        Inventory.objects.create(
+            product=product, branch=self.branch, quantity_on_hand=1, reorder_level=10,
+        )
+
+        response = self._client().get(reverse('accounts:owner_dashboard'))
+
+        self.assertContains(
+            response, f'{reverse("warehouse_stock_list")}?open_request=1',
+        )
+        self.assertContains(response, 'Request Floor Refill')
+        self.assertNotContains(response, 'Create Stock Adjustment')
+
     def test_cancelled_sale_still_listed_in_the_transactions_table(self):
         # Excluded from the money figures, not hidden from the audit trail.
         ctx = self._client().get('/reports/').context

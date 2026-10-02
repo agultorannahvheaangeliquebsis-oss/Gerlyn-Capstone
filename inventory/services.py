@@ -23,7 +23,7 @@ from branches.models import Branch
 from .models import (
     Batch, Inventory, OpeningStockImport, OpeningStockImportRow, Product,
     StockMovement, StockTransfer, StockTransferEvent, StockTransferItem,
-    Warehouse, WarehouseStock,
+    StockWriteOff, Warehouse, WarehouseFloorTransfer, WarehouseStock,
 )
 
 
@@ -49,6 +49,10 @@ class StockTransferRequestError(Exception):
 
 class StockTransferReceiptError(Exception):
     """A transfer receipt cannot be reconciled safely."""
+
+
+class CountCorrectionError(Exception):
+    """A physical-count correction cannot be applied safely."""
 
 
 def transfers_visible_to(user, queryset=None):
@@ -118,11 +122,35 @@ def _notify_new_stock_request(transfer_id):
     )
 
 
-def create_stock_transfer(
+def _notify_new_write_off_request(write_off_id):
+    from core.module_permissions import WITHDRAWALS
+    from core.notifications import CATEGORY_PROCUREMENT, PRIORITY_MEDIUM, notify
+
+    write_off = StockWriteOff.objects.select_related(
+        'source_branch', 'requested_by',
+    ).get(pk=write_off_id)
+    notify(
+        CATEGORY_PROCUREMENT,
+        PRIORITY_MEDIUM,
+        f'Write-off {write_off.slip_number} needs approval',
+        f'{write_off.source_branch.branch_name} submitted a '
+        f'{write_off.get_purpose_display().lower()} write-off. No floor stock '
+        'will be removed until it is approved and completed.',
+        branch=write_off.source_branch,
+        action_url=reverse('transfer_detail', args=[write_off.pk]),
+        action_label='Review Write-off',
+        required_module=WITHDRAWALS,
+        reference_type='inventory.StockWriteOff',
+        reference_id=write_off.pk,
+        exclude_user=write_off.requested_by,
+    )
+
+
+def _create_stock_workflow(
     *, actor, source_branch_id=None, destination_branch_id=None, purpose,
     items, transfer_date=None, notes='',
 ):
-    """Create a validated Pending transfer without moving stock.
+    """Shared persistence helper for the two explicit stock workflows.
 
     Restricted users always request *for* their assigned branch. For a
     Branch Restock they may name another active branch as the source, but the
@@ -233,9 +261,13 @@ def create_stock_transfer(
             f'No available {location} stock for: ' + ', '.join(unavailable) + '.'
         )
 
-    set_action_label('Created a stock transfer request')
+    set_action_label(
+        'Created a warehouse-to-floor transfer request'
+        if is_restock else 'Created a stock write-off request'
+    )
     with transaction.atomic():
-        transfer = StockTransfer.objects.create(
+        workflow_model = WarehouseFloorTransfer if is_restock else StockWriteOff
+        transfer = workflow_model.objects.create(
             warehouse=warehouse,
             source_branch=source_branch,
             destination_branch=destination_branch,
@@ -257,8 +289,69 @@ def create_stock_transfer(
             f'Requested from {source_branch.branch_name}'
             + (f' for {destination_branch.branch_name}' if destination_branch else ''),
         )
-        transaction.on_commit(lambda pk=transfer.pk: _notify_new_stock_request(pk))
+        notifier = _notify_new_stock_request if is_restock else _notify_new_write_off_request
+        transaction.on_commit(lambda pk=transfer.pk, fn=notifier: fn(pk))
     return transfer
+
+
+def create_warehouse_floor_transfer(
+    *, actor, source_branch_id=None, destination_branch_id=None,
+    items, transfer_date=None, notes='',
+):
+    """Create a warehouse-to-floor request with transfer invariants."""
+    return _create_stock_workflow(
+        actor=actor,
+        source_branch_id=source_branch_id,
+        destination_branch_id=destination_branch_id,
+        purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+        items=items,
+        transfer_date=transfer_date,
+        notes=notes,
+    )
+
+
+def create_stock_write_off(
+    *, actor, source_branch_id=None, purpose, items,
+    transfer_date=None, notes='',
+):
+    """Create a floor-stock write-off with no receiving destination."""
+    if purpose == StockTransfer.Purpose.BRANCH_RESTOCK:
+        raise StockTransferRequestError('Choose a valid write-off reason.')
+    return _create_stock_workflow(
+        actor=actor,
+        source_branch_id=source_branch_id,
+        destination_branch_id=None,
+        purpose=purpose,
+        items=items,
+        transfer_date=transfer_date,
+        notes=notes,
+    )
+
+
+def create_stock_transfer(
+    *, actor, source_branch_id=None, destination_branch_id=None, purpose,
+    items, transfer_date=None, notes='',
+):
+    """Backward-compatible dispatcher for existing API/service callers."""
+    if purpose == StockTransfer.Purpose.BRANCH_RESTOCK:
+        return create_warehouse_floor_transfer(
+            actor=actor,
+            source_branch_id=source_branch_id,
+            destination_branch_id=destination_branch_id,
+            items=items,
+            transfer_date=transfer_date,
+            notes=notes,
+        )
+    if destination_branch_id:
+        raise StockTransferRequestError('A write-off cannot have a destination branch.')
+    return create_stock_write_off(
+        actor=actor,
+        source_branch_id=source_branch_id,
+        purpose=purpose,
+        items=items,
+        transfer_date=transfer_date,
+        notes=notes,
+    )
 
 
 def reconcile_transfer_receipt(*, transfer_id, actor, received_by_item, reason):
@@ -294,8 +387,10 @@ def reconcile_transfer_receipt(*, transfer_id, actor, received_by_item, reason):
             raise StockTransferReceiptError(
                 'Only released withdrawals can be flagged.'
             )
+        if not transfer.is_warehouse_floor_transfer:
+            raise StockTransferReceiptError('Only warehouse-to-floor transfers can be received.')
         if transfer.destination_branch_id is None:
-            raise StockTransferReceiptError('This withdrawal has no receiving branch.')
+            raise StockTransferReceiptError('This transfer has no receiving branch.')
 
         items = list(transfer.items.select_related('product').order_by('pk'))
         expected_ids = {item.pk for item in items}
@@ -341,7 +436,7 @@ def reconcile_transfer_receipt(*, transfer_id, actor, received_by_item, reason):
             StockMovement.objects.create(
                 inventory=inventory,
                 location_type=StockMovement.LocationType.FLOOR,
-                movement_type=StockMovement.MovementType.ADJUSTMENT,
+                movement_type=StockMovement.MovementType.TRANSFER_DISCREPANCY,
                 quantity_change=difference,
                 quantity_before=before,
                 quantity_after=inventory.quantity_on_hand,
@@ -921,6 +1016,77 @@ def credit_floor_stock(
             opening_import_row=opening_import_row,
         )
         return inv, batch, movement
+
+
+def correct_floor_stock_count(
+    *, product, branch, counted_quantity, reason, actor, expiry_date=None,
+):
+    """Set floor stock to a physical count and write one auditable movement.
+
+    The aggregate row and its floor batches are corrected in the same locked
+    transaction. Positive differences create a correction batch; negative
+    differences consume existing batches FEFO, including expired batches
+    because a physical count covers every unit actually present.
+    """
+    reason = (reason or '').strip()
+    if not reason:
+        raise CountCorrectionError('Enter a reason for the correction.')
+    if counted_quantity < 0 or counted_quantity > MAX_STOCK_QUANTITY:
+        raise CountCorrectionError('Enter a valid counted quantity.')
+
+    with transaction.atomic():
+        # This also serializes creation when no Inventory row exists yet.
+        product = Product.objects.select_for_update().get(pk=product.pk)
+        inventory, _ = Inventory.objects.select_for_update().get_or_create(
+            product=product,
+            branch=branch,
+            defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+        )
+        system_quantity = inventory.quantity_on_hand
+        difference = counted_quantity - system_quantity
+
+        if difference > 0:
+            Batch.objects.create(
+                product=product,
+                branch=branch,
+                location=Batch.Location.FLOOR,
+                quantity=difference,
+                received_date=timezone.localdate(),
+                expiry_date=expiry_date,
+                notes=f'Count correction: {reason}',
+            )
+        elif difference < 0:
+            quantity_to_remove = abs(difference)
+            consumed = Batch.consume_fefo(
+                product,
+                branch,
+                Batch.Location.FLOOR,
+                quantity_to_remove,
+                include_expired=True,
+            )
+            if sum(quantity for _, quantity in consumed) != quantity_to_remove:
+                raise CountCorrectionError(
+                    'The floor-stock batches do not match the system quantity. '
+                    'Reconcile the batch records before lowering this count.'
+                )
+
+        inventory.quantity_on_hand = counted_quantity
+        inventory.save()
+        movement = StockMovement.objects.create(
+            inventory=inventory,
+            location_type=StockMovement.LocationType.FLOOR,
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+            quantity_change=difference,
+            quantity_before=system_quantity,
+            quantity_after=counted_quantity,
+            notes=(
+                f'Count correction — system quantity: {system_quantity}; '
+                f'counted quantity: {counted_quantity}; difference: {difference:+d}; '
+                f'reason: {reason}'
+            ),
+            created_by=actor,
+        )
+        return inventory, movement
 
 
 def commit_opening_stock_import(

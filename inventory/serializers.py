@@ -7,7 +7,10 @@ from .models import (
     Product, ProductCategory, ProductPriceTier, Inventory, Warehouse,
     WarehouseStock, Batch, StockTransfer, StockTransferItem, StockMovement,
 )
-from .services import StockTransferRequestError, create_stock_transfer
+from .services import (
+    StockTransferRequestError, create_stock_write_off,
+    create_warehouse_floor_transfer,
+)
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -150,7 +153,12 @@ class WarehouseStockSerializer(serializers.ModelSerializer):
     productId = serializers.PrimaryKeyRelatedField(source='product', read_only=True)
     productName = serializers.CharField(source='product.product_name', read_only=True)
     productSku = serializers.CharField(source='product.sku_code', read_only=True)
-    quantityOnHand = serializers.IntegerField(source='quantity_on_hand')
+    # Quantity is changed only by audited inventory workflows. Keeping the
+    # response field preserves API reads while preventing ModelSerializer
+    # updates from writing the aggregate without its batches/movement.
+    quantityOnHand = serializers.IntegerField(
+        source='quantity_on_hand', read_only=True,
+    )
     reorderLevel = serializers.IntegerField(source='reorder_level')
     restockFlag = serializers.BooleanField(source='restock_flag', read_only=True)
     lastUpdated = serializers.DateTimeField(source='last_updated', read_only=True)
@@ -320,22 +328,32 @@ class StockTransferWriteSerializer(serializers.Serializer):
     def create(self, validated_data):
         request = self.context['request']
         items_data = validated_data.pop('items')
+        purpose = validated_data['purpose']
+        item_payload = [
+            {
+                'product_id': item['productId'],
+                'quantity': item['quantityRequested'],
+            }
+            for item in items_data
+        ]
         try:
-            return create_stock_transfer(
-                actor=request.user,
-                source_branch_id=validated_data.get('sourceBranchId'),
-                destination_branch_id=validated_data.get('destinationBranchId'),
-                purpose=validated_data['purpose'],
-                transfer_date=validated_data.get('transferDate'),
-                notes=validated_data.get('notes', ''),
-                items=[
-                    {
-                        'product_id': item['productId'],
-                        'quantity': item['quantityRequested'],
-                    }
-                    for item in items_data
-                ],
-            )
+            common = {
+                'actor': request.user,
+                'source_branch_id': validated_data.get('sourceBranchId'),
+                'items': item_payload,
+                'transfer_date': validated_data.get('transferDate'),
+                'notes': validated_data.get('notes', ''),
+            }
+            if purpose == StockTransfer.Purpose.BRANCH_RESTOCK:
+                return create_warehouse_floor_transfer(
+                    destination_branch_id=validated_data.get('destinationBranchId'),
+                    **common,
+                )
+            if validated_data.get('destinationBranchId'):
+                raise StockTransferRequestError(
+                    'A write-off cannot have a destination branch.'
+                )
+            return create_stock_write_off(purpose=purpose, **common)
         except StockTransferRequestError as exc:
             raise serializers.ValidationError({'detail': str(exc)}) from exc
 
