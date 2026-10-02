@@ -54,14 +54,16 @@
             {% else %}
               <span class="sp-status-pill sp-status-incoming">Incoming</span>
             {% endif %}
-          {% else %}
+          {% elif o.status in supplier_action_statuses %}
             <span class="sp-status-pill sp-status-pending">Not confirmed</span>
+          {% else %}
+            <span class="sp-status-pill sp-status-waiting">Waiting on GERLYN</span>
           {% endif %}
         </td>
         <td data-label="Action" class="end">
-          <button type="button" class="sp-order-view" onclick="respondTo('{{ o.pk|unlocalize }}')">
+          <a class="sp-order-view" href="#po-detail-row-{{ o.pk|unlocalize }}" onclick="return respondTo(event, '{{ o.pk|unlocalize }}')">
             {% if o.status in supplier_action_statuses %}Respond{% else %}View{% endif %}
-          </button>
+          </a>
         </td>
       </tr>
       <tr class="sp-order-detail" id="po-detail-row-{{ o.pk|unlocalize }}" hidden>

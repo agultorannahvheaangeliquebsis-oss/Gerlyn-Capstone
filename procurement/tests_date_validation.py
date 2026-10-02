@@ -10,7 +10,7 @@ from accounts.models import User
 from branches.models import Branch
 from core.date_validation import TODAY_OR_FUTURE_MESSAGE
 from inventory.models import Product
-from procurement.models import Procurement, ProcurementItem, SupplierProduct
+from procurement.models import DeliveryReceipt, Procurement, ProcurementItem, SupplierProduct
 from procurement.services import apply_agreed_terms
 
 
@@ -99,7 +99,7 @@ class ProcurementDateValidationTests(TestCase):
             'quantity_ordered': ['1'],
         }
 
-    def test_yesterday_rejected_by_template_and_api_with_same_message(self):
+    def test_delivery_date_is_negotiated_and_rejected_at_api_creation(self):
         yesterday = self.today - timedelta(days=1)
         procurement, item = self.make_po()
         self.web.force_login(self.supplier)
@@ -119,12 +119,9 @@ class ProcurementDateValidationTests(TestCase):
         self.assertEqual(procurement.status, Procurement.Status.APPROVED)
         self.assertContains(html_response, TODAY_OR_FUTURE_MESSAGE)
         self.assertEqual(api_response.status_code, 400)
-        self.assertEqual(
-            str(api_response.data['expectedDelivery'][0]),
-            TODAY_OR_FUTURE_MESSAGE,
-        )
+        self.assertIn('set only through supplier negotiation', str(api_response.data['expectedDelivery'][0]))
 
-    def test_today_and_future_are_accepted_by_template_and_api(self):
+    def test_today_and_future_are_accepted_in_negotiation_not_api_creation(self):
         self.web.force_login(self.supplier)
         for offset in (0, 30):
             with self.subTest(offset=offset):
@@ -143,7 +140,7 @@ class ProcurementDateValidationTests(TestCase):
                     self.api_payload(candidate),
                     format='json',
                 )
-                self.assertEqual(api_response.status_code, 201, api_response.data)
+                self.assertEqual(api_response.status_code, 400, api_response.data)
 
     def test_historical_order_dates_remain_allowed(self):
         historical = self.today - timedelta(days=365)
@@ -168,10 +165,11 @@ class ProcurementDateValidationTests(TestCase):
             delivery_date=self.today - timedelta(days=2),
         )
 
-        response = self.api.patch(
-            reverse('api-procurement-status', args=[procurement.pk]),
+        response = self.api.post(
+            reverse('api-procurement-receive', args=[procurement.pk]),
             {
-                'status': Procurement.Status.RECEIVED,
+                'outcome': DeliveryReceipt.Outcome.ACCEPTED,
+                'submissionKey': 'historical-receipt',
                 'actualReceiptDate': historical.isoformat(),
                 'items': [{
                     'itemId': item.pk,

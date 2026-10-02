@@ -1794,7 +1794,7 @@ def _inventory_list_context(request):
         ],
         'can_adjust': can_adjust,
         'can_edit_reorder': can_edit_reorder,
-        'adjust_products': Product.objects.order_by('product_name'),
+        'adjust_products': Product.objects.select_related('category').order_by('product_name'),
         'adjust_stock_levels': adjust_stock_levels,
     }
 
@@ -2408,7 +2408,7 @@ def _warehouse_stock_list_context(request):
             request_warehouse_stock = [
                 s for s in WarehouseStock.objects.filter(
                     warehouse=request_warehouse
-                ).select_related('product').sellable()
+                ).select_related('product', 'product__category').sellable()
                 if s.available_qty > 0
             ]
 
@@ -2891,6 +2891,17 @@ def _transfer_list_context(request):
         status=StockTransfer.Status.RELEASED
     ).count()
 
+    # Symmetric to pending_acknowledgment above, but for the OTHER side of
+    # the same slip: a Branch Manager had no equivalent backlog signal for
+    # restock requests sitting on THEIR desk waiting to be approved, even
+    # though the destination side already gets one for confirming receipt.
+    # Restock-only, like stock_transfers below — a write-off's own approval
+    # queue has no KPI row to live in (the Write-offs tab shows none at all).
+    pending_approval = transfers.filter(
+        status=StockTransfer.Status.PENDING,
+        purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+    ).count()
+
     flagged_discrepancies = transfers.filter(
         status=StockTransfer.Status.DISCREPANCY
     ).count()
@@ -2926,7 +2937,7 @@ def _transfer_list_context(request):
     if create_target_branch:
         create_floor_stock = Inventory.objects.filter(
             branch=create_target_branch, quantity_on_hand__gt=0
-        ).select_related('product')
+        ).select_related('product', 'product__category')
 
     return {
         'transfers': transfers,
@@ -2978,14 +2989,23 @@ def _transfer_list_context(request):
             for value, label in StockTransfer.Purpose.choices
         ],
         'total_released_this_month': total_released_this_month,
+        'pending_approval': pending_approval,
         'pending_acknowledgment': pending_acknowledgment,
         'flagged_discrepancies': flagged_discrepancies,
+        # Gates the new "Waiting on a branch to approve" panel below — Staff
+        # may hold Withdrawals:Edit for confirming receipt on their own
+        # branch, but approving a request is Manager/Owner-only regardless
+        # (see transfer_approve). Without this, a Staff account with that
+        # grant would see a "Review & Approve" link that only ever bounces
+        # them back with "Only Branch Managers and Owners can approve".
+        'can_approve': request.user.role in [User.Role.BRANCH_MANAGER, User.Role.OWNER],
         # Names the window the card above counts. From `today`, which is
         # already localtime()-derived, so it cannot disagree with the
         # month_start/month_end bounds the count itself was filtered on.
         'month_label': today.strftime('%B'),
         'create_target_branch': create_target_branch,
         'create_floor_stock': create_floor_stock,
+        'categories': cached_categories(),
         # Write-offs only — Branch Restock has its own dedicated flow (the
         # Request Stock to Floor modal on Warehouse Stock).
         'write_off_purposes': [
@@ -3820,7 +3840,7 @@ def transfer_flag_discrepancy(request, pk):
     """
     Destination-branch staff flags a discrepancy: the quantity actually
     received differs from what was released. The floor inventory is corrected
-    by the difference and an ADJUSTMENT stock movement is logged for the trail.
+    per product and a TRANSFER_DISCREPANCY movement is logged for the trail.
     """
     if request.user.role not in [
         User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER

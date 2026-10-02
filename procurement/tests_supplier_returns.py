@@ -466,9 +466,11 @@ class ViewTests(ReturnBase):
         self.assertContains(page, 'Record credit')
         self.assertContains(page, 'Receive replacement goods')
         self.assertNotContains(page, 'Cancel this return')
-        # Staff without the Procurement module can't open it at all.
+        # Staff may inspect own-branch evidence, but cannot manage the return.
         self.client.force_login(self.staff)
-        self.assertEqual(self.client.get(url).status_code, 302)
+        page = self.client.get(url)
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, 'Record credit')
 
     def test_po_detail_links_to_returns(self):
         self.client.force_login(self.manager)

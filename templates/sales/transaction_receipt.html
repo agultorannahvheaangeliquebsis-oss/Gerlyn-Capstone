@@ -117,7 +117,7 @@ the same row po_print.html reads.
   </button>
   {# Printed and handed over: the next customer is the next step, same shortcut as the order's own header. #}
   {% if transaction.transaction_type == "Physical" and module_access.sales_pos and base_template == "internal_base.html" %}
-  <a class="btn btn-outline" href="{% url 'transaction_add' %}">New Walk-in Sale</a>
+  <a class="btn btn-outline" href="{% url 'transaction_add' %}">Manual Sales Entry</a>
   {% endif %}
   </div>
 </div>
@@ -167,7 +167,7 @@ let it print too, so nobody is handed a receipt with a broken figure.
 
   <div class="rc-meta">
     <div><span class="k">Receipt No.</span><span class="v">{{ transaction.order_number }}</span></div>
-    {% if transaction.source == "ZANK POS" %}<div><span class="k">Original POS OR</span><span class="v">{{ transaction.pos_invoice_number }}</span></div>{% endif %}
+    {% if transaction.pos_invoice_number %}<div><span class="k">Source Reference</span><span class="v">{{ transaction.pos_invoice_number }}</span></div>{% endif %}
     <div><span class="k">Date</span><span class="v">{{ transaction.transaction_date|date:"d M Y, g:i A" }}</span></div>
     <div><span class="k">Channel</span><span class="v">{% if transaction.transaction_type == "Online" %}Online{% else %}In-Store{% endif %}</span></div>
     <div><span class="k">Customer</span><span class="v">{% if transaction.customer %}{{ transaction.customer.get_full_name|default:transaction.customer.username }}{% else %}Walk-in{% endif %}</span></div>

@@ -3101,3 +3101,26 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   .bk-check-name, .bk-check-detail { grid-column: 2; }
   .bk-form > .input, .bk-form > select, .bk-form > .btn { flex: 1 1 100%; }
 }
+
+/* ---- Audit Log (audit/audit_log_list.html, audit/audit_action_detail.html)
+   — page-scoped so the shared .gv-table/.pill/.field-static/.icon-btn rules
+   stay untouched everywhere else (see
+   feedback-scope-visual-changes-to-named-pages). Three readability passes
+   over the stock .gv-table row: a left accent bar that repeats the Action
+   pill's colour so a long list can be scanned by colour alone; the
+   timestamp split from its IP so the "when" actually reads first; and the
+   "View processes" link trimmed to the same icon-only .icon-btn every other
+   list's View/Edit column already uses, its process count moved up to the
+   Action column (as a .gv-meta line, same spot Actor's role and Record's
+   branch already sit) instead of trailing the summary text. */
+.audit-row--create td:first-child { border-left: 3px solid var(--ok-dot); }
+.audit-row--update td:first-child { border-left: 3px solid var(--info-dot); }
+.audit-row--delete td:first-child { border-left: 3px solid var(--danger-dot); }
+.audit-row--mixed  td:first-child { border-left: 3px solid var(--ink-400); }
+
+.audit-when-ts { color: var(--ink-900); }
+.audit-when-ip { margin-top: 2px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+.audit-what { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
+.audit-what-text { flex: 1 1 240px; }
+.audit-what .icon-btn { flex: none; }

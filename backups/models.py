@@ -3,6 +3,21 @@ from django.db import models
 from django.utils import timezone
 
 
+class BackupLock(models.Model):
+    """One singleton row, locked with select_for_update() to serialize the
+    check-then-reserve step in backups.service.run_backup.
+
+    Without it, two near-simultaneous "Run Now" clicks (or a click racing
+    the daily scheduler) can each see active_run_exists() == False before
+    either has written its first RUNNING BackupRun row, and both start a
+    real backup process (KATRINA-BACKUP-001). The row itself carries no
+    data — only its row lock matters — and is held for the brief
+    check-and-reserve, not the whole backup.
+    """
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+
+
 class BackupRun(models.Model):
     """One backed-up artifact from one backup run.
 
@@ -27,6 +42,14 @@ class BackupRun(models.Model):
     kind = models.CharField(max_length=10, choices=Kind.choices)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
     trigger = models.CharField(max_length=10, blank=True)
+    # Who clicked "Run Now" (KATRINA-BACKUP-002) — null for the daily
+    # scheduler, the external cron endpoint, and any run from before this
+    # field existed. SET_NULL rather than losing the row: the backup
+    # history must outlive the account that triggered it.
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+',
+    )
     started_at = models.DateTimeField(default=timezone.now, db_index=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     size_bytes = models.PositiveBigIntegerField(null=True, blank=True)

@@ -10,6 +10,7 @@ from openpyxl import Workbook
 
 from accounts.models import BranchManagerProfile, User
 from branches.models import Branch
+from core.module_permissions import DELETE, SALES_POS, URL_NAME_TO_MODULE, WITHDRAWALS
 from inventory.models import Inventory, Product, StockMovement
 
 from .models import PosSalesImport, SalesTransaction
@@ -119,6 +120,19 @@ class PosSalesImportTests(TestCase):
         latest = PosSalesImport.objects.first()
         self.assertEqual(latest.skipped_duplicates, 1)
 
+    def test_manual_entry_reference_is_a_duplicate_for_pos_import(self):
+        SalesTransaction.objects.create(
+            branch=self.branch,
+            source='Manual Entry',
+            pos_invoice_number='OR-1001',
+            total_amount=Decimal('190.00'),
+        )
+
+        response = self.upload([self.row(invoice='or-1001')])
+
+        self.assertEqual(response.context['preview']['summary']['duplicates'], 1)
+        self.assertEqual(response.context['preview']['summary']['valid_transactions'], 0)
+
     def test_invalid_file_type_has_clear_error(self):
         response = self.client.post(reverse('pos_sales_import'), {
             'branch': self.branch.pk,
@@ -141,6 +155,13 @@ class PosSalesImportTests(TestCase):
         self.assertTemplateUsed(response, 'sales/_pos_import_modal.html')
         self.assertContains(response, 'id="open-pos-import-modal"')
         self.assertContains(response, 'id="pos-import-modal" data-autoopen="0"')
+        self.assertContains(
+            response,
+            'class="btn btn-primary" id="open-pos-import-modal">Import POS Sales',
+        )
+        self.assertContains(response, 'Manual Sales Entry')
+        header = response.content.decode()
+        self.assertLess(header.index('Manual Sales Entry'), header.index('Import POS Sales'))
 
     def test_import_history_hosts_upload_modal(self):
         response = self.client.get(reverse('pos_sales_import_history'))
@@ -276,6 +297,34 @@ class PosSalesImportTests(TestCase):
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity_on_hand, 20)
         self.assertEqual(StockMovement.objects.filter(quantity_change=2).count(), 1)
+
+    def test_manager_with_sales_delete_can_undo_without_transfer_delete(self):
+        self.upload([self.row(invoice='OR-RBAC-UNDO')])
+        self.confirm()
+        import_batch = PosSalesImport.objects.get()
+        manager = User.objects.create_user(
+            username='sales-delete-manager', password='pw',
+            role=User.Role.BRANCH_MANAGER,
+            allowed_modules=[SALES_POS],
+            module_actions={SALES_POS: [DELETE], WITHDRAWALS: []},
+        )
+        manager.manager_profile.branch = self.branch
+        manager.manager_profile.save(update_fields=['branch'])
+        self.client.force_login(manager)
+
+        response = self.client.post(
+            reverse('pos_sales_import_undo', args=[import_batch.pk]),
+            {'reason': 'Wrong daily export'},
+        )
+
+        self.assertRedirects(
+            response, reverse('pos_sales_import_history'), fetch_redirect_response=False,
+        )
+        import_batch.refresh_from_db()
+        self.assertEqual(import_batch.reversed_by, manager)
+        self.assertEqual(
+            URL_NAME_TO_MODULE['pos_sales_import_undo'], SALES_POS,
+        )
 
     def test_undo_failure_rolls_back_all_reversals(self):
         self.upload([self.row(invoice='OR-U1'), self.row(invoice='OR-U2')])

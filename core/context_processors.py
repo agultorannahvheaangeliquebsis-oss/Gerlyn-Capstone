@@ -242,14 +242,22 @@ def alerts(request):
     """
     Expose `alert_count` for the sidebar/bottom-nav badge.
 
+    Counts everything the Alerts Center page itself surfaces as needing
+    attention — floor low stock, warehouse low stock, expired/expiring/
+    approaching-expiry batches, and overdue deliveries (see
+    inventory.alerts.urgent_alert_count) — so a badge of 0 means nothing on
+    that page is waiting. Previously counted floor low stock only, which
+    could read 0 while the page it links to had expired batches or overdue
+    deliveries sitting on it (KATRINA-ALERT-001).
+
     Branch-scoped: a manager sees only their own branch's alert count.
     Kept cheap and fail-safe — a badge must never break a page render.
 
     Cached per-user for ALERT_COUNT_CACHE_SECONDS: this runs on every single
     internal page render (it's a context processor), but stock levels don't
-    change every second, so re-running the low_stock_alerts join on every
-    nav click was pure latency with nothing to show for it. A stale badge
-    for up to 30s is a fine trade against paying a DB round trip per click.
+    change every second, so re-running the alert queries on every nav click
+    was pure latency with nothing to show for it. A stale badge for up to
+    30s is a fine trade against paying several DB round trips per click.
     """
     user = getattr(request, "user", None)
     if not user or not user.is_authenticated:
@@ -273,9 +281,9 @@ def alerts(request):
         return {"alert_count": count}
 
     try:
-        from inventory.alerts import low_stock_alerts
+        from inventory.alerts import urgent_alert_count
 
-        count = len(low_stock_alerts(branch_ids_for_user(user)))
+        count = urgent_alert_count(branch_ids_for_user(user))
     except Exception:
         return {}
 

@@ -225,7 +225,7 @@
       </td>
       <td class="num">{{ item.product.unit_of_measure|default:"&mdash;" }}</td>
       <td class="num">{{ item.quantity_ordered }}</td>
-      <td class="num">PHP {{ item.cost_price|floatformat:2 }}</td>
+      <td class="num">{% if item.unit_cost_snapshot is not None %}PHP {{ item.unit_cost_snapshot|floatformat:2 }}{% else %}Pending{% endif %}</td>
       <td class="num">PHP {{ item.line_total|floatformat:2 }}</td>
     </tr>
     {% empty %}
@@ -262,7 +262,7 @@
 
 {% if receipts %}
 <p style="margin-top:14px; font-size:9pt;">
-  {% for r in receipts %}Received into stock by {{ r.received_by_name|default:"-" }}{% if r.receipt_date %} on {{ r.receipt_date|date:"Y-m-d" }}{% endif %}{% if r.delivered_by %} (delivered by {{ r.delivered_by }}){% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}.
+  {% for r in receipts %}{% if r.outcome == "Rejected" %}Rejected by {{ r.received_by_name|default:"-" }}{% else %}Received into stock by {{ r.received_by_name|default:"-" }}{% endif %}{% if r.receipt_date %} on {{ r.receipt_date|date:"Y-m-d" }}{% endif %}{% if r.rejection_reason %} - {{ r.rejection_reason }}{% endif %}{% if r.delivered_by %} (delivered by {{ r.delivered_by }}){% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}.
 </p>
 {% endif %}
 

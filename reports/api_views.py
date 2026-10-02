@@ -27,7 +27,7 @@ from accounts.models import User
 from core.timebounds import local_range_bounds, range_from_request, range_problem
 from reports.services import (
     gross_sales_total, low_stock_count, pipeline_sales, pipeline_value_total,
-    procurement_cost_total, refund_value_total, revenue_sales,
+    procurement_cost_total, procurement_return_totals, refund_value_total, revenue_sales,
     sales_range_totals, scoped_report_querysets, scoped_sales_in_range,
 )
 
@@ -123,6 +123,7 @@ class DashboardSummaryAPIView(APIView):
             status__in=Procurement.COMMITTED_OPEN_STATUSES
         ).count()
         total_procurement_cost = procurement_cost_total(ranged_procurement_qs)
+        procurement_returns = procurement_return_totals(ranged_procurement_qs)
         total_products = Product.objects.count()
 
         return Response({
@@ -154,6 +155,10 @@ class DashboardSummaryAPIView(APIView):
             ],
             'lowStockCount': low_stock,
             'totalProcurementCost': total_procurement_cost,
+            'grossProcurement': total_procurement_cost,
+            'supplierReturnValue': procurement_returns['returned_goods'],
+            'supplierCreditValue': procurement_returns['credits'],
+            'netProcurement': total_procurement_cost - procurement_returns['net_adjustment'],
             'pendingOrders': pending_orders,
             'activeRange': active_range,
             'rangeStart': range_start,

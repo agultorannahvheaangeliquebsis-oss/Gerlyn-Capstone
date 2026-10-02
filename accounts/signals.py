@@ -2,7 +2,7 @@ from django.contrib.auth.signals import user_logged_out
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from core.module_permissions import DEFAULT_STAFF_MODULES
+from core.module_permissions import role_permission_defaults
 
 from .models import (
     User, OwnerProfile, BranchManagerProfile,
@@ -16,6 +16,16 @@ def create_user_profile(sender, instance, created, **kwargs):
         return  # only run when a NEW user is created, not on every save
 
     role = instance.role
+    defaults = role_permission_defaults(role)
+    # JSONField defaults cannot depend on another field, so apply the selected
+    # role's matrix defaults immediately after creation. Keep the in-memory
+    # object synchronized with the database update too.
+    instance.allowed_modules = defaults['allowed_modules']
+    instance.module_actions = defaults['module_actions']
+    User.objects.filter(pk=instance.pk).update(
+        allowed_modules=instance.allowed_modules,
+        module_actions=instance.module_actions,
+    )
 
     if role == User.Role.OWNER and not hasattr(instance, 'owner_profile'):
         OwnerProfile.objects.create(user=instance, owner_name=instance.username)
@@ -25,14 +35,6 @@ def create_user_profile(sender, instance, created, **kwargs):
 
     elif role == User.Role.STAFF and not hasattr(instance, 'staff_profile'):
         StaffProfile.objects.create(user=instance, staff_name=instance.username)
-        # New Staff default to what Staff could already do before per-user
-        # module permissions existed — NOT the field's full-list default
-        # (that one's meant for Branch Manager, whose access was already
-        # everything) — so creating an account never silently starts it
-        # with more access than the Staff role ever had. .update() bypasses
-        # save() so this doesn't re-trigger this same post_save signal.
-        User.objects.filter(pk=instance.pk).update(allowed_modules=DEFAULT_STAFF_MODULES)
-
         from core.notifications import CATEGORY_STAFF, PRIORITY_LOW, notify
 
         # No required_module: a new hire's own roster entry is Administration-

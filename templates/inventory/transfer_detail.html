@@ -26,6 +26,22 @@
     </div>
   </div>
 
+  {% comment %}
+  Shown to BOTH sides of the slip and regardless of whether this viewer's
+  account can act on it — the action buttons below are gated on role, branch
+  side, and module edit permission, so a viewer missing any one of those saw
+  the items table and nothing else, with no way to tell whether the slip was
+  simply not their turn or actually stuck. This answers that on its own,
+  independent of what the viewer below is allowed to do about it.
+  {% endcomment %}
+  {% if transfer.status == 'Pending' %}
+  <p class="gv-meta">Waiting on {{ transfer.source_branch }} to review and approve.</p>
+  {% elif transfer.status == 'Approved' %}
+  <p class="gv-meta">Approved — waiting on {{ transfer.source_branch }} to {% if transfer.purpose == 'Branch Restock' %}release the stock{% else %}complete the write-off{% endif %}.</p>
+  {% elif transfer.status == 'Released' %}
+  <p class="gv-meta">Moved to the floor — waiting on {{ transfer.destination_branch }} to confirm receipt.</p>
+  {% endif %}
+
   <div class="stack" style="gap:8px; margin:12px 0;">
     <div class="row wrap" style="gap:8px 32px;">
       <div><span class="gv-meta">From</span> {{ transfer.source_branch }}</div>

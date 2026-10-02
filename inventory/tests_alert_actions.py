@@ -321,8 +321,12 @@ class NotificationLinkTests(_Fixture):
     def setUp(self):
         super().setUp()
         # Staff who can see stock but NOT the Alerts Center - the bounced case.
-        self.stock_only_staff = self.make_user('a-stock', User.Role.STAFF)
+        # The module list is explicit because the role matrix's default Staff
+        # now include ALERTS and PRODUCTS.
+        self.stock_only_staff = self.make_user(
+            'a-stock', User.Role.STAFF, modules=[FLOOR_STOCK, WAREHOUSE_STOCK])
         self.assertNotIn(ALERTS, self.stock_only_staff.allowed_modules)
+        self.assertNotIn(PRODUCTS, self.stock_only_staff.allowed_modules)
 
     def assert_every_recipient_can_open(self, event_type, expect_users, warehouse=None):
         rows = list(Notification.objects.filter(event_type=event_type))

@@ -373,6 +373,43 @@ class ManualExpiryWriteOffViewTests(TestCase):
         batch.refresh_from_db()
         self.assertEqual(batch.quantity, 6)  # untouched
 
+    def test_default_staff_can_write_off_an_expired_lot_in_their_own_branch(self):
+        """KATRINA-RBAC-001: the view has always allowed Staff, but a
+        default Staff account's module permissions used to block it before
+        the view's own role check was ever reached. Staff created here get
+        whatever core.module_permissions.ROLE_DEFAULT_ACTIONS currently
+        grants — no custom permission is set up in this test."""
+        staff = User.objects.create_user(
+            username='mwo-staff', password='pw', role=User.Role.STAFF,
+        )
+        staff.staff_profile.branch = self.branch
+        staff.staff_profile.save()
+        self.client.force_login(staff)
+        batch = self._due_warehouse_batch(quantity=6)
+
+        response = self.client.post(reverse('expiry_write_off', args=[batch.pk]))
+
+        self.assertRedirects(response, reverse('alerts_center'))
+        batch.refresh_from_db()
+        self.assertEqual(batch.quantity, 0)
+
+    def test_default_staff_is_still_refused_at_another_branch(self):
+        """Granting the module action does not relax the existing branch
+        safeguard in inventory.views.expiry_write_off."""
+        staff = User.objects.create_user(
+            username='mwo-staff-other', password='pw', role=User.Role.STAFF,
+        )
+        staff.staff_profile.branch = self.branch
+        staff.staff_profile.save()
+        self.client.force_login(staff)
+        batch = self._due_warehouse_batch(branch=self.other_branch, quantity=6)
+
+        response = self.client.post(reverse('expiry_write_off', args=[batch.pk]))
+
+        self.assertRedirects(response, reverse('alerts_center'))
+        batch.refresh_from_db()
+        self.assertEqual(batch.quantity, 6)  # untouched
+
     def test_the_manual_write_off_still_sends_no_notification(self):
         batch = self._due_warehouse_batch(quantity=6)
 

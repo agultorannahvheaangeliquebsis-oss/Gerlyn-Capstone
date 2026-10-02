@@ -62,7 +62,7 @@
         </td>
         <td class="num sp-order-total">₱{{ o.total_cost|floatformat:2 }}</td>
         <td class="end">
-          <button type="button" class="sp-btn-outline" onclick="respondTo('{{ o.pk|unlocalize }}')">View</button>
+          <a class="sp-btn-outline" href="#po-detail-row-{{ o.pk|unlocalize }}" onclick="return respondTo(event, '{{ o.pk|unlocalize }}')">View</a>
         </td>
       </tr>
       <tr class="sp-order-detail" id="po-detail-row-{{ o.pk|unlocalize }}" hidden>
@@ -113,10 +113,10 @@ Dashboard, unchanged (Acknowledge/Reject with an optional reason).
         </td>
         <td class="end">
           {% if r.status == "Requested" %}
-          <form method="POST" action="{% url 'supplier_return_respond' r.pk %}" style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+          <form method="POST" action="{% url 'supplier_return_respond' r.pk %}" class="sp-return-respond-form" style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <input type="text" name="note" maxlength="200" placeholder="Reason, if rejecting" aria-label="Reason for rejecting {{ r.return_number }}" style="width:150px; height:34px; border-radius:7px; border:1px solid var(--sp-border); padding:0 8px;">
+            <input type="text" name="note" maxlength="200" placeholder="Reason — required to reject" aria-label="Reason for rejecting {{ r.return_number }}, required if rejecting" style="width:150px; height:34px; border-radius:7px; border:1px solid var(--sp-border); padding:0 8px;">
             <button type="submit" name="decision" value="reject" class="sp-btn-outline" style="color:var(--danger-fg);">Reject</button>
             <button type="submit" name="decision" value="acknowledge" class="sp-resp-btn">Acknowledge</button>
           </form>
@@ -162,7 +162,7 @@ Dashboard, unchanged (Acknowledge/Reject with an optional reason).
         <td data-label="Total" class="num sp-order-total">₱{{ o.total_cost|floatformat:2 }}</td>
         <td data-label="Status"><span class="sp-status-pill sp-status-delivered">Delivered</span></td>
         <td data-label="Action" class="end">
-          <button type="button" class="sp-order-view" onclick="respondTo('{{ o.pk|unlocalize }}')">View</button>
+          <a class="sp-order-view" href="#po-detail-row-{{ o.pk|unlocalize }}" onclick="return respondTo(event, '{{ o.pk|unlocalize }}')">View</a>
         </td>
       </tr>
       <tr class="sp-order-detail" id="po-detail-row-{{ o.pk|unlocalize }}" hidden>
@@ -181,4 +181,25 @@ Dashboard, unchanged (Acknowledge/Reject with an optional reason).
   <p class="sp-empty-note">Nothing delivered yet.</p>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+// supplier_return_respond (services.respond_to_return) requires a note when
+// rejecting but not when acknowledging — the same field backs both buttons,
+// so the constraint can only be set once we know which was clicked. Set it
+// in the click handler, synchronously before the browser runs its native
+// validation on submit, so a reason-less Reject is caught in the browser
+// with the field's own focus/tooltip instead of round-tripping to the
+// server for the same ReturnError the Notes hint now also names up front.
+document.querySelectorAll('.sp-return-respond-form').forEach(function (form) {
+  var note = form.querySelector('[name=note]');
+  if (!note) return;
+  form.querySelectorAll('[name=decision]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      note.required = btn.value === 'reject';
+    });
+  });
+});
+</script>
 {% endblock %}

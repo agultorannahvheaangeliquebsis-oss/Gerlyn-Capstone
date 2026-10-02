@@ -396,3 +396,32 @@ def alert_summary(branch_ids=None):
         "expiry_soon": expiry["Expiring Soon"],
         "expiry_approaching": expiry["Approaching Expiry"],
     }
+
+
+def urgent_alert_count(branch_ids=None):
+    """The total number of items the Alerts Center page itself surfaces as
+    needing attention: every row on its Low Floor Stock, Low Warehouse
+    Stock, Expired, Expiring Soon and Approaching Expiry tabs, plus its
+    Overdue Deliveries panel.
+
+    This is the one definition the sidebar/bottom-nav Alerts badge
+    (core.context_processors.alerts) must read, so a badge of 0 means
+    nothing on that page is waiting — KATRINA-ALERT-001. `critical_count`/
+    `warehouse_critical_count` are a severity tag on a subset of
+    `low_count`/`warehouse_low_count` respectively, not a separate group of
+    rows, so they are deliberately excluded here to avoid double-counting.
+    """
+    summary = alert_summary(branch_ids)
+    # Deferred import: procurement already depends on inventory, not the
+    # other way round — same reasoning as inventory.views.alerts_center's
+    # own import of this.
+    from procurement.services import overdue_orders
+
+    return (
+        summary["low_count"]
+        + summary["warehouse_low_count"]
+        + summary["expired_count"]
+        + summary["expiring_soon_count"]
+        + summary["approaching_expiry_count"]
+        + overdue_orders(branch_ids).count()
+    )

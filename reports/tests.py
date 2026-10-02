@@ -1,4 +1,6 @@
-from datetime import timedelta
+import csv
+import io
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.test import Client, SimpleTestCase, TestCase
@@ -6,14 +8,16 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
+from billing.models import BillingRecord
 from branches.models import Branch
 from inventory.models import Batch, Inventory, Product, ProductCategory
-from procurement.models import Procurement
+from procurement.models import Procurement, ProcurementItem, SupplierReturn, SupplierReturnItem
 from sales.models import Refund, SalesItem, SalesTransaction
 from reports.views import (
     NON_PERFORMING_SALES_WINDOW_DAYS,
     _dashboard_branch_breakdown,
     _dashboard_daily_series,
+    _dashboard_metrics,
     _dashboard_range_totals,
     _delta_pill,
     _delta_tint,
@@ -398,6 +402,178 @@ class WebApiReportingParityTests(TestCase):
         self.assertEqual(inventory_ctx['low_critical_count'], 1)
         self.assertEqual(dashboard_ctx['inventory_low_critical'], 1)
         self.assertEqual(api['lowStockCount'], inventory_ctx['low_critical_count'])
+
+
+class DashboardProcurementNetReconciliationTests(TestCase):
+    """KATRINA-REPORT-001: the Dashboard's Procurement Cost KPI must equal
+    gross procurement minus supplier returns/credits for the same scope —
+    the same Net Procurement figure the Procurement Report shows — not the
+    unadjusted gross total the two used to disagree on."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='net-proc-owner', password='pw', role=User.Role.OWNER,
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='Net Procurement Branch', location='Baliuag', owner=cls.owner,
+        )
+        cls.supplier = User.objects.create_user(
+            username='net-proc-supplier', password='pw', role=User.Role.SUPPLIER,
+        )
+        product = Product.objects.create(
+            sku_code='SKU-NET-PROC', product_name='Net Procurement Product', unit_price=10,
+        )
+        cls.today = timezone.localdate()
+        cls.po = Procurement.objects.create(
+            branch=cls.branch, supplier=cls.supplier, order_date=cls.today,
+            status=Procurement.Status.RECEIVED, total_cost=Decimal('1000.00'),
+        )
+        item = ProcurementItem.objects.create(
+            procurement=cls.po, product=product,
+            quantity_ordered=20, quantity_received=20,
+            unit_cost_snapshot=Decimal('50.00'),
+        )
+        supplier_return = SupplierReturn.objects.create(
+            procurement=cls.po, supplier=cls.supplier, branch=cls.branch,
+            reason=SupplierReturn.Reason.DAMAGED, status=SupplierReturn.Status.SHIPPED,
+            requested_by=cls.owner,
+        )
+        SupplierReturnItem.objects.create(
+            supplier_return=supplier_return, procurement_item=item, product=product,
+            quantity_returned=4,  # 4 * 50.00 = 200.00 returned-goods deduction
+        )
+        cls.expected_net = Decimal('800.00')  # 1000.00 - 200.00
+
+    def test_dashboard_kpi_matches_procurement_report_net_figure(self):
+        metrics = _dashboard_metrics(
+            SalesTransaction.objects.none(),
+            Procurement.objects.filter(pk=self.po.pk),
+            self.today, self.today,
+        )
+        self.assertEqual(metrics['totals']['procurement_cost'], self.expected_net)
+
+        client = Client()
+        client.force_login(self.owner)
+        procurement_ctx = client.get('/reports/procurement/', {
+            'range': 'custom', 'date_from': self.today.isoformat(), 'date_to': self.today.isoformat(),
+        }).context
+
+        self.assertEqual(procurement_ctx['gross_procurement'], Decimal('1000.00'))
+        self.assertEqual(procurement_ctx['supplier_return_value'], Decimal('200.00'))
+        self.assertEqual(procurement_ctx['net_procurement'], self.expected_net)
+        self.assertEqual(
+            metrics['totals']['procurement_cost'], procurement_ctx['net_procurement'],
+        )
+
+    def test_dashboard_kpi_card_label_reads_net_procurement(self):
+        client = Client()
+        client.force_login(self.owner)
+        response = client.get(reverse('accounts:owner_dashboard'), {
+            'range': 'custom', 'date_from': self.today.isoformat(), 'date_to': self.today.isoformat(),
+        })
+
+        card = next(c for c in response.context['kpi_cards'] if c['key'] == 'procurement_cost')
+        self.assertEqual(card['label'], 'Net Procurement')
+        self.assertEqual(card['value_display'], f'₱{self.expected_net:,.2f}')
+
+
+class ProcurementAndBillingCsvRangeTests(TestCase):
+    """KATRINA-REPORT-002: the Procurement and Billing CSV exports used to
+    always dump the branch's whole history, silently ignoring whatever
+    date range the report page they were launched from was filtered to —
+    unlike the Sales export, which already honoured it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='csv-range-owner', password='pw', role=User.Role.OWNER,
+        )
+        cls.branch = Branch.objects.create(
+            branch_name='CSV Range Branch', location='Baliuag', owner=cls.owner,
+        )
+        supplier = User.objects.create_user(
+            username='csv-range-supplier', password='pw', role=User.Role.SUPPLIER,
+        )
+        cls.in_range_po = Procurement.objects.create(
+            branch=cls.branch, supplier=supplier, order_date=date(2026, 6, 15),
+            status=Procurement.Status.RECEIVED, total_cost=Decimal('100.00'),
+        )
+        cls.out_of_range_po = Procurement.objects.create(
+            branch=cls.branch, supplier=supplier, order_date=date(2026, 1, 1),
+            status=Procurement.Status.RECEIVED, total_cost=Decimal('200.00'),
+        )
+
+        cls.in_range_txn = SalesTransaction.objects.create(
+            branch=cls.branch, total_amount=300,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        BillingRecord.objects.filter(pk=cls.in_range_txn.billing_record.pk).update(
+            date_recorded=timezone.make_aware(datetime(2026, 6, 15, 12, 0)),
+        )
+        cls.out_of_range_txn = SalesTransaction.objects.create(
+            branch=cls.branch, total_amount=400,
+            transaction_type=SalesTransaction.TransactionType.PHYSICAL,
+            mode_of_payment=SalesTransaction.ModeOfPayment.CASH,
+        )
+        BillingRecord.objects.filter(pk=cls.out_of_range_txn.billing_record.pk).update(
+            date_recorded=timezone.make_aware(datetime(2026, 1, 1, 12, 0)),
+        )
+
+    def _rows(self, kind, params):
+        client = Client()
+        client.force_login(self.owner)
+        response = client.get(reverse('export_csv', args=[kind]), params)
+        return response, list(csv.reader(io.StringIO(response.content.decode())))
+
+    def test_procurement_csv_with_a_range_holds_only_that_ranges_rows(self):
+        response, rows = self._rows('procurement', {
+            'range': 'custom', 'date_from': '2026-06-01', 'date_to': '2026-06-30',
+        })
+        po_numbers = {row[0] for row in rows[1:]}
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.in_range_po.po_number, po_numbers)
+        self.assertNotIn(self.out_of_range_po.po_number, po_numbers)
+
+    def test_procurement_csv_without_a_range_is_still_the_full_export(self):
+        _, rows = self._rows('procurement', {})
+        po_numbers = {row[0] for row in rows[1:]}
+        self.assertIn(self.in_range_po.po_number, po_numbers)
+        self.assertIn(self.out_of_range_po.po_number, po_numbers)
+
+    def test_billing_csv_with_a_range_holds_only_that_ranges_rows(self):
+        response, rows = self._rows('billing', {
+            'range': 'custom', 'date_from': '2026-06-01', 'date_to': '2026-06-30',
+        })
+        order_numbers = {row[0] for row in rows[1:]}
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.in_range_txn.order_number, order_numbers)
+        self.assertNotIn(self.out_of_range_txn.order_number, order_numbers)
+
+    def test_billing_csv_without_a_range_is_still_the_full_export(self):
+        _, rows = self._rows('billing', {})
+        order_numbers = {row[0] for row in rows[1:]}
+        self.assertIn(self.in_range_txn.order_number, order_numbers)
+        self.assertIn(self.out_of_range_txn.order_number, order_numbers)
+
+    def test_procurement_csv_with_a_bad_range_redirects_with_a_message(self):
+        response, _ = self._rows('procurement', {'range': 'custom'})
+        self.assertRedirects(response, reverse('procurement_report'))
+
+    def test_billing_csv_with_a_bad_range_redirects_with_a_message(self):
+        response, _ = self._rows('billing', {'range': 'custom'})
+        self.assertRedirects(response, reverse('billing_report'))
+
+    def test_inventory_csv_ignores_range_params_and_stays_a_full_snapshot(self):
+        """Deliberately unchanged: Inventory is a live snapshot with no date
+        axis, same as the Inventory Report tab itself — nothing to filter
+        a range against."""
+        response, rows = self._rows('inventory', {
+            'range': 'custom', 'date_from': '2026-06-01', 'date_to': '2026-06-30',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(len(rows), 1)
 
 
 class BillingReportRowsLinkToBillingDetailTests(TestCase):

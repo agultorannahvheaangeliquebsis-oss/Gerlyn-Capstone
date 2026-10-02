@@ -3,16 +3,17 @@ from django.contrib import messages
 from django.contrib.auth import password_validation
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Count, Sum
+from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User
 from core.module_permissions import ALL_MODULE_CODES
 from core.refdata import bust_branches_cache
-from inventory.models import Inventory, Warehouse
+from inventory.models import Warehouse
 
 from .models import Branch
+from .services import BranchDeletionBlocked, delete_branch_if_safe
 
 
 def _branch_list_context():
@@ -180,21 +181,13 @@ def branch_delete(request, pk):
         return redirect('accounts:home')
 
     branch = get_object_or_404(Branch, pk=pk)
-    stock_on_hand = Inventory.objects.filter(branch=branch).aggregate(
-        total=Sum('quantity_on_hand')
-    )['total'] or 0
-    staff_count = User.objects.filter(staff_profile__branch=branch).count()
 
     if request.method == 'POST':
-        if stock_on_hand or staff_count:
-            messages.error(
-                request,
-                'Cannot delete a branch that still holds stock or has staff assigned.'
-            )
+        try:
+            name = delete_branch_if_safe(branch.pk)
+        except BranchDeletionBlocked as exc:
+            messages.error(request, str(exc))
             return redirect('branch_list')
-        name = branch.branch_name
-        branch.delete()
-        bust_branches_cache()
         messages.success(request, f'Branch "{name}" deleted.')
         return redirect('branch_list')
 

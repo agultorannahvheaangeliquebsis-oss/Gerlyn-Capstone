@@ -59,17 +59,15 @@
         <p class="gv-meta ap-map-help">Click the map or drag the pin when an automatic result is imprecise. Moving it updates coordinates immediately.</p>
         {% if MAP_TILE_ATTRIBUTION %}<p class="gv-meta ap-map-attribution">{{ MAP_TILE_ATTRIBUTION }}</p>{% endif %}
 
-        <div class="edit-grid ap-coordinate-grid">
-          <div class="field">
-            <label for="ap-latitude-input">Latitude</label>
-            <input type="number" step="0.000001" min="-90" max="90" name="latitude" id="ap-latitude-input" inputmode="decimal">
-          </div>
-          <div class="field">
-            <label for="ap-longitude-input">Longitude</label>
-            <input type="number" step="0.000001" min="-180" max="180" name="longitude" id="ap-longitude-input" inputmode="decimal">
-          </div>
-        </div>
-        <button type="button" class="btn btn-sm btn-quiet" id="ap-apply-coordinates">Place pin at coordinates</button>
+        {% comment %}
+        Hidden, not removed: the map (click/drag/arrow-key on the pin) is
+        now the only way to set these — typing raw coordinates was the
+        tedious path customer feedback flagged. placeMarker() in
+        address-picker.js still writes here on every pin move, and
+        collectValues()/save() still read from here on submit.
+        {% endcomment %}
+        <input type="hidden" name="latitude" id="ap-latitude-input">
+        <input type="hidden" name="longitude" id="ap-longitude-input">
 
         <div class="ap-reverse-confirm" id="ap-reverse-confirm" hidden>
           <p><strong>Address near this pin:</strong> <span id="ap-reverse-label"></span></p>

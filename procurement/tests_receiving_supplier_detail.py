@@ -12,8 +12,9 @@ from decimal import Decimal
 from django.test import TestCase
 from django.urls import reverse
 
-from accounts.models import BranchManagerProfile, User
+from accounts.models import BranchManagerProfile, StaffProfile, User
 from branches.models import Branch
+from core.module_permissions import PROCUREMENT
 from inventory.models import Product
 from accounts.models import SupplierProfile
 from procurement.models import Procurement, ProcurementItem
@@ -117,3 +118,72 @@ class SupplierDetailReadOnlyCueTests(TestCase):
         ).content.decode()
         self.assertIn('Awaiting a decision', html)
         self.assertNotIn('Only the Owner can approve or reject these.', html)
+
+    def test_staff_can_open_the_page_the_supplier_list_links_them_to(self):
+        # supplier_list links every row's name/product-count/pending-count
+        # straight into supplier_detail for Staff too (both views share the
+        # same PROCUREMENT view grant). Staff used to land on "Access
+        # denied" the moment they followed one of those links.
+        staff = User.objects.create_user(
+            username='sdro-staff', password='pw', role=User.Role.STAFF)
+        StaffProfile.objects.update_or_create(
+            user=staff,
+            defaults={'branch': self.branch, 'staff_name': 'S', 'contact_number': '0'})
+        # Default Staff modules don't include Procurement — grant it the same
+        # way an Owner would from User Management, same as other tests that
+        # exercise a Staff account against this module.
+        staff.refresh_from_db()
+        staff.allowed_modules = [*staff.allowed_modules, PROCUREMENT]
+        staff.save(update_fields=['allowed_modules'])
+        self.client.force_login(staff)
+        response = self.client.get(
+            reverse('supplier_detail', args=[self.supplier.pk]))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertNotIn('Access denied', html)
+        # Read-only, same as a Branch Manager — no Owner-only controls leak in.
+        self.assertNotIn('Edit Supplier', html)
+        self.assertNotIn('id="open-add-product-modal"', html)
+
+
+class SupplierAccountStatusPillTests(TestCase):
+    """The Owner can deactivate a supplier from User Management without
+    touching anything here — this page should still say so, the same way
+    accounts/user_list.html already does for every other managed account."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='sasp-owner', password='pw', role=User.Role.OWNER)
+
+    def _supplier(self, **kwargs):
+        supplier = User.objects.create_user(
+            username=kwargs.pop('username'), role=User.Role.SUPPLIER, **kwargs)
+        SupplierProfile.objects.update_or_create(
+            user=supplier, defaults={'supplier_name': 'Pill Supply'})
+        return supplier
+
+    def test_active_supplier_shows_the_active_pill(self):
+        supplier = self._supplier(username='sasp-active', password='pw')
+        self.client.force_login(self.owner)
+        html = self.client.get(
+            reverse('supplier_detail', args=[supplier.pk])).content.decode()
+        self.assertIn('pill-ok">Active', html)
+
+    def test_deactivated_supplier_shows_the_inactive_pill(self):
+        supplier = self._supplier(username='sasp-inactive', password='pw')
+        supplier.is_active = False
+        supplier.save(update_fields=['is_active'])
+        self.client.force_login(self.owner)
+        html = self.client.get(
+            reverse('supplier_detail', args=[supplier.pk])).content.decode()
+        self.assertIn('pill-neutral">Inactive', html)
+
+    def test_never_logged_in_supplier_shows_the_pending_invite_pill(self):
+        supplier = self._supplier(username='sasp-pending')
+        supplier.set_unusable_password()
+        supplier.save()
+        self.client.force_login(self.owner)
+        html = self.client.get(
+            reverse('supplier_detail', args=[supplier.pk])).content.decode()
+        self.assertIn('pill-warn">Pending Invite', html)

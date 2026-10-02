@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Branch
 from .serializers import BranchSerializer
 from accounts.models import User
+from .services import BranchDeletionBlocked, delete_branch_if_safe
 
 
 class BranchViewSet(viewsets.ModelViewSet):
@@ -56,4 +57,12 @@ class BranchViewSet(viewsets.ModelViewSet):
         denied = self.check_write_permission(request)
         if denied:
             return denied
-        return super().destroy(request, *args, **kwargs)
+        branch = self.get_object()
+        try:
+            delete_branch_if_safe(branch.pk)
+        except BranchDeletionBlocked as exc:
+            return Response(
+                {'detail': str(exc), 'blockers': exc.blockers},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)

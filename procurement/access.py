@@ -11,7 +11,10 @@ from core.scoping import scope_queryset
 from .models import Procurement
 
 
-STAFF_DELIVERY_STATUSES = frozenset({
+# Every status a Staff user may see at all (record-visibility scope, used by
+# procurements_visible_to). Includes RECEIVED so a completed delivery stays
+# visible after the fact.
+STAFF_VISIBLE_STATUSES = frozenset({
     Procurement.Status.APPROVED,
     *Procurement.NEGOTIATION_STATUSES,
     Procurement.Status.COMMUNICATED,
@@ -20,7 +23,9 @@ STAFF_DELIVERY_STATUSES = frozenset({
     Procurement.Status.RECEIVED,
 })
 
-STAFF_ACTIVE_DELIVERY_STATUSES = frozenset({Procurement.Status.APPROVED}) \
+# Subset of the above still awaiting delivery action (excludes RECEIVED) —
+# used to filter the Staff deliveries queue down to outstanding deliveries.
+STAFF_PENDING_DELIVERY_STATUSES = frozenset({Procurement.Status.APPROVED}) \
     | Procurement.NEGOTIATION_STATUSES | Procurement.AWAITING_DELIVERY_STATUSES
 
 
@@ -33,7 +38,7 @@ def procurements_visible_to(user, queryset=None):
     if user.role == BRANCH_MANAGER:
         return scope_queryset(qs, user)
     if user.role == STAFF:
-        return scope_queryset(qs, user).filter(status__in=STAFF_DELIVERY_STATUSES)
+        return scope_queryset(qs, user).filter(status__in=STAFF_VISIBLE_STATUSES)
     if user.role == SUPPLIER:
         return qs.filter(supplier=user)
     return qs.none()

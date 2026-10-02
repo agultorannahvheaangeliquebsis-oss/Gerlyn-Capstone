@@ -71,6 +71,7 @@ class PosPaymentEvidenceTests(TestCase):
     def _post(self, method, **extra):
         payload = {
             'branch': self.branch.pk, 'mode_of_payment': method,
+            'receipt_reference': f'TEST-EVIDENCE-{method}',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
         }
         payload.update(extra)

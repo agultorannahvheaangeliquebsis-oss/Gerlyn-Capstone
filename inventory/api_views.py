@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from branches.models import Branch
 from core.refdata import bust_categories_cache
 from .models import (
     Product, ProductCategory, Warehouse, WarehouseStock, Inventory,
@@ -134,14 +135,20 @@ class ProductViewSet(viewsets.ModelViewSet):
         if branch:
             queryset = queryset.filter(
                 inventory_records__branch__branch_name__icontains=branch,
+                inventory_records__branch__is_active=True,
                 inventory_records__quantity_on_hand__gt=0
             ).distinct()
 
         # ?branchId=3 → storefront: exact-id filter, also drives stockAtBranch below
         branch_id = self.request.query_params.get('branchId')
         if branch_id:
+            if not str(branch_id).isdigit() or not Branch.objects.filter(
+                pk=branch_id, is_active=True,
+            ).exists():
+                return queryset.none()
             queryset = queryset.filter(
                 inventory_records__branch_id=branch_id,
+                inventory_records__branch__is_active=True,
                 inventory_records__quantity_on_hand__gt=0
             ).distinct()
 
@@ -150,7 +157,9 @@ class ProductViewSet(viewsets.ModelViewSet):
     def get_serializer_context(self):
         context = super().get_serializer_context()
         branch_id = self.request.query_params.get('branchId')
-        if branch_id:
+        if branch_id and str(branch_id).isdigit() and Branch.objects.filter(
+            pk=branch_id, is_active=True,
+        ).exists():
             context['branch_id'] = branch_id
         return context
 

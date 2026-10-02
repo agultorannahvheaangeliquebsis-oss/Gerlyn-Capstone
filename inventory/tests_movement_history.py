@@ -224,8 +224,19 @@ class HistoryPermissionAndScopingTests(_HistoryFixture):
         self.assertEqual(self.pks(self.get(self.owner, range='all')), [m.pk])
         self.assertEqual(self.pks(self.get(self.manager, range='all')), [])
 
-    def test_default_staff_have_no_products_module_and_are_kept_out(self):
+    def test_default_staff_can_view_only_their_own_branch_history(self):
+        # The role matrix gives Staff the Products view by default, and the
+        # journal rides on that grant - still scoped to their own branch.
+        mine = self.move(self.inv_a)
+        self.move(self.inv_b)
+        response = self.get(self.staff, range='all')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.pks(response), [mine.pk])
+
+    def test_staff_without_the_products_grant_is_kept_out(self):
         self.move(self.inv_a)
+        self.staff.allowed_modules = []
+        self.staff.save(update_fields=['allowed_modules'])
         response = self.get(self.staff, range='all')
         self.assertNotEqual(response.status_code, 200)
 
@@ -260,7 +271,17 @@ class HistoryPermissionAndScopingTests(_HistoryFixture):
         self.manager.allowed_modules = []
         self.manager.save(update_fields=['allowed_modules'])
         self.assertEqual(self.client.get(reverse('api-stock-movements')).status_code, 403)
-        self.client.force_login(self.staff)  # default staff: no PRODUCTS module
+
+        # Default Staff have the Products view (role matrix), so the API opens
+        # for them too - scoped to their own branch.
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse('api-stock-movements'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([r['id'] for r in response.json()], [mine.pk])
+        # ...and it still gates on the grant, not on the Staff role: take the
+        # Products module away and the same account is refused.
+        self.staff.allowed_modules = []
+        self.staff.save(update_fields=['allowed_modules'])
         self.assertEqual(self.client.get(reverse('api-stock-movements')).status_code, 403)
 
 

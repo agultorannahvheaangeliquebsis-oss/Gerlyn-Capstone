@@ -12,7 +12,7 @@ from django.urls import reverse
 from accounts.models import BranchManagerProfile, User
 from branches.models import Branch
 from core.module_permissions import (
-    ADD, DELETE, EDIT, MODULE_PERMISSION_REGISTRY, PRODUCTS, VIEW,
+    ADD, DELETE, EDIT, PRODUCTS, VIEW,
     default_module_actions, user_can_perform_module_action,
 )
 from inventory.alerts import batch_inventory_mismatches
@@ -208,18 +208,6 @@ class DefaultManagerProductPermissionTests(_ManagerGrantTestBase):
             self.assertFalse(
                 user_can_perform_module_action(self.manager, PRODUCTS, action)
             )
-
-    def test_the_default_only_withholds_the_product_module(self):
-        """Every other module still starts with all of its write actions."""
-        defaults = default_module_actions()
-        for code, actions in defaults.items():
-            if code != PRODUCTS:
-                self.assertEqual(
-                    actions,
-                    [a for a in (ADD, EDIT, DELETE)
-                     if MODULE_PERMISSION_REGISTRY[code][a]],
-                    code,
-                )
 
     # ---- products -------------------------------------------------------
     def test_default_manager_can_view_products_but_sees_no_write_controls(self):

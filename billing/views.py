@@ -709,12 +709,7 @@ def billing_confirm(request, pk):
         # card offers Re-open (back to Pending). Anything else is a tampered
         # POST and is rejected outright rather than persisted as an arbitrary
         # string that would quietly break status-based filters.
-        offered = {
-            BillingRecord.PaymentStatus.PAID,
-            BillingRecord.PaymentStatus.REJECTED,
-            BillingRecord.PaymentStatus.PENDING,
-        }
-        if new_status not in offered:
+        if new_status not in BillingRecord.HUMAN_CONFIRMABLE_STATUSES:
             messages.error(request, 'Invalid payment status.')
             return _back()
 

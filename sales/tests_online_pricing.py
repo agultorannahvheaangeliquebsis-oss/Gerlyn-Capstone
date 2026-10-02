@@ -112,6 +112,7 @@ class OnlinePricingTestCase(TestCase):
         self.client.force_login(self.owner)
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': f'TEST-PRICING-{quantity}',
             'amount_tendered': '5000',
             'product_id': [str(self.product.pk)], 'quantity': [str(quantity)],
         })

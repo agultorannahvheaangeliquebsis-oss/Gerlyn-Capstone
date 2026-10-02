@@ -50,7 +50,7 @@ from core.scoping import branch_for_user, scope_queryset
 from core.timebounds import local_range_bounds
 from inventory.alerts import low_stock_filter
 from inventory.models import Inventory, WarehouseStock
-from procurement.models import Procurement
+from procurement.models import Procurement, SupplierReturn
 from sales.models import Refund, SalesTransaction
 
 MONEY_FIELD = DecimalField(max_digits=14, decimal_places=2)
@@ -201,6 +201,42 @@ def procurement_cost_total(procurement_qs):
     return _decimal_sum(
         procurement_qs.filter(status__in=PROCUREMENT_COST_STATUSES), 'total_cost'
     )
+
+
+def procurement_return_totals(procurement_qs):
+    """Gross return evidence, credit adjustments, and the net-cost deduction.
+
+    Goods shipped back but not yet resolved reduce net procurement at their
+    original PO snapshot value. A settled credit uses the actual credit-note
+    amount. Replacement settlements remain visible as returned goods but do
+    not reduce net procurement because replacement stock was received.
+    """
+    returns = SupplierReturn.objects.filter(
+        procurement__in=procurement_qs,
+        status__in=[SupplierReturn.Status.SHIPPED, SupplierReturn.Status.SETTLED],
+    ).prefetch_related('items__procurement_item')
+    returned_goods = Decimal('0.00')
+    open_return_adjustment = Decimal('0.00')
+    credits = Decimal('0.00')
+    for supplier_return in returns:
+        value = sum(
+            (
+                Decimal(item.quantity_returned)
+                * (item.procurement_item.unit_cost_snapshot or Decimal('0.00'))
+            )
+            for item in supplier_return.items.all()
+        )
+        returned_goods += value
+        if supplier_return.status == SupplierReturn.Status.SHIPPED:
+            open_return_adjustment += value
+        elif supplier_return.resolution == SupplierReturn.Resolution.CREDIT:
+            credits += supplier_return.credit_amount or Decimal('0.00')
+    return {
+        'returned_goods': returned_goods,
+        'open_return_adjustment': open_return_adjustment,
+        'credits': credits,
+        'net_adjustment': open_return_adjustment + credits,
+    }
 
 
 # --- Inventory: canonical live low-stock predicate --------------------------

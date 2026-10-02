@@ -53,6 +53,22 @@ class BillingPaymentSerializer(serializers.Serializer):
     proofOfPayment = serializers.ImageField(required=False)
 
     def validate(self, data):
+        # B-3 — same channel restriction billing_create's own POST handling
+        # enforces: a walk-in sale cannot be "settled" as Cash on Delivery,
+        # nor an online order as a counter Cash/Card swipe. The ChoiceField
+        # above only checked the method was one of the six real values, not
+        # that it made sense for THIS transaction's channel. Local import:
+        # billing.views imports this module's sibling api_views, so a
+        # top-level import here would be circular.
+        from .views import payment_methods_for_channel
+
+        method = data.get('paymentMethod')
+        allowed = {m.value for m in payment_methods_for_channel(self.instance.transaction.transaction_type)}
+        if method not in allowed:
+            raise serializers.ValidationError({
+                'paymentMethod': f'{method} is not a valid payment method for this order.'
+            })
+
         # X-2 — what each method needs is BillingRecord.missing_payment_
         # evidence, the same rule billing_create enforces on the web form.
         # A proof already on the record counts. Anything not required is
@@ -60,7 +76,6 @@ class BillingPaymentSerializer(serializers.Serializer):
         # through the length/character rule billing_create and checkout
         # share; an over-long value used to reach the VARCHAR(100) column
         # and 500.
-        method = data.get('paymentMethod')
         reference = ''
         if method in BillingRecord.REFERENCE_REQUIRED_METHODS:
             try:
@@ -116,6 +131,19 @@ class BillingConfirmSerializer(serializers.Serializer):
 
     def validate_status(self, value):
         record = self.instance
+
+        # CANCELLED/PARTIALLY_REFUNDED/REFUNDED are valid PaymentStatus
+        # strings (so the ChoiceField above accepts them), but
+        # BillingRecord.HUMAN_CONFIRMABLE_STATUSES is what a human — here, an
+        # API caller with ordinary Billing access — may ever set directly.
+        # Those three are reachable only through sales.views
+        # (transaction_set_status / transaction_refund), same as
+        # billing_confirm's own `offered` set enforces on the web path.
+        if value not in BillingRecord.HUMAN_CONFIRMABLE_STATUSES:
+            raise serializers.ValidationError(
+                f'{value} cannot be set directly — it is only ever applied '
+                f'by the order\'s own cancellation or refund workflow.'
+            )
 
         # A-1 — maker/checker separation, the same guard billing_confirm
         # applies and checked first for the same reason: whether this user

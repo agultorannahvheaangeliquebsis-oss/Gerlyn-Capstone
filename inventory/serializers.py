@@ -89,7 +89,7 @@ class ProductSerializer(serializers.ModelSerializer):
         """
         return list(
             obj.inventory_records
-            .filter(quantity_on_hand__gt=0)
+            .filter(quantity_on_hand__gt=0, branch__is_active=True)
             .values_list('branch__branch_name', flat=True)
         )
 
@@ -97,7 +97,9 @@ class ProductSerializer(serializers.ModelSerializer):
         branch_id = self.context.get('branch_id')
         if not branch_id:
             return None
-        record = obj.inventory_records.filter(branch_id=branch_id).first()
+        record = obj.inventory_records.filter(
+            branch_id=branch_id, branch__is_active=True,
+        ).first()
         return record.quantity_on_hand if record else 0
 
 

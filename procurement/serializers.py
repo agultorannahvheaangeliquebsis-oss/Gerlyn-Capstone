@@ -143,6 +143,16 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
                 'deliveredBy': r.delivered_by or None,
                 'receiptDate': r.receipt_date.isoformat() if r.receipt_date else None,
                 'recordedAt': r.received_at.isoformat(),
+                'outcome': r.outcome,
+                'rejectionReason': r.rejection_reason or None,
+                'items': [
+                    {
+                        'itemId': line.procurement_item_id,
+                        'productId': line.product_id,
+                        'quantityReceived': line.quantity_received,
+                    }
+                    for line in r.items.all()
+                ],
             }
             for r in obj.receipts.all()
         ]
@@ -206,11 +216,8 @@ class ProcurementWriteSerializer(serializers.Serializer):
     branchId         = serializers.IntegerField()
     supplierId       = serializers.IntegerField()
     orderDate        = serializers.DateField()
-    expectedDelivery = serializers.DateField(
-        required=False,
-        allow_null=True,
-        validators=[validate_expected_delivery_date],
-    )
+    expectedDelivery = serializers.DateField(required=False, allow_null=True)
+    submissionKey    = serializers.CharField(required=False, allow_blank=True, max_length=64)
     fundingSource    = serializers.ChoiceField(choices=Procurement.FundingSource.choices)
     fundingNote      = serializers.CharField(required=False, allow_blank=True, max_length=200)
     items            = ProcurementItemWriteSerializer(many=True, min_length=1)
@@ -242,6 +249,13 @@ class ProcurementWriteSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
+        if attrs.get('expectedDelivery') is not None:
+            raise serializers.ValidationError({
+                'expectedDelivery': (
+                    'Delivery date may be set only through supplier negotiation '
+                    'or external-order communication after approval.'
+                )
+            })
         # Same rule as the web form: Other has to say what it is.
         if (attrs['fundingSource'] == Procurement.FundingSource.OTHER
                 and not (attrs.get('fundingNote') or '').strip()):
@@ -257,14 +271,7 @@ class ProcurementWriteSerializer(serializers.Serializer):
         supplier     = User.objects.get(id=validated_data['supplierId'])
         owner_user   = request.user if request.user.role == User.Role.OWNER else None
         created_by   = request.user
-        expected_delivery = validated_data.get('expectedDelivery')
-        if expected_delivery:
-            try:
-                validate_expected_delivery_date(expected_delivery)
-            except DjangoValidationError as exc:
-                raise serializers.ValidationError({
-                    'expectedDelivery': [exc.messages[0]],
-                }) from exc
+        submission_key = (validated_data.get('submissionKey') or '').strip() or None
 
         with transaction.atomic():
             proc = Procurement.objects.create(
@@ -273,9 +280,14 @@ class ProcurementWriteSerializer(serializers.Serializer):
                 owner=owner_user,
                 created_by=created_by,
                 order_date=validated_data['orderDate'],
-                delivery_date=expected_delivery,
-                status=Procurement.Status.DRAFT,
+                delivery_date=None,
+                status=(Procurement.Status.APPROVED
+                        if request.user.role == User.Role.OWNER
+                        else Procurement.Status.DRAFT),
                 total_cost=0,
+                authorized_at=(timezone.now()
+                               if request.user.role == User.Role.OWNER else None),
+                submission_key=submission_key,
                 funding_source=validated_data['fundingSource'],
                 funding_note=(validated_data.get('fundingNote') or '').strip(),
             )
@@ -303,6 +315,40 @@ class ProcurementReceivedItemSerializer(serializers.Serializer):
     the actual delivered quantity for one ProcurementItem."""
     itemId = serializers.IntegerField()
     quantityReceived = serializers.IntegerField(min_value=0)
+
+
+class DeliveryEventItemSerializer(ProcurementReceivedItemSerializer):
+    expiryDate = serializers.DateField(required=False, allow_null=True)
+
+
+class DeliveryEventSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=DeliveryReceipt.Outcome.choices,
+        default=DeliveryReceipt.Outcome.ACCEPTED,
+    )
+    submissionKey = serializers.CharField(max_length=64)
+    actualReceiptDate = serializers.DateField(required=False)
+    deliveredBy = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    rejectionReason = serializers.CharField(required=False, allow_blank=True, max_length=300)
+    items = DeliveryEventItemSerializer(many=True, required=False)
+
+    def validate(self, attrs):
+        rejected = attrs['outcome'] == DeliveryReceipt.Outcome.REJECTED
+        if rejected and not (attrs.get('rejectionReason') or '').strip():
+            raise serializers.ValidationError({
+                'rejectionReason': 'Enter a reason for the failed or rejected delivery.'
+            })
+        if not rejected and not attrs.get('items'):
+            raise serializers.ValidationError({'items': 'Provide at least one delivery line.'})
+        receipt_date = attrs.get('actualReceiptDate')
+        if receipt_date and receipt_date > timezone.localdate():
+            raise serializers.ValidationError({
+                'actualReceiptDate': 'Actual receipt date cannot be in the future.'
+            })
+        ids = [row['itemId'] for row in attrs.get('items', [])]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError({'items': 'Each PO line may appear only once.'})
+        return attrs
 
 
 class ProcurementExternalCostSerializer(serializers.Serializer):
@@ -366,13 +412,6 @@ class ProcurementStatusSerializer(serializers.Serializer):
         required=False,
         default=Procurement.ReceiptFlag.NONE
     )
-    # Optional expected-date override. Actual receipt history belongs in
-    # actualReceiptDate and intentionally permits past values.
-    deliveryDate = serializers.DateField(
-        required=False,
-        allow_null=True,
-        validators=[validate_expected_delivery_date],
-    )
     actualReceiptDate = serializers.DateField(required=False)
     # Optional courier/driver name, recorded on the DeliveryReceipt.
     deliveredBy = serializers.CharField(
@@ -387,7 +426,6 @@ class ProcurementStatusSerializer(serializers.Serializer):
     def update(self, instance, validated_data):
         new_status   = validated_data['status']
         receipt_flag = validated_data.get('receiptFlag', Procurement.ReceiptFlag.NONE)
-        delivery_date = validated_data.get('deliveryDate') or instance.delivery_date
         receipt_date = validated_data.get('actualReceiptDate') or timezone.localdate()
         submitted_items = {
             entry['itemId']: entry['quantityReceived']
@@ -395,27 +433,12 @@ class ProcurementStatusSerializer(serializers.Serializer):
         }
         user = self.context.get('request').user if self.context.get('request') else None
 
-        submitted_delivery_date = validated_data.get('deliveryDate')
-        if submitted_delivery_date:
-            try:
-                validate_expected_delivery_date(submitted_delivery_date)
-            except DjangoValidationError as exc:
-                raise serializers.ValidationError({
-                    'deliveryDate': [exc.messages[0]],
-                }) from exc
-
         with transaction.atomic():
             if (instance.status == Procurement.Status.DRAFT
                     and new_status == Procurement.Status.APPROVED):
-                try:
-                    snapshot_supplier_costs(instance)
-                except SupplierCostError as exc:
-                    raise serializers.ValidationError({'detail': str(exc)})
                 instance.owner = user
                 instance.authorized_at = timezone.now()
 
-            if delivery_date:
-                instance.delivery_date = delivery_date
             if new_status not in (
                 Procurement.Status.PARTIALLY_RECEIVED,
                 Procurement.Status.RECEIVED,

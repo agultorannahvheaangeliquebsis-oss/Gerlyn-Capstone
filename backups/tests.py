@@ -369,6 +369,54 @@ class RunBackupTests(TempDirMixin, TestCase):
         with self.assertRaises(service.BackupInProgress):
             service.run_backup(storage=self.storage)
 
+    def test_the_atomic_claim_closes_the_race_the_pre_check_does_not(self):
+        """KATRINA-BACKUP-001. The cheap active_run_exists() pre-check at
+        the top of run_backup() is not itself race-free — two near-
+        simultaneous callers (a double-click, two tabs) can both pass it
+        before either has written a RUNNING row. Simulate that: the SECOND
+        active_run_exists() call (the atomic claim, just before the first
+        row is written) finds a competing RUNNING row a "concurrent"
+        caller created in between, and must still refuse."""
+        real_active_run_exists = service.active_run_exists
+        calls = []
+
+        def racing_check(now=None):
+            calls.append(1)
+            result = real_active_run_exists(now)
+            if len(calls) == 1:
+                # Simulate a concurrent winner creating its RUNNING row right
+                # after THIS (the cheap pre-check) sees nothing running —
+                # outside run_backup's later atomic claim block, so it is
+                # not rolled back along with that block when the claim
+                # below correctly refuses.
+                BackupRun.objects.create(
+                    run_id='concurrent-winner', kind='database', status='running',
+                    started_at=timezone.now(),
+                )
+            return result
+
+        with mock.patch.object(service, 'active_run_exists', side_effect=racing_check):
+            with self.assertRaises(service.BackupInProgress):
+                service.run_backup(storage=self.storage, now=_utc(2026, 9, 16, 19, 0, 0))
+
+        # The loser wrote nothing — only the simulated winner's row exists.
+        self.assertEqual(
+            list(BackupRun.objects.values_list('run_id', flat=True)), ['concurrent-winner'],
+        )
+
+    def test_a_manual_run_records_who_triggered_it(self):
+        """KATRINA-BACKUP-002."""
+        runs = service.run_backup(
+            'manual', storage=self.storage, now=_utc(2026, 9, 16, 19, 0, 0),
+            triggered_by_id=self.owner.pk,
+        )
+        self.assertTrue(runs)
+        self.assertTrue(all(r.triggered_by_id == self.owner.pk for r in runs))
+
+    def test_a_scheduled_run_has_no_triggering_user(self):
+        runs = service.run_backup('cron', storage=self.storage, now=_utc(2026, 9, 16, 19, 0, 0))
+        self.assertTrue(all(r.triggered_by_id is None for r in runs))
+
     def test_a_run_that_died_hours_ago_does_not_block_new_ones(self):
         stuck = BackupRun.objects.create(
             run_id='x', kind='database', status='running',
@@ -609,7 +657,9 @@ class StatusPageTests(TestCase):
         with mock.patch('backups.service.spawn_backup_process') as spawn:
             response = self.client.post(reverse('backup_run_now'))
         self.assertRedirects(response, self.url)
-        spawn.assert_called_once_with('manual')
+        # KATRINA-BACKUP-002: the clicking account is passed through so the
+        # run it starts can be attributed to them.
+        spawn.assert_called_once_with('manual', triggered_by_id=self.owner.pk)
 
         BackupRun.objects.create(run_id='x', kind='database', status='running', started_at=timezone.now())
         with mock.patch('backups.service.spawn_backup_process') as spawn:

@@ -47,7 +47,7 @@ def pos_payment_evidence(method):
 
     from django.core.files.uploadedfile import SimpleUploadedFile
 
-    payload = {}
+    payload = {'receipt_reference': f'TEST-{method}'}
     if method in BillingRecord.REFERENCE_REQUIRED_METHODS:
         # GCash's own rule is exactly 13 digits (billing.validators).
         payload['reference_number'] = '1234567890123'
@@ -87,6 +87,12 @@ class WalkInSaleFormTests(TestCase):
         self.assertTemplateUsed(response, 'sales/transaction_form.html')
         self.assertIn(self.product, list(response.context['pos_products']))
         self.assertContains(response, 'id="pos-form"')
+        self.assertContains(response, 'Manual Sales Entry')
+        self.assertContains(
+            response,
+            'Use only for transactions not captured in the existing POS import.',
+        )
+        self.assertContains(response, 'name="receipt_reference"')
 
     def test_an_owner_sees_no_products_until_a_branch_is_chosen(self):
         """An Owner isn't pinned to one branch, so the product dropdown has
@@ -148,6 +154,7 @@ class WalkInSaleFormTests(TestCase):
     def test_recording_a_sale_still_deducts_stock_and_marks_it_paid(self):
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk,
+            'receipt_reference': 'OR-MANUAL-001',
             'mode_of_payment': 'Cash',
             'product_id': [str(self.product.pk)],
             'quantity': ['3'],
@@ -159,11 +166,93 @@ class WalkInSaleFormTests(TestCase):
         self.assertEqual(txn.order_status, 'Completed')
         self.assertEqual(txn.items.count(), 1)
         self.assertEqual(txn.items.first().unit_price, self.product.unit_price)
+        self.assertEqual(txn.source, 'Manual Entry')
+        self.assertEqual(txn.pos_invoice_number, 'OR-MANUAL-001')
 
         inv = Inventory.objects.get(product=self.product, branch=self.branch)
         self.assertEqual(inv.quantity_on_hand, 47)
         self.assertEqual(txn.billing_record.status, 'Paid')
         self.assertEqual(txn.billing_record.amount_due, 300)
+
+    def test_manual_entry_rejects_an_imported_reference_in_the_same_branch(self):
+        SalesTransaction.objects.create(
+            branch=self.branch,
+            source='ZANK POS',
+            pos_invoice_number='OR-IMPORTED-001',
+            total_amount=100,
+        )
+
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk,
+            'receipt_reference': 'or-imported-001',
+            'mode_of_payment': 'Cash',
+            'product_id': [str(self.product.pk)],
+            'quantity': ['1'],
+            'amount_tendered': '100',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'That receipt/reference number is already recorded for this branch. '
+            'Check the POS import before creating a manual entry.',
+            response.context['pos_errors'],
+        )
+        self.assertEqual(SalesTransaction.objects.count(), 1)
+
+    def test_a_first_time_sale_needs_no_receipt_reference(self):
+        """KATRINA-REG-001 / BR-KAT-002: the reference is only for
+        reconciling against an imported/external POS transaction. A
+        legitimate first-time walk-in sale has nothing to reference and
+        must not be blocked for lacking one."""
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk,
+            'mode_of_payment': 'Cash',
+            'product_id': [str(self.product.pk)],
+            'quantity': ['1'],
+            'amount_tendered': '100',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        txn = SalesTransaction.objects.get()
+        self.assertEqual(txn.source, 'Manual Entry')
+        # None, not '' — stays outside the branch + pos_invoice_number
+        # uniqueness rule, so a second reference-less sale at this branch
+        # (below) is not treated as a duplicate of this one.
+        self.assertIsNone(txn.pos_invoice_number)
+
+    def test_two_reference_less_sales_at_one_branch_are_not_duplicates(self):
+        for _ in range(2):
+            response = self.client.post(reverse('transaction_add'), {
+                'branch': self.branch.pk,
+                'mode_of_payment': 'Cash',
+                'product_id': [str(self.product.pk)],
+                'quantity': ['1'],
+                'amount_tendered': '100',
+            })
+            self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(SalesTransaction.objects.count(), 2)
+
+    def test_manual_reference_can_be_reused_at_another_branch(self):
+        other = Branch.objects.create(
+            branch_name='Other', location='Baliuag', owner=self.owner,
+        )
+        SalesTransaction.objects.create(
+            branch=other, source='ZANK POS', pos_invoice_number='OR-SHARED',
+            total_amount=100,
+        )
+
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk,
+            'receipt_reference': 'OR-SHARED',
+            'mode_of_payment': 'Cash',
+            'product_id': [str(self.product.pk)],
+            'quantity': ['1'],
+            'amount_tendered': '100',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(SalesTransaction.objects.count(), 2)
 
     def test_cash_walk_in_is_still_auto_paid_and_confirmed_by_the_ringing_user(self):
         """A-1 regression — cash is settled at the counter, so a cash walk-in
@@ -171,6 +260,7 @@ class WalkInSaleFormTests(TestCase):
         maker/checker rule only touches the methods that clear later."""
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-CASH-CONFIRM',
             'product_id': [str(self.product.pk)], 'quantity': ['2'],
             'amount_tendered': '200',
         })
@@ -208,6 +298,7 @@ class WalkInSaleFormTests(TestCase):
         self.product.price_tiers.create(min_quantity=10, unit_price=80)
         self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-BULK',
             'product_id': [str(self.product.pk)], 'quantity': ['10'],
             'amount_tendered': '800',
         })
@@ -333,6 +424,7 @@ class WalkInSaleFormTests(TestCase):
         other = Branch.objects.create(branch_name='Makinabang', owner=self.owner)
         self.client.post(reverse('transaction_add'), {
             'branch': other.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-PINNED-BRANCH',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100',
         })
@@ -477,6 +569,7 @@ class WalkInSalePaymentMethodValidationTests(TestCase):
     def _post(self, **extra):
         payload = {
             'branch': self.branch.pk,
+            'receipt_reference': 'TEST-PAYMENT-METHOD',
             'mode_of_payment': 'NOT A METHOD',
             'product_id': [str(self.product.pk)],
             'quantity': ['3'],
@@ -758,6 +851,7 @@ class WalkInSaleBranchGuardTests(TestCase):
         self.client.force_login(staff)
         self.client.post(reverse('transaction_add'), {
             'branch': self.other_branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-OWNER-BRANCH',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100',
         })
@@ -773,6 +867,7 @@ class WalkInSaleBranchGuardTests(TestCase):
         self.client.force_login(self.owner)
         self.client.post(reverse('transaction_add'), {
             'branch': self.other_branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-OWNER-BRANCH',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100',
         })
@@ -929,6 +1024,7 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
 
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-REPLACE-CANCELLED',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100', 'replaces': str(original.pk),
         })
@@ -948,6 +1044,7 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         still_pending = self._pending_order()
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-REPLACE-PENDING',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100', 'replaces': str(still_pending.pk),
         })
@@ -971,6 +1068,7 @@ class OrderCancellationReasonAndReplacesTests(TestCase):
         )
         response = self.client.post(reverse('transaction_add'), {
             'branch': self.branch.pk, 'mode_of_payment': 'Cash',
+            'receipt_reference': 'TEST-REPLACE-OTHER-BRANCH',
             'product_id': [str(self.product.pk)], 'quantity': ['1'],
             'amount_tendered': '100', 'replaces': str(other_branch_cancelled.pk),
         })
@@ -1024,6 +1122,7 @@ class PaymentGatesOrderCompletionTests(TestCase):
     def _walk_in(self, method, qty='2', **extra):
         payload = {
             'branch': self.branch.pk, 'mode_of_payment': method,
+            'receipt_reference': f'TEST-GATE-{method}',
             'product_id': [str(self.product.pk)], 'quantity': [qty],
         }
         if method == 'Cash':

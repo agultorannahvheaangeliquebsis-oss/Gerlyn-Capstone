@@ -15,6 +15,7 @@ from audit import triggers
 from audit.context import suppressed
 from audit.models import AppendOnlyError, AuditLog
 from audit.registry import GLOBAL_EXCLUDE, REGISTRY
+from backups.models import BackupRun, RestoreTestRecord
 from billing.models import BillingRecord
 from branches.models import Branch
 from inventory.models import Inventory, Product
@@ -408,6 +409,50 @@ class SwitchesAndFailureTests(TestCase):
         self.assertTrue(Branch.objects.filter(pk=branch.pk).exists())
 
 
+class BackupAuditCaptureTests(TestCase):
+    """KATRINA-BACKUP-002: a backup run — and who triggered it — must be
+    reconstructable from the audit log, not only from the Backup Status
+    page."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='bk-cap-owner', password='pw', role=User.Role.OWNER,
+        )
+
+    def test_a_backup_run_is_captured_with_its_triggering_user(self):
+        run = BackupRun.objects.create(
+            run_id='r1', kind=BackupRun.Kind.DATABASE, trigger='manual',
+            started_at=timezone.now(), triggered_by=self.owner,
+        )
+        run.status = BackupRun.Status.SUCCESS
+        run.finished_at = timezone.now()
+        run.save()
+
+        (created,) = _logs('backups.BackupRun', 'create')
+        self.assertEqual(created.record_id, str(run.pk))
+
+        (updated,) = _logs('backups.BackupRun', 'update')
+        self.assertEqual(updated.after.get('status'), 'success')
+
+    def test_a_scheduled_run_is_captured_with_no_triggering_user(self):
+        BackupRun.objects.create(
+            run_id='r2', kind=BackupRun.Kind.DATABASE, trigger='cron',
+            started_at=timezone.now(),
+        )
+
+        (entry,) = _logs('backups.BackupRun', 'create')
+        self.assertIsNone(entry.after.get('triggered_by_id'))
+
+    def test_a_restore_test_record_is_captured(self):
+        RestoreTestRecord.objects.create(
+            tested_on=timezone.localdate(), backup_used='daily/database-x.sql.gz.enc',
+            outcome=RestoreTestRecord.Outcome.PASSED, recorded_by=self.owner,
+        )
+
+        (entry,) = _logs('backups.RestoreTestRecord', 'create')
+        self.assertEqual(entry.record_repr, 'daily/database-x.sql.gz.enc')
+
+
 class RegistryTests(TestCase):
     def test_every_entry_matches_a_real_model_and_real_fields(self):
         for label, cfg in REGISTRY.items():
@@ -480,6 +525,32 @@ class AuditLogViewTests(TestCase):
 
         by_text = self.client.get(self.url, {'q': 'Bulacan'})
         self.assertContains(by_text, 'location Baliuag -&gt; Bulacan')
+
+    def test_filter_by_branch(self):
+        """KATRINA-AUDIT-001: an Owner triaging one branch's activity could
+        not narrow the list to it — every row already carried its own
+        branch_id, nothing filtered on it."""
+        other = Branch.objects.create(
+            branch_name='Makinabang', location='Baliuag', owner=self.owner,
+        )
+
+        by_this_branch = self.client.get(self.url, {'branch': self.branch.pk})
+        self.assertContains(by_this_branch, 'Created Branch Tarcan')
+        self.assertNotContains(by_this_branch, 'Created Branch Makinabang')
+
+        by_other_branch = self.client.get(self.url, {'branch': other.pk})
+        self.assertContains(by_other_branch, 'Created Branch Makinabang')
+        self.assertNotContains(by_other_branch, 'Created Branch Tarcan')
+
+        unfiltered = self.client.get(self.url)
+        self.assertContains(unfiltered, 'Created Branch Tarcan')
+        self.assertContains(unfiltered, 'Created Branch Makinabang')
+
+    def test_a_non_numeric_branch_value_is_ignored_not_an_error(self):
+        response = self.client.get(self.url, {'branch': 'not-a-number'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Created Branch Tarcan')
 
     def test_search_matches_the_actor_username(self):
         AuditLog.objects.create(

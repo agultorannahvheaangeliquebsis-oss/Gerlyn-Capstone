@@ -4,7 +4,8 @@
 #   SECTION 2 — new DRF API views (what React calls)
 
 import io
-from datetime import timedelta
+from datetime import datetime, timedelta
+import uuid
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 
@@ -14,7 +15,7 @@ from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import JsonResponse, HttpResponse
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -32,6 +33,7 @@ from core.scoping import (
 )
 from core.people import person_display_name
 from core.querystrings import list_filter_querystring
+from core.timebounds import local_range_bounds, range_from_request
 from core.permissions import (
     BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
 )
@@ -47,18 +49,18 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import (
     Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
-    SupplierReturn, DeliveryReceipt, DeliveryScanLog,
+    SupplierReturn, DeliveryReceipt, DeliveryReceiptLine, DeliveryScanLog,
 )
 from .access import (
-    STAFF_ACTIVE_DELIVERY_STATUSES, procurements_visible_to,
+    STAFF_PENDING_DELIVERY_STATUSES, procurements_visible_to,
     user_can_read_procurement,
 )
 from .services import (
-    ExternalOrderError, FundingError, OfferReviewError, RescheduleError, ReturnError,
+    DeliveryError, ExternalOrderError, FundingError, OfferReviewError, RescheduleError, ReturnError,
     SupplierRemovalBlocked, SupplierTransferError,
     active_supplier_product_links, apply_agreed_terms,
     cancel_return, clean_funding, create_supplier_return,
-    receive_replacement, remove_supplier_product, reschedule_delivery,
+    receive_replacement, record_delivery, remove_supplier_product, reschedule_delivery,
     record_external_order, respond_to_return, returnable_lines, review_offer, review_product_request,
     set_funding, settle_with_credit, ship_return, transfer_supplier_products,
     validate_expected_delivery_date,
@@ -68,6 +70,7 @@ from .serializers import (
     ProcurementExternalOrderSerializer,
     ProcurementWriteSerializer,
     ProcurementStatusSerializer,
+    DeliveryEventSerializer,
 )
 from inventory.models import (
     Batch, Product, ProductCategory, StockMovement, Warehouse, WarehouseStock,
@@ -90,6 +93,14 @@ def _procurement_list_context(request):
 
     procurements = procurements_visible_to(request.user, procurements)
 
+    search_query = request.GET.get('q', '')
+    if search_query:
+        procurements = procurements.filter(
+            Q(po_number__icontains=search_query) |
+            Q(supplier__supplier_profile__supplier_name__icontains=search_query) |
+            Q(supplier__username__icontains=search_query)
+        )
+
     # Owner-only branch filter — Manager/Staff are already pinned to their
     # own branch's orders (and Supplier to their own orders) above, so a
     # selector would do nothing for them.
@@ -99,6 +110,15 @@ def _procurement_list_context(request):
         branch_filter = ''
     if branch_filter:
         procurements = procurements.filter(branch_id=branch_filter)
+
+    # The shared back-office range control (_daterange.html), same as
+    # Billing/the Order Console. order_date is a plain DateField (no
+    # timezone conversion needed, unlike a DateTimeField — see
+    # core.timebounds), so the resolved dates are compared directly.
+    range_start, range_end, active_range = range_from_request(request)
+    if range_start:
+        procurements = procurements.filter(order_date__gte=range_start)
+    procurements = procurements.filter(order_date__lte=range_end)
 
     procurements = procurements.order_by('-order_date')
 
@@ -153,6 +173,7 @@ def _procurement_list_context(request):
         'procurements': procurements,
         'counts': counts,
         'status_filter': status_filter,
+        'search_query': search_query,
         'today': timezone.localdate(),
         'awaiting_delivery_statuses': Procurement.AWAITING_DELIVERY_STATUSES,
         'can_create': can_create,
@@ -169,13 +190,18 @@ def _procurement_list_context(request):
         # branch picker (see _procurement_form_context below) — the topbar
         # switcher gets its own key so the two can never collide.
         'switch_branches': switch_branches,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [('q', search_query), ('status', status_filter), ('branch', branch_filter)],
         # O-3 — one urlencoded filter string for the status tabs, same fix
         # as Billing/the Order Console: a tab's href used to be hand-built
         # and silently dropped the branch filter on every click.
-        'filter_qs': list_filter_querystring(branch=branch_filter),
+        'filter_qs': list_filter_querystring(q=search_query, branch=branch_filter),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along.
-        'branch_switch_carry': [('status', status_filter)],
+        'branch_switch_carry': [('q', search_query), ('status', status_filter)],
     }
     if can_create:
         # suppliers/products/branches/user_branch, plus the (more correct,
@@ -184,6 +210,11 @@ def _procurement_list_context(request):
         # procurement_add) so this same function can back both the list
         # page's Create PO link and procurement_add's own GET/error render.
         context.update(_procurement_form_context(request.user))
+        submission_key = request.session.get('po_submission_key')
+        if not submission_key:
+            submission_key = uuid.uuid4().hex
+            request.session['po_submission_key'] = submission_key
+        context['po_submission_key'] = submission_key
     return context
 
 
@@ -197,6 +228,87 @@ def _can_read_procurement(user, proc):
     or anyone can read another branch's (or a rival supplier's) order by
     editing the URL."""
     return user_can_read_procurement(user, proc)
+
+
+# Order Progress: a display-only simplification of Procurement's 9-state
+# status graph into 5 milestones, the same role as
+# sales.views._order_progress/ORDER_PROGRESS_STEPS — purely what the
+# stepper on the detail page draws. Never read by can_transition_to or any
+# POST handler, so it can never drift into gating anything.
+PROCUREMENT_PROGRESS_STEPS = ['Draft', 'Approved', 'Terms Agreed', 'Incoming', 'Received']
+
+_PROGRESS_STEP_BY_STATUS = {
+    Procurement.Status.DRAFT: 0,
+    Procurement.Status.APPROVED: 1,
+    # The three negotiation sub-statuses and the manual Communicated/Ordered
+    # bypass all mean the same thing on the stepper: the two sides are
+    # settling how the order ships. Approved reads as done the moment
+    # negotiation starts, whichever path got there.
+    Procurement.Status.PENDING_OWNER_REVIEW: 2,
+    Procurement.Status.PENDING_SUPPLIER_REVIEW: 2,
+    Procurement.Status.TERMS_AGREED: 2,
+    Procurement.Status.COMMUNICATED: 2,
+    # Partially Received still reads as "Incoming" on the track — the items
+    # table and receipt_flag pill already carry the partial-vs-full
+    # distinction, so the stepper doesn't need a sixth dot for it.
+    Procurement.Status.INCOMING: 3,
+    Procurement.Status.PARTIALLY_RECEIVED: 3,
+    Procurement.Status.RECEIVED: 4,
+}
+
+
+def _procurement_progress(proc):
+    cancelled = proc.status == Procurement.Status.CANCELLED
+    current = 0 if cancelled else _PROGRESS_STEP_BY_STATUS.get(proc.status, 0)
+    return {
+        'cancelled': cancelled,
+        'steps': [
+            {
+                'name': name,
+                'done': (not cancelled) and i < current,
+                'current': (not cancelled) and i == current,
+            }
+            for i, name in enumerate(PROCUREMENT_PROGRESS_STEPS)
+        ],
+    }
+
+
+def _procurement_timeline(proc, receipts):
+    """Status History for the detail page: a derived, read-only timeline
+    built from timestamps Procurement/DeliveryReceipt already store. There
+    is no OrderStatusHistory-equivalent table for purchase orders, and no
+    cancelled_at/cancel_reason field either — so a cancelled order gets no
+    row here. The status pill above already says Cancelled; inventing a
+    timestamp nothing recorded would be worse than leaving it out.
+    """
+    created_at = timezone.make_aware(datetime.combine(proc.order_date, datetime.min.time()))
+    timeline = [{'when': created_at, 'label': 'Created as Draft', 'note': None}]
+
+    if proc.authorized_at:
+        timeline.append({'when': proc.authorized_at, 'label': 'Approved', 'note': None})
+
+    if proc.communicated_at:
+        timeline.append({
+            'when': proc.communicated_at,
+            'label': f'Communicated/Ordered ({proc.get_communication_method_display()})',
+            'note': proc.communication_note or None,
+        })
+
+    if proc.supplier_acknowledged_at:
+        timeline.append({
+            'when': proc.supplier_acknowledged_at,
+            'label': 'Supplier acknowledged', 'note': None,
+        })
+
+    for i, r in enumerate(sorted(receipts, key=lambda r: r.received_at), start=1):
+        timeline.append({
+            'when': r.received_at,
+            'label': f'Receipt #{i} recorded',
+            'note': f'Received by {r.received_by_name}' if r.received_by_name else None,
+        })
+
+    timeline.sort(key=lambda step: step['when'])
+    return timeline
 
 
 @login_required(login_url='accounts:login')
@@ -213,7 +325,12 @@ def procurement_detail(request, pk):
     is_supplier_party = (
         request.user.role == User.Role.SUPPLIER and proc.supplier_id == request.user.id
     )
+    receipts = list(proc.receipts.select_related('received_by').prefetch_related(
+        'lines__item__product'
+    ))
     return render(request, 'procurement/procurement_detail.html', {
+        'progress': _procurement_progress(proc),
+        'status_timeline': _procurement_timeline(proc, receipts),
         'supplier_returns': proc.supplier_returns.select_related('supplier'),
         # Whether the negotiation card has a form for *this* viewer to act on
         # right now, vs. just a status message — see the template's
@@ -259,7 +376,7 @@ def procurement_detail(request, pk):
             and not proc.funding_locked
         ),
         'procurement': proc, 'items': items,
-        'receipts': proc.receipts.select_related('received_by'),
+        'receipts': receipts,
     })
 
 
@@ -555,6 +672,19 @@ def procurement_add(request):
         context.update({'po_form_data': form_data, 'po_restore_rows': restore_rows})
         return render(request, 'procurement/procurement_form.html', context)
 
+    submission_key = (
+        request.POST.get('submission_key', '').strip()
+        or request.session.get('po_submission_key')
+        or uuid.uuid4().hex
+    )
+    prior = Procurement.objects.filter(submission_key=submission_key).first()
+    if prior:
+        if prior.created_by_id == request.user.id:
+            messages.info(request, f'{prior.po_number} was already created; no duplicate was added.')
+            return redirect('procurement_detail', pk=prior.pk)
+        messages.error(request, 'That purchase-order submission token belongs to another user.')
+        return redirect('procurement_list')
+
     if request.user.role == User.Role.BRANCH_MANAGER:
         try:
             branch_id = request.user.manager_profile.branch.id
@@ -655,36 +785,47 @@ def procurement_add(request):
 
     is_owner = request.user.role == User.Role.OWNER
 
-    with transaction.atomic():
-        # Who raises the order decides whether it is already authorized.
-        # Every PO used to be created Ordered no matter who submitted this
-        # form, so a Branch Manager could commit spend against a supplier
-        # with no Owner ever in the loop — and `owner` (the authorizer FK)
-        # was left null, so there wasn't even a trace of who hadn't approved
-        # it (finding C-1). An Owner raising a PO still authorizes it in the
-        # same act, exactly as before; the only change for them is that the
-        # authorization is now written down rather than implied. Either way
-        # it lands on Approved, never further — price and delivery date are
-        # negotiated with the supplier from here, not set at creation.
-        proc = Procurement.objects.create(
-            branch_id=branch_id,
-            supplier=supplier,
-            owner=request.user if is_owner else None,
-            created_by=request.user,
-            order_date=order_date,
-            total_cost=0,
-            status=Procurement.Status.APPROVED if is_owner else Procurement.Status.DRAFT,
-            authorized_at=timezone.now() if is_owner else None,
-            funding_source=funding_source,
-            funding_note=funding_note,
-        )
-
-        for product_id, qty in items:
-            ProcurementItem.objects.create(
-                procurement=proc,
-                product_id=product_id,
-                quantity_ordered=qty,
+    try:
+        with transaction.atomic():
+            # Who raises the order decides whether it is already authorized.
+            # Every PO used to be created Ordered no matter who submitted this
+            # form, so a Branch Manager could commit spend against a supplier
+            # with no Owner ever in the loop — and `owner` (the authorizer FK)
+            # was left null, so there wasn't even a trace of who hadn't approved
+            # it (finding C-1). An Owner raising a PO still authorizes it in the
+            # same act, exactly as before; the only change for them is that the
+            # authorization is now written down rather than implied. Either way
+            # it lands on Approved, never further — price and delivery date are
+            # negotiated with the supplier from here, not set at creation.
+            proc = Procurement.objects.create(
+                branch_id=branch_id,
+                supplier=supplier,
+                owner=request.user if is_owner else None,
+                created_by=request.user,
+                order_date=order_date,
+                total_cost=0,
+                status=Procurement.Status.APPROVED if is_owner else Procurement.Status.DRAFT,
+                authorized_at=timezone.now() if is_owner else None,
+                funding_source=funding_source,
+                funding_note=funding_note,
+                submission_key=submission_key,
             )
+
+            for product_id, qty in items:
+                ProcurementItem.objects.create(
+                    procurement=proc,
+                    product_id=product_id,
+                    quantity_ordered=qty,
+                )
+    except IntegrityError:
+        # The unique token is the final guard when two identical requests
+        # race between the lookup above and INSERT. Treat the loser as the
+        # same successful submission instead of returning a server error.
+        prior = Procurement.objects.filter(submission_key=submission_key).first()
+        if prior and prior.created_by_id == request.user.id:
+            messages.info(request, f'{prior.po_number} was already created; no duplicate was added.')
+            return redirect('procurement_detail', pk=prior.pk)
+        raise
 
     if is_owner:
         from .notifications import notify_po_approved
@@ -699,6 +840,7 @@ def procurement_add(request):
             request, f'{proc.po_number} is now {proc.status}.',
             extra_tags='sheet',
         )
+        request.session.pop('po_submission_key', None)
         return redirect(f"{reverse('procurement_list')}?status={proc.status}")
 
     messages.success(
@@ -706,6 +848,7 @@ def procurement_add(request):
         f'{proc.po_number} was created as a draft and is waiting for '
         f'Owner approval before it can be ordered or received.'
     )
+    request.session.pop('po_submission_key', None)
     return redirect('procurement_list')
 
 
@@ -1430,6 +1573,14 @@ def delivery_list(request):
     if branch_filter:
         deliveries = deliveries.filter(branch_id=branch_filter)
 
+    # The shared back-office range control (_daterange.html), same as
+    # Purchase Orders/Billing. order_date is a plain DateField (no timezone
+    # conversion needed, unlike a DateTimeField — see core.timebounds).
+    range_start, range_end, active_range = range_from_request(request)
+    if range_start:
+        deliveries = deliveries.filter(order_date__gte=range_start)
+    deliveries = deliveries.filter(order_date__lte=range_end)
+
     deliveries = deliveries.order_by('-order_date')
 
     status_filter = request.GET.get('status', '')
@@ -1445,7 +1596,7 @@ def delivery_list(request):
     counts = {
         'all': deliveries.count(),
         'active': deliveries.filter(
-            status__in=STAFF_ACTIVE_DELIVERY_STATUSES
+            status__in=STAFF_PENDING_DELIVERY_STATUSES
         ).count(),
         'approved': deliveries.filter(status=Procurement.Status.APPROVED).count(),
         'communicated': deliveries.filter(
@@ -1467,7 +1618,7 @@ def delivery_list(request):
         'cancelled': deliveries.filter(status=Procurement.Status.CANCELLED).count(),
     }
     if staff_delivery_view and not status_filter:
-        deliveries = deliveries.filter(status__in=STAFF_ACTIVE_DELIVERY_STATUSES)
+        deliveries = deliveries.filter(status__in=STAFF_PENDING_DELIVERY_STATUSES)
     elif status_filter == 'Negotiating':
         deliveries = deliveries.filter(status__in=Procurement.NEGOTIATION_STATUSES)
     elif status_filter:
@@ -1488,6 +1639,7 @@ def delivery_list(request):
     addable_products = None
     can_receive = user_can_perform_module_action(request.user, DELIVERIES, EDIT)
     receive_draft = None
+    receive_submission_key = None
     receive_pk = request.GET.get('receive')
     if can_receive and receive_pk and receive_pk.isdigit():
         candidate = procurements_visible_to(
@@ -1518,6 +1670,11 @@ def delivery_list(request):
                 receive_items = list(receive_items)
                 for item in receive_items:
                     item.draft = draft_rows.get(str(item.pk))
+            session_key = f'receive_submission_key_{candidate.pk}'
+            receive_submission_key = request.session.get(session_key)
+            if not receive_submission_key:
+                receive_submission_key = uuid.uuid4().hex
+                request.session[session_key] = receive_submission_key
 
     return render(request, 'procurement/delivery_list.html', {
         'deliveries': deliveries,
@@ -1531,6 +1688,11 @@ def delivery_list(request):
         # Warehouse Stock, Product Master List and Stock Adjustments.
         'filter_branch': next((b for b in branches if str(b.id) == branch_filter), None),
         'user_branch': user_branch,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [('q', search_query), ('status', status_filter), ('branch', branch_filter)],
         # O-3 — one urlencoded filter string for the status tabs, same fix as
         # Purchase Orders/Billing: a tab's href used to be hand-built and
         # silently dropped other filters.
@@ -1550,6 +1712,7 @@ def delivery_list(request):
         'staff_delivery_view': staff_delivery_view,
         'show_branch_column': can_access_multiple_branches,
         'receive_draft': receive_draft,
+        'receive_submission_key': receive_submission_key,
     })
 
 
@@ -1621,6 +1784,73 @@ def delivery_receive(request, pk):
         return _receiving_exit(request, proc)
 
     if request.method == 'POST':
+        receipt_date_raw = request.POST.get('actual_receipt_date', '').strip()
+        try:
+            receipt_date = parse_date(receipt_date_raw) if receipt_date_raw else timezone.localdate()
+        except ValueError:
+            receipt_date = None
+        if receipt_date is None:
+            messages.error(request, 'Enter a valid actual receipt date.')
+            _stash_receive_draft(request, pk)
+            return redirect('delivery_receive', pk=pk)
+        if receipt_date > timezone.localdate():
+            messages.error(request, 'Actual receipt date cannot be in the future.')
+            _stash_receive_draft(request, pk)
+            return redirect('delivery_receive', pk=pk)
+
+        rejected = request.POST.get('delivery_outcome') == 'rejected'
+        lines = {}
+        try:
+            if not rejected:
+                item_ids = request.POST.getlist('item_id')
+                quantities = request.POST.getlist('quantity_received')
+                expiries = request.POST.getlist('expiry_date')
+                if len(item_ids) != len(quantities) or len(set(item_ids)) != len(item_ids):
+                    raise DeliveryError('The submitted delivery lines are incomplete or duplicated.')
+                for index, (item_id, quantity_text) in enumerate(zip(item_ids, quantities)):
+                    if not str(item_id).isdigit():
+                        raise DeliveryError('One or more submitted delivery lines are invalid.')
+                    quantity = _safe_nonneg_int(quantity_text)
+                    if quantity is None:
+                        raise DeliveryError('Enter whole-number received quantities of zero or more.')
+                    expiry_text = expiries[index].strip() if index < len(expiries) else ''
+                    try:
+                        expiry = parse_date(expiry_text) if expiry_text else None
+                    except ValueError as exc:
+                        raise DeliveryError('Enter a valid expiry date.') from exc
+                    if expiry_text and expiry is None:
+                        raise DeliveryError('Enter a valid expiry date.')
+                    lines[int(item_id)] = (quantity, expiry)
+
+            submission_key = (
+                request.POST.get('submission_key', '').strip()
+                or request.session.get(f'receive_submission_key_{pk}')
+                or uuid.uuid4().hex
+            )
+            receipt, updated, duplicate = record_delivery(
+                proc, request.user, lines=lines, receipt_date=receipt_date,
+                delivered_by=request.POST.get('delivered_by', ''),
+                idempotency_key=submission_key,
+                rejection_reason=request.POST.get('rejection_reason', '') if rejected else '',
+            )
+        except DeliveryError as exc:
+            messages.error(request, str(exc))
+            _stash_receive_draft(request, pk)
+            return redirect('delivery_receive', pk=pk)
+
+        request.session.pop(f'receive_submission_key_{pk}', None)
+        if duplicate:
+            messages.info(request, 'This delivery submission was already recorded; stock was not changed again.')
+        elif receipt.outcome == DeliveryReceipt.Outcome.REJECTED:
+            messages.warning(request, f'Failed/rejected delivery recorded for {updated.po_number}. No stock was added.')
+        elif updated.status == Procurement.Status.PARTIALLY_RECEIVED:
+            messages.warning(request, f'{updated.po_number} was partially received. Remaining quantities stay open.')
+        else:
+            messages.success(request, f'{updated.po_number} received in full. Warehouse stock updated.', extra_tags='sheet')
+        return _receiving_exit(request, updated)
+
+        # Kept below as unreachable historical context while callers migrate
+        # to the shared record_delivery service.
         # A received delivery stocks the WAREHOUSE, not the branch floor —
         # Inventory (floor stock) only increases via an approved, released
         # withdrawal slip (see transfer_approve). This is what the
@@ -1662,6 +1892,18 @@ def delivery_receive(request, pk):
                 locked_unreceivable = _not_receivable_reason(locked_proc)
                 if locked_unreceivable:
                     raise _DeliveryStatusError(locked_unreceivable)
+
+                # Created up front (not after the loop) so each item's
+                # DeliveryReceiptLine below can point at it; a raise anywhere
+                # in this block rolls the whole atomic transaction back,
+                # including this row, so an empty/invalid submission never
+                # leaves an orphaned receipt.
+                receipt = DeliveryReceipt.objects.create(
+                    procurement=locked_proc,
+                    received_by=request.user,
+                    receipt_date=receipt_date,
+                    delivered_by=request.POST.get('delivered_by', '').strip()[:100],
+                )
 
                 any_received = False
                 for idx, (item_id, qty_str) in enumerate(zip(item_ids, received_map)):
@@ -1738,6 +1980,16 @@ def delivery_receive(request, pk):
                         expiry_date=parse_date(expiry_str) if expiry_str else None,
                     )
 
+                    # Which receipt this quantity came in on — the piece that
+                    # was missing for a multi-shipment PO (see DeliveryReceiptLine's
+                    # own docstring).
+                    DeliveryReceiptLine.objects.create(
+                        receipt=receipt,
+                        item=item,
+                        quantity_received=qty_received,
+                        expiry_date=parse_date(expiry_str) if expiry_str else None,
+                    )
+
                 if not any_received:
                     raise _DeliveryStatusError(
                         'Enter at least one received quantity greater than zero.'
@@ -1765,16 +2017,6 @@ def delivery_receive(request, pk):
                 locked_proc.save(update_fields=[
                     'status', 'receipt_flag', 'actual_receipt_date',
                 ])
-                # Who took this shipment in. Always the signed-in user; only
-                # the courier's name is typed. Inside the same atomic block as
-                # the stock writes, so a receipt row exists exactly when stock
-                # was actually received.
-                DeliveryReceipt.objects.create(
-                    procurement=locked_proc,
-                    received_by=request.user,
-                    receipt_date=receipt_date,
-                    delivered_by=request.POST.get('delivered_by', '').strip()[:100],
-                )
         except _DeliveryStatusError as e:
             messages.error(request, str(e))
             # A count problem (too many, none, not a number) is fixed in the
@@ -2660,6 +2902,10 @@ def supplier_form(request, pk=None):
 
     name = request.POST.get('supplier_name', '').strip()
     username = request.POST.get('username', '').strip()
+    email = request.POST.get('email', '').strip().lower()
+    business_registration_id = (
+        request.POST.get('business_registration_id', '').strip().upper() or None
+    )
 
     # Both checks were already here — the first returned to request.path, the
     # second sat inside the atomic block and returned before writing anything.
@@ -2667,8 +2913,19 @@ def supplier_form(request, pk=None):
     errors = []
     if not name or not username:
         errors.append('Supplier name and username are required.')
-    elif supplier is None and User.objects.filter(username=username).exists():
+    elif User.objects.filter(username__iexact=username).exclude(
+        pk=supplier.pk if supplier else None
+    ).exists():
         errors.append(f'Username "{username}" is already taken.')
+    if email and User.objects.filter(
+        role=User.Role.SUPPLIER, email__iexact=email,
+    ).exclude(pk=supplier.pk if supplier else None).exists():
+        errors.append(f'Email "{email}" is already used by another supplier account.')
+    if business_registration_id and User.objects.filter(
+        role=User.Role.SUPPLIER,
+        supplier_profile__business_registration_id__iexact=business_registration_id,
+    ).exclude(pk=supplier.pk if supplier else None).exists():
+        errors.append('That business/tax registration identifier already belongs to another supplier.')
 
     # A category is picked from the managed list, never typed. A blank choice
     # clears it; a retired (inactive) one is only accepted if the supplier
@@ -2681,6 +2938,14 @@ def supplier_form(request, pk=None):
         if category is None or (not category.is_active and category.pk != current_id):
             errors.append('Choose a category from the list.')
 
+    branch = None
+    branch_id = request.POST.get('branch', '').strip()
+    if branch_id:
+        from branches.models import Branch
+        branch = Branch.objects.filter(pk=branch_id).first() if branch_id.isdigit() else None
+        if branch is None:
+            errors.append('Choose a valid branch from the list.')
+
     if not errors:
         with transaction.atomic():
             if supplier is None:
@@ -2688,7 +2953,7 @@ def supplier_form(request, pk=None):
                 # if the supplier ever needs to log in themselves.
                 supplier = User.objects.create_user(
                     username=username,
-                    email=request.POST.get('email', ''),
+                    email=email,
                     password=get_random_string(20),
                     role=User.Role.SUPPLIER,
                 )
@@ -2696,7 +2961,7 @@ def supplier_form(request, pk=None):
                 profile = supplier.supplier_profile
             else:
                 supplier.username = username
-                supplier.email = request.POST.get('email', '')
+                supplier.email = email
                 supplier.save()
 
             profile.supplier_name = name
@@ -2704,9 +2969,21 @@ def supplier_form(request, pk=None):
             profile.contact_number = request.POST.get('contact_number', '')
             profile.category = category
             profile.address = request.POST.get('address', '')
-            profile.branch_id = request.POST.get('branch') or None
+            profile.branch = branch
+            profile.business_registration_id = business_registration_id
             profile.save()
 
+        similar = User.objects.filter(role=User.Role.SUPPLIER).exclude(pk=supplier.pk)
+        contact = request.POST.get('contact_number', '').strip()
+        if (
+            similar.filter(supplier_profile__supplier_name__iexact=name).exists()
+            or (contact and similar.filter(supplier_profile__contact_number=contact).exists())
+        ):
+            messages.warning(
+                request,
+                'Supplier saved, but another supplier has a similar name or contact number. '
+                'Review both records to confirm they are separate businesses.',
+            )
         messages.success(request, f'Supplier "{name}" saved.')
         return redirect('supplier_list')
 
@@ -2849,7 +3126,17 @@ def supplier_category_delete(request, pk):
 
 @login_required(login_url='accounts:login')
 def supplier_detail(request, pk):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    # supplier_list (the only place this page is linked from) already lets
+    # Staff view the supplier table and its product/pending-offer counts —
+    # both are gated by the same PROCUREMENT view grant in the module
+    # registry. Staff used to 404 into "Access denied" the moment they
+    # followed one of those links; this view's own role check had simply
+    # never been widened to match. can_edit/can_add/can_delete below stay
+    # Owner-only, so nothing writable opens up — Staff lands on the same
+    # read-only view a Branch Manager already gets.
+    if request.user.role not in [
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
+    ]:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
@@ -2903,9 +3190,10 @@ def supplier_detail(request, pk):
             request.user.role == User.Role.OWNER
             and user_can_perform_module_action(request.user, PROCUREMENT, DELETE)
         ),
-        'recent_orders': Procurement.objects.filter(
-            supplier=supplier
-        ).select_related('branch').order_by('-order_date')[:5],
+        'recent_orders': scope_queryset(
+            Procurement.objects.filter(supplier=supplier).select_related('branch'),
+            request.user,
+        ).order_by('-order_date')[:5],
     })
 
 
@@ -3048,10 +3336,10 @@ def supplier_product_self_remove(request, link_pk):
         remove_supplier_product(link)
     except SupplierRemovalBlocked as exc:
         messages.error(request, f'Cannot remove {name}. {exc}')
+        return _supplier_next_redirect(request)
     except SupplierProduct.DoesNotExist:
-        pass  # double-submit: already gone
-    else:
-        messages.success(request, f'{name} removed from your catalog.')
+        pass  # double-submit: already gone, but the supplier's intent is satisfied
+    messages.success(request, f'{name} removed from your catalog.')
     return _supplier_next_redirect(request)
 
 
@@ -3280,7 +3568,7 @@ def supplier_product_transfer(request, pk):
 @login_required(login_url='accounts:login')
 def supplier_delete(request, pk):
     if request.user.role != User.Role.OWNER:
-        messages.error(request, 'Only the Owner can delete suppliers.')
+        messages.error(request, 'Only the Owner can deactivate suppliers.')
         return redirect('supplier_list')
 
     supplier = get_object_or_404(User, pk=pk, role=User.Role.SUPPLIER)
@@ -3289,15 +3577,17 @@ def supplier_delete(request, pk):
     ).count()
 
     if request.method == 'POST':
-        if open_orders:
+        if supplier.is_active and open_orders:
             messages.error(
                 request,
                 f'Cannot delete — this supplier still has {open_orders} open order(s).'
             )
             return redirect('supplier_list')
         name = getattr(supplier.supplier_profile, 'supplier_name', supplier.username)
-        supplier.delete()
-        messages.success(request, f'Supplier "{name}" deleted.')
+        supplier.is_active = not supplier.is_active
+        supplier.save(update_fields=['is_active'])
+        state = 'reactivated' if supplier.is_active else 'deactivated'
+        messages.success(request, f'Supplier "{name}" {state}. Historical records were preserved.')
         return redirect('supplier_list')
 
     # The confirm step is a modal on the supplier list now (confirm-dialog.js
@@ -3341,12 +3631,42 @@ class ProcurementListCreateAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        payload = request.data.copy()
+        header_key = request.headers.get('Idempotency-Key', '').strip()
+        if header_key:
+            payload['submissionKey'] = header_key
+        submission_key = (payload.get('submissionKey') or '').strip()
+        if submission_key:
+            existing = Procurement.objects.filter(submission_key=submission_key).first()
+            if existing:
+                if existing.created_by_id != request.user.id:
+                    return Response(
+                        {'detail': 'That submission key belongs to another user.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                return Response(ProcurementReadSerializer(existing).data, status=status.HTTP_200_OK)
+
         serializer = ProcurementWriteSerializer(
-            data=request.data,
+            data=payload,
             context={'request': request}
         )
         if serializer.is_valid():
-            proc           = serializer.save()
+            try:
+                proc = serializer.save()
+            except IntegrityError:
+                submission_key = (
+                    serializer.validated_data.get('submissionKey') or ''
+                ).strip()
+                existing = Procurement.objects.filter(
+                    submission_key=submission_key,
+                    created_by=request.user,
+                ).first()
+                if existing:
+                    return Response(
+                        ProcurementReadSerializer(existing).data,
+                        status=status.HTTP_200_OK,
+                    )
+                raise
             read_serializer = ProcurementReadSerializer(proc)
             return Response(read_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -3453,12 +3773,20 @@ class ProcurementStatusUpdateAPIView(APIView):
 
         new_status = serializer.validated_data['status']
 
-        if new_status == Procurement.Status.COMMUNICATED:
+        if new_status in (
+            Procurement.Status.PENDING_OWNER_REVIEW,
+            Procurement.Status.PENDING_SUPPLIER_REVIEW,
+            Procurement.Status.TERMS_AGREED,
+            Procurement.Status.COMMUNICATED,
+            Procurement.Status.INCOMING,
+            Procurement.Status.PARTIALLY_RECEIVED,
+            Procurement.Status.RECEIVED,
+        ):
             return Response(
                 {
                     'detail': (
-                        'Use the communicate endpoint with contact method, '
-                        'delivery date, and one agreed cost per item.'
+                        'Use the dedicated negotiation, communication, or receiving endpoint '
+                        'for this workflow transition.'
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3499,6 +3827,56 @@ class ProcurementStatusUpdateAPIView(APIView):
 
         read_serializer = ProcurementReadSerializer(updated)
         return Response(read_serializer.data)
+
+
+class ProcurementReceiveAPIView(APIView):
+    """Record an accepted or rejected delivery through the shared service."""
+
+    permission_classes = [IsAuthenticated, HasModuleAccess]
+
+    def post(self, request, pk):
+        if request.user.role not in [
+            User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
+        ]:
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+        proc = get_object_or_404(
+            procurements_visible_to(request.user, Procurement.objects.all()), pk=pk,
+        )
+        if not user_can_access_branch(request.user, proc.branch_id):
+            return Response(
+                {'detail': 'That purchase order belongs to another branch.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        payload = request.data.copy()
+        header_key = request.headers.get('Idempotency-Key', '').strip()
+        if header_key:
+            payload['submissionKey'] = header_key
+        serializer = DeliveryEventSerializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        rejected = data['outcome'] == DeliveryReceipt.Outcome.REJECTED
+        lines = {} if rejected else {
+            row['itemId']: (row['quantityReceived'], row.get('expiryDate'))
+            for row in data['items']
+        }
+        try:
+            receipt, updated, duplicate = record_delivery(
+                proc, request.user, lines=lines,
+                receipt_date=data.get('actualReceiptDate'),
+                delivered_by=data.get('deliveredBy', ''),
+                idempotency_key=data['submissionKey'],
+                rejection_reason=data.get('rejectionReason', '') if rejected else '',
+            )
+        except DeliveryError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        response = ProcurementReadSerializer(updated).data
+        response['deliveryEvent'] = {
+            'id': receipt.pk,
+            'outcome': receipt.outcome,
+            'duplicate': duplicate,
+            'rejectionReason': receipt.rejection_reason,
+        }
+        return Response(response, status=status.HTTP_200_OK)
 
 
 class ProcurementCommunicateAPIView(APIView):
@@ -3595,6 +3973,25 @@ def supplier_return_list(request):
         return redirect('accounts:home')
 
     returns = _store_returns(request.user).prefetch_related('items__product')
+
+    search_query = request.GET.get('q', '')
+    if search_query:
+        returns = returns.filter(
+            Q(return_number__icontains=search_query) |
+            Q(procurement__po_number__icontains=search_query) |
+            Q(supplier__supplier_profile__supplier_name__icontains=search_query) |
+            Q(supplier__username__icontains=search_query)
+        )
+
+    # The shared back-office range control (_daterange.html), same as
+    # Purchase Orders/Billing. created_at is a DateTimeField, so local
+    # calendar days are turned into aware bounds (see core.timebounds).
+    range_start, range_end, active_range = range_from_request(request)
+    range_dt_start, range_dt_end = local_range_bounds(range_start or range_end, range_end)
+    if range_start:
+        returns = returns.filter(created_at__gte=range_dt_start)
+    returns = returns.filter(created_at__lt=range_dt_end)
+
     counts = {status: 0 for status in SupplierReturn.Status.values}
     for status in returns.values_list('status', flat=True):
         counts[status] = counts.get(status, 0) + 1
@@ -3610,6 +4007,16 @@ def supplier_return_list(request):
         'counts': counts,
         'total_count': sum(counts.values()),
         'status_filter': status_filter,
+        'search_query': search_query,
+        # _daterange.html: a preset click must not drop the search/filters.
+        'active_range': active_range,
+        'range_start': range_start or range_end,
+        'range_end': range_end,
+        'daterange_carry': [('q', search_query), ('status', status_filter)],
+        # O-3 — one urlencoded filter string for the status tabs, same fix as
+        # Purchase Orders/Deliveries/Billing: a tab's href used to be
+        # hand-built and silently dropped other filters.
+        'filter_qs': list_filter_querystring(q=search_query),
         'status_tabs': [
             (value, label, counts.get(value, 0))
             for value, label in SupplierReturn.Status.choices
@@ -3684,6 +4091,36 @@ def supplier_return_add(request, pk):
     return redirect('supplier_return_detail', pk=ret.pk)
 
 
+# Same display-only-stepper idea as _procurement_progress, sized to
+# SupplierReturn's own 4-step happy path. Rejected and Cancelled are both
+# "stopped here" outcomes rather than points on the path, so they get the
+# banner treatment instead of a dot.
+RETURN_PROGRESS_STEPS = ['Requested', 'Acknowledged', 'Shipped', 'Settled']
+
+_RETURN_STEP_BY_STATUS = {
+    SupplierReturn.Status.REQUESTED: 0,
+    SupplierReturn.Status.ACKNOWLEDGED: 1,
+    SupplierReturn.Status.SHIPPED: 2,
+    SupplierReturn.Status.SETTLED: 3,
+}
+
+
+def _return_progress(ret):
+    stopped = ret.status in (SupplierReturn.Status.REJECTED, SupplierReturn.Status.CANCELLED)
+    current = 0 if stopped else _RETURN_STEP_BY_STATUS.get(ret.status, 0)
+    return {
+        'stopped': stopped,
+        'steps': [
+            {
+                'name': name,
+                'done': (not stopped) and i < current,
+                'current': (not stopped) and i == current,
+            }
+            for i, name in enumerate(RETURN_PROGRESS_STEPS)
+        ],
+    }
+
+
 @login_required(login_url='accounts:login')
 def supplier_return_detail(request, pk):
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF]:
@@ -3698,7 +4135,10 @@ def supplier_return_detail(request, pk):
     S = SupplierReturn.Status
     return render(request, 'procurement/supplier_return_detail.html', {
         'ret': ret,
-        'items': ret.items.select_related('product', 'procurement_item'),
+        'return_progress': _return_progress(ret),
+        'items': ret.items.select_related(
+            'product', 'procurement_item', 'source_receipt_item__receipt',
+        ),
         'receipts': ret.replacement_receipts.select_related('received_by'),
         'can_manage': can_manage,
         'can_cancel': (

@@ -28,7 +28,7 @@ above.
 {% endcomment %}
 <form method="GET" class="toolbar-card no-print">
   <div class="toolbar-actions">
-    <a class="btn" href="{% url 'export_csv' 'procurement' %}">
+    <a class="btn" href="{% url 'export_csv' 'procurement' %}?{{ export_query }}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
       Export CSV
     </a>
@@ -64,6 +64,22 @@ status here, not emphasis.
   <div class="kpi-card{% if pending_delivery %} warn{% endif %}">
     <span class="label">Pending Delivery</span>
     <span class="value">{{ pending_delivery }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Gross Procurement</span>
+    <span class="value">₱{{ gross_procurement|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Supplier Returns</span>
+    <span class="value">₱{{ supplier_return_value|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Supplier Credits</span>
+    <span class="value">₱{{ supplier_credit_value|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Net Procurement</span>
+    <span class="value">₱{{ net_procurement|floatformat:2 }}</span>
   </div>
 </div>
 
@@ -171,7 +187,7 @@ for this to be built from existing primitives, and that includes the grid.
         {% for p in procurements %}
         <tr>
           <td data-label="PO ID" class="sku strong">
-            <a href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order">{{ p.po_number }}</a></td>
+            <a href="{% url 'procurement_detail' p.pk %}">{{ p.po_number }}</a></td>
           <td data-label="Branch">{{ p.branch.branch_name }}</td>
           <td data-label="Supplier">
             {% if p.supplier %}{{ p.supplier.supplier_profile.supplier_name|default:p.supplier.username }}{% else %}—{% endif %}</td>

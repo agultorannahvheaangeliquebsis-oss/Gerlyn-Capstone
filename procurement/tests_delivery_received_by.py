@@ -79,10 +79,11 @@ class ReceivedByTests(ProcurementAuthorizationBase):
 
     def test_api_receipt_records_the_authenticated_user(self):
         self.client.force_login(self.owner)
-        response = self.client.patch(
-            f'/api/procurement/{self.po.pk}/update_status/',
+        response = self.client.post(
+            f'/api/procurement/{self.po.pk}/receive/',
             data=json.dumps({
-                'status': Procurement.Status.RECEIVED,
+                'outcome': DeliveryReceipt.Outcome.ACCEPTED,
+                'submissionKey': 'received-by-api',
                 'actualReceiptDate': '2026-02-11',
                 'deliveredBy': 'API Courier',
                 'items': [{'itemId': self.item.pk, 'quantityReceived': 4}],

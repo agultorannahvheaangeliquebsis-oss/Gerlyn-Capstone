@@ -71,6 +71,7 @@ one per row.
       {# ------------------------------------------------------- the form #}
       <form method="POST" action="{% url 'delivery_receive' receive_procurement.pk %}" id="receive-form">
         {% csrf_token %}
+        <input type="hidden" name="submission_key" value="{{ receive_submission_key }}">
         <div class="row wrap mb-4" style="gap:16px; align-items:flex-end;">
           <div class="field" style="max-width:220px; margin:0;">
             <label for="actual-receipt-date">Actual Receipt Date</label>
@@ -86,6 +87,11 @@ one per row.
             <label>Received by</label>
             <div class="field-static">{{ request.user.get_full_name|default:request.user.username }}</div>
           </div>
+        </div>
+        <div class="field">
+          <label for="rejection-reason">Failure/rejection reason <span class="gv-meta">— required only when rejecting the whole delivery</span></label>
+          <textarea id="rejection-reason" name="rejection_reason" rows="2" maxlength="300"
+                    placeholder="Example: all cartons were water-damaged"></textarea>
         </div>
         <div class="table-wrap">
           <table class="gv-table" id="receive-table">
@@ -103,7 +109,7 @@ one per row.
             </thead>
             <tbody>
               {% for item in receive_items %}
-              <tr data-item-id="{{ item.pk }}"
+              <tr data-item-id="{{ item.pk|unlocalize }}"
                   data-ordered="{{ item.remaining_quantity|unlocalize }}"
                   data-unexpected="{% if item.is_unexpected %}1{% else %}0{% endif %}">
                 <td data-label="Product" class="strong">
@@ -115,7 +121,7 @@ one per row.
                     {{ item.product.sku_code }}{% if item.product.barcode %} · {{ item.product.barcode }}
                     {% else %} · <span title="This product has no barcode on file — count it by hand.">no barcode</span>{% endif %}
                   </div>
-                  <input type="hidden" name="item_id" value="{{ item.pk }}">
+                  <input type="hidden" name="item_id" value="{{ item.pk|unlocalize }}">
                 </td>
                 <td data-label="Ordered" class="num">{{ item.quantity_ordered }}</td>
                 <td data-label="Previously Received" class="num">{{ item.quantity_received }}</td>
@@ -145,7 +151,8 @@ one per row.
 
     <div class="modal-foot">
       <button type="button" class="btn" id="cancel-receive-modal">Cancel</button>
-      <button type="submit" form="receive-form" class="btn btn-primary">Confirm Receipt &amp; Update Stock</button>
+      <button type="submit" form="receive-form" name="delivery_outcome" value="rejected" class="btn btn-danger">Record Failed / Rejected</button>
+      <button type="submit" form="receive-form" name="delivery_outcome" value="accepted" class="btn btn-primary">Confirm Receipt &amp; Update Stock</button>
     </div>
   </div>
 </div>

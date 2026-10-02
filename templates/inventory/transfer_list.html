@@ -81,6 +81,20 @@ of the movement) — see transfer_list's movement_branch_ids.
     padding: var(--s4) var(--s6);
     border-top: 1px solid var(--line);
   }
+  {% comment %}
+  Item-picker toolbar inside the Record Write-off items field — same
+  search-plus-category row as Warehouse Stock's Request Floor Refill modal.
+  {% endcomment %}
+  .item-picker-toolbar { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s2); }
+  .item-picker-toolbar input[type=search] { flex: 1 1 200px; min-width: 0; }
+  {% comment %}
+  width:auto overrides gerlyn.css's shared select rule (width:100%), which
+  with flex-basis:auto made this select claim a full 100%-wide row of its own
+  and wrap below the search box instead of sitting beside it.
+  {% endcomment %}
+  .item-picker-toolbar select { flex: 0 0 auto; min-width: 160px; width: auto; }
+  .item-picker-empty { display: none; padding: 8px 0; }
+  .item-picker-empty.is-visible { display: block; }
 </style>
 {% endblock %}
 
@@ -151,6 +165,10 @@ across the full width leave the default block padding as empty card.
     <span class="label">Moved in {{ month_label }}</span>
     <span class="value">{{ total_released_this_month }}</span>
   </div>
+  <div class="kpi-card{% if pending_approval %} warn{% endif %}">
+    <span class="label">Awaiting Approval</span>
+    <span class="value">{{ pending_approval }}</span>
+  </div>
   <div class="kpi-card{% if pending_acknowledgment %} warn{% endif %}">
     <span class="label">Waiting for Floor Confirmation</span>
     <span class="value">{{ pending_acknowledgment }}</span>
@@ -211,6 +229,22 @@ across the full width leave the default block padding as empty card.
 
 <!-- ---------------------------------------------------------- slips view -->
 {% if active_view == 'transfers' %}<div id="panel-transfers">
+  {% if pending_approval and can_approve and module_actions.withdrawals.edit %}
+  <div class="card card-pad mb-4">
+    <h3 class="mb-4">Waiting on a branch to approve</h3>
+    {% for t in stock_transfers %}{% if t.status == 'Pending' %}
+      <div class="ack-row">
+        <div class="ack-slip">
+          <span class="sku strong">{{ t.slip_number }}</span>
+          <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
+          <span class="tag">{{ t.purpose }}</span>
+        </div>
+        <a class="btn btn-primary btn-sm" href="{% url 'transfer_approve' t.pk %}">Review &amp; Approve</a>
+      </div>
+    {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+
   {% if pending_acknowledgment and module_actions.withdrawals.edit %}
   {% comment %}
   A plain .card, not the amber box this used to be. The KPI card directly above
@@ -369,7 +403,7 @@ landing back on this same picker step — see _branch_scoped_modal_target and
 _transfer_list_context in inventory/views.py.
 {% endcomment %}
 {% if can_create and active_view == 'writeoffs' %}<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" style="max-width:640px;">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" style="max-width:760px;">
     <div class="modal-head">
       <h2 id="create-modal-title">Record Write-off</h2>
       <button type="button" class="modal-close" id="close-create-modal" aria-label="Close">
@@ -410,26 +444,37 @@ _transfer_list_context in inventory/views.py.
 
       <div class="field">
         <label>Items (from {{ create_target_branch.branch_name }} floor stock)</label>
-        <div class="table-wrap" style="max-height:280px; overflow-y:auto;">
-          <table class="gv-table">
-            <thead><tr><th>Product</th><th class="num">On Hand</th><th>Quantity to Remove</th></tr></thead>
+        {% if create_floor_stock %}
+        <div class="item-picker-toolbar">
+          <input type="search" id="create-item-search" placeholder="Search product…" autocomplete="off" aria-label="Search items to write off">
+          <select id="create-item-category" aria-label="Filter items by category">
+            <option value="">All Categories</option>
+            {% for c in categories %}<option value="{{ c.id }}">{{ c.category_name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="table-wrap" style="max-height:320px; overflow-y:auto;">
+          <table class="gv-table" id="create-item-table">
+            <thead><tr><th>Product</th><th>Category</th><th class="num">On Hand</th><th>Quantity to Remove</th></tr></thead>
             <tbody>
             {% for inv in create_floor_stock %}
-              <tr>
+              <tr data-item-row data-item-name="{{ inv.product.product_name|lower }}" data-item-category="{{ inv.product.category_id|default:'' }}">
                 <td data-label="Product">
                   {{ inv.product.product_name }}
                   <input type="hidden" name="product_id" value="{{ inv.product.id }}">
                 </td>
+                <td data-label="Category" class="gv-meta">{{ inv.product.category.category_name|default:"—" }}</td>
                 <td class="num" data-label="On Hand">{{ inv.quantity_on_hand }}</td>
                 <td data-label="Quantity to Remove">
                   <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="3"><p class="gv-meta" style="padding:8px 0;">No floor stock available.</p></td></tr>
+              <tr><td colspan="4"><p class="gv-meta" style="padding:8px 0;">No floor stock available.</p></td></tr>
             {% endfor %}
             </tbody>
           </table>
+          <p class="gv-meta item-picker-empty" id="create-item-empty">No items match that search or category.</p>
         </div>
       </div>
 
@@ -493,6 +538,27 @@ _transfer_list_context in inventory/views.py.
   if (branchSelect && branchForm) {
     branchSelect.addEventListener('change', function () { branchForm.submit(); });
   }
+
+  // Items table search/category filter — same pattern as Warehouse Stock's
+  // Request Floor Refill modal (see warehouse_stock_list.html).
+  var itemSearch = document.getElementById('create-item-search');
+  var itemCategory = document.getElementById('create-item-category');
+  var itemRows = document.querySelectorAll('#create-item-table [data-item-row]');
+  var itemEmpty = document.getElementById('create-item-empty');
+  function filterItems() {
+    var q = itemSearch ? itemSearch.value.trim().toLowerCase() : '';
+    var cat = itemCategory ? itemCategory.value : '';
+    var visible = 0;
+    itemRows.forEach(function (row) {
+      var matches = (!q || row.dataset.itemName.indexOf(q) !== -1) &&
+        (!cat || row.dataset.itemCategory === cat);
+      row.style.display = matches ? '' : 'none';
+      if (matches) visible++;
+    });
+    if (itemEmpty) itemEmpty.classList.toggle('is-visible', itemRows.length > 0 && visible === 0);
+  }
+  if (itemSearch) itemSearch.addEventListener('input', filterItems);
+  if (itemCategory) itemCategory.addEventListener('change', filterItems);
 })();
 </script>
 {% endblock %}

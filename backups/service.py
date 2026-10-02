@@ -28,12 +28,12 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 from django.utils import timezone
 
 from . import dumper, media
 from .crypto import BackupCryptoError, encrypt_file, load_key
-from .models import BackupRun
+from .models import BackupLock, BackupRun
 from .storage import BackupStorageError, get_storage
 
 logger = logging.getLogger(__name__)
@@ -77,12 +77,18 @@ def active_run_exists(now=None):
     return BackupRun.objects.filter(status=BackupRun.Status.RUNNING).exists()
 
 
-def spawn_backup_process(trigger):
+def spawn_backup_process(trigger, triggered_by_id=None):
     """Start `manage.py run_backup` detached from the calling web request, so a
-    long backup neither blocks a worker nor is killed when the worker recycles."""
+    long backup neither blocks a worker nor is killed when the worker recycles.
+
+    `triggered_by_id` (KATRINA-BACKUP-002) records which account clicked
+    "Run Now" — unset for the daily scheduler and the external cron
+    endpoint, which have no user behind them."""
+    args = [sys.executable, str(settings.BASE_DIR / 'manage.py'), 'run_backup', f'--trigger={trigger}']
+    if triggered_by_id is not None:
+        args.append(f'--triggered-by={triggered_by_id}')
     subprocess.Popen(
-        [sys.executable, str(settings.BASE_DIR / 'manage.py'), 'run_backup', f'--trigger={trigger}'],
-        cwd=str(settings.BASE_DIR), stdin=subprocess.DEVNULL,
+        args, cwd=str(settings.BASE_DIR), stdin=subprocess.DEVNULL,
         start_new_session=(os.name != 'nt'),
     )
 
@@ -179,11 +185,23 @@ def _notify(priority, title, message):
 
 # --- the run --------------------------------------------------------------------
 
-def run_backup(trigger='manual', storage=None, now=None):
-    """Perform one full backup. Returns the BackupRun rows it wrote."""
+def run_backup(trigger='manual', storage=None, now=None, triggered_by_id=None):
+    """Perform one full backup. Returns the BackupRun rows it wrote.
+
+    `triggered_by_id` (KATRINA-BACKUP-002) is recorded on every row this
+    run writes, so the Backup Status page — and the audit log, since
+    backups.BackupRun is a captured model — can say who started a manual
+    run. Unset for the scheduler/cron trigger.
+    """
     from core.notifications import PRIORITY_HIGH
 
     now = now or timezone.now()
+    # Cheap short-circuit for the common case — avoids loading the
+    # encryption key/storage client and sending the overdue notice just to
+    # find out a backup is already running. Not itself race-free; the
+    # atomic claim right before the first row is written (below) is what
+    # actually prevents two near-simultaneous callers from both starting a
+    # real backup process (KATRINA-BACKUP-001).
     if active_run_exists(now):
         raise BackupInProgress('A backup is already running.')
 
@@ -204,6 +222,7 @@ def run_backup(trigger='manual', storage=None, now=None):
         failed = BackupRun.objects.create(
             run_id=run_id, kind=BackupRun.Kind.MANIFEST, trigger=trigger, started_at=now,
             status=BackupRun.Status.FAILED, finished_at=timezone.now(), error=str(exc),
+            triggered_by_id=triggered_by_id,
         )
         _notify(PRIORITY_HIGH, 'Backup could not start', _ascii(exc))
         return [failed]
@@ -213,8 +232,25 @@ def run_backup(trigger='manual', storage=None, now=None):
 
     with tempfile.TemporaryDirectory(prefix='gerlyn-backup-') as tmp:
         workdir = Path(tmp)
-        for kind, extension, build in PARTS:
-            run = BackupRun.objects.create(run_id=run_id, kind=kind, trigger=trigger, started_at=timezone.now())
+        for index, (kind, extension, build) in enumerate(PARTS):
+            if index == 0:
+                # The actual race-closing step: BackupLock's row lock
+                # serializes concurrent callers here, so the loser's
+                # active_run_exists() below correctly sees the winner's
+                # freshly-created RUNNING row instead of racing it blind.
+                with transaction.atomic():
+                    BackupLock.objects.select_for_update().get_or_create(pk=1)
+                    if active_run_exists(now):
+                        raise BackupInProgress('A backup is already running.')
+                    run = BackupRun.objects.create(
+                        run_id=run_id, kind=kind, trigger=trigger, started_at=timezone.now(),
+                        triggered_by_id=triggered_by_id,
+                    )
+            else:
+                run = BackupRun.objects.create(
+                    run_id=run_id, kind=kind, trigger=trigger, started_at=timezone.now(),
+                    triggered_by_id=triggered_by_id,
+                )
             runs.append(run)
             try:
                 plain_path, detail = build(workdir)
@@ -237,6 +273,7 @@ def run_backup(trigger='manual', storage=None, now=None):
 
         manifest_run = BackupRun.objects.create(
             run_id=run_id, kind=BackupRun.Kind.MANIFEST, trigger=trigger, started_at=timezone.now(),
+            triggered_by_id=triggered_by_id,
         )
         runs.append(manifest_run)
         try:

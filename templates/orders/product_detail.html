@@ -233,7 +233,7 @@ honest placeholder rather than being left out.
           </span>
           {% if not bs.available %}
             <span class="stock-status stock-status--out"><span class="dot" aria-hidden="true"></span>Out of stock</span>
-          {% elif bs.qty <= 10 %}
+          {% elif bs.stock_status == 'Critical' or bs.stock_status == 'Low Stock' %}
             <span class="stock-status stock-status--low"><span class="dot" aria-hidden="true"></span>Only {{ bs.qty }} left</span>
           {% else %}
             <span class="stock-status stock-status--ok"><span class="dot" aria-hidden="true"></span>In stock</span>

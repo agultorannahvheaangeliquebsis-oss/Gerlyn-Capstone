@@ -27,6 +27,7 @@ from .two_factor import (
 )
 from core.module_permissions import (
     ALL_MODULE_CODES, MODULE_PERMISSION_REGISTRY, WRITE_ACTIONS, permission_rows,
+    role_permission_defaults, role_permission_defaults_for_ui,
 )
 
 
@@ -256,7 +257,7 @@ def staff_dashboard(request):
     from inventory.models import Inventory, StockTransfer
     from inventory.alerts import low_stock_alerts
     from procurement.access import (
-        STAFF_ACTIVE_DELIVERY_STATUSES, procurements_visible_to,
+        STAFF_PENDING_DELIVERY_STATUSES, procurements_visible_to,
     )
     from procurement.models import Procurement
 
@@ -279,7 +280,7 @@ def staff_dashboard(request):
         request.user,
         Procurement.objects.select_related('supplier__supplier_profile'),
     ).filter(
-        status__in=STAFF_ACTIVE_DELIVERY_STATUSES,
+        status__in=STAFF_PENDING_DELIVERY_STATUSES,
     ).order_by('delivery_date')
 
     pending_receipts = StockTransfer.objects.select_related('source_branch').filter(
@@ -424,24 +425,31 @@ def user_list(request):
         return redirect('accounts:home')
 
     context = _user_list_context(request)
-
-    edit_pk = request.GET.get('edit')
-    if edit_pk:
-        target = User.objects.filter(
-            pk=edit_pk, role__in=USER_MANAGEMENT_ROLES
-        ).first()
-        if target:
-            profile = _profile_for(target)
-            context.update({
-                'show_edit_modal': True,
-                'edit_target': target,
-                'edit_branch_id': getattr(profile, 'branch_id', None) if profile else None,
-                'edit_modules': target.allowed_modules or [],
-                'edit_permission_rows': permission_rows(
-                    target.allowed_modules, target.module_actions
-                ),
-            })
     return render(request, 'accounts/user_list.html', context)
+
+
+def _user_edit_context(request, target, *, branch_id=None, modules=None,
+                        actions=None, errors=None, form_data=None):
+    """Context for the dedicated Edit User page — GET (current values) and a
+    rejected POST (posted values + errors) both render the same template
+    through this."""
+    profile = _profile_for(target)
+    if modules is None:
+        modules = target.allowed_modules or []
+    return {
+        'target': target,
+        'branch_id': branch_id if branch_id is not None else (
+            getattr(profile, 'branch_id', None) if profile else None
+        ),
+        'permission_rows': permission_rows(modules, actions or target.module_actions),
+        'role_permission_defaults': role_permission_defaults_for_ui(
+            USER_MANAGEMENT_ROLES
+        ),
+        'errors': errors or [],
+        'form_data': form_data,
+        'branches': Branch.objects.all(),
+        'form_role_choices': USER_MANAGEMENT_ROLE_CHOICES,
+    }
 
 
 @login_required(login_url='accounts:login')
@@ -454,12 +462,13 @@ def user_form(request, pk=None):
         User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
     ) if pk else None
 
-    if request.method != 'POST':
-        flag = f'edit={pk}' if target else 'add=1'
-        return redirect(f"{reverse('accounts:user_list')}?{flag}")
-
     if target is None:
+        if request.method != 'POST':
+            return redirect(f"{reverse('accounts:user_list')}?add=1")
         return _user_invite_submit(request)
+
+    if request.method != 'POST':
+        return render(request, 'accounts/user_edit.html', _user_edit_context(request, target))
 
     role = request.POST.get('role')
     username = request.POST.get('username', '').strip()
@@ -486,6 +495,22 @@ def user_form(request, pk=None):
             and MODULE_PERMISSION_REGISTRY[code][action]
         ):
             submitted_actions[code].append(action)
+
+    # A non-JavaScript client changing only the role must get the same reset
+    # as the browser's role-change handler. A normal matrix submission remains
+    # authoritative, including an intentional "uncheck everything" override.
+    has_permission_payload = (
+        request.POST.get('permissions_submitted') == '1'
+        or 'allowed_modules' in request.POST
+        or 'module_actions' in request.POST
+    )
+    if role != target.role and not has_permission_payload:
+        defaults = role_permission_defaults(role)
+        submitted_modules = defaults['allowed_modules']
+        submitted_actions = defaults['module_actions']
+    elif not has_permission_payload:
+        submitted_modules = list(target.allowed_modules or [])
+        submitted_actions = target.module_actions
 
     # The same checks, collected rather than redirected — a redirect
     # discarded the whole form, and this one has several fields to retype.
@@ -573,10 +598,6 @@ def user_form(request, pk=None):
             profile.contact_number = new_contact_number
             profile.save()
 
-        # Module access only ever means anything for Staff/Manager (Owner is
-        # exempt, Supplier/Customer have their own separate portals) — left
-        # untouched for any other role rather than overwritten with an
-        # empty list that would just be ignored anyway.
         if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF):
             target.allowed_modules = submitted_modules
             target.module_actions = submitted_actions
@@ -605,19 +626,11 @@ def user_form(request, pk=None):
         messages.success(request, f'User "{username}" saved.')
         return redirect('accounts:user_list')
 
-    context = _user_list_context(request)
-    context.update({
-        'show_edit_modal': True,
-        'edit_target': target,
-        'edit_branch_id': branch_id,
-        'edit_modules': submitted_modules,
-        'edit_permission_rows': permission_rows(
-            submitted_modules, submitted_actions
-        ),
-        'edit_errors': errors,
-        'edit_form_data': request.POST,
-    })
-    return render(request, 'accounts/user_list.html', context)
+    context = _user_edit_context(
+        request, target, branch_id=branch_id, modules=submitted_modules,
+        actions=submitted_actions, errors=errors, form_data=request.POST,
+    )
+    return render(request, 'accounts/user_edit.html', context)
 
 
 def _user_invite_submit(request):

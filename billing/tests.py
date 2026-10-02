@@ -556,6 +556,39 @@ class BillingConfirmMakerCheckerTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
 
+    def test_serializer_rejects_cancelled_as_a_direct_target(self):
+        """CANCELLED/PARTIALLY_REFUNDED/REFUNDED stay in
+        ALLOWED_STATUS_TRANSITIONS only so sales.views (transaction_set_status
+        / transaction_refund) can route through can_transition_to like every
+        other caller — a human was never meant to reach them here. Before this
+        guard, ChoiceField(choices=PaymentStatus.choices) accepted any of the
+        six values, so an ordinary Billing-access API caller could PATCH a
+        Pending record straight to Cancelled — or a Paid one to Refunded —
+        bypassing the order's own cancellation/refund workflow (stock
+        reversal, RefundEvent, the Owner/Branch-Manager-only refund approval)
+        entirely, while Billing and Sales silently disagreed about the order's
+        real state from then on.
+        """
+        record = self._pending_record(self.staff)
+        serializer = self._serializer(record, self.other_staff, new_status='Cancelled')
+
+        self.assertFalse(serializer.is_valid())
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
+
+    def test_serializer_rejects_refunded_as_a_direct_target(self):
+        record = self._pending_record(self.staff)
+        record.status = BillingRecord.PaymentStatus.PAID
+        record.confirmed_by = self.owner
+        record.date_confirmed = timezone.now()
+        record.save(update_fields=['status', 'confirmed_by', 'date_confirmed'])
+
+        serializer = self._serializer(record, self.other_staff, new_status='Refunded')
+
+        self.assertFalse(serializer.is_valid())
+        record.refresh_from_db()
+        self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
+
 
 class BillingConfirmReturnToOrderTests(TestCase):
     """Financials UX Audit Phase 1 — Order Detail (sales.views.
@@ -1562,3 +1595,37 @@ class PaymentEvidencePerMethodTests(TestCase):
 
         cash = BillingPaymentSerializer(record, data={'paymentMethod': 'Cash'})
         self.assertTrue(cash.is_valid(), cash.errors)
+
+    def test_payment_serializer_enforces_the_channel_restriction_too(self):
+        """B-3 narrowed billing_create's own POST handling to the
+        transaction's channel (a walk-in sale can't be "settled" as Cash on
+        Delivery, nor an online order as a counter Cash/Card swipe), but
+        BillingPaymentSerializer — the API's mirror of that same form — only
+        ever checked paymentMethod against the full six-value enum. A client
+        hitting PATCH /api/billing/<pk>/pay/ directly could record a payment
+        method neither the counter nor the customer could have actually used,
+        and it would then sync onto the sale's own mode_of_payment (X-2)."""
+        from billing.serializers import BillingPaymentSerializer
+
+        walkin_record = self._record('Cash')  # _txn() defaults to Physical.
+        cod_on_walkin = BillingPaymentSerializer(
+            walkin_record, data={'paymentMethod': 'Cash on Delivery'}
+        )
+        self.assertFalse(cod_on_walkin.is_valid())
+
+        online_txn = SalesTransaction.objects.create(
+            branch=self.branch, total_amount=250,
+            mode_of_payment=SalesTransaction.ModeOfPayment.GCASH,
+            transaction_type=SalesTransaction.TransactionType.ONLINE,
+        )
+        online_record = online_txn.billing_record
+        cash_on_online = BillingPaymentSerializer(
+            online_record, data={'paymentMethod': 'Cash'}
+        )
+        self.assertFalse(cash_on_online.is_valid())
+
+        # Regression guard: a channel-appropriate method still saves.
+        cod_on_online = BillingPaymentSerializer(
+            online_record, data={'paymentMethod': 'Cash on Delivery'}
+        )
+        self.assertTrue(cod_on_online.is_valid(), cod_on_online.errors)

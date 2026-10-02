@@ -396,6 +396,10 @@ class SupplierProfile(models.Model):
         null=True, blank=True, related_name='suppliers',
     )
     contact_person    = models.CharField(max_length=100, blank=True)
+    business_registration_id = models.CharField(
+        max_length=100, null=True, blank=True, unique=True,
+        help_text='Official business or tax registration identifier. Blank when not provided.',
+    )
 
     def __str__(self):
         return self.supplier_name

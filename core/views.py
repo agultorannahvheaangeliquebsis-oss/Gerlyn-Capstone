@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -267,19 +268,34 @@ def hero_draft_apply(request):
     """Publish every staged hero-slide change at once."""
     from core.models import HomeHeroSlide
 
-    count = HomeHeroSlide.objects.filter(is_draft=True).count()
+    count = HomeHeroSlide.objects.filter(is_draft=True, is_shadow=False).count()
     if not count:
         messages.info(request, "No unpublished home-page changes to apply.")
         return _hero_return(request)
 
-    # Confirmed removals: drop the working row (its shadow cascades away).
-    HomeHeroSlide.objects.filter(is_draft=True, pending_delete=True).delete()
-    # Edits and additions go live.
-    HomeHeroSlide.objects.filter(is_draft=True).update(
-        is_draft=False, pending_delete=False,
-    )
-    # Frozen snapshots are now stale.
-    HomeHeroSlide.objects.filter(is_shadow=True).delete()
+    from audit.context import set_action_label
+
+    set_action_label('Published homepage changes')
+    with transaction.atomic():
+        drafts = list(
+            HomeHeroSlide.objects.select_for_update().filter(
+                is_draft=True, is_shadow=False,
+            )
+        )
+        # Delete each confirmed removal normally so the audit signal captures
+        # it. Publish surviving drafts with save(), not QuerySet.update(),
+        # because bulk updates intentionally emit no model signals.
+        for slide in drafts:
+            if slide.pending_delete:
+                slide.delete()
+                continue
+            slide.is_draft = False
+            slide.pending_delete = False
+            slide.save(update_fields=['is_draft', 'pending_delete'])
+
+        # Frozen snapshots are now stale. QuerySet.delete() still emits
+        # post_delete for each row, so their removal remains in the audit.
+        HomeHeroSlide.objects.filter(is_shadow=True).delete()
 
     messages.success(
         request,

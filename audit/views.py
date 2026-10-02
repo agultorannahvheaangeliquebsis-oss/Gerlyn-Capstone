@@ -54,6 +54,12 @@ def audit_log_list(request):
     q = params.get('q', '').strip()
     entity = params.get('entity', '')
     action = params.get('action', '')
+    # KATRINA-AUDIT-001: an Owner sees every branch here by design, but had
+    # no way to narrow the list to one — every row still carried its own
+    # branch_id, just nothing filtered on it.
+    branch_filter = params.get('branch', '')
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
     # The shared back-office range control (_daterange.html), same as the
     # Dashboard and Reports; `range_start` is None for "All time".
     range_start, range_end, active_range = range_from_request(request)
@@ -71,6 +77,8 @@ def audit_log_list(request):
         logs = logs.filter(entity=entity)
     if action in AuditLog.Action.values:
         logs = logs.filter(action=action)
+    if branch_filter:
+        logs = logs.filter(branch_id=branch_filter)
     # local_range_bounds is inclusive of the whole end day.
     range_dt_start, range_dt_end = local_range_bounds(range_start or range_end, range_end)
     if range_start:
@@ -109,7 +117,7 @@ def audit_log_list(request):
         buckets.setdefault(_group_key(log.request_id, log.pk), []).append(log)
 
     users = User.objects.in_bulk({l.actor_id for l in group_logs if l.actor_id is not None})
-    branches = Branch.objects.in_bulk({l.branch_id for l in group_logs if l.branch_id is not None})
+    branch_names = Branch.objects.in_bulk({l.branch_id for l in group_logs if l.branch_id is not None})
 
     groups = []
     for key in page_keys:
@@ -124,13 +132,13 @@ def audit_log_list(request):
             'primary': primary,
             'actor': _actor_label(primary.actor_id, primary.actor_role, users),
             'entity_label': label_for(primary.entity),
-            'branch': branches[primary.branch_id].branch_name if primary.branch_id in branches else '',
+            'branch': branch_names[primary.branch_id].branch_name if primary.branch_id in branch_names else '',
             'summary_text': label or primary.summary,
             'action_display': actions.pop() if len(actions) == 1 else 'mixed',
             'process_count': len(members),
         })
 
-    filters = {'q': q, 'entity': entity, 'action': action}
+    filters = {'q': q, 'entity': entity, 'action': action, 'branch': branch_filter}
     range_params = {
         'range': active_range,
         'date_from': range_start.isoformat() if range_start else '',
@@ -140,6 +148,9 @@ def audit_log_list(request):
         'groups': groups,
         'page': page,
         'filters': filters,
+        'branches': Branch.objects.all().order_by('branch_name'),
+        'branch_filter': branch_filter,
+        'filter_branch': Branch.objects.filter(pk=branch_filter).first() if branch_filter else None,
         # Filters only: drives the "Clear" link and the empty-state wording.
         'querystring': list_filter_querystring(**filters),
         # Filters plus the range, so a pagination link keeps both.

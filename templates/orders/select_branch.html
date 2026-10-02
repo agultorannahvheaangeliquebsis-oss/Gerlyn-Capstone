@@ -84,13 +84,31 @@
       <input type="hidden" name="accuracy" id="fulfillment-accuracy" value="">
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
       <button type="button" class="btn btn-primary" id="use-current-location">Use current location</button>
+      {% comment %}
+      Same POST as the no-address fallback below (location_status=fallback)
+      — customer_fulfillment_location already prefers the default saved
+      Address over the store fallback when no browser location is shared.
+      This is just that path named up front, so a shopper does not have to
+      hit the geolocation prompt (or its denial) first to reach it.
+      {% endcomment %}
+      {% if has_saved_address %}
+      <button type="submit" class="btn" name="location_status" value="fallback">
+        Use my saved address
+      </button>
+      {% else %}
       <button type="submit" class="btn" name="location_status" value="fallback">
         Continue without sharing location
       </button>
+      {% endif %}
     </form>
     <p class="gv-meta mb-0" id="fulfillment-location-feedback" role="status" aria-live="polite">
-      If permission is denied or unavailable, we use your saved address's
-      city/barangay, then the configured store fallback. Checkout remains available.
+      {% if has_saved_address %}
+        If you skip sharing your location, we use your saved address's
+        city/barangay instead. Checkout remains available.
+      {% else %}
+        If permission is denied or unavailable, we use your saved address's
+        city/barangay, then the configured store fallback. Checkout remains available.
+      {% endif %}
     </p>
   </div>
 </div>

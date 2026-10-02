@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models as dj_models
 from django.db import transaction
 from django.db import IntegrityError
@@ -1043,16 +1043,44 @@ class _OrderActionError(Exception):
     partially applying a rejected action."""
 
 
-@role_required(OWNER, BRANCH_MANAGER, STAFF)
 def transaction_set_status(request, pk, new_status):
-    """Advance an order through its lifecycle."""
+    """Advance an order through its lifecycle.
+
+    Staff-only, with one carve-out: a customer may cancel their own order
+    while it is still Pending or Approved — the same self-serve window
+    orders.customer_views.track_order's Cancel button offers. That button
+    posts here rather than to a second implementation, so the
+    history/billing/notification side effects below (and their own
+    "only transaction_set_status writes these" docstrings — see
+    OrderStatusHistory, OrderStatusChange, billing.BillingRecord's B-1
+    comment) stay true instead of drifting against a parallel copy.
+    _next_actions already lists 'Cancelled' as reachable from Pending/
+    Approved with no role check, so no change was needed there — only here,
+    where @role_required used to block a customer before the view body ran.
+    """
     txn = get_object_or_404(SalesTransaction, pk=pk)
 
-    if not user_can_access_branch(request.user, txn.branch_id):
-        messages.error(request, 'That order belongs to another branch.')
-        return redirect('transaction_list')
+    is_self_cancel = (
+        request.user.is_authenticated
+        and request.user.role == 'CUSTOMER'
+        and txn.customer_id == request.user.id
+        and new_status == SalesTransaction.OrderStatus.CANCELLED
+        and txn.order_status in (
+            SalesTransaction.OrderStatus.PENDING, SalesTransaction.OrderStatus.APPROVED,
+        )
+    )
+    if not is_self_cancel:
+        if not request.user.is_authenticated:
+            return redirect(settings.LOGIN_URL)
+        if request.user.role not in (OWNER, BRANCH_MANAGER, STAFF):
+            raise PermissionDenied("Your role does not have access to this action.")
+        if not user_can_access_branch(request.user, txn.branch_id):
+            messages.error(request, 'That order belongs to another branch.')
+            return redirect('transaction_list')
 
     if request.method != 'POST':
+        if is_self_cancel:
+            return redirect('orders:track_order', transaction_id=pk)
         return redirect('transaction_detail', pk=pk)
 
     try:
@@ -1297,7 +1325,13 @@ def transaction_set_status(request, pk, new_status):
                 )
     except _OrderActionError as e:
         messages.error(request, str(e))
+        if is_self_cancel:
+            return redirect('orders:track_order', transaction_id=pk)
         return redirect('transaction_detail', pk=pk)
+
+    if is_self_cancel:
+        messages.success(request, f'{txn.order_number} has been cancelled.')
+        return redirect('orders:track_order', transaction_id=pk)
 
     messages.success(request, f'{txn.order_number} is now {new_status}.')
     if skipped_products:
@@ -1840,7 +1874,7 @@ def transaction_refund_reject(request, refund_pk):
 
 
 # ─────────────────────────────────────────────
-# WALK-IN POS
+# MANUAL SALES ENTRY (fallback for sales absent from the imported POS file)
 # ─────────────────────────────────────────────
 
 @login_required(login_url='accounts:login')
@@ -1901,6 +1935,7 @@ def transaction_add(request):
     # and online checkout all read, so the counter cannot drift from Billing.
     reference_number = (request.POST.get('reference_number') or '').strip()
     proof_of_payment = request.FILES.get('proof_of_payment')
+    receipt_reference = (request.POST.get('receipt_reference') or '').strip()
 
     product_ids = request.POST.getlist('product_id')
     quantities = request.POST.getlist('quantity')
@@ -1996,6 +2031,21 @@ def transaction_add(request):
             errors.append('That branch no longer exists. Please choose another branch.')
         elif not user_can_access_branch(request.user, branch_id_int):
             errors.append('That branch is not one your account can record sales for.')
+        elif receipt_reference and SalesTransaction.objects.filter(
+            branch_id=branch_id_int,
+            pos_invoice_number__iexact=receipt_reference,
+        ).exists():
+            errors.append(
+                'That receipt/reference number is already recorded for this branch. '
+                'Check the POS import before creating a manual entry.'
+            )
+    # Optional: a legitimate first-time walk-in sale has nothing to
+    # reference and must not be blocked for lacking one (KATRINA-REG-001).
+    # Only a sale that IS reconciling against an imported/external POS
+    # transaction supplies this, and only then is it validated/deduplicated
+    # — see the two checks above and the race-closing recheck below.
+    if receipt_reference and len(receipt_reference) > 100:
+        errors.append('Receipt/reference number cannot exceed 100 characters.')
     if not line_items:
         errors.append('Add at least one item with a quantity.')
     if dropped_pids:
@@ -2132,6 +2182,19 @@ def transaction_add(request):
         if not errors:
             try:
                 with transaction.atomic():
+                    # The POS import takes the same branch lock. Serializing
+                    # both paths closes the preview/create race, including
+                    # case-only variants that some database collations would
+                    # otherwise treat differently.
+                    Branch.objects.select_for_update().get(pk=branch_id)
+                    if receipt_reference and SalesTransaction.objects.filter(
+                        branch_id=branch_id,
+                        pos_invoice_number__iexact=receipt_reference,
+                    ).exists():
+                        raise _OrderActionError(
+                            'That receipt/reference number is already recorded for this '
+                            'branch. Check the POS import before creating a manual entry.'
+                        )
                     txn = SalesTransaction.objects.create(
                         branch_id=branch_id,
                         staff=request.user if request.user.role == STAFF else None,
@@ -2167,6 +2230,12 @@ def transaction_add(request):
                         amount_tendered=amount_tendered,
                         change_amount=change_amount,
                         replaces_id=replaces_id,
+                        source='Manual Entry',
+                        # None (not '') when no reference was given, so a
+                        # plain walk-in sale stays outside the branch +
+                        # pos_invoice_number uniqueness rule — see the
+                        # model's own comment on that constraint.
+                        pos_invoice_number=receipt_reference or None,
                     )
 
                     for line in priced['lines']:

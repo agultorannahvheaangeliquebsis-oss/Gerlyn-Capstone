@@ -49,7 +49,6 @@ window.AddressPicker = (function () {
     els.street.addEventListener('input', function () { addressChanged(true); });
     els.text.addEventListener('input', function () { textDirty = true; });
     els.locate.addEventListener('click', function () { locateAddress(true); });
-    document.getElementById('ap-apply-coordinates').addEventListener('click', applyTypedCoordinates);
     document.getElementById('ap-use-reverse').addEventListener('click', function () {
       els.text.value = els.reverseLabel.textContent;
       textDirty = true;
@@ -426,10 +425,6 @@ window.AddressPicker = (function () {
         setStatus(data.status || 'service_error', data.message || 'Coordinates were updated, but reverse lookup failed.');
       }
     });
-  }
-
-  function applyTypedCoordinates() {
-    placeMarker(Number(els.lat.value), Number(els.lng.value), { center: true, reverse: true });
   }
 
   function setZoom(next) {

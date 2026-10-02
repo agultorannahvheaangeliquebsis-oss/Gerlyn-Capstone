@@ -1,39 +1,23 @@
 {% comment %}
-One set of user fields, used by both the Add and Edit modals on the user list.
+The Add User modal on the user list. Edit User used to share this (switched
+on a `which` param), but moved to its own dedicated page
+(templates/accounts/user_edit.html, accounts:user_edit) — a detailed
+permission matrix and a dozen fields don't fit a modal well, and a real URL
+to land on/bookmark is worth more there than for an invite, which only ever
+collects email, role and branch.
 
 Parameters:
-  which         "add" or "edit"; every element id is built from it
-  title         modal heading
-  action        form POST target
-  target        the User being edited — absent on add
-  branch_id     branch to preselect (posted value on a rejected submit,
-                otherwise the one on their role profile)
+  action        form POST target (accounts:user_add)
+  branch_id     branch to preselect (posted value on a rejected submit)
   errors        validation errors to show above the fields
   form_data     request.POST from a rejected submit, so the typing survives
-  is_open       truthy when the server wants this one open on load
-  submit_label  text on the primary button
-
-The role <select> is filled from the shared User Management policy choices.
-Customer is intentionally absent: customer accounts are created through
-registration and managed in the dedicated Customer Accounts module.
-
-Add collects only email, role and branch — the invited person picks their
-own username and password on the link that email sends them, and starts
-with the ordinary default module access, adjustable afterward from Edit.
-Name/username/password/modules below are wrapped to EDIT ONLY for exactly
-that reason; `modules`/`target` are simply never passed in on the Add
-include, so `modules` reads as empty and every `target.*` lookup below is
-harmless on Add regardless.
-
-The password field is deliberately never repopulated from form_data. Nothing
-should write a password back into a page, and on edit it is optional anyway —
-blank means "keep the current one", which is what an empty field already says.
+  is_open       truthy when the server wants this open on load
 {% endcomment %}
-<div class="modal-overlay{% if is_open %} is-open{% endif %}" id="{{ which }}-user-modal" data-autoopen="{% if is_open %}1{% else %}0{% endif %}">
-  <div class="modal-card{% if which == 'edit' %} modal-card--wide{% endif %}" role="dialog" aria-modal="true" aria-labelledby="{{ which }}-user-title">
+<div class="modal-overlay{% if is_open %} is-open{% endif %}" id="add-user-modal" data-autoopen="{% if is_open %}1{% else %}0{% endif %}">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-user-title">
     <div class="modal-head">
-      <h2 id="{{ which }}-user-title">{{ title }}</h2>
-      <button type="button" class="modal-close" id="close-{{ which }}-user-modal" aria-label="Close">
+      <h2 id="add-user-title">Invite New User</h2>
+      <button type="button" class="modal-close" id="close-add-user-modal" aria-label="Close">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -41,7 +25,7 @@ blank means "keep the current one", which is what an empty field already says.
       </button>
     </div>
 
-    <form method="POST" action="{{ action }}" class="modal-body" id="{{ which }}-user-form">
+    <form method="POST" action="{{ action }}" class="modal-body" id="add-user-form">
       {% csrf_token %}
 
       {% if errors %}
@@ -50,55 +34,24 @@ blank means "keep the current one", which is what an empty field already says.
       </div>
       {% endif %}
 
-      {% if which == "edit" %}
-      <div class="grid-2">
-        <div class="field">
-          <label for="{{ which }}-user-first-name">First Name</label>
-          <input id="{{ which }}-user-first-name" type="text" name="first_name"
-                 value="{% firstof form_data.first_name target.first_name '' %}">
-        </div>
-        <div class="field">
-          <label for="{{ which }}-user-last-name">Last Name</label>
-          <input id="{{ which }}-user-last-name" type="text" name="last_name"
-                 value="{% firstof form_data.last_name target.last_name '' %}">
-        </div>
-      </div>
-
       <div class="field">
-        <label for="{{ which }}-user-username">Username</label>
-        <input id="{{ which }}-user-username" type="text" name="username" required
-               value="{% firstof form_data.username target.username '' %}">
+        <label for="add-user-email">Email</label>
+        <input id="add-user-email" type="email" name="email" required
+               value="{% firstof form_data.email '' %}">
       </div>
-      {% endif %}
-
-      <div class="field">
-        <label for="{{ which }}-user-email">Email</label>
-        <input id="{{ which }}-user-email" type="email" name="email"
-               {% if which == "add" %}required{% endif %}
-               value="{% firstof form_data.email target.email '' %}">
-      </div>
-
-      {% if which == "edit" %}
-      <div class="field">
-        <label for="{{ which }}-user-contact-number">Mobile Number</label>
-        <input id="{{ which }}-user-contact-number" type="tel" name="contact_number"
-               placeholder="+63 9XX XXX XXXX"
-               value="{% firstof form_data.contact_number target.get_role_profile.contact_number '' %}">
-      </div>
-      {% endif %}
 
       <div class="grid-2">
         <div class="field">
-          <label for="{{ which }}-user-role">Role</label>
-          <select id="{{ which }}-user-role" name="role" required>
+          <label for="add-user-role">Role</label>
+          <select id="add-user-role" name="role" required>
             {% for value, label in form_role_choices %}
-              <option value="{{ value }}" {% if form_data.role == value or not form_data and target.role == value %}selected{% endif %}>{{ label }}</option>
+              <option value="{{ value }}" {% if form_data.role == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="field">
-          <label for="{{ which }}-user-branch">Assigned Branch <span class="gv-meta">— managers &amp; staff only</span></label>
-          <select id="{{ which }}-user-branch" name="branch">
+          <label for="add-user-branch">Assigned Branch <span class="gv-meta">— managers &amp; staff only</span></label>
+          <select id="add-user-branch" name="branch">
             <option value="">— None (Owner sees all) —</option>
             {% for b in branches %}
               <option value="{{ b.id }}" {% if branch_id|stringformat:"s" == b.id|stringformat:"s" %}selected{% endif %}>{{ b.branch_name }}</option>
@@ -107,60 +60,15 @@ blank means "keep the current one", which is what an empty field already says.
         </div>
       </div>
 
-      {% if which == "edit" %}
-      <div class="field" id="{{ which }}-user-modules-field">
-        <label>Detailed Permissions <span class="gv-meta">— managers &amp; staff only</span></label>
-        <p class="gv-meta" style="margin:0 0 8px;">View is required for every other action. Role and assigned-branch restrictions still apply.</p>
-        <div class="table-wrap">
-          <table class="gv-table permission-matrix">
-            <thead>
-              <tr>
-                <th>Module</th>
-                <th class="center">View</th>
-                <th class="center">Add</th>
-                <th class="center">Edit</th>
-                <th class="center">Delete</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in permission_rows %}
-              <tr data-module-permission-row>
-                <td>{{ row.label }}</td>
-                <td class="center"><input type="checkbox" name="allowed_modules" value="{{ row.code }}" data-view-permission aria-label="View {{ row.label }}" {% if row.view %}checked{% endif %}></td>
-                <td class="center">{% if row.supports_add %}<input type="checkbox" name="module_actions" value="{{ row.code }}:add" data-action-permission aria-label="Add in {{ row.label }}" {% if row.add %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
-                <td class="center">{% if row.supports_edit %}<input type="checkbox" name="module_actions" value="{{ row.code }}:edit" data-action-permission aria-label="Edit in {{ row.label }}" {% if row.edit %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
-                <td class="center">{% if row.supports_delete %}<input type="checkbox" name="module_actions" value="{{ row.code }}:delete" data-action-permission aria-label="Delete in {{ row.label }}" {% if row.delete %}checked{% endif %}>{% else %}<span class="gv-meta">—</span>{% endif %}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="{{ which }}-user-password">
-          Password
-          <span class="gv-meta">— leave blank to keep the current one</span>
-        </label>
-        <input id="{{ which }}-user-password" type="password" name="password"
-               placeholder="Enter password" autocomplete="new-password">
-      </div>
-      {% endif %}
-
       <div class="banner banner-info">
-        {% if which == "add" %}
         An email invite is sent to this address with a link to set up their
         username and password. The account can't sign in until they finish it.
-        {% else %}
-        A manager or staff member only ever sees their assigned branch's data.
-        The Owner sees every branch.
-        {% endif %}
       </div>
     </form>
 
     <div class="modal-foot">
-      <button type="button" class="btn" id="cancel-{{ which }}-user-modal">Cancel</button>
-      <button type="submit" form="{{ which }}-user-form" class="btn btn-primary">{{ submit_label }}</button>
+      <button type="button" class="btn" id="cancel-add-user-modal">Cancel</button>
+      <button type="submit" form="add-user-form" class="btn btn-primary">Send Invite</button>
     </div>
   </div>
 </div>

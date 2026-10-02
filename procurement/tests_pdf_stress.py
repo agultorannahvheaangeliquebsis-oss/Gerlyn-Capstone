@@ -288,3 +288,33 @@ class ProcurementPdfHtmlContentTests(ProcurementPdfStressBase):
         self.assertIn('Received / Acknowledged By', html)
         self.assertIn('Printed', html)
         self.assertIn('TOTAL COST', html)
+
+
+class ProcurementPdfUnpricedItemTests(ProcurementPdfStressBase):
+    """An item can legally have no unit_cost_snapshot yet (cost is only
+    copied onto it once terms are agreed — see ProcurementItem.line_total's
+    docstring). po_print.html already prints "Pending" for that case rather
+    than implying the item is free; po_pdf.html used to fall through to
+    `{{ item.cost_price|floatformat:2 }}`, which Django's floatformat
+    silently renders as an empty string for None — a downloaded PO would
+    print a bare "PHP " next to a real product, while the Amount column
+    (driven by line_total, which treats a null cost as 0) showed "PHP 0.00"
+    beside it. Both documents must say the same thing here."""
+
+    def test_unpriced_item_prints_pending_not_a_blank_cost(self):
+        proc = self._po(self.home_branch, Procurement.Status.PENDING_SUPPLIER_REVIEW,
+                         owner=self.owner, created_by=self.owner)
+        priced = self._bulk_products('J', 1)[0]
+        ProcurementItem.objects.create(
+            procurement=proc, product=priced,
+            quantity_ordered=3, unit_cost_snapshot=None,
+        )
+
+        request = RequestFactory().get('/')
+        request.user = self.owner
+        context = _procurement_document_context(proc, request)
+        html = render_to_string('procurement/po_pdf.html', context)
+
+        self.assertIn('Pending', html)
+        self.assertNotIn('PHP </td>', html)
+        self.assertNotIn('PHP  </td>', html)
