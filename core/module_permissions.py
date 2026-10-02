@@ -105,7 +105,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-stock-transfer-approve', 'api-stock-transfer-release',
             'api-stock-transfer-acknowledge',
         ],
-        DELETE: ['pos_sales_import_undo'],
+        DELETE: [],
     },
     ALERTS: {
         'label': 'Alerts Center',
@@ -130,7 +130,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-sales-refunds', 'api-sales-refund-approve',
             'api-sales-refund-reject', 'api-sales-pwd-request',
         ],
-        DELETE: [],
+        DELETE: ['pos_sales_import_undo'],
     },
     BILLING: {
         'label': 'Billing',

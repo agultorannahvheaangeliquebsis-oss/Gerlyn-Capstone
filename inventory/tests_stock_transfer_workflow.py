@@ -1,8 +1,11 @@
 from importlib import import_module
+import threading
 
 from django.apps import apps as django_apps
-from django.test import TestCase
+from django.db import close_old_connections
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
+from rest_framework.test import APIClient
 
 from accounts.models import User
 from branches.models import Branch
@@ -227,6 +230,75 @@ class CrossBranchStockRequestTests(TestCase):
             StockTransfer.Status.DISCREPANCY,
         )
 
+    def test_web_discrepancy_reconciles_the_reported_product_only(self):
+        second_product = Product.objects.create(
+            sku_code='SKU-Y', product_name='Second Product', unit_price='12.00',
+        )
+        WarehouseStock.objects.create(
+            warehouse=self.warehouse_a, product=second_product, quantity_on_hand=0,
+        )
+        WarehouseStock.objects.create(
+            warehouse=self.warehouse_b, product=second_product, quantity_on_hand=20,
+        )
+        self.client.force_login(self.staff_a)
+        created = self.client.post(
+            reverse('api-stock-transfer-list'),
+            data={
+                'sourceBranchId': self.branch_b.pk,
+                'destinationBranchId': self.branch_a.pk,
+                'purpose': StockTransfer.Purpose.BRANCH_RESTOCK,
+                'items': [
+                    {'productId': self.product.pk, 'quantityRequested': 5},
+                    {'productId': second_product.pk, 'quantityRequested': 4},
+                ],
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        transfer = StockTransfer.objects.get(pk=created.json()['id'])
+        items = list(transfer.items.order_by('pk'))
+        self.client.force_login(self.manager_b)
+        approved = self.client.patch(
+            reverse('api-stock-transfer-approve', args=[transfer.pk]),
+            data={
+                'action': 'approve',
+                'items': {str(items[0].pk): 5, str(items[1].pk): 4},
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(approved.status_code, 200, approved.content)
+        released = self.client.patch(
+            reverse('api-stock-transfer-release', args=[transfer.pk]),
+            content_type='application/json',
+        )
+        self.assertEqual(released.status_code, 200, released.content)
+
+        self.client.force_login(self.staff_a)
+        response = self.client.post(
+            reverse('transfer_flag_discrepancy', args=[transfer.pk]),
+            data={
+                'item_id': [items[0].pk, items[1].pk],
+                'quantity_received': [5, 2],
+                'flag_reason': 'Two units of the second product were missing',
+            },
+        )
+
+        self.assertRedirects(response, reverse('transfer_detail', args=[transfer.pk]))
+        self.assertEqual(
+            Inventory.objects.get(branch=self.branch_a, product=self.product).quantity_on_hand,
+            5,
+        )
+        self.assertEqual(
+            Inventory.objects.get(branch=self.branch_a, product=second_product).quantity_on_hand,
+            2,
+        )
+        movement = StockMovement.objects.get(
+            reference_id=transfer.pk,
+            movement_type=StockMovement.MovementType.TRANSFER_DISCREPANCY,
+        )
+        self.assertEqual(movement.inventory.product, second_product)
+        self.assertEqual(movement.quantity_change, -2)
+
     def test_write_off_uses_its_own_domain_and_movement_type(self):
         inventory = Inventory.objects.create(
             branch=self.branch_a, product=self.product, quantity_on_hand=6,
@@ -354,3 +426,91 @@ class StockWorkflowMovementBackfillTests(TestCase):
             StockMovement.MovementType.WRITE_OFF,
         )
         self.assertEqual(unrelated.movement_type, StockMovement.MovementType.ADJUSTMENT)
+
+
+class ConcurrentStockTransferReleaseTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='concurrent-owner', password='pw', role=User.Role.OWNER,
+        )
+        self.manager = User.objects.create_user(
+            username='concurrent-manager', password='pw',
+            role=User.Role.BRANCH_MANAGER,
+        )
+        self.source = Branch.objects.create(
+            owner=self.owner, branch_name='Concurrent Source', location='A',
+        )
+        self.destination = Branch.objects.create(
+            owner=self.owner, branch_name='Concurrent Destination', location='B',
+        )
+        self.manager.manager_profile.branch = self.source
+        self.manager.manager_profile.save(update_fields=['branch'])
+        self.product = Product.objects.create(
+            sku_code='CONCURRENT-SKU', product_name='Concurrent Product', unit_price=10,
+        )
+        self.stock = WarehouseStock.objects.create(
+            warehouse=self.source.warehouse, product=self.product, quantity_on_hand=20,
+        )
+        self.transfer = WarehouseFloorTransfer.objects.create(
+            warehouse=self.source.warehouse,
+            source_branch=self.source,
+            destination_branch=self.destination,
+            requested_by=self.manager,
+            approved_by=self.manager,
+            purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+            status=StockTransfer.Status.APPROVED,
+        )
+        self.item = self.transfer.items.create(
+            product=self.product, quantity_requested=5, quantity_approved=5,
+        )
+
+    def test_two_simultaneous_api_releases_apply_stock_once(self):
+        barrier = threading.Barrier(3)
+        statuses = []
+        failures = []
+        result_lock = threading.Lock()
+
+        def release():
+            close_old_connections()
+            client = APIClient()
+            client.force_authenticate(self.manager)
+            try:
+                barrier.wait(timeout=10)
+                response = client.patch(
+                    reverse('api-stock-transfer-release', args=[self.transfer.pk]),
+                    data={}, format='json',
+                )
+                with result_lock:
+                    statuses.append(response.status_code)
+            except Exception as exc:  # surfaced by the assertion below
+                with result_lock:
+                    failures.append(exc)
+            finally:
+                close_old_connections()
+
+        threads = [threading.Thread(target=release) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        barrier.wait(timeout=10)
+        for thread in threads:
+            thread.join(timeout=15)
+
+        self.assertFalse(failures, failures)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(sorted(statuses), [200, 400])
+        self.stock.refresh_from_db()
+        self.transfer.refresh_from_db()
+        self.assertEqual(self.stock.quantity_on_hand, 15)
+        self.assertEqual(self.transfer.status, StockTransfer.Status.RELEASED)
+        self.assertEqual(
+            Inventory.objects.get(
+                branch=self.destination, product=self.product,
+            ).quantity_on_hand,
+            5,
+        )
+        self.assertEqual(
+            StockMovement.objects.filter(reference_id=self.transfer.pk).count(),
+            2,
+        )
