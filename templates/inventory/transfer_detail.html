@@ -14,12 +14,12 @@
   {% endcomment %}
   <div class="page-head">
     <div>
-      <a class="back-link" href="{% url 'transfer_list' %}">Stock Withdrawals</a>
+      <a class="back-link" href="{% url 'transfer_list' %}?view={% if transfer.purpose == 'Branch Restock' %}transfers{% else %}writeoffs{% endif %}">{% if transfer.purpose == 'Branch Restock' %}Stock Transfers{% else %}Write-offs{% endif %}</a>
       <h1 class="mt-2">{{ transfer.slip_number }}
-        {% if transfer.status == 'Acknowledged' %}<span class="pill pill-ok">Acknowledged</span>
+        {% if transfer.status == 'Acknowledged' %}<span class="pill pill-ok">{% if transfer.purpose == 'Branch Restock' %}Received on Floor{% else %}Completed{% endif %}</span>
         {% elif transfer.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
         {% elif transfer.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
-        {% elif transfer.status == 'Released' %}<span class="pill pill-info">Released</span>
+        {% elif transfer.status == 'Released' %}<span class="pill pill-info">Moved - Awaiting Confirmation</span>
         {% elif transfer.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
         {% else %}<span class="pill pill-info">{{ transfer.status }}</span>{% endif %}
       </h1>
@@ -32,7 +32,9 @@
       <div><span class="gv-meta">To</span> {{ transfer.destination_branch|default:"N/A (write-off/display)" }}</div>
     </div>
     <div class="row wrap" style="gap:8px 32px;">
-      <div><span class="gv-meta">Purpose</span> {{ transfer.purpose }}</div>
+      <div><span class="gv-meta">{% if transfer.purpose == 'Branch Restock' %}Transfer Type{% else %}Reason for Write-off{% endif %}</span>
+        {% if transfer.purpose == 'Branch Restock' %}Floor Refill{% elif transfer.purpose == 'Damaged/Spoiled' %}Damaged or Spoiled{% elif transfer.purpose == 'Sample/Display' %}Used for Display or Sample{% else %}{{ transfer.purpose }}{% endif %}
+      </div>
       <div><span class="gv-meta">Date</span> {{ transfer.transfer_date|date:"Y-m-d" }}</div>
     </div>
     <div class="row wrap" style="gap:8px 32px;">
@@ -42,7 +44,7 @@
     {% if transfer.received_qty is not None %}
     <div class="row wrap" style="gap:8px 32px;">
       <div><span class="gv-meta">Received qty</span> {{ transfer.received_qty }}</div>
-      <div><span class="gv-meta">Acknowledged by</span> {{ transfer.acknowledged_by.username|default:"—" }}</div>
+      <div><span class="gv-meta">Confirmed by</span> {{ transfer.acknowledged_by.username|default:"—" }}</div>
     </div>
     {% endif %}
     {% if transfer.flag_reason %}<div class="banner banner-error">Discrepancy: {{ transfer.flag_reason }}</div>{% endif %}
@@ -75,23 +77,45 @@
   </div>
 
   {% if module_actions.withdrawals.edit %}<div class="row wrap mt-4">
-    {% if transfer.status == 'Pending' %}
+    {% if transfer.status == 'Pending' and can_source_act %}
       <a class="btn btn-primary" href="{% url 'transfer_approve' transfer.pk %}">Review &amp; Approve</a>
-    {% elif transfer.status == 'Approved' %}
+    {% elif transfer.status == 'Approved' and can_source_act %}
       {% comment %}
       A link now, not a direct POST: releasing goes through a picking screen
       where each item is scanned or counted before any stock moves.
       {% endcomment %}
-      <a class="btn btn-primary" href="{% url 'transfer_complete' transfer.pk %}">Pick &amp; Release Stock</a>
-    {% elif transfer.status == 'Released' %}
+      <a class="btn btn-primary" href="{% url 'transfer_complete' transfer.pk %}">{% if transfer.purpose == 'Branch Restock' %}Pick &amp; Move Stock to Floor{% else %}Review &amp; Complete Write-off{% endif %}</a>
+    {% elif transfer.status == 'Released' and can_destination_act %}
       <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" class="row wrap">{% csrf_token %}
         <input type="number" name="received_qty" placeholder="received qty" style="flex:1 1 120px;">
-        <button type="submit" class="btn btn-primary">{% include "partials/_empty_icon.html" with icon="check" %} Confirm Receipt</button></form>
+        <button type="submit" class="btn btn-primary">{% include "partials/_empty_icon.html" with icon="check" %} Confirm Received on Floor</button></form>
       <form method="post" action="{% url 'transfer_flag_discrepancy' transfer.pk %}" class="row wrap">{% csrf_token %}
-        <input type="number" name="received_qty" placeholder="qty" style="flex:0 1 80px;">
-        <input type="text" name="flag_reason" placeholder="reason" style="flex:1 1 100px;">
+        {% for it in items %}
+          <input type="hidden" name="item_id" value="{{ it.pk }}">
+          <label class="gv-meta">{{ it.product.product_name }} received
+            <input type="number" name="quantity_received" min="0" value="{{ it.quantity_released }}" required style="width:90px;">
+          </label>
+        {% endfor %}
+        <input type="text" name="flag_reason" placeholder="reason" required style="flex:1 1 140px;">
         <button type="submit" class="btn btn-danger">{% include "partials/_empty_icon.html" with icon="flag" %} Flag Discrepancy</button></form>
     {% endif %}
   </div>{% endif %}
+
+  {% if transfer.events.all %}
+  <h3 class="mt-4">{% if transfer.purpose == 'Branch Restock' %}Transfer History{% else %}Write-off History{% endif %}</h3>
+  <div class="card card-pad">
+    {% for event in transfer.events.all %}
+      <div class="row wrap" style="justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--line-soft);">
+        <span>
+          {% if event.from_status == 'Acknowledged' %}{% if transfer.purpose == 'Branch Restock' %}Received on Floor{% else %}Completed{% endif %}{% else %}{{ event.from_status|default:"Created" }}{% endif %}
+          &rarr;
+          {% if event.to_status == 'Acknowledged' %}{% if transfer.purpose == 'Branch Restock' %}Received on Floor{% else %}Completed{% endif %}{% else %}{{ event.to_status }}{% endif %}
+          {% if event.note %} — {{ event.note }}{% endif %}
+        </span>
+        <span class="gv-meta">{{ event.actor.username|default:"System" }} · {{ event.created_at|date:"Y-m-d H:i" }}</span>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

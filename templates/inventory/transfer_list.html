@@ -1,5 +1,5 @@
 {% extends 'internal_base.html' %}
-{% block title %}Stock Adjustments{% endblock %}
+{% block title %}{% if active_view == 'writeoffs' %}Write-offs{% elif active_view == 'history' %}Stock History{% else %}Stock Transfers{% endif %}{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock and Product Master
 List: the topbar chip has to track whichever branch the toolbar is actually
@@ -87,8 +87,8 @@ of the movement) — see transfer_list's movement_branch_ids.
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Stock Adjustments</h1>
-    <p class="gv-meta mb-0">Withdrawal slips, plus a complete log of every stock movement across the branch</p>
+    <h1>{% if active_view == 'writeoffs' %}Write-offs{% elif active_view == 'history' %}Stock History{% else %}Stock Transfers{% endif %}</h1>
+    <p class="gv-meta mb-0">{% if active_view == 'writeoffs' %}Damaged, spoiled, expired, display, and other stock removed from the floor{% elif active_view == 'history' %}A complete record of stock received, moved, sold, corrected, returned, or written off{% else %}Stock requested from a warehouse and moved onto the store floor{% endif %}</p>
   </div>
   <div class="row" style="gap:var(--s3); align-items:center;">
     {% comment %}
@@ -98,13 +98,24 @@ of the movement) — see transfer_list's movement_branch_ids.
     dashboard.html: title on the left, this wrapper (range + action) on the
     right.
     {% endcomment %}
-    {% include "_daterange.html" %}
-    {% if can_create %}<button type="button" class="btn btn-primary" id="open-create-modal">
+    {% if active_view != 'history' %}{% include "_daterange.html" %}{% endif %}
+    {% if active_view == 'transfers' and module_actions.warehouse_stock.add %}
+    <a class="btn btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1{% if branch_filter %}&amp;branch={{ branch_filter }}{% endif %}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-      New Stock Adjustment
+      Request Floor Refill
+    </a>
+    {% elif active_view == 'writeoffs' and can_create %}<button type="button" class="btn btn-primary" id="open-create-modal">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Record Write-off
     </button>{% endif %}
   </div>
 </div>
+
+<nav class="filter-tabs" aria-label="Inventory activity views">
+  <a class="filter-tab{% if active_view == 'transfers' %} active{% endif %}" href="?view=transfers{% if branch_filter %}&amp;branch={{ branch_filter }}{% endif %}">Stock Transfers</a>
+  <a class="filter-tab{% if active_view == 'writeoffs' %} active{% endif %}" href="?view=writeoffs{% if branch_filter %}&amp;branch={{ branch_filter }}{% endif %}">Write-offs</a>
+  <a class="filter-tab{% if active_view == 'history' %} active{% endif %}" href="?view=history{% if branch_filter %}&amp;branch={{ branch_filter }}{% endif %}">Stock History</a>
+</nav>
 
 {% comment %}
 No {% for m in messages %} loop here. internal_base.html already renders every
@@ -135,22 +146,24 @@ would be announcing that nothing is waiting on anyone, and be wrong.
 .compact because this row heads a table, not a graph panel, and three cards
 across the full width leave the default block padding as empty card.
 {% endcomment %}
-<div class="kpi-row compact">
+{% if active_view == 'transfers' %}<div class="kpi-row compact">
   <div class="kpi-card">
-    <span class="label">Released in {{ month_label }}</span>
+    <span class="label">Moved in {{ month_label }}</span>
     <span class="value">{{ total_released_this_month }}</span>
   </div>
   <div class="kpi-card{% if pending_acknowledgment %} warn{% endif %}">
-    <span class="label">Pending Acknowledgment</span>
+    <span class="label">Waiting for Floor Confirmation</span>
     <span class="value">{{ pending_acknowledgment }}</span>
   </div>
   <div class="kpi-card{% if flagged_discrepancies %} danger{% endif %}">
     <span class="label">Flagged Discrepancies</span>
     <span class="value">{{ flagged_discrepancies }}</span>
   </div>
-</div>
+</div>{% endif %}
 
+{% if active_view != 'history' %}
 <form method="GET" class="toolbar toolbar-search">
+  <input type="hidden" name="view" value="{{ active_view }}">
   {% comment %}The top-bar branch switcher sets ?branch=; this form has no
   branch control of its own, so it carries the active branch through as a
   hidden field, or a status/purpose/date change would reset the list to all
@@ -162,7 +175,7 @@ across the full width leave the default block padding as empty card.
   <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
   <input type="hidden" name="date_to" value="{{ range_end|date:'Y-m-d' }}">
   <div class="search-field">
-    <button type="submit" class="search-btn" title="Search" aria-label="Search stock adjustments">
+    <button type="submit" class="search-btn" title="Search" aria-label="Search {% if active_view == 'writeoffs' %}write-offs{% else %}stock transfers{% endif %}">
       <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
     </button>
     <input type="search" name="q" placeholder="Search slip number or product…" value="{{ search_query }}" autocomplete="off" aria-label="Search by slip number or product">
@@ -173,10 +186,6 @@ across the full width leave the default block padding as empty card.
     branch filter so both narrowing controls live in one row instead of a
     tab bar plus a toolbar. Client-side only (showTab), same as before.
     {% endcomment %}
-    <select onchange="showTab(this.value)" aria-label="Choose view">
-      <option value="slips">Withdrawal Slips</option>
-      <option value="log">Movement Log</option>
-    </select>
     {% comment %}
     UIUX-007 — status/purpose/the date range were already computed and
     applied by _transfer_list_context (and threaded into branch_switch_carry
@@ -190,17 +199,18 @@ across the full width leave the default block padding as empty card.
         <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <select name="purpose" onchange="this.form.submit()" aria-label="Filter by purpose">
-      <option value="">All Purposes</option>
+    {% if active_view == 'writeoffs' %}<select name="purpose" onchange="this.form.submit()" aria-label="Filter by write-off reason">
+      <option value="">All Reasons</option>
       {% for value, label in purpose_choices %}
-        <option value="{{ value }}" {% if purpose_filter == value %}selected{% endif %}>{{ label }}</option>
+        {% if value != 'Branch Restock' %}<option value="{{ value }}" {% if purpose_filter == value %}selected{% endif %}>{{ label }}</option>{% endif %}
       {% endfor %}
-    </select>
+    </select>{% endif %}
   </div>
 </form>
+{% endif %}
 
 <!-- ---------------------------------------------------------- slips view -->
-<div id="panel-slips">
+{% if active_view == 'transfers' %}<div id="panel-transfers">
   {% if pending_acknowledgment and module_actions.withdrawals.edit %}
   {% comment %}
   A plain .card, not the amber box this used to be. The KPI card directly above
@@ -209,25 +219,14 @@ across the full width leave the default block padding as empty card.
   {% endcomment %}
   <div class="card card-pad mb-4">
     <h3 class="mb-4">Waiting on a branch to confirm receipt</h3>
-    {% for t in transfers %}{% if t.status == 'Released' %}
+    {% for t in stock_transfers %}{% if t.status == 'Released' %}
       <div class="ack-row">
         <div class="ack-slip">
           <span class="sku strong">{{ t.slip_number }}</span>
           <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
           <span class="tag">{{ t.purpose }}</span>
         </div>
-        <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
-          {% csrf_token %}
-          <label class="gv-meta" for="qty-{{ t.pk }}">Received</label>
-          <input id="qty-{{ t.pk }}" type="number" name="received_qty" min="0" inputmode="numeric">
-          <button class="btn btn-primary btn-sm" type="submit">Confirm receipt</button>
-        </form>
-        <form method="post" action="{% url 'transfer_flag_discrepancy' t.pk %}">
-          {% csrf_token %}
-          <input type="number" name="received_qty" min="0" placeholder="Qty" inputmode="numeric" aria-label="Quantity actually received">
-          <input type="text" name="flag_reason" placeholder="Reason" aria-label="Reason for the discrepancy">
-          <button class="btn btn-danger btn-sm" type="submit">Flag discrepancy</button>
-        </form>
+        <a class="btn btn-primary btn-sm" href="{% url 'transfer_detail' t.pk %}">Confirm Received on Floor</a>
       </div>
     {% endif %}{% endfor %}
   </div>
@@ -237,7 +236,7 @@ across the full width leave the default block padding as empty card.
     <table class="gv-table">
       <thead>
         <tr>
-          <th>Slip ID</th>
+          <th>Transfer ID</th>
           <th>From → To</th>
           <th>Requested By</th>
           <th>Purpose</th>
@@ -247,12 +246,12 @@ across the full width leave the default block padding as empty card.
         </tr>
       </thead>
       <tbody>
-        {% for t in transfers %}
+        {% for t in stock_transfers %}
         <tr>
-          <td data-label="Slip ID" class="sku strong">{{ t.slip_number }}</td>
+          <td data-label="Transfer ID" class="sku strong">{{ t.slip_number }}</td>
           <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</td>
           <td data-label="Requested By">{{ t.requested_by.username|default:"—" }}</td>
-          <td data-label="Purpose"><span class="tag">{{ t.purpose }}</span></td>
+          <td data-label="Purpose"><span class="tag">Floor Refill</span></td>
           {% comment %}
           Status was plain text; every other list page in the app shows it as a
           pill. Released takes .pill-warn to match the amber "Pending
@@ -260,17 +259,17 @@ across the full width leave the default block padding as empty card.
           and the figure have to agree or the page argues with itself.
           {% endcomment %}
           <td data-label="Status">
-            {% if t.status == 'Acknowledged' %}<span class="pill pill-ok">Acknowledged</span>
+            {% if t.status == 'Acknowledged' %}<span class="pill pill-ok">Received on Floor</span>
             {% elif t.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
             {% elif t.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
-            {% elif t.status == 'Released' %}<span class="pill pill-info">Released</span>
+            {% elif t.status == 'Released' %}<span class="pill pill-info">Moved - Awaiting Confirmation</span>
             {% elif t.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
             {% else %}<span class="pill pill-info">{{ t.status }}</span>{% endif %}
           </td>
           <td data-label="Date" class="gv-meta">{{ t.transfer_date|date:"Y-m-d" }}</td>
           <td data-label="Action">
-            <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'transfer_detail' t.pk %}" data-detail-modal="Stock Withdrawal"
-                 title="View" aria-label="View slip {{ t.slip_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
+            <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'transfer_detail' t.pk %}" data-detail-modal="Stock Transfer"
+                 title="View" aria-label="View transfer {{ t.slip_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
           </td>
         </tr>
         {% empty %}
@@ -278,9 +277,9 @@ across the full width leave the default block padding as empty card.
           <td colspan="7">
             <div class="empty">
               <span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span>
-              <h3>No withdrawal slips yet</h3>
-              <p>A withdrawal records stock leaving the shelf — damaged, expired, spoiled or on display — and stays open until the branch confirms what left.</p>
-              {% if can_create %}<button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('open-create-modal').click()">New Stock Adjustment</button>{% endif %}
+              <h3>No stock transfers yet</h3>
+              <p>Request a floor refill when stock needs to move from a warehouse onto the store floor.</p>
+              {% if module_actions.warehouse_stock.add %}<a class="btn btn-primary mt-2" href="{% url 'warehouse_stock_list' %}?open_request=1{% if branch_filter %}&amp;branch={{ branch_filter }}{% endif %}">Request Floor Refill</a>{% endif %}
             </div>
           </td>
         </tr>
@@ -288,16 +287,44 @@ across the full width leave the default block padding as empty card.
       </tbody>
     </table>
   </div>
-</div>
+</div>{% endif %}
 
-<!-- ----------------------------------------------------------- log view -->
-<div id="panel-log" class="card table-wrap hidden">
+<!-- ------------------------------------------------------- write-offs view -->
+{% if active_view == 'writeoffs' %}<div id="panel-writeoffs" class="card table-wrap">
+  <table class="gv-table">
+    <thead><tr><th>Write-off ID</th><th>Branch</th><th>Requested By</th><th>Reason</th><th>Status</th><th>Date</th><th class="end">Action</th></tr></thead>
+    <tbody>
+      {% for t in write_offs %}
+      <tr>
+        <td data-label="Write-off ID" class="sku strong">{{ t.slip_number }}</td>
+        <td data-label="Branch">{{ t.source_branch }}</td>
+        <td data-label="Requested By">{{ t.requested_by.username|default:"—" }}</td>
+        <td data-label="Reason"><span class="tag">{% if t.purpose == 'Damaged/Spoiled' %}Damaged or Spoiled{% elif t.purpose == 'Sample/Display' %}Used for Display or Sample{% else %}{{ t.purpose }}{% endif %}</span></td>
+        <td data-label="Status">
+          {% if t.status == 'Acknowledged' %}<span class="pill pill-ok">Completed</span>
+          {% elif t.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
+          {% elif t.status == 'Approved' %}<span class="pill pill-info">Approved</span>
+          {% elif t.status == 'Pending' %}<span class="pill pill-warn">Pending Approval</span>
+          {% else %}<span class="pill pill-info">{{ t.status }}</span>{% endif %}
+        </td>
+        <td data-label="Date" class="gv-meta">{{ t.transfer_date|date:"Y-m-d" }}</td>
+        <td data-label="Action"><span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'transfer_detail' t.pk %}" data-detail-modal="Write-off" title="View" aria-label="View write-off {{ t.slip_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty"><span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span><h3>No write-offs yet</h3><p>Record damaged, spoiled, expired, display, or other floor stock that must be removed.</p>{% if can_create %}<button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('open-create-modal').click()">Record Write-off</button>{% endif %}</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>{% endif %}
+
+<!-- ------------------------------------------------------- history view -->
+{% if active_view == 'history' %}<div id="panel-history" class="card table-wrap">
   <table class="gv-table">
     <thead>
       <tr>
         <th>Date / Time</th>
         <th>Product</th>
-        <th>Movement Type</th>
+        <th>Activity</th>
         <th class="num">Quantity</th>
         <th>Source</th>
         <th>Destination</th>
@@ -309,7 +336,7 @@ across the full width leave the default block padding as empty card.
       <tr>
         <td data-label="Date / Time" class="gv-meta">{{ row.movement.created_at|date:"Y-m-d H:i" }}</td>
         <td data-label="Product" class="strong">{{ row.product }}</td>
-        <td data-label="Movement Type"><span class="tag">{{ row.movement.movement_type }}</span></td>
+        <td data-label="Activity"><span class="tag">{{ row.movement_label }}</span></td>
         <td data-label="Quantity" class="num strong">{{ row.quantity }}</td>
         <td data-label="Source">{{ row.source }}</td>
         <td data-label="Destination">{{ row.destination }}</td>
@@ -320,15 +347,15 @@ across the full width leave the default block padding as empty card.
         <td colspan="7">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="transfer" %}</span>
-            <h3>No stock movement yet</h3>
-            <p>Every Purchase Order receipt, Stock Adjustment, and sale will show up here.</p>
+            <h3>No stock history yet</h3>
+            <p>Supplier receipts, floor refills, sales, count corrections, returns, and write-offs will appear here.</p>
           </div>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-</div>
+</div>{% endif %}
 
 {% comment %}
 Same shell/two-body pattern as Warehouse Stock's "Request Stock to Floor"
@@ -341,10 +368,10 @@ The item form's "Change" link drops ?branch= but keeps open_create=1,
 landing back on this same picker step — see _branch_scoped_modal_target and
 _transfer_list_context in inventory/views.py.
 {% endcomment %}
-{% if can_create %}<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
+{% if can_create and active_view == 'writeoffs' %}<div class="modal-overlay{% if show_create_modal %} is-open{% endif %}" id="create-modal" data-autoopen="{% if show_create_modal %}1{% else %}0{% endif %}">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" style="max-width:640px;">
     <div class="modal-head">
-      <h2 id="create-modal-title">New Stock Adjustment</h2>
+      <h2 id="create-modal-title">Record Write-off</h2>
       <button type="button" class="modal-close" id="close-create-modal" aria-label="Close">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -359,18 +386,18 @@ _transfer_list_context in inventory/views.py.
       <input type="hidden" name="branch_id" value="{{ create_target_branch.id }}">
       <p class="gv-meta" style="margin:0;">
         For floor-level write-offs — damaged, expired, spoiled, sample/display, or other reasons stock leaves the shelf.
-        To move stock from the warehouse onto the floor, use <a href="{% url 'warehouse_stock_list' %}">Warehouse Stock &rarr; Request Stock to Floor</a> instead.
+        To move stock from the warehouse onto the floor, use <a href="{% url 'warehouse_stock_list' %}?open_request=1">Warehouse Stock &rarr; Request Floor Refill</a> instead.
       </p>
       <div class="grid-2">
         <div class="field">
           <label>Branch</label>
           <div class="field-static" style="display:flex; align-items:center; justify-content:space-between; gap:var(--s2);">
             <span>{{ create_target_branch.branch_name }}</span>
-            {% if branches %}<a href="?open_create=1{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter|urlencode }}{% endif %}" style="font-size:13px;">Change</a>{% endif %}
+            {% if branches %}<a href="?view=writeoffs&amp;open_create=1{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter|urlencode }}{% endif %}" style="font-size:13px;">Change</a>{% endif %}
           </div>
         </div>
         <div class="field">
-          <label for="create-purpose">Purpose</label>
+          <label for="create-purpose">Reason for Write-off</label>
           <select id="create-purpose" name="purpose">
             {% for val, label in write_off_purposes %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
           </select>
@@ -385,7 +412,7 @@ _transfer_list_context in inventory/views.py.
         <label>Items (from {{ create_target_branch.branch_name }} floor stock)</label>
         <div class="table-wrap" style="max-height:280px; overflow-y:auto;">
           <table class="gv-table">
-            <thead><tr><th>Product</th><th class="num">On Hand</th><th>Write off qty</th></tr></thead>
+            <thead><tr><th>Product</th><th class="num">On Hand</th><th>Quantity to Remove</th></tr></thead>
             <tbody>
             {% for inv in create_floor_stock %}
               <tr>
@@ -394,7 +421,7 @@ _transfer_list_context in inventory/views.py.
                   <input type="hidden" name="product_id" value="{{ inv.product.id }}">
                 </td>
                 <td class="num" data-label="On Hand">{{ inv.quantity_on_hand }}</td>
-                <td data-label="Write off qty">
+                <td data-label="Quantity to Remove">
                   <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
                 </td>
               </tr>
@@ -413,11 +440,11 @@ _transfer_list_context in inventory/views.py.
     </form>
     <div class="modal-foot">
       <button type="button" class="btn" id="cancel-create-modal">Cancel</button>
-      <button type="submit" form="create-form" class="btn btn-primary">Create Slip</button>
+      <button type="submit" form="create-form" class="btn btn-primary">Submit Write-off</button>
     </div>
     {% else %}
     <form method="GET" class="modal-body" id="create-branch-form">
-      <p class="gv-meta" style="margin:0;">Choose which branch's floor stock this adjustment is for.</p>
+      <p class="gv-meta" style="margin:0;">Choose which branch has the floor stock to write off.</p>
       <div class="field">
         <label for="create-branch-select">Branch <span style="color:var(--danger-dot);">*</span></label>
         <select id="create-branch-select" name="branch" required>
@@ -428,6 +455,7 @@ _transfer_list_context in inventory/views.py.
         </select>
       </div>
       <input type="hidden" name="open_create" value="1">
+      <input type="hidden" name="view" value="writeoffs">
       {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
       {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
     </form>
@@ -466,11 +494,5 @@ _transfer_list_context in inventory/views.py.
     branchSelect.addEventListener('change', function () { branchForm.submit(); });
   }
 })();
-</script>
-<script>
-  function showTab(which) {
-    document.getElementById('panel-slips').classList.toggle('hidden', which !== 'slips');
-    document.getElementById('panel-log').classList.toggle('hidden', which !== 'log');
-  }
 </script>
 {% endblock %}

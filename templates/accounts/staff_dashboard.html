@@ -78,7 +78,7 @@
         <tr>
           <td data-label="Task" class="strong">Confirm receipt</td>
           <td data-label="Details">{{ t.slip_number }} from {{ t.source_branch.branch_name }}</td>
-          <td data-label="Due / Risk"><span class="pill pill-info">Released</span></td>
+          <td data-label="Due / Risk"><span class="pill pill-info">Moved - Awaiting Confirmation</span></td>
           {% comment %}
           Opens the slip over the dashboard rather than navigating to it —
           the same overlay every list's "see" action uses (detail-modal.js).
@@ -88,7 +88,7 @@
           page, because that is where the success message belongs.
           {% endcomment %}
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'transfer_detail' t.pk %}" data-detail-modal="Stock Withdrawal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirm</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'transfer_detail' t.pk %}" data-detail-modal="Stock Transfer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirm Received on Floor</a>
           </td>
         </tr>
         {% endfor %}
@@ -103,7 +103,7 @@
             {% else %}<span class="pill pill-neutral">Moderate</span>{% endif %}
           </td>
           <td data-label="Action" style="text-align:right;">
-            <a class="btn btn-sm btn-primary" href="{% url 'transfer_create' %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Request Stock</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Request Floor Refill</a>
           </td>
         </tr>
         {% endfor %}

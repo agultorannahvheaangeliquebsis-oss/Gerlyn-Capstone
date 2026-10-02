@@ -47,6 +47,19 @@ class InventoryAdmin(admin.ModelAdmin):
     )
     list_filter = ('branch', 'restock')
     search_fields = ('product__product_name',)
+    fields = (
+        'product', 'branch', 'quantity_on_hand', 'reorder_level',
+        'restock', 'last_stock_update',
+    )
+    readonly_fields = (
+        'product', 'branch', 'quantity_on_hand', 'restock', 'last_stock_update',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(StockMovement)

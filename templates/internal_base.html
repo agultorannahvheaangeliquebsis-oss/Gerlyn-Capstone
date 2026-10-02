@@ -102,7 +102,7 @@ DOM — it is off-screen until focused (see .skip-link).
             <a class="sb-tree-file {% if active_page == 'warehouse_stock' %}sb-tree-file--active{% endif %}" href="{% url 'warehouse_stock_list' %}"><span class="sb-label">Warehouse Stock</span></a>
             {% endif %}
             {% if module_access.withdrawals %}
-            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Withdrawals</span></a>
+            <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Transfers</span></a>
             {% endif %}
           </li>
         </ul>

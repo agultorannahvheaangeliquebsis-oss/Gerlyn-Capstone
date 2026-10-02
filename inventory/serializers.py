@@ -7,6 +7,10 @@ from .models import (
     Product, ProductCategory, ProductPriceTier, Inventory, Warehouse,
     WarehouseStock, Batch, StockTransfer, StockTransferItem, StockMovement,
 )
+from .services import (
+    StockTransferRequestError, create_stock_write_off,
+    create_warehouse_floor_transfer,
+)
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -149,7 +153,12 @@ class WarehouseStockSerializer(serializers.ModelSerializer):
     productId = serializers.PrimaryKeyRelatedField(source='product', read_only=True)
     productName = serializers.CharField(source='product.product_name', read_only=True)
     productSku = serializers.CharField(source='product.sku_code', read_only=True)
-    quantityOnHand = serializers.IntegerField(source='quantity_on_hand')
+    # Quantity is changed only by audited inventory workflows. Keeping the
+    # response field preserves API reads while preventing ModelSerializer
+    # updates from writing the aggregate without its batches/movement.
+    quantityOnHand = serializers.IntegerField(
+        source='quantity_on_hand', read_only=True,
+    )
     reorderLevel = serializers.IntegerField(source='reorder_level')
     restockFlag = serializers.BooleanField(source='restock_flag', read_only=True)
     lastUpdated = serializers.DateTimeField(source='last_updated', read_only=True)
@@ -232,6 +241,17 @@ class StockTransferItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'productId', 'productName', 'quantityRequested', 'quantityApproved']
 
 
+class StockTransferEventSerializer(serializers.Serializer):
+    fromStatus = serializers.CharField(source='from_status', read_only=True)
+    toStatus = serializers.CharField(source='to_status', read_only=True)
+    actor = serializers.SerializerMethodField()
+    note = serializers.CharField(read_only=True)
+    createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+    def get_actor(self, obj):
+        return obj.actor.get_full_name() or obj.actor.username if obj.actor else None
+
+
 class StockTransferSerializer(serializers.ModelSerializer):
     """Read serializer — mirrors the fields shown in transfer_list/transfer_detail."""
     slipNumber = serializers.CharField(source='slip_number', read_only=True)
@@ -246,8 +266,8 @@ class StockTransferSerializer(serializers.ModelSerializer):
     flagReason = serializers.CharField(source='flag_reason', read_only=True)
     receivedQty = serializers.IntegerField(source='received_qty', read_only=True)
     createdAt = serializers.DateTimeField(source='created_at', read_only=True)
-    openingImportRowId = serializers.IntegerField(source='opening_import_row_id', read_only=True)
     items = StockTransferItemSerializer(many=True, read_only=True)
+    events = StockTransferEventSerializer(many=True, read_only=True)
 
     class Meta:
         model = StockTransfer
@@ -255,7 +275,7 @@ class StockTransferSerializer(serializers.ModelSerializer):
             'id', 'slipNumber', 'sourceBranch', 'destinationBranch',
             'purpose', 'requestedBy', 'approvedBy', 'acknowledgedBy',
             'status', 'transferDate', 'notes', 'flagReason', 'receivedQty',
-            'createdAt', 'items',
+            'createdAt', 'items', 'events',
         ]
 
     def _name(self, user):
@@ -307,35 +327,35 @@ class StockTransferWriteSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         request = self.context['request']
-        user = request.user
         items_data = validated_data.pop('items')
-
-        source_branch_id = validated_data.get('sourceBranchId') or self.context.get('user_branch_id')
-        if not source_branch_id:
-            raise serializers.ValidationError({'sourceBranchId': 'No branch assigned to your account.'})
-
-        warehouse = Warehouse.objects.get(branch_id=source_branch_id)
-
-        transfer = StockTransfer.objects.create(
-            warehouse=warehouse,
-            source_branch_id=source_branch_id,
-            destination_branch_id=validated_data.get('destinationBranchId'),
-            purpose=validated_data['purpose'],
-            requested_by=user,
-            status=StockTransfer.Status.PENDING,
-            transfer_date=validated_data.get('transferDate') or timezone.localdate(),
-            notes=validated_data.get('notes', ''),
-        )
-
-        for item in items_data:
-            StockTransferItem.objects.create(
-                transfer=transfer,
-                product_id=item['productId'],
-                quantity_requested=item['quantityRequested'],
-                quantity_approved=0,
-            )
-
-        return transfer
+        purpose = validated_data['purpose']
+        item_payload = [
+            {
+                'product_id': item['productId'],
+                'quantity': item['quantityRequested'],
+            }
+            for item in items_data
+        ]
+        try:
+            common = {
+                'actor': request.user,
+                'source_branch_id': validated_data.get('sourceBranchId'),
+                'items': item_payload,
+                'transfer_date': validated_data.get('transferDate'),
+                'notes': validated_data.get('notes', ''),
+            }
+            if purpose == StockTransfer.Purpose.BRANCH_RESTOCK:
+                return create_warehouse_floor_transfer(
+                    destination_branch_id=validated_data.get('destinationBranchId'),
+                    **common,
+                )
+            if validated_data.get('destinationBranchId'):
+                raise StockTransferRequestError(
+                    'A write-off cannot have a destination branch.'
+                )
+            return create_stock_write_off(purpose=purpose, **common)
+        except StockTransferRequestError as exc:
+            raise serializers.ValidationError({'detail': str(exc)}) from exc
 
 
 class StockTransferApproveSerializer(serializers.Serializer):
@@ -365,6 +385,10 @@ class StockTransferAcknowledgeSerializer(serializers.Serializer):
     """
     receivedQty = serializers.IntegerField(min_value=0)
     flagReason = serializers.CharField(required=False, allow_blank=True)
+    items = serializers.DictField(
+        child=serializers.IntegerField(min_value=0), required=False,
+        help_text='Map each transfer-item id to the quantity actually received.',
+    )
 
 
 # =============================================================================
