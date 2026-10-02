@@ -2697,6 +2697,17 @@ def _transfer_list_context(request):
         status=StockTransfer.Status.RELEASED
     ).count()
 
+    # Symmetric to pending_acknowledgment above, but for the OTHER side of
+    # the same slip: a Branch Manager had no equivalent backlog signal for
+    # restock requests sitting on THEIR desk waiting to be approved, even
+    # though the destination side already gets one for confirming receipt.
+    # Restock-only, like stock_transfers below — a write-off's own approval
+    # queue has no KPI row to live in (the Write-offs tab shows none at all).
+    pending_approval = transfers.filter(
+        status=StockTransfer.Status.PENDING,
+        purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+    ).count()
+
     flagged_discrepancies = transfers.filter(
         status=StockTransfer.Status.DISCREPANCY
     ).count()
@@ -2784,8 +2795,16 @@ def _transfer_list_context(request):
             for value, label in StockTransfer.Purpose.choices
         ],
         'total_released_this_month': total_released_this_month,
+        'pending_approval': pending_approval,
         'pending_acknowledgment': pending_acknowledgment,
         'flagged_discrepancies': flagged_discrepancies,
+        # Gates the new "Waiting on a branch to approve" panel below — Staff
+        # may hold Withdrawals:Edit for confirming receipt on their own
+        # branch, but approving a request is Manager/Owner-only regardless
+        # (see transfer_approve). Without this, a Staff account with that
+        # grant would see a "Review & Approve" link that only ever bounces
+        # them back with "Only Branch Managers and Owners can approve".
+        'can_approve': request.user.role in [User.Role.BRANCH_MANAGER, User.Role.OWNER],
         # Names the window the card above counts. From `today`, which is
         # already localtime()-derived, so it cannot disagree with the
         # month_start/month_end bounds the count itself was filtered on.

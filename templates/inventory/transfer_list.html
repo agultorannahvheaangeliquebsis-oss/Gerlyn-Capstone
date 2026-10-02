@@ -151,6 +151,10 @@ across the full width leave the default block padding as empty card.
     <span class="label">Moved in {{ month_label }}</span>
     <span class="value">{{ total_released_this_month }}</span>
   </div>
+  <div class="kpi-card{% if pending_approval %} warn{% endif %}">
+    <span class="label">Awaiting Approval</span>
+    <span class="value">{{ pending_approval }}</span>
+  </div>
   <div class="kpi-card{% if pending_acknowledgment %} warn{% endif %}">
     <span class="label">Waiting for Floor Confirmation</span>
     <span class="value">{{ pending_acknowledgment }}</span>
@@ -211,6 +215,22 @@ across the full width leave the default block padding as empty card.
 
 <!-- ---------------------------------------------------------- slips view -->
 {% if active_view == 'transfers' %}<div id="panel-transfers">
+  {% if pending_approval and can_approve and module_actions.withdrawals.edit %}
+  <div class="card card-pad mb-4">
+    <h3 class="mb-4">Waiting on a branch to approve</h3>
+    {% for t in stock_transfers %}{% if t.status == 'Pending' %}
+      <div class="ack-row">
+        <div class="ack-slip">
+          <span class="sku strong">{{ t.slip_number }}</span>
+          <span class="gv-meta">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</span>
+          <span class="tag">{{ t.purpose }}</span>
+        </div>
+        <a class="btn btn-primary btn-sm" href="{% url 'transfer_approve' t.pk %}">Review &amp; Approve</a>
+      </div>
+    {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+
   {% if pending_acknowledgment and module_actions.withdrawals.edit %}
   {% comment %}
   A plain .card, not the amber box this used to be. The KPI card directly above

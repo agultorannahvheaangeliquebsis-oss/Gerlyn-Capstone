@@ -11,6 +11,7 @@ from inventory.models import (
     Batch, Inventory, Product, StockMovement, StockTransfer, StockTransferEvent,
     StockWriteOff, Warehouse, WarehouseFloorTransfer, WarehouseStock,
 )
+from inventory.services import create_warehouse_floor_transfer
 
 
 class CrossBranchStockRequestTests(TestCase):
@@ -284,6 +285,100 @@ class CrossBranchStockRequestTests(TestCase):
         )
         self.assertEqual(receipt.status_code, 400)
         self.assertIn('do not have a floor-receipt step', receipt.content.decode())
+
+
+class TransferWorkflowUXTests(TestCase):
+    """Covers the 'whose turn is it' gap on the Stock Transfers list and
+    detail pages: a Branch Manager had no backlog signal for restock
+    requests awaiting their own approval, and the detail page rendered
+    nothing — not even an explanation — for a viewer who could not act."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='ux-owner', password='test-pass', role=User.Role.OWNER,
+        )
+        self.branch_a = Branch.objects.create(
+            owner=self.owner, branch_name='UX Branch A', location='A',
+        )
+        self.branch_b = Branch.objects.create(
+            owner=self.owner, branch_name='UX Branch B', location='B',
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-UX', product_name='UX Product', unit_price='10.00',
+        )
+        # Stock lives on the SOURCE (approving) branch's warehouse — branch_b,
+        # which supplies branch_a's floor-refill request below.
+        WarehouseStock.objects.create(
+            warehouse=self.branch_b.warehouse, product=self.product,
+            quantity_on_hand=20,
+        )
+        self.manager_b = User.objects.create_user(
+            username='ux-manager-b', password='test-pass',
+            role=User.Role.BRANCH_MANAGER,
+        )
+        self.manager_b.manager_profile.branch = self.branch_b
+        self.manager_b.manager_profile.save(update_fields=['branch'])
+
+        self.staff_a = User.objects.create_user(
+            username='ux-staff-a', password='test-pass', role=User.Role.STAFF,
+        )
+        self.staff_a.staff_profile.branch = self.branch_a
+        self.staff_a.staff_profile.save(update_fields=['branch'])
+        # Granted Withdrawals:Edit for the destination-side confirm/flag
+        # actions it's actually allowed to perform — NOT for approval, which
+        # transfer_approve restricts to Manager/Owner regardless of this grant.
+        self.staff_a.allowed_modules = list(
+            set(self.staff_a.allowed_modules + [WITHDRAWALS])
+        )
+        actions = dict(self.staff_a.module_actions)
+        actions[WITHDRAWALS] = ['add', 'edit']
+        self.staff_a.module_actions = actions
+        self.staff_a.save(update_fields=['allowed_modules', 'module_actions'])
+
+        # branch_a (staff_a's own branch) requests stock FROM branch_b's
+        # warehouse — a "remote request" borrowing another branch's stock,
+        # same pattern as CrossBranchStockRequestTests above. branch_b is the
+        # SOURCE and therefore the one that must approve/release.
+        self.transfer = create_warehouse_floor_transfer(
+            actor=self.staff_a,
+            source_branch_id=self.branch_b.pk,
+            destination_branch_id=self.branch_a.pk,
+            items=[{'product_id': self.product.pk, 'quantity': 5}],
+        )
+        self.assertEqual(self.transfer.status, StockTransfer.Status.PENDING)
+
+    def test_pending_approval_kpi_and_panel_shown_to_source_manager(self):
+        self.client.force_login(self.manager_b)
+        response = self.client.get(reverse('transfer_list'))
+        self.assertEqual(response.context['pending_approval'], 1)
+        self.assertContains(response, 'Awaiting Approval')
+        self.assertContains(response, 'Waiting on a branch to approve')
+        self.assertContains(
+            response, reverse('transfer_approve', args=[self.transfer.pk])
+        )
+
+    def test_pending_approval_panel_hidden_for_staff_despite_edit_grant(self):
+        """Staff holds Withdrawals:Edit (for confirm/flag), but transfer_approve
+        is Manager/Owner-only — the panel must not dangle a dead-end link."""
+        self.client.force_login(self.staff_a)
+        response = self.client.get(reverse('transfer_list'))
+        self.assertFalse(response.context['can_approve'])
+        self.assertNotContains(response, 'Waiting on a branch to approve')
+
+    def test_detail_page_explains_pending_status_to_a_viewer_who_cannot_act(self):
+        # staff_a is on the destination branch (can view, via can_destination_
+        # act) but cannot approve — a Pending slip has nothing for them to do
+        # yet; the page must still say whose turn it is rather than show
+        # nothing at all.
+        self.client.force_login(self.staff_a)
+        response = self.client.get(
+            reverse('transfer_detail', args=[self.transfer.pk])
+        )
+        self.assertContains(
+            response,
+            f'Waiting on {self.branch_b} to review and approve.',
+        )
+        self.assertNotContains(response, 'Review &amp; Approve')
 
 
 class StockWorkflowMovementBackfillTests(TestCase):
