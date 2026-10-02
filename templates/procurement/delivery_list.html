@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load static %}
+{% load static l10n %}
 {% block title %}Deliveries{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
@@ -339,7 +339,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
   // had to be redone. So the table is stashed on that submit and put
   // back once, here, when the modal reopens. Nothing is saved on the server:
   // the counts only become real when Confirm Receipt posts them.
-  var draftKey = 'receive-draft-{{ receive_procurement.pk }}';
+  var draftKey = 'receive-draft-{{ receive_procurement.pk|unlocalize }}';
   var receiveForm = document.getElementById('receive-form');
   document.getElementById('unexpected-form').addEventListener('submit', function () {
     var saved = {};

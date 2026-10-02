@@ -183,6 +183,7 @@ MODULE_PERMISSION_REGISTRY = {
             'delivery_receive', 'delivery_scan',
             'procurement_mark_communicated',
             'api-procurement-communicate',
+            'api-procurement-receive',
         ], DELETE: [],
     },
     REPORTS: {
@@ -232,8 +233,8 @@ ROLE_DEFAULT_ACTIONS = {
         ALERTS: [],
         SALES_POS: [ADD, EDIT],
         BILLING: [EDIT],
-        PROCUREMENT: [ADD],
-        DELIVERIES: [EDIT],
+        PROCUREMENT: [ADD, EDIT, DELETE],
+        DELIVERIES: [ADD, EDIT],
         REPORTS: [],
     },
     'STAFF': {

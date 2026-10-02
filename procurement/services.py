@@ -19,7 +19,7 @@ from core.date_validation import validate_today_or_future
 from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
 
 from .models import (
-    DeliveryReceipt, Procurement, SupplierProduct, SupplierProductRequest,
+    DeliveryReceipt, DeliveryReceiptItem, DeliveryReceiptLine, Procurement, SupplierProduct, SupplierProductRequest,
     SupplierReturn, SupplierReturnItem,
 )
 
@@ -36,6 +36,51 @@ class SupplierCostError(Exception):
 
 class ExternalOrderError(Exception):
     """Externally communicated terms are incomplete or no longer applicable."""
+
+
+class DeliveryError(Exception):
+    """A delivery event failed validation and must not mutate stock."""
+
+
+def _notify_received_delivery(procurement):
+    """Keep web and API receiving side effects identical."""
+    from core.notifications import (
+        CATEGORY_PROCUREMENT, PRIORITY_HIGH, PRIORITY_LOW, notify,
+        notify_supplier,
+    )
+
+    if procurement.status == Procurement.Status.PARTIALLY_RECEIVED:
+        from core.module_permissions import DELIVERIES
+        from django.urls import reverse
+
+        notify(
+            CATEGORY_PROCUREMENT, PRIORITY_HIGH,
+            f'{procurement.po_number} received with a discrepancy',
+            f'{procurement.po_number} from {procurement.supplier} '
+            f'({procurement.branch.branch_name}) was received with delivered '
+            f'quantities that differ from what was ordered.',
+            branch=procurement.branch,
+            action_url=reverse('procurement_detail', kwargs={'pk': procurement.pk}),
+            action_label='View PO', required_module=DELIVERIES,
+        )
+        notify_supplier(
+            procurement.supplier, PRIORITY_HIGH,
+            f'{procurement.po_number} — delivery discrepancy',
+            f'{procurement.branch.branch_name} recorded different quantities '
+            f'from what was ordered on {procurement.po_number}. Please check '
+            f'this delivery with them.',
+            action_url=reverse('supplier_portal'), action_label='View order',
+        )
+    else:
+        from django.urls import reverse
+
+        notify_supplier(
+            procurement.supplier, PRIORITY_LOW,
+            f'{procurement.po_number} delivered & received',
+            f'{procurement.branch.branch_name} confirmed receipt of '
+            f'{procurement.po_number} in full.',
+            action_url=reverse('supplier_portal'), action_label='View order',
+        )
 
 
 def validate_expected_delivery_date(value, *, today=None):
@@ -163,6 +208,153 @@ def record_external_order(
         'communicated_at', 'status',
     ])
     return procurement
+
+
+def record_delivery(
+    procurement, user, *, lines=None, receipt_date=None, delivered_by='',
+    idempotency_key=None, rejection_reason='',
+):
+    """Record one accepted or rejected physical delivery exactly once.
+
+    ``lines`` maps ProcurementItem ids to ``(quantity, expiry_date)``. An empty
+    map is a rejected delivery and therefore requires ``rejection_reason``.
+    The client token is scoped by a globally unique field so browser retries
+    and API retries return the already-created event without touching stock.
+    """
+    lines = lines or {}
+    receipt_date = receipt_date or timezone.localdate()
+    delivered_by = (delivered_by or '').strip()[:100]
+    rejection_reason = (rejection_reason or '').strip()
+    idempotency_key = (idempotency_key or '').strip()[:64] or None
+
+    with transaction.atomic():
+        if idempotency_key:
+            existing = DeliveryReceipt.objects.select_for_update().filter(
+                idempotency_key=idempotency_key,
+            ).first()
+            if existing:
+                if existing.procurement_id != procurement.pk:
+                    raise DeliveryError('That delivery submission token belongs to another purchase order.')
+                return existing, existing.procurement, True
+
+        locked = Procurement.objects.select_for_update().select_related('branch').get(
+            pk=procurement.pk,
+        )
+        # A second request may have passed the optimistic lookup above while
+        # waiting for this PO lock. Recheck with a locking/current read after
+        # serialization so concurrent retries cannot collide on the unique
+        # token or return a server error.
+        if idempotency_key:
+            existing = DeliveryReceipt.objects.select_for_update().filter(
+                idempotency_key=idempotency_key,
+            ).first()
+            if existing:
+                if existing.procurement_id != locked.pk:
+                    raise DeliveryError('That delivery submission token belongs to another purchase order.')
+                return existing, locked, True
+        if locked.status not in Procurement.AWAITING_DELIVERY_STATUSES:
+            raise DeliveryError(f'{locked.po_number} cannot be received while it is {locked.status}.')
+
+        if not lines:
+            if not rejection_reason:
+                raise DeliveryError('Enter a reason for the failed or rejected delivery.')
+            receipt = DeliveryReceipt.objects.create(
+                procurement=locked, received_by=user, receipt_date=receipt_date,
+                delivered_by=delivered_by,
+                outcome=DeliveryReceipt.Outcome.REJECTED,
+                rejection_reason=rejection_reason[:300],
+                idempotency_key=idempotency_key,
+            )
+            return receipt, locked, False
+
+        warehouse = Warehouse.objects.filter(branch=locked.branch).first()
+        if warehouse is None:
+            raise DeliveryError(
+                f'No warehouse is configured for {locked.branch.branch_name} — cannot receive stock.'
+            )
+
+        items = {
+            item.pk: item for item in locked.items.select_related('product').all()
+        }
+        unknown = set(lines) - set(items)
+        if unknown:
+            raise DeliveryError('One or more submitted delivery lines are not on this purchase order.')
+
+        normalized = []
+        for item_id, (quantity, expiry) in lines.items():
+            item = items[item_id]
+            if not isinstance(quantity, int) or quantity < 0:
+                raise DeliveryError(f'Enter a valid received quantity for {item.product.product_name}.')
+            if quantity == 0:
+                continue
+            remaining = max(item.quantity_ordered - item.quantity_received, 0)
+            if not item.is_unexpected and quantity > remaining:
+                raise DeliveryError(
+                    f'Received quantity for {item.product.product_name} ({quantity}) '
+                    f'cannot exceed the remaining quantity ({remaining}).'
+                )
+            normalized.append((item, quantity, expiry))
+        if not normalized:
+            raise DeliveryError('Enter at least one received quantity greater than zero, or reject the delivery with a reason.')
+
+        receipt = DeliveryReceipt.objects.create(
+            procurement=locked, received_by=user, receipt_date=receipt_date,
+            delivered_by=delivered_by, outcome=DeliveryReceipt.Outcome.ACCEPTED,
+            idempotency_key=idempotency_key,
+        )
+        for item, quantity, expiry in normalized:
+            item.quantity_received += quantity
+            item.save(update_fields=['quantity_received'])
+            stock, _ = WarehouseStock.objects.select_for_update().get_or_create(
+                product=item.product, warehouse=warehouse,
+                defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+            )
+            before = stock.quantity_on_hand
+            stock.quantity_on_hand = before + quantity
+            stock.save()
+            batch = Batch.objects.create(
+                product=item.product, branch=locked.branch,
+                location=Batch.Location.WAREHOUSE, procurement=locked,
+                quantity=quantity, received_date=receipt_date, expiry_date=expiry,
+            )
+            DeliveryReceiptItem.objects.create(
+                receipt=receipt, procurement_item=item, product=item.product,
+                quantity_received=quantity, batch=batch,
+            )
+            DeliveryReceiptLine.objects.create(
+                receipt=receipt, item=item, quantity_received=quantity,
+                expiry_date=expiry,
+            )
+            StockMovement.objects.create(
+                warehouse_stock=stock, batch=batch,
+                location_type=StockMovement.LocationType.WAREHOUSE,
+                movement_type=StockMovement.MovementType.PROCUREMENT_RECEIVED,
+                quantity_change=quantity, quantity_before=before,
+                quantity_after=stock.quantity_on_hand,
+                reference_id=locked.pk, notes=f'Delivery for {locked.po_number}',
+                created_by=user,
+            )
+
+        has_remaining = any(
+            not item.is_unexpected and item.quantity_received < item.quantity_ordered
+            for item in items.values()
+        )
+        has_unexpected = any(
+            item.is_unexpected and item.quantity_received > 0 for item in items.values()
+        )
+        locked.status = (
+            Procurement.Status.PARTIALLY_RECEIVED if has_remaining
+            else Procurement.Status.RECEIVED
+        )
+        locked.receipt_flag = (
+            Procurement.ReceiptFlag.PARTIAL if has_remaining
+            else Procurement.ReceiptFlag.DISCREPANCY if has_unexpected
+            else Procurement.ReceiptFlag.NONE
+        )
+        locked.actual_receipt_date = receipt_date
+        locked.save(update_fields=['status', 'receipt_flag', 'actual_receipt_date'])
+        _notify_received_delivery(locked)
+        return receipt, locked, False
 
 
 def active_supplier_product_links(supplier):
@@ -638,10 +830,38 @@ def create_supplier_return(procurement, user, *, reason, notes, quantities):
             reason=reason, notes=(notes or '').strip()[:300], requested_by=user,
         )
         for item, qty in chosen:
-            SupplierReturnItem.objects.create(
-                supplier_return=ret, procurement_item=item,
-                product=item.product, quantity_returned=qty,
-            )
+            # Allocate returned units to the concrete receipt lines that
+            # introduced them. This keeps PO/product compatibility while
+            # making every new return traceable to an original delivery.
+            remaining = qty
+            receipt_lines = item.receipt_items.select_related('receipt').filter(
+                receipt__outcome=DeliveryReceipt.Outcome.ACCEPTED,
+            ).order_by('receipt__received_at', 'pk')
+            for source in receipt_lines:
+                already_claimed = sum(
+                    row.quantity_returned
+                    for row in source.supplier_return_items.select_related('supplier_return')
+                    if row.supplier_return.status in SupplierReturn.ACTIVE_STATUSES
+                )
+                available = max(source.quantity_received - already_claimed, 0)
+                take = min(available, remaining)
+                if take:
+                    SupplierReturnItem.objects.create(
+                        supplier_return=ret, procurement_item=item,
+                        product=item.product, quantity_returned=take,
+                        source_receipt_item=source,
+                    )
+                    remaining -= take
+                if remaining == 0:
+                    break
+            if remaining:
+                # Legacy receipts predate item-level receipt rows. Preserve
+                # their returnability, while new receipts always take the
+                # traceable path above.
+                SupplierReturnItem.objects.create(
+                    supplier_return=ret, procurement_item=item,
+                    product=item.product, quantity_returned=remaining,
+                )
     return ret
 
 
@@ -835,12 +1055,30 @@ def receive_replacement(ret, user, *, lines, delivered_by=''):
         if not any_received:
             raise ReturnError('Enter a received quantity for at least one product.')
 
-        DeliveryReceipt.objects.create(
+        receipt = DeliveryReceipt.objects.create(
             procurement=proc, received_by=user,
             receipt_date=timezone.localdate(),
             delivered_by=(delivered_by or '').strip()[:100],
             supplier_return=locked,
         )
+        # Replacement quantities are already represented by one return line;
+        # create matching receipt-line evidence for the replacement event.
+        for item_id, (qty, _expiry) in lines.items():
+            if not qty or item_id not in items:
+                continue
+            return_item = items[item_id]
+            batch = Batch.objects.filter(
+                procurement=proc, product=return_item.product,
+                notes=f'Replacement for {locked.return_number}',
+            ).order_by('-pk').first()
+            DeliveryReceiptItem.objects.create(
+                receipt=receipt, procurement_item=return_item.procurement_item,
+                product=return_item.product, quantity_received=qty, batch=batch,
+            )
+            DeliveryReceiptLine.objects.create(
+                receipt=receipt, item=return_item.procurement_item,
+                quantity_received=qty, expiry_date=_expiry,
+            )
         if all(i.replacement_outstanding == 0 for i in items.values()):
             locked.status = SupplierReturn.Status.SETTLED
             locked.resolution = SupplierReturn.Resolution.REPLACEMENT

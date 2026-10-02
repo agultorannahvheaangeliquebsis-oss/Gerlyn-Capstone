@@ -21,7 +21,7 @@ from core.module_permissions import PROCUREMENT
 from inventory.models import (
     Batch, Product, StockMovement, Warehouse, WarehouseStock,
 )
-from procurement.models import Procurement, ProcurementItem, SupplierProduct
+from procurement.models import DeliveryReceipt, Procurement, ProcurementItem, SupplierProduct
 from procurement.access import STAFF_PENDING_DELIVERY_STATUSES
 
 
@@ -942,10 +942,11 @@ class IncomingDeliveryWorkflowTests(ProcurementAuthorizationBase):
         self.assertContains(response, 'Partially Received')
 
     def test_api_partial_receipt_returns_actual_status_and_date(self):
-        response = self.client.patch(
-            f'/api/procurement/{self.po.pk}/update_status/',
+        response = self.client.post(
+            f'/api/procurement/{self.po.pk}/receive/',
             data=json.dumps({
-                'status': Procurement.Status.RECEIVED,
+                'outcome': DeliveryReceipt.Outcome.ACCEPTED,
+                'submissionKey': 'api-partial-receipt',
                 'actualReceiptDate': '2026-02-11',
                 'items': [{
                     'itemId': self.item.pk,
@@ -1106,7 +1107,7 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
         self.assertNotContains(response, 'name="cost_price"')
         self.assertContains(response, 'Supplier Unit Cost')
 
-    def test_api_snapshots_supplier_cost_instead_of_submitted_cost(self):
+    def test_api_owner_creation_matches_web_and_does_not_snapshot_cost(self):
         self.client.force_login(self.owner)
         created = self.client.post(
             '/api/procurement/',
@@ -1125,21 +1126,12 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
         )
         self.assertEqual(created.status_code, 201, created.content)
         po = Procurement.objects.get()
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
+        self.assertEqual(po.owner, self.owner)
+        self.assertIsNotNone(po.authorized_at)
         self.assertIsNone(po.items.get().unit_cost_snapshot)
-
-        confirmed = self.client.patch(
-            f'/api/procurement/{po.pk}/update_status/',
-            data=json.dumps({'status': Procurement.Status.ORDERED}),
-            content_type='application/json',
-        )
-
-        self.assertEqual(confirmed.status_code, 200, confirmed.content)
-        po.refresh_from_db()
-        item = po.items.get()
-        self.assertEqual(item.unit_cost_snapshot, Decimal('50.00'))
-        self.assertEqual(po.total_cost, Decimal('150.00'))
-        self.assertEqual(confirmed.json()['items'][0]['unitCostSnapshot'], '50.00')
-        self.assertNotIn('costPrice', confirmed.json()['items'][0])
+        self.assertEqual(po.total_cost, Decimal('0.00'))
+        self.assertNotIn('costPrice', created.json()['items'][0])
 
 
 class NegotiationFlowTests(ProcurementAuthorizationBase):

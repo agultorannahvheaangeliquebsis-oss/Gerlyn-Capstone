@@ -263,6 +263,10 @@ class Procurement(models.Model):
         max_length=20, unique=True, blank=True,
         help_text="Auto-generated PO number e.g. PO-2026-001"
     )
+    submission_key = models.CharField(
+        max_length=64, null=True, blank=True, unique=True,
+        help_text='Client submission token used to prevent duplicate purchase orders.',
+    )
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         limit_choices_to={'role__in': ['STAFF', 'BRANCH_MANAGER', 'OWNER']},
@@ -622,6 +626,10 @@ class DeliveryReceipt(models.Model):
     StockMovement rows, which carry the same actor.
     """
 
+    class Outcome(models.TextChoices):
+        ACCEPTED = 'Accepted', 'Accepted / received'
+        REJECTED = 'Rejected', 'Failed / rejected'
+
     procurement = models.ForeignKey(
         Procurement, on_delete=models.CASCADE, related_name='receipts',
     )
@@ -638,6 +646,17 @@ class DeliveryReceipt(models.Model):
         max_length=100, blank=True,
         help_text="Courier or driver who handed the goods over, if noted.",
     )
+    outcome = models.CharField(
+        max_length=10, choices=Outcome.choices, default=Outcome.ACCEPTED,
+    )
+    rejection_reason = models.CharField(
+        max_length=300, blank=True,
+        help_text='Required when the delivery is rejected and no stock is accepted.',
+    )
+    idempotency_key = models.CharField(
+        max_length=64, null=True, blank=True, unique=True,
+        help_text='Client submission token used to apply a delivery event once.',
+    )
     # Set when this receipt is a replacement delivered for a supplier return
     # rather than a shipment against the original order.
     supplier_return = models.ForeignKey(
@@ -647,6 +666,15 @@ class DeliveryReceipt(models.Model):
 
     class Meta:
         ordering = ['received_at', 'id']
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(outcome='Accepted')
+                    | ~models.Q(rejection_reason='')
+                ),
+                name='deliveryreceipt_rejected_reason_required',
+            ),
+        ]
 
     @property
     def received_by_name(self):
@@ -684,6 +712,36 @@ class DeliveryReceiptLine(models.Model):
 
     def __str__(self):
         return f"{self.receipt_id}: {self.item.product.product_name} x{self.quantity_received}"
+
+
+class DeliveryReceiptItem(models.Model):
+    """The exact PO line and quantity recorded in one delivery event."""
+
+    receipt = models.ForeignKey(
+        DeliveryReceipt, on_delete=models.CASCADE, related_name='items',
+    )
+    procurement_item = models.ForeignKey(
+        ProcurementItem, on_delete=models.PROTECT, related_name='receipt_items',
+    )
+    product = models.ForeignKey(
+        Product, on_delete=models.PROTECT, related_name='delivery_receipt_items',
+    )
+    quantity_received = models.PositiveIntegerField()
+    batch = models.OneToOneField(
+        'inventory.Batch', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='delivery_receipt_item',
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity_received__gt=0),
+                name='deliveryreceiptitem_quantity_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.product} x{self.quantity_received} on {self.receipt_id}'
 
 
 class SupplierReturn(models.Model):
@@ -800,6 +858,11 @@ class SupplierReturnItem(models.Model):
     )
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name='supplier_return_items',
+    )
+    source_receipt_item = models.ForeignKey(
+        DeliveryReceiptItem, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='supplier_return_items',
+        help_text='The original delivery line these returned units came from.',
     )
     quantity_returned = models.PositiveIntegerField()
     quantity_replaced = models.PositiveIntegerField(default=0)

@@ -138,6 +138,9 @@ REGISTRY = {
     'sales.PosSalesImport': AuditConfig(
         'ZANK POS sales import', repr_field='original_filename',
     ),
+    'procurement.DeliveryReceiptItem': AuditConfig(
+        'Delivery receipt item', branch_path='receipt.procurement.branch_id',
+    ),
     'sales.Refund': AuditConfig('Refund', branch_path='transaction.branch_id'),
     'sales.RefundItem': AuditConfig(
         'Refund item', branch_path='refund.transaction.branch_id',

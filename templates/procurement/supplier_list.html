@@ -78,13 +78,13 @@
             submit. A supplier with open orders is blocked server-side and comes back as
             an error toast. No JS -> the form POSTs straight through.{% endcomment %}
             <form method="POST" action="{% url 'supplier_delete' s.pk %}" style="display:inline;"
-                  data-confirm="Purchase order history is kept, but {{ s.supplier_profile.supplier_name|default:s.username }} can no longer be selected on new orders, and any products mapped to them are unmapped. A supplier with open orders can't be deleted."
-                  data-confirm-title="Delete this supplier?"
+                  data-confirm="{% if s.is_active %}This supplier will no longer be selectable for new orders. Purchase orders, returns, products, and audit history remain linked.{% else %}This supplier will be available for new purchase orders again.{% endif %}"
+                  data-confirm-title="{% if s.is_active %}Deactivate{% else %}Reactivate{% endif %} this supplier?"
                   data-confirm-variant="danger"
-                  data-confirm-ok="Delete supplier">
+                  data-confirm-ok="{% if s.is_active %}Deactivate{% else %}Reactivate{% endif %} supplier">
               {% csrf_token %}
               <button type="submit" class="icon-btn icon-btn-danger"
-                      title="Delete" aria-label="Delete {{ s.supplier_profile.supplier_name|default:s.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+                      title="{% if s.is_active %}Deactivate{% else %}Reactivate{% endif %}" aria-label="{% if s.is_active %}Deactivate{% else %}Reactivate{% endif %} {{ s.supplier_profile.supplier_name|default:s.username }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
             </form>
             {% endif %}
           </span>

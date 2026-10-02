@@ -189,11 +189,12 @@
 
 <div class="card table-wrap mb-4">
   <table class="gv-table">
-    <thead><tr><th>Product</th><th class="num">Units returned</th><th class="num">Replaced</th></tr></thead>
+    <thead><tr><th>Product</th><th>Original delivery</th><th class="num">Units returned</th><th class="num">Replaced</th></tr></thead>
     <tbody>
       {% for item in items %}
       <tr>
         <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+        <td data-label="Original delivery">{% if item.source_receipt_item %}Receipt #{{ item.source_receipt_item.receipt_id }} · {{ item.source_receipt_item.receipt.receipt_date|date:"Y-m-d" }}{% else %}<span class="gv-meta">Legacy receipt — PO trace only</span>{% endif %}</td>
         <td data-label="Units returned" class="num">{{ item.quantity_returned }}</td>
         <td data-label="Replaced" class="num">{{ item.quantity_replaced }}</td>
       </tr>

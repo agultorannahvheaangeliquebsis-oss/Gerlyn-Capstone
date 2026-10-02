@@ -65,6 +65,22 @@ status here, not emphasis.
     <span class="label">Pending Delivery</span>
     <span class="value">{{ pending_delivery }}</span>
   </div>
+  <div class="kpi-card">
+    <span class="label">Gross Procurement</span>
+    <span class="value">₱{{ gross_procurement|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Supplier Returns</span>
+    <span class="value">₱{{ supplier_return_value|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Supplier Credits</span>
+    <span class="value">₱{{ supplier_credit_value|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Net Procurement</span>
+    <span class="value">₱{{ net_procurement|floatformat:2 }}</span>
+  </div>
 </div>
 
 {% comment %}

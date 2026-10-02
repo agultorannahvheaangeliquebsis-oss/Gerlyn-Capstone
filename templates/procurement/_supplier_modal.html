@@ -92,6 +92,12 @@ stored, so the same expression falls through to empty.
         </div>
       </div>
 
+      <div class="field">
+        <label for="{{ which }}-supplier-registration">Business / Tax Registration ID <span class="gv-meta">— strongest identity when supplied</span></label>
+        <input id="{{ which }}-supplier-registration" type="text" name="business_registration_id" maxlength="100"
+               value="{% firstof form_data.business_registration_id profile.business_registration_id '' %}">
+      </div>
+
       {% comment %}
       Blank option is meaningful, not filler: a supplier with no branch is
       available to every branch, which is what the list column calls

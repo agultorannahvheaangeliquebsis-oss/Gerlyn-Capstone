@@ -29,7 +29,8 @@ from core.timebounds import (
 from reports.services import (
     PIPELINE_ORDER_STATUSES, PROCUREMENT_COST_STATUSES, REVENUE_ORDER_STATUSES,
     gross_sales_total, low_stock_count, net_sales_total, pipeline_sales,
-    pipeline_value_total, refund_value_total, revenue_sales,
+    pipeline_value_total, procurement_cost_total, procurement_return_totals,
+    refund_value_total, revenue_sales,
     sales_range_totals, scoped_report_querysets, scoped_sales_in_range,
 )
 
@@ -3326,6 +3327,9 @@ def procurement_report(request):
         procurement_qs = procurement_qs.filter(order_date__gte=range_start)
 
     records = list(procurement_qs.order_by('-order_date'))
+    gross_procurement = procurement_cost_total(procurement_qs)
+    return_totals = procurement_return_totals(procurement_qs)
+    net_procurement = gross_procurement - return_totals['net_adjustment']
 
     active_value = sum(
         p.total_cost for p in records
@@ -3363,6 +3367,10 @@ def procurement_report(request):
         'active_value': active_value,
         'received_value': received_value,
         'pending_delivery': pending_delivery,
+        'gross_procurement': gross_procurement,
+        'supplier_return_value': return_totals['returned_goods'],
+        'supplier_credit_value': return_totals['credits'],
+        'net_procurement': net_procurement,
         'chart': _procurement_status_chart(status_counts),
         'spend_series': _daily_spend_series(records, range_start, range_end),
         # The third panel of §2c's row. active_value (Draft + Ordered) and

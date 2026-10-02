@@ -779,21 +779,23 @@ banner rather than a full card (see .pd-negotiate-banner above).
   <div class="card table-wrap">
     <table class="gv-table">
       <thead>
-        <tr><th>Receipt</th><th>Receipt date</th><th>Received by</th><th>Delivered by</th><th>Recorded</th></tr>
+        <tr><th>Event</th><th>Outcome</th><th>Receipt date</th><th>Verified by</th><th>Delivered by</th><th>Reason</th><th>Recorded</th></tr>
       </thead>
       <tbody>
         {% for r in receipts %}
         <tr>
-          <td data-label="Receipt" class="strong">#{{ forloop.counter }}</td>
+          <td data-label="Event" class="strong">#{{ forloop.counter }}</td>
+          <td data-label="Outcome">{{ r.get_outcome_display }}</td>
           <td data-label="Receipt date">{{ r.receipt_date|date:"Y-m-d"|default:"—" }}</td>
-          <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
+          <td data-label="Verified by">{{ r.received_by_name|default:"Unknown" }}</td>
           <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
+          <td data-label="Reason">{{ r.rejection_reason|default:"—" }}</td>
           <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
         </tr>
         {% if r.lines.all %}
         <tr>
           <td></td>
-          <td colspan="4" class="gv-meta">
+          <td colspan="6" class="gv-meta">
             {% for line in r.lines.all %}{{ line.item.product.product_name }} &times;{{ line.quantity_received }}{% if not forloop.last %}, {% endif %}{% endfor %}
           </td>
         </tr>
