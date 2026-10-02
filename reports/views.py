@@ -5,7 +5,7 @@ import statistics
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Min, Sum
+from django.db.models import Case, IntegerField, Min, Sum, Value, When
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils.http import urlencode
@@ -20,6 +20,7 @@ from inventory.alerts import EXPIRING_SOON_DAYS, _expiry_tier, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
+from core.querystrings import sort_header
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.timebounds import (
@@ -1528,7 +1529,75 @@ OPEN_ORDER_STATUSES = [
 ]
 
 # A dashboard preview, not the full list (§2g).
+#
+# KNOWN LIMITATION: the Status/Channel filters and the column sort below act
+# only inside this preview — they choose which of the open orders fill the
+# first OPEN_ORDERS_LIMIT rows (the slice is applied after them) and are NOT
+# carried into the "View all" link to transaction_list.
+#
+# KNOWN LIMITATION (mobile): gerlyn.css hides `.gv-table thead` on narrow
+# screens, so the clickable sort headers are not available there; the
+# Status/Channel selects still work.
 OPEN_ORDERS_LIMIT = 8
+
+# Open Orders sort whitelist: ?sort= value -> order_by() terms. Anything else
+# falls back to the default, so a tampered value can never reach order_by().
+# Every sort ends on (transaction_date, pk) so equal keys keep a stable,
+# oldest-first order. 'status' is lifecycle order (_OPEN_ORDER_STATUS_RANK),
+# not alphabetical.
+OPEN_ORDERS_DEFAULT_SORT = 'oldest'
+_OPEN_ORDER_STATUS_RANK = Case(
+    *[When(order_status=status, then=Value(rank))
+      for rank, status in enumerate(OPEN_ORDER_STATUSES)],
+    default=Value(len(OPEN_ORDER_STATUSES)),
+    output_field=IntegerField(),
+)
+OPEN_ORDERS_SORTS = {
+    'oldest': ('transaction_date', 'pk'),
+    'newest': ('-transaction_date', '-pk'),
+    'total': ('total_amount', 'transaction_date', 'pk'),
+    '-total': ('-total_amount', 'transaction_date', 'pk'),
+    'branch': ('branch__branch_name', 'transaction_date', 'pk'),
+    '-branch': ('-branch__branch_name', 'transaction_date', 'pk'),
+    'status': ('_status_rank', 'transaction_date', 'pk'),
+    '-status': ('-_status_rank', 'transaction_date', 'pk'),
+}
+# ?status= whitelist (within the open statuses) and ?channel= whitelist.
+OPEN_ORDERS_STATUS_FILTERS = [str(s) for s in OPEN_ORDER_STATUSES]
+OPEN_ORDERS_CHANNEL_FILTERS = [
+    (SalesTransaction.TransactionType.ONLINE.value, 'Online'),
+    (SalesTransaction.TransactionType.PHYSICAL.value, 'In-Store'),
+]
+
+
+def _open_orders(sales_qs, params):
+    """The Dashboard Open Orders preview, plus the state its controls need.
+
+    `sales_qs` must already be branch-scoped. Returns (rows, state) where
+    state is the whitelisted {'sort', 'status', 'channel'} actually applied.
+    Filter and sort run BEFORE the OPEN_ORDERS_LIMIT slice.
+    """
+    sort = params.get('sort', '')
+    if sort not in OPEN_ORDERS_SORTS:
+        sort = OPEN_ORDERS_DEFAULT_SORT
+    status = params.get('status', '')
+    if status not in OPEN_ORDERS_STATUS_FILTERS:
+        status = ''
+    channel = params.get('channel', '')
+    if channel not in dict(OPEN_ORDERS_CHANNEL_FILTERS):
+        channel = ''
+
+    qs = sales_qs.filter(order_status__in=OPEN_ORDER_STATUSES)
+    if status:
+        qs = qs.filter(order_status=status)
+    if channel:
+        qs = qs.filter(transaction_type=channel)
+    if sort in ('status', '-status'):
+        qs = qs.annotate(_status_rank=_OPEN_ORDER_STATUS_RANK)
+    rows = qs.select_related('branch', 'customer').order_by(
+        *OPEN_ORDERS_SORTS[sort]
+    )[:OPEN_ORDERS_LIMIT]
+    return rows, {'sort': sort, 'status': status, 'channel': channel}
 
 
 # --- What counts as revenue: one definition, every dashboard figure --------
@@ -1986,9 +2055,38 @@ def operational_dashboard(request):
     # order that has been waiting longest leads. Recent sales are Recent
     # Activity's job (§2f); this answers "what still needs action", which is
     # why the two panels no longer overlap.
-    open_orders = sales_qs.filter(
-        order_status__in=OPEN_ORDER_STATUSES
-    ).select_related('branch', 'customer').order_by('transaction_date')[:OPEN_ORDERS_LIMIT]
+    # Filters + sort come from the query string (whitelisted in _open_orders)
+    # and apply before the preview slice; see OPEN_ORDERS_LIMIT.
+    open_orders, open_orders_state = _open_orders(sales_qs, request.GET)
+    # Every param a header click or filter submit must keep.
+    open_orders_keep = {
+        'branch': branch_filter,
+        'status': open_orders_state['status'],
+        'channel': open_orders_state['channel'],
+        **dict(_range_carry(active_range, range_start, range_end)),
+    }
+    cur = open_orders_state['sort']
+
+    def _col(label, asc, desc=None):
+        return sort_header(label, cur, asc, desc, **open_orders_keep)
+
+    open_orders_cols = {
+        'order': _col('Order ID', 'oldest', 'newest'),
+        'branch': _col('Branch', 'branch', '-branch'),
+        'total': _col('Total', 'total', '-total'),
+        'status': _col('Status', 'status', '-status'),
+    }
+    # Hidden inputs for the filter form: everything except status/channel,
+    # which the selects supply themselves.
+    open_orders_form_carry = [
+        (k, v) for k, v in open_orders_keep.items() if k not in ('status', 'channel')
+    ] + [('sort', cur)]
+    # The same params, for the date-range form and the branch switcher.
+    open_orders_carry = [
+        ('status', open_orders_state['status']),
+        ('channel', open_orders_state['channel']),
+        ('sort', cur),
+    ]
 
     # Recent Activity (DESIGN.md §2f). Handed the branch-scoped querysets, NOT
     # the range-filtered ones above — §2f pins this to "what just happened",
@@ -2025,7 +2123,7 @@ def operational_dashboard(request):
         'active_range': active_range,
         # Changing the range must not silently drop the branch selection —
         # same reasoning as the Reports tabs' own daterange_carry.
-        'daterange_carry': [('branch', branch_filter)],
+        'daterange_carry': [('branch', branch_filter)] + open_orders_carry,
         # low_stock_count still feeds the Restock Suggestions header; the four
         # quiet stat tiles it used to sit beside are gone (duplicated the Needs
         # Attention rows / were static catalog facts, not daily decisions).
@@ -2033,6 +2131,13 @@ def operational_dashboard(request):
         'restock': restock[:6],
         'needs_attention': needs_attention,
         'open_orders': open_orders,
+        'open_orders_cols': open_orders_cols,
+        'open_orders_sort': cur,
+        'open_orders_status': open_orders_state['status'],
+        'open_orders_channel': open_orders_state['channel'],
+        'open_orders_form_carry': open_orders_form_carry,
+        'open_orders_status_choices': OPEN_ORDERS_STATUS_FILTERS,
+        'open_orders_channel_choices': OPEN_ORDERS_CHANNEL_FILTERS,
         'recent_activity': recent_activity,
         'is_owner': request.user.role == User.Role.OWNER,
         'user_branch': user_branch,
@@ -2050,7 +2155,7 @@ def operational_dashboard(request):
         # (partials/_branch_switch.html): the range must survive a branch
         # change too, or picking a branch would silently reset it to Last 30
         # days.
-        'branch_switch_carry': _range_carry(active_range, range_start, range_end),
+        'branch_switch_carry': _range_carry(active_range, range_start, range_end) + open_orders_carry,
 
         # --- Inventory summary + Top Products (reactive) ---
         'total_products_floor': total_products_floor,

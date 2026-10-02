@@ -678,6 +678,23 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    whose header was carrying an inline style because .num was the only
    right-aligning class and it would have applied tabular figures to a word. */
 .gv-table th.end, .gv-table td.end { text-align: right; }
+/* Sortable header (partials/_sort_th.html). The link fills the whole header
+   cell (it takes over the th's padding), so a click anywhere in the header
+   sorts, and lays label + icon out as a flex row: the 4px gap and the
+   vertical centring come from the layout, not from baseline nudging. */
+.gv-table th:has(> .th-sort) { padding: 0; }
+.gv-table th > .th-sort {
+  display: flex; align-items: center; gap: 4px; padding: 12px 16px;
+  color: inherit; text-decoration: none;
+}
+.gv-table th.num > .th-sort { justify-content: flex-end; }
+.gv-table th .th-sort:hover { color: var(--ink-900); }
+/* One stroke icon for every state; only colour and chevron count change.
+   Idle = #c2c6cb (both chevrons); active = the accent colour (one chevron). */
+.th-sort-icon { flex: none; color: #c2c6cb; }
+.gv-table th .th-sort:hover .th-sort-icon { color: var(--ink-400); }
+.gv-table th .th-sort.is-active .th-sort-icon,
+.gv-table th .th-sort.is-active:hover .th-sort-icon { color: var(--action-700); }
 .gv-table .sku { color: var(--ink-500); font-variant-numeric: tabular-nums; }
 .gv-table .strong { font-weight: 600; }
 .row-actions { display: flex; gap: 2px; align-items: center; justify-content: flex-end; }
@@ -2417,6 +2434,61 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 @media (max-width: 520px) {
   /* Anchored right, so on a narrow screen it would otherwise overflow. */
   .daterange-panel { right: auto; left: 0; min-width: 0; width: max-content; max-width: 90vw; }
+}
+
+/* ------------------------------- Dashboard Open Orders: header controls
+   Columns / Filters popovers (<details>, same no-JS disclosure as .daterange),
+   the active-filter chips under the header, and the column hide classes the
+   Columns menu toggles (static/js/dashboard-open-orders.js). */
+/* Landing target for the #open-orders links: clear the sticky topbar. */
+#open-orders { scroll-margin-top: 80px; }
+.oo-actions { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.oo-menu { position: relative; }
+.oo-menu[hidden] { display: none; }
+.oo-trigger {
+  display: inline-flex; align-items: center; gap: 8px; list-style: none;
+  min-height: var(--touch); padding: 0 14px; border-radius: var(--r-input);
+  border: 1.5px solid var(--input-line); background: var(--surface);
+  color: var(--ink-900); font: 600 14px/1 var(--font-sans); cursor: pointer;
+}
+.oo-clear { text-decoration: none; }
+.oo-trigger::-webkit-details-marker { display: none; }
+/* Firefox/spec marker: list-style:none above covers it; this is the belt. */
+.oo-trigger::marker { content: ""; }
+.oo-trigger:hover, .oo-menu[open] .oo-trigger { border-color: var(--brand); }
+.oo-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+  background: var(--green-50); color: var(--action-700);
+  font: 700 12px/1 var(--font-sans);
+}
+.oo-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  display: flex; flex-direction: column; gap: var(--s3); min-width: 220px;
+  padding: var(--s3); background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-hero);
+}
+.oo-check { display: flex; align-items: center; gap: var(--s2); min-height: var(--touch); font: 500 14px/1 var(--font-sans); color: var(--ink-700); cursor: pointer; }
+.oo-field { display: flex; flex-direction: column; gap: 6px; font: 600 11px/1 var(--font-sans); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-500); }
+.oo-field select { width: 100%; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.oo-panel-actions { display: flex; gap: var(--s2); }
+.oo-chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0; padding: var(--s3) var(--s4) 0; list-style: none; }
+.oo-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 12px;
+  border-radius: 999px; background: var(--green-50); color: var(--action-700);
+  font: 600 13px/1.2 var(--font-sans);
+}
+.oo-chip-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  color: inherit; text-decoration: none; font-size: 16px; line-height: 1;
+}
+.oo-chip-remove:hover { background: var(--line-soft); color: var(--ink-900); }
+.gv-table.oo-hide-customer [data-oo-col="customer"],
+.gv-table.oo-hide-channel [data-oo-col="channel"] { display: none; }
+@media (max-width: 520px) {
+  .oo-panel { right: auto; left: 0; min-width: 0; width: max-content; max-width: 90vw; }
 }
 
 /* ------------------ dashboard panel header: Recent Activity + Needs Attention

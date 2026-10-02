@@ -1,0 +1,28 @@
+{% comment %}
+A clickable, server-sorted table header cell. The reusable half of the
+sortable-header pattern; the data half is core.querystrings.sort_header().
+
+Usage:
+  {% include "partials/_sort_th.html" with col=cols.0 %}
+  {% include "partials/_sort_th.html" with col=cols.2 cls="num" %}
+
+  col  a dict from sort_header() — label, href (bare query string), active,
+       direction ("asc" / "desc" / None)
+  cls  optional class for the <th> (e.g. "num" to right-align a money column)
+  anchor  optional element id; appended as #anchor so the full-page reload lands
+          back on that card instead of the top of the page
+
+Every sortable header always shows one stroke-based chevron icon
+(.th-sort-icon, 12px, 1.5 stroke, same family in every state): idle = both
+chevrons in light grey; active = only the chevron for the current direction
+(up = ascending, down = descending) in the accent colour. The two chevrons
+keep fixed positions, so a state change only drops one and recolours — it never
+looks like a different icon. Non-sortable columns do not use this partial, so
+they show none.
+
+The link is "?"-relative, so it keeps the current path and replaces only the
+query string the view built. aria-sort is set on the active column only.
+{% endcomment %}
+<th{% if cls %} class="{{ cls }}"{% endif %}{% if col.direction == 'asc' %} aria-sort="ascending"{% elif col.direction == 'desc' %} aria-sort="descending"{% endif %}>
+  <a class="th-sort{% if col.active %} is-active{% endif %}" href="?{{ col.href }}{% if anchor %}#{{ anchor }}{% endif %}">{{ col.label }}<svg class="th-sort-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{% if col.direction != 'desc' %}<path d="M3 4.5 6 1.5l3 3"/>{% endif %}{% if col.direction != 'asc' %}<path d="M3 7.5l3 3 3-3"/>{% endif %}</svg></a>
+</th>

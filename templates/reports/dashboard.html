@@ -669,34 +669,114 @@ action". Recent sales are Recent Activity's job (§2f) directly above; the
 two used to overlap, and the reframe is what separates them.
 
 Columns and both links are unchanged from the table this replaces. Filtering
-and ordering are server-side in reports/views.py::operational_dashboard, on
-the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
+and ordering are server-side in reports/views.py::_open_orders (called from
+operational_dashboard), on the shared OPEN_ORDER_STATUSES that the Needs
+Attention count also uses: ?status=, ?channel= and ?sort= are whitelisted
+there, and applied before the 8-row preview slice.
+
+Sortable headers use the reusable pattern in partials/_sort_th.html (data from
+core.querystrings.sort_header). Known limitation: the filters and sort stay in
+this preview — the "View all" link below does not carry them.
 {% endcomment %}
-<div class="card">
+<div class="card" id="open-orders">
   <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
     <div>
       <h3>Open Orders</h3>
       <p class="gv-meta mb-0">Not yet completed or cancelled — longest waiting first</p>
     </div>
-    <a class="link-more" href="{% url 'transaction_list' %}">View all <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
+    {% comment %}
+    Header controls. Columns and Filters are <details> popovers like the
+    date-range control (_daterange.html): the disclosure works without JS.
+    Filters submits through the same GET form as before; Columns is a
+    client-side show/hide only (static/js/dashboard-open-orders.js), so it
+    stays hidden until that script reveals it — a toggle that cannot work
+    must not be offered. Nothing about column visibility is persisted.
+    {% endcomment %}
+    <div class="oo-actions">
+      <details class="oo-menu" id="oo-columns-menu" hidden>
+        <summary class="oo-trigger">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+          Columns
+        </summary>
+        <div class="oo-panel" role="group" aria-label="Show or hide columns">
+          <label class="oo-check"><input type="checkbox" data-oo-col-toggle="customer" checked> Customer</label>
+          <label class="oo-check"><input type="checkbox" data-oo-col-toggle="channel" checked> Channel</label>
+        </div>
+      </details>
+      <details class="oo-menu"{% if open_orders_status or open_orders_channel %} open{% endif %}>
+        <summary class="oo-trigger">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>
+          Filters
+          {% if open_orders_status or open_orders_channel %}<span class="oo-badge" aria-label="{% if open_orders_status and open_orders_channel %}2 filters{% else %}1 filter{% endif %} active">{% if open_orders_status and open_orders_channel %}2{% else %}1{% endif %}</span>{% endif %}
+        </summary>
+        <form method="get" action="#open-orders" class="oo-panel" aria-label="Filter open orders">
+          {% for name, value in open_orders_form_carry %}{% if value %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}{% endfor %}
+          <label class="oo-field"><span>Status</span>
+            <select name="status">
+              <option value="">All statuses</option>
+              {% for st in open_orders_status_choices %}<option value="{{ st }}"{% if st == open_orders_status %} selected{% endif %}>{{ st }}</option>{% endfor %}
+            </select>
+          </label>
+          <label class="oo-field"><span>Channel</span>
+            <select name="channel">
+              <option value="">All channels</option>
+              {% for value, label in open_orders_channel_choices %}<option value="{{ value }}"{% if value == open_orders_channel %} selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </label>
+          <div class="oo-panel-actions">
+            <button type="submit" class="btn btn-primary">Apply</button>
+            {% if open_orders_status or open_orders_channel %}
+            <a class="btn" href="?{% for name, value in open_orders_form_carry %}{% if value %}{{ name }}={{ value|urlencode }}&amp;{% endif %}{% endfor %}#open-orders">Clear all</a>
+            {% endif %}
+          </div>
+        </form>
+      </details>
+      {% if open_orders_status or open_orders_channel %}
+      {# Same target as the panel's "Clear all": drops both filters, keeps branch/range/sort. #}
+      <a class="oo-trigger oo-clear" href="?{% for name, value in open_orders_form_carry %}{% if value %}{{ name }}={{ value|urlencode }}&amp;{% endif %}{% endfor %}#open-orders">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        Clear Filters
+      </a>
+      {% endif %}
+      <a class="link-more" href="{% url 'transaction_list' %}">View all <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></a>
+    </div>
   </div>
+  {% if open_orders_status or open_orders_channel %}
+  {% comment %}
+  Active-filter chips. Each x is a plain link to this page with every carried
+  param (branch, range, sort) and the OTHER filter, minus its own — so it
+  removes exactly one param and works without JavaScript.
+  {% endcomment %}
+  <ul class="oo-chips" aria-label="Active filters">
+    {% if open_orders_status %}
+    <li class="oo-chip">Status: {{ open_orders_status }}
+      <a class="oo-chip-remove" aria-label="Remove status filter" href="?{% for name, value in open_orders_form_carry %}{% if value %}{{ name }}={{ value|urlencode }}&amp;{% endif %}{% endfor %}{% if open_orders_channel %}channel={{ open_orders_channel|urlencode }}{% endif %}#open-orders">&times;</a></li>
+    {% endif %}
+    {% if open_orders_channel %}
+    <li class="oo-chip">Channel: {% if open_orders_channel == "Online" %}Online{% else %}In-Store{% endif %}
+      <a class="oo-chip-remove" aria-label="Remove channel filter" href="?{% for name, value in open_orders_form_carry %}{% if value %}{{ name }}={{ value|urlencode }}&amp;{% endif %}{% endfor %}{% if open_orders_status %}status={{ open_orders_status|urlencode }}{% endif %}#open-orders">&times;</a></li>
+    {% endif %}
+  </ul>
+  {% endif %}
   {% if open_orders %}
   <div class="table-wrap">
-    <table class="gv-table">
+    <table class="gv-table" id="open-orders-table">
       <thead>
-        <tr><th>Order ID</th><th>Customer</th><th>Branch</th><th>Channel</th>
-            <th class="num">Total</th><th>Status</th></tr>
+        <tr>{% include "partials/_sort_th.html" with col=open_orders_cols.order anchor="open-orders" %}<th data-oo-col="customer">Customer</th>
+            {% include "partials/_sort_th.html" with col=open_orders_cols.branch anchor="open-orders" %}<th data-oo-col="channel">Channel</th>
+            {% include "partials/_sort_th.html" with col=open_orders_cols.total anchor="open-orders" cls="num" %}
+            {% include "partials/_sort_th.html" with col=open_orders_cols.status anchor="open-orders" %}</tr>
       </thead>
       <tbody>
         {% for t in open_orders %}
         <tr>
           <td data-label="Order ID" class="sku strong">
             <a href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order">{{ t.order_number }}</a></td>
-          <td data-label="Customer">
+          <td data-label="Customer" data-oo-col="customer">
             {% if t.customer %}{{ t.customer.get_full_name|default:t.customer.username }}
             {% else %}Walk-in{% endif %}</td>
           <td data-label="Branch">{{ t.branch.branch_name }}</td>
-          <td data-label="Channel">
+          <td data-label="Channel" data-oo-col="channel">
             {% if t.transaction_type == "Online" %}<span class="tag">Online</span>
             {% else %}<span class="tag">In-Store</span>{% endif %}</td>
           <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>
@@ -715,8 +795,13 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
   {% endcomment %}
   <div class="card-pad">
     <div class="empty">
+      {% if open_orders_status or open_orders_channel %}
+      <h3>No matching open orders</h3>
+      <p>No open orders match these filters. Clear them to see every open order.</p>
+      {% else %}
       <h3>No open orders</h3>
       <p>Every order has been completed or cancelled. New ones appear here while they wait on action.</p>
+      {% endif %}
     </div>
   </div>
   {% endif %}
@@ -726,6 +811,7 @@ the shared OPEN_ORDER_STATUSES that the Needs Attention count also uses.
 {% block extra_js %}
 {{ kpi_graphs|json_script:"dashboard-kpi-data" }}
 <script src="{% static 'js/dashboard-kpi.js' %}"></script>
+<script src="{% static 'js/dashboard-open-orders.js' %}"></script>
 {{ sales_trend_by_branch|json_script:"sales-trend-data" }}
 <script src="{% static 'js/dashboard-sales-trend.js' %}"></script>
 {% endblock %}

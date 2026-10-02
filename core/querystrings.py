@@ -23,3 +23,33 @@ def list_filter_querystring(**params):
         if value:
             qs[key] = value
     return qs.urlencode()
+
+
+def sort_header(label, current, asc, desc=None, **params):
+    """One clickable column header for a server-sorted table.
+
+    The reusable half of the sortable-header pattern (first used by the
+    Dashboard's Open Orders table). Pair it with `partials/_sort_th.html`:
+
+      view      cols = [sort_header('Total', sort, 'total', '-total', **keep), ...]
+      template  {% include "partials/_sort_th.html" with col=cols.0 cls="num" %}
+
+    `current` is the sort key now applied (already whitelisted by the view),
+    `asc`/`desc` are this column's whitelist keys. A column with both toggles
+    on repeat clicks; one with only `asc` always links to `asc`. `params` are
+    every OTHER query param the page must keep (branch, range, filters) —
+    they ride through `list_filter_querystring`, so a sort click can never
+    drop a filter. Returned `href` is a bare query string (no leading "?").
+    """
+    if current == asc:
+        direction, target = 'asc', desc or asc
+    elif desc and current == desc:
+        direction, target = 'desc', asc
+    else:
+        direction, target = None, asc
+    return {
+        'label': label,
+        'href': list_filter_querystring(**params, sort=target),
+        'active': direction is not None,
+        'direction': direction,
+    }
