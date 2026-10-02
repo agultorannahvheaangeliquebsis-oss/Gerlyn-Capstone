@@ -16,7 +16,7 @@
 {% elif ret.status == "Acknowledged" %}
 <div class="banner banner-info mb-4">The supplier acknowledged this return. Ship the goods back to take them out of warehouse stock.</div>
 {% elif ret.status == "Rejected" %}
-<div class="banner banner-error mb-4"><strong>The supplier rejected this return.</strong>{% if ret.supplier_note %} Reason: {{ ret.supplier_note }}{% endif %} No stock has moved — cancel it, or raise a new one.</div>
+<div class="banner banner-error mb-4"><strong>The supplier rejected this return.</strong>{% if ret.supplier_note %} Reason: {{ ret.supplier_note }}{% endif %} No stock has moved — cancel it, or <a href="{% url 'procurement_detail' ret.procurement.pk %}#returns">raise a new one</a>.</div>
 {% elif ret.status == "Shipped" %}
 <div class="banner banner-info mb-4">The goods have been sent back. Settle this return one of two ways: record a credit note, or receive replacement goods below.</div>
 {% endif %}
@@ -62,7 +62,10 @@
     {% endif %}
 
     {% if can_settle %}
-    <form method="POST" action="{% url 'supplier_return_credit' ret.pk %}" class="mb-4">
+    <form method="POST" action="{% url 'supplier_return_credit' ret.pk %}" class="mb-4"
+          data-confirm="{{ ret.return_number }} will be marked Settled by credit note. This can't be undone."
+          data-confirm-title="Record this credit note?"
+          data-confirm-ok="Record credit">
       {% csrf_token %}
       <h4 class="mb-2">Settle with a credit note</h4>
       <div class="row wrap" style="gap:12px; align-items:flex-end;">
@@ -95,7 +98,10 @@
 </div>
 
 {% if can_settle %}
-<form method="POST" action="{% url 'supplier_return_replacement' ret.pk %}">
+<form method="POST" action="{% url 'supplier_return_replacement' ret.pk %}"
+      data-confirm="Units entered are added to warehouse stock now. This can't be undone."
+      data-confirm-title="Record replacement received?"
+      data-confirm-ok="Record replacement">
   {% csrf_token %}
   <div class="card table-wrap mb-4">
     <div class="card-pad" style="border-bottom:1px solid var(--line);">

@@ -47,10 +47,10 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import (
     Procurement, ProcurementItem, SupplierProduct, SupplierProductRequest,
-    SupplierReturn, DeliveryReceipt, DeliveryScanLog,
+    SupplierReturn, DeliveryReceipt, DeliveryReceiptLine, DeliveryScanLog,
 )
 from .access import (
-    STAFF_ACTIVE_DELIVERY_STATUSES, procurements_visible_to,
+    STAFF_PENDING_DELIVERY_STATUSES, procurements_visible_to,
     user_can_read_procurement,
 )
 from .services import (
@@ -259,7 +259,9 @@ def procurement_detail(request, pk):
             and not proc.funding_locked
         ),
         'procurement': proc, 'items': items,
-        'receipts': proc.receipts.select_related('received_by'),
+        'receipts': proc.receipts.select_related('received_by').prefetch_related(
+            'lines__item__product'
+        ),
     })
 
 
@@ -1399,7 +1401,7 @@ def delivery_list(request):
     counts = {
         'all': deliveries.count(),
         'active': deliveries.filter(
-            status__in=STAFF_ACTIVE_DELIVERY_STATUSES
+            status__in=STAFF_PENDING_DELIVERY_STATUSES
         ).count(),
         'approved': deliveries.filter(status=Procurement.Status.APPROVED).count(),
         'communicated': deliveries.filter(
@@ -1421,7 +1423,7 @@ def delivery_list(request):
         'cancelled': deliveries.filter(status=Procurement.Status.CANCELLED).count(),
     }
     if staff_delivery_view and not status_filter:
-        deliveries = deliveries.filter(status__in=STAFF_ACTIVE_DELIVERY_STATUSES)
+        deliveries = deliveries.filter(status__in=STAFF_PENDING_DELIVERY_STATUSES)
     elif status_filter == 'Negotiating':
         deliveries = deliveries.filter(status__in=Procurement.NEGOTIATION_STATUSES)
     elif status_filter:
@@ -1617,6 +1619,18 @@ def delivery_receive(request, pk):
                 if locked_unreceivable:
                     raise _DeliveryStatusError(locked_unreceivable)
 
+                # Created up front (not after the loop) so each item's
+                # DeliveryReceiptLine below can point at it; a raise anywhere
+                # in this block rolls the whole atomic transaction back,
+                # including this row, so an empty/invalid submission never
+                # leaves an orphaned receipt.
+                receipt = DeliveryReceipt.objects.create(
+                    procurement=locked_proc,
+                    received_by=request.user,
+                    receipt_date=receipt_date,
+                    delivered_by=request.POST.get('delivered_by', '').strip()[:100],
+                )
+
                 any_received = False
                 for idx, (item_id, qty_str) in enumerate(zip(item_ids, received_map)):
                     item = locked_proc.items.select_related('product').get(pk=item_id)
@@ -1692,6 +1706,16 @@ def delivery_receive(request, pk):
                         expiry_date=parse_date(expiry_str) if expiry_str else None,
                     )
 
+                    # Which receipt this quantity came in on — the piece that
+                    # was missing for a multi-shipment PO (see DeliveryReceiptLine's
+                    # own docstring).
+                    DeliveryReceiptLine.objects.create(
+                        receipt=receipt,
+                        item=item,
+                        quantity_received=qty_received,
+                        expiry_date=parse_date(expiry_str) if expiry_str else None,
+                    )
+
                 if not any_received:
                     raise _DeliveryStatusError(
                         'Enter at least one received quantity greater than zero.'
@@ -1719,16 +1743,6 @@ def delivery_receive(request, pk):
                 locked_proc.save(update_fields=[
                     'status', 'receipt_flag', 'actual_receipt_date',
                 ])
-                # Who took this shipment in. Always the signed-in user; only
-                # the courier's name is typed. Inside the same atomic block as
-                # the stock writes, so a receipt row exists exactly when stock
-                # was actually received.
-                DeliveryReceipt.objects.create(
-                    procurement=locked_proc,
-                    received_by=request.user,
-                    receipt_date=receipt_date,
-                    delivered_by=request.POST.get('delivered_by', '').strip()[:100],
-                )
         except _DeliveryStatusError as e:
             messages.error(request, str(e))
             # A count problem (too many, none, not a number) is fixed in the
@@ -2803,7 +2817,17 @@ def supplier_category_delete(request, pk):
 
 @login_required(login_url='accounts:login')
 def supplier_detail(request, pk):
-    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+    # supplier_list (the only place this page is linked from) already lets
+    # Staff view the supplier table and its product/pending-offer counts —
+    # both are gated by the same PROCUREMENT view grant in the module
+    # registry. Staff used to 404 into "Access denied" the moment they
+    # followed one of those links; this view's own role check had simply
+    # never been widened to match. can_edit/can_add/can_delete below stay
+    # Owner-only, so nothing writable opens up — Staff lands on the same
+    # read-only view a Branch Manager already gets.
+    if request.user.role not in [
+        User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
+    ]:
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
@@ -3002,10 +3026,10 @@ def supplier_product_self_remove(request, link_pk):
         remove_supplier_product(link)
     except SupplierRemovalBlocked as exc:
         messages.error(request, f'Cannot remove {name}. {exc}')
+        return _supplier_next_redirect(request)
     except SupplierProduct.DoesNotExist:
-        pass  # double-submit: already gone
-    else:
-        messages.success(request, f'{name} removed from your catalog.')
+        pass  # double-submit: already gone, but the supplier's intent is satisfied
+    messages.success(request, f'{name} removed from your catalog.')
     return _supplier_next_redirect(request)
 
 

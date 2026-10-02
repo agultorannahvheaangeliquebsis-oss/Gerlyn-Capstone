@@ -197,142 +197,14 @@ filterable/paginated table lives on supplier_purchase_orders now.
             {% else %}
               <span class="sp-status-pill sp-status-incoming">Incoming</span>
             {% endif %}
-          {% else %}
+          {% elif o.status in supplier_action_statuses %}
             <span class="sp-status-pill sp-status-pending">Not confirmed</span>
+          {% else %}
+            <span class="sp-status-pill sp-status-waiting">Waiting on GERLYN</span>
           {% endif %}
-{% comment %}
-Obsolete pre-redesign order-detail block retained during conflict cleanup.
-The compact recent-orders table below is the active supplier portal design.
-        {% else %}
-          <span class="pill pill-pending">Delivery date not confirmed</span>
-        {% endif %}
-      </div>
-
-      <div class="table-wrap mt-4">
-        <table class="gv-table">
-          <thead>
-            <tr><th>Product</th><th class="num">Qty ordered</th><th class="num">Unit cost</th>
-                <th class="num">Line total</th>
-                {% if o.status == 'Received' or o.status == 'Partially Received' %}<th class="num">Qty received</th>{% endif %}</tr>
-          </thead>
-          <tbody>
-            {% for item in o.items.all %}
-            <tr>
-              <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
-              <td data-label="Qty Ordered" class="num">{{ item.quantity_ordered }}</td>
-              <td data-label="Unit Cost" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}—{% endif %}</td>
-              <td data-label="Line Total" class="num">₱{{ item.line_total|default_if_none:0|floatformat:2 }}</td>
-              {% if o.status == 'Received' or o.status == 'Partially Received' %}
-              <td data-label="Qty Received" class="num
-                  {% if item.quantity_received != item.quantity_ordered %}strong{% endif %}"
-                  {% if item.quantity_received != item.quantity_ordered %}style="color:var(--danger-fg);"{% endif %}>
-                {{ item.quantity_received }}
-              </td>
-              {% endif %}
-            </tr>
-            {% endfor %}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3" class="num" style="color:#5B655F;">Order total</td>
-              <td class="num strong" style="color:#1E7A4F;">₱{{ o.total_cost|floatformat:2 }}</td>
-              {% if o.status == 'Received' or o.status == 'Partially Received' %}<td></td>{% endif %}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      {% if o.status == 'Approved' or o.status == 'Pending Supplier Review' %}
-      <div class="confirm-date-box mt-4" style="background:#F6F8F6; border:1px solid #E3E8E4; border-radius:9px; padding:16px 18px;">
-        {% if o.status == 'Pending Supplier Review' %}
-        <p style="margin:0 0 10px; font:600 14px/1.2 var(--font-sans); color:var(--ink-700);">
-          {{ o.branch.branch_name }} countered — delivery {{ o.proposed_delivery_date|date:"M j, Y" }}. Accept, or send your own counter below.
-        </p>
-        <form method="POST" action="{% url 'procurement_supplier_respond' o.pk %}" style="margin-bottom:14px;">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="accept">
-          <button type="submit" class="confirm-date-btn">
-            {% include "partials/_status_icon.html" with icon="check" %}
-            Accept these terms
-          </button>
-        </form>
-        {% else %}
-        <label style="display:block; margin-bottom:10px; font:600 14px/1.2 var(--font-sans); color:var(--ink-700);">
-          Propose a delivery date and your unit cost for each item
-        </label>
-        {% endif %}
-        <form method="POST" action="{% url 'procurement_supplier_respond' o.pk %}">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="propose">
-          <div class="row wrap confirm-date-row" style="gap:10px; align-items:center; margin-bottom:10px;">
-            <input type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" class="confirm-date-input" required>
-          </div>
-          <table class="gv-table" style="margin-bottom:10px;">
-            <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Your unit cost</th></tr></thead>
-            <tbody>
-              {% for item in o.items.all %}
-                {% if not item.is_unexpected %}
-                <tr>
-                  <td>{{ item.product.product_name }}</td>
-                  <td class="num">{{ item.quantity_ordered }}</td>
-                  <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" style="width:100px;" required></td>
-                </tr>
-                {% endif %}
-              {% endfor %}
-            </tbody>
-          </table>
-          <button type="submit" class="confirm-date-btn">
-            {% include "partials/_status_icon.html" with icon="check" %}
-            {% if o.status == 'Pending Supplier Review' %}Send counter{% else %}Send terms{% endif %}
-          </button>
-        </form>
-      </div>
-      {% elif o.status == 'Pending Owner Review' %}
-      <div class="confirm-date-box mt-4" style="background:#F6F8F6; border:1px solid #E3E8E4; border-radius:9px; padding:16px 18px;">
-        <span style="display:inline-flex; align-items:center; gap:6px; color:var(--ink-700); font-weight:600;">
-          Waiting for {{ o.branch.branch_name }} to review your proposal — delivery {{ o.proposed_delivery_date|date:"M j, Y" }}.
-        </span>
-      </div>
-      {% elif o.status == 'Terms Agreed' %}
-      <div class="confirm-date-box mt-4" style="background:#F6F8F6; border:1px solid #E3E8E4; border-radius:9px; padding:16px 18px;">
-        <p style="margin:0 0 10px; font:600 14px/1.2 var(--font-sans); color:var(--ink-700);">
-          Terms agreed — delivery {{ o.proposed_delivery_date|date:"M j, Y" }}. Confirm to start preparing this order.
-        </p>
-        <form method="POST" action="{% url 'procurement_supplier_confirm' o.pk %}">
-          {% csrf_token %}
-          <button type="submit" class="confirm-date-btn">
-            {% include "partials/_status_icon.html" with icon="check" %}
-            Confirm &amp; start preparing
-          </button>
-        </form>
-      </div>
-      {% elif o.status == 'Incoming' %}
-      <div class="confirm-date-box mt-4" style="background:#F6F8F6; border:1px solid #E3E8E4; border-radius:9px; padding:16px 18px;">
-        <span style="display:inline-flex; align-items:center; gap:6px; color:#1E7A4F; font-weight:600;">
-          {% include "partials/_status_icon.html" with icon="check" %}
-          Confirmed for delivery on {{ o.delivery_date|date:"M j, Y" }}
-        </span>
-      </div>
-      {% elif o.status == 'Received' and o.receipt_flag == 'Discrepancy' %}
-      <div class="banner banner-warning mt-4">
-        The store recorded different quantities from what was ordered. Please check
-        this delivery with them.
-      </div>
-      {% endif %}
-    </div>
-    {% empty %}
-    <div class="card">
-      <div class="empty">
-        <span class="glyph">{% include "partials/_empty_icon.html" with icon="truck" %}</span>
-        <h3>No purchase orders yet</h3>
-        <p>When GERLYN places an order with you, it appears here.</p>
-      </div>
-    </div>
-    {% endfor %}
-{% endcomment %}
         </td>
         <td data-label="Action" class="end">
-          <a class="sp-order-view" href="{% url 'supplier_purchase_orders' %}">
+          <a class="sp-order-view" href="{% url 'supplier_purchase_orders' %}?q={{ o.po_number|urlencode }}">
             {% if o.status in supplier_action_statuses %}Respond{% else %}View{% endif %}
           </a>
         </td>

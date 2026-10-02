@@ -114,6 +114,16 @@ other record detail in the system.
     <h1 class="mt-2">{{ profile.supplier_name|default:supplier.username }}
       {% if profile.branch %}<span class="tag">{{ profile.branch.branch_name }}</span>
       {% else %}<span class="tag">All branches</span>{% endif %}
+      {% comment %}
+      Same three-state pill accounts/user_list.html uses for every other
+      managed account. The Owner can deactivate a supplier from User
+      Management without touching anything here, so without this a reviewer
+      approving offers or transferring products has no way to tell, from this
+      page, that the account on the other end is no longer active.
+      {% endcomment %}
+      {% if not supplier.has_usable_password %}<span class="pill pill-warn">Pending Invite</span>
+      {% elif supplier.is_active %}<span class="pill pill-ok">Active</span>
+      {% else %}<span class="pill pill-neutral">Inactive</span>{% endif %}
     </h1>
   </div>
   {% if can_edit %}

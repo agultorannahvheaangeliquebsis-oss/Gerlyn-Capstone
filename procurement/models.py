@@ -657,6 +657,35 @@ class DeliveryReceipt(models.Model):
         return f"{self.procurement} received by {self.received_by} at {self.received_at:%Y-%m-%d %H:%M}"
 
 
+class DeliveryReceiptLine(models.Model):
+    """The per-item delta a single DeliveryReceipt actually added.
+
+    Without this, a PO received across 2+ partial shipments has no way to
+    tell which receipt added which quantity to which line — the Batch and
+    StockMovement rows it produced exist, but nothing on them points back to
+    *this* receiving event specifically. Deliberately its own small table
+    scoped to procurement (ProcurementItem is already here) rather than a FK
+    added onto inventory.StockMovement, which keeps cross-app references to
+    procurement records as a loose reference_id (see that model's own
+    comment) rather than a hard FK — adding one here would've been the first
+    exception to that pattern.
+    """
+    receipt = models.ForeignKey(
+        DeliveryReceipt, on_delete=models.CASCADE, related_name='lines',
+    )
+    item = models.ForeignKey(
+        'ProcurementItem', on_delete=models.CASCADE, related_name='receipt_lines',
+    )
+    quantity_received = models.PositiveIntegerField()
+    expiry_date = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.receipt_id}: {self.item.product.product_name} x{self.quantity_received}"
+
+
 class SupplierReturn(models.Model):
     """Goods sent back to the supplier that delivered them (P17).
 

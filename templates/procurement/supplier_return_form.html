@@ -57,7 +57,7 @@
         </select>
       </div>
       <div class="field">
-        <label for="return-notes">Notes <span class="gv-meta">— required for Other</span></label>
+        <label for="return-notes">Notes <span class="gv-meta" id="return-notes-hint">— optional</span></label>
         <input id="return-notes" type="text" name="notes" maxlength="300" value="{{ posted.notes|default:'' }}"
                placeholder="What was wrong with the goods?">
       </div>
@@ -68,4 +68,22 @@
   <button type="submit" class="btn btn-primary">Send return request</button>
   <a class="btn" href="{% url 'procurement_detail' procurement.pk %}">Cancel</a>
 </form>
+
+<script>
+// A reason of Other has to say what it is (mirrors procurement_form.html's
+// funding-note toggle; server enforces the same rule in create_supplier_return).
+(function () {
+  var reason = document.getElementById('return-reason');
+  var notes = document.getElementById('return-notes');
+  var hint = document.getElementById('return-notes-hint');
+  if (!reason || !notes) return;
+  function sync() {
+    var other = reason.value === 'Other';
+    notes.required = other;
+    hint.textContent = other ? '— required for Other' : '— optional';
+  }
+  reason.addEventListener('change', sync);
+  sync();
+})();
+</script>
 {% endblock %}

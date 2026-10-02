@@ -194,6 +194,21 @@
   }
 
   .pd-items-foot td { border-top: 1px solid var(--line); padding-top: var(--s3); }
+
+  {% comment %}
+  Plain disclosure, not a popover (compare .status-select above, which is
+  anchored/floating) — opening it pushes the negotiation card below down,
+  which is fine since this sits above it in normal flow either way.
+  {% endcomment %}
+  .pd-manual-comm summary {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+    cursor: pointer; list-style: none;
+  }
+  .pd-manual-comm summary::-webkit-details-marker { display: none; }
+  .pd-manual-comm-title { font: 600 15px/1.3 var(--font-sans); color: var(--ink-900); }
+  .pd-manual-comm-caret { color: var(--ink-500); flex: none; transition: transform .15s ease; }
+  .pd-manual-comm[open] .pd-manual-comm-caret { transform: rotate(180deg); }
+  .pd-manual-comm-body { padding-top: var(--s4); margin-top: var(--s4); border-top: 1px solid var(--line); }
 </style>
 {% endblock %}
 
@@ -341,43 +356,63 @@ guard rather than leaving a dead-end form.
 {% endif %}
 
 {% if can_mark_communicated %}
-<div class="card card-pad mb-4">
-  <h3>Supplier contacted outside the system?</h3>
-  <p class="gv-meta">Record the agreed terms after calling or messaging the supplier. Supplier login and acknowledgement are optional; recording this makes the PO available for verified receiving.</p>
-  <form method="POST" action="{% url 'procurement_mark_communicated' procurement.pk %}">
-    {% csrf_token %}
-    <div class="grid-2">
-      <div class="field">
-        <label for="communication-method">Contact method</label>
-        <select id="communication-method" name="communication_method" required>
-          <option value="">Choose method</option>
-          {% for value, label in communication_methods %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-        </select>
+{% comment %}
+Collapsed by default, not a second full-width card competing with the
+negotiation section below — this is an ALTERNATIVE path for the same
+decision (agree price/date by phone or message, instead of through the
+in-app negotiation flow), not a second step everyone must also fill in.
+Without this, Approved/Pending Owner Review/Pending Supplier Review/Terms
+Agreed all render this form AND the negotiation card at once (can_transition_to
+COMMUNICATED and negotiation_actionable's eligible statuses are the same
+four), with nothing saying they're either/or. Same <details>-as-disclosure
+shape as .status-select above and .faq-item (accounts/help_center.html);
+no JS needed.
+{% endcomment %}
+<details class="card card-pad mb-4 pd-manual-comm">
+  <summary class="pd-manual-comm-summary">
+    <span>
+      <span class="pd-manual-comm-title">Agreed terms by phone or message instead?</span><br>
+      <span class="gv-meta">Skip in-app negotiation and record what you already agreed with the supplier directly.</span>
+    </span>
+    <svg class="pd-manual-comm-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+  </summary>
+  <div class="pd-manual-comm-body">
+    <p class="gv-meta">Record the agreed terms after calling or messaging the supplier. Supplier login and acknowledgement are optional; recording this makes the PO available for verified receiving.</p>
+    <form method="POST" action="{% url 'procurement_mark_communicated' procurement.pk %}">
+      {% csrf_token %}
+      <div class="grid-2">
+        <div class="field">
+          <label for="communication-method">Contact method</label>
+          <select id="communication-method" name="communication_method" required>
+            <option value="">Choose method</option>
+            {% for value, label in communication_methods %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="communication-delivery-date">Agreed delivery date</label>
+          <input id="communication-delivery-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" value="{{ procurement.proposed_delivery_date|date:'Y-m-d' }}" required>
+        </div>
       </div>
-      <div class="field">
-        <label for="communication-delivery-date">Agreed delivery date</label>
-        <input id="communication-delivery-date" type="date" name="delivery_date" min="{{ today|date:'Y-m-d' }}" value="{{ procurement.proposed_delivery_date|date:'Y-m-d' }}" required>
+      <table class="gv-table kv-table mt-2" style="border:0;">
+        <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Agreed unit cost</th></tr></thead>
+        <tbody>
+          {% for item in items %}{% if not item.is_unexpected %}
+          <tr>
+            <td>{{ item.product.product_name }}</td>
+            <td class="num">{{ item.quantity_ordered }}</td>
+            <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" value="{% firstof item.proposed_unit_cost item.unit_cost_snapshot '' %}" style="width:120px;" required></td>
+          </tr>
+          {% endif %}{% endfor %}
+        </tbody>
+      </table>
+      <div class="field mt-4">
+        <label for="communication-note">Contact note <span class="gv-meta">— optional</span></label>
+        <input id="communication-note" type="text" name="communication_note" maxlength="300" placeholder="e.g. Confirmed by Ana through Viber">
       </div>
-    </div>
-    <table class="gv-table kv-table mt-2" style="border:0;">
-      <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Agreed unit cost</th></tr></thead>
-      <tbody>
-        {% for item in items %}{% if not item.is_unexpected %}
-        <tr>
-          <td>{{ item.product.product_name }}</td>
-          <td class="num">{{ item.quantity_ordered }}</td>
-          <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" value="{% firstof item.proposed_unit_cost item.unit_cost_snapshot '' %}" style="width:120px;" required></td>
-        </tr>
-        {% endif %}{% endfor %}
-      </tbody>
-    </table>
-    <div class="field mt-4">
-      <label for="communication-note">Contact note <span class="gv-meta">— optional</span></label>
-      <input id="communication-note" type="text" name="communication_note" maxlength="300" placeholder="e.g. Confirmed by Ana through Viber">
-    </div>
-    <button type="submit" class="btn btn-primary mt-2">Mark Communicated/Ordered</button>
-  </form>
-</div>
+      <button type="submit" class="btn btn-primary mt-2">Mark Communicated/Ordered</button>
+    </form>
+  </div>
+</details>
 {% endif %}
 
 {% if procurement.status == "Communicated/Ordered" %}
@@ -709,6 +744,14 @@ banner rather than a full card (see .pd-negotiate-banner above).
             <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
             <td data-label="Recorded" class="gv-meta">{{ r.received_at|date:"Y-m-d H:i" }}</td>
           </tr>
+          {% if r.lines.all %}
+          <tr>
+            <td></td>
+            <td colspan="4" class="gv-meta">
+              {% for line in r.lines.all %}{{ line.item.product.product_name }} &times;{{ line.quantity_received }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            </td>
+          </tr>
+          {% endif %}
           {% endfor %}
         </tbody>
       </table>
@@ -716,7 +759,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
     {% endif %}
 
     {% if can_return_goods or supplier_returns %}
-    <div class="card table-wrap">
+    <div class="card table-wrap" id="returns">
       <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
         <h3>Returns to supplier</h3>
         {% if can_return_goods %}<a class="btn btn-sm" href="{% url 'supplier_return_add' procurement.pk %}">Return goods</a>{% endif %}

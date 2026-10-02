@@ -256,7 +256,7 @@ def staff_dashboard(request):
     from inventory.models import Inventory, StockTransfer
     from inventory.alerts import low_stock_alerts
     from procurement.access import (
-        STAFF_ACTIVE_DELIVERY_STATUSES, procurements_visible_to,
+        STAFF_PENDING_DELIVERY_STATUSES, procurements_visible_to,
     )
     from procurement.models import Procurement
 
@@ -279,7 +279,7 @@ def staff_dashboard(request):
         request.user,
         Procurement.objects.select_related('supplier__supplier_profile'),
     ).filter(
-        status__in=STAFF_ACTIVE_DELIVERY_STATUSES,
+        status__in=STAFF_PENDING_DELIVERY_STATUSES,
     ).order_by('delivery_date')
 
     pending_receipts = StockTransfer.objects.select_related('source_branch').filter(

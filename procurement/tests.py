@@ -22,7 +22,7 @@ from inventory.models import (
     Batch, Product, StockMovement, Warehouse, WarehouseStock,
 )
 from procurement.models import Procurement, ProcurementItem, SupplierProduct
-from procurement.access import STAFF_ACTIVE_DELIVERY_STATUSES
+from procurement.access import STAFF_PENDING_DELIVERY_STATUSES
 
 
 class ProcurementTransitionMapTests(TestCase):
@@ -513,7 +513,7 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
     def test_staff_empty_state_describes_the_receiving_queue(self):
         Procurement.objects.filter(
             branch=self.home_branch,
-            status__in=STAFF_ACTIVE_DELIVERY_STATUSES,
+            status__in=STAFF_PENDING_DELIVERY_STATUSES,
         ).delete()
 
         response = self.client.get(reverse('delivery_list'))

@@ -292,13 +292,20 @@
     Procurement statuses (templates/procurement/procurement_list.html /
     procurement_detail.html): Received/Terms Agreed -> pill-ok, Incoming/
     Approved -> pill-info (which is GREEN in this design system, not blue
-    — the old #e3eefc/#1d4f91 here was a genuine mismatch), Pending Owner/
-    Supplier Review -> pill-warn (what "Not confirmed" below maps to, since
-    it's this page's merged label for that same negotiation-in-progress
-    group), Cancelled -> pill-danger (the old #eceeec/#4a5650 gray here was
-    also a mismatch — the buyer side shows Cancelled in red).
+    — the old #e3eefc/#1d4f91 here was a genuine mismatch), Cancelled ->
+    pill-danger (the old #eceeec/#4a5650 gray here was also a mismatch —
+    the buyer side shows Cancelled in red).
+    "Not confirmed" (pill-warn) is this page's merged label for the
+    negotiation statuses where it's the SUPPLIER's turn to act (Approved,
+    Pending Supplier Review, Terms Agreed — same set as supplier_action_
+    statuses, which also drives the Respond/View button text). "Waiting on
+    GERLYN" (pill-info) is the separate merged label for Draft and Pending
+    Owner Review, where nothing is actionable on the supplier's side yet —
+    split out so a pill-warn "needs your action" color is never shown for
+    a status the supplier can't do anything about.
     {% endcomment %}
     .sp-status-pending { background: var(--warn-bg); color: var(--warn-fg); }
+    .sp-status-waiting { background: var(--info-bg); color: var(--info-fg); }
     .sp-status-incoming { background: var(--info-bg); color: var(--info-fg); }
     .sp-status-overdue { background: var(--danger-bg); color: var(--danger-fg); }
     .sp-status-delivered { background: var(--ok-bg); color: var(--ok-fg); }
@@ -307,6 +314,15 @@
 
     .sp-order-detail td { padding: 0; border-bottom: 1px solid var(--sp-row); }
     .sp-order-detail[hidden] { display: none; }
+    {% comment %}
+    No-JS fallback for respondTo()'s toggle: the Action link is a real
+    href="#po-detail-row-PK" anchor, so without JS the browser's own
+    same-page navigation still reveals the row — this rule just has to
+    outrank the [hidden] rule above, which it does because author rules
+    beat the `hidden` attribute's user-agent default regardless of
+    selector specificity.
+    {% endcomment %}
+    .sp-order-detail:target { display: table-row; }
     .sp-order-detail-body { padding: 4px 20px 22px; }
     .sp-order-detail table { width: 100%; border-collapse: collapse; margin-top: 8px; }
     .sp-order-detail th { text-align: left; font: 600 11.5px/1 var(--font-body); color: var(--sp-muted); padding: 8px 6px; border-bottom: 1px solid var(--sp-row); text-transform: uppercase; letter-spacing: .03em; }
@@ -827,13 +843,19 @@ document.addEventListener('click', function (e) {
 // Per-order detail row toggle — collapsed by default; expands the exact
 // same rich content (line items, negotiation/confirm-date forms) inline.
 // Used on Purchase orders and Deliveries, wherever a .sp-order-detail row
-// with this id exists on the current page.
-function respondTo(pk) {
+// with this id exists on the current page. The caller is a real
+// <a href="#po-detail-row-PK">, not a bare button: with JS, this toggles
+// the row in place and suppresses the browser's own jump; without JS, the
+// native same-page anchor navigation plus this page's own
+// `.sp-order-detail:target` CSS rule still reveals the row.
+function respondTo(event, pk) {
   var row = document.getElementById('po-detail-row-' + pk);
-  if (!row) return;
+  if (!row) return true;
+  if (event) event.preventDefault();
   var isOpen = row.hasAttribute('hidden');
   row.toggleAttribute('hidden', !isOpen);
   if (isOpen) row.scrollIntoView({behavior: 'smooth', block: 'center'});
+  return false;
 }
 
 // ------------------------------------------------------------- pp search

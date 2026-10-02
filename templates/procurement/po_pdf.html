@@ -225,7 +225,7 @@
       </td>
       <td class="num">{{ item.product.unit_of_measure|default:"&mdash;" }}</td>
       <td class="num">{{ item.quantity_ordered }}</td>
-      <td class="num">PHP {{ item.cost_price|floatformat:2 }}</td>
+      <td class="num">{% if item.unit_cost_snapshot is not None %}PHP {{ item.unit_cost_snapshot|floatformat:2 }}{% else %}Pending{% endif %}</td>
       <td class="num">PHP {{ item.line_total|floatformat:2 }}</td>
     </tr>
     {% empty %}
