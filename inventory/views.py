@@ -34,6 +34,7 @@ from .services import (
     create_warehouse_floor_transfer, record_transfer_event,
     reconcile_transfer_receipt, transfers_visible_to,
 )
+from . import pricing
 from .alerts import alert_summary, stock_status, suggested_reorder_qty
 from accounts.models import User
 from branches.models import Branch
@@ -240,6 +241,40 @@ def _parse_price_tiers(form_data, retail_price):
     return tiers, errors
 
 
+def _parse_markup(raw, label='Markup'):
+    return pricing.parse_markup_percent(raw, label)
+
+
+def _pricing_context(product):
+    """What the product form needs to show the computed-price panel."""
+    suggestion = pricing.suggest_price(product)
+    conflict = (
+        pricing.tier_conflict(product, suggestion.suggested_price)
+        if suggestion.available else None
+    )
+    return {
+        'suggestion': suggestion,
+        'suggestion_conflict': conflict,
+        'suggestion_differs': (
+            suggestion.available
+            and suggestion.suggested_price != product.unit_price
+        ),
+    }
+
+
+def _markup_defaults_json():
+    """Store default + per-category markups for the form's price calculator."""
+    from core.models import StoreSetting
+    store = StoreSetting.load().default_markup_percent
+    return {
+        'store': str(store) if store is not None else None,
+        'categories': {
+            str(c.pk): str(c.default_markup_percent)
+            for c in ProductCategory.objects.exclude(default_markup_percent=None)
+        },
+    }
+
+
 def _edit_form_values(product, form_data=None):
     """Field values for the Edit Product page: posted values win (so a
     validation error redisplays what the user typed), otherwise fall back
@@ -255,6 +290,14 @@ def _edit_form_values(product, form_data=None):
         'category_id': pick('category', str(product.category_id or '')),
         'unit_of_measure': pick('unit_of_measure', product.unit_of_measure),
         'unit_price': pick('unit_price', product.unit_price),
+        'markup_percent': (
+            form_data.get('markup_percent', '') if form_data is not None
+            else ('' if product.markup_percent is None else product.markup_percent)
+        ),
+        'auto_apply_suggested_price': (
+            bool(form_data.get('auto_apply_suggested_price')) if form_data is not None
+            else product.auto_apply_suggested_price
+        ),
         'description': pick('description', product.description),
         # Not pick()-able: the ladder is a list of rows, and a redisplay has
         # to show exactly the rows that were posted — including ones the user
@@ -355,6 +398,7 @@ def product_add(request):
             'next_sku': Product.next_sku_code(),
             'add_selected_branches': None,  # None = default all branches checked
             'add_tier_rows': [],  # empty = fresh form; the page JS opens three blank rows
+            'markup_defaults': _markup_defaults_json(),
         }
         return render(request, 'inventory/product_form.html', context)
 
@@ -363,8 +407,11 @@ def product_add(request):
     unit_price = request.POST.get('unit_price', '').strip()
     description = request.POST.get('description', '').strip()
     branch_ids = request.POST.getlist('branches')
+    markup_percent, markup_error = _parse_markup(request.POST.get('markup_percent'))
 
     errors = []
+    if markup_error:
+        errors.append(markup_error)
     if not product_name:
         errors.append('Product name is required.')
     if not unit_price:
@@ -398,6 +445,10 @@ def product_add(request):
                     product_name=product_name,
                     unit_of_measure=request.POST.get('unit_of_measure'),
                     unit_price=unit_price,
+                    markup_percent=markup_percent,
+                    auto_apply_suggested_price=bool(
+                        request.POST.get('auto_apply_suggested_price')
+                    ),
                     description=description,
                     # Tax/discount flags. All three boxes start unticked, so
                     # an absent value simply means "not ticked" — a product is
@@ -447,6 +498,7 @@ def product_add(request):
         'add_form_data': request.POST,
         'add_selected_branches': branch_ids,
         'add_tier_rows': _posted_tier_rows(request.POST),
+        'markup_defaults': _markup_defaults_json(),
     }
     return render(request, 'inventory/product_form.html', context)
 
@@ -466,6 +518,7 @@ def product_edit(request, pk):
             'unit_choices': Product.UnitOfMeasure.choices,
             'edit_product': product,
             'edit_values': _edit_form_values(product),
+            **_pricing_context(product),
         }
         return render(request, 'inventory/product_form.html', context)
 
@@ -473,8 +526,11 @@ def product_edit(request, pk):
     barcode = request.POST.get('barcode', '').strip() or None
     unit_price = request.POST.get('unit_price', '').strip()
     description = request.POST.get('description', '').strip()
+    markup_percent, markup_error = _parse_markup(request.POST.get('markup_percent'))
 
     errors = []
+    if markup_error:
+        errors.append(markup_error)
     if not product_name:
         errors.append('Product name is required.')
     if not unit_price:
@@ -504,6 +560,13 @@ def product_edit(request, pk):
                 product.product_name = product_name
                 product.barcode = barcode
                 product.unit_of_measure = request.POST.get('unit_of_measure')
+                product.markup_percent = markup_percent
+                product.auto_apply_suggested_price = bool(
+                    request.POST.get('auto_apply_suggested_price')
+                )
+                # A price that departs from the computed one is an override;
+                # one that matches it hands control back to the computation.
+                pricing.sync_manual_flag(product, unit_price)
                 product.unit_price = unit_price
                 product.description = description
                 product.is_vat_exempt = bool(request.POST.get('is_vat_exempt'))
@@ -559,8 +622,31 @@ def product_edit(request, pk):
         'edit_product': product,
         'edit_errors': errors,
         'edit_values': _edit_form_values(product, request.POST),
+        **_pricing_context(product),
     }
     return render(request, 'inventory/product_form.html', context)
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def product_apply_suggested_price(request, pk):
+    """Move the retail price to the computed one. Owner/Manager only, same
+    gate as editing the product."""
+    if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
+        messages.error(request, 'You do not have permission to edit products.')
+        return redirect('product_list')
+
+    product = get_object_or_404(Product, pk=pk)
+    try:
+        pricing.apply_suggested_price(product)
+    except pricing.PriceSuggestionError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f'Retail price of {product.product_name} set to \u20b1{product.unit_price}.',
+        )
+    return redirect('product_edit', pk=product.pk)
 
 
 @login_required(login_url='accounts:login')
@@ -1247,6 +1333,7 @@ def product_import_preview(request):
                 product.barcode = row['barcode']
             product.category = category
             product.unit_of_measure = row['unit_of_measure']
+            pricing.sync_manual_flag(product, row['unit_price'])
             product.unit_price = row['unit_price']
             product.description = row['description']
             product.is_vat_exempt = row['is_vat_exempt']
@@ -1367,8 +1454,13 @@ def category_form(request, pk=None):
     description = request.POST.get('description', '').strip()
     image = request.FILES.get('image')
     remove_image = bool(request.POST.get('remove_image'))
+    markup_percent, markup_error = _parse_markup(
+        request.POST.get('default_markup_percent'), 'Default markup',
+    )
 
     errors = []
+    if markup_error:
+        errors.append(markup_error)
     if not name:
         errors.append('Category name is required.')
     else:
@@ -1382,6 +1474,7 @@ def category_form(request, pk=None):
         target = category or ProductCategory()
         target.category_name = name
         target.description = description
+        target.default_markup_percent = markup_percent
         if image:
             target.image = image
         elif remove_image and target.pk:

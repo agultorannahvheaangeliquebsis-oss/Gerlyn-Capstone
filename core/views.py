@@ -131,6 +131,16 @@ def store_settings_update(request):
     s.receipt_show_logo = request.POST.get("receipt_show_logo") == "1"
     s.receipt_show_tin = request.POST.get("receipt_show_tin") == "1"
     s.receipt_show_vat = request.POST.get("receipt_show_vat") == "1"
+    if "default_markup_percent" in request.POST:
+        from inventory.pricing import parse_markup_percent
+
+        markup, markup_error = parse_markup_percent(
+            request.POST.get("default_markup_percent"), "Default markup",
+        )
+        if markup_error:
+            messages.error(request, markup_error)
+            return _back_to_settings()
+        s.default_markup_percent = markup
     s.save()
 
     # extra_tags='sheet' renders the prominent success sheet (with a Done

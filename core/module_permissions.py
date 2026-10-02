@@ -53,7 +53,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-product-list', 'api-category-list',
         ],
         EDIT: [
-            'product_edit', 'category_edit',
+            'product_edit', 'product_apply_suggested_price', 'category_edit',
             'api-product-detail', 'api-category-detail',
         ],
         DELETE: [

@@ -309,6 +309,19 @@ views can never drift apart.
   credit note or a replacement received into the warehouse. *Overdue:* see
   [Notification operations](#notification-operations). The rules live in
   `procurement/services.py`.
+- **Selling price.** A product's retail price is *suggested* from supplier cost, never
+  changed silently: `cost x (1 + markup%) x 1.12` (markup on the VAT-exclusive cost, VAT
+  added on top; half-up to centavos). The cost is the preferred approved supplier link's
+  current cost, else the cheapest approved link with a cost. The markup is the product's
+  override, else its category's default, else the store-wide default (Settings → Pricing);
+  with no cost or no markup there is no suggestion and the price stays manual. When a
+  supplier's cost changes or an offer is approved, the Owner gets a notification; the
+  product page shows the computed price with an **Apply suggested price** button
+  (Owner/Manager). A price typed in by hand that differs from the computed one marks the
+  product as manual, which silences those notifications until the computed price is
+  applied again. A product can opt in to **Apply computed price automatically**. Bulk tiers
+  are never recomputed, and a suggestion that would not stay above the top tier is
+  refused. Price changes are audit-logged. The rules live in `inventory/pricing.py`.
 
 ---
 

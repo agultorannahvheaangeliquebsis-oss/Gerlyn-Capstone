@@ -560,6 +560,13 @@ def review_product_request(req, reviewer, *, approve, note='',
                 status=SupplierProduct.Status.APPROVED,
                 reviewed_by=reviewer, reviewed_at=timezone.now(),
             )
+            # The Owner may have taken the suggested price or typed another;
+            # record which, so later cost changes know whether to speak up.
+            from inventory import pricing
+            suggestion = pricing.suggest_price(product)
+            if suggestion.available:
+                product.price_is_manual = suggestion.suggested_price != unit_price
+                product.save(update_fields=['price_is_manual'])
             req.created_product = product
             req.status = SupplierProductRequest.Status.APPROVED
         else:

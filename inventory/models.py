@@ -16,6 +16,12 @@ class ProductCategory(models.Model):
 
     category_name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    default_markup_percent = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Markup on supplier cost for products in this category, "
+                  "e.g. 25 for 25%. Blank uses the store-wide default.",
+    )
     image = models.ImageField(
         upload_to='categories/', blank=True, null=True,
         help_text="Shown on the storefront's Shop by Category tiles. "
@@ -66,6 +72,26 @@ class Product(models.Model):
                   "free or negative retail price."
     )
     description = models.TextField(blank=True)
+
+    # --- computed selling price (see inventory.pricing) --------------------
+    # The shelf price is only ever *suggested* from supplier cost; unit_price
+    # is changed by a person, or by the explicit auto-apply opt-in below.
+    markup_percent = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Markup on supplier cost for this product, overriding the "
+                  "category and store-wide defaults. Blank inherits.",
+    )
+    price_is_manual = models.BooleanField(
+        default=False,
+        help_text="The retail price was typed in and differs from the "
+                  "computed suggestion. Cost changes then stay quiet.",
+    )
+    auto_apply_suggested_price = models.BooleanField(
+        default=False,
+        help_text="Opt in: when the supplier cost changes, move the retail "
+                  "price to the computed one without asking.",
+    )
 
     # --- tax / statutory-discount flags -------------------------------------
     # Three independent booleans, not one: a product can be VAT-exempt without

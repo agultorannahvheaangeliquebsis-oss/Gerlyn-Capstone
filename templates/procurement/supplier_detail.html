@@ -233,13 +233,14 @@ Owner-only controls; a Manager sees what is pending, read-only.
       <div class="field">
         <label for="rq-price-{{ req.pk|unlocalize }}">Retail price (₱)</label>
         <input id="rq-price-{{ req.pk|unlocalize }}" type="number" name="unit_price" min="0.01" step="0.01"
-               class="sd-review-price">
+               class="sd-review-price"{% if req.price_hint %} value="{{ req.price_hint|unlocalize }}"{% endif %}>
+        {% if req.price_hint or req.price_hint_by_category %}<span class="gv-meta">Suggested from the &#8369;{{ req.proposed_cost|floatformat:2 }} cost and the markup (&times; 1.12 VAT); change it if you like.</span>{% endif %}
       </div>
       <div class="field">
         <label for="rq-cat-{{ req.pk|unlocalize }}">Category</label>
         <select id="rq-cat-{{ req.pk|unlocalize }}" name="category">
           <option value="">No category</option>
-          {% for pc in product_categories %}<option value="{{ pc.pk|unlocalize }}">{{ pc.category_name }}</option>{% endfor %}
+          {% for pc in product_categories %}<option value="{{ pc.pk|unlocalize }}" data-price="{% for cid, price in req.price_hint_by_category.items %}{% if cid == pc.pk %}{{ price|unlocalize }}{% endif %}{% endfor %}">{{ pc.category_name }}</option>{% endfor %}
         </select>
       </div>
       <button type="submit" name="decision" value="approve" class="btn btn-sm btn-primary">Approve &amp; create product</button>
@@ -539,5 +540,16 @@ submit the transfer instead. Each button references its form by id.
   });
   {% endif %}
 })();
+</script>
+<script>
+// New-product approval: picking a category re-prices the suggested retail
+// price using that category's markup. Options with no price leave the field alone.
+document.querySelectorAll('select[id^="rq-cat-"]').forEach(function (sel) {
+  sel.addEventListener('change', function () {
+    var price = sel.value ? sel.selectedOptions[0].getAttribute('data-price') : '';
+    var input = document.getElementById('rq-price-' + sel.id.slice('rq-cat-'.length));
+    if (price && input) input.value = price;
+  });
+});
 </script>
 {% endblock %}

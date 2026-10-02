@@ -7,6 +7,7 @@ from .models import (
     Product, ProductCategory, ProductPriceTier, Inventory, Warehouse,
     WarehouseStock, Batch, StockTransfer, StockTransferItem, StockMovement,
 )
+from . import pricing
 from .services import (
     StockTransferRequestError, create_stock_write_off,
     create_warehouse_floor_transfer,
@@ -131,6 +132,13 @@ class ProductWriteSerializer(serializers.ModelSerializer):
             'retailPrice',
             'description',
         ]
+
+    def update(self, instance, validated_data):
+        # Same rule as the product form: a price that departs from the
+        # computed one is a manual override.
+        if 'unit_price' in validated_data:
+            pricing.sync_manual_flag(instance, validated_data['unit_price'])
+        return super().update(instance, validated_data)
 
 
 # =============================================================================

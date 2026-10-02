@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load l10n %}
 {% block title %}Categories{% endblock %}
 {% block page_subtitle %}Catalog{% endblock %}
 
@@ -220,6 +221,11 @@
         <textarea id="add-category-description" name="description" rows="2"
                   placeholder="What belongs in this category?">{{ add_form_data.description|default:'' }}</textarea>
       </div>
+      <div class="field">
+        <label for="add-category-markup">Default markup (%) <span class="gv-meta">&mdash; optional</span></label>
+        <input id="add-category-markup" type="number" name="default_markup_percent" min="0" max="9999.99" step="0.01"
+               value="{{ add_form_data.default_markup_percent|default:'' }}" placeholder="Inherit store default">
+      </div>
     </form>
 
     {% comment %}
@@ -292,6 +298,12 @@
         <label for="edit-category-description">Description <span class="gv-meta">— optional</span></label>
         <textarea id="edit-category-description" name="description" rows="2"
                   placeholder="What belongs in this category?">{{ edit_form_data.description|default:edit_category.description|default:'' }}</textarea>
+      </div>
+      <div class="field">
+        <label for="edit-category-markup">Default markup (%) <span class="gv-meta">&mdash; optional</span></label>
+        <input id="edit-category-markup" type="number" name="default_markup_percent" min="0" max="9999.99" step="0.01"
+               value="{% if edit_form_data %}{{ edit_form_data.default_markup_percent|default:'' }}{% else %}{{ edit_category.default_markup_percent|default_if_none:''|unlocalize }}{% endif %}"
+               placeholder="Inherit store default">
       </div>
 
       {# Read-only reference, not a form field — moving a product between #}

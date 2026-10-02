@@ -254,6 +254,67 @@ in the old modal markup, so their JS needs no changes.
             </div>
           </div>
 
+          {% comment %}
+          Computed selling price: cost x (1 + markup) x 1.12. Suggest-only; the
+          retail price above only changes when someone saves it or presses
+          Apply. Edit shows the server-computed suggestion; Add has no supplier
+          cost yet, so it offers a calculator for a cost the user types in.
+          {% endcomment %}
+          {% if mode == 'edit' %}
+          <div class="field" id="computed-price-panel">
+            <label>Computed price</label>
+            {% if suggestion.available %}
+            <p class="gv-meta" style="margin:0 0 6px;">
+              <strong>&#8369;{{ suggestion.suggested_price|unlocalize }}</strong>
+              = &#8369;{{ suggestion.cost|unlocalize }} cost &times; (1 + {{ suggestion.markup_percent|unlocalize }}%) &times; 1.12 VAT
+              &middot; markup from {% if suggestion.markup_source == 'product' %}this product{% elif suggestion.markup_source == 'category' %}the category{% else %}the store default{% endif %}.
+            </p>
+            {% if edit_product.price_is_manual %}
+            <p class="gv-meta" style="margin:0 0 6px;">This price was set by hand, so cost changes won't raise suggestions. Applying the computed price hands control back.</p>
+            {% endif %}
+            {% if suggestion_conflict %}
+            <p class="gv-meta" style="margin:0 0 6px; color:var(--danger-dot);">{{ suggestion_conflict }}</p>
+            {% endif %}
+            {% if suggestion_differs %}
+            <button type="submit" form="apply-price-form" class="btn btn-sm"{% if suggestion_conflict %} disabled{% endif %}>Apply suggested price</button>
+            {% else %}
+            <p class="gv-meta" style="margin:0;">The retail price already matches.</p>
+            {% endif %}
+            {% else %}
+            <p class="gv-meta" style="margin:0;">No price can be computed yet &mdash; it needs an approved supplier with a cost, and a markup (product, category or store default).</p>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="field" id="price-calculator" hidden>
+            <label for="calc-cost">Price calculator <span class="gv-meta">&mdash; optional, not saved</span></label>
+            <div class="row" style="gap:8px; align-items:center;">
+              <input id="calc-cost" type="number" min="0.01" step="0.01" placeholder="Supplier cost (&#8369;)" style="max-width:180px;">
+              <button type="button" class="btn btn-sm" id="calc-apply">Use computed price</button>
+            </div>
+            <span class="gv-meta" id="calc-note" style="display:block; margin-top:4px;"></span>
+          </div>
+          {{ markup_defaults|json_script:"markup-defaults" }}
+          {% endif %}
+
+          <div class="field">
+            <label for="product-markup-percent">Markup override (%) <span class="gv-meta">&mdash; optional</span></label>
+            {% if mode == 'edit' %}
+            <input id="product-markup-percent" type="number" min="0" max="9999.99" step="0.01" name="markup_percent"
+                   value="{{ edit_values.markup_percent|unlocalize }}" placeholder="Inherit category / store default">
+            {% else %}
+            <input id="product-markup-percent" type="number" min="0" max="9999.99" step="0.01" name="markup_percent"
+                   value="{{ add_form_data.markup_percent|default:'' }}" placeholder="Inherit category / store default">
+            {% endif %}
+          </div>
+          <label class="row" style="gap:8px; align-items:flex-start;">
+            <input type="checkbox" name="auto_apply_suggested_price" value="1" style="margin-top:3px;"
+                   {% if mode == 'edit' %}{% if edit_values.auto_apply_suggested_price %}checked{% endif %}{% else %}{% if add_form_data.auto_apply_suggested_price %}checked{% endif %}{% endif %}>
+            <span>
+              <strong>Apply computed price automatically</strong>
+              <span class="gv-meta" style="display:block;">When the supplier's cost changes, move the retail price to the computed one without asking. Off by default &mdash; otherwise the Owner is only notified.</span>
+            </span>
+          </label>
+
           {% if mode == 'edit' %}
           {% include "inventory/_price_tier_rows.html" with which="product" rows=edit_values.price_tiers %}
           {% include "inventory/_tax_fields.html" with which="product" is_vat_exempt=edit_values.is_vat_exempt is_pwd_eligible=edit_values.is_pwd_eligible is_senior_eligible=edit_values.is_senior_eligible %}
@@ -344,6 +405,7 @@ in the old modal markup, so their JS needs no changes.
 </form>
 
 {% if mode == 'edit' %}
+<form id="apply-price-form" method="POST" action="{% url 'product_apply_suggested_price' edit_product.pk %}">{% csrf_token %}</form>
 {% comment %}
   Confirms marking a Current Image for deletion. Deliberately not
   confirm-dialog.js — that one intercepts a <form> submit, but marking an
@@ -560,6 +622,38 @@ function tierRemoveRow(btn) {
     },
   });
   {% endif %}
+})();
+</script>
+<script>
+(function () {
+  var box = document.getElementById('price-calculator');
+  var defaultsEl = document.getElementById('markup-defaults');
+  if (!box || !defaultsEl) return;
+  var defaults = JSON.parse(defaultsEl.textContent);
+  var cost = document.getElementById('calc-cost');
+  var note = document.getElementById('calc-note');
+  var price = document.getElementById('product-retail-price');
+  var override = document.getElementById('product-markup-percent');
+  var category = document.getElementById('product-category');
+  function markup() {
+    if (override && override.value !== '') return parseFloat(override.value);
+    var c = category && defaults.categories[category.value];
+    if (c != null) return parseFloat(c);
+    return defaults.store != null ? parseFloat(defaults.store) : null;
+  }
+  // Only worth showing when some markup exists to compute with.
+  function refresh() { box.hidden = markup() === null; }
+  if (override) override.addEventListener('input', refresh);
+  if (category) category.addEventListener('change', refresh);
+  refresh();
+  document.getElementById('calc-apply').addEventListener('click', function () {
+    var m = markup(), c = parseFloat(cost.value);
+    if (m === null || !(c > 0)) { note.textContent = 'Enter a supplier cost and set a markup.'; return; }
+    // Server is the authority; this is a convenience prefill (cost x (1+m) x 1.12, half-up).
+    var p = Math.floor(c * (1 + m / 100) * 1.12 * 100 + 0.5 + 1e-9) / 100;
+    price.value = p.toFixed(2);
+    note.textContent = '\u20b1' + p.toFixed(2) + ' = \u20b1' + c.toFixed(2) + ' \u00d7 (1 + ' + m + '%) \u00d7 1.12 VAT';
+  });
 })();
 </script>
 {% endblock %}

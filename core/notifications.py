@@ -65,6 +65,7 @@ EVENT_ORDER_DELIVERED = 'order_delivered'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
 EVENT_EXPIRY_WRITE_OFF = 'expiry_write_off'
+EVENT_PRICE_SUGGESTION = 'price_suggestion'
 
 # Executable notification matrix.  ``internal`` means all active Owners plus
 # the branch's active Manager/Staff accounts that can access required_module.
@@ -75,6 +76,18 @@ EVENT_EXPIRY_WRITE_OFF = 'expiry_write_off'
 # data.  This makes the policy reviewable without reconstructing it from a
 # collection of views and signals; notify_event() consumes the other keys.
 EVENT_MATRIX = {
+    EVENT_PRICE_SUGGESTION: {
+        'when': "A supplier's current cost changes (or a cost-bearing offer is "
+                'approved) and the computed selling price no longer matches '
+                "the product's retail price. Also sent when auto-apply moved "
+                'the price.',
+        'recipients': 'Owner only; Managers see the suggestion on the product page.',
+        'audiences': ('internal',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': False,
+    },
     EVENT_LOW_STOCK: {
         'when': 'Floor or warehouse stock crosses from above to at/below its reorder level.',
         'recipients': 'Owner; branch Manager/Staff with the affected Floor/Warehouse Stock access.',

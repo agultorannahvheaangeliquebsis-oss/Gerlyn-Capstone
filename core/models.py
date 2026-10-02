@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.core.cache import cache
+from django.core.validators import MinValueValidator
 from django.db import models
 
 
@@ -129,6 +132,14 @@ class StoreSetting(TimeStampedModel):
     receipt_thank_you = models.CharField(
         max_length=120, blank=True,
         help_text="A closing line printed under the totals on a sales receipt.",
+    )
+    default_markup_percent = models.DecimalField(
+        "Default markup on supplier cost (%)",
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Store-wide markup used to suggest a retail price when "
+                  "neither the product nor its category sets one. Blank "
+                  "means no price is suggested.",
     )
 
     class Meta:

@@ -72,6 +72,7 @@ from .serializers import (
     ProcurementStatusSerializer,
     DeliveryEventSerializer,
 )
+from inventory import pricing
 from inventory.models import (
     Batch, Product, ProductCategory, StockMovement, Warehouse, WarehouseStock,
 )
@@ -2643,6 +2644,8 @@ def supplier_set_product_cost(request, link_pk):
         return _supplier_next_redirect(request)
 
     link.save(update_fields=['current_cost_price'])
+    if link.status == SupplierProduct.Status.APPROVED:
+        pricing.on_cost_change(link.product, request.user)
     messages.success(
         request,
         f'Current cost for {link.product.product_name} updated.'
@@ -3126,9 +3129,9 @@ def supplier_detail(request, pk):
         'profile': getattr(supplier, 'supplier_profile', None),
         'links': links,
         'pending_offers': pending_offers,
-        'pending_requests': supplier.product_requests.filter(
+        'pending_requests': _with_price_hints(supplier.product_requests.filter(
             status=SupplierProductRequest.Status.PENDING
-        ),
+        )),
         'product_categories': ProductCategory.objects.all(),
         'available_products': available,
         'other_suppliers': other_suppliers,
@@ -3392,11 +3395,39 @@ def supplier_offer_review(request, pk, link_pk):
         link.supplier, link.product.product_name, request.user,
         approved=approve, note=note,
     )
+    if approve:
+        pricing.on_cost_change(link.product, request.user)
     messages.success(
         request,
         f'{link.product.product_name} {"approved" if approve else "rejected"}.',
     )
     return redirect('supplier_detail', pk=pk)
+
+
+def _with_price_hints(requests):
+    """Attach the computed retail price to each pending new-product request.
+
+    `price_hint` is what the approval form pre-fills (store-wide markup, no
+    category yet) and `price_hint_by_category` re-prices when the Owner picks
+    one. Absent markup means no hint: the Owner types the price as before.
+    """
+    categories = list(ProductCategory.objects.all())
+    store_markup, _ = pricing.resolve_markup(None)
+    rows = list(requests)
+    for req in rows:
+        req.price_hint = (
+            pricing.price_from_cost(req.proposed_cost, store_markup)
+            if store_markup is not None else None
+        )
+        by_category = {}
+        for category in categories:
+            markup, _source = pricing.resolve_markup(None, category)
+            if markup is not None:
+                by_category[category.pk] = pricing.price_from_cost(
+                    req.proposed_cost, markup,
+                )
+        req.price_hint_by_category = by_category
+    return rows
 
 
 @login_required(login_url='accounts:login')
