@@ -1,6 +1,9 @@
 {% load static l10n %}<!DOCTYPE html>
 <html lang="en">
 <head>
+  <link rel="icon" href="{% static 'favicon.ico' %}" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/icons/favicon-32.png' %}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{% static 'img/icons/favicon-16.png' %}">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
