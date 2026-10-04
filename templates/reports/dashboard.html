@@ -339,11 +339,13 @@ the same selector the KPI rail above it obeys.
 
 Same treatment as the KPI graph panel now — smoothed Catmull-Rom lines,
 zero-filled days, adaptive x-axis ticks, continuous-hover tooltip/guideline
-instead of per-point dots (static/js/dashboard-sales-trend.js) — EXCEPT no
-area fill: 2-3 branch lines are shown simultaneously here, never one at a
-time like the KPI rail, so filled areas would shade over each other rather
-than read as one chart. The legend underneath still carries the per-branch
-total since the lines alone don't label themselves.
+instead of per-point dots (static/js/dashboard-sales-trend.js) — EXCEPT
+the area fill is only drawn when ONE branch is shown: with 2+ lines at once
+the fills would shade over each other rather than read as one chart. Each
+line is solid and takes its own hue from TREND_BRANCH_COLOURS (--series-*
+in gerlyn.css: green, yellow, orange, then blue, purple, red), and the legend
+swatch below uses the same value, so the two always match. The legend also carries the per-branch total since the lines
+alone don't label themselves.
 {% endcomment %}
 <div class="card mb-6">
   <div class="card-pad" style="border-bottom:1px solid var(--line);">
@@ -355,6 +357,7 @@ total since the lines alone don't label themselves.
     <div class="kpi-graph-svg-wrap" id="trend-svg-wrap">
       <svg viewBox="0 0 760 220" width="100%" height="220" preserveAspectRatio="none" id="trend-svg">
         {% for line in sales_trend_by_branch.lines %}
+        {% if line.areaPath %}<path d="{{ line.areaPath }}" fill="{{ line.colour }}" fill-opacity="0.12" stroke="none"/>{% endif %}
         <path d="{{ line.linePath }}" fill="none" stroke="{{ line.colour }}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
         {% endfor %}
         <g id="trend-axis"></g>

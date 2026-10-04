@@ -23,6 +23,18 @@
   --green-100:  #E3F3EB;
   --green-300:  #9CCDB4;
 
+  /* Multi-series chart set — Sales Trend by Branch, one SOLID line per branch,
+     each a clearly different hue, in this order. Any branch past the sixth
+     wraps back to --series-1. The legend dots read the same values, so a
+     dot always matches its line. Yellow is only ~1.7:1 on the white card, so
+     identity there also rests on the legend label and the hover tooltip. */
+  --series-1: #2E9E5B;  /* green  */
+  --series-2: #F2B705;  /* yellow */
+  --series-3: #F2762E;  /* orange */
+  --series-4: #2F6FD1;  /* blue   */
+  --series-5: #7B4FB0;  /* purple */
+  --series-6: #D64545;  /* red    */
+
   /* Ink */
   --ink-900: #17251E;  /* headings, data */
   --ink-700: #3E4E45;
@@ -439,6 +451,15 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    carries preserveAspectRatio="none", so it compresses to fit rather than
    cropping anything. */
 .kpi-graph-panel svg { display: block; width: 100%; height: auto; max-height: 280px; }
+/* The panel shares a grid row with the taller Sales-by-Branch card and is
+   stretched to match it; without this the extra height pooled as dead space
+   under the axis labels. Make the panel a column and let the chart take the
+   slack: the SVG has no intrinsic height to defend (flex-basis 0), only a
+   floor, and preserveAspectRatio="none" stretches the plot to fit. The
+   head/legend keep their natural height. */
+.kpi-graph-panel { display: flex; flex-direction: column; }
+.kpi-graph-panel > .kpi-graph-svg-wrap { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.kpi-graph-panel #kpi-graph-svg { flex: 1 1 0; height: auto; min-height: 240px; max-height: none; }
 /* Sales Trend by Branch's own chart (reports/views.py::
    _sales_trend_by_branch_chart) reuses .kpi-graph-svg-wrap for the tooltip's
    positioned ancestor (below) but isn't itself a .kpi-graph-panel — it never
@@ -452,6 +473,8 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    the compensation divided by. Forcing height:auto keeps both axes scaled
    together, same fix, same reason, as the rule above. */
 #trend-svg { display: block; width: 100%; height: auto; max-height: 280px; }
+/* The shared hover guideline is dashed for the KPI graph; this chart is solid-only. */
+#trend-guideline { stroke-dasharray: none; }
 /* Anchors the tooltip div's absolute positioning to this pane rather than the
    page (its nearest positioned ancestor would otherwise be much further up
    the tree, and the tooltip would need page-scroll-relative math instead of

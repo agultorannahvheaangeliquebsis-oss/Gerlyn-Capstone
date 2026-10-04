@@ -1,6 +1,5 @@
 import csv
 import math
-import statistics
 
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
@@ -111,11 +110,11 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end, active_range=No
     single Y-scale so the lines are actually comparable to each other —
     unlike the KPI rail's per-metric graph, which only ever needs to compare
     a series against itself. Same curve/axis treatment as the KPI rail
-    (_smooth_curve_commands, _month_lane_x_fractions, weekday-vs-month-lane
-    ticks) applied per line, but NOT that panel's area fill: 2-3 branches'
-    fills stacked simultaneously (this chart, unlike the KPI rail, always
-    shows every line at once, never one-at-a-time) would shade over each
-    other rather than read as one chart, so this stays lines-only.
+    (_smooth_curve_commands, _even_x_fractions, _kpi_day_axis_labels)
+    applied per line. The KPI panel's area fill is only used when a
+    single branch is drawn: 2+ branches' fills stacked simultaneously (this
+    chart, unlike the KPI rail, shows every line at once) would shade over
+    each other rather than read as one chart, so those stay lines-only.
 
     Always covers every branch the viewer can see (branch_ids_for_user),
     never the branch-selector's override — see the module note above and
@@ -125,9 +124,9 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end, active_range=No
     position never shift between requests.
 
     `active_range` is the same dashboard-wide preset _dashboard_kpi_payload
-    already branches on — only used here to pick weekday-vs-month-lane axis
-    TICKS (see _kpi_metric_series' own docstring); point x-POSITIONS always
-    use month-lane fractions regardless, same split that function makes.
+    already branches on — only used here to pick weekday-vs-month-start axis
+    TICKS (see _kpi_day_axis_labels); point x-POSITIONS are evenly spaced
+    for every range.
 
     Reuses _dashboard_daily_series per branch — there are at most a handful
     of branches, so N small queries stays cheap, and it keeps this chart's
@@ -154,7 +153,10 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end, active_range=No
     span = hi - lo
     plot_width = width - 2 * pad_x
     baseline = height - pad_y
-    x_fractions = _month_lane_x_fractions(day_labels)
+    # Days are spaced EVENLY across the whole plot width (first day flush
+    # left, last flush right), one day = one equal step whatever the month —
+    # see _even_x_fractions for why the old per-month lanes were dropped.
+    x_fractions = _even_x_fractions(n_days)
     xs = [round(pad_x + f * plot_width, 1) for f in x_fractions]
 
     def y_for(v):
@@ -168,16 +170,24 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end, active_range=No
             return baseline if lo == 0 else height / 2
         return pad_y + (1 - (v - lo) / span) * (height - 2 * pad_y)
 
-    colours = [SALES_BRANCH_RAMP[i % len(SALES_BRANCH_RAMP)] for i in range(len(series_by_branch))]
+    colours = [TREND_BRANCH_COLOURS[i % len(TREND_BRANCH_COLOURS)] for i in range(len(series_by_branch))]
 
     lines = []
     for (name, values), colour in zip(series_by_branch, colours):
         coords = [(x, round(y_for(v), 1)) for x, v in zip(xs, values)]
         curve_cmds = _smooth_curve_commands(coords, pad_y, baseline)
+        line_path = f'M{coords[0][0]},{coords[0][1]} {curve_cmds}'
         lines.append({
             'name': name,
             'colour': colour,
-            'linePath': f'M{coords[0][0]},{coords[0][1]} {curve_cmds}',
+            'linePath': line_path,
+            # Area fill only when ONE branch is drawn (a manager's own
+            # branch): then it matches the KPI graph above exactly. With 2+
+            # lines the fills would stack over each other, so none get one.
+            'areaPath': (
+                f'{line_path} L{coords[-1][0]},{baseline} L{coords[0][0]},{baseline} Z'
+                if len(series_by_branch) == 1 else ''
+            ),
             'total_display': _compact_peso(sum(values)),
         })
 
@@ -198,11 +208,9 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end, active_range=No
         for j in range(n_days)
     ]
 
-    axis_labels = (
-        _kpi_axis_labels_weekday(day_labels, x_fractions, width=width, pad_x=pad_x)
-        if active_range == '7' else
-        _kpi_axis_labels(day_labels, _month_lanes(day_labels), width=width, pad_x=pad_x)
-    )
+    # Weekday ticks for 'Last 7 days', month-start ticks otherwise — both on
+    # the same evenly spaced x positions the points use.
+    axis_labels = _kpi_day_axis_labels(day_labels, active_range, width=width, pad_x=pad_x)
 
     return {
         'lines': lines,
@@ -221,98 +229,70 @@ def _sales_trend_by_branch_chart(sales_qs, branches, start, end, active_range=No
 # `Procurement.order_date` is a plain DateField with no tz component, so it
 # doesn't need this and is bucketed directly (see _dashboard_daily_series).
 
-def _smooth_curve_commands(coords, y_min, y_max):
+def _smooth_curve_commands(coords, y_min=None, y_max=None):
     """
-    SVG path 'C' commands drawing a smooth curve through `coords`, in order,
-    via Catmull-Rom-to-Bezier conversion — assumes the cursor is already at
-    coords[0] (an 'M' or 'L' placed it there) and emits only the segments
-    after that.
+    SVG path 'C' commands drawing a smooth, MONOTONE curve through `coords`,
+    in order — assumes the cursor is already at coords[0] (an 'M' or 'L'
+    placed it there) and emits only the segments after that.
 
-    Used instead of a straight-segment polyline where a hand-drawn curve
-    needs to look smoothed (DESIGN.md dashboard KPI panel). There is no
-    charting library on this page (no Chart.js/D3/Recharts — checked before
-    writing this), so this is the SVG-native way to get a smooth line
-    through server-computed points without adding one.
+    Monotone cubic interpolation (the Fritsch-Carlson construction, in the
+    form d3's curveMonotoneX uses): between two consecutive points the curve
+    never leaves the band their two y values span. So it can never dip below
+    a flat run of zero days or rise above the real peak it is drawn through —
+    the overshoot/undershoot that Catmull-Rom splines produce around a sharp
+    one-day spike (and that an earlier version of this function patched with
+    control-point clamps) cannot happen here by construction. A flat run
+    stays exactly flat; a real maximum or minimum is a smooth top/bottom, not
+    a cusp.
 
-    `y_min`/`y_max` are the plot's valid vertical band (pad_y..baseline in
-    the caller). A Catmull-Rom control point is derived from a point's TWO
-    neighbours, not clamped to that point's own value — on real sales data
-    (a flat run of zero days broken by a single sharp one-day spike, exactly
-    the "shark teeth" shape this was written to smooth) the standard
-    construction overshoots past the flatter neighbour's y on both sides of
-    a spike. Uncorrected, that overshoot pushed the curve below the flat
-    baseline runs, past `y_max`, into the row the x-axis date labels sit in
-    — a real bug, not a rendering coincidence. Clamping each control point
-    back into [y_min, y_max] keeps the curve inside the plot's own band on
-    every segment; it does not change any of the actual data points, only
-    the interior curvature between them.
+    Every segment is drawn the same way: there is no straight-line fallback
+    for wide gaps any more. Monotone interpolation does not swoop across a
+    long gap the way Catmull-Rom did, so Avg. Transaction Value's omitted
+    days are a gentle S-curve like everywhere else, and an evenly spaced
+    series (every other caller) never has one to begin with.
 
-    (Tried scaling the whole tangent back toward its anchor instead of
-    clipping just its y — geometrically "more correct" and the fix tried
-    first here. Made every genuine peak/valley look WORSE, not better: a
-    real max/min always maps to exactly y_min/y_max (see y_for in the
-    caller), so the scale factor toward an anchor already sitting ON the
-    boundary is forced to exactly 0 — a fully flattened tangent, sharper
-    than plain axis-clamping ever produced. Reverted; see git history on
-    this function if revisiting.)
-
-    A SEGMENT (the gap between one pair of consecutive points) is drawn as a
-    plain straight 'L' instead of a Catmull-Rom 'C' when its x-gap is more
-    than 4x the series' median gap. Avg. Transaction Value (this function's
-    one caller whose points are ever unevenly spaced — it omits inactive
-    days, see _kpi_graph_series' docstring) can have a run of points roughly
-    a week apart and then one point over a month past the last — drawing a
-    real curve across a gap that size swooped the curve wildly past both
-    endpoints (the same y_min/y_max clamp above bounds a control point's Y,
-    not how far the drawn curve travels in X, so a long-gap segment could
-    still overshoot visually even fully clamped). Evenly-spaced series
-    (every OTHER caller) never trip this — every gap sits within a few
-    tenths of a unit of the median, nowhere near 4x it — so this only ever
-    changes ATV's own rendering. Neighbouring segments still use the far
-    point's real coordinates as a Catmull-Rom tangent reference same as
-    before; only the oversized segment ITSELF stops being a curve.
+    Tangents are computed in drawing space (x, y as passed), so uneven x gaps
+    are handled correctly. `y_min`/`y_max` are accepted for the callers'
+    existing signature; as a last-resort guard each control point is still
+    kept inside its own segment's endpoint band, which monotone tangents
+    already guarantee.
     """
     n = len(coords)
     if n < 2:
         return ''
     if n == 2:
-        # A straight line is already the correct (and only sensible) curve
-        # through two points — no tangents to derive from neighbours.
+        # A straight line is the only monotone curve through two points.
         return f'L{coords[1][0]},{coords[1][1]}'
-    gaps = [coords[i + 1][0] - coords[i][0] for i in range(n - 1)]
-    median_gap = statistics.median(gaps)
-    straight_gap_threshold = median_gap * 4 if median_gap > 0 else float('inf')
+
+    xs = [c[0] for c in coords]
+    ys = [c[1] for c in coords]
+    h = [xs[i + 1] - xs[i] for i in range(n - 1)]
+    slope = [(ys[i + 1] - ys[i]) / h[i] if h[i] else 0.0 for i in range(n - 1)]
+
+    def sign(v):
+        return -1.0 if v < 0 else 1.0
+
+    tangent = [0.0] * n
+    for i in range(1, n - 1):
+        s0, s1 = slope[i - 1], slope[i]
+        h0, h1 = h[i - 1], h[i]
+        p = (s0 * h1 + s1 * h0) / (h0 + h1) if (h0 + h1) else 0.0
+        tangent[i] = (sign(s0) + sign(s1)) * min(abs(s0), abs(s1), 0.5 * abs(p))
+    # End tangents: the one-sided estimate, which (given interior tangents of
+    # the same sign or zero) stays inside the monotone region.
+    tangent[0] = (3 * slope[0] - tangent[1]) / 2 if h[0] else tangent[1]
+    tangent[-1] = (3 * slope[-1] - tangent[-2]) / 2 if h[-1] else tangent[-2]
+
     segments = []
     for i in range(n - 1):
-        p1 = coords[i]
-        p2 = coords[i + 1]
-        if gaps[i] > straight_gap_threshold:
-            segments.append(f'L{p2[0]},{p2[1]}')
-            continue
-        # p0/p3 are only ever used as tangent REFERENCES, never drawn
-        # through — but a distant one still pulls that end's control point
-        # toward it (same construction as any other neighbour), which
-        # visibly hooked the curve right at the point bordering a
-        # since-straight-lined oversized gap even though this segment itself
-        # is a normal, safely-curved one. Falling back to this segment's OWN
-        # near endpoint — exactly the existing start/end-of-series fallback
-        # below — starves that one tangent of a neighbour to lean on instead
-        # of leaning it toward a point potentially hundreds of units away.
-        p0 = (
-            coords[i - 1] if i - 1 >= 0 and gaps[i - 1] <= straight_gap_threshold
-            else p1
-        )
-        p3 = (
-            coords[i + 2] if i + 2 < n and gaps[i + 1] <= straight_gap_threshold
-            else p2
-        )
-        cp1x = p1[0] + (p2[0] - p0[0]) / 6
-        cp1y = p1[1] + (p2[1] - p0[1]) / 6
-        cp2x = p2[0] - (p3[0] - p1[0]) / 6
-        cp2y = p2[1] - (p3[1] - p1[1]) / 6
-        cp1y = min(max(cp1y, y_min), y_max)
-        cp2y = min(max(cp2y, y_min), y_max)
-        segments.append(f'C{cp1x:.1f},{cp1y:.1f} {cp2x:.1f},{cp2y:.1f} {p2[0]},{p2[1]}')
+        x1, y1, x2, y2 = xs[i], ys[i], xs[i + 1], ys[i + 1]
+        third = h[i] / 3
+        cp1x, cp1y = x1 + third, y1 + tangent[i] * third
+        cp2x, cp2y = x2 - third, y2 - tangent[i + 1] * third
+        lo, hi = min(y1, y2), max(y1, y2)
+        cp1y = min(max(cp1y, lo), hi)
+        cp2y = min(max(cp2y, lo), hi)
+        segments.append(f'C{cp1x:.1f},{cp1y:.1f} {cp2x:.1f},{cp2y:.1f} {x2},{y2}')
     return ' '.join(segments)
 
 
@@ -336,81 +316,93 @@ def _month_lanes(day_labels):
     return months
 
 
-def _month_lane_x_fractions(day_labels):
-    """
-    0..1 x-position for each date in day_labels under an equal-width-month-
-    lane mapping, for the Total Sales panel (the only caller — see
-    _dashboard_kpi_payload) in place of the plain day-index timeline every
-    other series still uses.
-
-    The axis divides into one equal-width lane per distinct month present,
-    and each date sits at its rank within the days OF THAT MONTH ACTUALLY
-    IN THIS RANGE — not its position in the full 1-31 calendar month.
-    That distinction matters at the edges: a range starting Jul 18 has no
-    rows at all for Jul 1-17 (there is nothing before the store's first
-    sale to zero-fill — see _dashboard_daily_series, which zero-fills every
-    day it's actually given, never invents days outside [start, end]).
-    Mapping Jul 18 to "day 18 of a 31-day lane" left the first ~55% of
-    July's lane with no coordinate anywhere near it — a real blank gap
-    before the line, which read as missing data even though every day in
-    the array genuinely is zero-filled. Sizing each lane to the span it was
-    actually given instead means the first day present in ANY month
-    (including a partial first or last one) always sits at that lane's own
-    start, so the line always begins flush at the plot's left edge.
-
-    `day_labels` is assumed contiguous within each month (guaranteed by
-    _dashboard_daily_series's own zero-fill), so a month's first/last
-    day-of-month actually present fully describes its span here.
-
-    `within` divides by the day COUNT (hi - lo + 1), not the day SPAN
-    (hi - lo) — dividing by the span put a lane's last day at fraction
-    exactly 1.0, i.e. exactly the following lane's start (fraction 0 for
-    that lane's own first day), so two different calendar days with two
-    different values sat on the identical x-coordinate at every month
-    boundary. A degenerate/near-vertical segment folded into that point's
-    Catmull-Rom tangent either side of it — confirmed as the actual cause
-    of the sharp spike and flat-topped artifacts reported at month
-    boundaries on the KPI graphs, not a smoothing-quality difference
-    between metrics. Dividing by the count instead keeps a lane's last day
-    just short of its own boundary, so the next lane's first day (still
-    exactly fraction 0, unaffected — day==lo makes the numerator 0
-    regardless of denominator) never lands on top of it.
-    """
-    months = _month_lanes(day_labels)
-    if not months:
+def _even_x_fractions(n):
+    """0..1 x-position for each of `n` points spaced evenly from the plot's
+    left edge to its right edge (first at 0, last at 1; a single point sits at
+    the middle). One day = one equal step, whatever the range and whatever
+    month a day falls in. Every daily dashboard chart uses this; it replaced
+    an equal-width-lane-per-month mapping that gave a month's days a share of
+    the width by month rather than by day count — a 26-day month and a 4-day
+    one got half the plot each, so the short month's days were stretched,
+    the long month's compressed, and the last day stopped short of the right
+    edge. Evenly spaced days cannot land on top of each other at a month
+    boundary either. Month names are labels only (see
+    _kpi_axis_labels_month_starts); they never affect spacing."""
+    if n < 1:
         return []
-    lane_width = 1.0 / len(months)
+    return [i / (n - 1) for i in range(n)] if n > 1 else [0.5]
 
-    month_span = {}
-    for label in day_labels:
-        key, day = label[:7], int(label[8:10])
-        lo, hi = month_span.get(key, (day, day))
-        month_span[key] = (min(lo, day), max(hi, day))
 
-    fractions = []
-    for label in day_labels:
-        key, day = label[:7], int(label[8:10])
-        lo, hi = month_span[key]
-        within = (day - lo) / (hi - lo + 1)
-        lane_index = months.index(key)
-        fractions.append(lane_index * lane_width + within * lane_width)
-    return fractions
+def _kpi_axis_labels_month_starts(day_labels, x_fractions, width=760, pad_x=24,
+                                  max_labels=7):
+    """
+    X-axis ticks for ranges longer than a week: one label per distinct
+    calendar month, placed at the x of that month's FIRST day present in
+    `day_labels` (so a range starting Sep 5 labels SEPT at its left edge and
+    OCT under Oct 1). Labels only — they never move a point; spacing comes
+    from `x_fractions` alone. A range spanning more than `max_labels` months
+    is thinned evenly in calendar order.
+
+    Anchoring: the label at the very first day starts at its x and one at the
+    very last day ends at its x (both would otherwise be clipped by the plot
+    edge); every other label is centred on its x.
+    """
+    plot_width = width - 2 * pad_x
+    firsts = []
+    seen = set()
+    for j, label in enumerate(day_labels):
+        if label[:7] not in seen:
+            seen.add(label[:7])
+            firsts.append(j)
+    if len(firsts) > max_labels:
+        step = (len(firsts) - 1) / (max_labels - 1)
+        firsts = sorted({firsts[round(i * step)] for i in range(max_labels)})
+    last = len(day_labels) - 1
+    labels = []
+    for j in firsts:
+        if last == 0:
+            anchor = 'middle'      # a single-day range: its one label sits under its one point
+        elif j == 0:
+            anchor = 'start'
+        elif j == last:
+            anchor = 'end'
+        else:
+            anchor = 'middle'
+        labels.append({
+            'x': round(pad_x + x_fractions[j] * plot_width, 1),
+            'text': _KPI_AXIS_MONTH_ABBR[int(day_labels[j][5:7]) - 1],
+            'anchor': anchor,
+        })
+    return labels
+
+
+def _kpi_day_axis_labels(day_labels, active_range, width=760, pad_x=24):
+    """The x-axis ticks for any daily series, evenly spaced (see
+    _even_x_fractions): a weekday label under every day for 'Last 7 days',
+    month labels at each month's first day for everything longer."""
+    x_fractions = _even_x_fractions(len(day_labels))
+    if active_range == '7':
+        return _kpi_axis_labels_weekday(day_labels, x_fractions, width=width, pad_x=pad_x)
+    return _kpi_axis_labels_month_starts(day_labels, x_fractions, width=width, pad_x=pad_x)
 
 
 def _kpi_axis_labels(day_labels, months, width=760, pad_x=24, max_labels=7):
     """
-    X-axis tick labels for the smoothed KPI panel: one tick per DISTINCT
+    FALLBACK x-axis ticks (month-lane boundaries) for a smoothed series that
+    is handed no ticks of its own — in practice a single-day view. Every
+    multi-day range gets _kpi_day_axis_labels instead, whose month ticks sit
+    at each month's first day on the evenly spaced axis.
+
+    X-axis tick labels: one tick per DISTINCT
     calendar month actually present in `day_labels`, in calendar order,
     never a repeat — "AUG" three times running because three sampled points
     happened to land in August is not three distinct labels to a reader,
     it's one label that looks broken (the bug an earlier, index/x-position-
     based ticking scheme kept producing).
 
-    Positioned at each month's LANE BOUNDARY (see _month_lane_x_fractions),
-    not at wherever its first real data point happens to fall — that is
-    what makes consecutive ticks land exactly `plot_width / len(months)`
-    apart, every time, regardless of how much of any given month the data
-    actually covers. Capped to `max_labels` ticks, thinned by calendar order
+    Positioned at each month's lane boundary, not at wherever its first
+    real data point happens to fall — that is what makes consecutive ticks
+    land exactly `plot_width / len(months)` apart. Capped to `max_labels` ticks, thinned by calendar order
     (never by raw index — see git history on the version this replaced, for
     why that matters once a series stops covering every day 1:1), only in
     the unlikely case a range spans more months than that.
@@ -510,23 +502,18 @@ def _kpi_axis_labels_weekday(day_labels, x_fractions, width=760, pad_x=24):
     scanning one wants "which day", not "which month it's in".
 
     Reuses the x_fractions already computed for the line's own points
-    (_month_lane_x_fractions) rather than deriving its own, so a tick
-    always sits exactly under the day it labels without duplicating that
-    positioning logic — including across a month boundary, where lane
-    width still isn't uniform per day.
+    (_even_x_fractions for 'Last 7 days') rather than deriving its own, so a
+    tick always sits exactly under the day it labels. Every label is centred
+    on its point — including the first and last — so the label centres are as
+    evenly spaced as the days; pad_x leaves the end labels room to sit
+    centred without clipping.
     """
     plot_width = width - 2 * pad_x
     labels = []
-    for pos, (label, frac) in enumerate(zip(day_labels, x_fractions)):
+    for label, frac in zip(day_labels, x_fractions):
         text = _KPI_AXIS_WEEKDAY_ABBR[date.fromisoformat(label).weekday()]
         x = round(pad_x + frac * plot_width, 1)
-        if pos == 0:
-            anchor = 'start'
-        elif pos == len(day_labels) - 1:
-            anchor = 'end'
-        else:
-            anchor = 'middle'
-        labels.append({'x': x, 'text': text, 'anchor': anchor})
+        labels.append({'x': x, 'text': text, 'anchor': 'middle'})
     return labels
 
 
@@ -547,16 +534,16 @@ def _kpi_graph_series(daily_values, day_labels, width=760, height=220, pad_x=24,
 
     'linePath' (an SVG <path> 'd' string) is always returned — straight
     'L' segments through the same coordinates as 'polyline' by default, or,
-    with `smooth=True`, a Catmull-Rom-smoothed curve through them instead
-    (see _smooth_curve_commands — individual oversized-gap segments still
-    fall back to a straight line even here), with 'area' drawn from that
-    same curve and 'axisLabels' populated. All four entries of the
+    with `smooth=True`, a monotone-smoothed curve through them instead
+    (see _smooth_curve_commands — every segment is drawn the same way, and
+    the curve never leaves the band its two end values span), with 'area'
+    drawn from that same curve and 'axisLabels' populated. All four entries of the
     dashboard's swappable KPI panel pass smooth=True (_dashboard_kpi_payload)
     — the Sales Trend tab and the Procurement daily-spend chart are the only
     callers that still leave it False, and 'polyline'/'area'/'points' are
     byte-for-byte unaffected by anything added here for those callers.
 
-    `axis_labels`, given, is used verbatim instead of the default month-lane
+    `axis_labels`, given, is used verbatim instead of the default fallback
     ticks below — the Total Sales panel's 'today' view passes its own hourly
     ticks (_kpi_axis_labels_hourly) here, since day_labels is a single day
     with nothing month-shaped to derive a tick from.
@@ -1158,7 +1145,8 @@ def _kpi_metric_series(field, daily, prev_daily, every_day_labels, active_range,
     """
     (values, labels, x_fractions, axis_labels, prev_values) for one KPI's
     smoothed graph line — the by-granularity branch (hourly buckets for
-    'today', weekday ticks for '7', month-lane x-positions/ticks otherwise)
+    'today', evenly spaced days with weekday ticks for '7' and month-start
+    ticks otherwise)
     Total Sales originally had, generalized to any metric that shares
     `daily`'s zero-filled-per-day shape: Total Sales' 'sales', Procurement
     Cost's 'procurement_cost', Total Transactions' 'txn_count'. NOT Avg.
@@ -1197,17 +1185,13 @@ def _kpi_metric_series(field, daily, prev_daily, every_day_labels, active_range,
 
     values = [float(d[field]) for d in daily]
     labels = every_day_labels
-    x_fractions = _month_lane_x_fractions(every_day_labels)
-    # 'Last 7 days' gets its own day-of-week ticks — the default month-lane
-    # ticks collapse a single week to one month label (see
-    # _kpi_axis_labels_weekday's own docstring for why that's worse than it
-    # sounds). Every longer bounded range (30/custom) and 'all' keep the
-    # default: None here falls through to _kpi_graph_series' own
-    # _kpi_axis_labels call.
-    axis_labels = (
-        _kpi_axis_labels_weekday(every_day_labels, x_fractions)
-        if active_range == '7' else None
-    )
+    # Every range: days evenly spaced edge to edge, one day = one step
+    # (see _even_x_fractions).
+    x_fractions = _even_x_fractions(len(every_day_labels))
+    # 'Last 7 days' gets day-of-week ticks (one label per day — see
+    # _kpi_axis_labels_weekday); every longer range and 'all' get month
+    # labels at each month's first day (_kpi_axis_labels_month_starts).
+    axis_labels = _kpi_day_axis_labels(every_day_labels, active_range)
     # Previous-period overlay values, only for a bounded range — see
     # _dashboard_kpi_payload's active_range docstring note. `prev_daily` is
     # index-aligned with `daily` (both period_days long), which is exactly
@@ -1299,8 +1283,8 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
     # active-only day list — a tick still lands under every day of the
     # week regardless of whether ATV has a point directly below it.
     atv_axis_labels = (
-        _kpi_axis_labels_weekday(every_day_labels, _month_lane_x_fractions(every_day_labels))
-        if active_range == '7' else None
+        _kpi_day_axis_labels(every_day_labels, active_range)
+        if active_range != 'today' else None
     )
 
     # Plain-text line above each chart: the active range, plus what the
@@ -1394,19 +1378,15 @@ def _dashboard_kpi_payload(metrics, start, end, active_range, sales_qs=None, now
         # points across three weeks, then a single point over 400 user-units
         # later with nothing between) — Catmull-Rom curving straight across
         # a gap that size once produced a wildly exaggerated overshoot right
-        # at the transition. That's now handled INSIDE _smooth_curve_commands
-        # itself (only the one oversized segment falls back to a straight
-        # line; every normal-spaced segment, which is most of ATV's own
-        # line, still curves) rather than by disabling smoothing for the
+        # at the transition. _smooth_curve_commands is now monotone, which
+        # cannot overshoot, so every segment curves the same way (no straight
+        # fallback) rather than disabling smoothing for the
         # whole series the way this used to — the earlier all-or-nothing
         # version traded the overshoot for a visibly straight/angular line
         # even where the data had no gap problem at all, which is its own
-        # visual regression against Total Sales' curve. Total Sales/
-        # Procurement Cost/Total Transactions never trip the per-segment
-        # fallback in the first place: their zero-filled daily series
-        # (_kpi_metric_series) keeps every point evenly spaced, gap or no
-        # gap in the real data, so every one of their segments stays well
-        # under the 4x-median threshold and always curves.
+        # visual regression against Total Sales' curve. With the monotone
+        # curve there is no per-segment fallback at all: every segment of
+        # every metric is drawn the same way.
         graph = _kpi_graph_series(
             spec['values'], spec['labels'], x_fractions=spec['x_fractions'],
             # 260, not the 220 every other _kpi_graph_series caller still
@@ -2323,6 +2303,16 @@ def reports_dashboard(request):
 # A fully-passing monotone alternative, if the ramp is ever revisited:
 # --action-700 / --action / --brand (7.59 / 5.31 / 3.38:1, all checks PASS).
 SALES_BRANCH_RAMP = ['var(--brand)', 'var(--green-300)', 'var(--action)']
+
+# Sales Trend by Branch line colours (see the --series-* note in gerlyn.css):
+# green, yellow, orange, then blue, purple, red — every line solid.
+# Deliberately NOT SALES_BRANCH_RAMP, whose three greens overlapping lines
+# cannot be told apart by. A branch keeps its colour between requests because
+# `branches` arrives in a fixed order.
+TREND_BRANCH_COLOURS = [
+    'var(--series-1)', 'var(--series-2)', 'var(--series-3)',
+    'var(--series-4)', 'var(--series-5)', 'var(--series-6)',
+]
 
 # Shared by every donut on the tab: the overflow fold is "the rest", not a
 # category, so it sits outside whichever ramp is in play.

@@ -90,10 +90,17 @@
   }
 
   var resizeTimer = null;
-  window.addEventListener('resize', function () {
+  function scheduleAxisRender() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(renderAxisLabels, 150);
-  });
+  }
+  window.addEventListener('resize', scheduleAxisRender);
+  // The SVG is width:100% of its card, so collapsing/expanding the sidebar
+  // resizes it without any window resize — watch the chart's own box too, or
+  // the axis labels keep the font-size compensation of the old width.
+  if (window.ResizeObserver && wrapEl) {
+    new ResizeObserver(scheduleAxisRender).observe(wrapEl);
+  }
 
   function formatPeso(value) {
     return '₱' + Number(value).toLocaleString('en-US', {

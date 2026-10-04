@@ -62,11 +62,14 @@
   // switch) would otherwise leave stale, wrong-sized ticks on screen.
   var AXIS_LABEL_TARGET_PX = 14;
 
+  // Height, not width: font-size is a vertical measurement, and the panel
+  // now stretches the SVG to fill the card's height (see .kpi-graph-panel in
+  // gerlyn.css), so width and height no longer scale together.
   function axisLabelScaleFactor() {
     var vb = svg.viewBox.baseVal;
-    if (!vb || !vb.width) return 1;
+    if (!vb || !vb.height) return 1;
     var rect = svg.getBoundingClientRect();
-    return rect.width ? (rect.width / vb.width) : 1;
+    return rect.height ? (rect.height / vb.height) : 1;
   }
 
   // The series continuous hover reads from — kept in sync by activate() on
@@ -432,10 +435,18 @@
   // and re-measuring/redrawing on every single event is wasted work against
   // a value that only matters once the drag settles.
   var resizeTimer = null;
-  window.addEventListener('resize', function () {
+  function scheduleAxisRender() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () {
       if (currentEntry) renderAxisLabels(currentEntry);
     }, 150);
-  });
+  }
+  window.addEventListener('resize', scheduleAxisRender);
+  // The chart is width:100% of its card and now fills the card's height, so
+  // anything that resizes the card without a window resize (collapsing the
+  // sidebar, the donut beside it growing) changes the scale too — watch the
+  // chart's own box, not just the window.
+  if (window.ResizeObserver && wrapEl) {
+    new ResizeObserver(scheduleAxisRender).observe(wrapEl);
+  }
 })();
