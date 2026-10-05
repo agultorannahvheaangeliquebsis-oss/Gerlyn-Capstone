@@ -60,7 +60,7 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
       </tr>
     </thead>
     <tbody>
-      {% for r in records %}
+      {% for r in page_obj %}
       <tr>
         <td data-label="Order" class="sku strong">{{ r.transaction.order_number }}</td>
         <td data-label="Branch">{{ r.transaction.branch.branch_name }}</td>
@@ -97,4 +97,5 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 {% endblock %}

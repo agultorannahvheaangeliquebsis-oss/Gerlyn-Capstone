@@ -49,7 +49,7 @@ not a status, so it keeps the unclassed neutral default.
       </tr>
     </thead>
     <tbody>
-      {% for p in procurements %}
+      {% for p in page_obj %}
       <tr>
         <td data-label="PO ID" class="sku strong">{{ p.po_number }}</td>
         <td data-label="Branch">{{ p.branch.branch_name }}</td>
@@ -92,6 +92,7 @@ not a status, so it keeps the unclassed neutral default.
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 {% if can_create %}
 {% include "procurement/_po_modal.html" %}

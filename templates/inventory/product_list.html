@@ -290,6 +290,7 @@ input[type=search] within the form — all three survive the restructure.
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 {% if can_edit %}
 <div class="modal-overlay{% if show_add_modal %} is-open{% endif %}" id="add-product-modal" data-autoopen="{% if show_add_modal %}1{% else %}0{% endif %}">
@@ -376,16 +377,16 @@ input[type=search] within the form — all three survive the restructure.
           <label for="add-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
           <div class="price-input">
             <span class="price-currency">₱</span>
-            <input id="add-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
-                   value="{{ add_form_data.unit_price|default:'' }}" required>
+            <input id="add-retail-price" type="number" step="0.01" min="0.01" max="250000" name="unit_price" placeholder="0.00"
+                   value="{{ add_form_data.unit_price|default:'' }}" required title="Enter a price between ₱0.01 and ₱250,000.00">
           </div>
         </div>
         <div class="field">
           <label for="add-wholesale-price">Wholesale Price (₱)</label>
           <div class="price-input">
             <span class="price-currency">₱</span>
-            <input id="add-wholesale-price" type="number" step="0.01" min="0" name="wholesale_price" placeholder="0.00"
-                   value="{{ add_form_data.wholesale_price|default:'' }}">
+            <input id="add-wholesale-price" type="number" step="0.01" min="0.01" max="250000" name="wholesale_price" placeholder="0.00"
+                   value="{{ add_form_data.wholesale_price|default:'' }}" title="Enter a price between ₱0.01 and ₱250,000.00">
           </div>
         </div>
       </div>
@@ -496,16 +497,16 @@ input[type=search] within the form — all three survive the restructure.
           <label for="edit-retail-price">Retail Price (₱) <span style="color:var(--danger-dot);">*</span></label>
           <div class="price-input">
             <span class="price-currency">₱</span>
-            <input id="edit-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
-                   value="{{ edit_values.unit_price|unlocalize }}" required>
+            <input id="edit-retail-price" type="number" step="0.01" min="0.01" max="250000" name="unit_price" placeholder="0.00"
+                   value="{{ edit_values.unit_price|unlocalize }}" required title="Enter a price between ₱0.01 and ₱250,000.00">
           </div>
         </div>
         <div class="field">
           <label for="edit-wholesale-price">Wholesale Price (₱)</label>
           <div class="price-input">
             <span class="price-currency">₱</span>
-            <input id="edit-wholesale-price" type="number" step="0.01" min="0" name="wholesale_price" placeholder="0.00"
-                   value="{{ edit_values.wholesale_price|unlocalize|default:'' }}">
+            <input id="edit-wholesale-price" type="number" step="0.01" min="0.01" max="250000" name="wholesale_price" placeholder="0.00"
+                   value="{{ edit_values.wholesale_price|unlocalize|default:'' }}" title="Enter a price between ₱0.01 and ₱250,000.00">
           </div>
         </div>
       </div>

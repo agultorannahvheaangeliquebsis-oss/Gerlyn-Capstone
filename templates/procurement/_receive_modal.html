@@ -112,8 +112,8 @@ one per row.
                 <td data-label="Unit Cost Snapshot" class="num">{% if item.unit_cost_snapshot is not None %}₱{{ item.unit_cost_snapshot|floatformat:2 }}{% else %}—{% endif %}</td>
                 <td data-label="Received This Shipment" class="num">
                   {# unlocalize: "1,200" is not a valid number-input value #}
-                  <input type="number" name="quantity_received" min="0"
-                         {% if not item.is_unexpected %}max="{{ item.remaining_quantity|unlocalize }}"{% endif %}
+                  <input type="number" name="quantity_received" min="0" required
+                         {% if not item.is_unexpected %}max="{{ item.remaining_quantity|unlocalize }}"{% else %}max="100000"{% endif %}
                          class="qty-input"
                          value="{% if item.is_unexpected %}0{% else %}{{ item.remaining_quantity|unlocalize }}{% endif %}"
                          style="max-width:120px; margin-left:auto;">

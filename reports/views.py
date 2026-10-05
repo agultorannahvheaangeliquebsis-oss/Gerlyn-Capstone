@@ -20,6 +20,7 @@ from branches.models import Branch
 from accounts.models import User
 from core.scoping import branch_ids_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, role_required
+from core.pagination import paginate
 from core.timebounds import (
     local_day_bounds, local_month_bounds, local_range_bounds,
     parse_iso_date, range_from_request, resolve_date_range,
@@ -2004,6 +2005,7 @@ def billing_report(request):
 
     return render(request, 'reports/billing_report.html', {
         'records': records,
+        'page_obj': paginate(request, records),
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
@@ -2038,7 +2040,10 @@ def sales_report(request):
         sales_qs = sales_qs.filter(branch=user_branch)
 
     sales_qs = sales_qs.order_by('-transaction_date')
-    return render(request, 'reports/sales_report.html', {'transactions': sales_qs})
+    return render(request, 'reports/sales_report.html', {
+        'transactions': sales_qs,
+        'page_obj': paginate(request, sales_qs),
+    })
 
 
 @login_required(login_url='accounts:login')
@@ -2075,6 +2080,7 @@ def inventory_report(request):
 
     return render(request, 'reports/inventory_report.html', {
         'inventory_records': records,
+        'page_obj': paginate(request, records),
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
@@ -2186,6 +2192,7 @@ def procurement_report(request):
 
     return render(request, 'reports/procurement.html', {
         'procurements': records,
+        'page_obj': paginate(request, records),
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,

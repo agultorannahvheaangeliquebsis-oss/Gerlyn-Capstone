@@ -128,7 +128,7 @@ Only Pending Collection is ever tinted; the money cards are plain.
           <th>Method</th><th>Reference</th><th>Status</th></tr>
     </thead>
     <tbody>
-      {% for r in records %}
+      {% for r in page_obj %}
       <tr>
         <td data-label="Order" class="sku strong">{{ r.transaction.order_number }}</td>
         <td data-label="Branch">{{ r.transaction.branch.branch_name }}</td>
@@ -149,4 +149,5 @@ Only Pending Collection is ever tinted; the money cards are plain.
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 {% endblock %}

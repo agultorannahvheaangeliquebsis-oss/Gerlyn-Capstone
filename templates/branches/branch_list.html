@@ -21,7 +21,7 @@
           <th class="end">Actions</th></tr>
     </thead>
     <tbody>
-      {% for r in rows %}
+      {% for r in page_obj %}
       <tr>
         <td data-label="Branch" class="strong">{{ r.branch.branch_name }}</td>
         <td data-label="Location" class="gv-meta">{{ r.branch.location|default:"—" }}</td>
@@ -50,6 +50,7 @@
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 <!-- ---------------------------------------------------------- add branch -->
 <div class="modal-overlay{% if show_add_modal %} is-open{% endif %}" id="add-branch-modal" data-autoopen="{% if show_add_modal %}1{% else %}0{% endif %}">

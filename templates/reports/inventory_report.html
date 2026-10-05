@@ -137,7 +137,7 @@ three tabs carry the control in .page-head.
           <th class="num">Reorder Level</th><th class="num">Inventory Value</th><th>Status</th></tr>
     </thead>
     <tbody>
-      {% for i in inventory_records %}
+      {% for i in page_obj %}
       <tr>
         <td data-label="Product" class="strong">{{ i.product.product_name }}</td>
         <td data-label="Branch" class="gv-meta">{{ i.branch.branch_name }}</td>
@@ -155,4 +155,5 @@ three tabs carry the control in .page-head.
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 {% endblock %}

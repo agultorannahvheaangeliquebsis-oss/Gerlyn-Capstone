@@ -88,7 +88,7 @@ these are never subtracted from one another.
       </tr>
     </thead>
     <tbody>
-      {% for r in returns %}
+      {% for r in page_obj %}
       <tr>
         <td data-label="Return ID" class="sku strong">{{ r.return_number }}</td>
         <td data-label="Original Sale" class="sku">{{ r.transaction.order_number }}</td>
@@ -127,6 +127,7 @@ these are never subtracted from one another.
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 {% comment %}
 Two-body modal, same shape as Warehouse Stock's "Request Stock to Floor" and

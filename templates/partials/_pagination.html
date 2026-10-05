@@ -1,0 +1,49 @@
+{% comment %}
+Previous/Next + numbered pages for any paginated list. Include right after
+the table/card, with `page_obj` (a django.core.paginator.Page, from
+core.pagination.paginate()) in context.
+
+{% querystring %} is a Django 5.1+ builtin — it rewrites just the given key
+of the CURRENT url's querystring, so every existing filter (?q=, ?branch=,
+?status=...) on the page survives a page change for free. The key is "page"
+by default; pass page_param="log_page" (matching the same page_param given
+to paginate()) when a single page hosts a second paginated list, so paging
+one doesn't reset the other.
+{% endcomment %}
+{% if page_obj.paginator.num_pages > 1 %}
+<nav class="pagination" aria-label="Pagination">
+  {% if page_obj.has_previous %}
+    {% if page_param == "log_page" %}
+      <a href="{% querystring log_page=page_obj.previous_page_number %}" class="btn btn-quiet pagination-prev">&larr; <span>Previous</span></a>
+    {% else %}
+      <a href="{% querystring page=page_obj.previous_page_number %}" class="btn btn-quiet pagination-prev">&larr; <span>Previous</span></a>
+    {% endif %}
+  {% else %}
+    <span class="btn btn-quiet pagination-prev" aria-disabled="true">&larr; <span>Previous</span></span>
+  {% endif %}
+
+  <div class="pagination-pages">
+    {% for num in page_obj.elided_page_range %}
+      {% if num == page_obj.paginator.ELLIPSIS %}
+        <span class="pagination-ellipsis">{{ num }}</span>
+      {% elif num == page_obj.number %}
+        <span class="pagination-page active" aria-current="page">{{ num }}</span>
+      {% elif page_param == "log_page" %}
+        <a href="{% querystring log_page=num %}" class="pagination-page">{{ num }}</a>
+      {% else %}
+        <a href="{% querystring page=num %}" class="pagination-page">{{ num }}</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if page_obj.has_next %}
+    {% if page_param == "log_page" %}
+      <a href="{% querystring log_page=page_obj.next_page_number %}" class="btn btn-quiet pagination-next"><span>Next</span> &rarr;</a>
+    {% else %}
+      <a href="{% querystring page=page_obj.next_page_number %}" class="btn btn-quiet pagination-next"><span>Next</span> &rarr;</a>
+    {% endif %}
+  {% else %}
+    <span class="btn btn-quiet pagination-next" aria-disabled="true"><span>Next</span> &rarr;</span>
+  {% endif %}
+</nav>
+{% endif %}

@@ -7,6 +7,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.management import call_command
 from django.db import connections
 from django.test import Client, RequestFactory, TestCase, TransactionTestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import BranchManagerProfile, StaffProfile, User
@@ -412,3 +413,34 @@ class BillingConfirmMakerCheckerTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PAID)
         self.assertEqual(record.confirmed_by, self.other_staff)
+
+
+class BillingListPaginationTests(TestCase):
+    """billing_list used to render every record with no pagination at all —
+    core.pagination.paginate() now caps each page at 20."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        branch = Branch.objects.create(branch_name='Main', owner=cls.owner)
+        for _ in range(25):
+            SalesTransaction.objects.create(branch=branch)  # signal creates the BillingRecord
+
+    def setUp(self):
+        self.client.force_login(self.owner)
+
+    def test_first_page_shows_twenty_records(self):
+        response = self.client.get(reverse('billing_list'))
+        self.assertEqual(len(response.context['page_obj']), 20)
+        self.assertTrue(response.context['page_obj'].has_next())
+
+    def test_second_page_shows_the_remaining_five(self):
+        response = self.client.get(reverse('billing_list'), {'page': 2})
+        self.assertEqual(len(response.context['page_obj']), 5)
+        self.assertFalse(response.context['page_obj'].has_next())
+
+    def test_out_of_range_page_does_not_404_or_500(self):
+        response = self.client.get(reverse('billing_list'), {'page': 999})
+        self.assertEqual(response.status_code, 200)

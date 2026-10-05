@@ -317,3 +317,48 @@ class ProductImportExportTests(TestCase):
         response = self.client.get(reverse('product_import_preview'))
         self.assertRedirects(response, reverse('product_import_upload'))
         self.assertFalse(ProductCategory.objects.exists())
+
+
+class ProductPriceValidationTests(TestCase):
+    """unit_price/wholesale_price must stay within ₱0.01–₱250,000 — the
+    owner-set ceiling from core.validation.MAX_PRICE. A price above it (or
+    a tampered negative/zero one) must be rejected, not silently saved."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.client.force_login(self.owner)
+
+    def _post(self, **overrides):
+        payload = {
+            'product_name': 'Test Widget',
+            'unit_of_measure': 'Piece',
+            'unit_price': '100.00',
+        }
+        payload.update(overrides)
+        return self.client.post(reverse('product_add'), payload)
+
+    def test_price_over_the_ceiling_is_rejected(self):
+        response = self._post(unit_price='250000.01')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertIn('cannot exceed ₱250,000.00', ' '.join(response.context['add_errors']))
+        self.assertFalse(Product.objects.exists())
+
+    def test_price_at_the_ceiling_is_accepted(self):
+        response = self._post(unit_price='250000')
+        self.assertRedirects(response, reverse('product_list'))
+        self.assertEqual(Product.objects.get().unit_price, 250000)
+
+    def test_negative_price_is_rejected(self):
+        response = self._post(unit_price='-10')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertFalse(Product.objects.exists())
+
+    def test_wholesale_price_over_the_ceiling_is_rejected(self):
+        response = self._post(wholesale_price='300000')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_add_modal'])
+        self.assertFalse(Product.objects.exists())

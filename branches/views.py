@@ -7,12 +7,13 @@ from django.urls import reverse
 
 from accounts.models import BranchManagerProfile, User
 from core.refdata import bust_branches_cache
+from core.pagination import paginate
 from inventory.models import Inventory, Warehouse
 
 from .models import Branch
 
 
-def _branch_list_context():
+def _branch_list_context(request):
     branches = Branch.objects.annotate(
         staff_count=Count('staff', distinct=True),
         product_count=Count('inventory', distinct=True),
@@ -32,7 +33,7 @@ def _branch_list_context():
             'product_count': b.product_count,
         })
 
-    return {'rows': rows}
+    return {'rows': rows, 'page_obj': paginate(request, rows)}
 
 
 @login_required(login_url='accounts:login')
@@ -41,7 +42,7 @@ def branch_list(request):
         messages.error(request, 'Only the Owner can manage branches.')
         return redirect('accounts:home')
 
-    context = _branch_list_context()
+    context = _branch_list_context(request)
 
     edit_pk = request.GET.get('edit')
     if edit_pk:
@@ -93,7 +94,7 @@ def branch_form(request, pk=None):
         bust_branches_cache()
         return redirect('branch_list')
 
-    context = _branch_list_context()
+    context = _branch_list_context(request)
     if pk:
         context.update({
             'show_edit_modal': True,

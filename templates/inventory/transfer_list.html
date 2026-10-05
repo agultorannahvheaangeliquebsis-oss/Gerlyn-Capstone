@@ -191,12 +191,12 @@ across the full width leave the default block padding as empty card.
         <form method="post" action="{% url 'transfer_confirm_receipt' t.pk %}">
           {% csrf_token %}
           <label class="gv-meta" for="qty-{{ t.pk }}">Received</label>
-          <input id="qty-{{ t.pk }}" type="number" name="received_qty" min="0" inputmode="numeric">
+          <input id="qty-{{ t.pk }}" type="number" name="received_qty" min="0" max="100000" inputmode="numeric">
           <button class="btn btn-primary btn-sm" type="submit">Confirm receipt</button>
         </form>
         <form method="post" action="{% url 'transfer_flag_discrepancy' t.pk %}">
           {% csrf_token %}
-          <input type="number" name="received_qty" min="0" placeholder="Qty" inputmode="numeric" aria-label="Quantity actually received">
+          <input type="number" name="received_qty" min="0" max="100000" placeholder="Qty" inputmode="numeric" aria-label="Quantity actually received">
           <input type="text" name="flag_reason" placeholder="Reason" aria-label="Reason for the discrepancy">
           <button class="btn btn-danger btn-sm" type="submit">Flag discrepancy</button>
         </form>
@@ -219,7 +219,7 @@ across the full width leave the default block padding as empty card.
         </tr>
       </thead>
       <tbody>
-        {% for t in transfers %}
+        {% for t in page_obj %}
         <tr>
           <td data-label="Slip ID" class="sku strong">{{ t.slip_number }}</td>
           <td data-label="From → To">{{ t.source_branch }} → {{ t.destination_branch|default:"—" }}</td>
@@ -273,6 +273,7 @@ across the full width leave the default block padding as empty card.
       </tbody>
     </table>
   </div>
+  {% include "partials/_pagination.html" %}
 </div>
 
 <!-- ----------------------------------------------------------- log view -->
@@ -290,7 +291,7 @@ across the full width leave the default block padding as empty card.
       </tr>
     </thead>
     <tbody>
-      {% for row in movement_log %}
+      {% for row in log_page_obj %}
       <tr>
         <td data-label="Date / Time" class="gv-meta">{{ row.movement.created_at|date:"Y-m-d H:i" }}</td>
         <td data-label="Product" class="strong">{{ row.product }}</td>
@@ -313,6 +314,7 @@ across the full width leave the default block padding as empty card.
       {% endfor %}
     </tbody>
   </table>
+  {% include "partials/_pagination.html" with page_obj=log_page_obj page_param="log_page" %}
 </div>
 
 {% comment %}
@@ -380,7 +382,7 @@ _transfer_list_context in inventory/views.py.
                 </td>
                 <td class="num" data-label="On Hand">{{ inv.quantity_on_hand }}</td>
                 <td data-label="Write off qty">
-                  <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
+                  <input type="number" name="quantity_requested" min="0" max="{{ inv.quantity_on_hand }}" value="0" style="width:100px;">
                 </td>
               </tr>
             {% empty %}

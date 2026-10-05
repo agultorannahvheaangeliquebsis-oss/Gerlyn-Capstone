@@ -3,6 +3,8 @@
 #   SECTION 1 — original Django template views (untouched, kept for reference)
 #   SECTION 2 — new DRF API views (what React calls)
 
+from decimal import Decimal
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
@@ -19,6 +21,10 @@ from django.db.models import F, Q
 
 from core.scoping import scope_queryset, user_can_access_branch, branch_for_user
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, SUPPLIER, role_required
+from core.pagination import paginate
+from core.validation import (
+    MAX_LEAD_TIME_DAYS, MAX_PRICE, MAX_QUANTITY, parse_decimal_field, parse_int_field,
+)
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -84,6 +90,7 @@ def _procurement_list_context(request):
 
     context = {
         'procurements': procurements,
+        'page_obj': paginate(request, procurements),
         'counts': counts,
         'status_filter': status_filter,
         'today': timezone.now().date(),
@@ -282,13 +289,10 @@ def procurement_add(request):
     # accepted from this form; it comes from the supplier catalog later.
     items = []
     for product_id, qty in zip(product_ids, quantities):
-        if not product_id or not qty:
+        if not product_id:
             continue
-        try:
-            parsed_qty = int(qty)
-        except (TypeError, ValueError):
-            continue
-        if parsed_qty > 0:
+        parsed_qty, _qty_error = parse_int_field(qty, 'Quantity', min_value=1, max_value=MAX_QUANTITY)
+        if parsed_qty is not None:
             items.append((int(product_id), parsed_qty))
 
     if not items:
@@ -599,11 +603,10 @@ class _DeliveryStatusError(Exception):
 
 
 def _safe_nonneg_int(value):
-    """int(value) if it's a clean non-negative integer, else None."""
-    if value is None:
-        return None
-    value = str(value).strip()
-    return int(value) if value.isdigit() else None
+    """int(value) if it's a clean non-negative integer no greater than
+    MAX_QUANTITY, else None."""
+    parsed, _error = parse_int_field(value, 'Quantity', min_value=0, max_value=MAX_QUANTITY)
+    return parsed
 
 @login_required(login_url='accounts:login')
 def delivery_list(request):
@@ -676,6 +679,7 @@ def delivery_list(request):
 
     return render(request, 'procurement/delivery_list.html', {
         'pending': pending,
+        'page_obj': paginate(request, pending),
         'today': timezone.now().date(),
         'search_query': search_query,
         'branches': branches,
@@ -1034,7 +1038,10 @@ def receiving_history(request):
         request.user,
     ).order_by('-actual_receipt_date', '-delivery_date')
 
-    return render(request, 'procurement/receiving_history.html', {'received': received})
+    return render(request, 'procurement/receiving_history.html', {
+        'received': received,
+        'page_obj': paginate(request, received),
+    })
 
 
 # =============================================================================
@@ -1102,6 +1109,7 @@ def supplier_portal(request):
 
     return render(request, 'procurement/supplier_portal.html', {
         'orders': orders,
+        'page_obj': paginate(request, orders),
         'catalog_links': SupplierProduct.objects.filter(
             supplier=request.user
         ).select_related('product').order_by('product__product_name'),
@@ -1160,14 +1168,16 @@ def supplier_set_product_cost(request, link_pk):
         pk=link_pk,
         supplier=request.user,
     )
-    raw_cost = request.POST.get('current_cost_price', '').strip()
-    form_field = SupplierProduct._meta.get_field(
-        'current_cost_price'
-    ).formfield(required=True)
+    cost, cost_error = parse_decimal_field(
+        request.POST.get('current_cost_price'), 'Current cost',
+        min_value=Decimal('0.01'), max_value=MAX_PRICE,
+    )
+    if cost_error:
+        messages.error(request, cost_error)
+        return redirect('supplier_portal')
+
+    link.current_cost_price = cost
     try:
-        link.current_cost_price = form_field.clean(raw_cost)
-        if link.current_cost_price < 0:
-            raise ValidationError('Enter a cost of zero or more.')
         link.full_clean(exclude=['supplier', 'product'])
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
@@ -1207,6 +1217,7 @@ def _supplier_list_context(request):
     from branches.models import Branch
     return {
         'suppliers': suppliers,
+        'page_obj': paginate(request, suppliers),
         'search_query': search_query,
         'can_edit': request.user.role == User.Role.OWNER,
         # The add/edit modal assigns a supplier to a branch (or to none, meaning
@@ -1383,7 +1394,13 @@ def supplier_product_add(request, pk):
 
     product = get_object_or_404(Product, pk=product_id)
 
-    lead = request.POST.get('lead_time_days') or None
+    lead, lead_error = parse_int_field(
+        request.POST.get('lead_time_days'), 'Lead time',
+        required=False, max_value=MAX_LEAD_TIME_DAYS,
+    )
+    if lead_error:
+        messages.error(request, lead_error)
+        return redirect('supplier_detail', pk=pk)
 
     # get_or_create rather than create: the picker already excludes what the
     # supplier carries, but a stale form or a double-submit can still arrive

@@ -558,3 +558,86 @@ class DetailModalTests(TestCase):
             'detail template it points at extends base_template:\n  '
             + '\n  '.join(offenders),
         )
+
+
+class ValidationHelperTests(TestCase):
+    """core.validation's parse_decimal_field/parse_int_field are what every
+    hand-rolled view in the project now routes price/quantity parsing
+    through, so a boundary bug here is a boundary bug everywhere at once."""
+
+    def test_price_at_the_ceiling_is_accepted(self):
+        from core.validation import MAX_PRICE, parse_decimal_field
+        value, error = parse_decimal_field('250000', 'Retail price', max_value=MAX_PRICE)
+        self.assertIsNone(error)
+        self.assertEqual(value, MAX_PRICE)
+
+    def test_price_over_the_ceiling_is_rejected(self):
+        from core.validation import MAX_PRICE, parse_decimal_field
+        value, error = parse_decimal_field('250000.01', 'Retail price', max_value=MAX_PRICE)
+        self.assertIsNone(value)
+        self.assertIn('cannot exceed', error)
+
+    def test_negative_price_is_rejected(self):
+        from core.validation import parse_decimal_field
+        value, error = parse_decimal_field('-5', 'Retail price')
+        self.assertIsNone(value)
+        self.assertIn('negative', error)
+
+    def test_non_numeric_price_is_rejected_not_a_500(self):
+        from core.validation import parse_decimal_field
+        value, error = parse_decimal_field('abc', 'Retail price')
+        self.assertIsNone(value)
+        self.assertIn('valid number', error)
+
+    def test_blank_optional_price_returns_no_error(self):
+        from core.validation import parse_decimal_field
+        value, error = parse_decimal_field('', 'Wholesale price', required=False)
+        self.assertIsNone(value)
+        self.assertIsNone(error)
+
+    def test_blank_required_price_is_rejected(self):
+        from core.validation import parse_decimal_field
+        value, error = parse_decimal_field('', 'Retail price')
+        self.assertIsNone(value)
+        self.assertIn('required', error)
+
+    def test_quantity_over_the_ceiling_is_rejected(self):
+        from core.validation import MAX_QUANTITY, parse_int_field
+        value, error = parse_int_field(str(MAX_QUANTITY + 1), 'Quantity', min_value=1, max_value=MAX_QUANTITY)
+        self.assertIsNone(value)
+        self.assertIn('cannot exceed', error)
+
+    def test_non_numeric_quantity_is_rejected_not_a_500(self):
+        from core.validation import parse_int_field
+        value, error = parse_int_field('12.5', 'Quantity')
+        self.assertIsNone(value)
+        self.assertIn('whole number', error)
+
+
+class PaginateHelperTests(TestCase):
+    """core.pagination.paginate() backs every paginated list page — a
+    clamping bug here (a bad ?page= 500ing, or the wrong page_param being
+    read) would surface on every one of them at once."""
+
+    def test_out_of_range_page_clamps_to_last_page(self):
+        from django.test import RequestFactory
+        from core.pagination import paginate
+        request = RequestFactory().get('/', {'page': '999'})
+        page_obj = paginate(request, list(range(25)), per_page=20)
+        self.assertEqual(page_obj.number, 2)
+
+    def test_non_numeric_page_clamps_to_first_page(self):
+        from django.test import RequestFactory
+        from core.pagination import paginate
+        request = RequestFactory().get('/', {'page': 'abc'})
+        page_obj = paginate(request, list(range(25)), per_page=20)
+        self.assertEqual(page_obj.number, 1)
+
+    def test_distinct_page_param_does_not_collide(self):
+        from django.test import RequestFactory
+        from core.pagination import paginate
+        request = RequestFactory().get('/', {'page': '2', 'log_page': '1'})
+        main_page = paginate(request, list(range(25)), per_page=20)
+        log_page = paginate(request, list(range(25)), per_page=20, page_param='log_page')
+        self.assertEqual(main_page.number, 2)
+        self.assertEqual(log_page.number, 1)

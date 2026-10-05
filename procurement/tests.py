@@ -917,3 +917,37 @@ class SupplierOwnedCostTests(ProcurementAuthorizationBase):
         self.assertEqual(po.total_cost, Decimal('150.00'))
         self.assertEqual(confirmed.json()['items'][0]['unitCostSnapshot'], '50.00')
         self.assertNotIn('costPrice', confirmed.json()['items'][0])
+
+
+class SupplierCostCeilingTests(ProcurementAuthorizationBase):
+    """current_cost_price must stay within core.validation.MAX_PRICE —
+    same ₱250,000 ceiling as a product's own retail price."""
+
+    def test_cost_over_the_ceiling_is_rejected(self):
+        link = SupplierProduct.objects.get(
+            supplier=self.supplier, product=self.product
+        )
+        self.client.force_login(self.supplier)
+        response = self.client.post(
+            reverse('supplier_set_product_cost', args=[link.pk]),
+            {'current_cost_price': '250000.01'},
+        )
+        self.assertRedirects(response, reverse('supplier_portal'))
+        link.refresh_from_db()
+        self.assertEqual(link.current_cost_price, Decimal('50.00'))
+        messages_text = ' '.join(
+            str(message) for message in get_messages(response.wsgi_request)
+        )
+        self.assertIn('cannot exceed', messages_text)
+
+    def test_cost_at_the_ceiling_is_accepted(self):
+        link = SupplierProduct.objects.get(
+            supplier=self.supplier, product=self.product
+        )
+        self.client.force_login(self.supplier)
+        self.client.post(
+            reverse('supplier_set_product_cost', args=[link.pk]),
+            {'current_cost_price': '250000'},
+        )
+        link.refresh_from_db()
+        self.assertEqual(link.current_cost_price, Decimal('250000'))

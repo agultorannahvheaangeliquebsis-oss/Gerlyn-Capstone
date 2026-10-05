@@ -12,6 +12,8 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
+from core.pagination import paginate
+from core.validation import MAX_QUANTITY, parse_int_field
 from inventory.models import Inventory, Product, ProductCategory
 from inventory.stats import (
     attach_storefront_counts, in_stock_product_ids, units_sold_by_product,
@@ -475,9 +477,17 @@ def add_to_cart(request, product_id):
         messages.info(request, 'Choose a branch first so we can check stock.')
         return redirect('orders:select_branch')
 
-    qty = int(request.POST.get('quantity', 1) or 1)
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
     back = _safe_next(request)
+
+    qty, qty_error = parse_int_field(
+        request.POST.get('quantity', '1'), 'Quantity', min_value=1, max_value=MAX_QUANTITY,
+    )
+    if qty_error:
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': qty_error}, status=400)
+        messages.error(request, qty_error)
+        return redirect(back or 'orders:catalog')
 
     # Not get_object_or_404: the home page's discover grid is not
     # branch-scoped, so it can legitimately offer a product the chosen branch
@@ -829,6 +839,7 @@ def my_orders(request):
 
     return render(request, 'orders/my_orders.html', {
         'orders': orders,
+        'page_obj': paginate(request, orders),
         'counts': counts,
         'status_filter': status_filter,
         'active_page': 'orders',

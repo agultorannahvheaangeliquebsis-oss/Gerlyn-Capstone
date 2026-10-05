@@ -185,7 +185,7 @@ for this to be built from existing primitives, and that includes the grid.
         <tr><th>PO ID</th><th>Branch</th><th>Supplier</th><th>Date</th><th class="num">Total</th><th>Status</th></tr>
       </thead>
       <tbody>
-        {% for p in procurements %}
+        {% for p in page_obj %}
         <tr>
           <td data-label="PO ID" class="sku strong">
             <a href="{% url 'procurement_detail' p.pk %}" data-detail-modal="Purchase Order">{{ p.po_number }}</a></td>
@@ -208,6 +208,7 @@ for this to be built from existing primitives, and that includes the grid.
         {% endfor %}
       </tbody>
     </table>
+    {% include "partials/_pagination.html" %}
   </div>
 </div>
 {% endblock %}

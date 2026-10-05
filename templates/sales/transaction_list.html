@@ -92,7 +92,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       </tr>
     </thead>
     <tbody>
-      {% for t in transactions %}
+      {% for t in page_obj %}
       <tr data-filter-text="{{ t.order_number }} {% if t.customer %}{{ t.customer.first_name }} {{ t.customer.last_name }} {{ t.customer.username }}{% endif %}">
         <td data-label="Order ID" class="sku strong">{{ t.order_number }}</td>
         <td data-label="Date" class="gv-meta">{{ t.transaction_date|date:"Y-m-d H:i" }}</td>
@@ -152,5 +152,6 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 {% endblock %}

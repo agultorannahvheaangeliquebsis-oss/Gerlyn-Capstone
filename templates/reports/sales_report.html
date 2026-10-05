@@ -21,7 +21,7 @@
           <th>Date</th><th>Channel</th><th class="num">Total</th></tr>
     </thead>
     <tbody>
-      {% for t in transactions %}
+      {% for t in page_obj %}
       <tr>
         <td data-label="Order ID" class="sku strong">
           <a href="{% url 'transaction_detail' t.pk %}" data-detail-modal="Order">{{ t.order_number }}</a></td>
@@ -43,4 +43,5 @@
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 {% endblock %}

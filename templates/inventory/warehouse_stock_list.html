@@ -165,7 +165,7 @@ inventory.alerts.stock_status().
       Reorder Level and Status repeat per product/warehouse across its
       batch rows, same as Floor Stock.
       {% endcomment %}
-      {% for row in rows %}
+      {% for row in page_obj %}
       <tr>
         <td data-label="Product" class="strong">{{ row.stock.product.product_name }}</td>
         <td data-label="SKU" class="sku">{{ row.stock.product.sku_code }}</td>
@@ -206,6 +206,7 @@ inventory.alerts.stock_status().
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 {% if can_edit_reorder %}
 <div class="modal-overlay" id="edit-warehouse-modal">
@@ -232,7 +233,7 @@ inventory.alerts.stock_status().
       </div>
       <div class="field">
         <label for="edit-warehouse-reorder">Warehouse Reorder Level <span style="color:var(--danger-dot);">*</span></label>
-        <input type="number" id="edit-warehouse-reorder" name="reorder_level" min="0" required>
+        <input type="number" id="edit-warehouse-reorder" name="reorder_level" min="0" max="100000" required>
         <p class="gv-meta" style="margin:4px 0 0;">Separate from the floor stock reorder level — changing this does not affect the floor threshold.</p>
       </div>
     </form>
@@ -338,7 +339,7 @@ _warehouse_stock_list_context in inventory/views.py.
                 </td>
                 <td class="num" data-label="Available">{{ ws.quantity_on_hand }}</td>
                 <td data-label="Request qty">
-                  <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
+                  <input type="number" name="quantity_requested" min="0" max="100000" value="0" style="width:100px;">
                 </td>
               </tr>
             {% empty %}

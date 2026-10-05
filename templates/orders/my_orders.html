@@ -50,7 +50,7 @@ the header lands.
         <a class="filter-tab {% if status_filter == 'cancelled' %}active{% endif %}" href="?status=cancelled">{% t "Cancelled" %}</a>
       </div>
 
-      {% for o in orders %}
+      {% for o in page_obj %}
       <div class="card">
         <div class="order-row">
           <div>
@@ -87,6 +87,7 @@ the header lands.
         </div>
       </div>
       {% endfor %}
+      {% include "partials/_pagination.html" %}
 
     </div>{# end right column #}
   </div>{# end account-grid #}

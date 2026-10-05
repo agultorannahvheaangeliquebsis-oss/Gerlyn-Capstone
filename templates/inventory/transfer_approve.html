@@ -21,7 +21,7 @@
         <td data-label="Product">{{ it.product.product_name }}</td>
         <td class="num" data-label="Requested">{{ it.quantity_requested }}</td>
         <td data-label="Approve qty">
-          <input type="number" name="quantity_approved" min="0" value="{{ it.quantity_requested|unlocalize }}" style="padding:6px; width:90px;"></td>
+          <input type="number" name="quantity_approved" min="0" max="{{ it.quantity_requested|unlocalize }}" value="{{ it.quantity_requested|unlocalize }}" required style="padding:6px; width:90px;"></td>
       </tr>
       {% endfor %}
       </tbody>

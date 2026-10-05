@@ -27,6 +27,8 @@ from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_
 from core.refdata import bust_categories_cache, cached_branches, cached_categories
 from core.scoping import branch_ids_for_user, user_can_access_branch
 from core.timebounds import local_month_bounds
+from core.pagination import paginate
+from core.validation import MAX_PRICE, MAX_QUANTITY, parse_decimal_field, parse_int_field
 
 
 # ─────────────────────────────────────────────
@@ -52,7 +54,7 @@ def _product_list_context(request):
     products = (
         Product.objects.select_related('category')
         .prefetch_related('inventory_records__branch', 'images')
-        .all()
+        .order_by('product_name')
     )
     categories = cached_categories()
 
@@ -79,11 +81,14 @@ def _product_list_context(request):
     if branch_filter:
         products = products.filter(inventory_records__branch_id=branch_filter)
 
+    shown_count = products.count()
+    page_obj = paginate(request, products)
+
     # Availability = the branches that actually carry the product.
     branches = cached_branches()
     branch_total = len(branches)
     rows = []
-    for p in products:
+    for p in page_obj:
         names = sorted({i.branch.branch_name for i in p.inventory_records.all() if i.branch})
         if branch_total and len(names) >= branch_total:
             availability = 'All Branches'
@@ -93,7 +98,8 @@ def _product_list_context(request):
 
     return {
         'rows': rows,
-        'shown_count': len(rows),
+        'page_obj': page_obj,
+        'shown_count': shown_count,
         'categories': categories,
         'search_query': search_query,
         'category_filter': category_filter,
@@ -221,16 +227,26 @@ def product_add(request):
 
     product_name = request.POST.get('product_name', '').strip()
     barcode = request.POST.get('barcode', '').strip() or None
-    unit_price = request.POST.get('unit_price', '').strip()
-    wholesale_price = request.POST.get('wholesale_price', '').strip()
     description = request.POST.get('description', '').strip()
     branch_ids = request.POST.getlist('branches')
 
     errors = []
     if not product_name:
         errors.append('Product name is required.')
-    if not unit_price:
-        errors.append('Retail price is required.')
+
+    unit_price, unit_price_error = parse_decimal_field(
+        request.POST.get('unit_price'), 'Retail price', min_value=Decimal('0.01'), max_value=MAX_PRICE,
+    )
+    if unit_price_error:
+        errors.append(unit_price_error)
+
+    wholesale_price, wholesale_price_error = parse_decimal_field(
+        request.POST.get('wholesale_price'), 'Wholesale price',
+        required=False, min_value=Decimal('0.01'), max_value=MAX_PRICE,
+    )
+    if wholesale_price_error:
+        errors.append(wholesale_price_error)
+
     if barcode and Product.objects.filter(barcode__iexact=barcode).exists():
         errors.append(f'Barcode "{barcode}" is already assigned to another product.')
 
@@ -246,7 +262,7 @@ def product_add(request):
                     product_name=product_name,
                     unit_of_measure=request.POST.get('unit_of_measure'),
                     unit_price=unit_price,
-                    wholesale_price=wholesale_price or None,
+                    wholesale_price=wholesale_price,
                     description=description,
                     # Tax/discount flags. All three boxes start unticked, so
                     # an absent value simply means "not ticked" — a product is
@@ -306,15 +322,25 @@ def product_edit(request, pk):
 
     product_name = request.POST.get('product_name', '').strip()
     barcode = request.POST.get('barcode', '').strip() or None
-    unit_price = request.POST.get('unit_price', '').strip()
-    wholesale_price = request.POST.get('wholesale_price', '').strip()
     description = request.POST.get('description', '').strip()
 
     errors = []
     if not product_name:
         errors.append('Product name is required.')
-    if not unit_price:
-        errors.append('Retail price is required.')
+
+    unit_price, unit_price_error = parse_decimal_field(
+        request.POST.get('unit_price'), 'Retail price', min_value=Decimal('0.01'), max_value=MAX_PRICE,
+    )
+    if unit_price_error:
+        errors.append(unit_price_error)
+
+    wholesale_price, wholesale_price_error = parse_decimal_field(
+        request.POST.get('wholesale_price'), 'Wholesale price',
+        required=False, min_value=Decimal('0.01'), max_value=MAX_PRICE,
+    )
+    if wholesale_price_error:
+        errors.append(wholesale_price_error)
+
     # Excludes this product itself — re-saving with its own existing barcode
     # unchanged must not read as a collision.
     if barcode and Product.objects.filter(barcode__iexact=barcode).exclude(pk=product.pk).exists():
@@ -330,7 +356,7 @@ def product_edit(request, pk):
                 product.barcode = barcode
                 product.unit_of_measure = request.POST.get('unit_of_measure')
                 product.unit_price = unit_price
-                product.wholesale_price = wholesale_price or None
+                product.wholesale_price = wholesale_price
                 product.description = description
                 product.is_vat_exempt = bool(request.POST.get('is_vat_exempt'))
                 product.is_pwd_eligible = bool(request.POST.get('is_pwd_eligible'))
@@ -1169,9 +1195,11 @@ def _inventory_list_context(request):
             rows.append({'inv': r, 'status': status, 'batch': None})
 
     branches = cached_branches() if not user_branch else []
+    page_obj = paginate(request, rows)
 
     return {
         'rows': rows,
+        'page_obj': page_obj,
         'counts': counts,
         'branches': branches,
         'categories': cached_categories(),
@@ -1225,12 +1253,14 @@ def inventory_edit(request, pk):
         messages.error(request, 'That inventory record belongs to another branch.')
         return redirect('inventory_list')
 
-    reorder_level = request.POST.get('reorder_level', '').strip()
-    if not reorder_level.isdigit():
-        messages.error(request, 'Enter a valid reorder level.')
+    reorder_level, reorder_level_error = parse_int_field(
+        request.POST.get('reorder_level'), 'Reorder level', max_value=MAX_QUANTITY,
+    )
+    if reorder_level_error:
+        messages.error(request, reorder_level_error)
         return redirect('inventory_list')
 
-    inv.reorder_level = int(reorder_level)
+    inv.reorder_level = reorder_level
     inv.save()
 
     messages.success(
@@ -1258,7 +1288,6 @@ def stock_adjustment_add(request):
     user_branch = get_user_branch(request.user)
     product_id = request.POST.get('product_id', '').strip()
     branch_id = user_branch.id if user_branch else request.POST.get('branch_id', '').strip()
-    quantity = request.POST.get('quantity', '').strip()
     expiry_date = request.POST.get('expiry_date', '').strip()
 
     product = Product.objects.filter(pk=product_id).first() if product_id else None
@@ -1269,8 +1298,12 @@ def stock_adjustment_add(request):
         errors.append('Choose a valid product — scan a barcode or pick one from the list.')
     if not branch:
         errors.append('Choose a valid branch.')
-    if not quantity.isdigit() or int(quantity) <= 0:
-        errors.append('Enter a quantity greater than zero.')
+
+    quantity, quantity_error = parse_int_field(
+        request.POST.get('quantity'), 'Quantity', min_value=1, max_value=MAX_QUANTITY,
+    )
+    if quantity_error:
+        errors.append(quantity_error)
 
     if errors:
         for e in errors:
@@ -1285,14 +1318,14 @@ def stock_adjustment_add(request):
     with transaction.atomic():
         inv, _created = Inventory.objects.get_or_create(product=product, branch=branch)
         qty_before = inv.quantity_on_hand
-        inv.quantity_on_hand += int(quantity)
+        inv.quantity_on_hand += quantity
         inv.save()
 
         StockMovement.objects.create(
             inventory=inv,
             location_type=StockMovement.LocationType.FLOOR,
             movement_type=StockMovement.MovementType.ADJUSTMENT,
-            quantity_change=int(quantity),
+            quantity_change=quantity,
             quantity_before=qty_before,
             quantity_after=inv.quantity_on_hand,
             notes=f'Stock count correction by {request.user.get_full_name() or request.user.username}',
@@ -1306,7 +1339,7 @@ def stock_adjustment_add(request):
             product=product,
             branch=branch,
             location=Batch.Location.FLOOR,
-            quantity=int(quantity),
+            quantity=quantity,
             received_date=timezone.localdate(),
             expiry_date=parse_date(expiry_date) if expiry_date else None,
             notes='Manual stock adjustment',
@@ -1436,9 +1469,12 @@ def _warehouse_stock_list_context(request):
                 warehouse=request_warehouse, quantity_on_hand__gt=0
             ).select_related('product')
 
+    page_obj = paginate(request, rows)
+
     return {
         'active_page': 'warehouse_stock',
         'rows': rows,
+        'page_obj': page_obj,
         'counts': counts,
         'warehouse': warehouse,
         'categories': cached_categories(),
@@ -1499,12 +1535,14 @@ def warehouse_stock_edit(request, pk):
         messages.error(request, 'That warehouse stock record belongs to another branch.')
         return redirect('warehouse_stock_list')
 
-    reorder_level = request.POST.get('reorder_level', '').strip()
-    if not reorder_level.isdigit():
-        messages.error(request, 'Enter a valid reorder level.')
+    reorder_level, reorder_level_error = parse_int_field(
+        request.POST.get('reorder_level'), 'Reorder level', max_value=MAX_QUANTITY,
+    )
+    if reorder_level_error:
+        messages.error(request, reorder_level_error)
         return redirect('warehouse_stock_list')
 
-    ws.reorder_level = int(reorder_level)
+    ws.reorder_level = reorder_level
     ws.save()
 
     messages.success(
@@ -1704,9 +1742,13 @@ def _transfer_list_context(request):
             branch=create_target_branch, quantity_on_hand__gt=0
         ).select_related('product')
 
+    movement_log = _movement_log(movement_branch_ids)
+
     return {
         'transfers': transfers,
-        'movement_log': _movement_log(movement_branch_ids),
+        'page_obj': paginate(request, transfers),
+        'movement_log': movement_log,
+        'log_page_obj': paginate(request, movement_log, page_param='log_page'),
         'search_query': search_query,
         'status_filter': status_filter,
         'purpose_filter': purpose_filter,
@@ -1751,16 +1793,12 @@ class _InsufficientStockError(Exception):
 
 
 def _safe_positive_int(value):
-    """int(value) if it's a clean positive integer, else None — used instead
-    of a bare int() in the transfer-quantity parsing below, which used to
-    raise an unhandled ValueError (500) on any non-numeric POST value."""
-    if value is None:
-        return None
-    value = str(value).strip()
-    if not value.isdigit():
-        return None
-    parsed = int(value)
-    return parsed if parsed > 0 else None
+    """int(value) if it's a clean positive integer no greater than
+    MAX_QUANTITY, else None — used instead of a bare int() in the
+    transfer-quantity parsing below, which used to raise an unhandled
+    ValueError (500) on any non-numeric POST value."""
+    parsed, _error = parse_int_field(value, 'Quantity', min_value=1, max_value=MAX_QUANTITY)
+    return parsed
 
 
 def _try_auto_approve(transfer, is_restock):
@@ -2454,7 +2492,15 @@ def transfer_confirm_receipt(request, pk):
 
     # Optional received_qty override; defaults to the total approved quantity.
     approved_total = sum(i.quantity_approved for i in transfer.items.all())
-    received_qty = int(request.POST.get('received_qty') or approved_total)
+    received_qty, received_qty_error = parse_int_field(
+        request.POST.get('received_qty'), 'Received quantity',
+        required=False, max_value=MAX_QUANTITY,
+    )
+    if received_qty_error:
+        messages.error(request, received_qty_error)
+        return redirect('transfer_detail', pk=pk)
+    if received_qty is None:
+        received_qty = approved_total
 
     with transaction.atomic():
         transfer.status = StockTransfer.Status.ACKNOWLEDGED
@@ -2496,7 +2542,15 @@ def transfer_flag_discrepancy(request, pk):
         return redirect('transfer_detail', pk=pk)
 
     approved_total = sum(i.quantity_approved for i in transfer.items.all())
-    received_qty = int(request.POST.get('received_qty') or 0)
+    received_qty, received_qty_error = parse_int_field(
+        request.POST.get('received_qty'), 'Received quantity',
+        required=False, max_value=MAX_QUANTITY,
+    )
+    if received_qty_error:
+        messages.error(request, received_qty_error)
+        return redirect('transfer_detail', pk=pk)
+    if received_qty is None:
+        received_qty = 0
     reason = request.POST.get('flag_reason', '').strip()
 
     if not reason:

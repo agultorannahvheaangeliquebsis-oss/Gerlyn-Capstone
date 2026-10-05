@@ -88,7 +88,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
 <div class="card card-pad">
   <h3 class="mb-4">Incoming deliveries</h3>
   <div class="stack">
-    {% for p in pending %}
+    {% for p in page_obj %}
     <div class="row-between wrap" style="padding:16px; border:1px solid var(--line); border-radius:var(--r-card);">
       <div>
         <div class="row" style="gap:10px;">
@@ -122,6 +122,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
     </div>
     {% endfor %}
   </div>
+  {% include "partials/_pagination.html" %}
 </div>
 
 {% if receive_procurement %}

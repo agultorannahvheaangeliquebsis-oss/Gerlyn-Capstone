@@ -17,7 +17,7 @@
           <th class="num">Total</th><th>Receipt</th><th class="end">Action</th></tr>
     </thead>
     <tbody>
-      {% for p in received %}
+      {% for p in page_obj %}
       <tr>
         <td data-label="PO ID" class="sku strong">{{ p.po_number }}</td>
         <td data-label="Branch">{{ p.branch.branch_name }}</td>
@@ -45,4 +45,5 @@
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 {% endblock %}

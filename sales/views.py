@@ -13,6 +13,8 @@ from branches.models import Branch
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from core.timebounds import local_month_bounds
+from core.pagination import paginate
+from core.validation import MAX_QUANTITY, parse_int_field
 from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 
@@ -149,6 +151,7 @@ def _transaction_list_context(request):
 
     context = {
         'transactions': transactions,
+        'page_obj': paginate(request, transactions),
         'counts': counts,
         'search_query': search_query,
         'status_filter': status_filter,
@@ -416,10 +419,13 @@ def transaction_add(request):
         except InvalidOperation:
             amount_tendered = None
 
-    line_items = [
-        (pid, int(q)) for pid, q in zip(product_ids, quantities)
-        if pid and q and q.isdigit() and int(q) > 0
-    ]
+    line_items = []
+    for pid, q in zip(product_ids, quantities):
+        if not pid:
+            continue
+        qty, _qty_error = parse_int_field(q, 'Quantity', min_value=1, max_value=MAX_QUANTITY)
+        if qty is not None:
+            line_items.append((pid, qty))
 
     # --- PWD / Senior Citizen discount ------------------------------------
     # Claimed once for the sale. The ID number is not optional: the statutory
@@ -568,15 +574,11 @@ def transaction_add(request):
 # ─────────────────────────────────────────────
 
 def _safe_positive_int(value):
-    """int(value) if it's a clean positive integer, else None — guards
-    against a tampered or malformed POST instead of a bare int() raising."""
-    if value is None:
-        return None
-    value = str(value).strip()
-    if not value.isdigit():
-        return None
-    parsed = int(value)
-    return parsed if parsed > 0 else None
+    """int(value) if it's a clean positive integer no greater than
+    MAX_QUANTITY, else None — guards against a tampered or malformed POST
+    instead of a bare int() raising."""
+    parsed, _error = parse_int_field(value, 'Quantity', min_value=1, max_value=MAX_QUANTITY)
+    return parsed
 
 
 def _already_returned_qty(sales_item):
@@ -705,6 +707,7 @@ def _return_list_context(request):
     branches = Branch.objects.all() if not user_branch else []
     return {
         'returns': returns,
+        'page_obj': paginate(request, returns),
         'counts': counts,
         'search_query': search_query,
         'status_filter': status_filter,

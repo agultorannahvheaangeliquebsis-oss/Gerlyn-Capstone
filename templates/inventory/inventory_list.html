@@ -269,7 +269,7 @@ across the full width leave the default block padding as empty card.
       A row with no batch (row.batch is None) is a 0-quantity "No Stock"
       product/branch with nothing to show a lot for.
       {% endcomment %}
-      {% for row in rows %}
+      {% for row in page_obj %}
       <tr data-filter-text="{{ row.inv.product.product_name }} {{ row.inv.product.sku_code }}">
         <td data-label="Product" class="strong">{{ row.inv.product.product_name }}</td>
         <td data-label="Branch">{{ row.inv.branch.branch_name }}</td>
@@ -318,6 +318,7 @@ across the full width leave the default block padding as empty card.
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 {% if can_adjust %}
 <div class="modal-overlay{% if show_adjust_modal %} is-open{% endif %}" id="adjust-modal" data-autoopen="{% if show_adjust_modal %}1{% else %}0{% endif %}">
@@ -384,7 +385,7 @@ across the full width leave the default block padding as empty card.
       <div class="grid-2">
         <div class="field">
           <label for="adjust-quantity">Quantity to Add to Stock <span style="color:var(--danger-dot);">*</span></label>
-          <input type="number" id="adjust-quantity" name="quantity" min="1"
+          <input type="number" id="adjust-quantity" name="quantity" min="1" max="100000"
                  value="{{ adjust_form_data.quantity|default:'' }}" required
                  aria-describedby="adjust-quantity-hint">
           <span class="gv-meta" id="adjust-quantity-hint">Added on top of the current count — not the new total. This form can only increase stock.</span>
@@ -429,7 +430,7 @@ across the full width leave the default block padding as empty card.
       </div>
       <div class="field">
         <label for="edit-inventory-reorder">Reorder Level <span style="color:var(--danger-dot);">*</span></label>
-        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0" required>
+        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0" max="100000" required>
         <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Critical.</p>
       </div>
     </form>

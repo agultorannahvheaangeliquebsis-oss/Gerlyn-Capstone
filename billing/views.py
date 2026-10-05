@@ -11,6 +11,7 @@ from accounts.models import User
 from branches.models import Branch
 from core.scoping import branch_for_user, user_can_access_branch
 from core.permissions import OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER, role_required
+from core.pagination import paginate
 
 
 @role_required(OWNER, BRANCH_MANAGER, STAFF, CUSTOMER, SUPPLIER)
@@ -68,8 +69,11 @@ def billing_list(request):
 
     branches = Branch.objects.all() if request.user.role == User.Role.OWNER else []
 
+    page_obj = paginate(request, records)
+
     return render(request, 'billing/billing_list.html', {
         'records': records,
+        'page_obj': page_obj,
         'counts': counts,
         'status_filter': status_filter,
         'outstanding': outstanding,

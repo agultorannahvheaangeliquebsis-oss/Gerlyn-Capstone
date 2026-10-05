@@ -368,3 +368,39 @@ class CustomerReturnFlowTests(TestCase):
         })
         self.assertFalse(SalesReturn.objects.exists())
         self.assertEqual(response.status_code, 200)
+
+
+class TransactionQuantityValidationTests(TestCase):
+    """A cart line's quantity must stay within core.validation.MAX_QUANTITY —
+    a line over the ceiling is dropped the same way an unparseable one
+    already was, rather than being saved as-is."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner', password='pw', role=User.Role.OWNER
+        )
+        self.branch = Branch.objects.create(
+            branch_name='Tarcan', location='Baliuag', owner=self.owner
+        )
+        self.product = Product.objects.create(
+            sku_code='SKU-001', product_name='Rice (Sack)',
+            unit_of_measure='Sack', unit_price=100, wholesale_price=80,
+        )
+        Inventory.objects.create(
+            product=self.product, branch=self.branch,
+            quantity_on_hand=500000, reorder_level=5,
+        )
+        self.client.force_login(self.owner)
+
+    def test_quantity_over_the_ceiling_is_dropped_not_saved(self):
+        response = self.client.post(reverse('transaction_add'), {
+            'branch': self.branch.pk,
+            'mode_of_payment': 'Cash',
+            'order_type': 'Retail',
+            'product_id': [str(self.product.pk)],
+            'quantity': ['100001'],
+            'amount_tendered': '10000001',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Add at least one item with a quantity.', response.context['pos_errors'])
+        self.assertFalse(SalesTransaction.objects.exists())

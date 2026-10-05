@@ -32,7 +32,7 @@
           {% if can_edit %}<th class="end">Actions</th>{% endif %}</tr>
     </thead>
     <tbody>
-      {% for s in suppliers %}
+      {% for s in page_obj %}
       <tr data-filter-text="{{ s.supplier_profile.supplier_name }}">
         <td data-label="Supplier" class="strong">
           <a href="{% url 'supplier_detail' s.pk %}">{{ s.supplier_profile.supplier_name|default:s.username }}</a></td>
@@ -88,6 +88,7 @@
     </tbody>
   </table>
 </div>
+{% include "partials/_pagination.html" %}
 
 {% if can_edit %}
 {% comment %}
