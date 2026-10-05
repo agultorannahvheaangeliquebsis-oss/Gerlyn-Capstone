@@ -184,6 +184,9 @@ def send_verification_email(user, request, *, enforce_cooldown=False):
                 if wait_seconds > 0:
                     raise VerificationEmailRateLimited(wait_seconds)
 
+            if not settings.EMAIL_BACKEND_DELIVERS:
+                raise RuntimeError('Configured email backend does not deliver mail.')
+
             VerificationToken.objects.filter(
                 user=user,
                 purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,

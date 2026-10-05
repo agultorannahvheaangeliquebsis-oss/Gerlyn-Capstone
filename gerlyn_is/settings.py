@@ -569,16 +569,19 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/profile/'
 
 # --- Email -------------------------------------------------------------------
-# Development prints messages to the terminal by default. Production keeps
-# SMTP as its default, but every SMTP value can be supplied by the deployment
-# environment so the application is not tied to Gmail or committed secrets.
-EMAIL_BACKEND = os.environ.get(
-    'EMAIL_BACKEND',
-    (
-        'django.core.mail.backends.console.EmailBackend'
-        if DEBUG else 'django.core.mail.backends.smtp.EmailBackend'
-    ),
-)
+# Development prints messages to the terminal by default. In production the
+# default is Brevo's HTTPS API when BREVO_API_KEY is set, otherwise SMTP.
+# Railway blocks outbound SMTP (587/465) on Free/Trial/Hobby plans, so an HTTPS
+# API is the only transport that works there; SMTP stays available for hosts
+# that allow it. Every value comes from the environment -- nothing is committed.
+BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '').strip()
+if DEBUG:
+    _default_email_backend = 'django.core.mail.backends.console.EmailBackend'
+elif BREVO_API_KEY:
+    _default_email_backend = 'accounts.email_backends.BrevoApiEmailBackend'
+else:
+    _default_email_backend = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND = env_str('EMAIL_BACKEND', _default_email_backend)
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
@@ -594,8 +597,11 @@ DEFAULT_FROM_EMAIL = (
 
 # A stable deployment origin prevents verification links from inheriting an
 # internal proxy hostname. Blank is safe for local development and falls back
-# to the current request's scheme/host.
-PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+# to the current request's scheme/host. On Railway it defaults to the service's
+# own public HTTPS domain; set PUBLIC_BASE_URL to override (custom domain).
+PUBLIC_BASE_URL = env_str('PUBLIC_BASE_URL').rstrip('/')
+if not PUBLIC_BASE_URL and ON_RAILWAY and RAILWAY_PUBLIC_DOMAIN:
+    PUBLIC_BASE_URL = f'https://{RAILWAY_PUBLIC_DOMAIN}'
 
 # Server-side, Nominatim-compatible geocoding (the browser never talks to the
 # provider; accounts/geo_views.py proxies, caches and rate-limits). Defaults to
@@ -661,6 +667,24 @@ if EMAIL_USE_TLS and EMAIL_USE_SSL:
     )
 if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(('http://', 'https://')):
     raise ImproperlyConfigured('PUBLIC_BASE_URL must start with http:// or https://.')
+if ON_RAILWAY and PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith('https://'):
+    raise ImproperlyConfigured('PUBLIC_BASE_URL must use https:// on Railway.')
+
+# A console/dummy backend "succeeds" without delivering anything. .env.example
+# ships EMAIL_BACKEND=console for local use, and copying it into Railway
+# Variables would make every verification email silently vanish.
+EMAIL_BACKEND_DELIVERS = not (ON_RAILWAY and EMAIL_BACKEND in (
+    'django.core.mail.backends.console.EmailBackend',
+    'django.core.mail.backends.dummy.EmailBackend',
+    'django.core.mail.backends.locmem.EmailBackend',
+    'django.core.mail.backends.filebased.EmailBackend',
+))
+if not EMAIL_BACKEND_DELIVERS:
+    print(
+        f'WARNING: EMAIL_BACKEND={EMAIL_BACKEND} does not deliver email. Remove '
+        'EMAIL_BACKEND from Railway Variables (or set BREVO_API_KEY / SMTP).',
+        file=sys.stderr,
+    )
 
 # Avatar upload validation
 AVATAR_MAX_MB        = 2

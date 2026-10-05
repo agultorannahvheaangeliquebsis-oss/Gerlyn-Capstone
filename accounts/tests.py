@@ -39,7 +39,7 @@ def _latest_otp():
 
 
 class ContactNumberValidatorTests(TestCase):
-    def test_accepts_every_format_already_in_use_across_seed_data_and_tests(self):
+    def test_accepts_every_format_already_in_use_across_demo_records_and_tests(self):
         from accounts.validators import validate_ph_mobile_number
 
         for value in (
@@ -830,6 +830,170 @@ class VerificationEmailDeliveryTests(TestCase):
             f'https://shop.example.com/verify-email/{token.token}/',
             mail.outbox[0].body,
         )
+
+
+class BrevoApiEmailBackendTests(TestCase):
+    """Railway blocks outbound SMTP on Hobby, so production sends over HTTPS."""
+
+    API_KEY = 'brevo-key-that-must-not-leak'
+
+    def _message(self):
+        from django.core.mail import EmailMessage
+        return EmailMessage(
+            subject='Verify', body='Link: https://x/verify-email/abc/',
+            from_email='Gerlyn Store <sender@example.com>',
+            to=['customer@example.com'],
+        )
+
+    def _backend(self, **kwargs):
+        from accounts.email_backends import BrevoApiEmailBackend
+        with override_settings(BREVO_API_KEY=self.API_KEY):
+            return BrevoApiEmailBackend(**kwargs)
+
+    def test_posts_message_to_brevo_over_https(self):
+        response = patch('urllib.request.urlopen').start()
+        self.addCleanup(patch.stopall)
+        response.return_value.__enter__.return_value.status = 201
+
+        self.assertEqual(self._backend().send_messages([self._message()]), 1)
+
+        request = response.call_args.args[0]
+        self.assertTrue(request.full_url.startswith('https://'))
+        self.assertEqual(request.get_header('Api-key'), self.API_KEY)
+        import json
+        body = json.loads(request.data)
+        self.assertEqual(body['to'], [{'email': 'customer@example.com'}])
+        self.assertEqual(
+            body['sender'], {'email': 'sender@example.com', 'name': 'Gerlyn Store'}
+        )
+        self.assertIn('/verify-email/abc/', body['textContent'])
+
+    def test_http_error_is_logged_without_secrets_and_raised(self):
+        import io
+        import urllib.error
+        from accounts.email_backends import EmailDeliveryError
+
+        error = urllib.error.HTTPError(
+            'https://api.brevo.com/v3/smtp/email', 401, 'Unauthorized', {},
+            io.BytesIO(b'{"code": "unauthorized", "message": "Key not found"}'),
+        )
+        with patch('urllib.request.urlopen', side_effect=error), \
+                self.assertLogs('accounts.email', level='ERROR') as captured, \
+                self.assertRaises(EmailDeliveryError) as raised:
+            self._backend().send_messages([self._message()])
+
+        logged = '\n'.join(captured.output)
+        self.assertIn('status=401', logged)
+        self.assertIn('unauthorized', logged)
+        self.assertNotIn(self.API_KEY, logged)
+        self.assertNotIn(self.API_KEY, str(raised.exception))
+
+    def test_network_failure_is_logged_and_raised(self):
+        import urllib.error
+        from accounts.email_backends import EmailDeliveryError
+
+        with patch('urllib.request.urlopen', side_effect=urllib.error.URLError('x')), \
+                self.assertLogs('accounts.email', level='ERROR'), \
+                self.assertRaises(EmailDeliveryError):
+            self._backend().send_messages([self._message()])
+
+    def test_missing_api_key_fails_loudly_not_silently(self):
+        from accounts.email_backends import BrevoApiEmailBackend, EmailDeliveryError
+
+        with override_settings(BREVO_API_KEY=''), \
+                self.assertLogs('accounts.email', level='ERROR'), \
+                self.assertRaises(EmailDeliveryError):
+            BrevoApiEmailBackend().send_messages([self._message()])
+
+    def test_verification_service_reports_delivery_error_when_backend_fails(self):
+        from accounts.services import (
+            VerificationEmailDeliveryError, send_verification_email,
+        )
+
+        user = User.objects.create_user(
+            username='brevo-fail', password='pw',
+            email='brevo-fail@example.com', role=User.Role.CUSTOMER,
+        )
+        request = RequestFactory().get('/', HTTP_HOST='testserver')
+        with override_settings(
+            EMAIL_BACKEND='accounts.email_backends.BrevoApiEmailBackend',
+            BREVO_API_KEY='',
+        ), self.assertLogs('accounts.email', level='ERROR'), \
+                self.assertRaises(VerificationEmailDeliveryError):
+            send_verification_email(user, request)
+        self.assertFalse(VerificationToken.objects.filter(user=user).exists())
+
+    def test_non_delivering_backend_in_production_is_an_error_not_a_fake_success(self):
+        from accounts.services import (
+            VerificationEmailDeliveryError, send_verification_email,
+        )
+
+        user = User.objects.create_user(
+            username='console-fail', password='pw',
+            email='console-fail@example.com', role=User.Role.CUSTOMER,
+        )
+        request = RequestFactory().get('/', HTTP_HOST='testserver')
+        with override_settings(EMAIL_BACKEND_DELIVERS=False), \
+                self.assertLogs('accounts.email', level='ERROR'), \
+                self.assertRaises(VerificationEmailDeliveryError):
+            send_verification_email(user, request)
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class VerificationRoutesTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='route-customer', password='pw',
+            email='route-customer@example.com', role=User.Role.CUSTOMER,
+        )
+
+    def test_pending_page_renders_for_logged_in_user(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('accounts:verify_pending'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'route-customer@example.com')
+        self.assertContains(response, reverse('accounts:resend_verification'))
+
+    def test_pending_page_requires_login(self):
+        response = self.client.get(reverse('accounts:verify_pending'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('accounts:login'), response.url)
+
+    def test_unknown_token_fails_safely(self):
+        import uuid
+        response = self.client.get(
+            reverse('accounts:verify_email', args=[uuid.uuid4()])
+        )
+        self.assertRedirects(
+            response, reverse('accounts:login'), fetch_redirect_response=False
+        )
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_email_verified)
+
+    def test_token_verifies_only_its_own_account(self):
+        other = User.objects.create_user(
+            username='other-customer', password='pw',
+            email='other-customer@example.com', role=User.Role.CUSTOMER,
+        )
+        token = VerificationToken.objects.create(
+            user=self.user, purpose=VerificationToken.PURPOSE_EMAIL_VERIFY,
+        )
+        self.client.get(reverse('accounts:verify_email', args=[token.token]))
+        self.user.refresh_from_db()
+        other.refresh_from_db()
+        self.assertTrue(self.user.is_email_verified)
+        self.assertFalse(other.is_email_verified)
+
+    @override_settings(PUBLIC_BASE_URL='https://gerlynplus.up.railway.app')
+    def test_link_uses_production_https_origin(self):
+        from accounts.services import send_verification_email
+        request = RequestFactory().get('/', HTTP_HOST='internal-proxy:8080')
+        token = send_verification_email(self.user, request)
+        self.assertIn(
+            f'https://gerlynplus.up.railway.app/verify-email/{token.token}/',
+            mail.outbox[0].body,
+        )
+        self.assertNotIn('internal-proxy', mail.outbox[0].body)
 
 
 class RegisterInputValidationTests(TestCase):
