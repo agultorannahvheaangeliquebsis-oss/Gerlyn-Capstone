@@ -90,6 +90,36 @@ def role_required(*roles):
     return decorator
 
 
+# Roles that may open the management reports (Reports hub, its four report
+# pages, and the CSV export). Owner sees every branch, a Branch Manager only
+# their own (core.scoping). Staff, Supplier and Customer never do, whatever
+# module grants an account carries -- keep this in step with
+# core.module_permissions.REPORT_ROLES and reports.api_views.check_report_access.
+MANAGEMENT_REPORT_ROLES = (OWNER, BRANCH_MANAGER)
+
+
+def management_report_required(view_func):
+    """Gate for every management-report page.
+
+    Anonymous visitors are sent to the login page and returned here afterwards
+    (``?next=``). A signed-in account without a management role gets a real
+    403, rendered by the styled templates/403.html -- never a 200 "no access"
+    page and never the bare server response.
+    """
+
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            from django.contrib.auth.views import redirect_to_login
+
+            return redirect_to_login(request.get_full_path(), settings.LOGIN_URL)
+        if request.user.role not in MANAGEMENT_REPORT_ROLES:
+            raise PermissionDenied("Reports are limited to the Owner and Branch Managers.")
+        return view_func(request, *args, **kwargs)
+
+    return _wrapped
+
+
 # =============================================================================
 # Django REST Framework
 # =============================================================================

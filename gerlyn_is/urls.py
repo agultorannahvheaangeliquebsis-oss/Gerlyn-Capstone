@@ -13,7 +13,6 @@ from core.views import (
 )
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
     # Railway's deploy health check (railway.json healthcheckPath) — see
     # core.views.healthz for why it deliberately does no DB query.
     path('healthz/', healthz, name='healthz'),
@@ -82,6 +81,13 @@ urlpatterns += [
         serve, {'document_root': settings.MEDIA_ROOT},
     ),
 ]
+
+# Django admin: only registered when settings.ADMIN_ENABLED (always in local
+# DEBUG, off on hosted deployments unless DJANGO_ADMIN_ENABLED=True), at
+# settings.ADMIN_URL. When off the path is simply unrouted and returns the
+# normal 404. See core.admin_site for the superuser-only gate.
+if settings.ADMIN_ENABLED:
+    urlpatterns.insert(0, path(settings.ADMIN_URL, admin.site.urls))
 
 # Local-only SQL/query panel — settings.py only installs the app and its
 # middleware when DEBUG is on, so this import is safe even though

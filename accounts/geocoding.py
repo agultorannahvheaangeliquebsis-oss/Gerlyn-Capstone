@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,12 +42,16 @@ class GeocodingResult:
     latitude: Decimal
     longitude: Decimal
     label: str
+    # True when the street-level query found nothing and the pin is only the
+    # barangay / city centre -- the caller should ask the user to nudge it.
+    approximate: bool = False
 
     def as_dict(self):
         return {
             'latitude': f'{self.latitude:.6f}',
             'longitude': f'{self.longitude:.6f}',
             'label': self.label,
+            'approximate': self.approximate,
         }
 
 
@@ -66,6 +71,26 @@ def normalized_address(*, region='', province='', city='', barangay='', street_d
     if parts and 'philippines' not in {part.casefold() for part in parts}:
         parts.append('Philippines')
     return ', '.join(parts)
+
+
+def address_queries(*, region='', province='', city='', barangay='', street_detail=''):
+    """Provider queries from most to least specific, duplicates removed.
+
+    Street -> barangay -> city/municipality. OpenStreetMap's street coverage in
+    the Philippines is patchy, so a street that is not mapped should still land
+    the pin in the right barangay instead of failing outright.
+    """
+    attempts = (
+        dict(street_detail=street_detail, barangay=barangay),
+        dict(barangay=barangay),
+        dict(),
+    )
+    queries = []
+    for extra in attempts:
+        query = normalized_address(region=region, province=province, city=city, **extra)
+        if query and query not in queries:
+            queries.append(query)
+    return queries
 
 
 def parse_coordinates(latitude, longitude):
@@ -152,20 +177,29 @@ def _provider_get(url, params, *, binary=False, include_geocoding_key=True):
         raise GeocodingError() from exc
 
 
-def forward_geocode(address):
-    normalized = ' '.join((address or '').split())
-    if not normalized:
-        return None
-    key = _cache_key('forward', normalized.casefold())
+def _lookup_one(query, paced):
+    """Geocode one query string: cache, then provider. None when no match.
+
+    ``paced`` is a one-item dict shared across a single lookup: the first
+    provider hit reserves the provider-wide slot; any later hit in the same
+    request waits out the minimum interval instead of failing the user.
+    """
+    key = _cache_key('forward', query.casefold())
     cached = _cache_get(key)
     if cached is not None:
+        if not cached:
+            return None
         return GeocodingResult(
             Decimal(cached['latitude']), Decimal(cached['longitude']), cached['label']
-        ) if cached else None
+        )
 
-    _reserve_provider_slot()
+    if paced['hit']:
+        time.sleep(max(settings.GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS, 0))
+    else:
+        _reserve_provider_slot()
+        paced['hit'] = True
     data = _provider_get(settings.GEOCODING_SEARCH_URL, {
-        'q': normalized, 'format': 'jsonv2', 'addressdetails': 1,
+        'q': query, 'format': 'jsonv2', 'addressdetails': 1,
         'countrycodes': settings.GEOCODING_COUNTRY_CODE, 'limit': 1,
     })
     item = data[0] if isinstance(data, list) and data else None
@@ -176,9 +210,32 @@ def forward_geocode(address):
         lat, lon = parse_coordinates(item.get('lat'), item.get('lon'))
     except (AttributeError, ValueError) as exc:
         raise GeocodingError() from exc
-    result = GeocodingResult(lat, lon, str(item.get('display_name') or normalized))
+    result = GeocodingResult(lat, lon, str(item.get('display_name') or query))
     _cache_set(key, result.as_dict(), settings.GEOCODING_CACHE_SECONDS)
     return result
+
+
+def forward_geocode(address, fallbacks=()):
+    """Geocode ``address``; if nothing matches try each broader ``fallbacks``.
+
+    A match found through a fallback is flagged ``approximate``.
+    """
+    queries = []
+    for query in (address, *fallbacks):
+        normalized = ' '.join((query or '').split())
+        if normalized and normalized not in queries:
+            queries.append(normalized)
+
+    paced = {'hit': False}
+    for index, query in enumerate(queries):
+        result = _lookup_one(query, paced)
+        if result:
+            if index:
+                return GeocodingResult(
+                    result.latitude, result.longitude, result.label, approximate=True
+                )
+            return result
+    return None
 
 
 def reverse_geocode(latitude, longitude):

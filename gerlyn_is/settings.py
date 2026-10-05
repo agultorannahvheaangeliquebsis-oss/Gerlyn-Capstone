@@ -31,7 +31,24 @@ _load_dotenv(BASE_DIR / '.env')
 
 
 def env_bool(name, default=False):
-    return os.environ.get(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
+    """True only for an explicit 1/true/yes/on -- the string "False" is False.
+
+    A blank value counts as unset (-> default): .env.example ships many `NAME=`
+    lines, and copying one verbatim must not flip a default-on setting off.
+    """
+    raw = os.environ.get(name, '').strip().lower()
+    if not raw:
+        return default
+    return raw in ('1', 'true', 'yes', 'on')
+
+
+def env_str(name, default=''):
+    """Like os.environ.get, but a blank value counts as unset.
+
+    .env.example ships many `NAME=` lines; copied verbatim (locally or into
+    Railway Variables) they must fall back to the default, not override it with "".
+    """
+    return (os.environ.get(name) or default).strip()
 
 
 def env_list(name, default=''):
@@ -45,13 +62,41 @@ SECRET_KEY = os.environ.get(
     'django-insecure-dev-only-key-change-me-in-dotenv',
 )
 
-DEBUG = env_bool('DJANGO_DEBUG', False)
-
-# Add the server's LAN IP here so other branches can reach the system,
-# e.g. ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.50
-ALLOWED_HOSTS = env_list(
-    'DJANGO_ALLOWED_HOSTS', 'gerlynplus.up.railway.app,localhost,127.0.0.1'
+# Railway injects these into every deployed service (never into a laptop), so
+# their presence is a reliable "this is the hosted environment" signal.
+RAILWAY_PUBLIC_DOMAIN = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '').strip()
+ON_RAILWAY = bool(
+    RAILWAY_PUBLIC_DOMAIN
+    or os.environ.get('RAILWAY_ENVIRONMENT_NAME')
+    or os.environ.get('RAILWAY_ENVIRONMENT')
 )
+
+# DEBUG comes from DJANGO_DEBUG and defaults to OFF. env_bool() compares against
+# an explicit allow-list, so the string "False" is never truthy.
+#
+# On Railway, DEBUG is forced off regardless of the variable: Django's debug
+# 404/500 pages print the full URL table, settings and tracebacks, and a
+# copied-over DJANGO_DEBUG=True (the .env.example value) is exactly how that
+# reached production once. Local development is unaffected.
+DEBUG = env_bool('DJANGO_DEBUG', False)
+if ON_RAILWAY and DEBUG:
+    DEBUG = False
+    print(
+        'WARNING: DJANGO_DEBUG=True was ignored because this is a Railway '
+        'deployment. Remove DJANGO_DEBUG (or set it to False) in Railway Variables.',
+        file=sys.stderr,
+    )
+
+# Comma-separated hosts. Nothing here is hardcoded to one domain: Railway's own
+# public domain is added automatically, plus the internal health-check host
+# (Railway probes /healthz/ with Host: healthcheck.railway.app). Add a custom
+# domain via DJANGO_ALLOWED_HOSTS. Add the LAN IP for on-premises use, e.g.
+# DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.50
+ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1]')
+if RAILWAY_PUBLIC_DOMAIN and RAILWAY_PUBLIC_DOMAIN not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RAILWAY_PUBLIC_DOMAIN)
+if ON_RAILWAY and 'healthcheck.railway.app' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('healthcheck.railway.app')
 
 if not DEBUG and SECRET_KEY.startswith('django-insecure'):
     raise RuntimeError(
@@ -81,7 +126,9 @@ if SENTRY_DSN:
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
+    # Superuser-only AdminSite (core.admin_site); the route itself is gated by
+    # DJANGO_ADMIN_ENABLED below.
+    'core.admin_site.SuperuserOnlyAdminConfig',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -199,9 +246,22 @@ BACKUP_STALE_HOURS = int(os.environ.get('BACKUP_STALE_HOURS', '26'))
 PO_OVERDUE_GRACE_DAYS = int(os.environ.get('PO_OVERDUE_GRACE_DAYS', '1'))
 PO_OVERDUE_ESCALATE_DAYS = int(os.environ.get('PO_OVERDUE_ESCALATE_DAYS', '3'))
 
-# Trust the deployed origin for POSTs (set once the app has a real URL),
-# e.g. DJANGO_CSRF_TRUSTED=https://gerlynplus.up.railway.app
+# Trust the deployed HTTPS origin for POSTs. Railway's public domain is added
+# automatically; add a custom domain with
+# DJANGO_CSRF_TRUSTED=https://shop.example.com (comma-separated).
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED', '')
+if RAILWAY_PUBLIC_DOMAIN and f'https://{RAILWAY_PUBLIC_DOMAIN}' not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(f'https://{RAILWAY_PUBLIC_DOMAIN}')
+
+# --- Django admin --------------------------------------------------------------
+# The business roles (Owner, Manager, Staff, Supplier, Customer) never use
+# /admin/; the app has its own management screens. So the route only exists
+# when explicitly switched on: always in local DEBUG, never on a hosted
+# deployment unless DJANGO_ADMIN_ENABLED=True. Even when enabled it admits
+# genuine superusers only (core.admin_site) -- a role, or is_staff alone, is
+# not enough. DJANGO_ADMIN_URL moves it off the guessable /admin/ path.
+ADMIN_ENABLED = env_bool('DJANGO_ADMIN_ENABLED', DEBUG)
+ADMIN_URL = env_str('DJANGO_ADMIN_URL', 'admin/').strip('/') + '/'
 
 # --- Idle-timeout: 30 minutes of inactivity signs the user out ------------
 # SESSION_SAVE_EVERY_REQUEST re-saves (and re-stamps the expiry of) the
@@ -216,11 +276,18 @@ SESSION_SAVE_EVERY_REQUEST = True
 
 # --- Production hardening --------------------------------------------------
 # Only applied when DEBUG is off, so local development over plain HTTP still
-# works. Set DJANGO_SECURE_SSL=False if the host does not terminate TLS.
+# works. DJANGO_SECURE_SSL defaults to on for Railway (its edge terminates TLS
+# and forwards X-Forwarded-Proto); set it False if some other host does not.
 if not DEBUG:
-    SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL', False)
+    SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL', ON_RAILWAY)
+    # Railway's own health probe is plain HTTP to the container with no
+    # forwarded-proto header; redirecting it would fail every deploy.
+    SECURE_REDIRECT_EXEMPT = [r'^healthz/$']
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SAMESITE = 'Lax'
     # Railway/Render sit behind a proxy that terminates TLS; without this
     # Django sees plain HTTP and redirect-loops forever.
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -228,7 +295,30 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'same-origin'
     X_FRAME_OPTIONS = 'DENY'
+
+# --- Logging -------------------------------------------------------------------
+# With DEBUG off, Django's default config sends django.request errors only to
+# mail_admins (no ADMINS here), so a production 500 would leave NOTHING in
+# Railway's log stream. Send them to stdout instead; the browser still gets the
+# generic 500.html, never the traceback.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {'format': '%(asctime)s %(levelname)s %(name)s: %(message)s'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'standard'},
+    },
+    'root': {'handlers': ['console'], 'level': os.environ.get('DJANGO_LOG_LEVEL', 'WARNING')},
+    'loggers': {
+        'django': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        'django.security': {'handlers': ['console'], 'level': 'WARNING', 'propagate': False},
+    },
+}
 
 
 
@@ -507,15 +597,27 @@ DEFAULT_FROM_EMAIL = (
 # to the current request's scheme/host.
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
 
-# Server-side, Nominatim-compatible geocoding. URLs are blank by default so a
-# deployment without an external provider keeps the manual-pin fallback.
-GEOCODING_SEARCH_URL = os.environ.get('GEOCODING_SEARCH_URL', '').strip()
-GEOCODING_REVERSE_URL = os.environ.get('GEOCODING_REVERSE_URL', '').strip()
+# Server-side, Nominatim-compatible geocoding (the browser never talks to the
+# provider; accounts/geo_views.py proxies, caches and rate-limits). Defaults to
+# OpenStreetMap's public Nominatim + tile servers so "Locate Address" works with
+# no extra accounts. Their usage policy requires a real contact in
+# GEOCODING_USER_AGENT and light traffic (1 req/s is enforced below) -- switch to
+# a hosted or self-hosted provider through the same variables if volume grows.
+# The test suite keeps these blank so no test can reach the network.
+_OSM_DEFAULTS = not TESTING
+GEOCODING_SEARCH_URL = env_str(
+    'GEOCODING_SEARCH_URL',
+    'https://nominatim.openstreetmap.org/search' if _OSM_DEFAULTS else '',
+)
+GEOCODING_REVERSE_URL = env_str(
+    'GEOCODING_REVERSE_URL',
+    'https://nominatim.openstreetmap.org/reverse' if _OSM_DEFAULTS else '',
+)
 GEOCODING_API_KEY = os.environ.get('GEOCODING_API_KEY', '').strip()
 GEOCODING_API_KEY_PARAM = os.environ.get('GEOCODING_API_KEY_PARAM', 'key').strip()
-GEOCODING_USER_AGENT = os.environ.get(
+GEOCODING_USER_AGENT = env_str(
     'GEOCODING_USER_AGENT', 'GerlynPLUS/1.0 (server-side address picker)'
-).strip()
+)
 GEOCODING_COUNTRY_CODE = os.environ.get('GEOCODING_COUNTRY_CODE', 'ph').strip()
 GEOCODING_TIMEOUT = int(os.environ.get('GEOCODING_TIMEOUT', '6'))
 GEOCODING_CACHE_SECONDS = int(os.environ.get('GEOCODING_CACHE_SECONDS', '86400'))
@@ -523,9 +625,15 @@ GEOCODING_NEGATIVE_CACHE_SECONDS = int(os.environ.get('GEOCODING_NEGATIVE_CACHE_
 GEOCODING_CLIENT_MAX_REQUESTS = int(os.environ.get('GEOCODING_CLIENT_MAX_REQUESTS', '30'))
 GEOCODING_CLIENT_WINDOW_SECONDS = int(os.environ.get('GEOCODING_CLIENT_WINDOW_SECONDS', '60'))
 GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS = int(os.environ.get('GEOCODING_PROVIDER_MIN_INTERVAL_SECONDS', '1'))
-MAP_TILE_URL_TEMPLATE = os.environ.get('MAP_TILE_URL_TEMPLATE', '').strip()
+MAP_TILE_URL_TEMPLATE = env_str(
+    'MAP_TILE_URL_TEMPLATE',
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png' if _OSM_DEFAULTS else '',
+)
 MAP_TILE_API_KEY = os.environ.get('MAP_TILE_API_KEY', '').strip()
-MAP_TILE_ATTRIBUTION = os.environ.get('MAP_TILE_ATTRIBUTION', '').strip()
+MAP_TILE_ATTRIBUTION = env_str(
+    'MAP_TILE_ATTRIBUTION',
+    '© OpenStreetMap contributors' if _OSM_DEFAULTS else '',
+)
 MAP_TILE_CACHE_SECONDS = int(os.environ.get('MAP_TILE_CACHE_SECONDS', '604800'))
 
 # Customer fulfillment fallback when browser/address coordinates are absent.

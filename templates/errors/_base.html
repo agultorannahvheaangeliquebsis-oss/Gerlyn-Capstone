@@ -1,0 +1,52 @@
+{% comment %}
+Shared shell for 400/403/404/500. Deliberately standalone: no {% extends %} of
+the site bases, no {% static %} (a missing staticfiles manifest would turn the
+error page itself into a second error), no context processors (the 500 handler
+renders without a request, and a 404 during a database outage must still render).
+Brand tokens are copied from static/css/gerlyn.css.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>{% block title %}Something went wrong{% endblock %} &middot; GerlynPLUS</title>
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <style>
+    :root { --brand:#2E9E6B; --action:#1E7A4F; --action-700:#14603C; --green-50:#EAF6F0;
+            --ink-900:#17251E; --ink-600:#56655D; --bg:#F5F7F6; --surface:#fff; --line:#E3E9E5; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center;
+           justify-content:center; padding:24px; background:var(--bg); color:var(--ink-900);
+           font-family:'Roboto',-apple-system,'Segoe UI',Arial,sans-serif; }
+    .err-card { width:100%; max-width:480px; background:var(--surface); border:1px solid var(--line);
+                border-radius:14px; padding:36px 32px; text-align:center;
+                box-shadow:0 1px 3px rgba(23,37,30,.06); }
+    .err-brand { display:inline-flex; align-items:center; gap:10px; margin-bottom:22px;
+                 font-weight:700; font-size:18px; color:var(--action); text-decoration:none; }
+    .err-brand img { width:36px; height:36px; border-radius:8px; object-fit:cover; }
+    .err-code { display:inline-block; padding:4px 12px; border-radius:999px; background:var(--green-50);
+                color:var(--action); font-weight:700; font-size:13px; letter-spacing:.04em; }
+    h1 { margin:14px 0 8px; font-size:24px; line-height:1.25; }
+    p { margin:0 0 22px; color:var(--ink-600); line-height:1.55; font-size:15px; }
+    .err-actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    .btn { display:inline-block; padding:10px 18px; border-radius:8px; font-weight:500; font-size:14px;
+           text-decoration:none; border:1px solid var(--action); }
+    .btn-primary { background:var(--action); color:#fff; }
+    .btn-primary:hover { background:var(--action-700); }
+    .btn-secondary { background:var(--surface); color:var(--action); }
+    .btn-secondary:hover { background:var(--green-50); }
+  </style>
+</head>
+<body>
+  <main class="err-card">
+    <a class="err-brand" href="/"><img src="/static/img/logo.png" alt="" width="36" height="36" onerror="this.remove()">GerlynPLUS</a>
+    <div><span class="err-code">{% block code %}Error{% endblock %}</span></div>
+    <h1>{% block heading %}Something went wrong{% endblock %}</h1>
+    <p>{% block message %}Please try again.{% endblock %}</p>
+    <div class="err-actions">
+      {% block actions %}<a class="btn btn-primary" href="/">Back to home</a>{% endblock %}
+    </div>
+  </main>
+</body>
+</html>

@@ -1,12 +1,15 @@
 from datetime import timedelta
 
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
 from core.module_permissions import (
     MODULE_ACTION_LABELS,
+    REPORT_ROLES,
+    REPORTS,
     URL_NAME_TO_MODULE,
     required_action_for_request,
     user_can_perform_module_action,
@@ -60,6 +63,16 @@ class ModulePermissionMiddleware:
         module_code = URL_NAME_TO_MODULE.get(url_name)
         if module_code is None:
             return None
+
+        # Management reports are never a Staff module, whatever grants the
+        # account carries: answer with the styled 403 page (not a flash
+        # redirect that would imply the Owner could unlock it).
+        if (
+            module_code == REPORTS
+            and user.role not in REPORT_ROLES
+            and not request.path.startswith('/api/')
+        ):
+            raise PermissionDenied('Reports are limited to the Owner and Branch Managers.')
 
         action = required_action_for_request(url_name, request.method)
         if not user_can_perform_module_action(user, module_code, action):

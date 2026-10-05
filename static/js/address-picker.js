@@ -181,7 +181,9 @@ window.AddressPicker = (function () {
       els.locate.disabled = false;
       if (data.status === 'ok' && data.result) {
         placeMarker(Number(data.result.latitude), Number(data.result.longitude), { center: true, reverse: false });
-        setStatus('success', 'Location found. Drag the pin if it needs adjustment.');
+        setStatus('success', data.result.approximate && data.message
+          ? data.message
+          : 'Location found. Drag the pin if it needs adjustment.');
       } else {
         setStatus(data.status || 'service_error', data.message || 'The location service could not complete the request.');
       }

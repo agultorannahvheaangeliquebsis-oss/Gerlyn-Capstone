@@ -33,9 +33,8 @@ In the service → **Variables**:
 | Variable | Value |
 |---|---|
 | `DJANGO_SECRET_KEY` | Generate a NEW one (never reuse the dev key) |
-| `DJANGO_DEBUG` | `False` |
-| `DJANGO_ALLOWED_HOSTS` | `<your-app>.up.railway.app` |
-| `DJANGO_CSRF_TRUSTED` | `https://<your-app>.up.railway.app` |
+| `DJANGO_DEBUG` | `False` (or delete the variable). On Railway `settings.py` forces DEBUG off even if this is `True`, so Django's debug pages can never be shown. |
+| `GEOCODING_USER_AGENT` | `GerlynPLUS/1.0 (address picker; contact: <your real email>)` - required by OpenStreetMap's usage policy for "Locate Address" |
 | `DB_NAME` | `${{MySQL.MYSQL_DATABASE}}` |
 | `DB_USER` | `${{MySQL.MYSQLUSER}}` |
 | `DB_PASSWORD` | `${{MySQL.MYSQLPASSWORD}}` |
@@ -45,13 +44,24 @@ In the service → **Variables**:
 The `${{MySQL.*}}` syntax pulls values from the database service — don't paste
 credentials by hand.
 
+`DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED` are **no longer needed on a
+plain Railway deployment**: `settings.py` reads Railway's own
+`RAILWAY_PUBLIC_DOMAIN`, allows that host (plus Railway's
+`healthcheck.railway.app` probe) and trusts `https://<that domain>` for form
+POSTs. Set them only for a custom domain (comma-separated; CSRF entries need
+the `https://` prefix).
+
+Optional: `DJANGO_ADMIN_ENABLED=True` + `DJANGO_ADMIN_URL=<long-random-path>/`
+turns Django admin on for superusers only. Left unset, `/admin/` returns the
+normal 404 in production.
+
 Generate the secret key with:
 ```bash
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
 
-> `DJANGO_CSRF_TRUSTED` is easy to forget. Without it every form POST — including
-> **login** — fails with a CSRF error, and the site looks completely broken.
+> Behind a custom domain, `DJANGO_CSRF_TRUSTED` is easy to forget. Without it
+> every form POST - including **login** - fails with a CSRF error.
 
 ### 4. Add a volume for uploads (important)
 

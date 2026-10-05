@@ -23,6 +23,11 @@ PROCUREMENT = 'procurement'
 DELIVERIES = 'deliveries'
 REPORTS = 'reports'
 
+# Roles allowed to see management reports (mirrors
+# core.permissions.MANAGEMENT_REPORT_ROLES, repeated as plain strings because
+# core.permissions imports DRF and this module is kept dependency-free).
+REPORT_ROLES = ('OWNER', 'BRANCH_MANAGER')
+
 VIEW = 'view'
 ADD = 'add'
 EDIT = 'edit'
@@ -377,6 +382,12 @@ def user_can_perform_module_action(user, module_code, action=VIEW):
     if not getattr(user, 'is_authenticated', False):
         return False
     role = getattr(user, 'role', None)
+    # Management reports are Owner / Branch Manager only. Without this cap the
+    # "Owner/Supplier/Customer always True" rule below would advertise the
+    # Reports link to a Supplier or Customer, and an Owner-granted View on
+    # Staff would light it up for a role the report views reject.
+    if module_code == REPORTS and role not in REPORT_ROLES:
+        return False
     if role not in ('STAFF', 'BRANCH_MANAGER'):
         return True
     if module_code not in ALL_MODULE_CODES or action not in MODULE_ACTIONS:

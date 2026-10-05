@@ -10,7 +10,7 @@ from django.views.decorators.http import require_GET
 from . import geo
 from .geocoding import (
     GeocodingError, GeocodingRateLimited, GeocodingUnavailable,
-    forward_geocode, map_tile, normalized_address, reverse_geocode,
+    address_queries, forward_geocode, map_tile, normalized_address, reverse_geocode,
 )
 from .rate_limit import get_client_ip, is_rate_limited
 
@@ -60,22 +60,35 @@ def geo_search(request):
             'status': 'rate_limited',
             'message': 'Too many location requests. Wait a moment and try again.',
         }, status=429)
-    address = normalized_address(
+    parts = dict(
         region=request.GET.get('region', ''),
         province=request.GET.get('province', ''),
         city=request.GET.get('city', ''),
         barangay=request.GET.get('barangay', ''),
         street_detail=request.GET.get('street_detail', '')[:255],
     )
+    address = normalized_address(**parts)
     if not address:
         return JsonResponse({'status': 'invalid', 'message': 'Select an address before locating it.'}, status=400)
     try:
-        result = forward_geocode(address)
+        result = forward_geocode(address, fallbacks=address_queries(**parts)[1:])
     except GeocodingError as exc:
         return _service_error(exc)
     if not result:
-        return JsonResponse({'status': 'no_result', 'message': 'No matching location was found.'})
-    return JsonResponse({'status': 'ok', 'address': address, 'result': result.as_dict()})
+        return JsonResponse({
+            'status': 'no_result',
+            'message': (
+                'We could not find that address on the map. Check the spelling, '
+                'or click the map to place the pin yourself.'
+            ),
+        })
+    payload = {'status': 'ok', 'address': address, 'result': result.as_dict()}
+    if result.approximate:
+        payload['message'] = (
+            'We found the area but not the exact street. Drag the pin to your '
+            'exact location.'
+        )
+    return JsonResponse(payload)
 
 
 @require_GET
