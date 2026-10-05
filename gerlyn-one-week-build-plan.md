@@ -81,7 +81,7 @@
 | **A. Inventory & Procurement** | 2 | inventory finish, withdrawal actions, alerts, suppliers, PO, deliveries→stock |
 | **B. Sales, Orders & Billing** | 2 | POS, Order Console, billing/payment-record, customer storefront (`orders` app) |
 | **C. Reports, Dashboard & Admin** | 1 | KPIs, CSV/PDF export, branch/user/bundle mgmt |
-| **D. Platform & QA** | 1 (rotating) | RBAC mixin, branch-scope, audit trail, seed data, migrations, testing, deploy, ISO 25010 pack |
+| **D. Platform & QA** | 1 (rotating) | RBAC mixin, branch-scope, audit trail, demo records, migrations, testing, deploy, ISO 25010 pack |
 
 Daily 15-min standup, Jira Kanban (To Do → In Progress → Testing/Review → Done). Feature branches + PRs; no direct pushes to `main`.
 
@@ -140,7 +140,7 @@ Daily 15-min standup, Jira Kanban (To Do → In Progress → Testing/Review → 
 - **DoD:** no cross-branch data leak; no unauthorized action succeeds; UI reads clean on desktop + phone.
 
 ### Day 7 — Test, seed demo, evaluate, deploy, document
-- [ ] **Bug bash**: run the 5 end-to-end BPR scenarios below with fresh seed data.
+- [ ] **Bug bash**: run the 5 end-to-end BPR scenarios below with freshly loaded demo records.
 - [ ] **ISO 25010 dry-run**: self-score Functional Suitability, Usability, Reliability, Performance, Security, Maintainability, Portability; fix quick blockers; prep the evaluator questionnaire + walkthrough script.
 - [ ] Deploy to a staging host (or LAN server) reachable by browsers on all branches; verify MySQL centralization (a change in one "branch" browser shows in another).
 - [ ] Freeze demo data; capture updated screenshots; write a 1-page "how to run" + role credentials sheet for Chapter 4.

@@ -73,7 +73,7 @@ Nothing else starts until the work is safe.
 | ✅ | **Supplier portal** | Built. Exposed and fixed **3 data leaks** (a supplier could see all branches' stock, and rival suppliers' POs; a manager could open another branch's PO/billing by URL). |
 | ✅ | **Customer order history + Track Order** | Built. The dead header link now works; status tracker in plain language. |
 | ✅ | **Wholesale pricing** | Reworked 2026-09 into **quantity-tiered bulk pricing**: each product carries its own ladder of price breaks (buy N or more → pay ₱X per unit), set on Add/Edit Product and importable as three column-pairs. Price comes from the quantity bought on every path — POS, storefront, API. The manual Retail/Wholesale toggle, its Order Console filter and the per-account wholesale flag were removed. |
-| ✅ | **Dashboard charts** | Built (inline SVG). Exposed 3 more bugs: seed data rotting, UTC timezone, and a price-loss bug on products over ₱1,000. |
+| ✅ | **Dashboard charts** | Built (inline SVG). Exposed 3 more bugs: demo records going stale, UTC timezone, and a price-loss bug on products over ₱1,000. |
 | ✅ | **Bundle Management** | **Out of scope** — team decision. See below. |
 | ✅ | **More automated tests** | 13 → **30**, all passing. |
 

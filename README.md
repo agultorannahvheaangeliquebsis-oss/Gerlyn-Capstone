@@ -51,6 +51,10 @@ cp .env.example .env        # then edit DB_PASSWORD and DJANGO_SECRET_KEY
 python manage.py migrate
 python manage.py seed_demo --reset
 
+# Optional: replace the demo records with the four-branch trading history
+# (30 products with pictures, Aug 2026 to today) — see "Store records" below
+python manage.py rebuild_store_records --yes
+
 # 7. Start it
 python manage.py runserver
 ```
@@ -64,9 +68,23 @@ Open <http://127.0.0.1:8000/> — the storefront. Log in at `/login/` for the in
 ### Email delivery
 
 Development uses Django's console email backend by default, so verification
-messages appear in the terminal without SMTP credentials. For a deployment,
-set these environment variables in the hosting service (never commit real
-values):
+messages appear in the terminal without SMTP credentials.
+
+**Railway (Free/Trial/Hobby plans) blocks outbound SMTP**, so Gmail/SMTP
+silently fails there. Deploy with Brevo's HTTPS API instead; set these in
+Railway Variables (never commit real values) and leave `EMAIL_BACKEND` unset:
+
+```text
+BREVO_API_KEY=<Brevo API key>
+DEFAULT_FROM_EMAIL=<sender address verified in Brevo>
+PUBLIC_BASE_URL=https://gerlynplus.up.railway.app
+```
+
+Failed sends are logged to the `accounts.email` logger (Railway deploy logs)
+with the status/error type only, never the key or SMTP password; users just see
+a generic "couldn't send" message.
+
+For hosts that allow SMTP (Railway Pro, a VPS), set these instead:
 
 ```text
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
@@ -169,6 +187,26 @@ All seeded accounts use the password **`demo1234`**.
 
 `python manage.py seed_demo --reset` rebuilds this at any time (3 branches,
 15 products, per-branch stock with 6 low/critical alerts, 8 suppliers, 7 POs, 10 orders).
+
+### Store records
+
+`python manage.py rebuild_store_records --yes` replaces the product master list,
+stock, sales, billing and procurement records with a day-by-day trading history
+for the four live branches (`Mini Mart`, `Savers Mini Mart`, `Tiaong 1`,
+`Variety Store` — their names are never touched) from 1 August 2026 up to the
+moment it runs. It builds 30 products with white-background pictures, opening
+balances, supplier purchase orders and deliveries, warehouse-to-floor restocks,
+walk-in and online sales (with senior/PWD discounts, refunds and write-offs),
+all replayed through the same code the screens use with the clock set to each
+moment, so floor and warehouse quantities always equal the sum of their
+batches and every dashboard figure traces back to a record. It prints a
+consistency report when it finishes.
+
+It deletes existing transactional records, so it requires `--yes` and refuses a
+non-local database unless `--allow-remote` is also given. `--seed` makes a
+rebuild reproducible; `--scale 0.3 --start 2026-09-20` gives a quick small run.
+Note that `seed_demo --reset` (above) is a different, older dataset with three
+differently named branches — running it afterwards replaces these records.
 
 ---
 
@@ -352,8 +390,8 @@ request share a `request_id`. Viewable by Owner accounts and Django superusers a
   feature was deployed.
 - **Fail-open.** A failure while writing an entry is logged (and reaches Sentry) but never
   blocks the business action it was recording.
-- **Seeding.** `seed_demo` runs with capture suppressed (`audit.context.suppressed`).
-  `AUDIT_ENABLED=False` switches capture off entirely.
+- **Bulk loading.** `seed_demo` and `rebuild_store_records` run with capture suppressed
+  (`audit.context.suppressed`). `AUDIT_ENABLED=False` switches capture off entirely.
 
 ## Backups
 

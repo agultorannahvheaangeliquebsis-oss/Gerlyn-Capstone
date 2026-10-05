@@ -695,7 +695,7 @@ class FloorStockScopeBarTests(TestCase):
         """The bar is not the security boundary. scope_queryset() is."""
         carlo = User.objects.get(username='carlo')
         foreign = Branch.objects.exclude(pk=carlo.manager_profile.branch_id).first()
-        self.assertIsNotNone(foreign, 'seed data must contain a second branch')
+        self.assertIsNotNone(foreign, 'the demo records must contain a second branch')
         self.assertGreater(
             Inventory.objects.filter(branch=foreign).count(), 0,
             'the foreign branch needs stock, or this test passes vacuously',
