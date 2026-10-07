@@ -103,13 +103,13 @@
       <a class="btn btn-primary" href="{% url 'transfer_complete' transfer.pk %}">{% if transfer.purpose == 'Branch Restock' %}Pick &amp; Move Stock to Floor{% else %}Review &amp; Complete Write-off{% endif %}</a>
     {% elif transfer.status == 'Released' and can_destination_act %}
       <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" class="row wrap">{% csrf_token %}
-        <input type="number" name="received_qty" placeholder="received qty" style="flex:1 1 120px;">
+        <input type="number" name="received_qty" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" placeholder="received qty" style="flex:1 1 120px;">
         <button type="submit" class="btn btn-primary">{% include "partials/_empty_icon.html" with icon="check" %} Confirm Received on Floor</button></form>
       <form method="post" action="{% url 'transfer_flag_discrepancy' transfer.pk %}" class="row wrap">{% csrf_token %}
         {% for it in items %}
           <input type="hidden" name="item_id" value="{{ it.pk }}">
           <label class="gv-meta">{{ it.product.product_name }} received
-            <input type="number" name="quantity_received" min="0" value="{{ it.quantity_released }}" required style="width:90px;">
+            <input type="number" name="quantity_received" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" value="{{ it.quantity_released }}" required style="width:90px;">
           </label>
         {% endfor %}
         <input type="text" name="flag_reason" placeholder="reason" required style="flex:1 1 140px;">

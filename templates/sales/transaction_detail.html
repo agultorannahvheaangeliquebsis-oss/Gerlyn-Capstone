@@ -762,7 +762,7 @@ Branch Manager requests are approved as they are submitted; Staff's wait.
             <td data-label="Product" class="strong">{{ row.product_label }}</td>
             <td data-label="Remaining" class="num">{{ row.remaining }}</td>
             <td data-label="Qty to refund" class="num">
-              <input type="number" name="quantity_{{ row.item.pk }}" min="1" max="{{ row.remaining }}"
+              <input type="number" name="quantity_{{ row.item.pk }}" min="1" max="{{ row.remaining }}" step="1" data-label="Quantity to refund"
                      value="{{ row.remaining }}">
             </td>
             <td data-label="Condition">

@@ -16,6 +16,7 @@
   const summary = document.getElementById('result-summary');
   const grid = document.getElementById('pgrid');
   const categoryFacet = document.getElementById('category-facet');
+  const pager = document.getElementById('catalog-pager');
   if ((!searchForm && !filterForm) || !summary || !grid || !categoryFacet) return;
 
   const searchInput = searchForm ? searchForm.querySelector('input[type="search"]') : null;
@@ -110,6 +111,9 @@
         categoryFacet.innerHTML = data.category_html;
         summary.innerHTML = data.summary_html;
         grid.innerHTML = data.grid_html;
+        // A new search/filter always lands on page 1, so the page links are
+        // rebuilt from the same response as the grid they belong to.
+        if (pager && data.pager_html !== undefined) pager.innerHTML = data.pager_html;
         filterForm.dispatchEvent(new CustomEvent('catalog:facet-updated', {
           detail: { openRegions: openRegions },
         }));

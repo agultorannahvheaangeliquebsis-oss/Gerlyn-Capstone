@@ -2,6 +2,7 @@
 from decimal import Decimal
 
 from django.core.validators import MinValueValidator
+from core.limits import price_validators
 from django.db import models
 from django.db.models import F
 from django.db.models.functions import Coalesce
@@ -60,7 +61,7 @@ class Product(models.Model):
     )
     unit_price = models.DecimalField(
         max_digits=10, decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=price_validators(),
         help_text="Retail price — what one unit costs below the first bulk tier. "
                   "Must be greater than zero; there is no valid product with a "
                   "free or negative retail price."
@@ -168,6 +169,7 @@ class ProductPriceTier(models.Model):
     )
     unit_price = models.DecimalField(
         max_digits=10, decimal_places=2,
+        validators=price_validators(),
         help_text="Price per unit once the quantity is reached"
     )
 

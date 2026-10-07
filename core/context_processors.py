@@ -11,6 +11,28 @@ def app_version(request):
     return {"APP_VERSION": APP_VERSION}
 
 
+def input_limits(request):
+    """`limits` — the allowed range of numeric inputs (core.limits), for the
+    HTML min/max/maxlength attributes.
+
+    Strings, not Decimals: a template would localise 250000.00 to
+    "250,000.00", which a number input silently discards.
+    """
+    from core import limits
+
+    return {"limits": {
+        "min_price": str(limits.MIN_PRICE),
+        "max_price": str(limits.MAX_PRICE),
+        "max_amount": str(limits.MAX_AMOUNT),
+        "max_qty": str(limits.MAX_QUANTITY),
+        "max_lead_days": str(limits.MAX_LEAD_TIME_DAYS),
+        "max_name": str(limits.MAX_NAME_LENGTH),
+        "max_barcode": str(limits.MAX_BARCODE_LENGTH),
+        "max_description": str(limits.MAX_DESCRIPTION_LENGTH),
+        "max_note": str(limits.MAX_NOTE_LENGTH),
+    }}
+
+
 def map_config(request):
     """Public attribution text only; provider URLs and keys remain server-side."""
     return {"MAP_TILE_ATTRIBUTION": settings.MAP_TILE_ATTRIBUTION}

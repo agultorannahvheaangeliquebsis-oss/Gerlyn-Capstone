@@ -1,4 +1,5 @@
 from decimal import Decimal
+from core.limits import MAX_PRICE, MAX_QUANTITY, MIN_PRICE
 
 from rest_framework import serializers
 from django.utils import timezone
@@ -115,7 +116,7 @@ class ProductWriteSerializer(serializers.ModelSerializer):
     unit = serializers.CharField(source='unit_of_measure')
     retailPrice = serializers.DecimalField(
         source='unit_price', max_digits=10, decimal_places=2,
-        min_value=Decimal('0.01'),
+        min_value=MIN_PRICE, max_value=MAX_PRICE,
     )
     categoryId = serializers.PrimaryKeyRelatedField(
         source='category', queryset=ProductCategory.objects.all()
@@ -305,7 +306,7 @@ class StockTransferSerializer(serializers.ModelSerializer):
 
 class StockTransferItemWriteSerializer(serializers.Serializer):
     productId = serializers.IntegerField()
-    quantityRequested = serializers.IntegerField(min_value=1)
+    quantityRequested = serializers.IntegerField(min_value=1, max_value=MAX_QUANTITY)
 
 
 class StockTransferWriteSerializer(serializers.Serializer):
@@ -368,7 +369,7 @@ class StockTransferApproveSerializer(serializers.Serializer):
     """
     action = serializers.ChoiceField(choices=['approve', 'reject'])
     items = serializers.DictField(
-        child=serializers.IntegerField(min_value=0), required=False
+        child=serializers.IntegerField(min_value=0, max_value=MAX_QUANTITY), required=False
     )
 
     def validate(self, data):
@@ -385,10 +386,10 @@ class StockTransferAcknowledgeSerializer(serializers.Serializer):
     flagged as Discrepancy instead of Acknowledged (fields already exist
     on the model for exactly this: received_qty, flag_reason, acknowledged_by).
     """
-    receivedQty = serializers.IntegerField(min_value=0)
+    receivedQty = serializers.IntegerField(min_value=0, max_value=MAX_QUANTITY * 100)
     flagReason = serializers.CharField(required=False, allow_blank=True)
     items = serializers.DictField(
-        child=serializers.IntegerField(min_value=0), required=False,
+        child=serializers.IntegerField(min_value=0, max_value=MAX_QUANTITY), required=False,
         help_text='Map each transfer-item id to the quantity actually received.',
     )
 

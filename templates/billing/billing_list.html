@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Billing Records{% endblock %}
 {% block page_subtitle %}Billing{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
@@ -128,4 +129,5 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="billing record" %}
 {% endblock %}

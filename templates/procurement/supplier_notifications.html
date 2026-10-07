@@ -1,4 +1,4 @@
-{% load static %}<!DOCTYPE html>
+{% load static pager %}<!DOCTYPE html>
 <html lang="en">
 <head>
   <link rel="icon" href="{% static 'favicon.ico' %}" sizes="any">
@@ -84,6 +84,7 @@
   <div class="notif-page-list mt-4" id="notifFeed">
     {% include "procurement/_supplier_notification_tray_list.html" %}
   </div>
+  {% pager page_obj noun="notification" %}
 </main>
 
 <script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>

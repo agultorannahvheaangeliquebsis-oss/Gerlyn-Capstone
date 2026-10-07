@@ -14,6 +14,7 @@ from django.core.exceptions import ValidationError
 
 from django.utils import timezone
 
+from core.limits import MAX_AMOUNT, parse_money
 from core.date_validation import validate_today_or_future
 
 from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
@@ -974,12 +975,11 @@ def settle_with_credit(ret, user, *, reference, amount):
     reference = (reference or '').strip()
     if not reference:
         raise ReturnError('Enter the credit note reference.')
-    try:
-        amount = Decimal(str(amount).strip())
-    except (InvalidOperation, ValueError):
-        raise ReturnError('Enter the credit amount as a number.')
-    if not amount.is_finite() or amount <= 0:
-        raise ReturnError('The credit amount must be greater than zero.')
+    amount, amount_error = parse_money(
+        amount, 'The credit amount', maximum=MAX_AMOUNT, round_extra=True,
+    )
+    if amount_error:
+        raise ReturnError(amount_error)
     with transaction.atomic():
         locked = _locked_return(
             ret, SupplierReturn.Status.SHIPPED, action='settled',

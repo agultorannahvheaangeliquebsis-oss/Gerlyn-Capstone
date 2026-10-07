@@ -19,6 +19,8 @@ from django.utils.functional import SimpleLazyObject
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from branches.models import Branch
+from core.limits import MAX_QUANTITY
+from core.pagination import paginate
 from core.context_processors import storefront_categories
 from inventory.alerts import stock_status
 from inventory.models import Inventory, Product, ProductCategory
@@ -57,6 +59,10 @@ NO_SINGLE_BRANCH = (
     'We will not split one order across branches; reduce a quantity or remove '
     'an item and try again.'
 )
+
+
+# Cards per catalog page: divisible by the grid's 2, 3 and 4 column layouts.
+CATALOG_PAGE_SIZE = 12
 
 
 def _no_single_branch_message(resolution):
@@ -436,6 +442,13 @@ def product_catalog(request):
         sort = DEFAULT_SORT
     ordered_rows.sort(key=SORT_OPTIONS[sort]['key'])
 
+    # One screenful of cards at a time. Every filter, search and the sort
+    # above have already narrowed/ordered the whole list, so the page is just
+    # a slice of the final answer; the live-search XHR returns page 1 of
+    # whatever the shopper just typed (it never sends `page`).
+    page = paginate(request, ordered_rows, per_page=CATALOG_PAGE_SIZE)
+    ordered_rows = page.object_list
+
     # Memoised, because both `active_categories` (the breadcrumb) and
     # `active_chips` need it and neither should pay for the other's query.
     # A list rather than a queryset for the same reason: a queryset re-runs
@@ -453,6 +466,7 @@ def product_catalog(request):
 
     context = {
         'rows': ordered_rows,
+        'page_obj': page,
         'branches': branches,
         'selected_branch_id': branch_id,
         # Not ProductCategory.objects.all(): the whole storefront hides its
@@ -521,6 +535,7 @@ def product_catalog(request):
         return JsonResponse({
             'summary_html': render_to_string('partials/catalog_result_summary.html', context, request=request),
             'grid_html': render_to_string('partials/catalog_grid.html', context, request=request),
+            'pager_html': render_to_string('partials/catalog_pager.html', context, request=request),
             'category_html': render_to_string('partials/catalog_category_filter.html', context, request=request),
         })
 
@@ -911,8 +926,11 @@ def add_to_cart(request, product_id):
         qty = int(request.POST.get('quantity', 1) or 1)
     except (TypeError, ValueError):
         qty = 1
-    if qty < 1:
-        error = 'Enter a quantity of at least 1.'
+    if qty < 1 or qty > MAX_QUANTITY:
+        error = (
+            'Enter a quantity of at least 1.' if qty < 1
+            else f'You can add at most {MAX_QUANTITY:,} of an item at a time.'
+        )
         if is_ajax:
             return JsonResponse({'ok': False, 'error': error}, status=409)
         messages.error(request, error)
@@ -1668,8 +1686,11 @@ def my_orders(request):
     if status_filter:
         orders = orders.filter(order_status__in=tab_statuses[status_filter])
 
+    page = paginate(request, orders.order_by('-transaction_date', '-pk'), per_page=10)
+
     return render(request, 'orders/my_orders.html', {
-        'orders': orders,
+        'orders': page.object_list,
+        'page_obj': page,
         'status_filter': status_filter,
         'active_page': 'orders',
     })

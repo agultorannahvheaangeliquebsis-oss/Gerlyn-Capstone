@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load static l10n %}
+{% load static l10n pager %}
 {% block title %}Deliveries{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
@@ -215,6 +215,7 @@ the toolbar is actually narrowed to, not sit frozen on "All Branches".{% endcomm
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="delivery" %}
 
 {% if receive_procurement %}
 {% include "procurement/_receive_modal.html" %}

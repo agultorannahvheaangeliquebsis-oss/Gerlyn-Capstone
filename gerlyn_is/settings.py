@@ -337,6 +337,7 @@ TEMPLATES = [
                 'core.context_processors.active_nav',
                 'core.context_processors.alerts',
                 'core.context_processors.app_version',
+                'core.context_processors.input_limits',
                 'core.context_processors.map_config',
                 'core.context_processors.customer_nav',
                 'core.context_processors.detail_modal',

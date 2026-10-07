@@ -15,6 +15,7 @@ from .validators import clean_reference_number
 from sales.models import Refund, SalesTransaction
 from accounts.models import User
 from branches.models import Branch
+from core.pagination import paginate
 from core.querystrings import list_filter_querystring
 from core.scoping import branch_for_user, scope_queryset, user_can_access_branch
 from core.timebounds import local_range_bounds, range_from_request
@@ -205,8 +206,13 @@ def billing_list(request):
 
     branches = Branch.objects.all() if request.user.role == User.Role.OWNER else []
 
+    # Counts and Outstanding above describe the whole filtered list; only
+    # the table is cut into pages. `-pk` makes the order total.
+    page = paginate(request, records.order_by('-date_recorded', '-pk'))
+
     return render(request, 'billing/billing_list.html', {
-        'records': records,
+        'records': page.object_list,
+        'page_obj': page,
         'counts': counts,
         'status_filter': status_filter,
         'outstanding': outstanding,

@@ -98,7 +98,7 @@
         <label class="sr-only" for="credit-ref">Credit note reference</label>
         <input id="credit-ref" type="text" name="credit_reference" maxlength="60" required placeholder="Credit note ref.">
         <label class="sr-only" for="credit-amt">Amount</label>
-        <input id="credit-amt" type="number" name="credit_amount" min="0.01" step="0.01" required placeholder="Amount (₱)" style="width:110px; text-align:right;">
+        <input id="credit-amt" type="number" name="credit_amount" min="{{ limits.min_price }}" max="{{ limits.max_amount }}" step="0.01" data-currency data-label="Credit amount" required placeholder="Amount (₱)" style="width:110px; text-align:right;">
         <button type="submit" class="btn btn-primary">Record credit</button>
       </form>
       {% endif %}

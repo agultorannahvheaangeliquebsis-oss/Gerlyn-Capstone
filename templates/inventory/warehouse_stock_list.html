@@ -1,5 +1,5 @@
 {% extends 'internal_base.html' %}
-{% load static %}
+{% load static pager %}
 {% block title %}Warehouse Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% comment %}Same pattern as Floor Stock and Product Master List: the topbar
@@ -215,6 +215,7 @@ inventory.alerts.stock_status().
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="stock row" %}
 
 {% if can_edit_reorder %}
 <div class="modal-overlay" id="edit-warehouse-modal">
@@ -241,7 +242,7 @@ inventory.alerts.stock_status().
       </div>
       <div class="field">
         <label for="edit-warehouse-reorder">Warehouse Reorder Level <span style="color:var(--danger-dot);">*</span></label>
-        <input type="number" id="edit-warehouse-reorder" name="reorder_level" min="0" required>
+        <input type="number" id="edit-warehouse-reorder" name="reorder_level" min="0" max="{{ limits.max_qty }}" step="1" data-label="Reorder level" required>
         <p class="gv-meta" style="margin:4px 0 0;">Separate from the floor stock reorder level — changing this does not affect the floor threshold.</p>
       </div>
     </form>
@@ -371,7 +372,7 @@ _warehouse_stock_list_context in inventory/views.py.
                 <td data-label="Category" class="gv-meta">{{ ws.product.category.category_name|default:"—" }}</td>
                 <td class="num" data-label="Available">{{ ws.available_qty }}</td>
                 <td data-label="Request qty">
-                  <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
+                  <input type="number" name="quantity_requested" min="0" max="{{ limits.max_qty }}" step="1" data-label="Quantity requested" value="0" style="width:100px;">
                 </td>
               </tr>
             {% empty %}

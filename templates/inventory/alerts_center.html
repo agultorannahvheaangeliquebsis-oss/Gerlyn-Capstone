@@ -1,4 +1,5 @@
 {% extends 'internal_base.html' %}
+{% load static %}
 {% block title %}Alerts Center{% endblock %}
 {% block page_subtitle %}Alerts{% endblock %}
 {% comment %}
@@ -168,6 +169,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
     </tbody>
   </table>
 </div>
+<div id="pager-floor" class="alert-pager" hidden></div>
 
 <!-- --------------------------------------------------- low WAREHOUSE stock -->
 <div id="panel-warehouse" class="card table-wrap hidden">
@@ -220,6 +222,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
     </tbody>
   </table>
 </div>
+<div id="pager-warehouse" class="alert-pager" hidden></div>
 
 <!-- ------------------------------------------------------------- expired -->
 <div id="panel-expired" class="card table-wrap hidden">
@@ -267,6 +270,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
     </tbody>
   </table>
 </div>
+<div id="pager-expired" class="alert-pager" hidden></div>
 
 {% comment %}
 Confirm-and-remove for one expired Floor Stock row (inventory.views.
@@ -340,6 +344,7 @@ Product Master List's image-delete confirm).
     </tbody>
   </table>
 </div>
+<div id="pager-soon" class="alert-pager" hidden></div>
 
 <!-- ----------------------------------------------------- approaching expiry -->
 <div id="panel-approaching" class="card table-wrap hidden">
@@ -382,15 +387,36 @@ Product Master List's image-delete confirm).
     </tbody>
   </table>
 </div>
+<div id="pager-approaching" class="alert-pager" hidden></div>
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/client-pager.js' %}"></script>
 <script>
   var ALERT_PANELS = ['floor', 'warehouse', 'expired', 'soon', 'approaching'];
+
+  // Each tab's table is cut into pages in the browser (the tabs themselves
+  // are client-side panel toggles, not query params). A panel's pager is
+  // only shown while its own tab is open.
+  ALERT_PANELS.forEach(function (p) {
+    GerlynClientPager.attach({
+      // The "Nothing needs restocking" row is not an alert — leave it out.
+      rows: function () {
+        return Array.prototype.filter.call(
+          document.querySelectorAll('#panel-' + p + ' tbody > tr'),
+          function (tr) { return !tr.querySelector('.empty'); }
+        );
+      },
+      mount: document.getElementById('pager-' + p),
+      size: 10,
+      noun: 'alert'
+    });
+  });
 
   function showTab(which) {
     ALERT_PANELS.forEach(function (p) {
       document.getElementById('panel-' + p).classList.toggle('hidden', which !== p);
+      document.getElementById('pager-' + p).hidden = which !== p;
       document.getElementById('tab-' + p).classList.toggle('active', which === p);
     });
   }

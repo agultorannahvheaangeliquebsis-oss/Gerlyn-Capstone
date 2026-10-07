@@ -42,14 +42,14 @@ stored, so the same expression falls through to empty.
 
       <div class="field">
         <label for="{{ which }}-supplier-name">Supplier Name</label>
-        <input id="{{ which }}-supplier-name" type="text" name="supplier_name" required
+        <input id="{{ which }}-supplier-name" type="text" name="supplier_name" maxlength="100" data-label="Supplier name" required
                value="{% firstof form_data.supplier_name profile.supplier_name '' %}"
                placeholder="Century Pacific Food Inc.">
       </div>
 
       <div class="field">
         <label for="{{ which }}-supplier-username">Username <span class="gv-meta">— used if the supplier logs in to see their orders</span></label>
-        <input id="{{ which }}-supplier-username" type="text" name="username" required
+        <input id="{{ which }}-supplier-username" type="text" name="username" maxlength="150" data-label="Username" required
                value="{% firstof form_data.username supplier.username '' %}"
                placeholder="centurypacific">
       </div>
@@ -57,13 +57,13 @@ stored, so the same expression falls through to empty.
       <div class="grid-2">
         <div class="field">
           <label for="{{ which }}-supplier-contact-person">Contact Person</label>
-          <input id="{{ which }}-supplier-contact-person" type="text" name="contact_person"
+          <input id="{{ which }}-supplier-contact-person" type="text" name="contact_person" maxlength="100" data-label="Contact person"
                  value="{% firstof form_data.contact_person profile.contact_person '' %}"
                  placeholder="Ricardo Buenaventura">
         </div>
         <div class="field">
           <label for="{{ which }}-supplier-contact-number">Contact Number</label>
-          <input id="{{ which }}-supplier-contact-number" type="text" name="contact_number"
+          <input id="{{ which }}-supplier-contact-number" type="text" name="contact_number" maxlength="20" data-label="Contact number"
                  value="{% firstof form_data.contact_number profile.contact_number '' %}"
                  placeholder="0917-123-4567">
         </div>
@@ -86,7 +86,7 @@ stored, so the same expression falls through to empty.
         </div>
         <div class="field">
           <label for="{{ which }}-supplier-email">Email</label>
-          <input id="{{ which }}-supplier-email" type="email" name="email"
+          <input id="{{ which }}-supplier-email" type="email" name="email" maxlength="254" data-label="Email"
                  value="{% firstof form_data.email supplier.email '' %}"
                  placeholder="sales@supplier.com.ph">
         </div>
@@ -118,7 +118,7 @@ stored, so the same expression falls through to empty.
 
       <div class="field">
         <label for="{{ which }}-supplier-address">Address</label>
-        <textarea id="{{ which }}-supplier-address" name="address" rows="2"
+        <textarea id="{{ which }}-supplier-address" name="address" rows="2" maxlength="{{ limits.max_note }}" data-label="Address"
                   placeholder="Laguna Technical Park, Biñan">{% firstof form_data.address profile.address '' %}</textarea>
       </div>
     </form>

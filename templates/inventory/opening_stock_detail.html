@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Opening Stock Import #{{ import_batch.pk }}{% endblock %}
 {% block page_subtitle %}Inventory Migration{% endblock %}
 {% block content %}
@@ -41,6 +42,7 @@
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="row" %}
 
 {% if import_batch.status == 'Committed' %}
 <div class="card mt-4" style="max-width:760px;">

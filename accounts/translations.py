@@ -15,6 +15,10 @@ TRANSLATIONS = {
     'fil': {
         # ── Header / nav ──────────────────────────────────────────────
         'Home': 'Home',
+        'Previous': 'Nakaraan',
+        'Next': 'Susunod',
+        'Showing': 'Ipinapakita',
+        'of': 'sa',
         'Products': 'Mga Produkto',
         'Cart': 'Cart',
         'Log in': 'Mag-log In',

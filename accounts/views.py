@@ -25,6 +25,7 @@ from .role_policy import USER_MANAGEMENT_ROLE_CHOICES, USER_MANAGEMENT_ROLES
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
 )
+from core.pagination import paginate
 from core.module_permissions import (
     ALL_MODULE_CODES, MODULE_PERMISSION_REGISTRY, WRITE_ACTIONS, permission_rows,
     role_permission_defaults, role_permission_defaults_for_ui,
@@ -381,8 +382,9 @@ def _user_list_context(request):
             Q(supplier_profile__branch_id=branch_filter)
         )
 
+    page = paginate(request, users)
     rows = []
-    for u in users:
+    for u in page.object_list:
         profile = _profile_for(u)
         branch = getattr(profile, 'branch', None) if profile else None
         rows.append({
@@ -397,6 +399,7 @@ def _user_list_context(request):
     branches = Branch.objects.all()
     return {
         'rows': rows,
+        'page_obj': page,
         'search_query': search_query,
         'role_filter': role_filter,
         'branch_filter': branch_filter,
@@ -517,6 +520,18 @@ def user_form(request, pk=None):
     errors = []
     if not username or role not in USER_MANAGEMENT_ROLES:
         errors.append('A username and a valid role are required.')
+    # Column sizes: User.username/first_name/last_name are 150, and the role
+    # profiles' display name (first + last) is a 100-character column.
+    if len(username) > 150:
+        errors.append('Username cannot be longer than 150 characters.')
+    if len(f'{first_name} {last_name}'.strip()) > 100:
+        errors.append('First and last name together cannot be longer than 100 characters.')
+    submitted_email = request.POST.get('email', '').strip()
+    if submitted_email:
+        try:
+            validate_email(submitted_email)
+        except ValidationError:
+            errors.append('Enter a valid email address.')
 
     if password:
         try:
@@ -846,8 +861,9 @@ def customer_list(request):
             Q(customer_profile__last_name__icontains=search_query)
         )
 
+    page = paginate(request, customers)
     rows = []
-    for u in customers:
+    for u in page.object_list:
         profile = getattr(u, 'customer_profile', None)
         rows.append({
             'user': u,
@@ -858,6 +874,7 @@ def customer_list(request):
 
     return render(request, 'accounts/customer_list.html', {
         'rows': rows,
+        'page_obj': page,
         'search_query': search_query,
         'active_count': customers.filter(is_active=True).count(),
     })
@@ -1712,9 +1729,11 @@ def notifications_view(request):
         return redirect('supplier_notifications')
 
     prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
+    page = paginate(request, notifications.order_by('-created_at', '-pk'), per_page=10)
     return render(request, 'accounts/notifications.html', {
-        'notifications': notifications,
-        'unread_count': sum(1 for n in notifications if not n.is_read),
+        'notifications': page.object_list,
+        'page_obj': page,
+        'unread_count': notifications.filter(is_read=False).count(),
         'pref_rows': [
             {'field': f, 'label': label, 'sub': sub, 'on': getattr(prefs, f)}
             for f, label, sub in NOTIFICATION_PREFERENCE_ROWS

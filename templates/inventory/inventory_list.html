@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load static %}
+{% load static pager %}
 {% block title %}Floor Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% elif active_branch %}{{ active_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
@@ -203,7 +203,7 @@ across the full width leave the default block padding as empty card.
   </div>
 </div>
 
-<form method="GET" class="toolbar toolbar-search" data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
+<form method="GET" class="toolbar toolbar-search" data-server-search data-live-filter="#inventory-table tbody tr[data-filter-text]" data-filter-empty-target="#inventory-no-matches">
   {% comment %}The top-bar branch switcher sets ?branch=; this form has no
   branch control of its own, so it carries the active branch through as a
   hidden field, or a category/status change would reset the list to all
@@ -324,6 +324,7 @@ across the full width leave the default block padding as empty card.
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="stock row" %}
 
 {% if can_adjust %}
 <div class="modal-overlay{% if show_adjust_modal %} is-open{% endif %}" id="adjust-modal" data-autoopen="{% if show_adjust_modal %}1{% else %}0{% endif %}">
@@ -399,7 +400,7 @@ across the full width leave the default block padding as empty card.
         </div>
         <div class="field">
           <label for="adjust-counted-quantity">Counted Quantity <span style="color:var(--danger-dot);">*</span></label>
-          <input type="number" id="adjust-counted-quantity" name="counted_quantity" min="0"
+          <input type="number" id="adjust-counted-quantity" name="counted_quantity" min="0" max="{{ limits.max_qty }}" step="1" data-label="Counted quantity"
                  value="{{ adjust_form_data.counted_quantity|default:'' }}" required>
         </div>
       </div>
@@ -457,7 +458,7 @@ across the full width leave the default block padding as empty card.
       </div>
       <div class="field">
         <label for="edit-inventory-reorder">Reorder Level <span style="color:var(--danger-dot);">*</span></label>
-        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0" required>
+        <input type="number" id="edit-inventory-reorder" name="reorder_level" min="0" max="{{ limits.max_qty }}" step="1" data-label="Reorder level" required>
         <p class="gv-meta" style="margin:4px 0 0;">When quantity on hand drops to or below this, the row is flagged Critical.</p>
       </div>
     </form>

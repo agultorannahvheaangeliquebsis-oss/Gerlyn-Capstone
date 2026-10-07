@@ -19,6 +19,11 @@ from billing.models import BillingRecord
 from billing.validators import clean_reference_number
 from billing.views import payment_methods_for_channel
 from branches.models import Branch
+from core.limits import (
+    MAX_AMOUNT, MAX_NAME_LENGTH, MAX_QUANTITY, parse_money, parse_quantity, parse_text,
+    peso,
+)
+from core.pagination import paginate
 from core.people import person_display_name
 from core.permissions import BRANCH_MANAGER, INTERNAL_ROLES, OWNER, STAFF, role_required
 from core.module_permissions import (
@@ -67,6 +72,9 @@ def _pos_discount_choices():
 # unassigned Staff/Manager collapse to that same None handed them the Owner's
 # every-branch selector and skipped the posted-branch access check.
 POS_BRANCH_UNASSIGNED = object()
+
+# Mirrors SalesTransaction.discount_id_number's max_length.
+DISCOUNT_ID_MAX_LENGTH = 50
 
 # The only payment methods the Walk-in Sale form actually offers (see
 # _pos_context.pos_payment_choices below). Shared with transaction_add's
@@ -275,6 +283,10 @@ def _transaction_list_context(request):
     channel_filter = request.GET.get('channel', '')
     branch_filter = request.GET.get('branch', '')
     fulfillment_filter = request.GET.get('fulfillment', '')
+    # A branch id is a number; anything else (a hand-edited URL) would raise
+    # ValueError inside the ORM instead of just matching nothing.
+    if branch_filter and not branch_filter.isdigit():
+        branch_filter = ''
 
     if search_query:
         transactions = transactions.filter(
@@ -325,8 +337,13 @@ def _transaction_list_context(request):
 
     over_committed_ids, over_committed_count = _over_committed_order_ids(request.user)
 
+    # Tab counts above are for the whole filtered list; only the table is
+    # paged. `-pk` breaks ties so a page boundary never repeats a row.
+    page = paginate(request, transactions.order_by('-transaction_date', '-pk'))
+
     context = {
-        'transactions': transactions,
+        'transactions': page.object_list,
+        'page_obj': page,
         'counts': counts,
         'search_query': search_query,
         'status_filter': status_filter,
@@ -613,8 +630,9 @@ def pos_sales_import_history(request):
         request.user.role in [OWNER, BRANCH_MANAGER]
         and user_can_perform_module_action(request.user, SALES_POS, DELETE)
     )
+    page = paginate(request, imports.order_by('-imported_at', '-pk'))
     return render(request, 'sales/pos_import_history.html', {
-        'imports': imports, 'can_undo': can_undo,
+        'imports': page.object_list, 'page_obj': page, 'can_undo': can_undo,
         **_pos_import_modal_context(request),
     })
 
@@ -1758,7 +1776,8 @@ def _refund_request_from_post(post):
         qty_raw = post.get(f'quantity_{raw_id}', '').strip()
         lines.append({
             'item_id': int(raw_id) if raw_id.isdigit() else None,
-            'quantity': int(qty_raw) if qty_raw.isdigit() else None,
+            # len() bound: int() of a thousands-of-digits string raises ValueError.
+            'quantity': int(qty_raw) if qty_raw.isdigit() and len(qty_raw) <= 9 else None,
             'condition': post.get(f'condition_{raw_id}', ''),
         })
     conditions = {
@@ -1785,6 +1804,12 @@ def transaction_refund(request, pk):
         return redirect('transaction_detail', pk=pk)
 
     lines, refund_all, conditions = _refund_request_from_post(request.POST)
+    _reason, reason_error = parse_text(
+        request.POST.get('reason'), 'Reason', max_length=255,
+    )
+    if reason_error:
+        messages.error(request, reason_error)
+        return redirect('transaction_detail', pk=pk)
     try:
         outcome = refund_service.request_refund(
             pk, request.user,
@@ -1964,19 +1989,14 @@ def transaction_add(request):
     # so the field is parsed but required (below) only when Cash is chosen.
     amount_tendered_raw = (request.POST.get('amount_tendered') or '').strip()
     amount_tendered = None
+    amount_tendered_error = None
     if mode_of_payment == SalesTransaction.ModeOfPayment.CASH and amount_tendered_raw:
-        try:
-            amount_tendered = Decimal(amount_tendered_raw)
-            # Decimal("NaN") and Decimal("Infinity") both parse without
-            # raising InvalidOperation — they are valid IEEE-754-style
-            # Decimal values, just not finite ones. Left unchecked, either
-            # crashes the change-due arithmetic below with a 500 instead of
-            # the plain "must be a number" validation error every other bad
-            # value in this field already gets.
-            if not amount_tendered.is_finite():
-                amount_tendered = None
-        except InvalidOperation:
-            amount_tendered = None
+        # parse_money refuses NaN/Infinity (which Decimal() itself accepts and
+        # which would crash the change-due arithmetic below), non-positive
+        # amounts, more than two decimal places, and anything over MAX_AMOUNT.
+        amount_tendered, amount_tendered_error = parse_money(
+            amount_tendered_raw, 'Amount tendered', maximum=MAX_AMOUNT,
+        )
 
     line_items = []
     # Rows with a product but a bad quantity (blank, non-digit, zero) used to
@@ -1985,13 +2005,19 @@ def transaction_add(request):
     # separately so a per-row error can name what was dropped, the same way
     # the "no longer available" check just below already does per row.
     dropped_pids = []
+    over_limit_error = None
     for pid, q in zip(product_ids, quantities):
         if not pid:
             continue
-        if q and q.isdigit() and int(q) > 0:
-            line_items.append((pid, int(q)))
+        quantity, quantity_error = parse_quantity(q, 'Quantity', minimum=1)
+        if quantity_error is None and quantity is not None:
+            line_items.append((pid, quantity))
         else:
             dropped_pids.append(pid)
+            if quantity_error and 'more than' in quantity_error:
+                over_limit_error = (
+                    f'A line quantity cannot be more than {MAX_QUANTITY:,}.'
+                )
 
     # --- PWD / Senior Citizen discount ------------------------------------
     # Claimed once for the sale. The ID number is not optional: the statutory
@@ -2045,6 +2071,8 @@ def transaction_add(request):
     # — see the two checks above and the race-closing recheck below.
     if receipt_reference and len(receipt_reference) > 100:
         errors.append('Receipt/reference number cannot exceed 100 characters.')
+    if over_limit_error:
+        errors.append(over_limit_error)
     if not line_items:
         errors.append('Add at least one item with a quantity.')
     if dropped_pids:
@@ -2084,11 +2112,15 @@ def transaction_add(request):
         )
     if discount_claimed and not discount_holder_name:
         errors.append(f'Enter the name on the {discount_type} ID.')
+    if len(discount_id_number) > DISCOUNT_ID_MAX_LENGTH:
+        errors.append(f'The ID number cannot be longer than {DISCOUNT_ID_MAX_LENGTH} characters.')
+    if len(discount_holder_name) > MAX_NAME_LENGTH:
+        errors.append(f'The name on the ID cannot be longer than {MAX_NAME_LENGTH} characters.')
     if mode_of_payment == SalesTransaction.ModeOfPayment.CASH:
         if not amount_tendered_raw:
             errors.append('Enter the amount tendered for this cash sale.')
-        elif amount_tendered is None:
-            errors.append('Amount tendered must be a number.')
+        elif amount_tendered_error:
+            errors.append(amount_tendered_error)
 
     # Anything the chosen method does not need is dropped rather than stored:
     # a reference typed before switching to Cash must not ride along onto a
@@ -2165,12 +2197,20 @@ def transaction_add(request):
 
         priced = price_cart(cart_lines, discount_type=discount_type)
         total = priced['total_amount']
+        if total > MAX_AMOUNT:
+            errors.append(
+                f'This sale comes to {peso(total)}, which is more than the '
+                f'{peso(MAX_AMOUNT)} one sale can be. Split it into two sales.'
+            )
 
         # Now that the total is known: a Cash sale can't tender less than
         # what's due. Checked here rather than up front — total isn't known
         # until the cart is priced.
         change_amount = None
-        if mode_of_payment == SalesTransaction.ModeOfPayment.CASH and amount_tendered is not None:
+        if (
+            mode_of_payment == SalesTransaction.ModeOfPayment.CASH
+            and amount_tendered is not None and not errors
+        ):
             if amount_tendered < total:
                 errors.append(
                     f'Amount tendered (₱{amount_tendered}) is less than the amount due (₱{total}).'

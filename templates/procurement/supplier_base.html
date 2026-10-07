@@ -628,7 +628,7 @@ new product" flow, its own focused modal below).
                 <form method="POST" action="{% url 'supplier_set_product_cost' link.pk %}" id="cost-{{ link.pk|unlocalize }}">
                   {% csrf_token %}
                   <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                  <input type="number" name="current_cost_price" min="0" step="0.01" required
+                  <input type="number" name="current_cost_price" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" required
                          value="{{ link.current_cost_price|default_if_none:''|unlocalize }}"
                          aria-label="Current unit cost for {{ link.product.product_name }}"
                          class="sp-pp-price-input">
@@ -731,11 +731,11 @@ version used. Opened from the "Products & pricing" modal's toolbar button.
         <div class="row wrap" style="gap:12px;">
           <div class="field" style="margin:0;">
             <label for="add-cost">Your unit cost (₱)</label>
-            <input id="add-cost" type="number" name="current_cost_price" min="0.01" step="0.01" required style="width:130px; text-align:right;">
+            <input id="add-cost" type="number" name="current_cost_price" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" required style="width:130px; text-align:right;">
           </div>
           <div class="field" style="margin:0;">
             <label for="add-lead">Lead time (days)</label>
-            <input id="add-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
+            <input id="add-lead" type="number" name="lead_time_days" min="0" max="{{ limits.max_lead_days }}" step="1" data-label="Lead time" style="width:110px; text-align:right;">
           </div>
         </div>
         <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Offer</button>
@@ -768,16 +768,16 @@ version used. Opened from the "Products & pricing" modal's toolbar button.
             </div>
             <div class="field" style="margin:0;">
               <label for="req-cost">Your unit cost (₱)</label>
-              <input id="req-cost" type="number" name="proposed_cost" min="0.01" step="0.01" required style="width:130px; text-align:right;">
+              <input id="req-cost" type="number" name="proposed_cost" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Proposed cost" required style="width:130px; text-align:right;">
             </div>
             <div class="field" style="margin:0;">
               <label for="req-lead">Lead time (days)</label>
-              <input id="req-lead" type="number" name="lead_time_days" min="0" step="1" style="width:110px; text-align:right;">
+              <input id="req-lead" type="number" name="lead_time_days" min="0" max="{{ limits.max_lead_days }}" step="1" data-label="Lead time" style="width:110px; text-align:right;">
             </div>
           </div>
           <div class="field" style="margin:0;">
             <label for="req-note">Details <span class="gv-meta">— optional</span></label>
-            <input id="req-note" type="text" name="note" maxlength="300" placeholder="Brand, size, pack…">
+            <input id="req-note" type="text" name="note" maxlength="300" data-label="Note" placeholder="Brand, size, pack…">
           </div>
           <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Send request</button>
         </form>
@@ -787,6 +787,7 @@ version used. Opened from the "Products & pricing" modal's toolbar button.
 </div>
 
 <script src="{% static 'js/notification-tray.js' %}"></script>
+<script src="{% static 'js/input-limits.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
 <script>

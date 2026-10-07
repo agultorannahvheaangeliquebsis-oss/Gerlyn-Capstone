@@ -1,4 +1,5 @@
 {% extends 'internal_base.html' %}
+{% load pager %}
 {% block title %}{% if active_view == 'writeoffs' %}Write-offs{% elif active_view == 'history' %}Stock History{% else %}Stock Transfers{% endif %}{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock and Product Master
@@ -232,7 +233,7 @@ across the full width leave the default block padding as empty card.
   {% if pending_approval and can_approve and module_actions.withdrawals.edit %}
   <div class="card card-pad mb-4">
     <h3 class="mb-4">Waiting on a branch to approve</h3>
-    {% for t in stock_transfers %}{% if t.status == 'Pending' %}
+    {% for t in approval_queue %}
       <div class="ack-row">
         <div class="ack-slip">
           <span class="sku strong">{{ t.slip_number }}</span>
@@ -241,7 +242,7 @@ across the full width leave the default block padding as empty card.
         </div>
         <a class="btn btn-primary btn-sm" href="{% url 'transfer_approve' t.pk %}">Review &amp; Approve</a>
       </div>
-    {% endif %}{% endfor %}
+    {% endfor %}
   </div>
   {% endif %}
 
@@ -253,7 +254,7 @@ across the full width leave the default block padding as empty card.
   {% endcomment %}
   <div class="card card-pad mb-4">
     <h3 class="mb-4">Waiting on a branch to confirm receipt</h3>
-    {% for t in stock_transfers %}{% if t.status == 'Released' %}
+    {% for t in receipt_queue %}
       <div class="ack-row">
         <div class="ack-slip">
           <span class="sku strong">{{ t.slip_number }}</span>
@@ -262,7 +263,7 @@ across the full width leave the default block padding as empty card.
         </div>
         <a class="btn btn-primary btn-sm" href="{% url 'transfer_detail' t.pk %}">Confirm Received on Floor</a>
       </div>
-    {% endif %}{% endfor %}
+    {% endfor %}
   </div>
   {% endif %}
 
@@ -321,6 +322,7 @@ across the full width leave the default block padding as empty card.
       </tbody>
     </table>
   </div>
+  {% pager page_obj noun="slip" %}
 </div>{% endif %}
 
 <!-- ------------------------------------------------------- write-offs view -->
@@ -349,7 +351,8 @@ across the full width leave the default block padding as empty card.
       {% endfor %}
     </tbody>
   </table>
-</div>{% endif %}
+</div>
+{% if active_view == 'writeoffs' %}{% pager page_obj noun="write-off" %}{% endif %}{% endif %}
 
 <!-- ------------------------------------------------------- history view -->
 {% if active_view == 'history' %}<div id="panel-history" class="card table-wrap">
@@ -389,7 +392,8 @@ across the full width leave the default block padding as empty card.
       {% endfor %}
     </tbody>
   </table>
-</div>{% endif %}
+</div>
+{% if active_view == 'history' %}{% pager page_obj noun="movement" %}{% endif %}{% endif %}
 
 {% comment %}
 Same shell/two-body pattern as Warehouse Stock's "Request Stock to Floor"
@@ -466,7 +470,7 @@ _transfer_list_context in inventory/views.py.
                 <td data-label="Category" class="gv-meta">{{ inv.product.category.category_name|default:"—" }}</td>
                 <td class="num" data-label="On Hand">{{ inv.quantity_on_hand }}</td>
                 <td data-label="Quantity to Remove">
-                  <input type="number" name="quantity_requested" min="0" value="0" style="width:100px;">
+                  <input type="number" name="quantity_requested" min="0" max="{{ limits.max_qty }}" step="1" data-label="Quantity" value="0" style="width:100px;">
                 </td>
               </tr>
             {% empty %}

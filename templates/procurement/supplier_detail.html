@@ -232,7 +232,7 @@ Owner-only controls; a Manager sees what is pending, read-only.
       {% csrf_token %}
       <div class="field">
         <label for="rq-price-{{ req.pk|unlocalize }}">Retail price (₱)</label>
-        <input id="rq-price-{{ req.pk|unlocalize }}" type="number" name="unit_price" min="0.01" step="0.01"
+        <input id="rq-price-{{ req.pk|unlocalize }}" type="number" name="unit_price" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Retail price"
                class="sd-review-price">
       </div>
       <div class="field">
@@ -455,7 +455,7 @@ submit the transfer instead. Each button references its form by id.
       <p class="gv-meta">The supplier will set this product's current cost in their portal.</p>
       <div class="field">
         <label for="add-product-lead">Lead Time (days) <span class="gv-meta">— optional</span></label>
-        <input id="add-product-lead" type="number" name="lead_time_days" min="0" placeholder="7">
+        <input id="add-product-lead" type="number" name="lead_time_days" min="0" max="{{ limits.max_lead_days }}" step="1" data-label="Lead time" placeholder="7">
       </div>
       <label class="row" style="gap:8px; align-items:center;">
         <input type="checkbox" name="is_preferred" value="1">

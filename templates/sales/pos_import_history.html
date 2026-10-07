@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}ZANK POS Import History{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% block content %}
@@ -26,6 +27,7 @@
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="import" %}
 
 {% if can_import_pos %}{% include "sales/_pos_import_modal.html" %}{% endif %}
 {% endblock %}

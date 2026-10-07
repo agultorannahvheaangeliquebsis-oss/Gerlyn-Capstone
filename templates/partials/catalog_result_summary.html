@@ -10,5 +10,5 @@ shelves the grid below is showing. It is NOT selected_branch_id: that is the
 cart's shopping branch, which the rail's browse filter no longer changes, so
 the two can now point at different branches.
 {% endcomment %}
-<span id="result-count">{{ rows|length }}</span> of {{ total_count }} item{{ total_count|pluralize }}
+<span id="result-count">{{ page_obj.paginator.count }}</span> of {{ total_count }} item{{ total_count|pluralize }}
 {% if summary_branch %}at {{ summary_branch.branch_name }}{% endif %}

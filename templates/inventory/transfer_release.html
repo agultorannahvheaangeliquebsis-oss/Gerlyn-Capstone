@@ -132,7 +132,7 @@ authorised), so it should not be a second thing to learn.
           <td data-label="Requested" class="num">{{ item.quantity_requested }}</td>
           <td data-label="Approved" class="num strong">{{ item.quantity_approved }}</td>
           <td data-label="Picked" class="num">
-            <input type="number" name="quantity_released" min="0" class="qty-input"
+            <input type="number" name="quantity_released" min="0" step="1" data-label="Picked quantity" class="qty-input"
                    max="{{ item.quantity_approved|unlocalize }}"
                    value="{{ item.quantity_approved|unlocalize }}"
                    style="max-width:120px; margin-left:auto;">

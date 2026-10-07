@@ -1,7 +1,8 @@
 
 from decimal import Decimal
 
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
+from core.limits import MAX_AMOUNT, MAX_LEAD_TIME_DAYS, price_validators
 from django.db import models
 from django.utils import timezone
 from branches.models import Branch
@@ -363,7 +364,7 @@ class ProcurementItem(models.Model):
     unit_cost_snapshot = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
         editable=False,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=price_validators(),
         help_text='Supplier cost copied when this purchase order is confirmed. '
                   'Null until then; once set it must be greater than zero.',
     )
@@ -376,7 +377,7 @@ class ProcurementItem(models.Model):
     # procurement.views.procurement_supplier_confirm.
     proposed_unit_cost = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=price_validators(),
         help_text='Cost currently on the table for this line. Null until a '
                   'proposal exists; once set it must be greater than zero.',
     )
@@ -499,13 +500,14 @@ class SupplierProduct(models.Model):
     )
     current_cost_price = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=price_validators(),
         help_text='Supplier current cost, copied when a PO is confirmed. '
                   'Null until the supplier sets one; once set it must be '
                   'greater than zero.'
     )
     lead_time_days = models.PositiveIntegerField(
         null=True, blank=True,
+        validators=[MaxValueValidator(MAX_LEAD_TIME_DAYS)],
         help_text="Typical days from order to delivery"
     )
     is_preferred = models.BooleanField(
@@ -583,9 +585,11 @@ class SupplierProductRequest(models.Model):
     )
     proposed_cost = models.DecimalField(
         max_digits=10, decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=price_validators(),
     )
-    lead_time_days = models.PositiveIntegerField(null=True, blank=True)
+    lead_time_days = models.PositiveIntegerField(
+        null=True, blank=True, validators=[MaxValueValidator(MAX_LEAD_TIME_DAYS)],
+    )
     note = models.CharField(max_length=300, blank=True)
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.PENDING,
@@ -824,7 +828,7 @@ class SupplierReturn(models.Model):
     credit_reference = models.CharField(max_length=60, blank=True)
     credit_amount = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=price_validators(maximum=MAX_AMOUNT),
     )
     settled_at = models.DateTimeField(null=True, blank=True)
     settled_by = models.ForeignKey(

@@ -3124,3 +3124,25 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .audit-what { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
 .audit-what-text { flex: 1 1 240px; }
 .audit-what .icon-btn { flex: none; }
+
+/* ------------------------------------------------------------- pagination */
+/* Drawn by templates/partials/_pager.html. Count on the left, buttons on the
+   right; below 600px they stack and the numbered pages wrap instead of
+   forcing the page wider. */
+.gv-pager {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px 16px; margin-top: 16px;
+}
+.gv-pager-count { margin: 0; }
+.gv-pager-pages {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  list-style: none; margin: 0; padding: 0;
+}
+.gv-pager-num { min-width: 36px; justify-content: center; padding: 0 8px; }
+.gv-pager-gap { padding: 0 2px; color: var(--ink-500); }
+@media (max-width: 600px) {
+  .gv-pager { flex-direction: column; align-items: stretch; text-align: center; }
+  .gv-pager-pages { justify-content: center; }
+}
+/* Rows outside the current page of a client-side pager (static/js/client-pager.js). */
+[data-page-hidden] { display: none !important; }

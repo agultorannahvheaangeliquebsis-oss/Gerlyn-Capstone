@@ -1,0 +1,21 @@
+{% comment %}
+  Drawn by {% pager page_obj noun="..." %} (core/templatetags/pager.py).
+  Always shows the "Showing x–y of n" line; the buttons only when there is
+  more than one page.
+{% endcomment %}
+{% if page_obj.paginator.count %}
+<nav class="gv-pager" aria-label="Pagination">
+  <p class="gv-pager-count gv-meta">{{ labels.showing }} {{ page_obj.start_index }}–{{ page_obj.end_index }} {{ labels.of }} {{ page_obj.paginator.count }} {{ noun_label }}</p>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <ul class="gv-pager-pages">
+    <li>{% if page_obj.has_previous %}<a class="btn btn-sm" rel="prev" href="?{{ base_query }}{{ param }}={{ page_obj.previous_page_number }}">{{ labels.previous }}</a>{% else %}<span class="btn btn-sm" aria-disabled="true" disabled>{{ labels.previous }}</span>{% endif %}</li>
+    {% for n in window %}
+      {% if n is None %}<li class="gv-pager-gap" aria-hidden="true">…</li>
+      {% elif n == page_obj.number %}<li><span class="btn btn-sm btn-primary gv-pager-num" aria-current="page">{{ n }}</span></li>
+      {% else %}<li><a class="btn btn-sm gv-pager-num" href="?{{ base_query }}{{ param }}={{ n }}" aria-label="Page {{ n }}">{{ n }}</a></li>{% endif %}
+    {% endfor %}
+    <li>{% if page_obj.has_next %}<a class="btn btn-sm" rel="next" href="?{{ base_query }}{{ param }}={{ page_obj.next_page_number }}">{{ labels.next }}</a>{% else %}<span class="btn btn-sm" aria-disabled="true" disabled>{{ labels.next }}</span>{% endif %}</li>
+  </ul>
+  {% endif %}
+</nav>
+{% endif %}

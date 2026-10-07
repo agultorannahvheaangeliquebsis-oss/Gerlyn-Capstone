@@ -63,7 +63,7 @@ back to after POSTing — see _supplier_next_redirect in procurement/views.py).
           <tr>
             <td>{{ item.product.product_name }}</td>
             <td class="num">{{ item.quantity_ordered }}</td>
-            <td class="num"><input type="number" step="0.01" min="0.01" name="unit_cost_{{ item.pk }}" required></td>
+            <td class="num"><input type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" name="unit_cost_{{ item.pk }}" required></td>
           </tr>
           {% endif %}
         {% endfor %}

@@ -204,7 +204,7 @@ only a genuinely missing supplier or product list blocks this form.
           </div>
           <div class="field field-qty">
             <label class="po-row-label">Quantity</label>
-            <input type="number" name="quantity_ordered" class="js-qty" min="1" value="1" required oninput="poRecalc()">
+            <input type="number" name="quantity_ordered" class="js-qty" min="1" max="{{ limits.max_qty }}" step="1" data-label="Quantity" value="1" required oninput="poRecalc()">
           </div>
           <div class="field field-cost">
             <label class="po-row-label">Supplier Unit Cost</label>

@@ -20,6 +20,7 @@ from inventory.alerts import EXPIRING_SOON_DAYS, _expiry_tier, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
+from core.pagination import paginate
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset
 from core.permissions import management_report_required
 from core.timebounds import (
@@ -3161,8 +3162,12 @@ def billing_report(request):
         completed_records, total_revenue, refunds_by_transaction
     )
 
+    # Every figure above comes from the full `records`; only the table is paged.
+    page = paginate(request, records)
+
     return render(request, 'reports/billing_report.html', {
-        'records': records,
+        'records': page.object_list,
+        'page_obj': page,
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
@@ -3232,8 +3237,12 @@ def sales_report(request):
     )
     totals = sales_range_totals(transactions)
 
+    # `totals` is computed from the whole range; only the table is paged.
+    page = paginate(request, transactions.order_by('-transaction_date', '-pk'))
+
     return render(request, 'reports/sales_report.html', {
-        'transactions': transactions,
+        'transactions': page.object_list,
+        'page_obj': page,
         'totals': totals,
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
@@ -3291,8 +3300,15 @@ def inventory_report(request):
     non_performing_branch_ids = [int(branch_filter)] if branch_filter else branch_ids
     non_performing_rows = _non_performing_products(non_performing_branch_ids)
 
+    # KPIs, the branch summary and the chart use the full lists; the two
+    # detail tables are paged independently (own ?page / ?np_page).
+    page = paginate(request, records)
+    np_page = paginate(request, non_performing_rows, param='np_page')
+
     return render(request, 'reports/inventory_report.html', {
-        'inventory_records': records,
+        'inventory_records': page.object_list,
+        'page_obj': page,
+        'np_page_obj': np_page,
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,
@@ -3308,7 +3324,7 @@ def inventory_report(request):
         'product_lines': product_lines,
         'branch_summary': branch_summary,
         'chart': chart,
-        'non_performing_rows': non_performing_rows,
+        'non_performing_rows': np_page.object_list,
         'non_performing_window_days': NON_PERFORMING_SALES_WINDOW_DAYS,
         'user_branch': user_branch,
         'active_page': 'reports',
@@ -3401,8 +3417,12 @@ def procurement_report(request):
     for p in records:
         status_counts[p.status] = status_counts.get(p.status, 0) + 1
 
+    # Totals and the status chart use the full `records`; only the table is paged.
+    page = paginate(request, records)
+
     return render(request, 'reports/procurement.html', {
-        'procurements': records,
+        'procurements': page.object_list,
+        'page_obj': page,
         'branches': Branch.objects.all() if show_branch_filter else [],
         'show_branch_filter': show_branch_filter,
         'branch_filter': branch_filter,

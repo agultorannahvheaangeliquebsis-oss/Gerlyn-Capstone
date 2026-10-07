@@ -1,6 +1,7 @@
 # procurement/serializers.py
 
 from decimal import Decimal
+from core.limits import MAX_PRICE, MAX_QUANTITY, MIN_PRICE
 
 from rest_framework import serializers
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -205,7 +206,7 @@ class ProcurementReadSerializer(serializers.ModelSerializer):
 class ProcurementItemWriteSerializer(serializers.Serializer):
     """Flat item input — used inside ProcurementWriteSerializer."""
     productId       = serializers.IntegerField()   # DB pk, not 'P001' string
-    quantityOrdered = serializers.IntegerField(min_value=1)
+    quantityOrdered = serializers.IntegerField(min_value=1, max_value=MAX_QUANTITY)
 
 
 class ProcurementWriteSerializer(serializers.Serializer):
@@ -314,7 +315,7 @@ class ProcurementReceivedItemSerializer(serializers.Serializer):
     """One line of the optional `items` payload on a RECEIVED transition —
     the actual delivered quantity for one ProcurementItem."""
     itemId = serializers.IntegerField()
-    quantityReceived = serializers.IntegerField(min_value=0)
+    quantityReceived = serializers.IntegerField(min_value=0, max_value=MAX_QUANTITY)
 
 
 class DeliveryEventItemSerializer(ProcurementReceivedItemSerializer):
@@ -353,7 +354,9 @@ class DeliveryEventSerializer(serializers.Serializer):
 
 class ProcurementExternalCostSerializer(serializers.Serializer):
     itemId = serializers.IntegerField()
-    unitCost = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
+    unitCost = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=MIN_PRICE, max_value=MAX_PRICE,
+    )
 
 
 class ProcurementExternalOrderSerializer(serializers.Serializer):

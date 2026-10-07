@@ -9,6 +9,7 @@ from .models import (
 )
 from .pricing import price_cart
 from .pwd_requests import new_request_fields, request_can_reach_cart, validate_pwd_details
+from core.limits import MAX_QUANTITY
 from core.scoping import user_can_access_branch
 from inventory.models import Product, Inventory, Batch, StockMovement
 from branches.models import Branch
@@ -237,7 +238,7 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
 
 class SalesItemWriteSerializer(serializers.Serializer):
     productId = serializers.IntegerField()
-    quantity = serializers.IntegerField(min_value=1)
+    quantity = serializers.IntegerField(min_value=1, max_value=MAX_QUANTITY)
 
 
 class PwdDiscountRequestWriteSerializer(serializers.Serializer):
@@ -606,7 +607,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
 
 class RefundLineWriteSerializer(serializers.Serializer):
     itemId = serializers.IntegerField()
-    quantity = serializers.IntegerField(min_value=1)
+    quantity = serializers.IntegerField(min_value=1, max_value=MAX_QUANTITY)
     condition = serializers.ChoiceField(choices=RefundItem.Condition.choices)
 
 

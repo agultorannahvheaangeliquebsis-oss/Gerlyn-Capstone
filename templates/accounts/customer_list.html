@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Customer Accounts{% endblock %}
 {% block page_subtitle %}Administration{% endblock %}
 
@@ -50,7 +51,7 @@
   </div>
 </div>
 
-<form method="GET" class="toolbar toolbar-search" data-live-filter="#customer-table tbody tr[data-filter-text]" data-filter-empty-target="#customer-no-matches">
+<form method="GET" class="toolbar toolbar-search" data-server-search data-live-filter="#customer-table tbody tr[data-filter-text]" data-filter-empty-target="#customer-no-matches">
   <div class="search-field">
     <button type="submit" class="search-btn" title="Search" aria-label="Search customers">
       <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4.5 4.5"/></svg>
@@ -146,4 +147,5 @@
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="customer" %}
 {% endblock %}

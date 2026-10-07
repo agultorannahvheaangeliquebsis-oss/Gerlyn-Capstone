@@ -130,8 +130,8 @@ one per row.
                 <td data-label="Received This Shipment" class="num">
                   {# unlocalize: "1,200" is not a valid number-input value #}
                   {# item.draft: what was typed before a rejected receipt (see delivery_list) #}
-                  <input type="number" name="quantity_received" min="0"
-                         {% if not item.is_unexpected %}max="{{ item.remaining_quantity|unlocalize }}"{% endif %}
+                  <input type="number" name="quantity_received" min="0" step="1" data-label="Received quantity"
+                         max="{% if item.is_unexpected %}{{ limits.max_qty }}{% else %}{{ item.remaining_quantity|unlocalize }}{% endif %}"
                          class="qty-input"
                          value="{% if item.draft %}{{ item.draft.qty }}{% elif item.is_unexpected %}0{% else %}{{ item.remaining_quantity|unlocalize }}{% endif %}"
                          style="max-width:120px; margin-left:auto;">

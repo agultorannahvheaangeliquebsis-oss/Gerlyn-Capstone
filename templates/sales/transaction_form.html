@@ -304,7 +304,7 @@ the same modal every other rejected action gets from internal_base.html.
             <div class="pos-card-foot">
               <div class="pos-qty-stepper" data-qty-stepper>
                 <button type="button" class="pos-qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
-                <input type="number" class="js-card-qty" min="1" value="1" inputmode="numeric"
+                <input type="number" class="js-card-qty" min="1" max="{{ limits.max_qty }}" data-label="Quantity" value="1" inputmode="numeric"
                        aria-label="Quantity of {{ p.product_name }} to add">
                 <button type="button" class="pos-qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
               </div>
@@ -481,7 +481,7 @@ the same modal every other rejected action gets from internal_base.html.
               <div class="pos-cart-bottom">
                 <div class="pos-qty-stepper" data-qty-stepper>
                   <button type="button" class="pos-qty-btn" data-qty-step="-1" aria-hidden="true" tabindex="-1">−</button>
-                  <input type="number" name="quantity" class="js-qty" min="1" value="1"
+                  <input type="number" name="quantity" class="js-qty" min="1" max="{{ limits.max_qty }}" step="1" data-label="Quantity" value="1"
                          inputmode="numeric" aria-label="Quantity" oninput="posQtyEdited(this)" onchange="posQtyEdited(this)">
                   <button type="button" class="pos-qty-btn" data-qty-step="1" aria-hidden="true" tabindex="-1">+</button>
                 </div>
@@ -527,7 +527,7 @@ the same modal every other rejected action gets from internal_base.html.
         <div class="pos-tender-row" id="pos-tender-row" hidden>
           <div class="field">
             <label for="pos-amount-tendered">Amount Tendered</label>
-            <input type="text" inputmode="decimal" id="pos-amount-tendered" name="amount_tendered"
+            <input type="text" inputmode="decimal" id="pos-amount-tendered" name="amount_tendered" maxlength="14" data-label="Amount tendered"
                    placeholder="₱0.00" value="{{ pos_form_data.amount_tendered|default:'' }}" oninput="posRecalc()">
             {# Exact change is the common case: one tap instead of retyping the amount due. #}
             <button type="button" class="btn btn-sm pos-exact-btn" id="pos-exact-btn" onclick="posTenderExact()">Exact amount</button>

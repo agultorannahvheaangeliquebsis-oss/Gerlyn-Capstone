@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load l10n static %}
+{% load l10n static pager %}
 {% block title %}Product Master List{% endblock %}
 {% block page_subtitle %}Catalog{% endblock %}
 {% comment %}Same pattern as Floor Stock: the topbar chip is now the branch
@@ -74,7 +74,7 @@ The cap now lives in .toolbar-search .search-field.
 at the bottom of this file binds to, and live-filter.js finds the field by
 input[type=search] within the form — all three survive the restructure.
 {% endcomment %}
-<form method="GET" class="toolbar toolbar-search" data-live-filter="#product-table tbody tr[data-filter-text]" data-filter-empty-target="#product-no-matches">
+<form method="GET" class="toolbar toolbar-search" data-server-search data-live-filter="#product-table tbody tr[data-filter-text]" data-filter-empty-target="#product-no-matches">
   <div class="search-field">
     {% comment %}The submit, not decoration. live-filter.js preventDefaults this
     form and filters as you type, so this only ever runs the real GET when that
@@ -199,6 +199,7 @@ input[type=search] within the form — all three survive the restructure.
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="product" %}
 
 {% if can_add %}
 {% include "inventory/_import_upload_modal.html" %}

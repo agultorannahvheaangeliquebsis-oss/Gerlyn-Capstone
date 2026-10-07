@@ -1,6 +1,6 @@
 {% extends "public_base.html" %}
 {% load static %}
-{% load i18n_extra %}
+{% load i18n_extra pager %}
 
 {% block title %}My Orders — GERLYN{% endblock %}
 
@@ -78,6 +78,7 @@ the header lands.
         </div>
       </div>
       {% endfor %}
+      {% pager page_obj noun="order" %}
 
     </div>{# end right column #}
   </div>{# end account-grid #}

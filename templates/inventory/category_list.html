@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Categories{% endblock %}
 {% block page_subtitle %}Catalog{% endblock %}
 
@@ -175,6 +176,7 @@
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="category" %}
 
 {% if can_add %}
 <!-- ------------------------------------------------------- add category -->
@@ -212,12 +214,12 @@
 
       <div class="field">
         <label for="add-category-name">Category Name</label>
-        <input id="add-category-name" type="text" name="category_name" required
+        <input id="add-category-name" type="text" name="category_name" maxlength="100" data-label="Category name" required
                value="{{ add_form_data.category_name|default:'' }}" placeholder="Canned Goods">
       </div>
       <div class="field">
         <label for="add-category-description">Description <span class="gv-meta">— optional</span></label>
-        <textarea id="add-category-description" name="description" rows="2"
+        <textarea id="add-category-description" name="description" rows="2" maxlength="{{ limits.max_description }}" data-label="Description"
                   placeholder="What belongs in this category?">{{ add_form_data.description|default:'' }}</textarea>
       </div>
     </form>
@@ -285,12 +287,12 @@
 
       <div class="field">
         <label for="edit-category-name">Category Name</label>
-        <input id="edit-category-name" type="text" name="category_name" required
+        <input id="edit-category-name" type="text" name="category_name" maxlength="100" data-label="Category name" required
                value="{{ edit_form_data.category_name|default:edit_category.category_name }}">
       </div>
       <div class="field">
         <label for="edit-category-description">Description <span class="gv-meta">— optional</span></label>
-        <textarea id="edit-category-description" name="description" rows="2"
+        <textarea id="edit-category-description" name="description" rows="2" maxlength="{{ limits.max_description }}" data-label="Description"
                   placeholder="What belongs in this category?">{{ edit_form_data.description|default:edit_category.description|default:'' }}</textarea>
       </div>
 

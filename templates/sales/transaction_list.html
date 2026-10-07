@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Order Console{% endblock %}
 {% block page_subtitle %}Sales &amp; Orders{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
@@ -24,7 +25,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
   </div>
 </div>
 
-<form method="GET" action="{% url 'transaction_list' %}" class="toolbar toolbar-search" data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
+<form method="GET" action="{% url 'transaction_list' %}" class="toolbar toolbar-search" data-server-search data-live-filter="#transaction-table tbody tr[data-filter-text]" data-filter-empty-target="#transaction-no-matches">
   {# Keep the chosen range when the toolbar filters are submitted — same as Billing and the audit log. #}
   <input type="hidden" name="range" value="{{ active_range }}">
   <input type="hidden" name="date_from" value="{{ range_start|date:'Y-m-d' }}">
@@ -163,6 +164,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="order" %}
 
 {% if can_import_pos %}{% include "sales/_pos_import_modal.html" %}{% endif %}
 {% endblock %}

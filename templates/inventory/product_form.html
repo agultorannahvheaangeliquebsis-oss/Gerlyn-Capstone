@@ -163,12 +163,12 @@ in the old modal markup, so their JS needs no changes.
         <div class="stack">
           <div class="field">
             <label for="product-name">Product Name <span style="color:var(--danger-dot);">*</span></label>
-            <input id="product-name" type="text" name="product_name" placeholder="e.g. Century Tuna Flakes in Oil 155g"
+            <input id="product-name" type="text" name="product_name" maxlength="{{ limits.max_name }}" data-label="Product name" placeholder="e.g. Century Tuna Flakes in Oil 155g"
                    value="{% if mode == 'edit' %}{{ edit_values.product_name }}{% else %}{{ add_form_data.product_name|default:'' }}{% endif %}" required>
           </div>
           <div class="field">
             <label for="product-description">Description</label>
-            <textarea id="product-description" name="description" placeholder="Short product description…">{% if mode == 'edit' %}{{ edit_values.description }}{% else %}{{ add_form_data.description|default:'' }}{% endif %}</textarea>
+            <textarea id="product-description" name="description" maxlength="{{ limits.max_description }}" data-label="Description" placeholder="Short product description…">{% if mode == 'edit' %}{{ edit_values.description }}{% else %}{{ add_form_data.description|default:'' }}{% endif %}</textarea>
           </div>
         </div>
       </div>
@@ -180,7 +180,7 @@ in the old modal markup, so their JS needs no changes.
             <div class="field">
               <label for="product-barcode">Barcode</label>
               <div class="row" style="gap:8px;">
-                <input type="text" id="product-barcode" name="barcode" class="input grow"
+                <input type="text" id="product-barcode" name="barcode" class="input grow" maxlength="{{ limits.max_barcode }}" data-label="Barcode"
                        placeholder="Scan a barcode, or type one and press Enter" autocomplete="off"
                        value="{% if mode == 'edit' %}{{ edit_values.barcode }}{% else %}{{ add_form_data.barcode|default:'' }}{% endif %}">
                 <button type="button" class="btn" id="product-barcode-scan-btn" title="Scan with camera">{% include "partials/_empty_icon.html" with icon="camera" %} Scan</button>
@@ -245,10 +245,10 @@ in the old modal markup, so their JS needs no changes.
             <div class="price-input">
               <span class="price-currency">₱</span>
               {% if mode == 'edit' %}
-              <input id="product-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
+              <input id="product-retail-price" type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Retail price" name="unit_price" placeholder="0.00"
                      value="{{ edit_values.unit_price|unlocalize }}" required>
               {% else %}
-              <input id="product-retail-price" type="number" step="0.01" min="0" name="unit_price" placeholder="0.00"
+              <input id="product-retail-price" type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Retail price" name="unit_price" placeholder="0.00"
                      value="{{ add_form_data.unit_price|default:'' }}" required>
               {% endif %}
             </div>

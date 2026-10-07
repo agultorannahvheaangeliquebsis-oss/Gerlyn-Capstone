@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Purchase Orders{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% comment %}Same pattern as Floor Stock, Warehouse Stock, Product Master
@@ -123,5 +124,6 @@ not a status, so it keeps the unclassed neutral default.
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="purchase order" %}
 
 {% endblock %}

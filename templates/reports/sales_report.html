@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Sales Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
@@ -76,4 +77,5 @@ revenue (see reports/services.py).
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="transaction" %}
 {% endblock %}

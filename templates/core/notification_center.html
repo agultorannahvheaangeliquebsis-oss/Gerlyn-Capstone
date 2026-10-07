@@ -23,8 +23,8 @@
 {% comment %}
 Styled like Billing Records' .toolbar-search (gerlyn.css), but there's no
 GET endpoint behind it: search+category filtering both stay client-side,
-same as before (see feedback-gerlyn-conventions: no pagination at current
-data volume) — so this is a form only to catch Enter, never actually
+same as before — the rows are then cut into pages by client-pager.js
+(see #notifPager) — so this is a form only to catch Enter, never actually
 submitted. onsubmit swallows that; the "search" button is decorative, the
 live 'input' listener below does the real work.
 {% endcomment %}
@@ -158,6 +158,8 @@ both surfaces) keeps intercepting them here too.
     </tbody>
   </table>
 </div>
+{# Drawn by static/js/client-pager.js: the tabs and search filter in the browser, so the pages are cut there too. #}
+<div id="notifPager"></div>
 
 {% comment %}
 The "View" modal. Empty shell, filled from the clicked row's own cells
@@ -213,9 +215,16 @@ update and success modal as the row's own icons.
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/client-pager.js' %}"></script>
 <script>
   (function () {
     var activeCat = 'all';
+    var pager = GerlynClientPager.attach({
+      rows: function () { return document.querySelectorAll('#notifFeed .tray-ncard'); },
+      mount: document.getElementById('notifPager'),
+      size: 15,
+      noun: 'notification'
+    });
 
     function applyNotifPageFilters() {
       var searchEl = document.getElementById('notifPageSearch');
@@ -234,6 +243,7 @@ update and success modal as the row's own icons.
       });
       var filterEmpty = feed.querySelector('.tray-filter-empty');
       if (filterEmpty) filterEmpty.hidden = cards.length === 0 || visible > 0;
+      pager.refresh(true);
     }
 
     window.filterNotifCat = function (cat, btn) {

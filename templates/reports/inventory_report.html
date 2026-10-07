@@ -1,4 +1,5 @@
 {% extends "internal_base.html" %}
+{% load pager %}
 {% block title %}Inventory Report{% endblock %}
 {% block page_subtitle %}Reports{% endblock %}
 {% comment %}Same pattern as Floor Stock, Product Master List, etc: the topbar
@@ -150,6 +151,7 @@ three tabs carry the control in .page-head.
     </tbody>
   </table>
 </div>
+{% pager page_obj noun="stock record" %}
 
 {# ---------------------------- non-performing / near-expiry products ---------------------------- #}
 {% comment %}
@@ -197,4 +199,5 @@ tables. See docs/METRICS.md for the exact rule, thresholds and rationale.
     </tbody>
   </table>
 </div>
+{% pager np_page_obj noun="product" param="np_page" %}
 {% endblock %}

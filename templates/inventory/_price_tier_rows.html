@@ -39,11 +39,11 @@ stacks on a phone and would split each row's quantity from its price.
 
   <template id="{{ which }}-tier-row-template">
     <div class="js-tier-row" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) 40px; gap:8px; align-items:center; margin-bottom:8px;">
-      <input type="number" name="tier_min_quantity" class="js-tier-qty" min="2" step="1"
+      <input type="number" name="tier_min_quantity" class="js-tier-qty" min="2" max="{{ limits.max_qty }}" step="1" data-label="Bulk price quantity"
              inputmode="numeric" placeholder="e.g. 10" aria-label="Buy at least this many">
       <div class="price-input">
         <span class="price-currency">₱</span>
-        <input type="number" name="tier_price" class="js-tier-price" min="0.01" step="0.01"
+        <input type="number" name="tier_price" class="js-tier-price" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Bulk price"
                placeholder="0.00" aria-label="Price per unit at this quantity">
       </div>
       {# The quiet button, not the danger one — same call as the PO modal's line Remove: dropping an unsaved row is routine, not destructive. #}

@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse, HttpResponse
 from django.template.loader import render_to_string
@@ -28,6 +29,11 @@ from django.db.models import Count, F, Prefetch, Q
 
 from xhtml2pdf import pisa
 
+from core.limits import (
+    MAX_LEAD_TIME_DAYS, MAX_NAME_LENGTH, MAX_NOTE_LENGTH, MAX_QUANTITY, parse_money,
+    parse_quantity, parse_text,
+)
+from core.pagination import paginate
 from core.scoping import (
     branch_ids_for_user, scope_queryset, user_can_access_branch, branch_for_user,
 )
@@ -76,6 +82,7 @@ from inventory.models import (
     Batch, Product, ProductCategory, StockMovement, Warehouse, WarehouseStock,
 )
 from accounts.models import Notification, SupplierCategory, User
+from accounts.validators import validate_ph_mobile_number
 
 
 # =============================================================================
@@ -169,8 +176,13 @@ def _procurement_list_context(request):
 
     switch_branches = Branch.objects.all() if show_branch_filter else []
 
+    # The tab counts above describe the whole filtered list; the table is
+    # cut into pages. `-pk` makes the order total for stable paging.
+    page = paginate(request, procurements.order_by('-order_date', '-pk'))
+
     context = {
-        'procurements': procurements,
+        'procurements': page.object_list,
+        'page_obj': page,
         'counts': counts,
         'status_filter': status_filter,
         'search_query': search_query,
@@ -691,14 +703,13 @@ def procurement_add(request):
         if not product_id or not qty:
             errors.append('Every item must include a product and quantity.')
             continue
-        try:
-            parsed_product_id = int(product_id)
-            parsed_qty = int(qty)
-        except (TypeError, ValueError):
+        if not str(product_id).isdigit():
             errors.append('Every item needs a valid product and quantity.')
             continue
-        if parsed_qty < 1:
-            errors.append('Item quantity must be at least 1.')
+        parsed_product_id = int(product_id)
+        parsed_qty, qty_error = parse_quantity(qty, 'Item quantity', minimum=1)
+        if qty_error:
+            errors.append(qty_error)
             continue
         items.append((parsed_product_id, parsed_qty))
 
@@ -708,7 +719,9 @@ def procurement_add(request):
         )
 
     suppliers = _po_suppliers_for_user(request.user)
-    supplier = suppliers.filter(pk=supplier_id).first()
+    supplier = (
+        suppliers.filter(pk=supplier_id).first() if str(supplier_id).isdigit() else None
+    )
     if supplier is None:
         errors.append('Choose an active supplier available to this branch.')
 
@@ -1151,15 +1164,12 @@ def _read_proposed_terms(request, proc):
     items = list(proc.items.filter(is_unexpected=False))
     costs = {}
     for item in items:
-        raw_cost = request.POST.get(f'unit_cost_{item.pk}', '').strip()
-        try:
-            cost = Decimal(raw_cost)
-        except (InvalidOperation, ValueError):
-            cost = None
-        if cost is None or cost <= 0:
-            errors.append(
-                f'Enter a valid cost for {item.product.product_name if item.product else "a removed product"}.'
-            )
+        name = item.product.product_name if item.product else "a removed product"
+        cost, cost_error = parse_money(
+            request.POST.get(f'unit_cost_{item.pk}'), f'Unit cost for {name}',
+        )
+        if cost_error:
+            errors.append(cost_error)
         else:
             costs[item.pk] = cost
 
@@ -1483,7 +1493,9 @@ def _safe_nonneg_int(value):
     if value is None:
         return None
     value = str(value).strip()
-    return int(value) if value.isdigit() else None
+    # Bounded: lead times and replacement counts are small numbers, and an
+    # absurdly long digit string would otherwise reach int() / the database.
+    return int(value) if value.isdigit() and len(value) <= 9 else None
 
 @login_required(login_url='accounts:login')
 def delivery_list(request):
@@ -1581,6 +1593,9 @@ def delivery_list(request):
     from branches.models import Branch
     branches = Branch.objects.all() if can_access_multiple_branches else []
 
+    # Tab counts above are for the whole filtered list; only the table is paged.
+    page = paginate(request, deliveries.order_by('-order_date', '-pk'))
+
     # Receive Delivery is a modal on this list now (see delivery_receive's
     # GET branch, which is what actually lands here with ?receive=<pk> —
     # that view has already done the branch-access and status checks, so
@@ -1631,7 +1646,8 @@ def delivery_list(request):
                 request.session[session_key] = receive_submission_key
 
     return render(request, 'procurement/delivery_list.html', {
-        'deliveries': deliveries,
+        'deliveries': page.object_list,
+        'page_obj': page,
         'counts': counts,
         'status_filter': status_filter,
         'today': timezone.localdate(),
@@ -1767,6 +1783,10 @@ def delivery_receive(request, pk):
                     quantity = _safe_nonneg_int(quantity_text)
                     if quantity is None:
                         raise DeliveryError('Enter whole-number received quantities of zero or more.')
+                    if quantity > MAX_QUANTITY:
+                        raise DeliveryError(
+                            f'A received quantity cannot be more than {MAX_QUANTITY:,}.'
+                        )
                     expiry_text = expiries[index].strip() if index < len(expiries) else ''
                     try:
                         expiry = parse_date(expiry_text) if expiry_text else None
@@ -2692,7 +2712,7 @@ def supplier_notifications(request):
 
     notifications = request.user.notifications.filter(
         category=Notification.Category.PROCUREMENT
-    ).order_by('-created_at')[:200]
+    ).order_by('-created_at', '-pk')
     counts = _supplier_notification_counts(request.user.notifications.filter(
         category=Notification.Category.PROCUREMENT
     ))
@@ -2700,12 +2720,14 @@ def supplier_notifications(request):
     if _is_xhr(request):
         list_html = render_to_string(
             'procurement/_supplier_notification_tray_list.html',
-            {'notifications': notifications}, request=request,
+            {'notifications': notifications[:200]}, request=request,
         )
         return JsonResponse({'list_html': list_html, **counts})
 
+    page = paginate(request, notifications)
     return render(request, 'procurement/supplier_notifications.html', {
-        'notifications': notifications,
+        'notifications': page.object_list,
+        'page_obj': page,
         **counts,
     })
 
@@ -2789,8 +2811,10 @@ def _supplier_list_context(request):
         )
 
     from branches.models import Branch
+    page = paginate(request, suppliers.order_by('supplier_profile__supplier_name', 'pk'))
     return {
-        'suppliers': suppliers,
+        'suppliers': page.object_list,
+        'page_obj': page,
         'search_query': search_query,
         'can_add': (
             request.user.role == User.Role.OWNER
@@ -2854,19 +2878,46 @@ def supplier_form(request, pk=None):
         flag = f'edit={pk}' if supplier else 'add=1'
         return redirect(f"{reverse('supplier_list')}?{flag}")
 
-    name = request.POST.get('supplier_name', '').strip()
-    username = request.POST.get('username', '').strip()
+    name, name_error = parse_text(
+        request.POST.get('supplier_name'), 'Supplier name', max_length=100, required=True,
+    )
+    username, username_error = parse_text(
+        request.POST.get('username'), 'Username', max_length=150, required=True,
+    )
     email = request.POST.get('email', '').strip().lower()
     business_registration_id = (
         request.POST.get('business_registration_id', '').strip().upper() or None
+    )
+    contact_person, person_error = parse_text(
+        request.POST.get('contact_person'), 'Contact person', max_length=100,
+    )
+    contact_number = request.POST.get('contact_number', '').strip()
+    address, address_error = parse_text(
+        request.POST.get('address'), 'Address', max_length=MAX_NOTE_LENGTH,
     )
 
     # Both checks were already here — the first returned to request.path, the
     # second sat inside the atomic block and returned before writing anything.
     # Collected instead of redirected so the typed form survives.
-    errors = []
-    if not name or not username:
-        errors.append('Supplier name and username are required.')
+    errors = [
+        e for e in (name_error, username_error, person_error, address_error) if e
+    ]
+    if email:
+        try:
+            validate_email(email)
+        except ValidationError:
+            errors.append('Enter a valid email address.')
+        if len(email) > 254:
+            errors.append('Email cannot be longer than 254 characters.')
+    if contact_number:
+        try:
+            validate_ph_mobile_number(contact_number)
+        except ValidationError as exc:
+            errors.append(exc.messages[0])
+    if business_registration_id and len(business_registration_id) > 100:
+        errors.append('The business/tax registration identifier cannot be longer than 100 characters.')
+    if name_error or username_error:
+        pass
     elif User.objects.filter(username__iexact=username).exclude(
         pk=supplier.pk if supplier else None
     ).exists():
@@ -2919,16 +2970,16 @@ def supplier_form(request, pk=None):
                 supplier.save()
 
             profile.supplier_name = name
-            profile.contact_person = request.POST.get('contact_person', '')
-            profile.contact_number = request.POST.get('contact_number', '')
+            profile.contact_person = contact_person
+            profile.contact_number = contact_number
             profile.category = category
-            profile.address = request.POST.get('address', '')
+            profile.address = address
             profile.branch = branch
             profile.business_registration_id = business_registration_id
             profile.save()
 
         similar = User.objects.filter(role=User.Role.SUPPLIER).exclude(pk=supplier.pk)
-        contact = request.POST.get('contact_number', '').strip()
+        contact = contact_number
         if (
             similar.filter(supplier_profile__supplier_name__iexact=name).exists()
             or (contact and similar.filter(supplier_profile__contact_number=contact).exists())
@@ -3201,12 +3252,12 @@ def supplier_product_add(request, pk):
 
 
 def _clean_offer_cost(raw):
-    """A supplier's quoted unit cost: a positive decimal, same rules as the
-    model field. Raises ValidationError with a user-facing message."""
-    field = SupplierProduct._meta.get_field('current_cost_price').formfield(required=True)
-    cost = field.clean((raw or '').strip())
-    if cost <= 0:
-        raise ValidationError('Enter a cost greater than zero.')
+    """A supplier's quoted unit cost: more than zero and no more than
+    MAX_PRICE, same rules as the model field. Raises ValidationError with a
+    user-facing message."""
+    cost, error = parse_money(raw, 'The cost')
+    if error:
+        raise ValidationError(error)
     return cost
 
 
@@ -3236,7 +3287,13 @@ def supplier_product_self_add(request):
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
         return _supplier_next_redirect(request)
-    lead = _safe_nonneg_int(request.POST.get('lead_time_days'))
+    lead, lead_error = parse_quantity(
+        request.POST.get('lead_time_days'), 'Lead time',
+        maximum=MAX_LEAD_TIME_DAYS, required=False,
+    )
+    if lead_error:
+        messages.error(request, lead_error)
+        return _supplier_next_redirect(request)
 
     with transaction.atomic():
         link, created = SupplierProduct.objects.get_or_create(
@@ -3308,10 +3365,13 @@ def supplier_product_request_add(request):
         messages.error(request, 'Access denied.')
         return redirect('accounts:home')
 
-    name = request.POST.get('product_name', '').strip()
+    name, name_error = parse_text(
+        request.POST.get('product_name'), 'Product name',
+        max_length=MAX_NAME_LENGTH, required=True,
+    )
     unit = request.POST.get('unit_of_measure', '')
-    if not name or len(name) > 150:
-        messages.error(request, 'Enter the product name (150 characters max).')
+    if name_error:
+        messages.error(request, name_error)
         return _supplier_next_redirect(request)
     if unit not in Product.UnitOfMeasure.values:
         messages.error(request, 'Choose a unit for the product.')
@@ -3417,10 +3477,9 @@ def supplier_request_review(request, pk, req_pk):
     note = request.POST.get('note', '').strip()
     unit_price = category = None
     if approve:
-        try:
-            unit_price = Decimal(request.POST.get('unit_price', '').strip())
-        except (InvalidOperation, ValueError):
-            messages.error(request, 'Enter a retail price greater than zero.')
+        unit_price, price_error = parse_money(request.POST.get('unit_price'), 'Retail price')
+        if price_error:
+            messages.error(request, price_error)
             return redirect('supplier_detail', pk=pk)
         category_id = request.POST.get('category', '')
         if category_id:
@@ -3956,8 +4015,11 @@ def supplier_return_list(request):
     else:
         status_filter = ''
 
+    page = paginate(request, returns.order_by('-created_at', '-pk'))
+
     return render(request, 'procurement/supplier_return_list.html', {
-        'returns': returns,
+        'returns': page.object_list,
+        'page_obj': page,
         'counts': counts,
         'total_count': sum(counts.values()),
         'status_filter': status_filter,
