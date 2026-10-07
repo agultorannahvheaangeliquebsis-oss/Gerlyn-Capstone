@@ -33,6 +33,7 @@ from .services import (
     StockTransferReceiptError, create_stock_write_off,
     create_warehouse_floor_transfer, record_transfer_event,
     reconcile_transfer_receipt, transfers_visible_to,
+    warehouse_available_quantity,
 )
 from .alerts import alert_summary, stock_status, suggested_reorder_qty
 from accounts.models import User
@@ -2977,8 +2978,9 @@ def _try_auto_approve(transfer, is_restock):
     would have.
 
     Must be called from inside the same transaction that created `transfer`
-    and its items, before anything outside this function reads their
-    Pending/0-approved state.
+    and its items (select_for_update() below raises
+    TransactionManagementError in autocommit mode), before anything outside
+    this function reads their Pending/0-approved state.
     """
     if transfer.requested_by is None or transfer.requested_by.role != User.Role.OWNER:
         return
@@ -2986,14 +2988,18 @@ def _try_auto_approve(transfer, is_restock):
     items = list(transfer.items.select_related('product').all())
     for item in items:
         if is_restock:
-            stock = WarehouseStock.objects.select_for_update().filter(
-                warehouse=transfer.warehouse, product=item.product
-            ).first()
+            # Same availability rule as the release step (expired/missing
+            # lots excluded), so auto-approval never grants what release
+            # would then refuse.
+            available = warehouse_available_quantity(
+                item.product, transfer.source_branch, lock=True,
+            )
         else:
             stock = Inventory.objects.select_for_update().filter(
                 branch=transfer.source_branch, product=item.product
             ).first()
-        if stock is None or item.quantity_requested > stock.quantity_on_hand:
+            available = stock.quantity_on_hand if stock else 0
+        if item.quantity_requested > available:
             return  # leave Pending for a human to resolve the shortfall
 
     for item in items:
@@ -3055,24 +3061,28 @@ def warehouse_stock_request(request):
         return render(request, 'inventory/warehouse_stock_list.html', context)
 
     try:
-        transfer = create_warehouse_floor_transfer(
-            actor=request.user,
-            source_branch_id=request.POST.get('source_branch_id'),
-            destination_branch_id=target_branch.pk,
-            transfer_date=transfer_date,
-            notes=notes,
-            items=[
-                {'product_id': product_id, 'quantity': qty}
-                for product_id, qty in valid_items
-            ],
-        )
-        previous = transfer.status
-        _try_auto_approve(transfer, is_restock=True)
-        if transfer.status != previous:
-            record_transfer_event(
-                transfer, previous, transfer.status, request.user,
-                'Owner approved the request at creation.',
+        # One transaction around create + Owner auto-approval: the request is
+        # never saved half-processed, and _try_auto_approve's row locks are
+        # only legal inside one.
+        with transaction.atomic():
+            transfer = create_warehouse_floor_transfer(
+                actor=request.user,
+                source_branch_id=request.POST.get('source_branch_id'),
+                destination_branch_id=target_branch.pk,
+                transfer_date=transfer_date,
+                notes=notes,
+                items=[
+                    {'product_id': product_id, 'quantity': qty}
+                    for product_id, qty in valid_items
+                ],
             )
+            previous = transfer.status
+            _try_auto_approve(transfer, is_restock=True)
+            if transfer.status != previous:
+                record_transfer_event(
+                    transfer, previous, transfer.status, request.user,
+                    'Owner approved the request at creation.',
+                )
     except StockTransferRequestError as exc:
         messages.error(request, str(exc))
         context = _warehouse_stock_list_context(request)
@@ -3155,24 +3165,26 @@ def transfer_create(request):
         return render(request, 'inventory/transfer_list.html', context)
 
     try:
-        transfer = create_stock_write_off(
-            actor=request.user,
-            source_branch_id=target_branch.pk,
-            purpose=purpose,
-            transfer_date=transfer_date,
-            notes=notes,
-            items=[
-                {'product_id': product_id, 'quantity': qty}
-                for product_id, qty in valid_items
-            ],
-        )
-        previous = transfer.status
-        _try_auto_approve(transfer, is_restock=False)
-        if transfer.status != previous:
-            record_transfer_event(
-                transfer, previous, transfer.status, request.user,
-                'Owner approved the request at creation.',
+        # Same single-transaction rule as warehouse_stock_request above.
+        with transaction.atomic():
+            transfer = create_stock_write_off(
+                actor=request.user,
+                source_branch_id=target_branch.pk,
+                purpose=purpose,
+                transfer_date=transfer_date,
+                notes=notes,
+                items=[
+                    {'product_id': product_id, 'quantity': qty}
+                    for product_id, qty in valid_items
+                ],
             )
+            previous = transfer.status
+            _try_auto_approve(transfer, is_restock=False)
+            if transfer.status != previous:
+                record_transfer_event(
+                    transfer, previous, transfer.status, request.user,
+                    'Owner approved the request at creation.',
+                )
     except StockTransferRequestError as exc:
         messages.error(request, str(exc))
         context = _transfer_list_context(request, active_view='writeoffs')
@@ -3305,12 +3317,19 @@ def transfer_approve(request, pk):
                         )
                         all_valid = False
                         break
-                    if approved_qty > stock.quantity_on_hand:
+                    # `stock` is locked above; the restock figure also nets out
+                    # expired/missing lots so approval agrees with release.
+                    available = (
+                        warehouse_available_quantity(
+                            item.product, transfer.source_branch,
+                        ) if is_restock else stock.quantity_on_hand
+                    )
+                    if approved_qty > available:
                         messages.error(
                             request,
                             f'Not enough {location_label} stock for '
                             f'{item.product.product_name}. '
-                            f'Available: {stock.quantity_on_hand}'
+                            f'Available: {available}'
                         )
                         all_valid = False
                         break
@@ -3447,11 +3466,15 @@ def transfer_complete(request, pk):
                         # already consumed the stock in between. Without this,
                         # two approved transfers could both release and drive
                         # quantity_on_hand negative.
-                        ws = get_object_or_404(
-                            WarehouseStock.objects.select_for_update(),
+                        ws = WarehouseStock.objects.select_for_update().filter(
                             warehouse=transfer.warehouse,
                             product=item.product
-                        )
+                        ).first()
+                        if ws is None:
+                            raise _InsufficientStockError(
+                                f'{item.product.product_name} is no longer in '
+                                f'warehouse stock, so this transfer cannot be released.'
+                            )
                         batch_available = Batch.available_quantity(
                             item.product, transfer.source_branch,
                             Batch.Location.WAREHOUSE,
@@ -3563,10 +3586,14 @@ def transfer_complete(request, pk):
                         # re-check as the restock branch above: an
                         # over-approved write-off used to silently clamp to 0
                         # via max(0, ...) instead of being rejected.
-                        inv = get_object_or_404(
-                            Inventory.objects.select_for_update(),
+                        inv = Inventory.objects.select_for_update().filter(
                             branch=transfer.source_branch, product=item.product
-                        )
+                        ).first()
+                        if inv is None:
+                            raise _InsufficientStockError(
+                                f'{item.product.product_name} is no longer in '
+                                f'floor stock, so this write-off cannot be completed.'
+                            )
                         if qty_release > inv.quantity_on_hand:
                             raise _InsufficientStockError(
                                 f'Not enough floor stock for {item.product.product_name} to '

@@ -1,5 +1,5 @@
 {% extends 'internal_base.html' %}
-{% load static pager %}
+{% load static pager l10n %}
 {% block title %}Warehouse Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% comment %}Same pattern as Floor Stock and Product Master List: the topbar
@@ -372,7 +372,7 @@ _warehouse_stock_list_context in inventory/views.py.
                 <td data-label="Category" class="gv-meta">{{ ws.product.category.category_name|default:"—" }}</td>
                 <td class="num" data-label="Available">{{ ws.available_qty }}</td>
                 <td data-label="Request qty">
-                  <input type="number" name="quantity_requested" min="0" max="{{ limits.max_qty }}" step="1" data-label="Quantity requested" value="0" style="width:100px;">
+                  <input type="number" name="quantity_requested" min="0" max="{{ ws.available_qty|unlocalize }}" step="1" data-label="Quantity requested" data-available="{{ ws.available_qty|unlocalize }}" data-product="{{ ws.product.product_name }}" value="0" style="width:100px;">
                 </td>
               </tr>
             {% empty %}
@@ -382,6 +382,7 @@ _warehouse_stock_list_context in inventory/views.py.
           </table>
           <p class="gv-meta item-picker-empty" id="request-item-empty">No items match that search or category.</p>
         </div>
+        <p class="gv-meta" id="request-qty-error" role="alert" hidden style="color:var(--danger-dot); margin-top:var(--s2);">Enter a quantity for at least one product.</p>
       </div>
 
       <div class="field">
@@ -462,6 +463,48 @@ _warehouse_stock_list_context in inventory/views.py.
   }
   if (itemSearch) itemSearch.addEventListener('input', filterItems);
   if (itemCategory) itemCategory.addEventListener('change', filterItems);
+
+  // Request qty may not exceed the row's Available. The server re-checks
+  // everything (and again at approval/release) — this only saves a round trip.
+  var requestForm = document.getElementById('request-form');
+  function checkQty(input) {
+    var available = parseInt(input.dataset.available, 10);
+    var qty = input.value === '' ? 0 : Number(input.value);
+    var msg = '';
+    if (!Number.isInteger(qty) || qty < 0) {
+      msg = 'Enter a whole number of 0 or more.';
+    } else if (qty > available) {
+      msg = 'Only ' + available + ' available for ' + input.dataset.product + '.';
+    }
+    input.setCustomValidity(msg);
+    return msg === '';
+  }
+  if (requestForm) {
+    var qtyInputs = requestForm.querySelectorAll('input[name="quantity_requested"]');
+    var qtyError = document.getElementById('request-qty-error');
+    qtyInputs.forEach(function (input) {
+      input.addEventListener('input', function () {
+        checkQty(input);
+        if (qtyError) qtyError.hidden = true;
+        if (!input.checkValidity()) input.reportValidity();
+      });
+    });
+    // `invalid` doesn't bubble, hence capture. A row hidden by the search or
+    // category filter can't take focus, so the browser would block the submit
+    // without showing why — reveal the row first.
+    requestForm.addEventListener('invalid', function (e) {
+      var row = e.target.closest && e.target.closest('[data-item-row]');
+      if (row) row.style.display = '';
+    }, true);
+    requestForm.addEventListener('submit', function (e) {
+      var anyQty = false;
+      qtyInputs.forEach(function (input) { if (Number(input.value) > 0) anyQty = true; });
+      if (!anyQty && qtyError) {
+        e.preventDefault();
+        qtyError.hidden = false;
+      }
+    });
+  }
 
   var sourceSelect = document.getElementById('request-source-select');
   if (sourceSelect) {

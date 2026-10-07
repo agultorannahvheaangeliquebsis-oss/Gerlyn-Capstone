@@ -32,7 +32,7 @@ from accounts.models import User
 from .views import _InsufficientStockError
 from .services import (
     StockTransferReceiptError, reconcile_transfer_receipt,
-    record_transfer_event, transfers_visible_to,
+    record_transfer_event, transfers_visible_to, warehouse_available_quantity,
 )
 
 
@@ -545,12 +545,19 @@ class StockTransferApproveAPIView(APIView):
                             {'detail': f'{item.product.product_name} not found in {location_label} stock.'},
                             status=status.HTTP_400_BAD_REQUEST
                         )
-                    if approved_qty > stock.quantity_on_hand:
+                    # Same figure the release step enforces (expired/missing
+                    # lots excluded for a restock).
+                    available = (
+                        warehouse_available_quantity(
+                            item.product, transfer.source_branch,
+                        ) if is_restock else stock.quantity_on_hand
+                    )
+                    if approved_qty > available:
                         transaction.set_rollback(True)
                         return Response(
                             {'detail': (
                                 f'Not enough {location_label} stock for '
-                                f'{item.product.product_name}. Available: {stock.quantity_on_hand}'
+                                f'{item.product.product_name}. Available: {available}'
                             )},
                             status=status.HTTP_400_BAD_REQUEST
                         )
@@ -630,10 +637,14 @@ class StockTransferReleaseAPIView(APIView):
                     # Locked + re-checked against the CURRENT quantity_on_hand
                     # rather than trusting the snapshot from approval time —
                     # mirrors the template path's transfer_complete fix.
-                    ws = get_object_or_404(
-                        WarehouseStock.objects.select_for_update(),
+                    ws = WarehouseStock.objects.select_for_update().filter(
                         warehouse=transfer.warehouse, product=item.product
-                    )
+                    ).first()
+                    if ws is None:
+                        raise _InsufficientStockError(
+                            f'{item.product.product_name} is no longer in '
+                            f'warehouse stock, so this transfer cannot be released.'
+                        )
                     batch_available = Batch.available_quantity(
                         item.product, transfer.source_branch,
                         Batch.Location.WAREHOUSE,

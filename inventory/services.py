@@ -243,8 +243,13 @@ def _create_stock_workflow(
                 + '. Request the remaining shortage from another branch after local stock is released.'
             )
 
-    unavailable = []
-    for product_id, _quantity in normalized:
+    # Every line is checked before anything is saved, so one bad line never
+    # leaves a partial request behind. This is only a submit-time guard — no
+    # stock is reserved or moved here; approval and release re-check against
+    # the then-current (locked) quantity.
+    location = 'warehouse' if is_restock else 'floor'
+    shortages = []
+    for product_id, quantity in normalized:
         product = products[product_id]
         available = (
             warehouse_available_quantity(product, source_branch)
@@ -254,12 +259,17 @@ def _create_stock_workflow(
             ).values_list('quantity_on_hand', flat=True).first() or 0)
         )
         if available <= 0:
-            unavailable.append(product.product_name)
-    if unavailable:
-        location = 'warehouse' if is_restock else 'floor'
-        raise StockTransferRequestError(
-            f'No available {location} stock for: ' + ', '.join(unavailable) + '.'
-        )
+            shortages.append(
+                f'No available {location} stock for {product.product_name}.'
+            )
+        elif quantity > available:
+            shortages.append(
+                f'Insufficient {location} stock for {product.product_name}. '
+                f'Only {available} unit{"" if available == 1 else "s"} '
+                f'{"is" if available == 1 else "are"} available.'
+            )
+    if shortages:
+        raise StockTransferRequestError(' '.join(shortages))
 
     set_action_label(
         'Created a warehouse-to-floor transfer request'
