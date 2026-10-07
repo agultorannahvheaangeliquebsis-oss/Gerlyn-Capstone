@@ -1,4 +1,5 @@
 {% extends base_template %}
+{% load l10n %}
 {% block title %}{{ procurement.po_number }}{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 {% block branch_scope %}{{ procurement.branch.branch_name }}{% endblock %}
@@ -452,7 +453,7 @@ no JS needed.
           <tr>
             <td>{{ item.product.product_name }}</td>
             <td class="num">{{ item.quantity_ordered }}</td>
-            <td class="num"><input type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" name="unit_cost_{{ item.pk }}" value="{% firstof item.proposed_unit_cost item.unit_cost_snapshot '' %}" style="width:120px;" required></td>
+            <td class="num"><input type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" name="unit_cost_{{ item.pk|unlocalize }}" value="{% localize off %}{% firstof item.proposed_unit_cost item.unit_cost_snapshot '' %}{% endlocalize %}" style="width:120px;" required></td>
           </tr>
           {% endif %}{% endfor %}
         </tbody>
@@ -560,7 +561,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
             <tr>
               <td>{{ item.product.product_name }}</td>
               <td class="num">{{ item.quantity_ordered }}</td>
-              <td class="num"><input type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" name="unit_cost_{{ item.pk }}" style="width:110px;" required></td>
+              <td class="num"><input type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" name="unit_cost_{{ item.pk|unlocalize }}" style="width:110px;" required></td>
             </tr>
             {% endif %}
           {% endfor %}
@@ -591,7 +592,7 @@ banner rather than a full card (see .pd-negotiate-banner above).
             <tr>
               <td>{{ item.product.product_name }}</td>
               <td class="num">{{ item.quantity_ordered }}</td>
-              <td class="num"><input type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" name="unit_cost_{{ item.pk }}" style="width:110px;" required></td>
+              <td class="num"><input type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Unit cost" name="unit_cost_{{ item.pk|unlocalize }}" style="width:110px;" required></td>
             </tr>
             {% endif %}
           {% endfor %}

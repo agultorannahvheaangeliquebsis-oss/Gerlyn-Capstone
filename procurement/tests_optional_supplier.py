@@ -86,6 +86,92 @@ class OptionalSupplierParticipationTests(TestCase):
         self.assertEqual(self.po.total_cost, Decimal('500.00'))
         self.assertEqual(self.item.unit_cost_snapshot, Decimal('50.00'))
 
+    def test_rendered_form_posts_cost_keys_the_view_reads_for_four_digit_pks(self):
+        """USE_THOUSAND_SEPARATOR localises `name="unit_cost_{{ item.pk }}"` to
+        unit_cost_1,502, which request.POST.get('unit_cost_1502') never finds
+        ("Unit cost for X is required." with the value visibly typed in).
+        The other tests post the key directly with a small pk, so only a
+        round trip through the rendered form catches it."""
+        import re
+
+        big = ProcurementItem.objects.create(
+            pk=1502, procurement=self.po, product=self.product,
+            quantity_ordered=20,
+        )
+        self.item.delete()
+        self.client.force_login(self.owner)
+        html = self.client.get(
+            reverse('delivery_detail', args=[self.po.pk]),
+        ).content.decode()
+        names = re.findall(r'name="(unit_cost_[^"]*)"', html)
+        self.assertEqual(names, ['unit_cost_1502'])
+
+        payload = self.communication_payload()
+        payload.pop(f'unit_cost_{self.item.pk}')
+        payload[names[0]] = '30'
+        response = self.client.post(
+            reverse('procurement_mark_communicated', args=[self.po.pk]), payload,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.po.refresh_from_db()
+        big.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.COMMUNICATED)
+        self.assertEqual(big.unit_cost_snapshot, Decimal('30.00'))
+        self.assertEqual(self.po.total_cost, Decimal('600.00'))
+
+    def test_supplier_portal_form_posts_cost_keys_the_view_reads_for_four_digit_pks(self):
+        """Same localisation bug as the internal form, on the supplier's own
+        propose-terms form (_supplier_po_detail.html)."""
+        import re
+
+        big = ProcurementItem.objects.create(
+            pk=1502, procurement=self.po, product=self.product,
+            quantity_ordered=20,
+        )
+        self.item.delete()
+        self.client.force_login(self.supplier)
+        html = self.client.get(reverse('supplier_purchase_orders')).content.decode()
+        names = re.findall(r'name="(unit_cost_[^"]*)"', html)
+        self.assertEqual(names, ['unit_cost_1502'])
+
+        response = self.client.post(
+            reverse('procurement_supplier_respond', args=[self.po.pk]),
+            {
+                'action': 'propose',
+                'delivery_date': (timezone.localdate() + dt.timedelta(days=5)).isoformat(),
+                names[0]: '30',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.po.refresh_from_db()
+        big.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.PENDING_OWNER_REVIEW)
+        self.assertEqual(big.proposed_unit_cost, Decimal('30.00'))
+
+    def test_one_missing_cost_leaves_the_po_and_other_items_untouched(self):
+        other_product = Product.objects.create(
+            sku_code='OPTIONAL-PO-2', product_name='Second Portal Product',
+            unit_price=Decimal('20.00'),
+        )
+        other = ProcurementItem.objects.create(
+            procurement=self.po, product=other_product, quantity_ordered=5,
+        )
+        self.client.force_login(self.owner)
+        payload = self.communication_payload()  # costs only the first item
+        response = self.client.post(
+            reverse('procurement_mark_communicated', args=[self.po.pk]), payload,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.po.refresh_from_db()
+        self.item.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.po.status, Procurement.Status.APPROVED)
+        self.assertIsNone(self.item.unit_cost_snapshot)
+        self.assertIsNone(other.unit_cost_snapshot)
+
     def test_staff_can_record_external_order_for_own_branch(self):
         response = self.mark_communicated(self.staff)
 
