@@ -9,20 +9,15 @@ Restructured to the marketplace sign-in shape: a slim white bar carrying the
 mark and the name of the screen, one full-bleed brand band split into a
 identity panel and the form card, then the ordinary storefront footer.
 
-Three controls the reference screen carries are still left out, for the same
-reason they were left out of the single-card version — the app cannot honour
-them, and a dead control on the one screen a user cannot get past reads as
-the account being broken, not as a feature not built:
+Two controls the reference screen carries are still left out because the app
+cannot honour them, and a dead control on the one screen a user cannot get
+past reads as the account being broken, not as a feature not built:
 
   - Facebook / Google buttons. There is no social auth in the project: no
     allauth, no OAuth client, no provider settings.
   - "Stay signed in". login_view calls login() and nothing else; session
     length is SESSION_COOKIE_AGE for everyone, so a checkbox here would
     change nothing about how long the session lasts.
-  - "Forgot password?". There is no public reset flow — change_password and
-    request_password_change_email both require an authenticated session, so
-    the link has nowhere to point for the person who actually needs it.
-
 The composition is what carried over: brand band, identity on one side, a
 white card on the other, and the page's title stated in the bar above.
 {% endcomment %}
@@ -143,6 +138,10 @@ wordmark on its own never said.
             </button>
           </div>
         </div>
+
+        <p class="auth-form-link">
+          <a href="{% url 'accounts:forgot_password' %}">Forgot password?</a>
+        </p>
 
         {% if error %}<p class="field-error" id="login-error" role="alert">{{ error }}</p>{% endif %}
 

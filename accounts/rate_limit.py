@@ -15,6 +15,14 @@ LOGIN_LOCKOUT_SECONDS = 300  # 5 minutes
 REGISTER_MAX_ATTEMPTS = 5
 REGISTER_WINDOW_SECONDS = 60 * 60  # 1 hour
 
+# A reset request has the same public response whether it is allowed,
+# throttled, or names an unknown account. The per-address cap prevents inbox
+# flooding; the wider per-IP cap slows address spraying without punishing a
+# household or branch after one person's typo.
+PASSWORD_RESET_EMAIL_MAX_ATTEMPTS = 3
+PASSWORD_RESET_IP_MAX_ATTEMPTS = 10
+PASSWORD_RESET_WINDOW_SECONDS = 30 * 60
+
 
 def _key(identifier):
     return f'login_attempts:{identifier.strip().lower()}'

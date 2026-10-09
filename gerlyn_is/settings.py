@@ -499,6 +499,11 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Django's password-reset tokens are invalid after this many seconds. They are
+# also invalidated immediately when the password changes, making each link
+# single-use even before the timeout is reached.
+PASSWORD_RESET_TIMEOUT = 30 * 60
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
@@ -668,8 +673,8 @@ if EMAIL_USE_TLS and EMAIL_USE_SSL:
     )
 if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(('http://', 'https://')):
     raise ImproperlyConfigured('PUBLIC_BASE_URL must start with http:// or https://.')
-if ON_RAILWAY and PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith('https://'):
-    raise ImproperlyConfigured('PUBLIC_BASE_URL must use https:// on Railway.')
+if not DEBUG and PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith('https://'):
+    raise ImproperlyConfigured('PUBLIC_BASE_URL must use https:// in production.')
 
 # A console/dummy backend "succeeds" without delivering anything. .env.example
 # ships EMAIL_BACKEND=console for local use, and copying it into Railway

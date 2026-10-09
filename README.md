@@ -112,6 +112,15 @@ it does not print the configured password. After it succeeds, register a test
 customer and confirm that the received verification link starts with
 `PUBLIC_BASE_URL`.
 
+The public **Forgot password?** flow uses this same mail configuration. Reset
+links are generated with `PUBLIC_BASE_URL`, expire after 30 minutes, become
+invalid immediately after a successful reset, and do not sign the user in.
+Keep `PUBLIC_BASE_URL` on the canonical HTTPS application origin in every
+production environment. The shared cache table/Redis cache also enforces the
+per-email and per-IP reset-request limits; Railway creates the database cache
+table during deploy, while a manual installation should run
+`python manage.py createcachetable` once.
+
 ### Address maps and geocoding
 
 The address picker uses the bundled Philippine PSGC data for its cascading

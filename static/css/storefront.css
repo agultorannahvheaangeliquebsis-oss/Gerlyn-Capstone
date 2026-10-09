@@ -1711,6 +1711,14 @@ body.shop-auth {
    belongs to. That pulls the button up with it, to 8px below the message on
    a failed sign-in — the one render where the two are on screen together. */
 .auth-card .field-error + .auth-submit { margin-top: var(--s4); }
+.auth-form-link {
+  margin: calc(-1 * var(--s2)) 0 var(--s3);
+  text-align: right;
+  font: 500 13.5px/1.4 var(--font-sans);
+}
+.auth-form-link a { color: var(--action); font-weight: 700; }
+.auth-card .banner { margin-bottom: var(--s4); }
+.auth-card .auth-error { margin-bottom: var(--s3); }
 /* Ruled off, so the way to the other account screen reads as leaving the
    form rather than as one more row inside it. */
 .auth-alt {
