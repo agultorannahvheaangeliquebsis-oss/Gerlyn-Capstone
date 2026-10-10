@@ -621,6 +621,90 @@ def _procurement_form_context(user):
     }
 
 
+def _attach_po_alert(request, context):
+    """Add the "Selected from Alert" context to the Create Purchase Order page
+    when it was opened from a Low Warehouse Stock alert row.
+
+    The link carries stable ids only (product, branch) plus a suggested
+    quantity; current stock, reorder level, branch eligibility and the
+    preferred supplier are all re-derived here from live data. Nothing is
+    created by opening the page — the order is raised only by the normal POST
+    below, with its usual Draft/Approved rules.
+
+    A rejected POST re-renders through here too, reading the alert back from
+    the form's own hidden fields (alert_*), so the product, branch and typed
+    quantity survive the round trip.
+    """
+    posting = request.method == 'POST'
+    source = request.POST if posting else request.GET
+    raw_product = source.get('alert_product' if posting else 'product')
+    raw_branch = source.get('alert_branch' if posting else 'branch')
+    if not (str(raw_product).isdigit() and str(raw_branch).isdigit()):
+        return
+
+    product = Product.objects.filter(pk=raw_product).first()
+    # context['branches'] is already the set this user may raise a PO for
+    # (one branch for a Manager, none for an unassigned account), so a
+    # tampered branch id fails closed.
+    branch = context['branches'].filter(pk=raw_branch).first()
+    if product is None or branch is None:
+        return
+
+    stock = WarehouseStock.objects.filter(
+        warehouse__branch=branch, product=product,
+    ).first()
+    current_qty = stock.quantity_on_hand if stock else 0
+    reorder_level = stock.reorder_level if stock else 0
+    suggested = max(reorder_level * 2 - current_qty, 0)
+
+    raw_qty = str(source.get('alert_qty' if posting else 'qty', '')).strip()
+    qty = int(raw_qty) if raw_qty.isdigit() and 0 < int(raw_qty) <= MAX_QUANTITY else (suggested or 1)
+
+    # Preferred supplier only if it is genuinely orderable here: approved
+    # offer for this product, in this user's selectable suppliers, and either
+    # unassigned or assigned to the alert's branch. Otherwise the user must
+    # choose one — the product stays on the order either way.
+    preferred = None
+    link = (
+        SupplierProduct.objects.approved()
+        .filter(product=product, is_preferred=True, supplier__in=context['suppliers'])
+        .filter(
+            Q(supplier__supplier_profile__branch__isnull=True)
+            | Q(supplier__supplier_profile__branch=branch)
+        )
+        .select_related('supplier')
+        .order_by('pk')
+        .first()
+    )
+    if link:
+        preferred = link.supplier
+
+    passed_current = request.GET.get('current')
+    context['po_alert'] = {
+        'product': product,
+        'branch': branch,
+        'current_qty': current_qty,
+        'reorder_level': reorder_level,
+        'suggested_qty': qty,
+        'preferred_supplier': preferred,
+        'stale': (not posting) and str(passed_current).isdigit()
+                 and int(passed_current) != current_qty,
+    }
+    if not posting:
+        context['po_restore_rows'] = [{'product_id': str(product.pk), 'quantity': qty}]
+        context['po_form_data'] = {
+            'branch': str(branch.pk),
+            'supplier': str(preferred.pk) if preferred else '',
+        }
+
+
+def _po_page_context(request):
+    context = _procurement_list_context(request)
+    if context.get('can_create'):
+        _attach_po_alert(request, context)
+    return context
+
+
 @login_required(login_url='accounts:login')
 def procurement_add(request):
     """The "Create Purchase Order" page — its own page (see
@@ -636,7 +720,7 @@ def procurement_add(request):
         return redirect('procurement_list')
 
     if request.method != 'POST':
-        return render(request, 'procurement/procurement_form.html', _procurement_list_context(request))
+        return render(request, 'procurement/procurement_form.html', _po_page_context(request))
 
     submission_key = (
         request.POST.get('submission_key', '').strip()
@@ -672,7 +756,7 @@ def procurement_add(request):
             request.POST.get('funding_source'), request.POST.get('funding_note'),
         )
     except FundingError as exc:
-        context = _procurement_list_context(request)
+        context = _po_page_context(request)
         context.update({
             'po_errors': [str(exc)],
             'po_form_data': request.POST,
@@ -738,7 +822,7 @@ def procurement_add(request):
         errors.append('Choose a valid product for every order item.')
 
     if errors:
-        context = _procurement_list_context(request)
+        context = _po_page_context(request)
         context.update({
             'po_errors': errors,
             'po_field_errors': field_errors,

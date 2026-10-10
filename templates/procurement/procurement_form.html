@@ -153,10 +153,31 @@ only a genuinely missing supplier or product list blocks this form.
 <form method="POST" action="{% url 'procurement_add' %}" id="po-form">
   {% csrf_token %}
   <input type="hidden" name="submission_key" value="{{ po_submission_key }}">
+  {% if po_alert %}
+  <input type="hidden" name="alert_product" value="{{ po_alert.product.id|unlocalize }}">
+  <input type="hidden" name="alert_branch" value="{{ po_alert.branch.id|unlocalize }}">
+  <input type="hidden" name="alert_qty" value="{{ po_alert.suggested_qty|unlocalize }}">
+  {% endif %}
 
   <div class="po-shell">
     {# ---------------- Items: the product/quantity rows this order will place ---------------- #}
     <section class="po-panel po-items" aria-label="Items">
+      {% if po_alert %}
+      <div class="banner banner-info mb-4" id="po-alert-panel" role="region" aria-label="Selected from Alert">
+        <strong>Selected from Alert</strong>
+        <dl style="display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:var(--s2); margin:var(--s2) 0 0;">
+          <div><dt class="gv-meta">Product</dt><dd style="margin:0;">{{ po_alert.product.product_name }}</dd></div>
+          <div><dt class="gv-meta">Branch</dt><dd style="margin:0;">{{ po_alert.branch.branch_name }}</dd></div>
+          <div><dt class="gv-meta">Current warehouse stock</dt><dd style="margin:0;">{{ po_alert.current_qty }}</dd></div>
+          <div><dt class="gv-meta">Reorder level</dt><dd style="margin:0;">{{ po_alert.reorder_level }}</dd></div>
+          <div><dt class="gv-meta">Suggested quantity</dt><dd style="margin:0;">{{ po_alert.suggested_qty }}</dd></div>
+          <div><dt class="gv-meta">Preferred supplier</dt><dd style="margin:0;">{% if po_alert.preferred_supplier %}{{ po_alert.preferred_supplier.supplier_profile.supplier_name|default:po_alert.preferred_supplier.username }}{% else %}None set — choose a supplier{% endif %}</dd></div>
+        </dl>
+        {% if po_alert.stale %}<p class="gv-meta" style="margin:var(--s2) 0 0;">Stock changed since the alert was opened — the figures above are current.</p>{% endif %}
+        <p class="gv-meta" id="po-alert-branch-hint" style="margin:var(--s2) 0 0;" hidden>This alert is for {{ po_alert.branch.branch_name }}; the order's branch is set to something else.</p>
+        <p class="gv-meta" style="margin:var(--s2) 0 0;">Nothing is ordered until you submit. You can add more products below.</p>
+      </div>
+      {% endif %}
       <div class="po-items-head">
         <h2>Order Items <span class="pill pill-neutral" id="po-item-count">1 item</span></h2>
         <button type="button" class="btn btn-sm" onclick="poAddRow()">+ Add Item</button>
@@ -253,6 +274,8 @@ only a genuinely missing supplier or product list blocks this form.
         <div class="field">
           <label for="po-supplier">Supplier</label>
           <select id="po-supplier" name="supplier" required>
+            {# From an alert with no valid preferred supplier: force an explicit choice (the product row is kept either way). #}
+            {% if po_alert and not po_form_data.supplier %}<option value="">Choose a supplier</option>{% endif %}
             {% for s in suppliers %}
               <option value="{{ s.id }}" data-category="{{ s.supplier_profile.category_id|default_if_none:''|unlocalize }}" {% if po_form_data.supplier == s.id|stringformat:"s" %}selected{% endif %}>{{ s.supplier_profile.supplier_name|default:s.username }}</option>
             {% endfor %}
@@ -482,6 +505,17 @@ document.getElementById('po-manual-select').addEventListener('click', function (
   }
   poSyncCatalogNotice();
   poRecalc();
+})();
+
+// From an alert: say so if the order's branch is moved off the alert's branch.
+(function () {
+  var hint = document.getElementById('po-alert-branch-hint');
+  var branch = document.getElementById('po-branch');
+  var alertBranch = document.querySelector('input[name="alert_branch"]');
+  if (!hint || !branch || !alertBranch) return;
+  function sync() { hint.hidden = branch.value === alertBranch.value; }
+  branch.addEventListener('change', sync);
+  sync();
 })();
 
 // Double-submit guard: a slow connection or an impatient re-click must not

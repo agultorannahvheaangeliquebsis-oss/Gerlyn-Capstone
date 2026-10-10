@@ -2324,6 +2324,97 @@ def _request_source_branch(request, destination_branch):
     return destination_branch
 
 
+def _refill_alert_rows(request, target_branch, warehouse_stock):
+    """Item rows for the Request Floor Refill modal, plus the "Selected from
+    Alert" context when the modal was opened from an Alerts Center row.
+
+    The alert link carries only stable ids (product, branch) and a suggested
+    quantity. Current stock, reorder level and source availability are always
+    re-read here, so a stale link can never show — or submit against —
+    numbers the database no longer agrees with. The selected product is
+    pinned as the first row even when it has nothing available at the source
+    warehouse, so the user sees the shortfall instead of the product silently
+    vanishing. Quantities are never capped; the server-side check in
+    _create_stock_workflow rejects an over-request with an explicit message.
+
+    On a validation-error re-render (POST) the posted quantities and the
+    alert product come back from the form itself, so nothing typed is lost.
+    """
+    posted = {}
+    if request.method == 'POST':
+        posted = dict(zip(
+            request.POST.getlist('product_id'),
+            request.POST.getlist('quantity_requested'),
+        ))
+
+    rows = [
+        {
+            'product': ws.product,
+            'available': ws.available_qty,
+            'quantity': posted.get(str(ws.product_id), 0),
+            'is_alert': False,
+        }
+        for ws in (warehouse_stock or [])
+    ]
+
+    if target_branch is None:
+        return None, rows
+    raw_product = request.POST.get('alert_product') or request.GET.get('product')
+    if not raw_product or not str(raw_product).isdigit():
+        return None, rows
+    product = Product.objects.select_related('category').filter(pk=raw_product).first()
+    if product is None:
+        return None, rows
+
+    inventory = Inventory.objects.filter(
+        branch=target_branch, product=product,
+    ).first()
+    current_qty = inventory.quantity_on_hand if inventory else 0
+    reorder_level = inventory.reorder_level if inventory else 0
+    live_suggested = suggested_reorder_qty(current_qty, reorder_level)
+
+    if str(product.pk) in posted:
+        # Resubmitted form: show exactly what was typed, even if it was wrong.
+        qty = posted[str(product.pk)]
+        qty_int = _safe_positive_int(qty) or 0
+    else:
+        qty = qty_int = _safe_positive_int(request.GET.get('qty')) or live_suggested
+
+    source_branch = _request_source_branch(request, target_branch)
+    available = next(
+        (r['available'] for r in rows if r['product'].pk == product.pk), 0,
+    )
+    if not any(r['product'].pk == product.pk for r in rows):
+        rows.append({
+            'product': product, 'available': available,
+            'quantity': qty, 'is_alert': True,
+        })
+    for row in rows:
+        if row['product'].pk == product.pk:
+            row['is_alert'] = True
+            row['quantity'] = qty
+    # Selected product first, whatever its place in the catalog.
+    rows.sort(key=lambda r: not r['is_alert'])
+
+    passed_current = request.GET.get('current')
+    stale = (
+        str(passed_current).isdigit() and int(passed_current) != current_qty
+    )
+    alert = {
+        'product': product,
+        'branch': target_branch,
+        'source_branch': source_branch,
+        'current_qty': current_qty,
+        'reorder_level': reorder_level,
+        'suggested_qty': live_suggested,
+        'request_qty': qty,
+        'available': available,
+        'short': qty_int > available,
+        'stale': stale,
+    }
+    return alert, rows
+
+
 def _warehouse_stock_list_context(request):
     # Get the warehouse for this user's branch
     user_branch = get_user_branch(request.user)
@@ -2451,6 +2542,10 @@ def _warehouse_stock_list_context(request):
                 if s.available_qty > 0
             ]
 
+    request_alert, request_rows = _refill_alert_rows(
+        request, request_target_branch, request_warehouse_stock,
+    )
+
     return {
         'active_page': 'warehouse_stock',
         'rows': page.object_list,
@@ -2483,7 +2578,11 @@ def _warehouse_stock_list_context(request):
         'request_source_branch': request_source_branch,
         'request_source_branches': Branch.objects.filter(is_active=True).order_by('branch_name'),
         'request_warehouse_stock': request_warehouse_stock,
-        'show_request_modal': request.GET.get('open_request') == '1',
+        'request_rows': request_rows,
+        'request_alert': request_alert,
+        'show_request_modal': (
+            request.GET.get('open_request') == '1' or request_alert is not None
+        ),
     }
 
 

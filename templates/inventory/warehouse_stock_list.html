@@ -316,6 +316,22 @@ _warehouse_stock_list_context in inventory/views.py.
     <form method="POST" action="{% url 'warehouse_stock_request' %}" class="modal-body" id="request-form">
       {% csrf_token %}
       <input type="hidden" name="branch_id" value="{{ request_target_branch.id }}">
+      {% if request_alert %}
+      <input type="hidden" name="alert_product" value="{{ request_alert.product.id|unlocalize }}">
+      <section class="banner {% if request_alert.short %}banner-warn{% else %}banner-info{% endif %}" aria-label="Selected from Alert">
+        <strong>Selected from Alert</strong>
+        <dl style="display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:var(--s2); margin:var(--s2) 0 0;">
+          <div><dt class="gv-meta">Product</dt><dd style="margin:0;">{{ request_alert.product.product_name }}</dd></div>
+          <div><dt class="gv-meta">Branch</dt><dd style="margin:0;">{{ request_alert.branch.branch_name }}</dd></div>
+          <div><dt class="gv-meta">Current floor stock</dt><dd style="margin:0;">{{ request_alert.current_qty }}</dd></div>
+          <div><dt class="gv-meta">Reorder level</dt><dd style="margin:0;">{{ request_alert.reorder_level }}</dd></div>
+          <div><dt class="gv-meta">Suggested qty</dt><dd style="margin:0;">{{ request_alert.suggested_qty }}</dd></div>
+          <div><dt class="gv-meta">Available at {{ request_alert.source_branch.branch_name }}</dt><dd style="margin:0;">{{ request_alert.available }}</dd></div>
+        </dl>
+        {% if request_alert.stale %}<p class="gv-meta" style="margin:var(--s2) 0 0;">Stock changed since the alert was opened — the figures above are current.</p>{% endif %}
+        {% if request_alert.short %}<p style="margin:var(--s2) 0 0;">The request quantity is more than the source warehouse has available. Lower it, or choose a different source warehouse.</p>{% endif %}
+      </section>
+      {% endif %}
       <p class="gv-meta" style="margin:0;">
         Requests stock for {{ request_target_branch.branch_name }}. The source branch must approve and release it; no stock moves when this request is submitted.
         For damaged, expired, spoiled, or other stock removal, use Write-offs &rarr; Record Write-off instead.
@@ -363,16 +379,17 @@ _warehouse_stock_list_context in inventory/views.py.
           <table class="gv-table" id="request-item-table">
             <thead><tr><th>Product</th><th>Category</th><th class="num">Available</th><th>Request qty</th></tr></thead>
             <tbody>
-            {% for ws in request_warehouse_stock %}
-              <tr data-item-row data-item-name="{{ ws.product.product_name|lower }}" data-item-category="{{ ws.product.category_id|default:'' }}">
+            {% for row in request_rows %}
+              <tr data-item-row{% if row.is_alert %} data-alert-row{% endif %} data-item-name="{{ row.product.product_name|lower }}" data-item-category="{{ row.product.category_id|default:'' }}">
                 <td data-label="Product">
-                  {{ ws.product.product_name }}
-                  <input type="hidden" name="product_id" value="{{ ws.product.id }}">
+                  {{ row.product.product_name }}{% if row.is_alert %} <span class="pill pill-info">From alert</span>{% endif %}
+                  <input type="hidden" name="product_id" value="{{ row.product.id|unlocalize }}">
                 </td>
-                <td data-label="Category" class="gv-meta">{{ ws.product.category.category_name|default:"—" }}</td>
-                <td class="num" data-label="Available">{{ ws.available_qty }}</td>
+                <td data-label="Category" class="gv-meta">{{ row.product.category.category_name|default:"—" }}</td>
+                <td class="num" data-label="Available">{{ row.available }}</td>
                 <td data-label="Request qty">
-                  <input type="number" name="quantity_requested" min="0" max="{{ ws.available_qty|unlocalize }}" step="1" data-label="Quantity requested" data-available="{{ ws.available_qty|unlocalize }}" data-product="{{ ws.product.product_name }}" value="0" style="width:100px;">
+                  {# max only makes the browser flag an over-request; it never rewrites the typed value. checkQty() below and the server both enforce data-available. #}
+                  <input type="number" name="quantity_requested" min="0" max="{{ row.available|unlocalize }}" step="1" data-label="Quantity requested" data-available="{{ row.available|unlocalize }}" data-product="{{ row.product.product_name }}" value="{{ row.quantity|unlocalize }}" style="width:100px;">
                 </td>
               </tr>
             {% empty %}
@@ -489,6 +506,9 @@ _warehouse_stock_list_context in inventory/views.py.
         if (!input.checkValidity()) input.reportValidity();
       });
     });
+    // Prefilled quantities (from an alert, or restored after a rejected
+    // submit) are checked up front so an over-request is flagged, not capped.
+    qtyInputs.forEach(checkQty);
     // `invalid` doesn't bubble, hence capture. A row hidden by the search or
     // category filter can't take focus, so the browser would block the submit
     // without showing why — reveal the row first.
