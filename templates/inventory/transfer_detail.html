@@ -1,4 +1,5 @@
 {% extends base_template %}
+{% load l10n %}
 {% block title %}{{ transfer.slip_number }}{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% block content %}
@@ -107,9 +108,9 @@
         <button type="submit" class="btn btn-primary">{% include "partials/_empty_icon.html" with icon="check" %} Confirm Received on Floor</button></form>
       <form method="post" action="{% url 'transfer_flag_discrepancy' transfer.pk %}" class="row wrap">{% csrf_token %}
         {% for it in items %}
-          <input type="hidden" name="item_id" value="{{ it.pk }}">
+          <input type="hidden" name="item_id" value="{{ it.pk|unlocalize }}">
           <label class="gv-meta">{{ it.product.product_name }} received
-            <input type="number" name="quantity_received" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" value="{{ it.quantity_released }}" required style="width:90px;">
+            <input type="number" name="quantity_received" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" value="{{ it.quantity_released|unlocalize }}" required style="width:90px;">
           </label>
         {% endfor %}
         <input type="text" name="flag_reason" placeholder="reason" required style="flex:1 1 140px;">

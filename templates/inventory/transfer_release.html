@@ -118,23 +118,26 @@ authorised), so it should not be a second thing to learn.
       </thead>
       <tbody>
         {% for item in items %}
-        <tr data-item-id="{{ item.pk }}" data-approved="{{ item.quantity_approved|unlocalize }}">
+        {# Every pk below is |unlocalize'd: USE_THOUSAND_SEPARATOR would render 4754 as "4,754", #}
+        {# which matches neither the scan response's item_id nor the id the release POST keys on. #}
+        <tr data-item-id="{{ item.pk|unlocalize }}" data-approved="{{ item.quantity_approved|unlocalize }}">
           <td data-label="Product" class="strong">
             {{ item.product.product_name }}
             <div class="gv-meta">
               {{ item.product.sku_code }}{% if item.product.barcode %} · {{ item.product.barcode }}
               {% else %} · <span title="No barcode on file — count this one by hand.">no barcode</span>{% endif %}
             </div>
-            <input type="hidden" name="item_id" value="{{ item.pk }}">
+            <input type="hidden" name="item_id" value="{{ item.pk|unlocalize }}">
             {# Set to Scan by the scan handler; anything typed leaves it Manual. #}
-            <input type="hidden" name="release_method" value="Manual" class="method-input">
+            <input type="hidden" name="release_method" class="method-input"
+                   value="{% if item.quantity_picked and item.release_method == 'Scan' %}Scan{% else %}Manual{% endif %}">
           </td>
           <td data-label="Requested" class="num">{{ item.quantity_requested }}</td>
           <td data-label="Approved" class="num strong">{{ item.quantity_approved }}</td>
           <td data-label="Picked" class="num">
             <input type="number" name="quantity_released" min="0" step="1" data-label="Picked quantity" class="qty-input"
                    max="{{ item.quantity_approved|unlocalize }}"
-                   value="{{ item.quantity_approved|unlocalize }}"
+                   value="{{ item.quantity_picked|unlocalize }}"
                    style="max-width:120px; margin-left:auto;">
           </td>
           <td data-label="Status"><span class="v-badge"></span> <span class="v-count"></span></td>
@@ -163,11 +166,36 @@ authorised), so it should not be a second thing to learn.
                   document.querySelectorAll('#release-table tbody tr'));
   var csrf    = document.querySelector('#release-form [name=csrfmiddlewaretoken]').value;
   var scanUrl = '{% url "transfer_scan" transfer.pk %}';
+  var pickUrl = '{% url "transfer_pick" transfer.pk %}';
+  var form    = document.getElementById('release-form');
+  var baseConfirm = form.dataset.confirm;
 
   function setStatus(text, kind) {
     status.textContent = text;
     status.style.color = kind === 'bad' ? 'var(--danger, #B42318)'
                        : kind === 'good' ? 'var(--ok, #1E7A4F)' : '';
+  }
+
+  // Scans and hand counts all go through one queue, so they reach the server
+  // in the order they happened. Without it a typed count and a scan fired a
+  // moment apart can race, and the server's last write — not the user's last
+  // action — would win.
+  var queue = Promise.resolve();
+  function enqueue(task) {
+    queue = queue.then(task);
+    return queue;
+  }
+
+  function postJson(url, fields) {
+    var body = new FormData();
+    Object.keys(fields).forEach(function (k) { body.append(k, fields[k]); });
+    body.append('csrfmiddlewaretoken', csrf);
+    return fetch(url, { method: 'POST', body: body, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); });
+  }
+
+  function rowFor(itemId) {
+    return rows.filter(function (r) { return r.dataset.itemId === String(itemId); })[0] || null;
   }
 
   function paintRow(tr) {
@@ -206,73 +234,128 @@ authorised), so it should not be a second thing to learn.
 
   function repaint() {
     var n = { complete: 0, partial: 0, pending: 0, over: 0 };
-    rows.forEach(function (tr) { n[paintRow(tr)]++; });
+    var total = 0;
+    rows.forEach(function (tr) {
+      n[paintRow(tr)]++;
+      total += Math.max(0, parseInt(tr.querySelector('.qty-input').value, 10) || 0);
+    });
     document.getElementById('tally-complete').textContent = n.complete;
     document.getElementById('tally-partial').textContent = n.partial;
     document.getElementById('tally-pending').textContent = n.pending;
 
-    // Picking more than was approved is refused server-side — the approver
-    // set the ceiling. Block the button too, so nobody keeps scanning into
-    // a submit that cannot succeed.
-    document.getElementById('release-btn').disabled = n.over > 0;
+    // Moving stock needs something picked, and never more than was approved
+    // (the approver set the ceiling; the server refuses both too). Block the
+    // button here so nobody keeps scanning into a submit that cannot succeed.
+    var btn = document.getElementById('release-btn');
+    btn.disabled = n.over > 0 || total === 0;
+    btn.title = total === 0 ? 'Scan or count at least one item first.' : '';
     if (n.over > 0) {
       setStatus('More picked than approved. Correct the count, or have the slip '
                 + 're-approved for the larger quantity.', 'bad');
     }
+
+    // Partial release is allowed, so it is not blocked — but the person
+    // confirming should see that it IS partial before stock moves.
+    var short = n.partial + n.pending;
+    form.dataset.confirm = short > 0
+      ? baseConfirm + ' ' + short + ' item' + (short === 1 ? ' is' : 's are')
+        + ' picked short of the approved quantity; the shortfall is recorded.'
+      : baseConfirm;
   }
 
-  rows.forEach(function (tr) {
-    tr.querySelector('.qty-input').addEventListener('input', function () {
-      // Typing is a manual count even on a row that was scanned earlier —
-      // the last thing that set the number is what release_method records.
-      tr.querySelector('.method-input').value = 'Manual';
-      repaint();
-    });
-  });
-  repaint();
-
-  function bump(itemId) {
-    var tr = rows.filter(function (r) { return r.dataset.itemId === String(itemId); })[0];
-    if (!tr) return null;
-    var field = tr.querySelector('.qty-input');
-    var current = parseInt(field.value, 10);
-    field.value = (isNaN(current) ? 0 : current) + 1;
-    tr.querySelector('.method-input').value = 'Scan';
-
+  function flash(tr) {
     tr.classList.remove('just-scanned');
     void tr.offsetWidth;
     tr.classList.add('just-scanned');
     tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    repaint();
-    return field.value;
+  }
+
+  rows.forEach(function (tr) {
+    var field = tr.querySelector('.qty-input');
+    var approved = parseInt(tr.dataset.approved, 10) || 0;
+
+    field.addEventListener('input', function () {
+      // Typing is a manual count even on a row that was scanned earlier —
+      // the last thing that set the number is what release_method records.
+      tr.querySelector('.method-input').value = 'Manual';
+      var typed = parseInt(field.value, 10);
+      if (!isNaN(typed) && typed > approved) {
+        field.value = approved;
+        setStatus('Only ' + approved + ' approved for this item — count capped at ' + approved + '.', 'bad');
+      } else if (!isNaN(typed) && typed < 0) {
+        field.value = 0;
+      }
+      repaint();
+    });
+
+    // Persist a hand count once it is committed (blur / Enter / spinner), not
+    // on every keystroke. The release POST carries these values too, so a
+    // failed save here never loses the count — it only costs the reload-safety.
+    field.addEventListener('change', function () {
+      var sent = parseInt(field.value, 10);
+      if (isNaN(sent) || sent < 0) { sent = 0; field.value = 0; repaint(); }
+      enqueue(function () {
+        return postJson(pickUrl, { item_id: tr.dataset.itemId, quantity: sent })
+          .then(function (d) {
+            if (!d.ok) {
+              setStatus(d.detail || 'Could not save this count.', 'bad');
+              if (typeof d.quantity_picked === 'number' && parseInt(field.value, 10) === sent) {
+                field.value = d.quantity_picked;
+                repaint();
+              }
+            }
+          })
+          .catch(function () {
+            setStatus('Could not save this count to the server. It will still be '
+                      + 'sent when you move the stock.', 'bad');
+          });
+      });
+    });
+  });
+  repaint();
+
+  function handleScan(code) {
+    setStatus('Looking up ' + code + '…');
+    return postJson(scanUrl, { code: code })
+      .then(function (d) {
+        if (!d.ok) { setStatus(d.detail || 'Scan failed.', 'bad'); return; }
+        if (d.status === 'matched' || d.status === 'at_limit') {
+          var tr = rowFor(d.item_id);
+          if (!tr) {
+            // The server counted it but this page has no such line — reload
+            // rather than show a number that cannot be trusted.
+            setStatus(d.product_name + ' was counted, but this screen is out of date. '
+                      + 'Reload the page.', 'bad');
+            return;
+          }
+          // The server's count is the count. The screen never adds its own +1,
+          // so a repeated scan can neither skip nor double up.
+          tr.querySelector('.qty-input').value = d.quantity_picked;
+          tr.querySelector('.method-input').value = 'Scan';
+          flash(tr);
+          repaint();
+          if (d.status === 'at_limit') {
+            setStatus(d.product_name + ' is already fully picked (' + d.quantity_picked
+                      + ' of ' + d.quantity_approved + '). Nothing was added.', 'bad');
+          } else {
+            setStatus(d.product_name + ' — ' + d.quantity_picked + ' of '
+                      + d.quantity_approved + ' picked.', 'good');
+          }
+        } else if (d.status === 'not_on_slip') {
+          // No "add it anyway" here, unlike receiving: adding a line would
+          // route around the approval this slip exists to enforce.
+          setStatus(d.product_name + ' is not on this {% if transfer.purpose == "Branch Restock" %}stock transfer{% else %}write-off{% endif %}. Put it back, or '
+                    + 'raise a new slip for it.', 'bad');
+        } else {
+          setStatus('No product matches ' + d.code + '.', 'bad');
+        }
+      })
+      .catch(function () { setStatus('Could not reach the server. Count this one by hand.', 'bad'); });
   }
 
   GerlynBarcodeScanner.attach(input, {
     cameraBtn: camera,
-    onScan: function (code) {
-      setStatus('Looking up ' + code + '…');
-      var body = new FormData();
-      body.append('code', code);
-      body.append('csrfmiddlewaretoken', csrf);
-
-      fetch(scanUrl, { method: 'POST', body: body, credentials: 'same-origin' })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-          if (!d.ok) { setStatus(d.detail || 'Scan failed.', 'bad'); return; }
-          if (d.status === 'matched') {
-            var now = bump(d.item_id);
-            setStatus(d.product_name + ' — ' + now + ' of ' + d.quantity_approved + ' picked.', 'good');
-          } else if (d.status === 'not_on_slip') {
-            // No "add it anyway" here, unlike receiving: adding a line would
-            // route around the approval this slip exists to enforce.
-            setStatus(d.product_name + ' is not on this {% if transfer.purpose == "Branch Restock" %}stock transfer{% else %}write-off{% endif %}. Put it back, or '
-                      + 'raise a new slip for it.', 'bad');
-          } else {
-            setStatus('No product matches ' + d.code + '.', 'bad');
-          }
-        })
-        .catch(function () { setStatus('Could not reach the server. Count this one by hand.', 'bad'); });
-    },
+    onScan: function (code) { enqueue(function () { return handleScan(code); }); },
   });
 
   input.addEventListener('focus', function () { input.removeAttribute('inputmode'); });

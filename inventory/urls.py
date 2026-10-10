@@ -47,6 +47,7 @@ urlpatterns = [
     path('withdrawals/<int:pk>/approve/', views.transfer_approve, name='transfer_approve'),
     path('withdrawals/<int:pk>/release/', views.transfer_complete, name='transfer_complete'),
     path('withdrawals/<int:pk>/scan/', views.transfer_scan, name='transfer_scan'),
+    path('withdrawals/<int:pk>/pick/', views.transfer_pick, name='transfer_pick'),
     path('withdrawals/<int:pk>/confirm/', views.transfer_confirm_receipt, name='transfer_confirm_receipt'),
     path('withdrawals/<int:pk>/flag/', views.transfer_flag_discrepancy, name='transfer_flag_discrepancy'),
 ]

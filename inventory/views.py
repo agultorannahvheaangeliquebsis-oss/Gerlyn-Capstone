@@ -3405,12 +3405,16 @@ def transfer_complete(request, pk):
         posted_methods = request.POST.getlist('release_method')
         for idx, (item_id, qty) in enumerate(zip(posted_ids, posted_qtys)):
             parsed = _safe_positive_int(qty)
-            released_map[str(item_id)] = {
+            released_map[str(item_id).strip()] = {
                 'qty': 0 if parsed is None else parsed,
                 'method': (
                     posted_methods[idx] if idx < len(posted_methods) else ''
                 ),
             }
+        # True when the request came from the release screen rather than the
+        # old bare button. Decides whether a line the form failed to mention
+        # means "release what was approved" (bare POST) or "the form is wrong".
+        from_release_screen = bool(posted_ids)
 
         try:
             with transaction.atomic():
@@ -3424,7 +3428,34 @@ def transfer_complete(request, pk):
                         'Transfer must be approved before it can be released.'
                     )
                 any_short = False
-                for item in transfer.items.select_related('product').all():
+                items = list(transfer.items.select_related('product').all())
+
+                if from_release_screen:
+                    # Every approved line must be accounted for. Falling back
+                    # to "release what was approved" for a line the form did
+                    # not mention is how a mangled item id once released the
+                    # FULL approved quantity while the screen showed a partial
+                    # pick. Refuse loudly instead of guessing.
+                    unaccounted = [
+                        i for i in items
+                        if i.quantity_approved > 0 and str(i.pk) not in released_map
+                    ]
+                    if unaccounted:
+                        raise _InsufficientStockError(
+                            'The picked quantity for '
+                            f'{unaccounted[0].product.product_name} was missing from '
+                            'the form, so nothing was moved. Reload the page and try again.'
+                        )
+                    if not any(
+                        released_map[str(i.pk)]['qty'] > 0
+                        for i in items if i.quantity_approved > 0
+                    ):
+                        raise _InsufficientStockError(
+                            'Nothing has been picked yet. Scan or count at least one '
+                            'item before moving stock.'
+                        )
+
+                for item in items:
                     if item.quantity_approved <= 0:
                         continue
 
@@ -3444,13 +3475,16 @@ def transfer_complete(request, pk):
                         )
 
                     item.quantity_released = qty_release
+                    item.quantity_picked = qty_release
                     if posted is not None:
                         item.release_method = (
                             StockTransferItem.ReleaseMethod.SCAN
                             if posted['method'] == 'Scan'
                             else StockTransferItem.ReleaseMethod.MANUAL
                         )
-                    item.save(update_fields=['quantity_released', 'release_method'])
+                    item.save(update_fields=[
+                        'quantity_released', 'quantity_picked', 'release_method',
+                    ])
 
                     if qty_release < item.quantity_approved:
                         any_short = True
@@ -3711,11 +3745,26 @@ def transfer_scan(request, pk):
     item = transfer.items.filter(product=product).first() if product else None
 
     if item:
+        # The increment happens here, under a row lock, and the screen shows
+        # whatever this returns — not its own +1. Two scans in flight (or a
+        # second device on the same slip) therefore cannot both read N and
+        # both write N+1, and the ceiling is enforced where it cannot be
+        # bypassed. Only quantity_picked is touched: no stock moves until the
+        # release itself is confirmed.
+        with transaction.atomic():
+            locked = StockTransferItem.objects.select_for_update().get(pk=item.pk)
+            at_limit = locked.quantity_picked >= locked.quantity_approved
+            if not at_limit:
+                locked.quantity_picked += 1
+                locked.release_method = StockTransferItem.ReleaseMethod.SCAN
+                locked.save(update_fields=['quantity_picked', 'release_method'])
         return JsonResponse({
-            'ok': True, 'status': 'matched',
-            'item_id': item.pk,
+            'ok': True,
+            'status': 'at_limit' if at_limit else 'matched',
+            'item_id': locked.pk,
             'product_name': item.product.product_name,
-            'quantity_approved': item.quantity_approved,
+            'quantity_picked': locked.quantity_picked,
+            'quantity_approved': locked.quantity_approved,
         })
     if product:
         return JsonResponse({
@@ -3723,6 +3772,65 @@ def transfer_scan(request, pk):
             'product_name': product.product_name,
         })
     return JsonResponse({'ok': True, 'status': 'unknown', 'code': code})
+
+
+@login_required(login_url='accounts:login')
+@require_POST
+def transfer_pick(request, pk):
+    """AJAX: record a hand-counted pick quantity for one line of an approved slip.
+
+    The manual-entry twin of transfer_scan, for products with no barcode (or
+    a barcode that will not scan). It sets the count rather than adding one,
+    and applies the same ceiling: the approver set the quantity, and a picker
+    cannot raise it by typing. Like a scan it only touches quantity_picked —
+    stock moves solely when the release is confirmed.
+    """
+    if request.user.role not in [User.Role.BRANCH_MANAGER, User.Role.OWNER]:
+        return JsonResponse({'ok': False, 'detail': 'Access denied.'}, status=403)
+
+    transfer = get_object_or_404(StockTransfer, pk=pk)
+    if not user_can_access_branch(request.user, transfer.source_branch_id):
+        return JsonResponse({'ok': False, 'detail': 'Wrong branch.'}, status=403)
+    if transfer.status != StockTransfer.Status.APPROVED:
+        return JsonResponse({'ok': False, 'detail': 'This slip is not awaiting release.'}, status=400)
+
+    raw_item = (request.POST.get('item_id') or '').strip()
+    raw_qty = (request.POST.get('quantity') or '').strip()
+    if not raw_item.isdigit() or len(raw_item) > 9:
+        return JsonResponse({'ok': False, 'detail': 'Unknown line.'}, status=400)
+    # A blank field is "not counted yet", i.e. 0 — same as the release POST.
+    if raw_qty and (not raw_qty.isdigit() or len(raw_qty) > 9):
+        return JsonResponse({'ok': False, 'detail': 'Enter a whole number.'}, status=400)
+    quantity = int(raw_qty) if raw_qty else 0
+
+    with transaction.atomic():
+        item = (
+            StockTransferItem.objects.select_for_update()
+            .select_related('product')
+            .filter(pk=int(raw_item), transfer=transfer).first()
+        )
+        if item is None:
+            return JsonResponse({'ok': False, 'detail': 'That line is not on this slip.'}, status=400)
+        if quantity > item.quantity_approved:
+            return JsonResponse({
+                'ok': False,
+                'detail': (
+                    f'{item.product.product_name}: {quantity} is more than the '
+                    f'{item.quantity_approved} approved.'
+                ),
+                'quantity_picked': item.quantity_picked,
+                'quantity_approved': item.quantity_approved,
+            }, status=400)
+        item.quantity_picked = quantity
+        item.release_method = StockTransferItem.ReleaseMethod.MANUAL
+        item.save(update_fields=['quantity_picked', 'release_method'])
+
+    return JsonResponse({
+        'ok': True,
+        'item_id': item.pk,
+        'quantity_picked': item.quantity_picked,
+        'quantity_approved': item.quantity_approved,
+    })
 
 
 # ─────────────────────────────────────────────

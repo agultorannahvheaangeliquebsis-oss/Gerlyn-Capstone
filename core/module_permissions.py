@@ -106,7 +106,7 @@ MODULE_PERMISSION_REGISTRY = {
         ADD: ['transfer_create', 'api-stock-transfer-list'],
         EDIT: [
             'transfer_approve', 'transfer_complete', 'transfer_scan',
-            'transfer_confirm_receipt', 'transfer_flag_discrepancy',
+            'transfer_pick', 'transfer_confirm_receipt', 'transfer_flag_discrepancy',
             'api-stock-transfer-approve', 'api-stock-transfer-release',
             'api-stock-transfer-acknowledge',
         ],

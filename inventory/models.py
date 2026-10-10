@@ -926,6 +926,17 @@ class StockTransferItem(models.Model):
         default=0,
         help_text="Actually picked at release time. Drives per-item release status."
     )
+    # Picking progress while the slip is still Approved. Kept apart from
+    # quantity_released on purpose: that column means "left the warehouse"
+    # (the detail page, receipt confirmation and discrepancy flow all read it
+    # as such), whereas a pick is only a count on a screen. Writing scans into
+    # quantity_released would make an unreleased slip look released.
+    quantity_picked = models.PositiveIntegerField(
+        default=0,
+        help_text="Running pick count on the release screen. Staging only — it "
+                  "never moves stock; it becomes quantity_released when the "
+                  "release is confirmed."
+    )
     release_method = models.CharField(
         max_length=10, choices=ReleaseMethod.choices, blank=True,
         help_text="How quantity_released was captured. Recorded for audit only — "
