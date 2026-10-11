@@ -88,7 +88,7 @@ MODULE_PERMISSION_REGISTRY = {
             'api-warehouse-list', 'api-warehouse-detail',
         ],
         ADD: [
-            'warehouse_stock_request',
+            'warehouse_stock_request', 'warehouse_stock_bulk_request',
             'api-warehouse-stock-list', 'api-warehouse-list',
         ],
         EDIT: [

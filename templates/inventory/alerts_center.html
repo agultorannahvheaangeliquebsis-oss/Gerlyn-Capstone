@@ -121,19 +121,48 @@ opens instead of standing alone as a figure that double-counts its neighbour.
   <table class="gv-table">
     <thead>
       <tr>
+        {% if can_request_refill %}
+        <th class="bulk-col">
+          {# Applies to the rows shown right now (this page of the pager, this branch filter) — see the script below. #}
+          <input type="checkbox" id="bulk-select-all" aria-label="Select all shown rows">
+        </th>
+        {% endif %}
         <th>Product</th>
         <th>Branch</th>
         <th class="num">Qty</th>
         <th class="num">Reorder</th>
         <th class="num">Suggested</th>
         <th>Risk</th>
-        <th class="end">Action</th>
+        {% if can_request_refill %}<th class="end">Action</th>{% endif %}
       </tr>
     </thead>
     <tbody>
       {% for row in low_stock %}
       <tr>
-        <td data-label="Product" class="strong">{{ row.product.product_name }}</td>
+        {% if can_request_refill %}
+        <td data-label="Select" class="bulk-col">
+          {# A row with a refill already open can't be selected: the modal would only block it. #}
+          <input type="checkbox" data-bulk-row
+                 data-key="{{ row.branch.pk|unlocalize }}:{{ row.product.pk|unlocalize }}"
+                 {% if row.open_refill %}disabled title="Refill {{ row.open_refill.slip }} is already {{ row.open_refill.status|lower }}"{% endif %}
+                 aria-label="Select {{ row.product.product_name }} at {{ row.branch.branch_name }}">
+        </td>
+        {% endif %}
+        <td data-label="Product" class="strong">
+          {{ row.product.product_name }}
+          {% if row.open_refill %}
+          {% comment %}
+          The refill has been asked for but not released, so no stock has
+          moved and this row is still below its reorder level. Say so, rather
+          than leaving a row that looks as if nothing was done.
+          {% endcomment %}
+          <span class="pill pill-info" data-requested>
+            Requested
+            {% if can_view_transfers %}<a href="{% url 'transfer_detail' row.open_refill.pk %}">{{ row.open_refill.slip }}</a>{% else %}{{ row.open_refill.slip }}{% endif %}
+            · {{ row.open_refill.status }}
+          </span>
+          {% endif %}
+        </td>
         <td data-label="Branch">{{ row.branch.branch_name }}</td>
         <td data-label="Qty" class="num strong"
             style="color:{% if row.risk == 'Critical' %}var(--danger-fg){% else %}var(--warn-fg){% endif %};">
@@ -146,6 +175,7 @@ opens instead of standing alone as a figure that double-counts its neighbour.
           {% elif row.risk == 'High' %}<span class="pill pill-warn">High</span>
           {% else %}<span class="pill pill-neutral">Moderate</span>{% endif %}
         </td>
+        {% if can_request_refill %}
         <td data-label="Action">
           <span class="row-actions">
             {% comment %}Straight into the Request Stock to Floor modal, branch pre-selected — this is a
@@ -154,10 +184,11 @@ opens instead of standing alone as a figure that double-counts its neighbour.
             <a class="btn btn-sm btn-primary" href="{% url 'warehouse_stock_list' %}?open_request=1&amp;branch={{ row.branch.pk|unlocalize }}&amp;product={{ row.product.pk|unlocalize }}&amp;qty={{ row.suggested_qty|unlocalize }}&amp;current={{ row.quantity_on_hand|unlocalize }}&amp;reorder={{ row.reorder_level|unlocalize }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Request Floor Refill</a>
           </span>
         </td>
+        {% endif %}
       </tr>
       {% empty %}
       <tr>
-        <td colspan="7">
+        <td colspan="{% if can_request_refill %}8{% else %}6{% endif %}">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="check-circle" %}</span>
             <h3>Nothing needs restocking</h3>
@@ -170,6 +201,23 @@ opens instead of standing alone as a figure that double-counts its neighbour.
   </table>
 </div>
 <div id="pager-floor" class="alert-pager" hidden></div>
+
+{% if can_request_refill %}
+{% comment %}
+Bulk Request Floor Refill. It opens the SAME modal the row button opens (the
+Warehouse Stock page's #request-modal), in bulk mode: the link carries only
+branch:product ids, and the modal re-reads every figure live. Nothing is
+requested from here — this bar only builds that link.
+{% endcomment %}
+<div id="bulk-bar" class="bulk-bar" role="region" aria-label="Bulk floor refill" data-max="{{ bulk_max }}" data-url="{% url 'warehouse_stock_list' %}" hidden>
+  <span class="bulk-bar-count"><strong id="bulk-count">0</strong> selected</span>
+  <span class="bulk-bar-note gv-meta" id="bulk-note" hidden></span>
+  <span class="bulk-bar-actions">
+    <button type="button" class="bulk-bar-clear" id="bulk-clear">Clear selection</button>
+    <button type="button" class="btn btn-primary" id="bulk-request">Request Floor Refill (0)</button>
+  </span>
+</div>
+{% endif %}
 
 <!-- --------------------------------------------------- low WAREHOUSE stock -->
 <div id="panel-warehouse" class="card table-wrap hidden">
@@ -419,6 +467,8 @@ Product Master List's image-delete confirm).
       document.getElementById('pager-' + p).hidden = which !== p;
       document.getElementById('tab-' + p).classList.toggle('active', which === p);
     });
+    // The bulk bar belongs to the Low Floor Stock tab only.
+    if (window.syncBulkBar) window.syncBulkBar();
   }
 
   // Deep-link support so the Dashboard's "Needs attention" rows (DESIGN.md 2b)
@@ -436,6 +486,111 @@ Product Master List's image-delete confirm).
     window.addEventListener('hashchange', applyHash);
   })();
 </script>
+{% if can_request_refill %}
+<script>
+// Bulk selection for the Low Floor Stock tab. The checkboxes ARE the state
+// (nothing is mirrored into a second structure), so a row hidden by the
+// pager keeps its tick, and a browser back-navigation that restores the
+// ticks restores the bar with them.
+(function () {
+  var bar = document.getElementById('bulk-bar');
+  var panel = document.getElementById('panel-floor');
+  var all = document.getElementById('bulk-select-all');
+  if (!bar || !panel) return;
+
+  var countEl = document.getElementById('bulk-count');
+  var requestBtn = document.getElementById('bulk-request');
+  var clearBtn = document.getElementById('bulk-clear');
+  var noteEl = document.getElementById('bulk-note');
+  var max = parseInt(bar.dataset.max, 10) || 100;
+
+  function boxes() {
+    return Array.prototype.slice.call(panel.querySelectorAll('input[data-bulk-row]'));
+  }
+  function selected() { return boxes().filter(function (b) { return b.checked; }); }
+  // "Shown" = not filtered out and on the pager's current page. The branch
+  // filter is server-side, so rows it removes are not in the DOM at all.
+  function shown() {
+    return boxes().filter(function (b) {
+      var tr = b.closest('tr');
+      return tr && !b.disabled && !tr.hidden && !tr.hasAttribute('data-page-hidden');
+    });
+  }
+
+  function sync() {
+    var picked = selected();
+    var n = picked.length;
+    boxes().forEach(function (b) { b.closest('tr').classList.toggle('is-selected', b.checked); });
+
+    var onFloorTab = !panel.classList.contains('hidden');
+    bar.hidden = !(onFloorTab && n > 0);
+    countEl.textContent = n;
+    requestBtn.textContent = 'Request Floor Refill (' + n + ')';
+
+    if (all) {
+      var vis = shown();
+      var on = vis.filter(function (b) { return b.checked; }).length;
+      all.checked = vis.length > 0 && on === vis.length;
+      all.indeterminate = on > 0 && on < vis.length;
+      all.disabled = vis.length === 0;
+    }
+  }
+  window.syncBulkBar = sync;
+
+  function limitNote(show) {
+    noteEl.hidden = !show;
+    noteEl.textContent = show ? 'Limit of ' + max + ' items per request reached.' : '';
+  }
+
+  panel.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t.matches || !t.matches('input[data-bulk-row]')) return;
+    if (t.checked && selected().length > max) {
+      t.checked = false;
+      limitNote(true);
+    } else {
+      limitNote(false);
+    }
+    sync();
+  });
+
+  if (all) {
+    all.addEventListener('change', function () {
+      var want = all.checked;
+      var hitLimit = false;
+      shown().forEach(function (b) {
+        if (want && !b.checked && selected().length >= max) { hitLimit = true; return; }
+        b.checked = want;
+      });
+      limitNote(hitLimit);
+      sync();
+    });
+  }
+
+  clearBtn.addEventListener('click', function () {
+    boxes().forEach(function (b) { b.checked = false; });
+    limitNote(false);
+    sync();
+  });
+
+  // The pager redraws on its own buttons; re-evaluate "shown" after it does.
+  var pager = document.getElementById('pager-floor');
+  if (pager) pager.addEventListener('click', function () { setTimeout(sync, 0); });
+
+  requestBtn.addEventListener('click', function () {
+    var keys = selected().map(function (b) { return b.dataset.key; });
+    if (!keys.length) return;
+    var params = new URLSearchParams({ open_request: '1', bulk: '1' });
+    params.set('sel', keys.join(','));
+    window.location.href = bar.dataset.url + '?' + params.toString();
+  });
+
+  // Restored-from-cache pages keep their ticks; make the bar agree.
+  window.addEventListener('pageshow', sync);
+  sync();
+})();
+</script>
+{% endif %}
 <script>
 (function () {
   var modal = document.getElementById('writeoff-confirm');

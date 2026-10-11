@@ -40,6 +40,11 @@ MAX_AMOUNT = Decimal('10000000.00')
 # warehouse in this system holds anything near that.
 MAX_QUANTITY = 100_000
 
+# Lines in one bulk floor-refill submit (Alerts Center multi-select). The
+# selection travels in a query string and every line costs a stock lookup, so
+# it is bounded; 100 is several screens of alerts at 10 rows per page.
+MAX_BULK_REFILL_ITEMS = 100
+
 # Days a supplier needs to deliver.
 MAX_LEAD_TIME_DAYS = 365
 

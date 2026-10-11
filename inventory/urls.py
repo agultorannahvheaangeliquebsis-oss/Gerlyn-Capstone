@@ -35,6 +35,7 @@ urlpatterns = [
     path('warehouse/', views.warehouse_stock_list, name='warehouse_stock_list'),
     path('warehouse/<int:pk>/edit/', views.warehouse_stock_edit, name='warehouse_stock_edit'),
     path('warehouse/request/', views.warehouse_stock_request, name='warehouse_stock_request'),
+    path('warehouse/request/bulk/', views.warehouse_stock_bulk_request, name='warehouse_stock_bulk_request'),
 
     # Alerts Center
     path('alerts/', views.alerts_center, name='alerts_center'),

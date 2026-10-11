@@ -259,6 +259,23 @@ def nav_branches(request):
 ALERT_COUNT_CACHE_SECONDS = 30
 
 
+def bust_alert_count(user):
+    """Forget `user`'s cached sidebar badge so their next page render recounts.
+
+    For an action that has just changed what the Alerts Center shows (the
+    bulk floor refill), where waiting out the 30 seconds would show the user a
+    badge from before their own action. Other users' badges still age out on
+    their own. Best-effort, like the read: a cache error must not fail the
+    action that triggered it.
+    """
+    from django.core.cache import cache
+
+    try:
+        cache.delete(f"alert_count:{user.id}")
+    except Exception:
+        pass
+
+
 def alerts(request):
     """
     Expose `alert_count` for the sidebar/bottom-nav badge.

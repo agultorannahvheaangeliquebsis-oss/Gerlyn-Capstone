@@ -86,6 +86,71 @@ def warehouse_available_quantity(product, branch, *, lock=False):
     )
 
 
+def stock_shortage_message(product, quantity, source_branch, *, is_restock=True):
+    """Why `quantity` of `product` cannot be drawn from `source_branch` right
+    now, or '' when it can. One definition shared by the single request, the
+    bulk request and the modal's per-row state, so the three can never
+    disagree about what "available" means or how a shortage is worded.
+
+    A Branch Restock draws on the source WAREHOUSE (expired/missing lots
+    excluded); a write-off draws on the branch's FLOOR stock.
+    """
+    location = 'warehouse' if is_restock else 'floor'
+    if is_restock:
+        available = warehouse_available_quantity(product, source_branch)
+    else:
+        available = (Inventory.objects.filter(
+            product=product, branch=source_branch,
+        ).values_list('quantity_on_hand', flat=True).first() or 0)
+    if available <= 0:
+        return f'No available {location} stock for {product.product_name}.'
+    if quantity is not None and quantity > available:
+        return (
+            f'Insufficient {location} stock for {product.product_name}. '
+            f'Only {available} unit{"" if available == 1 else "s"} '
+            f'{"is" if available == 1 else "are"} available.'
+        )
+    return ''
+
+
+def open_refill_lookup(branch_ids, product_ids):
+    """{(destination_branch_id, product_id): {'pk', 'slip', 'status'}} for
+    refills already asked for but not yet released to that branch's floor
+    (the oldest one, when there are several).
+
+    Pending and Approved both count: in either state the stock has not moved,
+    so a second request for the same product would double-request it. The one
+    definition behind the bulk flow's blocker and the Alerts Center's
+    "Requested" marker.
+    """
+    rows = StockTransferItem.objects.filter(
+        transfer__purpose=StockTransfer.Purpose.BRANCH_RESTOCK,
+        transfer__destination_branch_id__in=list(branch_ids),
+        transfer__status__in=(
+            StockTransfer.Status.PENDING, StockTransfer.Status.APPROVED,
+        ),
+        product_id__in=list(product_ids),
+    ).values_list(
+        'transfer__destination_branch_id', 'product_id', 'transfer_id',
+        'transfer__slip_number', 'transfer__status',
+    ).order_by('transfer__created_at', 'transfer_id')
+    found = {}
+    for branch_id, product_id, transfer_id, slip, status in rows:
+        found.setdefault(
+            (branch_id, product_id),
+            {'pk': transfer_id, 'slip': slip, 'status': status},
+        )
+    return found
+
+
+def open_refill_requests(destination_branch, product_ids):
+    """{product_id: slip_number} of open refills for one destination branch —
+    see open_refill_lookup(). Used by the bulk flow (the single request has
+    never blocked on this)."""
+    lookup = open_refill_lookup([destination_branch.pk], product_ids)
+    return {product_id: info['slip'] for (_b, product_id), info in lookup.items()}
+
+
 def record_transfer_event(transfer, from_status, to_status, actor, note=''):
     return StockTransferEvent.objects.create(
         transfer=transfer,
@@ -148,7 +213,7 @@ def _notify_new_write_off_request(write_off_id):
 
 def _create_stock_workflow(
     *, actor, source_branch_id=None, destination_branch_id=None, purpose,
-    items, transfer_date=None, notes='',
+    items, transfer_date=None, notes='', action_label=None,
 ):
     """Shared persistence helper for the two explicit stock workflows.
 
@@ -247,33 +312,21 @@ def _create_stock_workflow(
     # leaves a partial request behind. This is only a submit-time guard — no
     # stock is reserved or moved here; approval and release re-check against
     # the then-current (locked) quantity.
-    location = 'warehouse' if is_restock else 'floor'
     shortages = []
     for product_id, quantity in normalized:
-        product = products[product_id]
-        available = (
-            warehouse_available_quantity(product, source_branch)
-            if is_restock else
-            (Inventory.objects.filter(
-                product=product, branch=source_branch,
-            ).values_list('quantity_on_hand', flat=True).first() or 0)
+        message = stock_shortage_message(
+            products[product_id], quantity, source_branch, is_restock=is_restock,
         )
-        if available <= 0:
-            shortages.append(
-                f'No available {location} stock for {product.product_name}.'
-            )
-        elif quantity > available:
-            shortages.append(
-                f'Insufficient {location} stock for {product.product_name}. '
-                f'Only {available} unit{"" if available == 1 else "s"} '
-                f'{"is" if available == 1 else "are"} available.'
-            )
+        if message:
+            shortages.append(message)
     if shortages:
         raise StockTransferRequestError(' '.join(shortages))
 
     set_action_label(
-        'Created a warehouse-to-floor transfer request'
-        if is_restock else 'Created a stock write-off request'
+        action_label or (
+            'Created a warehouse-to-floor transfer request'
+            if is_restock else 'Created a stock write-off request'
+        )
     )
     with transaction.atomic():
         workflow_model = WarehouseFloorTransfer if is_restock else StockWriteOff
@@ -306,7 +359,7 @@ def _create_stock_workflow(
 
 def create_warehouse_floor_transfer(
     *, actor, source_branch_id=None, destination_branch_id=None,
-    items, transfer_date=None, notes='',
+    items, transfer_date=None, notes='', action_label=None,
 ):
     """Create a warehouse-to-floor request with transfer invariants."""
     return _create_stock_workflow(
@@ -317,7 +370,218 @@ def create_warehouse_floor_transfer(
         items=items,
         transfer_date=transfer_date,
         notes=notes,
+        action_label=action_label,
     )
+
+
+@dataclass
+class BulkRefillFailure:
+    """One requested line that did not become part of a request."""
+    destination_branch_id: int
+    product_id: int
+    product_name: str
+    reason: str
+
+
+@dataclass
+class BulkRefillResult:
+    # [(transfer, [(product, quantity), ...])] — one per destination/source.
+    created: list
+    failures: list
+
+
+def create_bulk_floor_refills(
+    *, actor, groups, transfer_date=None, notes='', after_create=None,
+):
+    """Create several warehouse-to-floor requests in ONE transaction.
+
+    `groups` is [{'destination_branch_id', 'source_branch_id',
+    'items': [{'product_id', 'quantity'}, ...]}, ...]. Each group becomes one
+    request per (source warehouse, destination branch) holding all of its
+    valid items with the quantities exactly as given.
+
+    Every rule is the single request's own: the actual write is
+    create_warehouse_floor_transfer(), so role/branch scoping, local-first,
+    shortage checks, the event and the notification are never re-implemented
+    here. This function only adds what a batch needs on top of that:
+
+      * per-ITEM reasons (the single request reports one combined message),
+      * a pending/approved-duplicate check, and
+      * partial success — an item or group that fails is reported and left
+        out, the rest are created. Each group sits in its own savepoint
+        inside one outer transaction, so a group is all-or-nothing and the
+        whole call is never half-applied.
+
+    No stock moves here; approval and release re-check against locked stock.
+    `after_create(transfer)` runs inside the group's savepoint (the view uses
+    it for the Owner's auto-approval, which needs row locks).
+    """
+    from accounts.models import User
+    from audit.capture import record_detail
+    from audit.context import new_request_group
+    from core.scoping import user_can_access_branch
+
+    if actor.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF):
+        raise StockTransferRequestError('Your account cannot create stock requests.')
+
+    failures = []
+    created = []
+
+    def fail(dest_id, product_id, name, reason):
+        failures.append(BulkRefillFailure(dest_id, product_id, name, reason))
+
+    # Normalise first: a malformed line is a reported failure, never a 500.
+    clean_groups = []
+    wanted_ids = set()
+    seen = set()
+    for group in groups:
+        try:
+            dest_id = int(group['destination_branch_id'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        raw_source = group.get('source_branch_id')
+        try:
+            source_id = int(raw_source) if raw_source else dest_id
+        except (TypeError, ValueError):
+            source_id = dest_id
+        lines = []
+        for item in group.get('items', []):
+            try:
+                product_id = int(item['product_id'])
+                quantity = int(item['quantity'])
+            except (KeyError, TypeError, ValueError):
+                fail(dest_id, 0, 'Unknown product', 'Enter a valid quantity.')
+                continue
+            if (dest_id, product_id) in seen:
+                fail(dest_id, product_id, '', 'Listed more than once.')
+                continue
+            seen.add((dest_id, product_id))
+            wanted_ids.add(product_id)
+            lines.append((product_id, quantity))
+        clean_groups.append((dest_id, source_id, lines))
+
+    products = Product.objects.in_bulk(wanted_ids)
+    # Fix up names now that products are loaded (duplicates were queued blank).
+    for failure in failures:
+        product = products.get(failure.product_id)
+        if product is not None and not failure.product_name:
+            failure.product_name = product.product_name
+
+    branches = Branch.objects.in_bulk(
+        {d for d, _s, _l in clean_groups} | {s for _d, s, _l in clean_groups}
+    )
+
+    with transaction.atomic():
+        for dest_id, source_id, lines in clean_groups:
+            destination = branches.get(dest_id)
+            source = branches.get(source_id)
+
+            def fail_all(reason, remaining):
+                for product_id, _qty in remaining:
+                    product = products.get(product_id)
+                    fail(dest_id, product_id,
+                         product.product_name if product else 'Unknown product', reason)
+
+            if destination is None or not destination.is_active:
+                fail_all('Choose an active destination branch.', lines)
+                continue
+            if not user_can_access_branch(actor, dest_id):
+                fail_all(
+                    'Staff and Managers can request stock only for their '
+                    'assigned branch.', lines,
+                )
+                continue
+            if source is None or not source.is_active:
+                fail_all('Choose an active source branch.', lines)
+                continue
+            if not Warehouse.objects.filter(branch=source).exists():
+                fail_all(f'No warehouse is configured for {source.branch_name}.', lines)
+                continue
+
+            pending = open_refill_requests(destination, [p for p, _q in lines])
+            usable = []
+            for product_id, quantity in lines:
+                product = products.get(product_id)
+                if product is None:
+                    fail(dest_id, product_id, 'Unknown product',
+                         'This product no longer exists.')
+                    continue
+                if quantity <= 0:
+                    fail(dest_id, product_id, product.product_name,
+                         'Quantity must be at least 1.')
+                    continue
+                if product_id in pending:
+                    fail(dest_id, product_id, product.product_name,
+                         f'A refill request ({pending[product_id]}) is already '
+                         'pending for this product.')
+                    continue
+                if source.pk != destination.pk:
+                    local = warehouse_available_quantity(product, destination)
+                    if local > 0:
+                        fail(dest_id, product_id, product.product_name,
+                             f'Use the {destination.branch_name} warehouse first '
+                             f'({local} available there).')
+                        continue
+                message = stock_shortage_message(product, quantity, source)
+                if message:
+                    fail(dest_id, product_id, product.product_name, message)
+                    continue
+                usable.append((product, quantity))
+            if not usable:
+                continue
+
+            units = sum(q for _p, q in usable)
+            label = (
+                f'Bulk floor refill request: {len(usable)} item'
+                f'{"" if len(usable) == 1 else "s"}, {units} unit'
+                f'{"" if units == 1 else "s"}'
+            )
+            try:
+                # Savepoint: a group that fails late (e.g. stock changed
+                # between the check above and the locked write) rolls back
+                # alone and is reported, instead of poisoning the batch.
+                with transaction.atomic():
+                    # One audit group per request, so the Audit Log shows one
+                    # entry per refill rather than one blob per click.
+                    new_request_group()
+                    transfer = create_warehouse_floor_transfer(
+                        actor=actor,
+                        source_branch_id=source.pk,
+                        destination_branch_id=destination.pk,
+                        transfer_date=transfer_date,
+                        notes=notes,
+                        items=[
+                            {'product_id': p.pk, 'quantity': q} for p, q in usable
+                        ],
+                        action_label=label,
+                    )
+                    if after_create is not None:
+                        after_create(transfer)
+                    record_detail(
+                        transfer,
+                        summary=(
+                            f'Bulk floor refill {transfer.slip_number} '
+                            f'({source.branch_name} to {destination.branch_name}): '
+                            + ', '.join(
+                                f'{p.product_name} x{q}' for p, q in usable
+                            )
+                        ),
+                        after={
+                            'source_branch': source.branch_name,
+                            'destination_branch': destination.branch_name,
+                            'items': [
+                                {'product': p.product_name, 'sku': p.sku_code,
+                                 'quantity_requested': q}
+                                for p, q in usable
+                            ],
+                        },
+                    )
+            except StockTransferRequestError as exc:
+                fail_all(str(exc), [(p.pk, q) for p, q in usable])
+                continue
+            created.append((transfer, usable))
+
+    return BulkRefillResult(created=created, failures=failures)
 
 
 def create_stock_write_off(

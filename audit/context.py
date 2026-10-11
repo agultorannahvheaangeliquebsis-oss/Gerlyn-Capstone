@@ -38,6 +38,22 @@ def set_action_label(label):
     _action_label.set(label)
 
 
+def new_request_group():
+    """Start a fresh audit group part-way through one HTTP request.
+
+    The Audit Log groups rows by request id, so a single click that creates
+    several independent records (a bulk refill makes one request per source
+    warehouse and destination branch) would otherwise read as one blob. Call
+    this before each record's writes and each gets its own entry. A no-op
+    outside a request (management commands, signals fired by the system),
+    where rows have no request id to split. The middleware's unbind() resets
+    to the value it saw at bind time, so nothing leaks past the request.
+    """
+    if _request.get() is not None:
+        _request_id.set(uuid.uuid4().hex)
+        _action_label.set('')
+
+
 class suppressed(ContextDecorator):
     """Switch capture off for a block or a whole function — bulk seeding and
     the like, where thousands of rows written by a script are noise, not

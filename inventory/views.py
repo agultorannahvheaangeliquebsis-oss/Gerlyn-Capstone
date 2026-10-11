@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import uuid
 import hashlib
 
@@ -31,7 +32,9 @@ from .services import (
     parse_opening_stock_workbook, reverse_opening_stock_import,
     validate_opening_stock_rows, StockTransferRequestError,
     StockTransferReceiptError, create_stock_write_off,
-    create_warehouse_floor_transfer, record_transfer_event,
+    create_bulk_floor_refills,
+    create_warehouse_floor_transfer, open_refill_lookup, open_refill_requests,
+    record_transfer_event,
     reconcile_transfer_receipt, transfers_visible_to,
     warehouse_available_quantity,
 )
@@ -39,10 +42,12 @@ from .alerts import alert_summary, stock_status, suggested_reorder_qty
 from accounts.models import User
 from branches.models import Branch
 from core.limits import (
-    MAX_BARCODE_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, MAX_NOTE_LENGTH,
+    MAX_BARCODE_LENGTH, MAX_BULK_REFILL_ITEMS, MAX_DESCRIPTION_LENGTH,
+    MAX_NAME_LENGTH, MAX_NOTE_LENGTH,
     MAX_PRICE, MAX_QUANTITY, parse_money, parse_quantity, parse_text,
     validate_image_uploads,
 )
+from core.context_processors import bust_alert_count
 from core.pagination import paginate
 from core.permissions import INTERNAL_ROLES, OWNER, BRANCH_MANAGER, STAFF, role_required
 from core.module_permissions import (
@@ -1504,6 +1509,18 @@ def alerts_center(request):
     for po in overdue_deliveries:
         po.late_days = (today - po.delivery_date).days
 
+    # A refill that is asked for but not yet released has moved no stock, so
+    # its row stays on this tab. Mark it, so a row that looks untouched is not
+    # requested a second time. Shown to everyone who sees the alert (it is the
+    # alert's own branch's request), linked only if they may open transfers.
+    low_stock = summary['low_stock']
+    open_refills = open_refill_lookup(
+        {r['branch'].pk for r in low_stock},
+        {r['product'].pk for r in low_stock},
+    ) if low_stock else {}
+    for row in low_stock:
+        row['open_refill'] = open_refills.get((row['branch'].pk, row['product'].pk))
+
     return render(request, 'inventory/alerts_center.html', {
         'overdue_deliveries': overdue_deliveries,
         'critical_count': summary['critical_count'],
@@ -1518,6 +1535,18 @@ def alerts_center(request):
         'expiry_expired': summary['expiry_expired'],
         'expiry_soon': summary['expiry_soon'],
         'expiry_approaching': summary['expiry_approaching'],
+        # Gates every refill control on the Low Floor Stock tab — the row
+        # button, the checkboxes and the bulk bar. Same module action the
+        # refill POSTs are gated on (WAREHOUSE_STOCK/ADD), so an account that
+        # cannot submit a refill is never offered one.
+        'can_request_refill': user_can_perform_module_action(
+            request.user, WAREHOUSE_STOCK, ADD
+        ),
+        # Only for linking a "Requested" marker to its slip.
+        'can_view_transfers': user_can_perform_module_action(
+            request.user, WITHDRAWALS
+        ),
+        'bulk_max': MAX_BULK_REFILL_ITEMS,
         'branches': cached_branches() if not user_branch else [],
         'branch_filter': branch_filter,
         # The topbar branch chip renders this — same pattern as Floor Stock,
@@ -2415,7 +2444,123 @@ def _refill_alert_rows(request, target_branch, warehouse_stock):
     return alert, rows
 
 
-def _warehouse_stock_list_context(request):
+def _parse_refill_selection(raw_values):
+    """['12:345', ...] -> ordered, de-duplicated [(destination_id, product_id)].
+
+    The Alerts Center link carries only ids; anything that is not two clean
+    integers is dropped rather than trusted or raised on.
+    """
+    pairs, seen = [], set()
+    for raw in raw_values:
+        # One param may carry several pairs: sel=12:345,12:346
+        for token in str(raw).split(','):
+            dest, _sep, product = token.strip().partition(':')
+            if not (dest.isdigit() and product.isdigit()) or len(dest) > 9 or len(product) > 9:
+                continue
+            pair = (int(dest), int(product))
+            if pair not in seen:
+                seen.add(pair)
+                pairs.append(pair)
+    return pairs
+
+
+def _bulk_refill_groups(request, pairs, *, quantities=None, sources=None,
+                        failures=None):
+    """One modal section per destination branch for a multi-select refill.
+
+    Same rule as _refill_alert_rows for the single request: the link (or the
+    re-posted form) supplies only ids, and every figure the user sees —
+    current stock, reorder level, suggested qty and what each candidate
+    source warehouse has available — is re-read here. Quantities are never
+    capped; the modal flags an over-request and the server rejects it.
+
+    `quantities` ({(dest, product): raw text}) and `sources` ({dest: source
+    id}) restore what the user had typed after a rejected submit;
+    `failures` ({(dest, product): reason}) are the server's per-line reasons.
+    """
+    quantities = quantities or {}
+    sources = sources or {}
+    failures = failures or {}
+
+    dest_ids = {d for d, _p in pairs}
+    branches = {
+        b.pk: b for b in Branch.objects.filter(pk__in=dest_ids, is_active=True)
+    }
+    # Fail closed: only an Owner (None) may reach every branch.
+    allowed = branch_ids_for_user(request.user)
+    pairs = [
+        (d, p) for d, p in pairs
+        if d in branches and (allowed is None or d in allowed)
+    ][:MAX_BULK_REFILL_ITEMS]
+    if not pairs:
+        return []
+
+    product_ids = {p for _d, p in pairs}
+    products = Product.objects.select_related('category').in_bulk(product_ids)
+    source_branches = list(Branch.objects.filter(is_active=True).order_by('branch_name'))
+    source_ids = [b.pk for b in source_branches]
+
+    floor = {
+        (i.branch_id, i.product_id): i
+        for i in Inventory.objects.filter(
+            branch_id__in={d for d, _p in pairs}, product_id__in=product_ids,
+        )
+    }
+    # min(on hand, non-expired batch total) is exactly what the server's
+    # warehouse_available_quantity() enforces, so "Available" here is the
+    # number the submit will be checked against.
+    available = {
+        (ws.warehouse.branch_id, ws.product_id): max(
+            min(ws.quantity_on_hand, ws.available_qty), 0,
+        )
+        for ws in WarehouseStock.objects.filter(
+            warehouse__branch_id__in=source_ids, product_id__in=product_ids,
+        ).select_related('warehouse').sellable()
+    }
+
+    groups = []
+    for dest_id in dict.fromkeys(d for d, _p in pairs):
+        destination = branches[dest_id]
+        chosen = sources.get(dest_id)
+        if chosen not in source_ids:
+            chosen = dest_id  # local warehouse first
+        open_for_dest = open_refill_requests(
+            destination, [p for d, p in pairs if d == dest_id and p in products],
+        )
+        rows = []
+        for d, product_id in pairs:
+            product = products.get(product_id)
+            if d != dest_id or product is None:
+                continue
+            inv = floor.get((dest_id, product_id))
+            current = inv.quantity_on_hand if inv else 0
+            reorder = inv.reorder_level if inv else 0
+            suggested = suggested_reorder_qty(current, reorder)
+            rows.append({
+                'product': product,
+                'current': current,
+                'reorder': reorder,
+                'suggested': suggested,
+                'quantity': quantities.get(
+                    (dest_id, product_id), str(max(suggested, 1)),
+                ),
+                'available_json': json.dumps({
+                    str(sid): available.get((sid, product_id), 0)
+                    for sid in source_ids
+                }),
+                'pending_slip': open_for_dest.get(product_id, ''),
+                'error': failures.get((dest_id, product_id), ''),
+            })
+        groups.append({
+            'destination': destination,
+            'source_id': chosen,
+            'source_branches': source_branches,
+            'rows': rows,
+        })
+    return groups
+
+
+def _warehouse_stock_list_context(request, bulk=None):
     # Get the warehouse for this user's branch
     user_branch = get_user_branch(request.user)
 
@@ -2546,6 +2691,27 @@ def _warehouse_stock_list_context(request):
         request, request_target_branch, request_warehouse_stock,
     )
 
+    can_request_to_floor = user_can_perform_module_action(
+        request.user, WAREHOUSE_STOCK, ADD
+    )
+    # Multi-select refill from the Alerts Center: the same modal, in bulk
+    # mode. Only Owner / permitted Staff/Manager ever get groups built (the
+    # POST view is gated by the same module action via the middleware).
+    bulk_groups, bulk_failures = [], []
+    if can_request_to_floor:
+        if bulk is not None:
+            bulk_groups = bulk['groups']
+            bulk_failures = bulk['failures']
+        elif request.method == 'GET' and request.GET.get('bulk') == '1':
+            selection = _parse_refill_selection(request.GET.getlist('sel'))
+            bulk_groups = _bulk_refill_groups(request, selection)
+            if not bulk_groups:
+                messages.warning(
+                    request,
+                    'None of the selected alerts could be loaded. Select them '
+                    'again from the Alerts Center.',
+                )
+
     return {
         'active_page': 'warehouse_stock',
         'rows': page.object_list,
@@ -2571,9 +2737,10 @@ def _warehouse_stock_list_context(request):
         # Always available to any internal role — when there's no single
         # pinned branch (Owner), the modal shows a branch picker step first
         # rather than the button being hidden outright.
-        'can_request_to_floor': user_can_perform_module_action(
-            request.user, WAREHOUSE_STOCK, ADD
-        ),
+        'can_request_to_floor': can_request_to_floor,
+        'bulk_groups': bulk_groups,
+        'bulk_failures': bulk_failures,
+        'bulk_item_count': sum(len(g['rows']) for g in bulk_groups),
         'request_target_branch': request_target_branch,
         'request_source_branch': request_source_branch,
         'request_source_branches': Branch.objects.filter(is_active=True).order_by('branch_name'),
@@ -2582,6 +2749,7 @@ def _warehouse_stock_list_context(request):
         'request_alert': request_alert,
         'show_request_modal': (
             request.GET.get('open_request') == '1' or request_alert is not None
+            or bool(bulk_groups)
         ),
     }
 
@@ -3202,6 +3370,182 @@ def warehouse_stock_request(request):
             f'Floor refill {transfer.slip_number} requested — awaiting approval.'
         )
     return redirect('transfer_list')
+
+
+@login_required(login_url='accounts:login')
+def warehouse_stock_bulk_request(request):
+    """POST handler for the multi-select "Request Floor Refill" modal that the
+    Alerts Center's Low Floor Stock tab opens (the same modal as
+    warehouse_stock_request, in bulk mode).
+
+    One call, one outer transaction: the rows are grouped by destination
+    branch and each group — with the source warehouse the user picked for it
+    — becomes one request holding all its items at the edited quantities.
+    create_bulk_floor_refills() does the writing through
+    create_warehouse_floor_transfer(), so the validations, local-first rule,
+    event, notification and the "no stock moves until the source branch
+    approves and releases" rule are the single request's own.
+
+    Partial success is deliberate: lines that cannot be requested (stock
+    gone since the modal opened, a refill already pending, ...) are reported
+    one by one and the modal reopens holding just those lines; everything
+    else is created. A fully successful submit returns to the Alerts Center,
+    whose reload is what refreshes the table and the sidebar badge counts.
+    """
+    if request.user.role not in [
+        User.Role.STAFF, User.Role.BRANCH_MANAGER, User.Role.OWNER
+    ]:
+        messages.error(request, 'You do not have permission to request stock.')
+        return redirect('alerts_center')
+    if request.method != 'POST':
+        return redirect('alerts_center')
+
+    notes, notes_error = parse_text(
+        request.POST.get('notes'), 'Notes', max_length=MAX_NOTE_LENGTH,
+    )
+    raw_date = (request.POST.get('transfer_date') or '').strip()
+    try:
+        transfer_date = parse_date(raw_date) if raw_date else timezone.localdate()
+    except ValueError:  # well-formed but not a real date, e.g. 2026-02-30
+        transfer_date = None
+    errors = []
+    if notes_error:
+        errors.append(notes_error)
+    if raw_date and transfer_date is None:
+        errors.append('Enter a valid date.')
+
+    # Per-group source warehouse, parallel lists: group_dest[i] <-> group_source[i].
+    sources = {}
+    for dest, source in zip(
+        request.POST.getlist('group_dest'), request.POST.getlist('group_source'),
+    ):
+        if str(dest).isdigit() and str(source).isdigit():
+            sources[int(dest)] = int(source)
+
+    # Rows: row[i] = "<destination>:<product>", row_qty[i] = typed quantity.
+    # Excluded/removed rows are disabled in the form, so they never arrive.
+    posted = []
+    for position, (token, raw_qty) in enumerate(zip(
+        request.POST.getlist('row'), request.POST.getlist('row_qty')), start=1,
+    ):
+        pairs = _parse_refill_selection([token])
+        if not pairs:
+            errors.append(f'Line {position}: choose a product from the list.')
+            continue
+        posted.append((pairs[0], str(raw_qty or '').strip()))
+    if len(posted) > MAX_BULK_REFILL_ITEMS:
+        errors.append(
+            f'A bulk refill can hold at most {MAX_BULK_REFILL_ITEMS} items.'
+        )
+    if not posted and not errors:
+        errors.append('Please add at least one product.')
+
+    quantities = {pair: raw for pair, raw in posted}
+    failures = {}
+
+    def rerender(pairs, extra_failures=None):
+        groups = _bulk_refill_groups(
+            request, pairs, quantities=quantities, sources=sources,
+            failures=failures,
+        )
+        context = _warehouse_stock_list_context(request, bulk={
+            'groups': groups,
+            'failures': extra_failures or [],
+        })
+        if not isinstance(context, dict):
+            return context
+        context['show_request_modal'] = True
+        return render(request, 'inventory/warehouse_stock_list.html', context)
+
+    if errors:
+        for message in errors:
+            messages.error(request, message)
+        return rerender([pair for pair, _raw in posted][:MAX_BULK_REFILL_ITEMS])
+
+    by_destination = {}
+    for (dest, product), raw_qty in posted:
+        qty = _safe_positive_int(raw_qty)
+        if qty is None:
+            failures[(dest, product)] = (
+                'Enter a whole number of 1 or more '
+                f'(at most {MAX_QUANTITY:,}).'
+            )
+            continue
+        by_destination.setdefault(dest, []).append(
+            {'product_id': product, 'quantity': qty}
+        )
+
+    def approve_new_request(transfer):
+        previous = transfer.status
+        _try_auto_approve(transfer, is_restock=True)
+        if transfer.status != previous:
+            record_transfer_event(
+                transfer, previous, transfer.status, request.user,
+                'Owner approved the request at creation.',
+            )
+
+    try:
+        result = create_bulk_floor_refills(
+            actor=request.user,
+            groups=[
+                {
+                    'destination_branch_id': dest,
+                    'source_branch_id': sources.get(dest),
+                    'items': items,
+                }
+                for dest, items in by_destination.items()
+            ],
+            transfer_date=transfer_date,
+            notes=notes,
+            after_create=approve_new_request,
+        )
+    except StockTransferRequestError as exc:
+        messages.error(request, str(exc))
+        return rerender([pair for pair, _raw in posted])
+
+    for failure in result.failures:
+        failures[(failure.destination_branch_id, failure.product_id)] = failure.reason
+
+    if result.created:
+        items = sum(len(lines) for _t, lines in result.created)
+        units = sum(q for _t, lines in result.created for _p, q in lines)
+        slips = ', '.join(t.slip_number for t, _l in result.created)
+        approved = sum(
+            1 for t, _l in result.created
+            if t.status == StockTransfer.Status.APPROVED
+        )
+        plural = '' if len(result.created) == 1 else 's'
+        text = (
+            f'{len(result.created)} floor refill request{plural} submitted '
+            f'({items} item{"" if items == 1 else "s"}, {units} unit'
+            f'{"" if units == 1 else "s"}): {slips}. '
+        )
+        text += (
+            'Approved automatically — ready to move to the floor.'
+            if approved == len(result.created)
+            else 'Awaiting approval; no stock moves until the source branch '
+                 'approves and releases it.'
+        )
+        messages.success(request, text)
+        # The Alerts page and sidebar badge are recounted on the next render,
+        # not after the 30s badge cache.
+        bust_alert_count(request.user)
+
+    if not failures:
+        return redirect('alerts_center')
+
+    # Something was refused: reopen the modal with just those lines, each
+    # carrying its reason, so the user can fix or drop them.
+    names = dict(Product.objects.filter(
+        pk__in={p for _d, p in failures}
+    ).values_list('pk', 'product_name'))
+    summary = [
+        {'product': names.get(product_id, 'Unknown product'), 'reason': reason}
+        for (_dest, product_id), reason in failures.items()
+    ]
+    if not result.created:
+        messages.error(request, 'No refill request was created. See the items below.')
+    return rerender(list(failures), extra_failures=summary)
 
 
 @login_required(login_url='accounts:login')

@@ -187,6 +187,41 @@ def _config(sender):
     return REGISTRY.get(sender._meta.label)
 
 
+def record_detail(instance, summary, after=None):
+    """Write one explicit, human-readable row for `instance`.
+
+    Field-diff capture can only say that a Transfer item was created with
+    product id 4761; it cannot name the products a bulk action touched. This
+    adds one row that lists them (product names and quantities are catalog
+    data, never personal), under the record's concrete model label so it
+    files with the rest of that record's history. Same fail-open contract as
+    the signal handlers: a failure here is logged, never raised.
+    """
+    if not _enabled():
+        return
+    concrete = type(instance)._meta.concrete_model
+    cfg = REGISTRY.get(concrete._meta.label)
+    if cfg is None:
+        return
+    who = context.current()
+    entry = AuditLog(
+        action=AuditLog.Action.UPDATE,
+        entity=concrete._meta.label,
+        record_id=str(instance.pk),
+        record_repr=_record_repr(instance, cfg),
+        branch_id=_branch_id(instance, cfg),
+        summary=summary[:500],
+        before=None,
+        after=after,
+        **who,
+    )
+    try:
+        with transaction.atomic():
+            entry.save(force_insert=True)
+    except Exception:
+        logger.exception('Audit detail write failed for %s #%s', concrete._meta.label, instance.pk)
+
+
 # --- signal handlers ---------------------------------------------------------
 
 def on_pre_save(sender, instance, raw=False, update_fields=None, **kwargs):

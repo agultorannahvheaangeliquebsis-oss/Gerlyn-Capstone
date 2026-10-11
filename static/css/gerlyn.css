@@ -3146,3 +3146,30 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 }
 /* Rows outside the current page of a client-side pager (static/js/client-pager.js). */
 [data-page-hidden] { display: none !important; }
+
+/* ------------------------------------------------- bulk floor refill (Alerts)
+   Checkbox column + the sticky action bar on the Low Floor Stock tab. The bar
+   sticks to the bottom of the viewport while its list is long, and sits above
+   the mobile bottom nav (fixed, ~64px) below 860px. */
+.bulk-col { width: 44px; padding-right: 0; }
+.bulk-col input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--action); }
+.gv-table tr.is-selected { background: var(--green-50); }
+.bulk-bar {
+  position: sticky; bottom: var(--s4); z-index: 15;
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3);
+  margin-top: var(--s4); padding: var(--s3) var(--s4);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+}
+.bulk-bar[hidden] { display: none; }
+.bulk-bar-count { font: 600 15px/1.2 var(--font-sans); }
+.bulk-bar-actions { margin-left: auto; display: flex; align-items: center; gap: var(--s4); }
+.bulk-bar-clear {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--action-700); font: 600 14px/1.2 var(--font-sans); text-decoration: underline;
+}
+@media (max-width: 860px) {
+  .bulk-bar { bottom: 72px; }
+  .bulk-bar-actions { width: 100%; justify-content: space-between; }
+  .bulk-bar-actions .btn { min-height: var(--touch); }
+}
