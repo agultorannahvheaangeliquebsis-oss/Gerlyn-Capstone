@@ -9,6 +9,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db import models, transaction, IntegrityError
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -983,8 +984,7 @@ def product_export_xlsx(request):
     entry, plus a leading reference-only SKU column, so the same file can be
     edited and fed straight back through Import with little to no remapping."""
     if request.user.role not in [User.Role.OWNER, User.Role.BRANCH_MANAGER]:
-        messages.error(request, 'You do not have permission to export the catalog.')
-        return redirect('product_list')
+        raise PermissionDenied('You do not have permission to export the catalog.')
 
     import openpyxl
     from openpyxl.utils import get_column_letter

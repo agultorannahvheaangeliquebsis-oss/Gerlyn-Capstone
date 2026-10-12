@@ -509,7 +509,7 @@ class SalesAPIModulePermissionTests(TestCase):
         api_resp = self._client(self.staff_without).get('/api/sales/')
         web_resp = self._client(self.staff_without).get(reverse('transaction_list'))
         self.assertEqual(api_resp.status_code, 403)
-        self.assertEqual(web_resp.status_code, 302)
+        self.assertEqual(web_resp.status_code, 403)
 
     def test_staff_with_sales_module_still_reaches_the_api_list(self):
         response = self._client(self.staff_with).get('/api/sales/')
@@ -533,7 +533,7 @@ class SalesAPIModulePermissionTests(TestCase):
         response = self._client(self.staff_without).get(
             reverse('transaction_receipt', args=[txn.pk])
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
 
 
 class WalkInSalePaymentMethodValidationTests(TestCase):
@@ -1379,8 +1379,7 @@ class OrderDetailPaymentModuleGateTests(TestCase):
         cls.branch = Branch.objects.create(
             branch_name='ODPG Branch', location='Baliuag', owner=cls.owner
         )
-        # Default STAFF: Sales/Order Console but not Billing — exactly the
-        # mismatch this audit is about.
+        # Explicitly revoke Billing while keeping the Sales module.
         cls.staff_sales_only = User.objects.create_user(
             username='odpg-staff-sales', password='pw', role=User.Role.STAFF
         )
@@ -1388,7 +1387,7 @@ class OrderDetailPaymentModuleGateTests(TestCase):
             user=cls.staff_sales_only, defaults={'staff_name': 'Sales', 'branch': cls.branch}
         )
         User.objects.filter(pk=cls.staff_sales_only.pk).update(
-            allowed_modules=list(DEFAULT_STAFF_MODULES)  # SALES_POS, no BILLING
+            allowed_modules=[m for m in DEFAULT_STAFF_MODULES if m != BILLING]
         )
         cls.staff_sales_only.refresh_from_db()
         assert SALES_POS in cls.staff_sales_only.allowed_modules
@@ -1402,7 +1401,7 @@ class OrderDetailPaymentModuleGateTests(TestCase):
             user=cls.staff_with_billing, defaults={'staff_name': 'Billing', 'branch': cls.branch}
         )
         User.objects.filter(pk=cls.staff_with_billing.pk).update(
-            allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
+            allowed_modules=list(DEFAULT_STAFF_MODULES)
         )
         cls.staff_with_billing.refresh_from_db()
 
@@ -1497,10 +1496,7 @@ class OrderDetailPaymentModuleGateTests(TestCase):
             {'status': 'Paid', 'return_to': 'order'},
         )
 
-        self.assertEqual(response.status_code, 302)
-        self.assertNotEqual(
-            response.url, reverse('transaction_detail', args=[txn.pk])
-        )
+        self.assertEqual(response.status_code, 403)
         record.refresh_from_db()
         self.assertEqual(record.status, 'Pending')
         self.assertIsNone(record.confirmed_by)

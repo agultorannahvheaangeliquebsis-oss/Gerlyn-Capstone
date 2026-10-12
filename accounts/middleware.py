@@ -1,9 +1,7 @@
 from datetime import timedelta
 
-from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
-from django.shortcuts import redirect
 from django.utils import timezone
 
 from core.module_permissions import (
@@ -56,6 +54,11 @@ class ModulePermissionMiddleware:
         user = getattr(request, 'user', None)
         if not user or not user.is_authenticated:
             return None
+        if (
+            request.path.startswith('/procurement/portal/')
+            and user.role != 'SUPPLIER'
+        ):
+            raise PermissionDenied('The supplier portal is for supplier accounts.')
         if user.role not in ('STAFF', 'BRANCH_MANAGER'):
             return None
 
@@ -84,13 +87,10 @@ class ModulePermissionMiddleware:
                     )},
                     status=403,
                 )
-            messages.error(
-                request,
+            raise PermissionDenied(
                 f"You don't have {MODULE_ACTION_LABELS[action]} permission "
                 "for that section. Ask your Owner to grant it if you need it."
             )
-            from .views import redirect_by_role
-            return redirect_by_role(request, user)
         return None
 
 

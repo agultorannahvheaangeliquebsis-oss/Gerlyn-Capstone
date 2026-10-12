@@ -1118,6 +1118,24 @@ class PaymentProofAuthGateTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/login', response['Location'])
 
+    def test_customer_can_only_download_own_payment_proof(self):
+        customer = User.objects.create_user(
+            username='proof-customer', password='pw', role=User.Role.CUSTOMER,
+        )
+        other = User.objects.create_user(
+            username='proof-other-customer', password='pw', role=User.Role.CUSTOMER,
+        )
+        self.record.transaction.customer = customer
+        self.record.transaction.save(update_fields=['customer'])
+        response = self._client(customer).get(self._download_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b''.join(response.streaming_content), _PNG_BYTES)
+        self.assertEqual(self._client(other).get(self._download_url()).status_code, 404)
+        own_inline = self._client(customer).get(self._proof_url())
+        self.assertEqual(own_inline.status_code, 200)
+        self.assertEqual(b''.join(own_inline.streaming_content), _PNG_BYTES)
+        self.assertEqual(self._client(other).get(self._proof_url()).status_code, 404)
+
     def test_record_with_no_proof_uploaded_is_404(self):
         txn = SalesTransaction.objects.create(
             branch=self.branch1, staff=None, total_amount=100,
@@ -1141,18 +1159,16 @@ class PaymentProofAuthGateTests(TestCase):
             self._client(self.owner).get(raw_path).status_code, 404
         )
 
-    def test_media_route_still_serves_every_other_prefix(self):
+    def test_media_route_only_serves_public_asset_prefixes(self):
         # payment_proofs/ no longer resolves to a view at all...
         with self.assertRaises(Resolver404):
             resolve('/media/payment_proofs/anything.png')
-        # ...while product images and avatars still route to the static server
-        # (a real request would 404 only if the file is missing, not because
-        # the route is gone).
-        for path in (
-            '/media/products/2026/01/widget.png',
-            '/media/avatars/7/avatar.png',
-        ):
+        # Only product/category/store art remains public.
+        for path in ('/media/products/2026/01/widget.png',
+                     '/media/categories/canned.png', '/media/store/logo.png'):
             self.assertEqual(resolve(path).func, serve, path)
+        with self.assertRaises(Resolver404):
+            resolve('/media/avatars/7/avatar.png')
 
     # -- callers point at the new view, not the raw URL -------------------
 

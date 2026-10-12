@@ -8,7 +8,7 @@ to get it back. Owner-facing status lives at **System & Monitoring → Backups**
 | Part | What | Notes |
 |---|---|---|
 | Database | Every table (`mysqldump`, consistent snapshot) | Includes the Audit Log and its triggers |
-| Uploaded files | Everything under `MEDIA_ROOT` (`/app/media` — payment proofs) | Lives on the Railway Volume |
+| Uploaded files | Everything under `MEDIA_ROOT` (`/app/media` — payment proofs and private avatars) | Lives on the Railway Volume |
 | Erased-accounts list | IDs and dates of accounts whose personal data was erased | IDs only, no personal data. See §7 |
 | Manifest | What the run produced, SHA-256 checksums, row counts, file fingerprint | Used by the restore test |
 
@@ -16,7 +16,7 @@ to get it back. Owner-facing status lives at **System & Monitoring → Backups**
 
 - **Railway Variables** (secrets, keys, tokens). Keep an up-to-date copy in the
   password manager. Without `BACKUP_ENCRYPTION_KEY` no backup can be read.
-- **Cloudinary images** (product photos, avatars) when Cloudinary is enabled —
+- **Cloudinary images** (public product photos) when Cloudinary is enabled —
   they live in Cloudinary, not on the Volume.
 - The application code (that is git).
 

@@ -72,6 +72,7 @@ MODULE_PERMISSION_REGISTRY = {
             'inventory_list', 'opening_stock_template',
             'opening_stock_import_history', 'opening_stock_import_detail',
             'api-inventory-list', 'api-inventory-detail',
+            'api-batch-list', 'api-batch-detail', 'api-stock-movements',
         ],
         ADD: [
             'stock_adjustment_add', 'opening_stock_import',

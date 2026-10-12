@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.template.loader import render_to_string
 from django.contrib.auth import authenticate, login, logout, password_validation, update_session_auth_hash
@@ -1213,7 +1213,7 @@ def _profile_context(user):
             0 if user.is_email_verified else get_verification_resend_wait_seconds(user)
         ),
         'pending_email'     : user.pending_email,
-        'avatar_url'        : user.avatar.url if user.avatar else None,
+        'avatar_url'        : reverse('accounts:avatar') if user.avatar else None,
         'contact_number'    : contact_number,
         'role'              : user.get_role_display(),
         'two_factor_enabled': user.two_factor_enabled,
@@ -1381,6 +1381,26 @@ def update_avatar(request):
     user.save(update_fields=['avatar'])
     messages.success(request, "Profile picture updated.")
     return _profile_redirect(user)
+
+
+@login_required(login_url='accounts:login')
+def avatar_view(request):
+    """Only the account owner may retrieve their profile image."""
+    if request.method != 'GET':
+        raise Http404
+    avatar = request.user.avatar
+    if not avatar:
+        raise Http404
+    try:
+        file = avatar.open('rb')
+    except (FileNotFoundError, OSError):
+        raise Http404
+    extension = avatar.name.rsplit('.', 1)[-1].lower()
+    content_type = {
+        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+        'png': 'image/png', 'webp': 'image/webp',
+    }.get(extension, 'application/octet-stream')
+    return FileResponse(file, content_type=content_type)
 
 
 @login_required(login_url='accounts:login')

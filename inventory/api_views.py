@@ -157,9 +157,13 @@ class ProductViewSet(viewsets.ModelViewSet):
     def get_serializer_context(self):
         context = super().get_serializer_context()
         branch_id = self.request.query_params.get('branchId')
-        if branch_id and str(branch_id).isdigit() and Branch.objects.filter(
-            pk=branch_id, is_active=True,
-        ).exists():
+        if (
+            self.request.user.is_authenticated
+            and self.request.user.role in INTERNAL_ROLES
+            and branch_id and str(branch_id).isdigit()
+            and user_can_access_branch(self.request.user, int(branch_id))
+            and Branch.objects.filter(pk=branch_id, is_active=True).exists()
+        ):
             context['branch_id'] = branch_id
         return context
 

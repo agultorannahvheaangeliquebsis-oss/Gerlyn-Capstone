@@ -435,7 +435,7 @@ def billing_detail(request, pk):
     })
 
 
-@role_required(OWNER, BRANCH_MANAGER, STAFF)
+@login_required(login_url='accounts:login')
 def billing_proof(request, pk):
     """Stream a billing record's GCash payment proof, gated by the same
     scoping as the rest of billing.
@@ -449,9 +449,7 @@ def billing_proof(request, pk):
     can't reach the record itself get a 404 that doesn't confirm it exists —
     the same helper and convention BillingRecordDetailAPIView already uses.
 
-    X-1: internal roles only, same as the rest of this module — a customer's
-    own proof of payment is not shown back to them anywhere in this system,
-    and this endpoint never needs to.
+    Customers may read only the proof attached to their own transaction.
     """
     record = get_object_or_404(
         BillingRecord.objects.select_related('transaction'), pk=pk

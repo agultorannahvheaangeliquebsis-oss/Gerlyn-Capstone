@@ -136,13 +136,8 @@ class CategoryModalFlowTests(TestCase):
         response = self.client.post(
             reverse('category_add'), {'category_name': 'Canned Goods'}
         )
-        # Bounced back to the list, and nothing created. Not following the
-        # redirect: since F-07 a new STAFF has no Inventory module, so the
-        # list GET itself redirects — which is not what this test is about.
-        self.assertRedirects(
-            response, reverse('accounts:staff_dashboard'),
-            fetch_redirect_response=False,
-        )
+        # The role/module gate denies the direct POST before any row is saved.
+        self.assertEqual(response.status_code, 403)
         self.assertFalse(
             ProductCategory.objects.filter(category_name='Canned Goods').exists()
         )
@@ -302,10 +297,7 @@ class ProductImportExportTests(TestCase):
         )
         self.client.force_login(staff)
         response = self.client.get(reverse('product_export_xlsx'))
-        self.assertRedirects(
-            response, reverse('accounts:staff_dashboard'),
-            fetch_redirect_response=False,
-        )
+        self.assertEqual(response.status_code, 403)
 
     # ── Upload ──────────────────────────────────────────────
 

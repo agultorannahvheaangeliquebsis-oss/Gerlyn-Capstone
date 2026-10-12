@@ -600,10 +600,12 @@ class StatusPageTests(TestCase):
             user = User.objects.create_user(username=f'x-{role}', password='pw', role=role)
             self.client.force_login(user)
             with self.subTest(role=role), mock.patch('backups.service.spawn_backup_process') as spawn:
-                self.assertEqual(self.client.get(self.url).status_code, 302)
-                self.client.post(reverse('backup_run_now'))
-                self.client.post(reverse('backup_record_restore_test'), {
-                    'tested_on': '2026-09-01', 'backup_used': 'x', 'outcome': 'passed'})
+                self.assertEqual(self.client.get(self.url).status_code, 403)
+                self.assertEqual(self.client.post(reverse('backup_run_now')).status_code, 403)
+                record_response = self.client.post(reverse('backup_record_restore_test'), {
+                    'tested_on': '2026-09-01', 'backup_used': 'x', 'outcome': 'passed',
+                })
+                self.assertEqual(record_response.status_code, 403)
                 spawn.assert_not_called()
         self.assertEqual(RestoreTestRecord.objects.count(), 0)
         self.client.logout()

@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from branches.models import Branch
+from accounts.models import StaffProfile, User
 from inventory.models import Inventory, Product
 
 
@@ -45,11 +46,32 @@ class PublicProductInactiveBranchIsolationTests(TestCase):
         self.assertEqual(detail.status_code, 404)
         self.assertNotIn('99', response.content.decode())
 
-    def test_active_branch_id_still_returns_storefront_stock(self):
+    def test_active_branch_id_does_not_disclose_exact_stock(self):
         response = self.client.get(
             reverse('api-product-list'), {'branchId': self.active_branch.pk},
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()), 1)
-        self.assertEqual(response.json()[0]['stockAtBranch'], 3)
+        self.assertIsNone(response.json()[0]['stockAtBranch'])
+
+    def test_staff_only_gets_exact_stock_for_assigned_branch(self):
+        staff = User.objects.create_user(
+            username='product-api-staff', password='pw', role=User.Role.STAFF,
+        )
+        StaffProfile.objects.update_or_create(
+            user=staff, defaults={'staff_name': 'Staff', 'branch': self.active_branch},
+        )
+        self.client.force_login(staff)
+        own = self.client.get(reverse('api-product-list'),
+                              {'branchId': self.active_branch.pk})
+        self.assertEqual(own.json()[0]['stockAtBranch'], 3)
+        second_branch = Branch.objects.create(
+            branch_name='Second Active Store', location='Baliuag', is_active=True,
+        )
+        Inventory.objects.create(
+            branch=second_branch, product=self.product, quantity_on_hand=7,
+        )
+        other = self.client.get(reverse('api-product-list'),
+                                {'branchId': second_branch.pk})
+        self.assertIsNone(other.json()[0]['stockAtBranch'])

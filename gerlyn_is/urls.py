@@ -71,7 +71,8 @@ urlpatterns = [
 # django.views.static.serve does no authentication — anyone with the path could
 # read them. They are now reachable only through authorization-checked billing
 # views, which apply the same branch/customer scoping as the billing pages.
-# Everything else under MEDIA_ROOT (product images, avatars) stays public.
+# Only storefront assets are public. In particular, an uploaded avatar must
+# never be retrievable by copying its old /media/avatars/... path.
 urlpatterns += [
     path(
         'billing/<int:pk>/payment-proof/',
@@ -79,7 +80,7 @@ urlpatterns += [
         name='payment_proof_download',
     ),
     re_path(
-        r'^media/(?!payment_proofs/)(?P<path>.*)$',
+        r'^media/(?P<path>(?:products|categories|store)/[^?]+)$',
         serve, {'document_root': settings.MEDIA_ROOT},
     ),
 ]

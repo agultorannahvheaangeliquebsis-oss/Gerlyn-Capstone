@@ -310,6 +310,9 @@ class PosSalesImportTests(TestCase):
         )
         manager.manager_profile.branch = self.branch
         manager.manager_profile.save(update_fields=['branch'])
+        manager.allowed_modules = [SALES_POS]
+        manager.module_actions = {SALES_POS: [DELETE], WITHDRAWALS: []}
+        manager.save(update_fields=['allowed_modules', 'module_actions'])
         self.client.force_login(manager)
 
         response = self.client.post(

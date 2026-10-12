@@ -14,7 +14,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse, HttpResponse
@@ -2309,8 +2309,7 @@ def _supplier_only(view_func):
     @login_required(login_url='accounts:login')
     def _wrapped(request, *args, **kwargs):
         if request.user.role != User.Role.SUPPLIER:
-            messages.error(request, 'Access denied.')
-            return redirect('accounts:home')
+            raise PermissionDenied('The supplier portal is for supplier accounts.')
         return view_func(request, *args, **kwargs)
     return _wrapped
 
@@ -2634,7 +2633,7 @@ def _supplier_account_context(request):
         'pending_email': user.pending_email,
         'is_email_verified': user.is_email_verified,
         'initials': user.get_initials(),
-        'avatar_url': user.avatar.url if user.avatar else None,
+        'avatar_url': reverse('accounts:avatar') if user.avatar else None,
         'profile': profile,
         'two_factor_enabled': user.two_factor_enabled,
         'notif_unread_count': user.notifications.filter(is_read=False).count(),

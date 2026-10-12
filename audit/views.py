@@ -1,5 +1,5 @@
-from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import Http404
@@ -47,8 +47,7 @@ def _group_key(request_id, pk):
 @login_required(login_url='accounts:login')
 def audit_log_list(request):
     if not can_view_audit_log(request.user):
-        messages.error(request, 'Only the Owner can view the audit log.')
-        return redirect('accounts:home')
+        raise PermissionDenied('Only the Owner can view the audit log.')
 
     params = request.GET
     q = params.get('q', '').strip()
@@ -170,8 +169,7 @@ def audit_action_detail(request, group_key):
     """Every row one action (one HTTP request, or one unrequested system
     write) produced — what the grouped list's eye icon opens."""
     if not can_view_audit_log(request.user):
-        messages.error(request, 'Only the Owner can view the audit log.')
-        return redirect('accounts:home')
+        raise PermissionDenied('Only the Owner can view the audit log.')
 
     if group_key.startswith('row_'):
         pk_part = group_key[4:]

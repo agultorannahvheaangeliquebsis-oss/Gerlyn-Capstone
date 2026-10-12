@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -58,8 +59,7 @@ def backup_trigger(request):
 @login_required(login_url='accounts:login')
 def backup_status(request):
     if not can_manage_backups(request.user):
-        messages.error(request, 'Only the Owner can view backups.')
-        return redirect('accounts:home')
+        raise PermissionDenied('Only the Owner can view backups.')
 
     now = timezone.now()
     tests = list(RestoreTestRecord.objects.select_related('recorded_by')[:5])
@@ -97,8 +97,7 @@ def backup_status(request):
 @require_POST
 def backup_run_now(request):
     if not can_manage_backups(request.user):
-        messages.error(request, 'Only the Owner can run a backup.')
-        return redirect('accounts:home')
+        raise PermissionDenied('Only the Owner can run a backup.')
 
     if service.active_run_exists():
         messages.info(request, 'A backup is already running.')
@@ -112,8 +111,7 @@ def backup_run_now(request):
 @require_POST
 def backup_record_restore_test(request):
     if not can_manage_backups(request.user):
-        messages.error(request, 'Only the Owner can record a restore test.')
-        return redirect('accounts:home')
+        raise PermissionDenied('Only the Owner can record a restore test.')
 
     try:
         tested_on = date.fromisoformat(request.POST.get('tested_on', ''))

@@ -109,7 +109,7 @@ class ConfigurableModulePermissionTests(TestCase):
             reverse('product_add'), self._product_payload('Blocked Add')
         )
 
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
         self.assertFalse(Product.objects.filter(product_name='Blocked Add').exists())
 
     def test_action_grant_controls_the_matching_visible_control(self):
@@ -135,12 +135,12 @@ class ConfigurableModulePermissionTests(TestCase):
             reverse('product_edit', args=[product.pk]),
             self._product_payload('Blocked Edit'),
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
         product.refresh_from_db()
         self.assertEqual(product.product_name, 'Created Product')
 
         response = self.client.post(reverse('product_delete', args=[product.pk]))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
         self.assertTrue(Product.objects.filter(pk=product.pk).exists())
 
         self._grant(ADD, EDIT, DELETE)
@@ -158,7 +158,7 @@ class ConfigurableModulePermissionTests(TestCase):
         self._login_manager()
         self._grant(ADD, EDIT, DELETE, view=False)
 
-        self.assertEqual(self.client.get(reverse('product_list')).status_code, 302)
+        self.assertEqual(self.client.get(reverse('product_list')).status_code, 403)
         self.client.post(reverse('product_add'), self._product_payload('No View'))
         self.assertFalse(Product.objects.filter(product_name='No View').exists())
 
@@ -189,6 +189,11 @@ class ConfigurableModulePermissionTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
         self.assertFalse(Product.objects.filter(product_name='API Blocked').exists())
+
+    def test_stock_audit_apis_require_floor_stock_grant(self):
+        self._login_manager()
+        self.assertEqual(self.client.get('/api/batches/').status_code, 403)
+        self.assertEqual(self.client.get('/api/stock-movements/').status_code, 403)
 
     def test_owner_can_save_detailed_permission_matrix(self):
         self.client.force_login(self.owner)

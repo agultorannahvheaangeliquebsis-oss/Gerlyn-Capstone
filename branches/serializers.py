@@ -31,3 +31,11 @@ class BranchSerializer(serializers.ModelSerializer):
             return obj.owner.owner_profile.owner_name
         except Exception:
             return obj.owner.get_full_name() or obj.owner.username
+
+
+class PublicBranchSerializer(BranchSerializer):
+    """Storefront branch data without identifying the owner's account."""
+
+    class Meta(BranchSerializer.Meta):
+        fields = [field for field in BranchSerializer.Meta.fields
+                  if field not in ('ownerId', 'ownerName')]

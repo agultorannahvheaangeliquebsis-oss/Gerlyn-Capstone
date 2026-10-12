@@ -501,8 +501,7 @@ class AuditLogViewTests(TestCase):
                 user = User.objects.create_user(username=f'v-{role}', password='pw', role=role)
                 self.client.force_login(user)
                 response = self.client.get(self.url)
-                self.assertEqual(response.status_code, 302)
-                self.assertNotIn(self.url, response['Location'])
+                self.assertEqual(response.status_code, 403)
 
     def test_an_anonymous_visitor_is_sent_to_login(self):
         self.client.logout()
@@ -804,8 +803,7 @@ class GroupedActionTests(TestCase):
         self.client.force_login(manager)
         response = self.client.get(url)
 
-        self.assertEqual(response.status_code, 302)
-        self.assertNotIn(url, response['Location'])
+        self.assertEqual(response.status_code, 403)
 
     def test_the_detail_page_404s_for_an_unknown_group(self):
         self.assertEqual(

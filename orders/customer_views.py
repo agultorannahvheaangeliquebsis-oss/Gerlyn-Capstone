@@ -163,8 +163,7 @@ def customer_required(view):
             )
             if is_ajax:
                 return JsonResponse({'ok': False, 'error': error}, status=403)
-            messages.error(request, error)
-            return redirect('orders:catalog')
+            raise PermissionDenied(error)
 
         return view(request, *args, **kwargs)
 

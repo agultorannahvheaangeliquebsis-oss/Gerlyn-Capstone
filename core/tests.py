@@ -247,7 +247,7 @@ class AcceptanceTests(TestCase):
         self.assertEqual(self.login('ana').get('/manage/users/').status_code, 302)
 
     def test_staff_cannot_add_products(self):
-        self.assertEqual(self.login('ana').get('/inventory/products/add/').status_code, 302)
+        self.assertEqual(self.login('ana').get('/inventory/products/add/').status_code, 403)
 
     def test_cross_branch_write_is_blocked(self):
         # ben is Makinabang staff; this order belongs to Tarcan.

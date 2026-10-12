@@ -48,6 +48,7 @@ urlpatterns = [
     path('profile/', views.profile_view, name='profile'),
     path('profile/update/', views.update_profile, name='update_profile'),
     path('profile/update-avatar/', views.update_avatar, name='update_avatar'),
+    path('profile/avatar/', views.avatar_view, name='avatar'),
 
     # --- New: Email verification ---
     path('verify-email/pending/', views.verify_pending, name='verify_pending'),

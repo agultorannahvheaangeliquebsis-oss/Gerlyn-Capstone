@@ -5,6 +5,7 @@ from django.utils import timezone
 import uuid
 
 from core.module_permissions import default_allowed_modules, default_module_actions
+from core.storage import PrivateMediaStorage
 from .validators import validate_ph_mobile_number
 
 
@@ -31,6 +32,7 @@ class User(AbstractUser):
 
     avatar = models.ImageField(
         upload_to=avatar_upload_path,
+        storage=PrivateMediaStorage(),
         null=True, blank=True,
         help_text="Profile picture. JPEG/PNG/WEBP, max 2 MB."
     )

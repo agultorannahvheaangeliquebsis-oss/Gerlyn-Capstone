@@ -546,3 +546,28 @@ The following are intentionally **out of scope**:
 
 Account field limits, the completed audit, and reproducible validation commands
 are documented in [docs/account-validation.md](docs/account-validation.md).
+
+# Private uploads and copied links
+
+Payment proofs and profile avatars are served by authenticated Django views.
+The `/media/` route serves only public product, category, and store images;
+it must not be replaced by a web-server rule that exposes the whole media
+directory. Mount `MEDIA_ROOT` on a persistent **private** Railway volume before
+deploying: both proof images and new avatars are stored there. Keep that volume
+outside any static hosting or public bucket.
+
+After deploying the avatar storage migration, copy any avatars previously
+uploaded to Cloudinary into `MEDIA_ROOT/avatars/<user id>/` using the existing
+file names, then remove the old public Cloudinary assets. Until copied, those
+older avatars will not render; until removed, their old public URLs remain
+accessible independently of Django. Audit any historic payment-proof files
+that were placed on public storage and remove those public copies after the
+private originals are confirmed. Run `python manage.py migrate` as part of the
+deploy.
+
+Back-office pages, sensitive API results, CSV/XLSX/PDF exports, payment proofs, and avatars
+require a current session and the applicable role, branch, or record ownership.
+Authenticated responses carry `Cache-Control: no-store`. Test copied links in
+a signed-out browser and under a second role after deployment, using test data.
+Public storefront APIs still expose branch locations, catalog prices, and
+product availability; they omit account owner identity and exact stock counts.

@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Branch
-from .serializers import BranchSerializer
+from .serializers import BranchSerializer, PublicBranchSerializer
 from accounts.models import User
 from .services import BranchDeletionBlocked, delete_branch_if_safe
 
@@ -17,6 +17,14 @@ class BranchViewSet(viewsets.ModelViewSet):
     queryset = Branch.objects.select_related('owner').all()
     serializer_class = BranchSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action in ('list', 'retrieve') and (
+            not self.request.user.is_authenticated
+            or self.request.user.role != User.Role.OWNER
+        ):
+            return PublicBranchSerializer
+        return BranchSerializer
 
     def get_queryset(self):
         queryset = super().get_queryset()
