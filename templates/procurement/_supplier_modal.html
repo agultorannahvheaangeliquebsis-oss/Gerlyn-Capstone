@@ -51,7 +51,7 @@ stored, so the same expression falls through to empty.
         <label for="{{ which }}-supplier-username">Username <span class="gv-meta">— used if the supplier logs in to see their orders</span></label>
         <input id="{{ which }}-supplier-username" type="text" name="username" maxlength="150" data-label="Username" required
                value="{% firstof form_data.username supplier.username '' %}"
-               placeholder="centurypacific">
+               placeholder="centurypacific" minlength="1" pattern="[\p{L}\p{N}_@.+\-]+" data-account-input="username">
       </div>
 
       <div class="grid-2">
@@ -59,13 +59,13 @@ stored, so the same expression falls through to empty.
           <label for="{{ which }}-supplier-contact-person">Contact Person</label>
           <input id="{{ which }}-supplier-contact-person" type="text" name="contact_person" maxlength="100" data-label="Contact person"
                  value="{% firstof form_data.contact_person profile.contact_person '' %}"
-                 placeholder="Ricardo Buenaventura">
+                 placeholder="Ricardo Buenaventura" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="contact_person">
         </div>
         <div class="field">
           <label for="{{ which }}-supplier-contact-number">Contact Number</label>
           <input id="{{ which }}-supplier-contact-number" type="text" name="contact_number" maxlength="20" data-label="Contact number"
                  value="{% firstof form_data.contact_number profile.contact_number '' %}"
-                 placeholder="0917-123-4567">
+                 placeholder="0917-123-4567" pattern="(?:0|\+63)[\s\-]*9(?:[\s\-]*[0-9]){9}[\s\-]*" data-account-input="contact_number">
         </div>
       </div>
 
@@ -94,7 +94,7 @@ stored, so the same expression falls through to empty.
 
       <div class="field">
         <label for="{{ which }}-supplier-registration">Business / Tax Registration ID <span class="gv-meta">— strongest identity when supplied</span></label>
-        <input id="{{ which }}-supplier-registration" type="text" name="business_registration_id" maxlength="100"
+          <input id="{{ which }}-supplier-registration" type="text" name="business_registration_id" maxlength="100" pattern="[A-Za-z0-9][A-Za-z0-9 .\/_\-]*" data-label="Business/tax identifier"
                value="{% firstof form_data.business_registration_id profile.business_registration_id '' %}">
       </div>
 

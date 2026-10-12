@@ -462,12 +462,23 @@ def contact_number_taken(number, exclude_user=None):
         BranchManagerProfile, CustomerProfile, OwnerProfile,
         StaffProfile, SupplierProfile,
     )
+    import re
+    from django.db.models import Value
+    from django.db.models.functions import Replace
+    local = re.sub(r'[\s-]', '', number)
+    if local.startswith('+63'):
+        local = '0' + local[3:]
+    variants = [local, '+63' + local[1:]]
+    # Match the validator's whitespace handling, including legacy tabs and
+    # non-breaking spaces, without database-specific regular expressions.
+    whitespace = ' \t\n\r\f\v\x1c\x1d\x1e\x1f\x85\xa0\u1680\u2028\u2029\u202f\u205f\u3000'
+    whitespace += ''.join(chr(code) for code in range(0x2000, 0x200b))
+    normalized_number = 'contact_number'
+    for separator in whitespace + '-':
+        normalized_number = Replace(normalized_number, Value(separator), Value(''))
     querysets = [
-        BranchManagerProfile.objects.filter(contact_number=number),
-        StaffProfile.objects.filter(contact_number=number),
-        CustomerProfile.objects.filter(contact_number=number),
-        OwnerProfile.objects.filter(contact_number=number),
-        SupplierProfile.objects.filter(contact_number=number),
+        model.objects.annotate(normalized_number=normalized_number).filter(normalized_number__in=variants)
+        for model in (BranchManagerProfile, StaffProfile, CustomerProfile, OwnerProfile, SupplierProfile)
     ]
     if exclude_user is not None:
         querysets = [qs.exclude(user=exclude_user) for qs in querysets]

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from .forms import AccountAdminChangeForm, AccountAdminCreationForm
 from .models import (
     User, OwnerProfile, BranchManagerProfile,
     StaffProfile, CustomerProfile, SupplierProfile, Notification,
@@ -7,15 +8,42 @@ from .models import (
 
 
 class CustomUserAdmin(UserAdmin):
+    form = AccountAdminChangeForm
+    add_form = AccountAdminCreationForm
     fieldsets = UserAdmin.fieldsets + (
         ('Role', {'fields': ('role',)}),
     )
     add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Role', {'fields': ('role',)}),
+        ('Account details', {'fields': ('role', 'first_name', 'last_name', 'email')}),
     )
 
 
-class CustomerProfileAdmin(admin.ModelAdmin):
+class ProfileInputAdmin(admin.ModelAdmin):
+    class Media:
+        js = ('js/input-limits.js',)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        field = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if field is None:
+            return field
+        personal_names = ('first_name', 'last_name', 'owner_name', 'manager_name', 'staff_name', 'contact_person')
+        if db_field.name in personal_names:
+            field.widget.attrs.update({
+                'pattern': r"(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+",
+                'data-account-input': db_field.name,
+            })
+        if db_field.name == 'contact_number':
+            field.widget.attrs.update({
+                'pattern': r'(?:0|\+63)[\s\-]*9(?:[\s\-]*[0-9]){9}[\s\-]*',
+                'data-account-input': 'contact_number',
+            })
+        if db_field.name == 'address':
+            field.widget.attrs['maxlength'] = 500
+        field.widget.attrs['data-label'] = str(db_field.verbose_name).capitalize()
+        return field
+
+
+class CustomerProfileAdmin(ProfileInputAdmin):
     list_display = ('__str__', 'user', 'contact_number')
     search_fields = ('first_name', 'last_name', 'user__username', 'contact_number')
 
@@ -49,8 +77,8 @@ class NotificationAdmin(admin.ModelAdmin):
 
 
 admin.site.register(User, CustomUserAdmin)
-admin.site.register(OwnerProfile)
-admin.site.register(BranchManagerProfile)
-admin.site.register(StaffProfile)
+admin.site.register(OwnerProfile, ProfileInputAdmin)
+admin.site.register(BranchManagerProfile, ProfileInputAdmin)
+admin.site.register(StaffProfile, ProfileInputAdmin)
 admin.site.register(CustomerProfile, CustomerProfileAdmin)
-admin.site.register(SupplierProfile)
+admin.site.register(SupplierProfile, ProfileInputAdmin)

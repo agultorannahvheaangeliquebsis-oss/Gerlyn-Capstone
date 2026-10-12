@@ -526,3 +526,8 @@ The following are intentionally **out of scope**:
 3. No HR functions (payroll, attendance, evaluation) — staff IDs exist for the audit trail.
 4. No integration with external accounting or third-party systems.
 5. Does not replace the existing POS hardware — this is the back-end IS layer.
+
+## Account validation
+
+Account field limits, the completed audit, and reproducible validation commands
+are documented in [docs/account-validation.md](docs/account-validation.md).

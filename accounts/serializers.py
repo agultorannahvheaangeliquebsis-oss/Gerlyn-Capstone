@@ -2,6 +2,8 @@ from django.contrib.auth import password_validation
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models import User
+from .input_validation import account_inputs
+from django.db import transaction
 from .role_policy import USER_MANAGEMENT_ROLE_CHOICES
 
 
@@ -113,18 +115,36 @@ class UserAdminSerializer(UserSerializer):
             return None
 
 
+def validate_account_api(attrs, instance=None):
+    mapped = {('contact_number' if key == 'contactNumber' else key): value
+              for key, value in attrs.items() if key in ('username', 'email', 'fullName', 'contactNumber', 'address')}
+    role = attrs.get('role') or getattr(instance, 'role', None)
+    if role == User.Role.SUPPLIER and 'fullName' in mapped:
+        mapped['supplier_name'] = mapped.pop('fullName')
+    normalized, errors = account_inputs(mapped, user=instance)
+    if errors:
+        raise serializers.ValidationError({('contactNumber' if key == 'contact_number' else 'fullName' if key == 'supplier_name' else key): [value] for key, value in errors.items()})
+    if 'branchId' in attrs and attrs['branchId'] is not None:
+        from branches.models import Branch
+        if not Branch.objects.filter(pk=attrs['branchId']).exists():
+            raise serializers.ValidationError({'branchId': ['Choose a valid branch.']})
+    for key, value in normalized.items():
+        attrs['contactNumber' if key == 'contact_number' else 'fullName' if key == 'supplier_name' else key] = value
+    return attrs
+
+
 class UserCreateSerializer(serializers.Serializer):
     """Handles POST /api/auth/users/ — creates a User plus its role-specific
     profile in one call. The post_save signal (accounts/signals.py) creates
     an empty profile first; this fills it in with the submitted details."""
-    username = serializers.CharField()
-    email = serializers.EmailField(required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True)
+    username = serializers.CharField(min_length=1, max_length=150)
+    email = serializers.EmailField(max_length=254, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=8, max_length=128)
     role = serializers.ChoiceField(choices=USER_MANAGEMENT_ROLE_CHOICES)
-    fullName = serializers.CharField(required=False, allow_blank=True)
-    contactNumber = serializers.CharField(required=False, allow_blank=True)
+    fullName = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    contactNumber = serializers.CharField(max_length=20, required=False, allow_blank=True)
     branchId = serializers.IntegerField(required=False, allow_null=True)
-    address = serializers.CharField(required=False, allow_blank=True)
+    address = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():
@@ -137,12 +157,20 @@ class UserCreateSerializer(serializers.Serializer):
         # able to end up with a weaker password than a customer's.
         try:
             password_validation.validate_password(
-                value, user=User(username=self.initial_data.get('username', ''))
+                value, user=User(
+                    username=self.initial_data.get('username', ''),
+                    email=self.initial_data.get('email', ''),
+                    first_name=self.initial_data.get('fullName', ''),
+                )
             )
         except DjangoValidationError as e:
             raise serializers.ValidationError(e.messages)
         return value
 
+    def validate(self, attrs):
+        return validate_account_api(attrs)
+
+    @transaction.atomic
     def create(self, validated_data):
         role = validated_data['role']
         user = User.objects.create_user(
@@ -158,8 +186,10 @@ class UserCreateSerializer(serializers.Serializer):
 
         profile, name_field = _profile_for(user)
         if profile:
-            setattr(profile, name_field, full_name or user.username)
+            setattr(profile, name_field, full_name or user.username[:100])
             profile.contact_number = contact_number
+            if hasattr(profile, 'address'):
+                profile.address = validated_data.get('address', '')
             if role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and branch_id:
                 profile.branch_id = branch_id
             profile.save()
@@ -171,12 +201,16 @@ class UserUpdateSerializer(serializers.Serializer):
     """Handles PATCH /api/auth/users/<pk>/ — profile fields + active status.
     Role and username are intentionally not editable here: changing role
     would require migrating between profile models, which is out of scope."""
-    fullName = serializers.CharField(required=False, allow_blank=True)
-    contactNumber = serializers.CharField(required=False, allow_blank=True)
+    fullName = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    contactNumber = serializers.CharField(max_length=20, required=False, allow_blank=True)
     branchId = serializers.IntegerField(required=False, allow_null=True)
-    address = serializers.CharField(required=False, allow_blank=True)
+    address = serializers.CharField(max_length=500, required=False, allow_blank=True)
     isActive = serializers.BooleanField(required=False)
 
+    def validate(self, attrs):
+        return validate_account_api(attrs, self.instance)
+
+    @transaction.atomic
     def update(self, instance, validated_data):
         if 'isActive' in validated_data:
             instance.is_active = validated_data['isActive']
@@ -201,13 +235,15 @@ class UserUpdateSerializer(serializers.Serializer):
                 profile, name_field = _profile_for(instance)
                 if profile:
                     if full_name is not None:
-                        setattr(profile, name_field, full_name or instance.username)
+                        setattr(profile, name_field, full_name or instance.username[:100])
                     if contact_number is not None:
                         profile.contact_number = contact_number
+                    if 'address' in validated_data and hasattr(profile, 'address'):
+                        profile.address = validated_data['address']
                     if instance.role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and 'branchId' in validated_data:
                         profile.branch_id = validated_data['branchId']
                     profile.save()
-        except Exception:
-            pass
+        except AttributeError as exc:
+            raise serializers.ValidationError("The account profile is missing.") from exc
 
         return instance

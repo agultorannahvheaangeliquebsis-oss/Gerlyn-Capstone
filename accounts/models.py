@@ -77,6 +77,19 @@ class User(AbstractUser):
         help_text="The Owner who erased this account's personal data, if it has been."
     )
 
+    def clean(self):
+        super().clean()
+        from .input_validation import account_inputs
+        from django.core.exceptions import ValidationError
+        values, errors = account_inputs({
+            'username': self.username, 'email': self.email,
+            'first_name': self.first_name, 'last_name': self.last_name,
+        }, user=self, customer=self.role == self.Role.CUSTOMER)
+        if errors:
+            raise ValidationError(errors)
+        for key, value in values.items():
+            setattr(self, key, value)
+
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
@@ -111,15 +124,15 @@ class User(AbstractUser):
         if profile is not None:
             return profile
         if self.role == self.Role.OWNER:
-            return OwnerProfile.objects.create(user=self, owner_name=self.username)
+            return OwnerProfile.objects.create(user=self, owner_name=self.username[:100])
         if self.role == self.Role.BRANCH_MANAGER:
-            return BranchManagerProfile.objects.create(user=self, manager_name=self.username)
+            return BranchManagerProfile.objects.create(user=self, manager_name=self.username[:100])
         if self.role == self.Role.STAFF:
-            return StaffProfile.objects.create(user=self, staff_name=self.username)
+            return StaffProfile.objects.create(user=self, staff_name=self.username[:100])
         if self.role == self.Role.SUPPLIER:
-            return SupplierProfile.objects.create(user=self, supplier_name=self.username)
+            return SupplierProfile.objects.create(user=self, supplier_name=self.username[:100])
         if self.role == self.Role.CUSTOMER:
-            return CustomerProfile.objects.create(user=self, first_name=self.username, last_name='')
+            return CustomerProfile.objects.create(user=self, first_name=self.username[:50], last_name='')
         return None
 
 
@@ -176,9 +189,34 @@ class VerificationToken(models.Model):
         return f"{self.purpose} for {self.user.username}"
 
 
-# --- All existing profile models below — completely unchanged ---
+# Role-specific profiles share administrative input validation.
 
-class OwnerProfile(models.Model):
+class ValidatedProfile(models.Model):
+    class Meta:
+        abstract = True
+
+    def clean(self):
+        super().clean()
+        from .input_validation import account_inputs, validate_person_name
+        from django.core.exceptions import ValidationError
+        data = {key: getattr(self, key) for key in
+                ('first_name', 'last_name', 'contact_number', 'contact_person', 'address', 'business_registration_id')
+                if hasattr(self, key)}
+        owner = User.objects.filter(pk=self.user_id).first() if self.user_id else None
+        values, errors = account_inputs(data, user=owner, customer=isinstance(self, CustomerProfile))
+        for key in ('owner_name', 'manager_name', 'staff_name'):
+            if hasattr(self, key):
+                try:
+                    validate_person_name(getattr(self, key))
+                except ValidationError as exc:
+                    errors[key] = exc.messages
+        if errors:
+            raise ValidationError(errors)
+        for key, value in values.items():
+            setattr(self, key, value or None if key == 'business_registration_id' else value)
+
+
+class OwnerProfile(ValidatedProfile):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='owner_profile'
     )
@@ -189,7 +227,7 @@ class OwnerProfile(models.Model):
         return self.owner_name
 
 
-class BranchManagerProfile(models.Model):
+class BranchManagerProfile(ValidatedProfile):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='manager_profile'
     )
@@ -204,7 +242,7 @@ class BranchManagerProfile(models.Model):
         return self.manager_name
 
 
-class StaffProfile(models.Model):
+class StaffProfile(ValidatedProfile):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='staff_profile'
     )
@@ -222,7 +260,7 @@ class StaffProfile(models.Model):
         return self.staff_name
 
 
-class CustomerProfile(models.Model):
+class CustomerProfile(ValidatedProfile):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='customer_profile'
     )
@@ -305,6 +343,14 @@ class Address(models.Model):
             street_detail=self.street_detail,
         )
 
+    def clean(self):
+        super().clean()
+        from .input_validation import account_inputs
+        from django.core.exceptions import ValidationError
+        _, errors = account_inputs({'text': self.text})
+        if errors:
+            raise ValidationError(errors)
+
 
 class NotificationPreference(models.Model):
     user               = models.OneToOneField(
@@ -377,7 +423,7 @@ class SupplierCategory(models.Model):
         return self.name
 
 
-class SupplierProfile(models.Model):
+class SupplierProfile(ValidatedProfile):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='supplier_profile'
     )

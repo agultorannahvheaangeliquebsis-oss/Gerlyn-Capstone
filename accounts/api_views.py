@@ -194,6 +194,42 @@ class RegisterCustomerView(APIView):
         contact_number = request.data.get('contactNumber', '')
         address = request.data.get('address', '')
 
+        from .input_validation import account_inputs
+        from rest_framework import serializers
+        # DRF fields reject malformed JSON values as well as overlong strings.
+        class RegistrationInput(serializers.Serializer):
+            username = serializers.CharField(max_length=150)
+            email = serializers.EmailField(max_length=254)
+            password = serializers.CharField(min_length=8, max_length=128, trim_whitespace=False)
+            fullName = serializers.CharField(max_length=101)
+            contactNumber = serializers.CharField(max_length=20, required=False, allow_blank=True)
+            address = serializers.CharField(max_length=500)
+
+            def validate_password(self, value):
+                try:
+                    password_validation.validate_password(value, User(
+                        username=self.initial_data.get('username', ''),
+                        email=self.initial_data.get('email', ''),
+                    ))
+                except DjangoValidationError as exc:
+                    raise serializers.ValidationError(exc.messages)
+                return value
+        incoming = RegistrationInput(data=request.data)
+        if not incoming.is_valid():
+            return Response(incoming.errors, status=status.HTTP_400_BAD_REQUEST)
+        clean = incoming.validated_data
+        parts = clean['fullName'].split(' ', 1)
+        normalized, errors = account_inputs({
+            'username': clean['username'], 'email': clean['email'],
+            'first_name': parts[0], 'last_name': parts[1] if len(parts) > 1 else '',
+            'contact_number': clean.get('contactNumber', ''), 'address': clean['address'],
+        }, customer=True, required=True)
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        username, email, password = normalized['username'], normalized['email'], clean['password']
+        full_name = f"{normalized['first_name']} {normalized['last_name']}"
+        contact_number, address = normalized['contact_number'], normalized['address']
+
         # Validation
         if not username or not email or not password:
             return Response(
@@ -217,6 +253,8 @@ class RegisterCustomerView(APIView):
         candidate = User(
             username=username,
             email=email,
+            first_name=normalized['first_name'],
+            last_name=normalized['last_name'],
             role=User.Role.CUSTOMER,
         )
         try:
@@ -245,6 +283,8 @@ class RegisterCustomerView(APIView):
                 username=username,
                 email=email,
                 password=password,
+                first_name=normalized['first_name'],
+                last_name=normalized['last_name'],
                 role=User.Role.CUSTOMER,
             )
             profile = user.customer_profile
@@ -256,6 +296,8 @@ class RegisterCustomerView(APIView):
             profile.terms_accepted_at = timezone.now()
             profile.terms_version = CustomerProfile.TERMS_VERSION
             profile.save()
+            from .models import Address
+            Address.objects.create(user=user, text=address, is_default=True)
 
         # Match the server-rendered registration flow. Delivery remains
         # synchronous, but an SMTP failure must not roll back the customer

@@ -83,6 +83,7 @@ from inventory.models import (
 )
 from accounts.models import Notification, SupplierCategory, User
 from accounts.validators import validate_ph_mobile_number
+from accounts.input_validation import account_inputs
 
 
 # =============================================================================
@@ -2682,6 +2683,11 @@ def supplier_account_update(request):
     new_contact_number = request.POST.get('contact_number', '').strip()
     new_address = request.POST.get('address', '').strip()
 
+    normalized, errors = account_inputs(request.POST, user=user)
+    if errors:
+        return render(request, 'procurement/supplier_account.html', {**_supplier_account_context(request), 'errors': errors})
+
+    new_username = normalized.get('username', new_username)
     if new_username and new_username != user.username:
         if User.objects.filter(username__iexact=new_username).exclude(pk=user.pk).exists():
             errors['username'] = 'That username is already taken.'
@@ -2706,20 +2712,17 @@ def supplier_account_update(request):
             except Exception:
                 errors['email'] = 'Failed to send verification email. Please try again.'
 
-    if new_contact_number:
-        try:
-            set_contact_number(profile, new_contact_number, user)
-        except ValidationError as e:
-            errors['contact_number'] = e.messages[0]
-
     if errors:
         context = {**_supplier_account_context(request), 'errors': errors}
         return render(request, 'procurement/supplier_account.html', context)
 
-    user.save()
-    profile.contact_person = new_contact_person
-    profile.address = new_address
-    profile.save(update_fields=['contact_person', 'address'])
+    with transaction.atomic():
+        user.save()
+        if new_contact_number:
+            set_contact_number(profile, new_contact_number, user)
+        profile.contact_person = new_contact_person
+        profile.address = new_address
+        profile.save(update_fields=['contact_person', 'address'])
     messages.success(request, 'Account updated.')
     return redirect('supplier_account')
 
@@ -2990,6 +2993,9 @@ def supplier_form(request, pk=None):
     errors = [
         e for e in (name_error, username_error, person_error, address_error) if e
     ]
+    normalized, input_errors = account_inputs(request.POST, user=supplier)
+    errors.extend(input_errors.values())
+    username = normalized.get('username', username)
     if email:
         try:
             validate_email(email)

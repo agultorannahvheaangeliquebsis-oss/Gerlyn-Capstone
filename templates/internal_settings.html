@@ -304,21 +304,21 @@ Personal to the signed-in user: identity/profile and sign-in security.
             <label for="ms_first_name">First Name</label>
             <input type="text" id="ms_first_name" name="first_name"
               value="{{ first_name }}"
-              class="{% if errors.first_name %}is-invalid{% endif %}">
+              class="{% if errors.first_name %}is-invalid{% endif %}" maxlength="100" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="first_name" data-label="First name">
             {% if errors.first_name %}<div class="field-err">{{ errors.first_name }}</div>{% endif %}
           </div>
           <div class="field">
             <label for="ms_last_name">Last Name</label>
             <input type="text" id="ms_last_name" name="last_name"
               value="{{ last_name }}"
-              class="{% if errors.last_name %}is-invalid{% endif %}">
+              class="{% if errors.last_name %}is-invalid{% endif %}" maxlength="100" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="last_name" data-label="Last name">
             {% if errors.last_name %}<div class="field-err">{{ errors.last_name }}</div>{% endif %}
           </div>
           <div class="field">
             <label for="ms_username">Username</label>
             <input type="text" id="ms_username" name="username"
               value="{{ username }}"
-              class="{% if errors.username %}is-invalid{% endif %}">
+              class="{% if errors.username %}is-invalid{% endif %}" maxlength="150" minlength="1" pattern="[\p{L}\p{N}_@.+\-]+" data-account-input="username" data-label="Username">
             {% if errors.username %}<div class="field-err">{{ errors.username }}</div>{% endif %}
           </div>
           <div class="field">
@@ -326,14 +326,14 @@ Personal to the signed-in user: identity/profile and sign-in security.
             <input type="tel" id="ms_contact_number" name="contact_number"
               value="{{ contact_number }}"
               placeholder="+63 9XX XXX XXXX"
-              class="{% if errors.contact_number %}is-invalid{% endif %}">
+              class="{% if errors.contact_number %}is-invalid{% endif %}" maxlength="20" pattern="(?:0|\+63)[\s\-]*9(?:[\s\-]*[0-9]){9}[\s\-]*" data-account-input="contact_number" data-label="Contact number">
             {% if errors.contact_number %}<div class="field-err">{{ errors.contact_number }}</div>{% endif %}
           </div>
           <div class="field" style="grid-column: 1 / -1;">
             <label for="ms_email">Email Address</label>
             <input type="email" id="ms_email" name="email"
               value="{{ email }}"
-              class="{% if errors.email %}is-invalid{% endif %}">
+              class="{% if errors.email %}is-invalid{% endif %}" maxlength="254">
             {% if errors.email %}
               <div class="field-err">{{ errors.email }}</div>
             {% else %}
@@ -403,9 +403,8 @@ Personal to the signed-in user: identity/profile and sign-in security.
               <div style="position:relative;">
                 <input type="password" id="id_new_password" name="new_password"
                   placeholder="Enter new password"
-                  pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
                   title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
-                  style="padding-right:44px;">
+                  style="padding-right:44px;" maxlength="128" minlength="8" data-account-password="1">
                 <button type="button" onclick="togglePwd('id_new_password', this)"
                   style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
                   <svg id="id_new_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -417,7 +416,7 @@ Personal to the signed-in user: identity/profile and sign-in security.
               <label for="id_confirm_password">Confirm New Password</label>
               <div style="position:relative;">
                 <input type="password" id="id_confirm_password" name="confirm_password"
-                  placeholder="Re-enter new password" style="padding-right:44px;">
+                  placeholder="Re-enter new password" style="padding-right:44px;" maxlength="128" minlength="8">
                 <button type="button" onclick="togglePwd('id_confirm_password', this)"
                   style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
                   <svg id="id_confirm_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -829,7 +828,7 @@ its own save/delete form; #home-hero is the redirect target after either.
           <div style="position:relative;">
             <input type="password" id="tfa-password" name="password"
               placeholder="Enter your password" required autocomplete="current-password"
-              style="padding-right:44px;">
+              style="padding-right:44px;" maxlength="128">
             <button type="button" onclick="togglePwd('tfa-password', this)"
               style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
               <svg id="tfa-password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>

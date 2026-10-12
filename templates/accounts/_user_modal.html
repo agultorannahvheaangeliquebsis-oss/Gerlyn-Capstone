@@ -37,7 +37,7 @@ Parameters:
       <div class="field">
         <label for="add-user-email">Email</label>
         <input id="add-user-email" type="email" name="email" required
-               value="{% firstof form_data.email '' %}">
+               value="{% firstof form_data.email '' %}" maxlength="254">
       </div>
 
       <div class="grid-2">

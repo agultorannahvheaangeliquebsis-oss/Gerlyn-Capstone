@@ -77,7 +77,7 @@ Region/Province/City/Barangay dropdowns.
                 </svg>
               </span>
               <input id="first_name" type="text" name="first_name" value="{{ form.first_name }}"
-                     placeholder="Juan" autocomplete="given-name" required>
+                     placeholder="Juan" autocomplete="given-name" required maxlength="50" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="first_name" data-label="First name">
             </div>
           </div>
 
@@ -90,7 +90,7 @@ Region/Province/City/Barangay dropdowns.
                 </svg>
               </span>
               <input id="last_name" type="text" name="last_name" value="{{ form.last_name }}"
-                     placeholder="Dela Cruz" autocomplete="family-name" required>
+                     placeholder="Dela Cruz" autocomplete="family-name" required maxlength="50" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="last_name" data-label="Last name">
             </div>
           </div>
         </div>
@@ -105,7 +105,7 @@ Region/Province/City/Barangay dropdowns.
                 </svg>
               </span>
               <input id="username" type="text" name="username" value="{{ form.username }}"
-                     placeholder="juandelacruz" autocomplete="username" required>
+                     placeholder="juandelacruz" autocomplete="username" required maxlength="150" minlength="1" pattern="[\p{L}\p{N}_@.+\-]+" data-account-input="username" data-label="Username">
             </div>
             {% comment %}
             Said here rather than discovered at the sign-in screen: login_view
@@ -123,7 +123,7 @@ Region/Province/City/Barangay dropdowns.
                 </svg>
               </span>
               <input id="email" type="email" name="email" value="{{ form.email }}"
-                     placeholder="juan@example.com" autocomplete="email" required>
+                     placeholder="juan@example.com" autocomplete="email" required maxlength="254">
             </div>
           </div>
         </div>
@@ -139,8 +139,7 @@ Region/Province/City/Barangay dropdowns.
               </span>
               <input id="password1" type="password" name="password1" class="has-reveal"
                      autocomplete="new-password" required
-                     pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
-                     title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)">
+                     title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)" maxlength="128" minlength="8" data-account-password="1">
               <button type="button" class="auth-reveal" data-reveal="password1"
                       aria-label="Show password" aria-pressed="false" aria-controls="password1">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -159,7 +158,7 @@ Region/Province/City/Barangay dropdowns.
                 </svg>
               </span>
               <input id="password2" type="password" name="password2" class="has-reveal"
-                     autocomplete="new-password" required>
+                     autocomplete="new-password" required maxlength="128" minlength="8">
               <button type="button" class="auth-reveal" data-reveal="password2"
                       aria-label="Show password" aria-pressed="false" aria-controls="password2">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -198,7 +197,7 @@ Region/Province/City/Barangay dropdowns.
               number in the country starts with one.
               {% endcomment %}
               <input id="contact_number" type="tel" name="contact_number" value="{{ form.contact_number }}"
-                     placeholder="0917 000 0000" autocomplete="tel">
+                     placeholder="0917 000 0000" autocomplete="tel" maxlength="20" pattern="(?:0|\+63)[\s\-]*9(?:[\s\-]*[0-9]){9}[\s\-]*" data-account-input="contact_number" data-label="Contact number">
             </div>
           </div>
           {% comment %}
@@ -229,8 +228,8 @@ Region/Province/City/Barangay dropdowns.
             <input type="hidden" name="province" id="reg-province" value="{{ form.province }}">
             <input type="hidden" name="city" id="reg-city" value="{{ form.city }}">
             <input type="hidden" name="barangay" id="reg-barangay" value="{{ form.barangay }}">
-            <input type="hidden" name="street_detail" id="reg-street-detail" value="{{ form.street_detail }}">
-            <input type="hidden" name="address" id="reg-address-text" value="{{ form.address }}">
+            <input type="hidden" name="street_detail" id="reg-street-detail" value="{{ form.street_detail }}" maxlength="255">
+            <input type="hidden" name="address" id="reg-address-text" value="{{ form.address }}" maxlength="500">
             <input type="hidden" name="latitude" id="reg-latitude" value="{{ form.latitude }}">
             <input type="hidden" name="longitude" id="reg-longitude" value="{{ form.longitude }}">
           </div>

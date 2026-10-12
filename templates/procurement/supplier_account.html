@@ -152,27 +152,28 @@
                 <label for="sa_username">Username</label>
                 <input type="text" id="sa_username" name="username"
                   value="{{ username }}"
-                  class="{% if errors.username %}is-invalid{% endif %}">
+                  class="{% if errors.username %}is-invalid{% endif %}" maxlength="150" minlength="1" pattern="[\p{L}\p{N}_@.+\-]+" data-account-input="username" data-label="Username">
                 {% if errors.username %}<div class="field-err">{{ errors.username }}</div>{% endif %}
               </div>
               <div class="field">
                 <label for="sa_contact_person">Contact Person</label>
                 <input type="text" id="sa_contact_person" name="contact_person"
-                  value="{{ profile.contact_person }}">
+                  value="{{ profile.contact_person }}" maxlength="100" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="contact_person" data-label="Contact person">
+                {% if errors.contact_person %}<div class="field-err">{{ errors.contact_person }}</div>{% endif %}
               </div>
               <div class="field">
                 <label for="sa_contact_number">Mobile Number</label>
                 <input type="tel" id="sa_contact_number" name="contact_number"
                   value="{{ profile.contact_number }}"
                   placeholder="+63 9XX XXX XXXX"
-                  class="{% if errors.contact_number %}is-invalid{% endif %}">
+                  class="{% if errors.contact_number %}is-invalid{% endif %}" maxlength="20" pattern="(?:0|\+63)[\s\-]*9(?:[\s\-]*[0-9]){9}[\s\-]*" data-account-input="contact_number" data-label="Contact number">
                 {% if errors.contact_number %}<div class="field-err">{{ errors.contact_number }}</div>{% endif %}
               </div>
               <div class="field">
                 <label for="sa_email">Email Address</label>
                 <input type="email" id="sa_email" name="email"
                   value="{{ email }}"
-                  class="{% if errors.email %}is-invalid{% endif %}">
+                  class="{% if errors.email %}is-invalid{% endif %}" maxlength="254">
                 {% if errors.email %}
                   <div class="field-err">{{ errors.email }}</div>
                 {% else %}
@@ -181,7 +182,8 @@
               </div>
               <div class="field" style="grid-column: 1 / -1;">
                 <label for="sa_address">Address</label>
-                <textarea id="sa_address" name="address" rows="2">{{ profile.address }}</textarea>
+                <textarea id="sa_address" name="address" rows="2" maxlength="500">{{ profile.address }}</textarea>
+                {% if errors.address %}<div class="field-err">{{ errors.address }}</div>{% endif %}
               </div>
             </div>
             <div class="edit-actions">
@@ -312,9 +314,8 @@
                   <div style="position:relative;">
                     <input type="password" id="id_new_password" name="new_password"
                       placeholder="Enter new password"
-                      pattern="(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}"
                       title="At least 8 characters, with an uppercase letter, a number, and a special character (e.g. Juan2000-)"
-                      style="padding-right:44px;">
+                      style="padding-right:44px;" maxlength="128" minlength="8" data-account-password="1">
                     <button type="button" onclick="togglePwd('id_new_password', this)"
                       style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
                       <svg id="id_new_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -326,7 +327,7 @@
                   <label for="id_confirm_password">Confirm New Password</label>
                   <div style="position:relative;">
                     <input type="password" id="id_confirm_password" name="confirm_password"
-                      placeholder="Re-enter new password" style="padding-right:44px;">
+                      placeholder="Re-enter new password" style="padding-right:44px;" maxlength="128" minlength="8">
                     <button type="button" onclick="togglePwd('id_confirm_password', this)"
                       style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
                       <svg id="id_confirm_password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -430,7 +431,7 @@
           <div style="position:relative;">
             <input type="password" id="tfa-password" name="password"
               placeholder="Enter your password" required autocomplete="current-password"
-              style="padding-right:44px;">
+              style="padding-right:44px;" maxlength="128">
             <button type="button" onclick="togglePwd('tfa-password', this)"
               style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-400);padding:4px;">
               <svg id="tfa-password-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -447,6 +448,7 @@
 </div>
 
 <script src="{% static 'js/notification-tray.js' %}"></script>
+<script src="{% static 'js/input-limits.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/confirm-dialog.js' %}?v={{ APP_VERSION }}" defer></script>
 <script>

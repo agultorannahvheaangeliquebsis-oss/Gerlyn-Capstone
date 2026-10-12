@@ -50,29 +50,29 @@ address field here since internal accounts don't ship anything.
           <div class="field">
             <label for="invite-first-name">First Name</label>
             <input id="invite-first-name" type="text" name="first_name" required
-                   value="{{ form_data.first_name|default:'' }}">
+                   value="{{ form_data.first_name|default:'' }}" maxlength="100" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="first_name" data-label="First name">
           </div>
           <div class="field">
             <label for="invite-last-name">Last Name</label>
             <input id="invite-last-name" type="text" name="last_name" required
-                   value="{{ form_data.last_name|default:'' }}">
+                   value="{{ form_data.last_name|default:'' }}" maxlength="100" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="last_name" data-label="Last name">
           </div>
         </div>
 
         <div class="field">
           <label for="invite-username">Username</label>
           <input id="invite-username" type="text" name="username" required
-                 value="{{ form_data.username|default:'' }}">
+                 value="{{ form_data.username|default:'' }}" maxlength="150" minlength="1" pattern="[\p{L}\p{N}_@.+\-]+" data-account-input="username" data-label="Username">
         </div>
 
         <div class="field">
           <label for="invite-password1">Password</label>
-          <input id="invite-password1" type="password" name="password1" required autocomplete="new-password">
+          <input id="invite-password1" type="password" name="password1" required autocomplete="new-password" maxlength="128" minlength="8" data-account-password="1">
         </div>
 
         <div class="field">
           <label for="invite-password2">Confirm Password</label>
-          <input id="invite-password2" type="password" name="password2" required autocomplete="new-password">
+          <input id="invite-password2" type="password" name="password2" required autocomplete="new-password" maxlength="128" minlength="8">
         </div>
 
         <button type="submit" class="btn btn-primary auth-submit">Set Up Account</button>

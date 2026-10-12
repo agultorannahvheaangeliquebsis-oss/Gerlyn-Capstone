@@ -30,32 +30,32 @@
     <div class="field">
       <label for="edit-user-first-name">First Name</label>
       <input id="edit-user-first-name" type="text" name="first_name"
-             value="{% firstof form_data.first_name target.first_name '' %}">
+             value="{% firstof form_data.first_name target.first_name '' %}" maxlength="100" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="first_name" data-label="First name">
     </div>
     <div class="field">
       <label for="edit-user-last-name">Last Name</label>
       <input id="edit-user-last-name" type="text" name="last_name"
-             value="{% firstof form_data.last_name target.last_name '' %}">
+             value="{% firstof form_data.last_name target.last_name '' %}" maxlength="100" pattern="(?=.*\p{L})[\p{L}\p{M} .'\u2019\-]+" data-account-input="last_name" data-label="Last name">
     </div>
   </div>
 
   <div class="field">
     <label for="edit-user-username">Username</label>
     <input id="edit-user-username" type="text" name="username" required
-           value="{% firstof form_data.username target.username '' %}">
+           value="{% firstof form_data.username target.username '' %}" maxlength="150" minlength="1" pattern="[\p{L}\p{N}_@.+\-]+" data-account-input="username" data-label="Username">
   </div>
 
   <div class="field">
     <label for="edit-user-email">Email</label>
     <input id="edit-user-email" type="email" name="email"
-           value="{% firstof form_data.email target.email '' %}">
+           value="{% firstof form_data.email target.email '' %}" maxlength="254">
   </div>
 
   <div class="field">
     <label for="edit-user-contact-number">Mobile Number</label>
     <input id="edit-user-contact-number" type="tel" name="contact_number"
            placeholder="+63 9XX XXX XXXX"
-           value="{% firstof form_data.contact_number target.get_role_profile.contact_number '' %}">
+           value="{% firstof form_data.contact_number target.get_role_profile.contact_number '' %}" maxlength="20" pattern="(?:0|\+63)[\s\-]*9(?:[\s\-]*[0-9]){9}[\s\-]*" data-account-input="contact_number" data-label="Contact number">
   </div>
 
   <div class="grid-2">
@@ -113,7 +113,7 @@
       <span class="gv-meta">— leave blank to keep the current one</span>
     </label>
     <input id="edit-user-password" type="password" name="password"
-           placeholder="Enter password" autocomplete="new-password">
+           placeholder="Enter password" autocomplete="new-password" maxlength="128" data-account-password="1">
   </div>
 
   <div class="banner banner-info">

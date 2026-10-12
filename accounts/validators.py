@@ -11,6 +11,8 @@ class StrongPasswordValidator:
 
     def validate(self, password, user=None):
         errors = []
+        if not password or len(password) > 128:
+            raise ValidationError('Password must be between 8 and 128 characters.')
         if not re.search(r'[A-Z]', password):
             errors.append(_("Password must contain at least one uppercase letter."))
         if not re.search(r'[0-9]', password):
@@ -30,10 +32,12 @@ class StrongPasswordValidator:
 # 11-digit local form (09XXXXXXXXX) or +63 international form
 # (+639XXXXXXXXX) — separators are stripped before matching, so
 # "0917-123-4567" and "+63 917 123 4567" validate the same as "09171234567".
-_PH_MOBILE_RE = re.compile(r'^(?:\+63|0)9\d{9}$')
+_PH_MOBILE_RE = re.compile(r'^(?:\+63|0)9[0-9]{9}$')
 
 
 def validate_ph_mobile_number(value):
+    if len(value or '') > 20:
+        raise ValidationError('Contact number cannot be longer than 20 characters.')
     stripped = re.sub(r'[\s-]', '', value or '')
     if not _PH_MOBILE_RE.match(stripped):
         raise ValidationError(

@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -21,6 +22,7 @@ from .rate_limit import (
 )
 from .services import contact_number_taken, set_contact_number
 from .validators import validate_ph_mobile_number
+from .input_validation import account_inputs
 from .role_policy import USER_MANAGEMENT_ROLE_CHOICES, USER_MANAGEMENT_ROLES
 from .two_factor import (
     cancel_login_otp, is_login_otp_locked_out, start_login_otp, verify_login_otp,
@@ -478,7 +480,7 @@ def user_form(request, pk=None):
     branch_id = request.POST.get('branch') or None
     first_name = request.POST.get('first_name', '').strip()
     last_name = request.POST.get('last_name', '').strip()
-    password = request.POST.get('password', '').strip()
+    password = request.POST.get('password', '')
     new_contact_number = request.POST.get('contact_number', '').strip()
     # Filtered against the real registry so a tampered POST can't smuggle an
     # unknown code into the field — it'd be harmless (nothing gates on an
@@ -522,6 +524,11 @@ def user_form(request, pk=None):
         errors.append('A username and a valid role are required.')
     # Column sizes: User.username/first_name/last_name are 150, and the role
     # profiles' display name (first + last) is a 100-character column.
+    normalized, input_errors = account_inputs(request.POST, user=target)
+    errors.extend(input_errors.values())
+    username = normalized.get('username', username)
+    if branch_id and (not branch_id.isdigit() or not Branch.objects.filter(pk=branch_id).exists()):
+        errors.append('Choose a valid branch.')
     if len(username) > 150:
         errors.append('Username cannot be longer than 150 characters.')
     if len(f'{first_name} {last_name}'.strip()) > 100:
@@ -535,7 +542,10 @@ def user_form(request, pk=None):
 
     if password:
         try:
-            password_validation.validate_password(password, user=target)
+            password_validation.validate_password(password, user=User(
+                username=username, email=submitted_email,
+                first_name=first_name, last_name=last_name,
+            ))
         except ValidationError as e:
             errors.extend(e.messages)
 
@@ -563,7 +573,7 @@ def user_form(request, pk=None):
         if target.role != role:
             role_changed_from = target.role
         target.username = username
-        target.email = request.POST.get('email', '')
+        target.email = normalized.get('email', '')
         target.first_name = first_name
         target.last_name = last_name
         target.role = role
@@ -659,7 +669,9 @@ def _user_invite_submit(request):
     role = request.POST.get('role')
     branch_id = request.POST.get('branch') or None
 
-    errors = []
+    normalized, input_errors = account_inputs({'email': email})
+    email = normalized.get('email', email)
+    errors = list(input_errors.values())
     if role not in USER_MANAGEMENT_ROLES:
         errors.append('A valid role is required.')
     if not email:
@@ -672,6 +684,8 @@ def _user_invite_submit(request):
         else:
             if User.objects.filter(email=email).exists():
                 errors.append(f'A user with email "{email}" already exists.')
+    if branch_id and (not branch_id.isdigit() or not Branch.objects.filter(pk=branch_id).exists()):
+        errors.append('Choose a valid branch.')
     if not errors and role in (User.Role.BRANCH_MANAGER, User.Role.STAFF) and not branch_id:
         errors.append('Assign a branch for this role.')
 
@@ -968,6 +982,7 @@ def _register_form_values(request):
     return {k: request.POST.get(k, '') for k in keep}
 
 
+@transaction.atomic
 def register_view(request):
     if request.user.is_authenticated:
         return redirect_by_role(request, request.user)
@@ -993,6 +1008,15 @@ def register_view(request):
         last_name = request.POST.get('last_name')
         contact_number = request.POST.get('contact_number')
         address = request.POST.get('address', '').strip()
+
+        normalized, input_errors = account_inputs(request.POST, customer=True, required=True)
+        if input_errors:
+            for field, error in input_errors.items():
+                messages.error(request, f'{field.replace("_", " ").capitalize()}: {error}')
+            return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
+        username, email = normalized['username'], normalized['email']
+        first_name, last_name = normalized['first_name'], normalized['last_name']
+        contact_number = normalized.get('contact_number', '')
 
         # Neither field was checked before create_user() reached the DB
         # layer raw — an empty username hit a NOT NULL constraint, and one
@@ -1056,7 +1080,7 @@ def register_view(request):
             return render(request, 'accounts/register.html', {'form': _register_form_values(request)})
 
         try:
-            password_validation.validate_password(password1)
+            password_validation.validate_password(password1 or "", user=User(username=username, email=email, first_name=first_name, last_name=last_name))
         except ValidationError as e:
             for error in e.messages:
                 messages.error(request, error)
@@ -1260,6 +1284,19 @@ def update_profile(request):
     new_email      = request.POST.get('email', '').strip().lower()
     new_phone      = request.POST.get('contact_number', '').strip()
 
+    normalized, errors = account_inputs(request.POST, user=user, customer=user.role == User.Role.CUSTOMER)
+    if user.role != User.Role.CUSTOMER and ('first_name' in request.POST or 'last_name' in request.POST):
+        full_name = f"{new_first_name or user.first_name} {new_last_name or user.last_name}".strip()
+        if len(full_name) > 100:
+            errors['last_name'] = 'First and last name together cannot be longer than 100 characters.'
+    if errors:
+        from core.permissions import INTERNAL_ROLES
+        context = _internal_settings_context(request) if user.role in INTERNAL_ROLES else _profile_context(user)
+        template = 'internal_settings.html' if user.role in INTERNAL_ROLES else 'accounts/profile.html'
+        return render(request, template, {**context, 'errors': errors})
+
+    new_username = normalized.get('username', new_username)
+
     # --- Username uniqueness (exclude self) ---
     if new_username and new_username != user.username:
         if User.objects.filter(username__iexact=new_username).exclude(pk=user.pk).exists():
@@ -1292,15 +1329,6 @@ def update_profile(request):
     if new_last_name:
         user.last_name = new_last_name
 
-    # --- Contact number (update on role profile) ---
-    if new_phone:
-        role_profile = user.get_or_create_role_profile()
-        if role_profile and hasattr(role_profile, 'contact_number'):
-            try:
-                set_contact_number(role_profile, new_phone, user)
-            except ValidationError as e:
-                errors['contact_number'] = e.messages[0]
-
     if errors:
         from core.permissions import INTERNAL_ROLES
         if user.role in INTERNAL_ROLES:
@@ -1309,7 +1337,22 @@ def update_profile(request):
         context = {**_profile_context(user), 'errors': errors}
         return render(request, 'accounts/profile.html', context)
 
-    user.save()
+    with transaction.atomic():
+        user.save()
+        profile = user.get_or_create_role_profile()
+        if profile:
+            if new_phone:
+                set_contact_number(profile, new_phone, user)
+            if user.role == User.Role.CUSTOMER:
+                if new_first_name:
+                    profile.first_name = new_first_name
+                if new_last_name:
+                    profile.last_name = new_last_name
+            else:
+                name_field = {User.Role.OWNER: 'owner_name', User.Role.BRANCH_MANAGER: 'manager_name', User.Role.STAFF: 'staff_name'}.get(user.role)
+                if name_field and (new_first_name or new_last_name):
+                    setattr(profile, name_field, f'{user.first_name} {user.last_name}'.strip())
+            profile.save()
     messages.success(request, "Profile updated.")
     return _profile_redirect(user)
 
@@ -1395,13 +1438,14 @@ def staff_invite_complete(request, token):
         return redirect('accounts:login')
 
     if request.method == 'POST':
-        username = request.POST.get('username', '').strip()
+        username = User.normalize_username(request.POST.get('username', '').strip())
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         password1 = request.POST.get('password1', '')
         password2 = request.POST.get('password2', '')
 
-        errors = []
+        normalized, input_errors = account_inputs({'username': username, 'first_name': first_name, 'last_name': last_name}, user=user)
+        errors = list(input_errors.values())
         if not username or len(username) > 150:
             errors.append('Username must be between 1 and 150 characters.')
         else:
@@ -1420,7 +1464,10 @@ def staff_invite_complete(request, token):
             errors.append('Passwords do not match.')
         else:
             try:
-                password_validation.validate_password(password1, user=user)
+                password_validation.validate_password(password1, user=User(
+                    username=username, email=user.email,
+                    first_name=first_name, last_name=last_name,
+                ))
             except ValidationError as e:
                 errors.extend(e.messages)
 
@@ -1482,7 +1529,12 @@ def verify_email_change(request, token):
         messages.error(request, "No pending email change found.")
         return redirect('accounts:profile')
 
-    user.email         = user.pending_email
+    normalized, errors = account_inputs({'email': user.pending_email}, user=user)
+    if errors:
+        messages.error(request, errors['email'])
+        return redirect('accounts:profile')
+
+    user.email         = normalized['email']
     user.pending_email = None
     user.save(update_fields=['email', 'pending_email'])
 
@@ -1832,6 +1884,12 @@ def _address_fields_from_post(request):
     """Pulls the address picker's fields off a POST — the Region/Province/
     City/Barangay codes off the dropdowns, an optional street line, and
     whatever address text the user typed or confirmed."""
+    _, errors = account_inputs({k: request.POST.get(k, '') for k in ('region', 'province', 'city', 'barangay', 'street_detail')})
+    text = request.POST.get('text', '').strip()
+    if len(text) > 500:
+        errors['text'] = 'Address cannot be longer than 500 characters.'
+    if errors:
+        raise ValueError(' '.join(errors.values()))
     addr_type = request.POST.get('type', Address.Type.HOME)
     if addr_type not in Address.Type.values:
         addr_type = Address.Type.HOME
@@ -1866,6 +1924,10 @@ def address_create(request):
     if not fields['text']:
         fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
 
+    if len(fields['text']) > 500:
+        messages.error(request, 'Address cannot be longer than 500 characters.')
+        return redirect(_addresses_anchor())
+
     if not fields['text']:
         messages.error(request, "Please enter an address.")
         return redirect(_addresses_anchor())
@@ -1890,6 +1952,10 @@ def address_edit(request, pk):
 
     if not fields['text']:
         fields['text'] = Address(**{k: v for k, v in fields.items() if k != 'text'}).compose_text()
+
+    if len(fields['text']) > 500:
+        messages.error(request, 'Address cannot be longer than 500 characters.')
+        return redirect(_addresses_anchor())
 
     if not fields['text']:
         messages.error(request, "Please enter an address.")
