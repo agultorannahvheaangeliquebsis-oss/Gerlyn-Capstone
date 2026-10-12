@@ -756,6 +756,9 @@ def procurement_add(request):
             request.POST.get('funding_source'), request.POST.get('funding_note'),
         )
     except FundingError as exc:
+        # Read back by offline_sync when it replays this view (see
+        # sales.views.transaction_add). Inert on an ordinary request.
+        request.offline_rejection_errors = [str(exc)]
         context = _po_page_context(request)
         context.update({
             'po_errors': [str(exc)],
@@ -822,6 +825,7 @@ def procurement_add(request):
         errors.append('Choose a valid product for every order item.')
 
     if errors:
+        request.offline_rejection_errors = errors
         context = _po_page_context(request)
         context.update({
             'po_errors': errors,

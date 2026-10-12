@@ -436,6 +436,17 @@ until a row is clicked, and emptied again on close. See detail-modal.js.
 <script src="{% static 'js/bottom-sheet.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/input-limits.js' %}?v={{ APP_VERSION }}" defer></script>
 <script src="{% static 'js/pwa.js' %}"></script>
+{% comment %}
+Offline queue. Not deferred, on purpose: the Walk-in Sale page's own inline
+script (in extra_js below) asks GerlynOffline to subtract unsynced offline
+sales from its stock figures while it builds its first render, so the module
+must already exist by then. The config is the signed-in user's identity —
+a queue is only ever synced by the account that created it.
+{% endcomment %}
+{% if request.user.is_authenticated %}
+<script type="application/json" id="gvOfflineConfig">{"userId": "{{ request.user.pk|stringformat:'d' }}", "pingUrl": "{% url 'offline_ping' %}", "syncUrl": "{% url 'offline_sync_apply' %}", "version": "{{ APP_VERSION }}"}</script>
+<script src="{% static 'js/offline-sync.js' %}?v={{ APP_VERSION }}"></script>
+{% endif %}
 {% if request.user.is_authenticated %}{% include "_idle_timeout.html" %}{% endif %}
 {% block extra_js %}{% endblock %}
 </body>

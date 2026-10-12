@@ -752,7 +752,14 @@ var POS_DISCOUNT_RATE = 0.20;
 var POS_FIXED_BRANCH_ID = {% if pos_effective_branch %}{{ pos_effective_branch.id|unlocalize }}{% else %}null{% endif %};
 var POS_STOCK_MAP = (function () {
   var el = document.getElementById('pos-stock-map');
-  return el ? JSON.parse(el.textContent) : {};
+  var map = el ? JSON.parse(el.textContent) : {};
+  // Sales rung up on this device while offline have not reached the server's
+  // figures yet; take them off so the till cannot sell the same last unit
+  // twice. A no-op when nothing is queued (static/js/offline-sync.js).
+  if (window.GerlynOffline && window.GerlynOffline.adjustStockMap) {
+    window.GerlynOffline.adjustStockMap(map);
+  }
+  return map;
 })();
 
 function posCurrentBranchId() {

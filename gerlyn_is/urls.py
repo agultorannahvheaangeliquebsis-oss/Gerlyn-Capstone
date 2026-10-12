@@ -19,6 +19,8 @@ urlpatterns = [
     # Served at the site root (not /static/js/) so the service worker's
     # default scope covers the whole app instead of just /static/js/.
     path('sw.js', service_worker_view, name='service_worker'),
+    # Offline queue: connectivity/session probe + one-change-at-a-time sync.
+    path('offline/', include('offline_sync.urls')),
     path('about/', about_view, name='about'),
     path('download/', download_view, name='download'),
     path('internal/settings/', internal_settings_view, name='internal_settings'),

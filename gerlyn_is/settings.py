@@ -143,6 +143,9 @@ INSTALLED_APPS = [
     'billing',
     'reports',
     'orders',
+    # Ledger + endpoints behind the offline queue (static/js/offline-sync.js):
+    # replays changes queued while offline, exactly once, through the real views.
+    'offline_sync',
     # Append-only record of every data change (who, what, when, before/after).
     # Listed last so its signal handlers run after every other app's own
     # post_save handlers have finished adjusting the row.

@@ -2364,6 +2364,11 @@ def transaction_add(request):
     # the item rows rebuilt from what was posted — every pid/qty pair,
     # including the ones that failed the digit check, so a mistyped quantity
     # comes back visible instead of vanishing.
+    #
+    # Also exposed on the request: offline_sync replays this view for a sale
+    # queued while offline, and these reasons (not flashed as messages) are
+    # what it reports back for a refused one. Inert on an ordinary request.
+    request.offline_rejection_errors = errors
     context = _pos_context(request)
     context.update({
         'pos_errors': errors,

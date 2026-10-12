@@ -3173,3 +3173,90 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   .bulk-bar-actions { width: 100%; justify-content: space-between; }
   .bulk-bar-actions .btn { min-height: var(--touch); }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Offline queue (static/js/offline-sync.js)
+   One pill in the top bar says what the connection and the queue are doing:
+   Online · Offline · Pending Sync · Synced · Sync Failed. Colours reuse the
+   status tokens so a failed sync reads like every other failure here.
+   ───────────────────────────────────────────────────────────────────────── */
+.gv-sync { position: relative; display: inline-flex; }
+.gv-sync--float { position: fixed; right: var(--s4); bottom: var(--s4); z-index: 60; }
+.gv-sync-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 38px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--ink-700);
+  font: 600 13px/1 var(--font-sans); cursor: pointer;
+}
+.gv-sync-pill:hover { background: var(--line-soft); }
+.gv-sync-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok-dot); flex: none; }
+.gv-sync-count {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--ink-700); color: #fff; font: 700 12px/1 var(--font-sans);
+}
+.gv-sync-count[hidden] { display: none; }
+.gv-sync-pill--online  { color: var(--ok-fg); }
+.gv-sync-pill--synced  { background: var(--ok-bg); border-color: var(--green-300); color: var(--ok-fg); }
+.gv-sync-pill--offline { background: var(--warn-bg); border-color: var(--warn-dot); color: var(--warn-fg); }
+.gv-sync-pill--offline .gv-sync-dot { background: var(--warn-dot); }
+.gv-sync-pill--pending { background: var(--line-soft); color: var(--ink-700); }
+.gv-sync-pill--pending .gv-sync-dot { background: var(--brand); animation: gvSyncPulse 1.2s ease-in-out infinite; }
+.gv-sync-pill--failed  { background: var(--danger-bg); border-color: var(--danger-dot); color: var(--danger-fg); }
+.gv-sync-pill--failed .gv-sync-dot { background: var(--danger-dot); }
+@keyframes gvSyncPulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .gv-sync-pill--pending .gv-sync-dot { animation: none; } }
+
+.gv-sync-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+  width: min(400px, 92vw); max-height: min(70vh, 560px); overflow: auto;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+  padding: var(--s4);
+}
+.gv-sync--float .gv-sync-panel { top: auto; bottom: calc(100% + 8px); }
+.gv-sync-panel[hidden] { display: none; }
+.gv-sync-panel__head { display: flex; align-items: center; justify-content: space-between; }
+.gv-sync-panel__head h2 { font: 650 17px/1.3 var(--font-sans); }
+.gv-sync-close { background: none; border: 0; font-size: 24px; line-height: 1; cursor: pointer; color: var(--ink-600); }
+.gv-sync-state { margin: var(--s2) 0 var(--s3); color: var(--ink-600); font: 400 14px/1.45 var(--font-sans); }
+.gv-sync-list { display: grid; gap: var(--s2); }
+.gv-sync-item { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: 10px 12px; background: var(--surface-2); }
+.gv-sync-item--pending { border-left-color: var(--ink-400); }
+.gv-sync-item--synced  { border-left-color: var(--ok-dot); }
+.gv-sync-item--failed  { border-left-color: var(--danger-dot); }
+.gv-sync-item__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gv-sync-item__meta { color: var(--ink-600); font: 400 13px/1.4 var(--font-sans); margin-top: 2px; }
+.gv-sync-item__error { color: var(--danger-fg); font: 500 13px/1.4 var(--font-sans); margin-top: 6px; }
+.gv-sync-item__actions { display: flex; gap: 8px; margin-top: 8px; }
+.gv-sync-badge { font: 600 12px/1 var(--font-sans); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+.gv-sync-badge--pending { background: var(--line-soft); color: var(--ink-700); }
+.gv-sync-badge--synced  { background: var(--ok-bg); color: var(--ok-fg); }
+.gv-sync-badge--failed  { background: var(--danger-bg); color: var(--danger-fg); }
+.gv-sync-panel__foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--s3); }
+
+.gv-sync-toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 400; display: grid; gap: 8px; width: min(440px, 92vw); }
+.gv-sync-toast {
+  padding: 12px 14px; border-radius: 10px; background: var(--ink-900); color: #fff;
+  font: 500 14px/1.4 var(--font-sans); box-shadow: var(--shadow-hero);
+}
+.gv-sync-toast--warn { background: var(--warn-fg); }
+.gv-sync-toast--error { background: var(--danger-fg); }
+
+.gv-saved-copy {
+  margin: 0 0 var(--s4); padding: 10px 14px; border-radius: 8px;
+  background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-dot);
+  font: 400 14px/1.45 var(--font-sans);
+}
+.gv-offline-fallback { background: var(--surface-2); margin: 0; }
+.gv-offline-fallback__card { max-width: 520px; margin: 12vh auto 0; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); }
+.gv-offline-fallback__card h1 { margin-bottom: var(--s3); }
+
+@media (max-width: 860px) {
+  /* The bottom nav is fixed below 860px; keep the floating pill clear of it. */
+  .gv-sync--float { bottom: 76px; }
+  .gv-sync-panel { position: fixed; top: 64px; left: var(--s3); right: var(--s3); width: auto; }
+  .gv-sync-label { display: none; }
+  .gv-sync-pill { padding: 0 10px; }
+}

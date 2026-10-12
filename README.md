@@ -265,6 +265,7 @@ views can never drift apart.
 | `reports` | Dashboard, reports, CSV export |
 | `audit` | Append-only Audit Log of every data change (System & Monitoring) |
 | `backups` | Encrypted off-site backups to Backblaze, restore check, status page (System & Monitoring) |
+| `offline_sync` | Server ledger + endpoints behind the offline queue (see "Offline mode") |
 
 ---
 
@@ -422,6 +423,82 @@ Owners see status, run a backup on demand and record restore tests at
   `BACKUP_ENCRYPTION_KEY` variables from `.env.example`.
   `python manage.py test backups` runs without any of it (a real dump/restore test runs
   automatically when the MySQL tools are found).
+
+## Offline mode
+
+Staff, Branch Managers and the Owner can keep working through a dropped
+connection. This is a *queue*, not a second copy of the system: nothing is
+decided offline, and nothing counts as saved until the server says so.
+
+**What works offline**
+
+| Area | Viewing (saved pages) | Entering (queued, synced later) |
+|---|---|---|
+| Sales | Walk-in Sale page, sale list | Walk-in sale — Cash, GCash, Card (incl. the proof screenshot) |
+| Inventory | Floor stock, warehouse stock, alerts, withdrawals | Floor refill request; floor stock count correction |
+| Procurement | PO list/detail, incoming deliveries | Purchase order request (Branch Manager); delivery receipt |
+
+"Saved pages" are copies of pages you opened while online (and the sidebar
+pages, warmed in the background every 30 minutes). They are served only when the
+network fails, with a *Saved copy* notice. Online, you always get the live page.
+
+**What stays online-only** (the server refuses these even if a browser tried):
+approvals (POs, withdrawals, refunds), payment verification, refunds and
+voids, order status changes, anything an Owner raises that authorizes spend
+(an Owner's PO), user/permission/settings changes, imports, reports,
+login/2FA/password, and the customer storefront.
+
+**Status** — one pill in the top bar:
+
+| Pill | Meaning |
+|---|---|
+| Online | Reachable (a ping, not just `navigator.onLine`), nothing waiting |
+| Offline | Server unreachable; changes are saved on this device |
+| Pending Sync | Saved on the device, not yet confirmed by the server |
+| Synced | The server confirmed the change (shown briefly, then Online) |
+| Sync Failed | The server refused it, the data changed underneath it, or syncing hit an error. The reason is in the panel; Retry or Discard |
+
+**How it stays correct**
+
+- Each queued change gets a random operation id. `offline_sync.OfflineOperation`
+  records applied ids per user, so a retry, a lost response or two tabs can never
+  apply a change twice. Only *Applied* is sticky: a rejected change changed nothing
+  and may be sent again.
+- The server **replays the real view** for each change (`offline_sync/replay.py`),
+  as the same user, so validation, pricing, branch scoping, per-user module
+  permissions and stock rules are exactly the online ones. `registry.py` is the
+  allow-list.
+- A change is *Synced* only when the server answers `applied` for that operation
+  **and** the effect was read back from the database (`registry.verify`). A redirect
+  alone is never trusted. A network failure leaves it Pending.
+- Anything refused is rolled back whole — no half-applied sale.
+- Conflicts: a stock count carries the system quantity it was counted against;
+  if stock moved while offline, it is refused ("count again") instead of
+  overwriting. A sale that would oversell is rejected with the shortage, kept in
+  the panel, and can be retried once stock is corrected.
+- A queue is only synced by the account that made it. Saved pages are dropped
+  at login/logout and when the signed-in user changes.
+- The POS subtracts what the device has already sold offline from the stock
+  it shows, so the till cannot sell the same last unit twice.
+
+**Limits to know**
+
+- Syncing happens while the app is open (no background sync); it starts
+  automatically on reconnect.
+- The 30-minute idle logout still applies. Offline, that sends you to a page that
+  cannot sign in until the connection returns; saved changes stay on the device and
+  sync after you sign in as the same user.
+- A change is held in the browser's IndexedDB until synced. A shared PC should be
+  signed out and its pending changes synced or discarded.
+- An offline sale gets its order number only when it syncs, so there is no
+  official receipt until then.
+- The sidebar icons come from a CDN script; it is cached after first load, but a
+  device that has never loaded it online shows text labels only.
+
+Tests: `python manage.py test offline_sync` (server) and
+`node --test offline_sync/js_tests/offline_sync.test.mjs` (client + service
+worker logic against fakes; needs Node 20+, no packages). After deploying,
+run `python manage.py migrate` — `offline_sync` adds one table.
 
 ## Notification operations
 
