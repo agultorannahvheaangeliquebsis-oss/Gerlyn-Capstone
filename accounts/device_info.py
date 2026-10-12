@@ -14,6 +14,9 @@ _OS_PATTERNS = [
 ]
 
 _BROWSER_PATTERNS = [
+    # The Windows desktop app (desktop/) tags its user agent; it is Chromium
+    # underneath, so this has to be checked before the generic Chrome token.
+    ('GerlynPLUS-Desktop/', 'GerlynPLUS Desktop'),
     ('Edg/', 'Edge'),
     ('OPR/', 'Opera'),
     ('Firefox/', 'Firefox'),

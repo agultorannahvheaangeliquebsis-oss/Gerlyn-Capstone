@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GerlynPLUS — Waiting for connection</title>
+  <!-- Served by the desktop app under the server's own origin (see
+       src/protocol.js), so it shares the site's saved pages and the offline
+       queue, and its CSS/JS come from the bundle if the server is down. -->
+  <link rel="stylesheet" href="/static/css/gerlyn.css">
+  <link rel="stylesheet" href="/__gerlyn_desktop__/launch.css">
+</head>
+<body class="gv-offline-fallback" data-gv-offline-fallback="1">
+  <main class="gv-offline-fallback__card" id="launch">
+    <img class="gv-launch-logo" src="/static/img/logo.jpg" alt="" width="56" height="56">
+    <h1 id="launch-title">Can't reach the server</h1>
+    <p id="launch-reason">GerlynPLUS could not connect. Check the internet connection of this computer.</p>
+
+    <p class="gv-launch-status" role="status" aria-live="polite">
+      <span class="gv-launch-dot" aria-hidden="true"></span>
+      <span id="launch-status">Checking the connection…</span>
+    </p>
+
+    <p>
+      <button type="button" class="btn btn-primary" id="launch-retry">Try again now</button>
+    </p>
+
+    <section id="launch-saved" class="gv-launch-saved" hidden>
+      <h2>Keep working offline</h2>
+      <p>These pages were saved on this computer the last time you were online. Anything you
+        enter is kept here and sent automatically when the connection returns.</p>
+      <ul>
+        <li><a href="/inventory/">Inventory</a></li>
+        <li><a href="/sales/">Sales</a></li>
+        <li><a href="/procurement/">Procurement</a></li>
+      </ul>
+    </section>
+
+    <p class="gv-meta" id="launch-note"></p>
+  </main>
+  <script src="/static/js/offline-sync.js"></script>
+  <script src="/__gerlyn_desktop__/launch.js"></script>
+</body>
+</html>

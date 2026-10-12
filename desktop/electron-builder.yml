@@ -1,0 +1,56 @@
+appId: com.gerlynplus.desktop
+productName: GerlynPLUS
+copyright: GerlynPLUS
+
+directories:
+  output: dist
+  buildResources: build
+
+# Only the shell itself goes into app.asar. The web UI is the live server;
+# bundled/ and app-config.json are produced by `npm run bundle`.
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+
+extraResources:
+  - from: bundled
+    to: bundled
+  - from: app-config.json
+    to: app-config.json
+  - from: build/icon.png
+    to: icon.png
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  artifactName: GerlynPLUS-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: GerlynPLUS
+  runAfterFinish: true
+  uninstallDisplayName: GerlynPLUS
+  # Never delete the profile on uninstall: it holds changes that were saved
+  # offline and have not synced yet.
+  deleteAppDataOnUninstall: false
+
+# `npm run dist:msi` -- a Windows Installer package, for machines where the
+# NSIS .exe cannot be built (see README "Smart App Control").
+msi:
+  oneClick: false
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: false
+  warningsAsErrors: false
+  # ICE validation needs rights that locked-down/non-elevated machines lack
+  # (light.exe error LGHT1105). The package schema is electron-builder's fixed
+  # template, so skipping it loses little.
+  additionalLightArgs: ["-sval"]

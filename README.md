@@ -500,6 +500,21 @@ Tests: `python manage.py test offline_sync` (server) and
 worker logic against fakes; needs Node 20+, no packages). After deploying,
 run `python manage.py migrate` — `offline_sync` adds one table.
 
+### Windows desktop app
+
+[`desktop/`](desktop/) packages the live site as an installable Windows app
+(Electron): the same pages, sign-in and permissions, the offline queue above
+running unchanged inside it, and the front-end files bundled locally so it opens
+without internet. It adds no server endpoints and does not affect the browser
+version. The Node toolchain lives only in `desktop/`; the Django app has no
+Node build step.
+
+Build and test: see [`desktop/README.md`](desktop/README.md). To show staff a
+download link, host the installer anywhere with an https URL and set
+`DESKTOP_APP_DOWNLOAD_URL` (the Download page then shows a *Download for
+Windows* card to internal roles). The desktop app's sessions appear as
+"GerlynPLUS Desktop" on the Sessions page.
+
 ## Notification operations
 
 The event, recipient-role, timing, priority, and reference rules are defined

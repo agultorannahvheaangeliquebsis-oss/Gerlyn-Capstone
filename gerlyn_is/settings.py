@@ -612,6 +612,14 @@ PUBLIC_BASE_URL = env_str('PUBLIC_BASE_URL').rstrip('/')
 if not PUBLIC_BASE_URL and ON_RAILWAY and RAILWAY_PUBLIC_DOMAIN:
     PUBLIC_BASE_URL = f'https://{RAILWAY_PUBLIC_DOMAIN}'
 
+# Where staff download the Windows desktop app (desktop/README.md). The
+# installer is a ~120 MB build artifact, so it lives on a file host or a GitHub
+# release rather than in this repo or on Railway's ephemeral disk. Blank hides
+# the download card; anything that is not an https:// URL is ignored.
+DESKTOP_APP_DOWNLOAD_URL = env_str('DESKTOP_APP_DOWNLOAD_URL').strip()
+if not DESKTOP_APP_DOWNLOAD_URL.startswith('https://'):
+    DESKTOP_APP_DOWNLOAD_URL = ''
+
 # Server-side, Nominatim-compatible geocoding (the browser never talks to the
 # provider; accounts/geo_views.py proxies, caches and rate-limits). Defaults to
 # OpenStreetMap's public Nominatim + tile servers so "Locate Address" works with

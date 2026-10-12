@@ -1,0 +1,37 @@
+name: Desktop app (Windows installer)
+
+# Manual only. Builds desktop/ on a clean Windows runner and uploads the NSIS
+# installer (GerlynPLUS-Setup-<version>.exe) as a workflow artifact.
+#
+# Set the server the installer defaults to with the repository variable
+# GERLYN_SERVER_URL (Settings > Secrets and variables > Actions > Variables),
+# or leave it unset and the app asks on first run.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      GERLYN_SERVER_URL: ${{ vars.GERLYN_SERVER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GerlynPLUS-Setup
+          path: desktop/dist/GerlynPLUS-Setup-*.exe
+          if-no-files-found: error

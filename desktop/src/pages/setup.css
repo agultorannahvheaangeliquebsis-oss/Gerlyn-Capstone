@@ -1,0 +1,30 @@
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: grid; place-items: center;
+  background: #f4f6f5; color: #1f2933;
+  font: 15px/1.5 "Segoe UI", Roboto, Arial, sans-serif;
+}
+.card {
+  width: min(480px, calc(100vw - 32px)); padding: 28px;
+  background: #fff; border: 1px solid #dfe5e2; border-radius: 12px;
+}
+.card img { display: block; border-radius: 14px; margin-bottom: 14px; }
+h1 { margin: 0 0 6px; font-size: 22px; }
+.lead { margin: 0 0 18px; color: #52606d; }
+code { background: #eef2f0; padding: 1px 5px; border-radius: 4px; }
+label { display: block; font-weight: 600; margin-bottom: 6px; }
+input[type="text"] {
+  width: 100%; padding: 10px 12px; font: inherit;
+  border: 1px solid #b9c4bf; border-radius: 8px;
+}
+input[type="text"]:focus { outline: 2px solid #1e7a4f; outline-offset: 1px; border-color: #1e7a4f; }
+.error { margin: 10px 0 0; color: #b42318; }
+.note { margin: 10px 0 0; color: #52606d; }
+.actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+button {
+  font: inherit; padding: 9px 16px; border-radius: 8px; cursor: pointer;
+  border: 1px solid #b9c4bf; background: #fff; color: #1f2933;
+}
+button.primary { background: #1e7a4f; border-color: #1e7a4f; color: #fff; font-weight: 600; }
+button:disabled { opacity: .6; cursor: default; }

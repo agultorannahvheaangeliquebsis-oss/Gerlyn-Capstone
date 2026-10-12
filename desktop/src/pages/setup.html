@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'">
+  <title>GerlynPLUS — Server</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <main class="card">
+    <img src="logo.png" alt="" width="64" height="64">
+    <h1>Connect to your server</h1>
+    <p class="lead">Enter the web address of your GerlynPLUS system, for example
+      <code>your-app.up.railway.app</code>. You only need to do this once.</p>
+
+    <form id="form" novalidate>
+      <label for="url">Server address</label>
+      <input id="url" name="url" type="text" inputmode="url" autocomplete="off"
+             spellcheck="false" placeholder="https://your-app.up.railway.app" autofocus>
+      <p id="error" class="error" role="alert" hidden></p>
+      <p id="locked" class="note" hidden></p>
+      <div class="actions">
+        <button type="submit" id="save" class="primary">Connect</button>
+        <button type="button" id="force" hidden>Save anyway</button>
+        <button type="button" id="cancel" hidden>Cancel</button>
+      </div>
+    </form>
+  </main>
+  <script src="setup.js"></script>
+</body>
+</html>

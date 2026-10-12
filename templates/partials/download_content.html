@@ -25,6 +25,18 @@
     </div>
   </div>
 
+  {% if desktop_download_url %}
+  <div class="card card-pad" id="desktop-app-card" style="text-align:center; margin-bottom:24px;">
+    <h3 style="margin-bottom:4px;">{% t "GerlynPLUS for Windows" %}</h3>
+    <p class="gv-meta" style="margin-bottom:14px;">
+      {% t "The same system as a desktop app. Pages and changes made while offline are kept on the computer and sync automatically when the connection returns." %}
+    </p>
+    <a class="btn btn-primary" href="{{ desktop_download_url }}" rel="noopener" style="min-width:200px;">
+      {% t "Download for Windows" %}
+    </a>
+  </div>
+  {% endif %}
+
   <div class="card card-pad">
     <h3 style="margin-bottom:4px;">{% t "What's New" %}</h3>
     <p class="gv-meta" style="margin-bottom:12px;">{% t "Recent updates" %}</p>

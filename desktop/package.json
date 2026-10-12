@@ -1,0 +1,23 @@
+{
+  "name": "gerlynplus-desktop",
+  "productName": "GerlynPLUS",
+  "version": "1.0.0",
+  "description": "GerlynPLUS desktop application for Windows",
+  "main": "src/main.js",
+  "private": true,
+  "author": "GerlynPLUS",
+  "license": "UNLICENSED",
+  "scripts": {
+    "bundle": "node scripts/bundle-assets.js",
+    "start": "npm run bundle && electron .",
+    "test": "node --test \"test/unit/*.test.js\"",
+    "test:e2e": "electron test/e2e/run.js && electron test/e2e/run.js setup",
+    "pack": "npm run bundle && electron-builder --dir",
+    "dist": "npm run bundle && electron-builder --win nsis",
+    "dist:msi": "npm run bundle && electron-builder --win msi"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
+}

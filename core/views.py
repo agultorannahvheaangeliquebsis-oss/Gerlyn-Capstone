@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
 from django.http import JsonResponse
@@ -60,6 +61,9 @@ def download_view(request):
     }
     if is_internal:
         context['active_page'] = 'download'
+        # The desktop app is a staff tool (POS, inventory, procurement), so
+        # the link is only offered on the internal view of this page.
+        context['desktop_download_url'] = getattr(settings, 'DESKTOP_APP_DOWNLOAD_URL', '')
         return render(request, 'download_internal.html', context)
     return render(request, 'download.html', context)
 
