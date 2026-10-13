@@ -466,17 +466,28 @@ decided offline, and nothing counts as saved until the server says so.
 | Area | Viewing (saved pages) | Entering (queued, synced later) |
 |---|---|---|
 | Sales | Walk-in Sale page, sale list | Walk-in sale — Cash, GCash, Card (incl. the proof screenshot) |
-| Inventory | Floor stock, warehouse stock, alerts, withdrawals | Floor refill request; floor stock count correction |
-| Procurement | PO list/detail, incoming deliveries | Purchase order request (Branch Manager); delivery receipt |
+| Inventory | Floor stock, warehouse stock, alerts, withdrawals | Floor refill request; floor stock count correction; write-off request; new product (with photos); new product category |
+| Procurement | PO list/detail, incoming deliveries, suppliers | Purchase order request (Branch Manager); delivery receipt; new supplier, supplier category, or product linked to a supplier (Owner) |
+
+Data entry is limited to **creating** a record or a request. The same rules as
+online apply on sync (unique names and barcodes, valid prices, per-user Add
+grants), so a duplicate or a missing grant comes back as Sync Failed with the
+reason and nothing is saved. **Editing** an existing record is not queued: the
+form was filled in against a snapshot, and replaying it later would overwrite
+whatever changed in the meantime.
 
 "Saved pages" are copies of pages you opened while online (and the sidebar
 pages, warmed in the background every 30 minutes). They are served only when the
-network fails, with a *Saved copy* notice. Online, you always get the live page.
+network fails, with a *Saved copy* notice that lists which of the queueable
+entries above are actually on that page (and says so when there are none). Online,
+you always get the live page. Any other form submitted while offline is blocked with
+a message naming what *can* be saved offline.
 
 **What stays online-only** (the server refuses these even if a browser tried):
 approvals (POs, withdrawals, refunds), payment verification, refunds and
 voids, order status changes, anything an Owner raises that authorizes spend
-(an Owner's PO), user/permission/settings changes, imports, reports,
+(an Owner's PO), editing or deleting existing products, categories, stock
+details or suppliers, user/permission/settings changes, imports, reports,
 login/2FA/password, and the customer storefront.
 
 **Status** — one pill in the top bar:

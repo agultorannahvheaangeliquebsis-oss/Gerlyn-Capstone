@@ -495,6 +495,9 @@ def product_add(request):
                 messages.success(request, 'Product added successfully.')
             return redirect('product_list')
 
+    # Read back by offline_sync when it replays this view (see
+    # sales.views.transaction_add). Inert on an ordinary request.
+    request.offline_rejection_errors = errors
     context = {
         'mode': 'add',
         'categories': cached_categories(),
@@ -1434,6 +1437,8 @@ def category_form(request, pk=None):
         bust_categories_cache()
         return redirect('category_list')
 
+    # Read back by offline_sync when it replays this view. Inert otherwise.
+    request.offline_rejection_errors = errors
     context = _category_list_context(request)
     if category:
         context.update({

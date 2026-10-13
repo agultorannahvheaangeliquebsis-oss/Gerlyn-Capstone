@@ -15,7 +15,7 @@ from django.urls import reverse
 
 from accounts.models import StaffProfile, User
 from branches.models import Branch
-from core.module_permissions import DEFAULT_STAFF_MODULES
+from core.module_permissions import ADD, DEFAULT_STAFF_MODULES, PRODUCTS
 from inventory.models import (
     Batch, Inventory, Product, StockMovement, StockTransfer, Warehouse, WarehouseStock,
 )
@@ -342,8 +342,11 @@ class CountCorrectionConflictTests(_SalesFixture, TestCase):
             self.client, self.manager, 'inventory.count_correction', fields,
             meta={'base_quantity': 0})
         # The manager is pinned to their own branch; the other branch's
-        # figure (99) never appears in the answer.
-        self.assertNotIn('99', json.dumps(resp.json()))
+        # figure (99) never appears in the answer. Compare the quantities, not
+        # a substring of the whole body: the random operation id can contain "99".
+        body = resp.json()
+        shown = body.get('message', '') + json.dumps(body.get('current') or {})
+        self.assertNotRegex(shown, r'99')
 
 
 class RefillSyncTests(TransactionTestCase):
@@ -633,3 +636,169 @@ class PaymentProofUploadTests(_SalesFixture, TestCase):
             self.client, self.staff, 'sale.walkin', self._fields(proof_of_payment=fake))
         self.assertEqual(resp.json()['status'], 'rejected')
         self.assertFalse(SalesTransaction.objects.exists())
+
+
+class DataEntrySyncTests(_SalesFixture, TestCase):
+    """Creating records offline: products, categories, suppliers, write-offs.
+
+    Every one replays the real view, so the online rules (unique names, valid
+    prices, Owner-only suppliers) apply unchanged. Editing is not queueable.
+    """
+
+    def setUp(self):
+        self.build()
+        self.manager = User.objects.create_user(
+            username='de-mgr', password='pw', role=User.Role.BRANCH_MANAGER)
+        self.manager.manager_profile.branch = self.branch
+        self.manager.manager_profile.save(update_fields=['branch'])
+        # A new Branch Manager has no Add right on Products until the Owner
+        # grants it, online or off. Grant it here so the tests exercise the
+        # creation rules, and test the missing grant separately.
+        actions = dict(self.manager.module_actions or {})
+        actions[PRODUCTS] = [ADD]
+        self.manager.module_actions = actions
+        self.manager.save(update_fields=['module_actions'])
+
+    def _apply(self, user, op_type, fields, **kw):
+        self.client.force_login(user)
+        resp, op_id = sync_post(self.client, user, op_type, fields, **kw)
+        return resp, resp.json(), op_id
+
+    # -- product -------------------------------------------------------------
+    def _product_fields(self, **over):
+        fields = {
+            'product_name': 'Offline Noodles', 'unit_of_measure': 'Pack',
+            'unit_price': '12.50', 'barcode': 'OFF-BC-1', 'branches': [str(self.branch.pk)],
+        }
+        fields.update(over)
+        return fields
+
+    def test_product_is_created_through_the_real_view(self):
+        _resp, data, _ = self._apply(
+            self.manager, 'inventory.product_add', self._product_fields())
+        self.assertEqual(data['status'], 'applied', data)
+        product = Product.objects.get(product_name='Offline Noodles')
+        self.assertEqual(product.unit_price, Decimal('12.50'))
+        self.assertTrue(Inventory.objects.filter(product=product, branch=self.branch).exists())
+        self.assertEqual(data['result']['label'], 'Offline Noodles')
+
+    def test_product_with_a_taken_barcode_is_rejected_and_not_created(self):
+        Product.objects.filter(pk=self.product.pk).update(barcode='OFF-BC-1')
+        _resp, data, _ = self._apply(
+            self.manager, 'inventory.product_add', self._product_fields())
+        self.assertEqual(data['status'], 'rejected', data)
+        self.assertIn('already assigned', data['message'])
+        self.assertFalse(Product.objects.filter(product_name='Offline Noodles').exists())
+
+    def test_product_with_a_bad_price_is_rejected_with_the_reason(self):
+        _resp, data, _ = self._apply(
+            self.manager, 'inventory.product_add', self._product_fields(unit_price='abc'))
+        self.assertEqual(data['status'], 'rejected', data)
+        self.assertTrue(data['message'])
+        self.assertFalse(Product.objects.filter(product_name='Offline Noodles').exists())
+
+    def test_manager_without_the_add_grant_is_refused_like_online(self):
+        self.manager.module_actions = {PRODUCTS: []}
+        self.manager.save(update_fields=['module_actions'])
+        _resp, data, _ = self._apply(
+            self.manager, 'inventory.product_add', self._product_fields())
+        self.assertEqual(data['status'], 'rejected', data)
+        self.assertIn('Add permission', data['message'])
+        self.assertFalse(Product.objects.filter(product_name='Offline Noodles').exists())
+
+    def test_staff_cannot_queue_a_new_product(self):
+        resp, _data, _ = self._apply(
+            self.staff, 'inventory.product_add', self._product_fields())
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(Product.objects.filter(product_name='Offline Noodles').exists())
+
+    def test_resending_a_product_never_creates_it_twice(self):
+        op_id = uuid.uuid4().hex
+        self.client.force_login(self.manager)
+        sync_post(self.client, self.manager, 'inventory.product_add',
+                  self._product_fields(), op_id=op_id)
+        resp, _ = sync_post(self.client, self.manager, 'inventory.product_add',
+                            self._product_fields(), op_id=op_id)
+        self.assertTrue(resp.json().get('duplicate'))
+        self.assertEqual(Product.objects.filter(product_name='Offline Noodles').count(), 1)
+
+    # -- category ------------------------------------------------------------
+    def test_category_is_created_and_a_duplicate_is_rejected(self):
+        _r, data, _ = self._apply(
+            self.manager, 'inventory.category_add', {'category_name': 'Snacks'})
+        self.assertEqual(data['status'], 'applied', data)
+        _r, again, _ = self._apply(
+            self.manager, 'inventory.category_add', {'category_name': 'snacks'})
+        self.assertEqual(again['status'], 'rejected', again)
+        self.assertIn('already exists', again['message'])
+
+    # -- suppliers -----------------------------------------------------------
+    def test_owner_can_queue_a_supplier_and_it_gets_no_usable_password(self):
+        _r, data, _ = self._apply(self.owner, 'procurement.supplier_add', {
+            'supplier_name': 'Baliwag Wholesale', 'username': 'baliwag-ws',
+            'email': 'ws@example.com',
+        })
+        self.assertEqual(data['status'], 'applied', data)
+        supplier = User.objects.get(username='baliwag-ws')
+        self.assertEqual(supplier.role, User.Role.SUPPLIER)
+        self.assertEqual(supplier.supplier_profile.supplier_name, 'Baliwag Wholesale')
+        self.assertFalse(supplier.check_password('pw'))
+
+    def test_supplier_with_a_taken_username_is_rejected(self):
+        _r, data, _ = self._apply(self.owner, 'procurement.supplier_add', {
+            'supplier_name': 'Clash', 'username': self.staff.username,
+        })
+        self.assertEqual(data['status'], 'rejected', data)
+        self.assertIn('already taken', data['message'])
+
+    def test_manager_cannot_queue_a_supplier(self):
+        resp, _d, _ = self._apply(self.manager, 'procurement.supplier_add', {
+            'supplier_name': 'Nope', 'username': 'nope-sup',
+        })
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(User.objects.filter(username='nope-sup').exists())
+
+    def test_supplier_category_is_created(self):
+        _r, data, _ = self._apply(
+            self.owner, 'procurement.supplier_category_add', {'name': 'Beverages'})
+        self.assertEqual(data['status'], 'applied', data)
+        _r, again, _ = self._apply(
+            self.owner, 'procurement.supplier_category_add', {'name': 'Beverages'})
+        self.assertEqual(again['status'], 'rejected', again)
+
+    def test_product_can_be_linked_to_a_supplier(self):
+        supplier = User.objects.create_user(
+            username='link-sup', password='pw', role=User.Role.SUPPLIER)
+        _r, data, _ = self._apply(
+            self.owner, 'procurement.supplier_product_add',
+            {'product': str(self.product.pk), 'lead_time_days': '3'},
+            target_pk=supplier.pk)
+        self.assertEqual(data['status'], 'applied', data)
+        _r, again, _ = self._apply(
+            self.owner, 'procurement.supplier_product_add',
+            {'product': str(self.product.pk)}, target_pk=supplier.pk)
+        # Already linked: the view answers kindly but this change did nothing.
+        self.assertEqual(again['status'], 'conflict', again)
+
+    # -- write-off -----------------------------------------------------------
+    def test_write_off_request_is_queued_and_moves_no_stock(self):
+        Batch.objects.create(
+            product=self.product, branch=self.branch, location=Batch.Location.FLOOR,
+            quantity=10, received_date=dt.date.today())
+        _r, data, _ = self._apply(self.manager, 'inventory.write_off', {
+            'purpose': StockTransfer.Purpose.OTHER,
+            'product_id': [str(self.product.pk)], 'quantity_requested': ['2'],
+            'notes': 'Dented cans',
+        })
+        self.assertEqual(data['status'], 'applied', data)
+        transfer = StockTransfer.objects.get()
+        self.assertEqual(data['result']['label'], transfer.slip_number)
+        self.assertEqual(self.stock(), 10, 'nothing leaves the floor until it is completed online')
+
+    def test_write_off_for_more_than_exists_is_rejected(self):
+        _r, data, _ = self._apply(self.manager, 'inventory.write_off', {
+            'purpose': StockTransfer.Purpose.OTHER,
+            'product_id': [str(self.product.pk)], 'quantity_requested': ['999'],
+        })
+        self.assertEqual(data['status'], 'rejected', data)
+        self.assertFalse(StockTransfer.objects.exists())

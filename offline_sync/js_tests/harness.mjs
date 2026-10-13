@@ -158,7 +158,7 @@ class FakeFormData {
 }
 
 // ── Boot the real client in a fresh fake page ──────────────────────────────
-export async function bootClient({ server, userId = '7', config = true, offline = false, flash = null, pendingStock = null } = {}) {
+export async function bootClient({ server, userId = '7', config = true, offline = false, flash = null, pendingStock = null, savedCopy = null } = {}) {
   const idb = globalThis.__idb || (globalThis.__idb = fakeIndexedDB());
   const store = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m }; };
   const local = globalThis.__local || (globalThis.__local = store());
@@ -172,12 +172,18 @@ export async function bootClient({ server, userId = '7', config = true, offline 
   cfgEl._text = JSON.stringify({ userId, pingUrl: '/offline/ping/', syncUrl: '/offline/sync/', version: 'test' });
 
   const toasts = [];
+  // A page the service worker served from its saved copies: the worker injects
+  // the meta tag; `savedCopy.forms` are the POST forms found on that page.
+  const savedMeta = savedCopy ? new FakeNode('meta') : null;
+  if (savedMeta) savedMeta.content = savedCopy.savedAt || '';
+  const mainNode = savedCopy ? body.appendChild(new FakeNode('main')) : null;
   const doc = {
     readyState: 'complete', visibilityState: 'visible', cookie: '', body,
     createElement: (t) => new FakeNode(t),
     createTextNode: (t) => { const n = new FakeNode('#text'); n._text = t; return n; },
-    getElementById: (id) => (id === 'gvOfflineConfig' && config ? cfgEl : null),
-    querySelector: () => null, querySelectorAll: () => [],
+    getElementById: (id) => (id === 'gvOfflineConfig' && config ? cfgEl : (id === 'main' ? mainNode : null)),
+    querySelector: (sel) => (sel === 'meta[name="gerlyn-saved-copy"]' ? savedMeta : null),
+    querySelectorAll: (sel) => (savedCopy && sel === 'form[method]' ? savedCopy.forms || [] : []),
     addEventListener: (type, fn, capture) => listeners.document.push({ type, fn, capture: !!capture }),
     dispatchEvent: () => true,
   };
@@ -244,7 +250,7 @@ export async function bootClient({ server, userId = '7', config = true, offline 
 
   const dump = () => [...idb.stores.ops.rows.values()];
   return {
-    win, doc, body, idb, local, session, navState, timers, submit, fire, dump,
+    win, doc, body, mainNode, idb, local, session, navState, timers, submit, fire, dump,
     opsFor: (uid) => dump().filter((o) => o.userId === uid),
     ui: () => body.find((n) => n.tagName === 'DIV' || n.tagName === 'BUTTON' || n.tagName === 'SPAN'),
     pillLabel: () => {

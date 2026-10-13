@@ -3085,6 +3085,8 @@ def supplier_form(request, pk=None):
         messages.success(request, f'Supplier "{name}" saved.')
         return redirect('supplier_list')
 
+    # Read back by offline_sync when it replays this view. Inert otherwise.
+    request.offline_rejection_errors = errors
     context = _supplier_list_context(request)
     if pk:
         context.update({

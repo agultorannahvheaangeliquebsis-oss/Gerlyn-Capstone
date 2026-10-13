@@ -76,7 +76,15 @@
     { re: /^\/inventory\/warehouse\/request\/$/, type: 'inventory.floor_refill', label: 'Floor refill request', after: 'clean' },
     { re: /^\/inventory\/stock\/adjust\/$/, type: 'inventory.count_correction', label: 'Stock count correction', after: 'reload' },
     { re: /^\/procurement\/add\/$/, type: 'procurement.create_po', label: 'Purchase order request', after: '/procurement/' },
-    { re: /^\/procurement\/deliveries\/(\d+)\/receive\/$/, type: 'procurement.receive_delivery', label: 'Delivery receipt', after: '/procurement/deliveries/', target: 1 }
+    { re: /^\/procurement\/deliveries\/(\d+)\/receive\/$/, type: 'procurement.receive_delivery', label: 'Delivery receipt', after: '/procurement/deliveries/', target: 1 },
+    // Data entry. Only ever CREATING a record or a request: editing one
+    // offline would overwrite whatever changed while the device was away.
+    { re: /^\/inventory\/products\/add\/$/, type: 'inventory.product_add', label: 'New product', after: '/inventory/products/' },
+    { re: /^\/inventory\/categories\/add\/$/, type: 'inventory.category_add', label: 'New product category', after: 'clean' },
+    { re: /^\/inventory\/withdrawals\/new\/$/, type: 'inventory.write_off', label: 'Write-off request', after: '/inventory/withdrawals/?view=writeoffs' },
+    { re: /^\/procurement\/suppliers\/add\/$/, type: 'procurement.supplier_add', label: 'New supplier', after: '/procurement/suppliers/' },
+    { re: /^\/procurement\/suppliers\/categories\/add\/$/, type: 'procurement.supplier_category_add', label: 'Supplier category', after: '/procurement/suppliers/categories/' },
+    { re: /^\/procurement\/suppliers\/(\d+)\/products\/add\/$/, type: 'procurement.supplier_product_add', label: 'Supplier product', after: 'reload', target: 1 }
   ];
 
   function matchRoute(pathname) {
@@ -85,6 +93,29 @@
       if (m) return { route: ROUTES[i], match: m };
     }
     return null;
+  }
+
+  // Plain-language list of everything ROUTES can queue, for messages that must
+  // not promise more (or less) than the queue really does.
+  var QUEUEABLE_SUMMARY = 'walk-in sales, floor refill requests, stock count corrections, '
+    + 'write-off requests, new products and categories, new suppliers, supplier categories '
+    + 'and supplier products, purchase order requests and delivery receipts';
+
+  // Labels of the queueable forms actually present on this page (modals
+  // included), so a saved copy only claims what can be done on it.
+  function queueableLabelsOnPage() {
+    var labels = [];
+    var forms = document.querySelectorAll('form[method]');
+    for (var i = 0; i < forms.length; i++) {
+      var form = forms[i];
+      if ((form.getAttribute('method') || '').toLowerCase() !== 'post') continue;
+      var action = form.getAttribute('action');
+      if (!action) continue;
+      var hit = null;
+      try { hit = matchRoute(new URL(action, location.href).pathname); } catch (e) { hit = null; }
+      if (hit && labels.indexOf(hit.route.label) === -1) labels.push(hit.route.label);
+    }
+    return labels;
   }
 
   // Pages worth keeping a saved copy of (mirrors the worker's allow-list).
@@ -495,6 +526,20 @@
       case 'procurement.receive_delivery':
         var heading = document.querySelector('#receive-modal h2, #receive-modal .modal-head h2');
         return heading ? heading.textContent.trim() : 'PO #' + (route.targetValue || '');
+      case 'inventory.product_add':
+        return (get('product_name')[0] || '').trim();
+      case 'inventory.category_add':
+        return (get('category_name')[0] || '').trim();
+      case 'inventory.write_off':
+        n = get('quantity_requested').filter(function (q) { return parseInt(q, 10) > 0; }).length;
+        return n + ' item' + (n === 1 ? '' : 's');
+      case 'procurement.supplier_add':
+        return (get('supplier_name')[0] || get('username')[0] || '').trim();
+      case 'procurement.supplier_category_add':
+        return (get('name')[0] || '').trim();
+      case 'procurement.supplier_product_add':
+        var prod = form.querySelector('[name="product"]');
+        return prod && prod.selectedOptions && prod.selectedOptions[0] ? prod.selectedOptions[0].textContent.trim() : '';
       default:
         return '';
     }
@@ -609,7 +654,8 @@
         e.preventDefault();
         e.stopImmediatePropagation();
         restoreButtons(form);
-        toast('This action needs a live connection, so it can\'t be saved offline. Reconnect and try again.', 'warn');
+        toast('This action needs a live connection, so it can\'t be saved offline. Reconnect and try again. '
+          + 'Only ' + QUEUEABLE_SUMMARY + ' can be saved offline.', 'warn');
       }
       return;
     }
@@ -815,9 +861,13 @@
     if (!meta) return;
     var when = meta.content ? timeLabel(meta.content) : '';
     var main = document.getElementById('main') || document.body;
+    var here = queueableLabelsOnPage();
+    var tail = here.length
+      ? ' You can still enter here: ' + here.join(', ') + '. These sync when you are back online; every other action needs a connection.'
+      : ' Changes on this page need a connection. Only ' + QUEUEABLE_SUMMARY + ' can be saved offline, from their own pages.';
     var banner = el('div', { class: 'gv-saved-copy', role: 'status' }, [
       el('strong', { text: 'Saved copy' }),
-      document.createTextNode(' — this page was saved' + (when ? ' at ' + when : '') + ' and may not show the latest figures. You can keep entering supported records; they sync when you are back online.')
+      document.createTextNode(' — this page was saved' + (when ? ' at ' + when : '') + ' and may not show the latest figures.' + tail)
     ]);
     main.insertBefore(banner, main.firstChild);
   }
@@ -849,6 +899,12 @@
     // Receive buttons on the deliveries list open a per-PO modal by URL.
     document.querySelectorAll('a[href*="receive="]').forEach(function (a) { consider(a.getAttribute('href')); });
     urls = urls.slice(0, 14);
+    // "Add product" is a page of its own rather than a modal on a sidebar page,
+    // so it is only available offline if a copy was kept. (A redirect — no
+    // permission — is simply not saved.)
+    if (urls.some(function (u) { return u.indexOf('/inventory/products/') === 0; })) {
+      urls.push('/inventory/products/add/');
+    }
 
     var chain = Promise.resolve();
     urls.forEach(function (path) {

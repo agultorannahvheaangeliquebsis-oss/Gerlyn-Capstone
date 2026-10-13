@@ -100,18 +100,30 @@ def run_view(outer, spec, post, files, target_pk, op_id, started_at):
     inner = build_inner_request(outer, path, post, files)
     inner.resolver_match = match
     store = inner._messages
+    baseline = None  # taken once permissions pass, just before the view writes
 
     # Per-user View/Add/Edit/Delete grants are enforced in this middleware,
     # not in the views. Reuse it so queued changes cannot slip past them.
-    denied = ModulePermissionMiddleware(lambda request: None).process_view(
-        inner, match.func, match.args, match.kwargs,
-    )
+    try:
+        denied = ModulePermissionMiddleware(lambda request: None).process_view(
+            inner, match.func, match.args, match.kwargs,
+        )
+    except PermissionDenied as exc:
+        # The middleware refuses a missing grant by raising; that is a clean
+        # "no", not a server fault that should leave the change queued forever.
+        return Outcome(
+            'REJECTED',
+            str(exc) or 'Your account no longer has permission for this action.',
+        )
     if denied is not None:
         reasons = [text for level, text in store.items if level >= message_levels.ERROR]
         return Outcome(
             'REJECTED',
             ' '.join(reasons) or 'Your account no longer has permission for this action.',
         )
+
+    if spec.baseline:
+        baseline = spec.baseline(inner.user, post, target_pk)
 
     try:
         response = match.func(inner, *match.args, **match.kwargs)
@@ -124,10 +136,10 @@ def run_view(outer, spec, post, files, target_pk, op_id, started_at):
     except PermissionDenied as exc:
         return Outcome('REJECTED', str(exc) or 'You do not have permission for this action.')
 
-    return interpret(response, inner, spec, op_id, started_at, post, target_pk)
+    return interpret(response, inner, spec, op_id, started_at, post, target_pk, baseline)
 
 
-def interpret(response, inner, spec, op_id, started_at, post, target_pk):
+def interpret(response, inner, spec, op_id, started_at, post, target_pk, baseline=None):
     store = inner._messages
     errors = [text for level, text in store.items if level >= message_levels.ERROR]
     errors += list(getattr(inner, REJECTION_ATTR, None) or [])
@@ -158,7 +170,10 @@ def interpret(response, inner, spec, op_id, started_at, post, target_pk):
 
     verified = None
     if spec.verify:
-        verified = spec.verify(inner.user, op_id, location, started_at, post, target_pk)
+        extra = {'baseline': baseline} if spec.baseline else {}
+        verified = spec.verify(
+            inner.user, op_id, location, started_at, post, target_pk, **extra,
+        )
         if verified is None:
             # The view answered kindly ("already received", "already created")
             # but none of OUR entry's effects exist. That is the server state

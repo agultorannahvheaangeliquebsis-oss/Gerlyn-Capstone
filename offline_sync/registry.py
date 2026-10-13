@@ -15,6 +15,14 @@ the rules is re-implemented here. What an entry adds is:
            are only meaningful relative to the state the user saw.
   verify   positive proof, read back from the database, that the change landed.
            A redirect alone is never accepted as success.
+  baseline optional: taken just before the view runs and handed to `verify`,
+           for records that carry no creation time of their own (a product).
+
+What is queueable is deliberately limited to CREATING a record or a request.
+Editing an existing record offline is not: the form was filled against a
+snapshot, and replaying it later would silently overwrite whatever changed in
+between. Approvals, payment verification, refunds, status changes and anything
+that spends or authorizes stay online-only.
 """
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -45,6 +53,7 @@ class OpSpec:
     key_field: Optional[str] = None
     precheck: Optional[Callable] = None
     verify: Optional[Callable] = None
+    baseline: Optional[Callable] = None
 
 
 # ── prechecks ───────────────────────────────────────────────────────────────
@@ -160,6 +169,99 @@ def _verify_receipt(user, op_id, location, started_at, post, target_pk):
     }
 
 
+def _norm(text):
+    return ' '.join(str(text or '').split()).lower()
+
+
+def _baseline_product(user, post, target_pk):
+    from django.db.models import Max
+    from inventory.models import Product
+
+    return Product.objects.aggregate(top=Max('pk'))['top'] or 0
+
+
+def _verify_product(user, op_id, location, started_at, post, target_pk, baseline=0):
+    from inventory.models import Product
+
+    wanted = _norm(post.get('product_name'))
+    for product in Product.objects.filter(pk__gt=baseline or 0).order_by('-pk'):
+        if _norm(product.product_name) == wanted:
+            return {'label': product.product_name, 'url': ''}
+    return None
+
+
+def _verify_category(user, op_id, location, started_at, post, target_pk):
+    # The view refuses a name that already exists, so finding it proves this
+    # change created it.
+    from inventory.models import ProductCategory
+
+    wanted = _norm(post.get('category_name'))
+    for category in ProductCategory.objects.all():
+        if _norm(category.category_name) == wanted:
+            return {'label': category.category_name, 'url': ''}
+    return None
+
+
+def _verify_write_off(user, op_id, location, started_at, post, target_pk):
+    from inventory.models import StockTransfer
+
+    transfer = StockTransfer.objects.filter(
+        requested_by=user, created_at__gte=started_at,
+    ).exclude(purpose=StockTransfer.Purpose.BRANCH_RESTOCK).order_by('-pk').first()
+    if transfer is None:
+        return None
+    return {
+        'label': transfer.slip_number,
+        'url': reverse('transfer_detail', kwargs={'pk': transfer.pk}),
+    }
+
+
+def _verify_supplier(user, op_id, location, started_at, post, target_pk):
+    from accounts.models import User
+
+    username = str(post.get('username') or '').strip()
+    supplier = User.objects.filter(
+        role=User.Role.SUPPLIER, username__iexact=username, date_joined__gte=started_at,
+    ).first()
+    if supplier is None:
+        return None
+    profile = getattr(supplier, 'supplier_profile', None)
+    return {
+        'label': (profile.supplier_name if profile else '') or supplier.username,
+        'url': reverse('supplier_detail', kwargs={'pk': supplier.pk}),
+    }
+
+
+def _verify_supplier_category(user, op_id, location, started_at, post, target_pk):
+    from accounts.models import SupplierCategory
+
+    wanted = _norm(post.get('name'))
+    for category in SupplierCategory.objects.all():
+        if _norm(category.name) == wanted:
+            return {'label': category.name, 'url': ''}
+    return None
+
+
+def _verify_supplier_product(user, op_id, location, started_at, post, target_pk):
+    from django.db.models import Q
+    from procurement.models import SupplierProduct
+
+    product_id = str(post.get('product') or '').strip()
+    if not product_id.isdigit():
+        return None
+    link = SupplierProduct.objects.filter(
+        supplier_id=target_pk, product_id=product_id,
+    ).filter(
+        Q(added_at__gte=started_at) | Q(reviewed_at__gte=started_at),
+    ).select_related('product').first()
+    if link is None:
+        return None
+    return {
+        'label': link.product.product_name,
+        'url': reverse('supplier_detail', kwargs={'pk': target_pk}),
+    }
+
+
 OPERATIONS = {
     spec.op_type: spec for spec in (
         OpSpec(
@@ -202,6 +304,55 @@ OPERATIONS = {
             needs_target=True,
             key_field='submission_key',
             verify=_verify_receipt,
+        ),
+        # -- Data entry: creating a record, never editing one ----------------
+        OpSpec(
+            op_type='inventory.product_add',
+            label='New product',
+            url_name='product_add',
+            roles=(OWNER, BRANCH_MANAGER),
+            baseline=_baseline_product,
+            verify=_verify_product,
+        ),
+        OpSpec(
+            op_type='inventory.category_add',
+            label='New product category',
+            url_name='category_add',
+            roles=(OWNER, BRANCH_MANAGER),
+            verify=_verify_category,
+        ),
+        OpSpec(
+            # A request, like the refill: nothing leaves the floor until it is
+            # approved and completed online.
+            op_type='inventory.write_off',
+            label='Write-off request',
+            url_name='transfer_create',
+            roles=(OWNER, BRANCH_MANAGER, STAFF),
+            verify=_verify_write_off,
+        ),
+        OpSpec(
+            # The supplier account is created with a random password; the
+            # Owner shares a reset link later, exactly as when online.
+            op_type='procurement.supplier_add',
+            label='New supplier',
+            url_name='supplier_add',
+            roles=(OWNER,),
+            verify=_verify_supplier,
+        ),
+        OpSpec(
+            op_type='procurement.supplier_category_add',
+            label='Supplier category',
+            url_name='supplier_category_add',
+            roles=(OWNER,),
+            verify=_verify_supplier_category,
+        ),
+        OpSpec(
+            op_type='procurement.supplier_product_add',
+            label='Supplier product',
+            url_name='supplier_product_add',
+            roles=(OWNER,),
+            needs_target=True,
+            verify=_verify_supplier_product,
         ),
     )
 }

@@ -82,6 +82,47 @@ describe('queueing while offline', () => {
   });
 });
 
+describe('data entry while offline', () => {
+  const cases = [
+    ['/inventory/products/add/', 'inventory.product_add', [['product_name', 'Noodles'], ['unit_price', '12']], null],
+    ['/inventory/categories/add/', 'inventory.category_add', [['category_name', 'Snacks']], null],
+    ['/inventory/withdrawals/new/', 'inventory.write_off', [['product_id', '4'], ['quantity_requested', '2']], null],
+    ['/procurement/suppliers/add/', 'procurement.supplier_add', [['supplier_name', 'Acme'], ['username', 'acme']], null],
+    ['/procurement/suppliers/categories/add/', 'procurement.supplier_category_add', [['name', 'Drinks']], null],
+    ['/procurement/suppliers/8/products/add/', 'procurement.supplier_product_add', [['product', '3']], 8],
+  ];
+
+  for (const [action, type, fields, target] of cases) {
+    it('queues ' + type + ' instead of refusing it', async () => {
+      const server = new FakeServer();
+      server.reachable = false;
+      const page = await bootClient({ server, offline: true });
+      const ev = await page.submit(fakeForm(action, fields));
+      assert.equal(ev.defaultPrevented, true);
+      const ops = page.opsFor('7');
+      assert.equal(ops.length, 1, action);
+      assert.equal(ops[0].type, type);
+      assert.equal(ops[0].target, target);
+      assert.equal(page.toastsText().length, 0, 'no "needs a live connection" refusal');
+    });
+  }
+
+  it('still refuses EDITING an existing record while offline', async () => {
+    const server = new FakeServer();
+    server.reachable = false;
+    const page = await bootClient({ server, offline: true });
+    for (const action of [
+      '/inventory/products/edit/5/', '/inventory/stock/9/edit/', '/inventory/warehouse/3/edit/',
+      '/procurement/suppliers/8/edit/', '/inventory/categories/2/edit/',
+    ]) {
+      const ev = await page.submit(fakeForm(action, [['x', '1']]));
+      assert.equal(ev.defaultPrevented, true, action);
+    }
+    assert.equal(page.dump().length, 0);
+    assert.ok(page.toastsText().some((t) => /new products and categories/.test(t)));
+  });
+});
+
 describe('what is NOT queued', () => {
   it('blocks sensitive POSTs while offline with an explanation', async () => {
     const server = new FakeServer();
@@ -95,7 +136,10 @@ describe('what is NOT queued', () => {
       assert.equal(ev.defaultPrevented, true, action);
     }
     assert.equal(page.dump().length, 0, 'none of them may enter the queue');
-    assert.ok(page.toastsText().some((t) => /live connection/.test(t)));
+    const toasts = page.toastsText();
+    assert.ok(toasts.some((t) => /live connection/.test(t)));
+    // It must say what CAN be saved offline, not just what cannot.
+    assert.ok(toasts.every((t) => /walk-in sales, floor refill requests/.test(t)));
   });
 
   it('leaves a submit alone when the page itself already refused it', async () => {
@@ -113,6 +157,36 @@ describe('what is NOT queued', () => {
     const ext = fakeForm('https://elsewhere.example/post', []);
     assert.equal((await page.submit(get)).defaultPrevented, false);
     assert.equal((await page.submit(ext)).defaultPrevented, false);
+  });
+});
+
+describe('saved copy notice', () => {
+  const bannerText = (page) => page.mainNode.find((n) => n.className === 'gv-saved-copy').map((n) => n.textContent)[0];
+
+  it('names the queueable actions that are actually on the page', async () => {
+    const page = await bootClient({
+      server: new FakeServer(),
+      savedCopy: {
+        savedAt: '2026-10-12T10:38:00',
+        forms: [fakeForm('/inventory/warehouse/request/', []), fakeForm('/inventory/warehouse/request/', []),
+                fakeForm('/inventory/products/9/edit/', [])],
+      },
+    });
+    const text = bannerText(page);
+    assert.match(text, /You can still enter here: Floor refill request\./);
+    assert.match(text, /every other action needs a connection/);
+    assert.ok(!/keep entering supported records/.test(text), 'the old blanket promise is gone');
+  });
+
+  it('does not promise entry on a page with nothing queueable', async () => {
+    const page = await bootClient({
+      server: new FakeServer(),
+      savedCopy: { forms: [fakeForm('/inventory/products/9/edit/', []), fakeForm('/inventory/warehouse/request/bulk/', [])] },
+    });
+    const text = bannerText(page);
+    assert.ok(!/You can still enter here/.test(text));
+    assert.match(text, /Changes on this page need a connection/);
+    assert.match(text, /Only walk-in sales, floor refill requests/);
   });
 });
 
