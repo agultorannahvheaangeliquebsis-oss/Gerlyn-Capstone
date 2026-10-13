@@ -396,6 +396,8 @@ class Builder:
                                   "contact_number": phone, "category": category,
                                   "address": "Bulacan, Philippines"})
             self.suppliers[key] = u
+        User.objects.filter(username__in=C.RETIRED_SUPPLIER_USERNAMES,
+                            role=User.Role.SUPPLIER).delete()
         for sp in SupplierProfile.objects.filter(address=""):
             sp.address = "Metro Manila, Philippines"
             sp.save(update_fields=["address"])
@@ -407,25 +409,23 @@ class Builder:
         cats = {}
         for name in C.CATEGORIES:
             cats[name], _ = ProductCategory.objects.get_or_create(category_name=name)
-        margin = {"Canned Goods": .84, "Noodles & Pasta": .82, "Beverages": .85,
-                  "Dairy & Milk": .86, "Condiments": .80, "Baby & Personal Care": .80,
-                  "Rice & Grains": .91, "Snacks": .82}
+        margin = C.MARGIN
         for row in C.PRODUCTS:
             (sku, name, cat, unit, retail, tiers, barcode, desc, shelf, flags,
              supplier, look, demand) = row
             product, _ = Product.objects.update_or_create(
                 sku_code=sku, defaults={
                     "product_name": name, "category": cats[cat],
-                    "unit_of_measure": unit, "unit_price": D(retail),
-                    "barcode": ean13(barcode[:12]), "description": desc,
+                    "unit_of_measure": unit, "unit_price": D(str(retail)),
+                    "barcode": barcode, "description": desc,
                     "is_vat_exempt": "v" in flags,
-                    "is_pwd_eligible": "n" in flags,
-                    "is_senior_eligible": "n" in flags,
+                    "is_pwd_eligible": "p" in flags,
+                    "is_senior_eligible": "s" in flags,
                 })
             keep = set()
             for qty, price in tiers:
                 ProductPriceTier.objects.update_or_create(
-                    product=product, min_quantity=qty, defaults={"unit_price": D(price)})
+                    product=product, min_quantity=qty, defaults={"unit_price": D(str(price))})
                 keep.add(qty)
             product.price_tiers.exclude(min_quantity__in=keep).delete()
             self.products[sku] = product
@@ -437,7 +437,7 @@ class Builder:
                 ProductImage.objects.filter(product=product).delete()
                 img = ProductImage(product=product, alt_text=f"{name} product photo", is_primary=True)
                 img.image.save(f"{sku.lower()}.jpg", ContentFile(packshots.render_jpeg_bytes(look)), save=True)
-        # drop anything outside the 30-product master list
+        # drop anything outside the product master list
         Product.objects.exclude(sku_code__in=list(self.products)).delete()
         ProductCategory.objects.filter(products__isnull=True).exclude(
             category_name__in=C.CATEGORIES).delete()
@@ -446,16 +446,14 @@ class Builder:
         links = defaultdict(set)
         for row in C.PRODUCTS:
             links[row[10]].add(row[0])
-        for sku in ("SKU-004", "SKU-018", "SKU-019", "SKU-020"):
-            links["luckyme"].add(sku)
-        for sku in ("SKU-005", "SKU-012"):
-            links["century"].add(sku)
+        for key, skus in C.SECOND_SOURCES.items():
+            links[key].update(skus)
         for key, skus in links.items():
             for sku in skus:
                 SupplierProduct.objects.update_or_create(
                     supplier=self.suppliers[key], product=self.products[sku],
                     defaults={"current_cost_price": self.cost[sku],
-                              "lead_time_days": 3 if key not in ("grains", "cocacola") else 2,
+                              "lead_time_days": 2 if key in ("pantry", "liwayway") else 3,
                               "is_preferred": key == self.spec[sku][10],
                               "status": SupplierProduct.Status.APPROVED,
                               "reviewed_by": self.owner})
@@ -475,7 +473,7 @@ class Builder:
                 mean_q = sum(qtys) / len(qtys)
                 d = prof["traffic"] * self.scale * 2.6 * share * mean_q * 1.05
                 self.demand[(bname, s)] = d
-                big = self.spec[s][3] == "Sack"
+                big = self.spec[s][3] == "Sack" or self.spec[s][4] >= 120
                 self.floor_reorder[(bname, s)] = max(1 if big else 4, math.ceil(d * 2.5))
                 self.floor_target[(bname, s)] = max(3 if big else 12, math.ceil(d * 7))
                 self.wh_reorder[(bname, s)] = max(3 if big else 8, math.ceil(d * 4))
@@ -1014,9 +1012,10 @@ class Builder:
     # --------------------------------------------------------- procurement
     def case_size(self, sku):
         unit = self.spec[sku][3]
-        if sku == "SKU-017":
-            return 10
-        if self.spec[sku][4] >= 80 and unit != "Kilo":
+        price = self.spec[sku][4]
+        if price >= 300:
+            return 6
+        if price >= 80:
             return 12
         return {"Can": 24, "Pack": 24, "Bottle": 12, "Box": 12, "Kilo": 50, "Piece": 24}.get(unit, 12)
 
@@ -1355,10 +1354,10 @@ class Builder:
     # Slow-moving lines that arrived as short-dated stock, so the expiry
     # panels reflect what a store actually carries at any given time.
     SHORT_DATED = [
-        ("Tiaong 1", "SKU-020", "Floor", 6), ("Tiaong 1", "SKU-027", "Floor", 9),
-        ("Savers Mini Mart", "SKU-023", "Floor", 14), ("Variety Store", "SKU-019", "Floor", 21),
-        ("Mini Mart", "SKU-028", "Floor", 26), ("Savers Mini Mart", "SKU-025", "Floor", 28),
-        ("Mini Mart", "SKU-027", "Warehouse", 19),
+        ("Tiaong 1", "SKU-016", "Floor", 6), ("Tiaong 1", "SKU-087", "Floor", 9),
+        ("Savers Mini Mart", "SKU-047", "Floor", 14), ("Variety Store", "SKU-085", "Floor", 21),
+        ("Mini Mart", "SKU-086", "Floor", 26), ("Savers Mini Mart", "SKU-081", "Floor", 28),
+        ("Mini Mart", "SKU-087", "Warehouse", 19),
     ]
 
     def _short_dated_lots(self):
@@ -1393,7 +1392,18 @@ class Builder:
         def add(label, ok, detail=""):
             checks.append((label, bool(ok), detail))
 
-        add("30 products", Product.objects.count() == 30, str(Product.objects.count()))
+        add(f"{len(C.PRODUCTS)} products", Product.objects.count() == len(C.PRODUCTS),
+            str(Product.objects.count()))
+        mismatched = 0
+        for row in C.PRODUCTS:
+            p = Product.objects.filter(sku_code=row[0]).first()
+            tiers = sorted((t.min_quantity, float(t.unit_price)) for t in p.price_tiers.all()) if p else None
+            if (p is None or p.product_name != row[1] or p.category.category_name != row[2]
+                    or p.unit_of_measure != row[3] or float(p.unit_price) != row[4]
+                    or (p.barcode or None) != row[6] or tiers != sorted(row[5])):
+                mismatched += 1
+        add("every product matches the exported master list", mismatched == 0,
+            f"{mismatched} differ")
         add("every product has a primary image",
             not Product.objects.exclude(images__is_primary=True).exists())
         names = sorted(Branch.objects.values_list("branch_name", flat=True))

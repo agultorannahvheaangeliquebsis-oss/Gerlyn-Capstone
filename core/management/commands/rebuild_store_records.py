@@ -2,7 +2,7 @@
 
     python manage.py rebuild_store_records --yes
 
-Replaces the product master list (30 products with pictures), all stock,
+Replaces the product master list (the 104-product master list with pictures), all stock,
 sales, billing, procurement and refund records with a day-by-day trading
 history from 1 August 2026 up to the present moment. The four branches and the
 owner / supplier / staff logins are kept; nothing is renamed.
@@ -30,6 +30,9 @@ class Command(BaseCommand):
                             help="Permit a database that is not on this machine.")
         parser.add_argument("--start", default="2026-08-01",
                             help="First trading day, YYYY-MM-DD (default 2026-08-01).")
+        parser.add_argument("--end", default="",
+                            help="Last moment to build, 'YYYY-MM-DD' (end of that day) or "
+                                 "'YYYY-MM-DD HH:MM' Manila time (default: now).")
         parser.add_argument("--scale", type=float, default=1.0,
                             help="Multiply daily customer traffic (use <1 for a quick run).")
         parser.add_argument("--seed", type=int, default=2026,
@@ -37,7 +40,7 @@ class Command(BaseCommand):
         parser.add_argument("--no-images", action="store_true",
                             help="Skip generating product pictures.")
         parser.add_argument("--images-only", action="store_true",
-                            help="Only regenerate the 30 product pictures; touch nothing else.")
+                            help="Only regenerate the product pictures; touch nothing else.")
 
     def handle(self, *args, **opts):
         if opts["images_only"]:
@@ -58,8 +61,18 @@ class Command(BaseCommand):
             raise CommandError("--start must look like 2026-08-01") from exc
 
         end_dt = timezone.localtime(timezone.now()).replace(microsecond=0)
-        if start > end_dt.date():
+        if opts["end"]:
+            try:
+                parsed = dt.datetime.fromisoformat(opts["end"])
+            except ValueError as exc:
+                raise CommandError("--end must look like 2026-10-14 or '2026-10-14 09:00'") from exc
+            if len(opts["end"]) <= 10:
+                parsed = parsed.replace(hour=23, minute=59, second=59)
+            end_dt = parsed.replace(tzinfo=history.MANILA)
+        elif start > end_dt.date():
             raise CommandError("--start is in the future.")
+        if start > end_dt.date():
+            raise CommandError("--start is after the end of the build.")
 
         builder, checks = history.rebuild(
             self.stdout, start=start, end_dt=end_dt, scale=opts["scale"],

@@ -203,7 +203,10 @@ All seeded accounts use the password **`demo1234`**.
 stock, sales, billing and procurement records with a day-by-day trading history
 for the four live branches (`Mini Mart`, `Savers Mini Mart`, `Tiaong 1`,
 `Variety Store` — their names are never touched) from 1 August 2026 up to the
-moment it runs. It builds 30 products with white-background pictures, opening
+moment it runs (or to `--end "2026-10-14 09:00"` to build up to a chosen moment).
+The 104-product master list is the live site's own export
+(`docs/gerlyn-products-2026-10-05.xlsx`, held in `core/store_data/master_list.py`);
+each product gets a white-background picture. It builds opening
 balances, supplier purchase orders and deliveries, warehouse-to-floor restocks,
 walk-in and online sales (with senior/PWD discounts, refunds and write-offs),
 all replayed through the same code the screens use with the clock set to each
@@ -359,6 +362,34 @@ views can never drift apart.
   `procurement/services.py`.
 
 ---
+
+### Input limits and pagination
+
+**Limits.** Every numeric input has an allowed range, defined once in
+[`core/limits.py`](core/limits.py): a unit price (retail, bulk, supplier cost)
+is ₱0.01 – ₱250,000.00; quantities are 0 – 100,000 units; a single sale, cash
+tendered or credit note is at most ₱10,000,000.00; a supplier lead time is at
+most 365 days; product names are at most 150 characters, barcodes 64,
+descriptions 1,000. The same numbers are enforced at four layers so they cannot
+drift: the HTML `min`/`max`/`maxlength` attributes (via the `limits` template
+variable), the server-side view (`parse_money` / `parse_quantity` /
+`parse_text`, which return a plain-English message such as "Retail price cannot
+be more than ₱250,000.00."), the model validators, and the DRF serializers.
+`static/js/input-limits.js` replaces the browser's generic wording with the same
+messages. To change a limit, edit `core/limits.py` and add a migration if a
+model validator moved (`makemigrations` — it is SQL-free).
+
+**Pagination.** Long lists show 15 rows a page (10 for customer-facing pages,
+12 cards in the storefront catalog, 25 for the movement log) with
+Previous / numbered pages / Next and a "Showing 1–15 of 40 products" line.
+Views call `core.pagination.paginate(request, queryset)`; templates call
+`{% pager page_obj noun="product" %}`, which keeps the page's current search and
+filters in every link. Counts, tab totals and report totals always describe the
+whole filtered list — only the table is cut into pages, and CSV exports are not
+paged. Search boxes submit to the server (after a short pause) so they search
+every page, not just the one on screen. The Notification Center and Alerts
+Center filter in the browser, so they page in the browser too
+(`static/js/client-pager.js`).
 
 ## Security notes
 
