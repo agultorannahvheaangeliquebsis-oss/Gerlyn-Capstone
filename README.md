@@ -543,7 +543,9 @@ Node build step.
 Build and test: see [`desktop/README.md`](desktop/README.md). To show staff a
 download link, host the installer anywhere with an https URL and set
 `DESKTOP_APP_DOWNLOAD_URL` (the Download page then shows a *Download for
-Windows* card to internal roles). The desktop app's sessions appear as
+Windows* card to internal roles), or keep it in a private Backblaze bucket
+with the `DESKTOP_APP_B2_*` variables so only signed-in staff can fetch it via
+`/download/desktop/` (see `desktop/README.md`). The desktop app's sessions appear as
 "GerlynPLUS Desktop" on the Sessions page.
 
 ## Notification operations

@@ -92,6 +92,17 @@ class B2Storage:
     def get(self, key, destination):
         self.client.download_file(self.bucket, key, str(destination))
 
+    def presigned_url(self, key, expires, filename=None):
+        """A GET link for one private object that stops working after
+        `expires` seconds. Signing is local arithmetic (no network call), but
+        the key behind this client must have read access or B2 will refuse
+        the link when it is opened."""
+        params = {'Bucket': self.bucket, 'Key': key}
+        if filename:
+            safe = filename.replace('"', '').replace('\r', '').replace('\n', '')
+            params['ResponseContentDisposition'] = f'attachment; filename="{safe}"'
+        return self.client.generate_presigned_url('get_object', Params=params, ExpiresIn=expires)
+
     def list(self, prefix=''):
         found = []
         paginator = self.client.get_paginator('list_objects_v2')

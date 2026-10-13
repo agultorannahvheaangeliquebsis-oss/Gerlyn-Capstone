@@ -620,6 +620,20 @@ DESKTOP_APP_DOWNLOAD_URL = env_str('DESKTOP_APP_DOWNLOAD_URL').strip()
 if not DESKTOP_APP_DOWNLOAD_URL.startswith('https://'):
     DESKTOP_APP_DOWNLOAD_URL = ''
 
+# Alternative to the public link above: keep the installer in a *private*
+# Backblaze bucket and let only signed-in staff reach it. The card then points
+# at /download/desktop/, which checks the role and redirects to a link that
+# expires after a few minutes (core/desktop_download.py). Needs a bucket of its
+# own and a READ key for it: the backup key above is write-only, so it cannot
+# sign a download. Every value but the endpoint must be set to switch this on;
+# the endpoint falls back to B2_ENDPOINT. When set, it wins over
+# DESKTOP_APP_DOWNLOAD_URL.
+DESKTOP_APP_B2_BUCKET = env_str('DESKTOP_APP_B2_BUCKET').strip()
+DESKTOP_APP_B2_KEY_ID = env_str('DESKTOP_APP_B2_KEY_ID').strip()
+DESKTOP_APP_B2_APPLICATION_KEY = env_str('DESKTOP_APP_B2_APPLICATION_KEY').strip()
+DESKTOP_APP_B2_FILE = env_str('DESKTOP_APP_B2_FILE').strip().lstrip('/')
+DESKTOP_APP_B2_ENDPOINT = env_str('DESKTOP_APP_B2_ENDPOINT').strip() or B2_ENDPOINT
+
 # Server-side, Nominatim-compatible geocoding (the browser never talks to the
 # provider; accounts/geo_views.py proxies, caches and rate-limits). Defaults to
 # OpenStreetMap's public Nominatim + tile servers so "Locate Address" works with

@@ -5,7 +5,7 @@ from django.views.static import serve
 from billing.views import payment_proof_download
 
 from core.views import (
-    about_view, download_view, healthz, hero_draft_apply,
+    about_view, desktop_download_view, download_view, healthz, hero_draft_apply,
     hero_draft_discard, hero_slide_delete, hero_slide_save,
     internal_settings_view, service_worker_view, store_settings_update,
     notification_center_view, notification_mark_all_read,
@@ -23,6 +23,7 @@ urlpatterns = [
     path('offline/', include('offline_sync.urls')),
     path('about/', about_view, name='about'),
     path('download/', download_view, name='download'),
+    path('download/desktop/', desktop_download_view, name='desktop_download'),
     path('internal/settings/', internal_settings_view, name='internal_settings'),
     path('internal/settings/store/', store_settings_update, name='store_settings_update'),
     path('internal/settings/hero/save/', hero_slide_save, name='hero_slide_save'),

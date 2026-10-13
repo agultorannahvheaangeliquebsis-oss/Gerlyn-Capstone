@@ -120,6 +120,26 @@ it somewhere with an https link (a GitHub release is fine) and set
 owners then see a **Download for Windows** card on the Download page
 (customers don't).
 
+### Keeping the installer behind login (private bucket)
+
+A public link works for anyone who has it. To let only signed-in staff fetch
+the installer, put it in a **private** Backblaze bucket instead:
+
+1. Create a new private bucket (not the backup bucket) and upload
+   `GerlynPLUS-Setup-<version>.exe` to it.
+2. Create an application key limited to that bucket with **read** access. The
+   backup key is write-only and cannot be reused.
+3. On the Railway service set `DESKTOP_APP_B2_BUCKET`, `DESKTOP_APP_B2_KEY_ID`,
+   `DESKTOP_APP_B2_APPLICATION_KEY` and `DESKTOP_APP_B2_FILE` (the file name in
+   the bucket). `DESKTOP_APP_B2_ENDPOINT` defaults to `B2_ENDPOINT`.
+4. Leave `DESKTOP_APP_DOWNLOAD_URL` empty (if both are set, the private bucket wins).
+
+The card then links to `/download/desktop/`. That page requires an Owner,
+Branch Manager or Staff login (customers get 403, anonymous visitors the sign-in
+page) and redirects to a Backblaze link that expires after 5 minutes. The file
+goes browser to Backblaze; it never streams through Railway. To ship a new
+version, upload it and change `DESKTOP_APP_B2_FILE`.
+
 ## Updates
 
 The window shows the live server, so **every web deploy reaches desktop users

@@ -1,7 +1,9 @@
+import logging
+
 from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.template.loader import render_to_string
@@ -11,7 +13,13 @@ from django.views.decorators.http import require_POST
 from core.permissions import INTERNAL_ROLES, OWNER, role_required
 
 from .changelog import visible_changelog
+from .desktop_download import (
+    card_href, private_installer_configured, public_installer_url,
+    signed_installer_url,
+)
 from .version import APP_VERSION
+
+logger = logging.getLogger(__name__)
 
 
 def healthz(request):
@@ -63,9 +71,37 @@ def download_view(request):
         context['active_page'] = 'download'
         # The desktop app is a staff tool (POS, inventory, procurement), so
         # the link is only offered on the internal view of this page.
-        context['desktop_download_url'] = getattr(settings, 'DESKTOP_APP_DOWNLOAD_URL', '')
+        context['desktop_download_url'] = card_href()
         return render(request, 'download_internal.html', context)
     return render(request, 'download.html', context)
+
+
+@role_required(*INTERNAL_ROLES)
+def desktop_download_view(request):
+    """Hand a signed-in staff member the Windows installer.
+
+    The file sits in a private bucket (core/desktop_download.py); this view is
+    the only door to it. It checks the role here, then redirects to a link that
+    expires in minutes, so the 120 MB transfer goes browser <-> Backblaze and
+    the link is useless to anyone it is forwarded to later."""
+    if not private_installer_configured():
+        # No private bucket: behave like the plain card and use the public
+        # link if there is one, so an old bookmark of this URL keeps working.
+        fallback = public_installer_url()
+        if fallback:
+            return HttpResponseRedirect(fallback)
+        raise Http404('The desktop app is not available for download.')
+    try:
+        url = signed_installer_url()
+    except Exception:
+        logger.exception('Could not sign the desktop installer download link')
+        messages.error(
+            request,
+            'The Windows app could not be fetched right now. Try again in a '
+            'moment, or ask the Owner to check the installer storage.',
+        )
+        return redirect('download')
+    return HttpResponseRedirect(url)
 
 
 @role_required(*INTERNAL_ROLES)
