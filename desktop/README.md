@@ -86,7 +86,7 @@ enforced, Windows refuses to run it and the build stops with
 Block"). Options, in order of preference:
 
 1. Build on another machine or in CI. `.github/workflows/desktop-windows.yml`
-   does this on a clean Windows runner (manual trigger).
+   does this on a clean Windows runner (see *Automatic builds* below).
 2. Use `npm run dist:msi` — the WiX tools are signed, so it builds under Smart
    App Control.
 3. Turn Smart App Control off. This is a one-way switch in Windows; not
@@ -112,13 +112,38 @@ network addresses (a LAN install). Note that browsers only allow service
 workers on https or localhost, so a plain-http LAN server runs without the
 saved-page cache.
 
+## Automatic builds
+
+`.github/workflows/desktop-windows.yml` builds the installer on a clean Windows
+runner whenever a push to `main` changes `desktop/`, `static/` or the workflow
+itself (or by hand: Actions → *Desktop app (Windows installer)* → Run workflow).
+It runs `npm test` first, so a failing shell test blocks the release.
+
+Each run replaces one rolling GitHub release, `desktop-latest`, with:
+
+- `GerlynPLUS-Setup.exe` — stable name, so a link to it never changes
+- `GerlynPLUS-Setup-<version>.exe` — the same file with its version
+
+Web-only pushes (Python, templates) don't trigger a build; they don't need one.
+The default server address comes from the repository variable
+`GERLYN_SERVER_URL`.
+
+A new build does **not** update machines that already installed the app (there
+is no auto-updater): staff reinstall from the new file. Bump `version` in
+`package.json` when you want that to be visible in the file name.
+
 ## Offering the installer to staff
 
-The installer is ~120 MB; don't commit it or put it on Railway's disk. Upload
-it somewhere with an https link (a GitHub release is fine) and set
-`DESKTOP_APP_DOWNLOAD_URL` on the Railway service. Staff, branch managers and
-owners then see a **Download for Windows** card on the Download page
-(customers don't).
+The installer is ~120 MB; don't commit it or put it on Railway's disk. Use the
+`desktop-latest` release above (or upload it anywhere with an https link) and
+set `DESKTOP_APP_DOWNLOAD_URL` on the Railway service, e.g.
+`https://github.com/<owner>/<repo>/releases/download/desktop-latest/GerlynPLUS-Setup.exe`.
+Staff, branch managers and owners then see a **Download for Windows** card on
+the Download page (customers don't).
+
+That link is only as private as the repository: on a public repo anyone with it
+can download the installer, and on a private repo staff without GitHub access
+cannot. For a login-gated download use the private bucket below.
 
 ### Keeping the installer behind login (private bucket)
 
@@ -138,7 +163,8 @@ The card then links to `/download/desktop/`. That page requires an Owner,
 Branch Manager or Staff login (customers get 403, anonymous visitors the sign-in
 page) and redirects to a Backblaze link that expires after 5 minutes. The file
 goes browser to Backblaze; it never streams through Railway. To ship a new
-version, upload it and change `DESKTOP_APP_B2_FILE`.
+version, upload it and change `DESKTOP_APP_B2_FILE` (download the new build
+from the `desktop-latest` release or the workflow artifact first).
 
 ## Updates
 

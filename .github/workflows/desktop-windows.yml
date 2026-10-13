@@ -1,16 +1,42 @@
 name: Desktop app (Windows installer)
 
-# Manual only. Builds desktop/ on a clean Windows runner and uploads the NSIS
-# installer (GerlynPLUS-Setup-<version>.exe) as a workflow artifact.
+# Builds desktop/ on a clean Windows runner and publishes the NSIS installer.
+#
+# Runs when desktop/ (or this workflow) changes on main, or by hand. Web-only
+# changes do not need it: the installed shell shows the live server, so a
+# Railway deploy already reaches every desktop user.
+#
+# Output:
+#   * workflow artifact  GerlynPLUS-Setup   (kept 90 days)
+#   * GitHub release     desktop-latest     (rolling; replaced on every run)
+#       GerlynPLUS-Setup.exe            stable name, so a link never changes
+#       GerlynPLUS-Setup-<version>.exe  same file, versioned
+#
+# Point DESKTOP_APP_DOWNLOAD_URL (Railway) at
+#   https://github.com/<owner>/<repo>/releases/download/desktop-latest/GerlynPLUS-Setup.exe
+# -- this only works for people who can open the repo, so on a private repo
+# use the private-bucket option in desktop/README.md instead.
 #
 # Set the server the installer defaults to with the repository variable
 # GERLYN_SERVER_URL (Settings > Secrets and variables > Actions > Variables),
 # or leave it unset and the app asks on first run.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-windows.yml"
+      # The shell bundles these at build time (desktop/scripts/bundle-assets.js).
+      - "static/**"
   workflow_dispatch:
 
+# A release is created/replaced at the end; two overlapping runs would race on it.
+concurrency:
+  group: desktop-windows
+  cancel-in-progress: false
+
 permissions:
-  contents: read
+  contents: write   # create/replace the rolling release
 
 jobs:
   build:
@@ -30,8 +56,27 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: GerlynPLUS-Setup
           path: desktop/dist/GerlynPLUS-Setup-*.exe
           if-no-files-found: error
+
+      - name: Publish rolling release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          versioned=$(ls dist/GerlynPLUS-Setup-*.exe | head -n 1)
+          cp "$versioned" dist/GerlynPLUS-Setup.exe
+          short=${GITHUB_SHA::7}
+
+          # Replace, don't append: the tag must point at the commit this was built from.
+          gh release delete desktop-latest --cleanup-tag --yes || true
+          gh release create desktop-latest \
+            --target "$GITHUB_SHA" \
+            --title "GerlynPLUS desktop (latest)" \
+            --notes "Built from ${short} on $(date -u +'%Y-%m-%d %H:%M UTC'). Unsigned: Windows SmartScreen shows 'Windows protected your PC' on first run (More info > Run anyway)." \
+            "$versioned" dist/GerlynPLUS-Setup.exe
