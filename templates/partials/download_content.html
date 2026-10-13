@@ -14,17 +14,12 @@
     <p class="gv-meta" style="margin-top:8px;">{% t "Version" %} {{ current_version }}</p>
   </div>
 
-  <div class="card card-pad" style="text-align:center; margin-bottom:24px;">
-    <button type="button" id="pwa-action-btn" class="btn btn-primary" style="min-width:200px;" onclick="handlePwaAction()">
-      {% t "Download" %}
-    </button>
-    <p id="pwa-status-msg" class="gv-meta" style="margin-top:10px; margin-bottom:0;"></p>
-
-    <div id="ios-instructions" class="gv-meta" style="margin-top:14px; display:none; text-align:left; background:var(--line-soft); border-radius:var(--r-input); padding:12px 14px;">
-      {% t "Tap the Share icon in Safari, then tap Add to Home Screen." %}
-    </div>
-  </div>
-
+  {% comment %}
+    The Windows app is the only download this page offers, and only to staff
+    (core/views.py sets desktop_download_url for internal roles). There is no
+    browser install/update button on purpose; without an installer configured
+    the page is just the version and What's New.
+  {% endcomment %}
   {% if desktop_download_url %}
   <div class="card card-pad" id="desktop-app-card" style="text-align:center; margin-bottom:24px;">
     <h3 style="margin-bottom:4px;">{% t "GerlynPLUS for Windows" %}</h3>

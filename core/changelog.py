@@ -12,6 +12,122 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.36.3',
+        'date': '2026-10-13',
+        'changes': [
+            'The Download page no longer has a separate browser install/update button',
+            {'text': 'The Download page now offers staff, branch managers, and owners a single download: GerlynPLUS for Windows', 'internal': True},
+            {'text': 'Brought the What\'s New list up to date', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.36.2',
+        'date': '2026-10-13',
+        'changes': [
+            {'text': 'Offline mode now queues data entry too — new products, categories, write-offs, suppliers, supplier categories, and supplier products are saved on the device and sync automatically when the connection returns', 'internal': True},
+            {'text': 'The offline banner and notices now name exactly which forms on the page can be saved offline', 'internal': True},
+            {'text': 'Fixed: an offline change whose permission was removed before it synced now shows as Sync Failed instead of staying stuck on pending', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.36.0',
+        'date': '2026-10-12',
+        'changes': [
+            {'text': 'Added offline mode — walk-in sales, floor refills, stock count corrections, purchase orders, and delivery receiving made while offline are saved on the device and sync automatically when the connection returns', 'internal': True},
+            {'text': 'Added GerlynPLUS for Windows, the same system as an installable desktop app', 'internal': True},
+            {'text': 'Alerts Center: select several low-stock items and request their floor refills in one step', 'internal': True},
+            {'text': 'Refill and purchase order forms now open pre-filled from the Alerts Center row you picked', 'internal': True},
+            {'text': 'Fixed Move Stock to Floor scanning', 'internal': True},
+            'Clearer, stricter checks on the registration and profile forms',
+            {'text': 'Tighter access to private records and uploaded files', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.35.0',
+        'date': '2026-10-09',
+        'changes': [
+            'Added Forgot password — request a secure reset link by email from the sign-in page',
+        ],
+    },
+    {
+        'version': '1.34.1',
+        'date': '2026-10-07',
+        'changes': [
+            {'text': 'Added input limits across the system (prices are capped at ₱250,000) and paginated long lists', 'internal': True},
+            {'text': 'Fixed an error when the Owner requested a floor refill, and refill quantities are now checked before they are submitted', 'internal': True},
+            {'text': 'Fixed the agreed unit cost being rejected as required on some purchase order items', 'internal': True},
+            {'text': 'Reports are now limited to the Owner and Branch Managers, and the Django admin site is hidden on the live site', 'internal': True},
+            'Verification emails now go out through a more reliable email service',
+            'The browser tab now shows the GERLYN logo',
+        ],
+    },
+    {
+        'version': '1.34.0',
+        'date': '2026-10-02',
+        'changes': [
+            'You can now cancel your own order from the order page while it is still Pending or Approved',
+            'Added a "Use my saved address" shortcut when choosing a branch',
+            {'text': 'Edit User now has its own page with the full permission matrix, and user and branch row actions are collapsed into a "..." menu', 'internal': True},
+            {'text': 'The POS now captures payment evidence for GCash and Card sales, and the transaction list can be filtered by date range', 'internal': True},
+            {'text': 'Purchase orders: added search and date-range filters, a progress stepper, and a status timeline', 'internal': True},
+            {'text': 'Purchase orders can include manual (non-catalog) products, and supplier participation in procurement is now optional', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.33.0',
+        'date': '2026-09-30',
+        'changes': [
+            'GCash payments now require a 13-digit reference number',
+            'The refund window is now 7 days, and its deadline is shown on the order',
+            'Terms & Privacy consent is now recorded when you sign up',
+            {'text': 'Billing Records can be filtered by channel, fulfilment, and date range, with secondary actions tucked into a More menu and the payment proof reachable from the Payment card', 'internal': True},
+            {'text': 'The POS sales import now opens in a modal, and the order total stays in view on long orders', 'internal': True},
+            {'text': 'The actual received cost now carries through deliveries, documents, and exports', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.32.12',
+        'date': '2026-09-28',
+        'changes': [
+            'Online orders are now fulfilled from the nearest branch automatically',
+            'Added a refund approval workflow',
+            'Added online requests for the PWD discount',
+            {'text': 'Added supplier returns, supplier product offers that need Owner approval, and automatic handling of overdue deliveries', 'internal': True},
+            {'text': 'Order status changes now ask for confirmation and are recorded in the audit trail', 'internal': True},
+            {'text': 'Added a daily sales filter to Reports', 'internal': True},
+            {'text': 'Create, read, update, and delete permissions are now enforced per module', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.31.39',
+        'date': '2026-09-23',
+        'changes': [
+            'The app is now branded GERLYN, and zero or negative prices are blocked',
+            {'text': 'Added the Audit Log, plus encrypted cloud backups with a restore check', 'internal': True},
+            {'text': 'Added the incoming delivery workflow and purchase order negotiation, with the audit log grouped by action', 'internal': True},
+            {'text': 'Added refunds/returns, a non-performing and near-expiry products report, and a Sales by Category chart on Reports', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.30.6',
+        'date': '2026-09-13',
+        'changes': [
+            'Storefront categories are back, two levels deep',
+            'Added recently viewed products, and items no longer available are cleared out of your cart',
+        ],
+    },
+    {
+        'version': '1.29.20',
+        'date': '2026-09-05',
+        'changes': [
+            'Rebuilt the storefront header, filters, and product cards, and made the shop hold up on a phone',
+            'Rebuilt the account screens and the About page',
+            'Add to cart is now confirmed on the button itself',
+            {'text': 'Cleaned up the sidebar, tabs, and status pills so each one means a single thing, and moved add/edit forms onto the lists they belong to', 'internal': True},
+            {'text': 'Actions that cannot be undone now ask for confirmation first', 'internal': True},
+        ],
+    },
+    {
         'version': '1.3.1',
         'date': '2026-08-07',
         'changes': [

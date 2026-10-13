@@ -40,6 +40,44 @@ class DesktopDownloadCardTests(TestCase):
         self.client.force_login(self.staff)
         self.assertNotContains(self.client.get(self.url), 'desktop-app-card')
 
+    @override_settings(DESKTOP_APP_DOWNLOAD_URL=INSTALLER)
+    def test_staff_get_only_the_windows_button(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(self.url)
+        self.assertContains(response, 'Download for Windows')
+        self.assertNotContains(response, 'id="pwa-action-btn"')
+
+    @override_settings(DESKTOP_APP_DOWNLOAD_URL=INSTALLER)
+    def test_customers_get_no_download_button(self):
+        # The Windows app is staff-only and the browser install/update
+        # button is gone, so the page is just the version and What's New.
+        anonymous = self.client.get(self.url)
+        self.assertNotContains(anonymous, 'id="pwa-action-btn"')
+        self.assertNotContains(anonymous, 'Download for Windows')
+        self.client.force_login(self.customer)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'id="pwa-action-btn"')
+        self.assertNotContains(response, 'Download for Windows')
+        self.assertContains(response, 'class="changelog-entry"')
+
+    @override_settings(DESKTOP_APP_DOWNLOAD_URL='')
+    def test_no_button_at_all_without_an_installer(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'id="pwa-action-btn"')
+        self.assertNotContains(response, 'Download for Windows')
+
+    @override_settings(DESKTOP_APP_DOWNLOAD_URL=INSTALLER)
+    def test_changelog_leads_with_the_running_version(self):
+        from core.changelog import CHANGELOG
+        from core.version import APP_VERSION
+
+        self.assertEqual(CHANGELOG[0]['version'], APP_VERSION)
+        self.client.force_login(self.staff)
+        self.assertContains(self.client.get(self.url), f'v{APP_VERSION}')
+
 
 PRIVATE_B2 = dict(
     DESKTOP_APP_B2_ENDPOINT='https://s3.us-west-004.backblazeb2.com',
