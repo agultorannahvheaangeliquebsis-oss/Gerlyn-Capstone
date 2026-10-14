@@ -198,16 +198,29 @@
     }
 
     /* ------------------------------------------------------------- kpis */
-    .sp-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    /* minmax(0, 1fr), not 1fr: a bare 1fr is minmax(auto, 1fr), so a long
+       "Value of open orders" figure held its column open and pushed the cards
+       past the page edge. grid-auto-rows keeps every card one height. The card
+       is the same overflow contract as gerlyn.css's .kpi-card — min-width: 0,
+       figure scaled from the card's own width, wrap as the last resort. */
+    .sp-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 18px; }
     .sp-kpi-card {
+      min-width: 0;
       background: var(--sp-card); border: 1px solid var(--sp-border); border-radius: 16px;
       padding: 20px;
     }
     .sp-kpi-card.is-danger { background: var(--danger-bg); border-color: var(--danger-dot); }
-    .sp-kpi-label { font: 400 14px/1.4 var(--font-sans); color: var(--sp-muted); margin: 0 0 8px; }
-    .sp-kpi-value { font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--sp-ink); margin: 0; }
+    .sp-kpi-label { font: 400 14px/1.4 var(--font-sans); color: var(--sp-muted); margin: 0 0 8px; min-width: 0; overflow-wrap: anywhere; }
+    .sp-kpi-value {
+      font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--sp-ink); margin: 0;
+      min-width: 0; overflow-wrap: anywhere;
+    }
+    @supports (width: 1cqi) {
+      .sp-kpi-card { container-type: inline-size; }
+      .sp-kpi-value { font-size: clamp(16px, 13cqi, 32px); }
+    }
     .sp-kpi-card.is-danger .sp-kpi-value { color: var(--danger-fg); }
-    .sp-kpi-context { font: 500 12.5px/1.4 var(--font-body); color: var(--sp-sec); margin: 8px 0 0; }
+    .sp-kpi-context { font: 500 12.5px/1.4 var(--font-body); color: var(--sp-sec); margin: 8px 0 0; min-width: 0; overflow-wrap: anywhere; }
     .sp-kpi-card.is-danger .sp-kpi-context { color: var(--danger-fg); }
     .sp-kpi-context a { color: inherit; font-weight: 700; text-decoration: underline; }
 
@@ -399,7 +412,7 @@
 
     /* ---------------------------------------------------------- responsive */
     @media (max-width: 1180px) {
-      .sp-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .sp-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .sp-grid-2 { grid-template-columns: 1fr; }
     }
     @media (max-width: 900px) {
@@ -417,7 +430,7 @@
       .sp-main { padding-bottom: 90px; }
     }
     @media (max-width: 640px) {
-      .sp-kpi-grid { grid-template-columns: 1fr; }
+      .sp-kpi-grid { grid-template-columns: minmax(0, 1fr); }
       .sp-head-row h1 { font-size: 24px; }
       .sp-action-strip { flex-wrap: wrap; }
       .sp-action-strip-btn { margin-left: 0; }

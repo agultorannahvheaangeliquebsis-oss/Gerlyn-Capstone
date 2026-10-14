@@ -131,7 +131,14 @@ button, input, select, textarea, optgroup {
 }
 
 /* Type scale */
-.gv-metric { font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; }
+/* min-width + overflow-wrap: this is the cart total / amount due / order
+   figure, usually a flex or grid child beside a label. At min-width: auto it
+   will not go narrower than the whole figure, so a large total pushed its row
+   wider than the card; `anywhere` lets it wrap as a last resort instead. */
+.gv-metric {
+  font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums;
+  min-width: 0; overflow-wrap: anywhere;
+}
 .gv-page-title { font: 650 24px/1.25 var(--font-sans); margin: 0; }
 h1 { font: 650 24px/1.25 var(--font-sans); margin: 0; }
 h2 { font: 650 24px/1.25 var(--font-sans); margin: 0; }
@@ -355,23 +362,71 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    three meanings across five pages, and put two and three tinted cards in the
    same four-card row. Importance is carried by rank in the row instead. */
 .kpi-row {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  /* min(200px, 100%): a bare 200px floor is wider than the track itself once
+     the row sits in a column narrower than 200px (a modal on a phone), and
+     the grid then overflows its parent instead of dropping to one column.
+     grid-auto-rows: 1fr makes every row as tall as the tallest, so a card
+     that wraps onto a second row (the Dashboard's fifth card) is not shorter
+     than the four above it just because it has no delta pill. */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  grid-auto-rows: 1fr;
   gap: var(--s4); margin-bottom: var(--s6);
 }
+/* Overflow contract for a stat card — whatever the figure's length or the
+   card's width, nothing paints outside the card's border box:
+     - min-width: 0 on the card. A grid/flex item defaults to min-width: auto,
+       i.e. "never narrower than my content", so a long figure used to push the
+       card (and its text) past the track instead of the text yielding.
+     - the figure is sized from the card's own width (container query units,
+       below), so it shrinks to fit rather than being cut or wrapped.
+     - overflow-wrap: anywhere on label/figure/pill as the last resort, for a
+       string the scaling can't save (a 15-digit total); it wraps instead of
+       escaping. `anywhere`, not `break-word`: only `anywhere` lowers the
+       min-content size, which is what lets the track shrink at all.
+   A flex column, so the delta pill pins to the card's foot and cards of one
+   row line up whether or not they carry a pill. */
 .stat-hero, .kpi-card {
+  --kpi-value-max: 32px;
+  --kpi-value-min: 16px;
+
+  display: flex; flex-direction: column; align-items: stretch;
+  min-width: 0; max-width: 100%;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-card); box-shadow: var(--shadow-hero);
   padding: var(--s6);
 }
-.stat-hero .label, .kpi-card .label { display: block; }
+.stat-hero .label, .kpi-card .label {
+  display: block; min-width: 0; overflow-wrap: anywhere;
+}
 .stat-hero .value, .kpi-card .value {
-  display: block; margin-top: 2px;
-  font: 700 32px/1.15 var(--font-sans); font-variant-numeric: tabular-nums;
+  display: block; margin-top: 2px; min-width: 0; max-width: 100%;
+  overflow-wrap: anywhere;
+  font: 700 var(--kpi-value-max)/1.15 var(--font-sans); font-variant-numeric: tabular-nums;
+}
+/* Scale the figure with its card. The card is a size container, so 100cqi is
+   the card's content width — padding and border already taken out. 13cqi puts
+   a 14-character peso figure ("₱99,999,999.99" is 7.15em of bold tabular
+   Roboto) at about 93% of that width, so anything up to ₱99.9M stays on one
+   line; a 15th character (7.7em) is the first to hit the wrap fallback, and
+   a figure is never split mid-number below that. The viewport width is no
+   use for this: the
+   same page puts a 260px sidebar, 3 to 5 columns and a collapsible rail
+   between the window and the card, so only the card knows how wide it is.
+   Gated on @supports so a browser without container units keeps the fixed
+   size above instead of an invalid computed font-size. size is inline only:
+   the card's height still comes from its content. */
+@supports (width: 1cqi) {
+  .stat-hero, .kpi-card { container-type: inline-size; }
+  .stat-hero .value, .kpi-card .value {
+    font-size: clamp(var(--kpi-value-min), 13cqi, var(--kpi-value-max));
+  }
 }
 /* .stat-foot removed — every KPI card across the app dropped its qualifying
    sub-text ("at cost", "23 orders", "above reorder level") by request. A card
-   is now .label -> .value, plus .stat-status on the Dashboard rail only. */
-.stat-status { display: block; margin-top: var(--s2); }
+   is now .label -> .value, plus .stat-status on the Dashboard rail only.
+   margin-top: auto + padding-top keeps the pill the same 8px under the figure
+   at minimum, and sends it to the card's foot when the row is taller. */
+.stat-status { display: block; margin-top: auto; padding-top: var(--s2); min-width: 0; }
 
 /* Dashboard hero cards double as click-to-expand tabs into the KPI graph
    panel (DESIGN.md Section 2, #2a) — active state is a green tint, never a
@@ -380,7 +435,12 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    the usual button resets to keep them looking like the cards they are. */
 .stat-hero[data-kpi-key] {
   cursor: pointer; width: 100%; text-align: left;
-  font: inherit; color: inherit; display: block;
+  font: inherit; color: inherit;
+  /* flex, not block: this selector outranks the shared .stat-hero rule above,
+     and a block <button> centres its content vertically inside any extra
+     height the grid row gives it — so the clickable cards' figures sat lower
+     than the plain .kpi-card beside them. A flex column starts at the top. */
+  display: flex; justify-content: flex-start;
 }
 /* No :focus-visible override here — the global ring is --brand now, so this
    only ever made the cards' ring 1px thinner than every other control's. */
@@ -398,8 +458,18 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    preventing it. Wrapping is scoped to these two card shells (.kpi-card and
    the Dashboard's clickable .stat-hero, both built on the same .kpi-row grid
    and both carrying this delta pill) rather than changing .pill everywhere,
-   so a status pill in a table still can't truncate. */
-.kpi-card .pill, .stat-hero .pill { white-space: normal; max-width: 100%; }
+   so a status pill in a table still can't truncate.
+
+   min-width: 0 + overflow-wrap: anywhere: the pill is inline-flex, so without
+   them it refuses to go narrower than its longest unbroken run and a long
+   delta ("100.0% vs previous 30 days") still pokes out of a 200px card. The
+   arrow icon is flex: none so the text wraps around it rather than squashing
+   it to a sliver. */
+.kpi-card .pill, .stat-hero .pill {
+  white-space: normal; max-width: 100%; min-width: 0;
+  overflow-wrap: anywhere; text-align: left;
+}
+.kpi-card .pill > svg, .stat-hero .pill > svg { flex: none; }
 
 /* Density modifier for KPI rows that sit above a table rather than above a
    graph panel — Stock per Branch and Stock Withdrawals. Those pages carry only
@@ -415,8 +485,7 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    then font-variant-numeric: tabular-nums after it. Re-declaring the shorthand
    here would win on specificity and silently reset the figures to
    proportional numerals, so the columns of digits would stop lining up. */
-.kpi-row.compact .kpi-card { padding: var(--s4) var(--s6); }
-.kpi-row.compact .kpi-card .value { font-size: 26px; }
+.kpi-row.compact .kpi-card { padding: var(--s4) var(--s6); --kpi-value-max: 26px; }
 
 /* Sits under the KPI rail when the previous window holds nothing, in place of
    the four identical "no previous N days to compare" pills that used to fill
@@ -485,7 +554,10 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .kpi-graph-figure[hidden] { display: none; }
 /* 30px against the h3's 18px. At the 20px it replaces, the label and the
    figure were close enough in size and weight that neither one led. */
-.kpi-graph-value { font: 700 30px/1.15 var(--font-sans); font-variant-numeric: tabular-nums; }
+.kpi-graph-value {
+  font: 700 30px/1.15 var(--font-sans); font-variant-numeric: tabular-nums;
+  min-width: 0; max-width: 100%; overflow-wrap: anywhere;
+}
 /* .gv-meta.kpi-graph-peak, not .kpi-graph-peak alone — .gv-meta sets 14px in
    the same single-class breath, so on specificity alone this would win only
    by sitting later in the file. Left-aligned once it wraps to its own line,
@@ -3051,8 +3123,12 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    action (never run / overdue). font-size only, never the font shorthand --
    it would reset the tabular figures the base .value rule sets after it. */
 .bk-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); margin-bottom: var(--s4); }
-.bk-status .kpi-card { padding: var(--s4) 20px; }
-.bk-status .kpi-card .value { margin-top: 6px; font-size: 24px; }
+.bk-status .kpi-card { padding: var(--s4) 20px; --kpi-value-max: 24px; }
+.bk-status .kpi-card .value { margin-top: 6px; }
+/* The verdict pill here is a one-to-two word state, never a sentence — keep it
+   whole and let the label beside it be the one that wraps. Without this the
+   shared .kpi-card .pill wrap rule lets a long label squeeze it mid-word. */
+.bk-status .kpi-card .pill { flex: none; white-space: nowrap; }
 .bk-sub { display: block; margin-top: 2px; font: 400 13.5px/1.45 var(--font-sans); color: var(--ink-600); }
 .kpi-card.danger .bk-sub { color: var(--danger-fg); }
 
