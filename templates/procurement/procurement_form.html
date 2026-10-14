@@ -182,8 +182,11 @@ only a genuinely missing supplier or product list blocks this form.
         <h2>Order Items <span class="pill pill-neutral" id="po-item-count">1 item</span></h2>
         <button type="button" class="btn btn-sm" onclick="poAddRow()">+ Add Item</button>
       </div>
+      {% comment "" %}
       <p class="gv-meta mb-4">No delivery date field here — delivery date and pricing are agreed with
         the supplier after this order is approved. You'll see that step on the order's page.</p>
+      {% endcomment %}
+      
 
       {% comment %}
       Supplier-product links are preferred suggestions. If none exist, make

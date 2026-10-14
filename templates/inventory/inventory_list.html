@@ -81,7 +81,7 @@ partials/_branch_switch.html.
     heading.
     {% endcomment %}
     <h1>Floor Stock</h1>
-    <p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% elif active_branch %} — {{ active_branch.branch_name }}{% else %} across all branches{% endif %}</p>
+    {% comment "" %}<p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% elif active_branch %} — {{ active_branch.branch_name }}{% else %} across all branches{% endif %}</p>{% endcomment %}
   </div>
   {% if can_adjust %}
   <div class="row" style="gap:8px;">

@@ -126,7 +126,7 @@ there's no toolbar selector to pick from at all.{% endcomment %}
 <div class="page-head">
   <div>
     <h1>Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% elif filter_branch %} — {{ filter_branch.branch_name }}{% endif %}</h1>
-    <p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% elif filter_branch %} for {{ filter_branch.branch_name }}{% else %} across all branches{% endif %} — supplier deliveries arrive here before stock is moved to the floor</p>
+    {% comment "" %}<p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% elif filter_branch %} for {{ filter_branch.branch_name }}{% else %} across all branches{% endif %} — supplier deliveries arrive here before stock is moved to the floor</p>{% endcomment %}
   </div>
   {% if can_request_to_floor %}
   <button type="button" class="btn btn-primary" id="open-request-modal">
