@@ -50,8 +50,10 @@ class RebuildStoreRecordsTests(TestCase):
         failures = [f"{label}: {detail}" for label, ok, detail in self.checks if not ok]
         self.assertEqual(failures, [])
 
-    def test_exactly_thirty_products_each_with_a_white_background_image(self):
-        self.assertEqual(Product.objects.count(), 30)
+    def test_every_master_list_product_has_a_white_background_image(self):
+        # The master list is the single source of truth for the count — it was
+        # 30 products until it became the 104-product list.
+        self.assertEqual(Product.objects.count(), len(catalog.PRODUCTS))
         for product in Product.objects.prefetch_related("images"):
             images = list(product.images.all())
             self.assertEqual(len(images), 1, product.sku_code)

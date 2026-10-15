@@ -14,6 +14,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management import call_command
 from django.test import Client, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Address, User
@@ -23,7 +24,7 @@ from inventory.models import (
     Inventory, Product, StockMovement, StockTransfer, StockTransferItem,
     Warehouse, WarehouseStock,
 )
-from procurement.models import Procurement, ProcurementItem
+from procurement.models import Procurement, ProcurementItem, SupplierReturn
 from sales.models import SalesTransaction
 
 
@@ -206,13 +207,18 @@ class AcceptanceTests(TestCase):
             source_branch=source, destination_branch=dest,
             purpose='Branch Restock', status='Released',
         )
-        StockTransferItem.objects.create(
+        # The slip is created already Released, so the units that "left the
+        # warehouse" have to be recorded: the reconciliation compares each
+        # item's received count against quantity_released, per item.
+        item = StockTransferItem.objects.create(
             transfer=transfer, product=product,
-            quantity_requested=40, quantity_approved=40,
+            quantity_requested=40, quantity_approved=40, quantity_released=40,
         )
 
         self.login('ben').post(f'/inventory/withdrawals/{transfer.pk}/flag/', {
-            'received_qty': 30, 'flag_reason': '10 damaged in transit',
+            'item_id': [str(item.pk)],
+            'quantity_received': ['30'],
+            'flag_reason': '10 damaged in transit',
         })
 
         transfer.refresh_from_db()
@@ -222,7 +228,8 @@ class AcceptanceTests(TestCase):
         self.assertEqual(inv.quantity_on_hand, 90, 'corrected by the 10-unit shortfall')
         self.assertTrue(
             StockMovement.objects.filter(
-                reference_id=transfer.pk, movement_type='Adjustment'
+                reference_id=transfer.pk,
+                movement_type=StockMovement.MovementType.TRANSFER_DISCREPANCY,
             ).exists()
         )
 
@@ -577,6 +584,9 @@ class DetailModalTests(TestCase):
             # Receipt" on the order detail, so it also has to be a fragment
             # under ?modal=1.
             f'/sales/{SalesTransaction.objects.first().pk}/receipt/',
+            # Reached from the eye button on Supplier Returns and from the
+            # returns table on a purchase order's detail.
+            reverse('supplier_return_detail', args=[SupplierReturn.objects.first().pk]),
         ]
 
     def test_modal_flag_returns_a_fragment(self):

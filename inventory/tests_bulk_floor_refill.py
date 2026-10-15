@@ -330,7 +330,9 @@ class BulkViewTests(_BulkFixture, TestCase):
 
     def test_staff_without_the_warehouse_add_action_cannot_submit(self):
         response = self.post_bulk(self.staff_without, [(self.a, self.p1, '5')])
-        self.assertEqual(response.status_code, 302)
+        # ModulePermissionMiddleware raises PermissionDenied (the styled 403
+        # page) for a missing module action; it used to flash and redirect.
+        self.assertEqual(response.status_code, 403)
         self.assertFalse(StockTransfer.objects.exists())
 
     def test_a_manager_cannot_target_another_branch_through_the_post(self):
