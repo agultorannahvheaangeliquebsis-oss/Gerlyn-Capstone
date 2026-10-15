@@ -1901,6 +1901,53 @@ class CustomerAccountsListTests(TestCase):
         usernames = [r['user'].username for r in response.context['rows']]
         self.assertEqual(usernames, ['cl-cust'])
 
+    def _hard_delete_customer(self, **extra):
+        from accounts.services import hard_delete_personal_data
+        deleted = User.objects.create_user(
+            username='cl-gone', password='pw', email='gone@example.com',
+            first_name='Gone', last_name='Person', role=User.Role.CUSTOMER,
+            **extra,
+        )
+        hard_delete_personal_data(deleted, performed_by=self.owner)
+        deleted.refresh_from_db()
+        return deleted
+
+    def test_hard_deleted_row_shows_uid_and_hides_identity_and_actions(self):
+        deleted = self._hard_delete_customer()
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('accounts:customer_list'))
+        rows = {r['user'].pk: r for r in response.context['rows']}
+
+        self.assertTrue(rows[deleted.pk]['is_hard_deleted'])
+        self.assertEqual(rows[deleted.pk]['full_name'], f'UID {deleted.pk}')
+        self.assertFalse(rows[self.customer.pk]['is_hard_deleted'])
+
+        html = response.content.decode()
+        self.assertIn(f'UID {deleted.pk}', html)
+        # The scrubbed placeholder identity is not rendered anywhere.
+        self.assertNotIn(deleted.username, html)
+        self.assertNotIn(deleted.email, html)
+        # Exactly one actions menu: the live customer's, not the deleted one's.
+        self.assertEqual(html.count('<details class="row-menu">'), 1)
+        self.assertIn('aria-label="Actions for cl-cust"', html)
+
+    def test_pk_over_a_thousand_is_not_localized_in_the_uid(self):
+        self._hard_delete_customer(id=1502)
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('accounts:customer_list'))
+        self.assertContains(response, 'UID 1502')
+        self.assertNotContains(response, 'UID 1,502')
+
+    def test_toggle_active_refuses_a_hard_deleted_account(self):
+        deleted = self._hard_delete_customer()
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            reverse('accounts:user_toggle_active', args=[deleted.pk])
+        )
+        self.assertRedirects(response, reverse('accounts:customer_list'))
+        deleted.refresh_from_db()
+        self.assertFalse(deleted.is_active)
+
 
 class StaffInviteCompleteTests(TestCase):
     """The link an invited internal user follows — accounts:user_add creates

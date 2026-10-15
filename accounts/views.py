@@ -742,6 +742,15 @@ def user_toggle_active(request, pk):
         messages.error(request, "You can't deactivate your own account.")
         return redirect('accounts:user_list')
 
+    # A hard-deleted account is final: its identity is gone and
+    # hard_delete_personal_data leaves it inactive on purpose. Toggling would
+    # reactivate an erased identity (the password hash is still on the row),
+    # and the Customer Accounts page no longer offers the action — so the
+    # server has to refuse it too, not just the template.
+    if target.deleted_at:
+        messages.error(request, "That account's personal data was deleted — it can't be reactivated or changed.")
+        return redirect('accounts:customer_list' if target.role == User.Role.CUSTOMER else 'accounts:user_list')
+
     if request.method == 'POST':
         target.is_active = not target.is_active
         state = 'reactivated' if target.is_active else 'deactivated'
@@ -879,11 +888,20 @@ def customer_list(request):
     rows = []
     for u in page.object_list:
         profile = getattr(u, 'customer_profile', None)
+        # A hard-deleted row has no name left to show (its username is just
+        # the scrubbed placeholder), so it is identified by its immutable id
+        # — the same one every sale/stock movement still links to. Built here
+        # as a string, not in the template, so USE_THOUSAND_SEPARATOR can't
+        # render pk 1502 as "1,502".
+        is_hard_deleted = u.deleted_at is not None
         rows.append({
             'user': u,
-            'full_name': u.get_full_name() or (
-                f'{profile.first_name} {profile.last_name}'.strip() if profile else ''
-            ) or u.username,
+            'is_hard_deleted': is_hard_deleted,
+            'full_name': f'UID {u.pk}' if is_hard_deleted else (
+                u.get_full_name() or (
+                    f'{profile.first_name} {profile.last_name}'.strip() if profile else ''
+                ) or u.username
+            ),
         })
 
     return render(request, 'accounts/customer_list.html', {
