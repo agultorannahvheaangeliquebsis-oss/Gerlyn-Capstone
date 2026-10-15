@@ -8,7 +8,10 @@ Owner's branch_filter wins first since it is the more specific, deliberate
 choice; a Manager/Staff's own warehouse.branch is the fallback for when
 there's no toolbar selector to pick from at all.{% endcomment %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif warehouse %}{{ warehouse.branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
-{% block branch_chip %}{% include "partials/_branch_switch.html" with user_branch=warehouse.branch %}{% endblock %}
+{% comment %}Read-only (readonly=True) like Floor Stock: the .scopebar tabs below
+are this page's branch switcher, so a second dropdown in the topbar would only
+duplicate them. The chip still tracks the active branch.{% endcomment %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" with user_branch=warehouse.branch readonly=True %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -137,6 +140,54 @@ there's no toolbar selector to pick from at all.{% endcomment %}
 </div>
 
 {% comment %}
+The branch scope bar — the same .scopebar component and markup as Floor Stock
+(inventory/inventory_list.html), fed by the same inventory.views.
+_build_scope_branches helper. It sits above the KPI row because picking a
+branch re-counts those figures too. Segments are <a>s (navigation), and their
+hrefs carry search and category across. An Owner gets the tabs; an account
+pinned to one branch gets that branch as a plain tag; an account with no
+branch is told so, since its table will be empty.
+{% endcomment %}
+{% if can_pick_branch %}
+<nav class="scopebar" aria-label="Filter warehouse stock by branch">
+  <span class="scopebar-label">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+  </span>
+  <div class="seg">
+    {% for b in scope_branches %}
+      <a class="seg-item{% if b.active %} active{% endif %}" href="{{ b.href }}"
+         {% if b.active %}aria-current="page"{% endif %}>{{ b.name }}
+        <span class="count{% if b.alerts %} alert{% endif %}"
+              title="{{ b.total }} product{{ b.total|pluralize }} in the warehouse{% if b.alerts %}, {{ b.alerts }} needing attention{% endif %}">{{ b.total }}</span>
+      </a>
+    {% endfor %}
+  </div>
+  <span class="scopebar-spacer"></span>
+  <span class="scopebar-meta">
+    <b>{{ total_products }}</b> item{{ total_products|pluralize }} in the warehouse
+    {% if last_change %}<span class="dot"></span> last change {{ last_change|timesince }} ago{% endif %}
+  </span>
+</nav>
+{% else %}
+<div class="scopebar">
+  <span class="scopebar-label">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+  </span>
+  {% if warehouse %}
+    <span class="locked-branch">{{ warehouse.branch.branch_name }}</span>
+    <span class="gv-meta">your assigned branch</span>
+  {% else %}
+    <span class="gv-meta">No branch is assigned to your account — ask the Owner to assign one before you can see any warehouse stock.</span>
+  {% endif %}
+  <span class="scopebar-spacer"></span>
+  <span class="scopebar-meta">
+    <b>{{ total_products }}</b> item{{ total_products|pluralize }} in the warehouse
+    {% if last_change %}<span class="dot"></span> last change {{ last_change|timesince }} ago{% endif %}
+  </span>
+</div>
+{% endif %}
+
+{% comment %}
 The one KPI card (DESIGN.md §Components), the same row Floor Stock, Stock
 Adjustments and the Reports tabs carry — .label then .value, no inline tints.
 
@@ -178,6 +229,10 @@ inventory.alerts.stock_status().
 </div>
 
 <form method="GET" class="toolbar toolbar-search">
+  {% comment %}This form has no branch control of its own (the scope bar above
+  is the switcher), so the active branch rides along as a hidden field, or a
+  search/category change would reset the list to all branches.{% endcomment %}
+  {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
   <div class="search-field">
     {% comment %}The submit — same role as Floor Stock's search-btn. This
     page has no barcode scanner, so the field carries no trailing icon.{% endcomment %}
@@ -188,9 +243,9 @@ inventory.alerts.stock_status().
   </div>
   <div class="search-filters">
     {% comment %}
-    The branch filter now lives in the topbar switcher (partials/
-    _branch_switch.html) — see branch_chip above. Owner only in practice — a
-    Manager/Staff account is already pinned to its own single warehouse.
+    The branch filter lives in the scope bar above — one control per filter.
+    Owner only in practice — a Manager/Staff account is already pinned to its
+    own single warehouse.
     {% endcomment %}
     <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
       <option value="">All Categories</option>

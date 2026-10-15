@@ -1620,6 +1620,43 @@ def expiry_write_off(request, pk):
 # STORE FLOOR INVENTORY VIEW
 # ─────────────────────────────────────────────
 
+def _build_scope_branches(can_pick_branch, all_branches, branch_totals, branch_alerts,
+                          branch_filter, carry):
+    """Segments for the branch scope bar shared by Floor Stock and Warehouse
+    Stock: "All Branches" first, then one per branch, each with its row count
+    and how many of those need attention. `carry` is the page's other active
+    filters as (name, value) pairs; every segment's href keeps them, so
+    switching branch never silently clears the search someone just typed.
+    Empty for an account that may not pick a branch — the bar is a UI
+    convenience over scope_queryset(), never the boundary itself."""
+    if not can_pick_branch:
+        return []
+
+    def scope_href(branch_id):
+        params = [
+            (key, value) for key, value in (
+                *carry,
+                ('branch', str(branch_id) if branch_id else ''),
+            ) if value
+        ]
+        return '?' + urlencode(params) if params else '?'
+
+    segments = [{
+        'id': '', 'name': 'All Branches', 'href': scope_href(''),
+        'total': sum(branch_totals.values()),
+        'alerts': sum(branch_alerts.values()),
+        'active': not branch_filter,
+    }]
+    for b in all_branches:
+        segments.append({
+            'id': b.id, 'name': b.branch_name, 'href': scope_href(b.id),
+            'total': branch_totals.get(b.id, 0),
+            'alerts': branch_alerts.get(b.id, 0),
+            'active': branch_filter == str(b.id),
+        })
+    return segments
+
+
 def _inventory_list_context(request):
     # .sellable() annotates available_qty (quantity_on_hand with any expired
     # batch's quantity already netted out) — used below for Status/counts
@@ -1768,34 +1805,10 @@ def _inventory_list_context(request):
     can_pick_branch = branch_ids_for_user(request.user) is None
     all_branches = cached_branches()
 
-    def scope_href(branch_id):
-        """One segment's URL — carries the other three filters across, so
-        switching branch doesn't silently clear the search you just typed."""
-        params = [
-            (key, value) for key, value in (
-                ('q', search_query),
-                ('category', category_filter),
-                ('status', status_filter),
-                ('branch', str(branch_id) if branch_id else ''),
-            ) if value
-        ]
-        return '?' + urlencode(params) if params else '?'
-
-    scope_branches = []
-    if can_pick_branch:
-        scope_branches.append({
-            'id': '', 'name': 'All Branches', 'href': scope_href(''),
-            'total': sum(branch_totals.values()),
-            'alerts': sum(branch_alerts.values()),
-            'active': not branch_filter,
-        })
-        for b in all_branches:
-            scope_branches.append({
-                'id': b.id, 'name': b.branch_name, 'href': scope_href(b.id),
-                'total': branch_totals.get(b.id, 0),
-                'alerts': branch_alerts.get(b.id, 0),
-                'active': branch_filter == str(b.id),
-            })
+    scope_branches = _build_scope_branches(
+        can_pick_branch, all_branches, branch_totals, branch_alerts, branch_filter,
+        carry=(('q', search_query), ('category', category_filter), ('status', status_filter)),
+    )
 
     active_branch = None
     if branch_filter:
@@ -2599,8 +2612,10 @@ def _warehouse_stock_list_context(request, bulk=None):
             'product', 'product__category', 'warehouse', 'warehouse__branch'
         ).sellable()
         warehouse = None
-        if branch_filter:
-            stock_records = stock_records.filter(warehouse__branch_id=branch_filter)
+        # branch_filter is deliberately NOT applied to the queryset — the
+        # scope bar shows a count per branch, and a branch filtered out here
+        # would have nothing left to count. It is applied per-row below, over
+        # the already branch-SCOPED queryset (same approach as Floor Stock).
         # This else is only meant for the Owner, but it is also where a
         # Manager/Staff whose profile branch is NULL lands (user_branch is
         # None for them too). No-op for the Owner; filters to nothing for an
@@ -2631,9 +2646,34 @@ def _warehouse_stock_list_context(request, bulk=None):
     }
     # available_qty, not quantity_on_hand — see _inventory_list_context's
     # identical reasoning for Floor Stock.
-    matching = [(s, stock_status(s.available_qty, s.reorder_level)) for s in stock_records]
-    for _, status in matching:
+    matching = []
+    branch_totals, branch_alerts = {}, {}
+    last_change = None
+    for s in stock_records:
+        status = stock_status(s.available_qty, s.reorder_level)
+
+        # Scope-bar tallies: counted before the branch filter, so every
+        # segment shows what it would return. Search and category do apply.
+        bid = s.warehouse.branch_id
+        branch_totals[bid] = branch_totals.get(bid, 0) + 1
+        if status in ('Critical', 'No Stock'):
+            branch_alerts[bid] = branch_alerts.get(bid, 0) + 1
+
+        if branch_filter and str(bid) != branch_filter:
+            continue
+
         counts[key_for[status]] += 1
+        if s.last_updated and (last_change is None or s.last_updated > last_change):
+            last_change = s.last_updated
+        matching.append((s, status))
+
+    # branch_ids_for_user, not user_branch: only the Owner may be handed a
+    # picker listing every branch (see _inventory_list_context).
+    can_pick_branch = branch_ids_for_user(request.user) is None
+    scope_branches = _build_scope_branches(
+        can_pick_branch, cached_branches(), branch_totals, branch_alerts, branch_filter,
+        carry=(('q', search_query), ('category', category_filter)),
+    )
 
     # One table row per BATCH, not per product/warehouse — see
     # inventory.views._inventory_list_context's identical treatment of
@@ -2732,6 +2772,10 @@ def _warehouse_stock_list_context(request, bulk=None):
         # Every other active filter, for the topbar branch switcher to carry
         # along — same idea as _daterange.html's daterange_carry.
         'branch_switch_carry': [('q', search_query), ('category', category_filter)],
+        # Scope bar (same shape as Floor Stock's)
+        'scope_branches': scope_branches,
+        'can_pick_branch': can_pick_branch,
+        'last_change': last_change,
         # Distinct products, not len(rows) — rows is now one-per-batch, so a
         # product with two lots would otherwise count itself twice.
         'total_products': len(matching),
