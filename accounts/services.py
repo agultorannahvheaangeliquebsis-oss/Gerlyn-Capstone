@@ -332,6 +332,17 @@ def deactivate_account(user):
     revoke_other_sessions(user, keep_session_key=None)
 
 
+# Role-profile columns that hold a PERSON's name — blanked on erasure, in
+# addition to the first_name/last_name pair CustomerProfile (and User) carry.
+# Owner/Manager/Staff keep their name in a single owner_name/manager_name/
+# staff_name column, and a supplier's contact_person is a named individual.
+# supplier_name is deliberately NOT here: it is the supplier's business name,
+# which purchase orders and deliveries still have to be able to show — the
+# person behind it is contact_person. Shared with the one-off
+# scrub_deleted_account_names command so the two can't drift apart.
+PROFILE_PERSON_NAME_FIELDS = ('owner_name', 'manager_name', 'staff_name', 'contact_person')
+
+
 def hard_delete_personal_data(user, performed_by):
     """
     Erases this account's identity — email, username, name, contact number,
@@ -387,6 +398,9 @@ def hard_delete_personal_data(user, performed_by):
             role_profile.first_name = ''
         if hasattr(role_profile, 'last_name'):
             role_profile.last_name = ''
+        for attr in PROFILE_PERSON_NAME_FIELDS:
+            if hasattr(role_profile, attr):
+                setattr(role_profile, attr, '')
         role_profile.save()
 
     Address.objects.filter(user=user).delete()

@@ -449,6 +449,12 @@ Owners see status, run a backup on demand and record restore tests at
   restores it into a scratch database and proves it matches. Never touches the live database.
 - `python manage.py reapply_erasures` — after a restore, re-erase accounts whose personal
   data was erased after that backup was taken.
+- `python manage.py scrub_deleted_account_names` — blanks the person-name columns
+  (`owner_name`, `manager_name`, `staff_name`, supplier `contact_person`) that hard deletes
+  made before October 2026 left behind; `--dry-run` lists what it would touch without
+  changing anything. Safe to re-run. Run it once per database (local, Railway), and again
+  after restoring a backup taken before that fix, since `reapply_erasures` skips accounts
+  already marked deleted.
 - Needs `mysqldump`/`mysql` (installed on Railway by `nixpacks.toml`; set
   `BACKUP_MYSQLDUMP` / `BACKUP_MYSQL` locally if they aren't on PATH) and the `B2_*`,
   `BACKUP_ENCRYPTION_KEY` variables from `.env.example`.

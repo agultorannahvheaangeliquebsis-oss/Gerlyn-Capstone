@@ -291,7 +291,9 @@ class StockTransferSerializer(serializers.ModelSerializer):
         ]:
             profile = getattr(user, attr, None)
             if profile:
-                return getattr(profile, field, None)
+                # An erased account's profile name is blank — fall back to
+                # the account's own display name rather than returning ''.
+                return getattr(profile, field, None) or user.get_full_name() or user.username
         return user.get_full_name() or user.username
 
     def get_requestedBy(self, obj):

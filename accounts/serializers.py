@@ -35,12 +35,14 @@ class UserSerializer(serializers.ModelSerializer):
         based on the user's role.
         """
         try:
+            # `or obj.username`: a hard-deleted account's profile name is
+            # blank, and '' would render as an unlabelled person.
             if obj.role == User.Role.OWNER:
-                return obj.owner_profile.owner_name
+                return obj.owner_profile.owner_name or obj.username
             elif obj.role == User.Role.BRANCH_MANAGER:
-                return obj.manager_profile.manager_name
+                return obj.manager_profile.manager_name or obj.username
             elif obj.role == User.Role.STAFF:
-                return obj.staff_profile.staff_name
+                return obj.staff_profile.staff_name or obj.username
             elif obj.role == User.Role.CUSTOMER:
                 profile = obj.customer_profile
                 return f"{profile.first_name} {profile.last_name}".strip() or obj.username

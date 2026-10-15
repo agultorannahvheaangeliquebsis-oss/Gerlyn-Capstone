@@ -99,11 +99,16 @@ to, not sit frozen on "All Branches".{% endcomment %}
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr data-filter-text="{{ r.user.username }}">
+      <tr data-filter-text="{% if r.is_hard_deleted %}{{ r.full_name }}{% else %}{{ r.user.username }}{% endif %}">
         <td data-label="Full Name" class="strong">{{ r.full_name }}</td>
         <td data-label="Username">
+          {% if r.is_hard_deleted %}
+          {% comment %}Erased identity — the username/email on the row are only scrubbed placeholders, not worth showing.{% endcomment %}
+          <span class="gv-meta">—</span>
+          {% else %}
           <span class="sku">{{ r.user.username }}</span><br>
           <span class="gv-meta">{{ r.user.email|default:"—" }}</span>
+          {% endif %}
         </td>
         <td data-label="Role">
           {% if r.user.role == 'OWNER' %}<span class="tag">Owner</span>
@@ -118,6 +123,15 @@ to, not sit frozen on "All Branches".{% endcomment %}
           {% else %}<span class="pill pill-neutral">Inactive</span>{% endif %}
         </td>
         <td data-label="Last Login" class="gv-meta">{{ r.user.last_login|date:"Y-m-d H:i"|default:"Never" }}</td>
+        {% if r.is_hard_deleted %}
+        {% comment %}
+        Hard-deleted accounts are final — no menu at all (user_toggle_active
+        and user_form refuse them server-side too). The empty cell keeps the
+        column count and has no data-label so the stacked mobile card shows
+        no stray "ACTIONS" caption.
+        {% endcomment %}
+        <td class="end"></td>
+        {% else %}
         <td data-label="Actions" class="end">
           <details class="row-menu">
             <summary class="row-menu-trigger" title="Actions" aria-label="Actions for {{ r.user.username }}">
@@ -200,6 +214,7 @@ to, not sit frozen on "All Branches".{% endcomment %}
             </div>
           </details>
         </td>
+        {% endif %}
       </tr>
       {% empty %}
       <tr><td colspan="7"><div class="empty">

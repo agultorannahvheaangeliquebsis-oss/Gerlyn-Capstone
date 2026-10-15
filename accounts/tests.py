@@ -1683,6 +1683,49 @@ class HardDeletePersonalDataTests(TestCase):
         self.assertEqual(txn.customer_id, self.customer.pk)
         self.assertEqual(SalesTransaction.objects.count(), 1)
 
+    def test_hard_delete_blanks_the_role_profile_name_for_internal_roles(self):
+        """first_name/last_name only exist on CustomerProfile — Owner,
+        Manager and Staff keep their name in one *_name column, which used
+        to survive the erasure."""
+        from accounts.services import hard_delete_personal_data
+
+        cases = [
+            (User.Role.OWNER, 'owner_profile', 'owner_name'),
+            (User.Role.BRANCH_MANAGER, 'manager_profile', 'manager_name'),
+            (User.Role.STAFF, 'staff_profile', 'staff_name'),
+        ]
+        for role, profile_attr, name_field in cases:
+            with self.subTest(role=role):
+                person = User.objects.create_user(
+                    username=f'hdn-{role.lower()}', password='pw', role=role,
+                )
+                profile = getattr(person, profile_attr)
+                setattr(profile, name_field, 'Real Person')
+                profile.save()
+
+                hard_delete_personal_data(person, performed_by=self.owner)
+
+                profile.refresh_from_db()
+                self.assertEqual(getattr(profile, name_field), '')
+
+    def test_hard_delete_blanks_supplier_contact_person_but_keeps_business_name(self):
+        from accounts.services import hard_delete_personal_data
+
+        supplier = User.objects.create_user(
+            username='hd-supplier', password='pw', role=User.Role.SUPPLIER,
+        )
+        profile = supplier.supplier_profile
+        profile.supplier_name = 'Acme Trading'
+        profile.contact_person = 'Juan Dela Cruz'
+        profile.save()
+
+        hard_delete_personal_data(supplier, performed_by=self.owner)
+
+        profile.refresh_from_db()
+        self.assertEqual(profile.contact_person, '')
+        # The business name is what purchase orders still have to show.
+        self.assertEqual(profile.supplier_name, 'Acme Trading')
+
     def test_deleted_addresses_are_removed(self):
         from accounts.models import Address
         from accounts.services import hard_delete_personal_data
@@ -1947,6 +1990,150 @@ class CustomerAccountsListTests(TestCase):
         self.assertRedirects(response, reverse('accounts:customer_list'))
         deleted.refresh_from_db()
         self.assertFalse(deleted.is_active)
+
+
+class ScrubDeletedAccountNamesCommandTests(TestCase):
+    """The one-off for accounts hard-deleted before the service cleared the
+    role profile's name column."""
+
+    def setUp(self):
+        from accounts.models import StaffProfile, SupplierProfile
+        from accounts.services import hard_delete_personal_data
+
+        self.owner = User.objects.create_user(
+            username='scrub-owner', password='pw', role=User.Role.OWNER
+        )
+        self.legacy_staff = User.objects.create_user(
+            username='scrub-staff', password='pw', role=User.Role.STAFF
+        )
+        self.legacy_supplier = User.objects.create_user(
+            username='scrub-supplier', password='pw', role=User.Role.SUPPLIER
+        )
+        self.live_staff = User.objects.create_user(
+            username='scrub-live', password='pw', role=User.Role.STAFF
+        )
+        for user in (self.legacy_staff, self.legacy_supplier):
+            hard_delete_personal_data(user, performed_by=self.owner)
+        # Put back the leftovers the old service left behind (QuerySet.update
+        # skips the audit signals — this is just test setup).
+        StaffProfile.objects.filter(user=self.legacy_staff).update(
+            staff_name='Leftover Staff'
+        )
+        SupplierProfile.objects.filter(user=self.legacy_supplier).update(
+            supplier_name='Acme Trading', contact_person='Leftover Contact'
+        )
+        StaffProfile.objects.filter(user=self.live_staff).update(
+            staff_name='Live Person'
+        )
+
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('scrub_deleted_account_names', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_reports_without_changing_anything(self):
+        output = self._run('--dry-run')
+
+        self.assertIn('2 hard-deleted account(s) would be scrubbed', output)
+        self.legacy_staff.staff_profile.refresh_from_db()
+        self.assertEqual(self.legacy_staff.staff_profile.staff_name, 'Leftover Staff')
+
+    def test_scrub_blanks_leftovers_and_never_prints_the_names(self):
+        output = self._run()
+
+        self.assertIn('2 hard-deleted account(s) scrubbed', output)
+        self.assertNotIn('Leftover', output)
+        self.legacy_staff.staff_profile.refresh_from_db()
+        self.legacy_supplier.supplier_profile.refresh_from_db()
+        self.assertEqual(self.legacy_staff.staff_profile.staff_name, '')
+        self.assertEqual(self.legacy_supplier.supplier_profile.contact_person, '')
+        self.assertEqual(self.legacy_supplier.supplier_profile.supplier_name, 'Acme Trading')
+
+    def test_live_accounts_are_untouched_and_a_rerun_is_a_no_op(self):
+        self._run()
+        output = self._run()
+
+        self.live_staff.staff_profile.refresh_from_db()
+        self.assertEqual(self.live_staff.staff_profile.staff_name, 'Live Person')
+        self.assertIn('0 hard-deleted account(s) scrubbed', output)
+
+
+class UserManagementHardDeletedRowTests(TestCase):
+    """Same display rule as Customer Accounts, on User Management: a hard-
+    deleted staff/supplier row is identified by UID only, has no actions
+    menu, and can't be edited or reactivated by a direct request."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='um-owner', password='pw', role=User.Role.OWNER
+        )
+        self.staff = User.objects.create_user(
+            username='um-staff', password='pw', email='umstaff@example.com',
+            role=User.Role.STAFF,
+        )
+        self.gone = User.objects.create_user(
+            username='um-gone', password='pw', email='umgone@example.com',
+            role=User.Role.STAFF,
+        )
+        from accounts.models import StaffProfile
+        from accounts.services import hard_delete_personal_data
+        hard_delete_personal_data(self.gone, performed_by=self.owner)
+        # Simulates a row erased BEFORE the service cleared the profile name
+        # column: the list used to fall back to that name, so it must keep
+        # showing the UID even for such a legacy row.
+        StaffProfile.objects.filter(user=self.gone).update(
+            staff_name='Leftover Realname'
+        )
+        self.gone.refresh_from_db()
+        self.client.force_login(self.owner)
+
+    def test_hard_deleted_row_shows_uid_and_hides_identity_and_actions(self):
+        response = self.client.get(reverse('accounts:user_list'))
+        rows = {r['user'].pk: r for r in response.context['rows']}
+
+        self.assertTrue(rows[self.gone.pk]['is_hard_deleted'])
+        self.assertEqual(rows[self.gone.pk]['full_name'], f'UID {self.gone.pk}')
+        self.assertFalse(rows[self.staff.pk]['is_hard_deleted'])
+
+        html = response.content.decode()
+        self.assertIn(f'UID {self.gone.pk}', html)
+        self.assertNotIn('Leftover Realname', html)
+        self.assertNotIn(self.gone.username, html)
+        self.assertNotIn(self.gone.email, html)
+        # The live staff member and the Owner keep their menus; the deleted
+        # row has none.
+        self.assertIn('aria-label="Actions for um-staff"', html)
+        self.assertEqual(html.count('<details class="row-menu">'), 2)
+
+    def test_edit_page_refuses_a_hard_deleted_account(self):
+        url = reverse('accounts:user_edit', args=[self.gone.pk])
+
+        self.assertRedirects(
+            self.client.get(url), reverse('accounts:user_list'),
+            fetch_redirect_response=False,
+        )
+        response = self.client.post(url, {
+            'role': User.Role.STAFF, 'username': 'revived-user',
+            'first_name': 'Re', 'last_name': 'Vived',
+        })
+        self.assertRedirects(
+            response, reverse('accounts:user_list'), fetch_redirect_response=False,
+        )
+        self.gone.refresh_from_db()
+        self.assertNotEqual(self.gone.username, 'revived-user')
+        self.assertFalse(self.gone.is_active)
+
+    def test_toggle_active_refuses_a_hard_deleted_staff_account(self):
+        response = self.client.post(
+            reverse('accounts:user_toggle_active', args=[self.gone.pk])
+        )
+        self.assertRedirects(
+            response, reverse('accounts:user_list'), fetch_redirect_response=False,
+        )
+        self.gone.refresh_from_db()
+        self.assertFalse(self.gone.is_active)
 
 
 class StaffInviteCompleteTests(TestCase):

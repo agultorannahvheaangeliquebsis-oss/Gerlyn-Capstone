@@ -389,10 +389,18 @@ def _user_list_context(request):
     for u in page.object_list:
         profile = _profile_for(u)
         branch = getattr(profile, 'branch', None) if profile else None
+        # Same rule as customer_list: a hard-deleted account is identified by
+        # its immutable id, never by a name. Skipping the profile-name
+        # fallback below matters here — hard_delete_personal_data blanks
+        # first/last name but not the role profile's own name column.
+        is_hard_deleted = u.deleted_at is not None
         rows.append({
             'user': u,
-            'full_name': u.get_full_name() or getattr(profile, 'manager_name', '')
-                         or getattr(profile, 'staff_name', '') or u.username,
+            'is_hard_deleted': is_hard_deleted,
+            'full_name': f'UID {u.pk}' if is_hard_deleted else (
+                u.get_full_name() or getattr(profile, 'manager_name', '')
+                or getattr(profile, 'staff_name', '') or u.username
+            ),
             'branch': branch.branch_name if branch else (
                 'All Branches' if u.role == User.Role.OWNER else '—'
             ),
@@ -466,6 +474,13 @@ def user_form(request, pk=None):
     target = get_object_or_404(
         User.objects.filter(role__in=USER_MANAGEMENT_ROLES), pk=pk
     ) if pk else None
+
+    # Edit is not offered for a hard-deleted account (its row menu is gone),
+    # and the form accepts a new username/name/password — so a direct URL
+    # must not be able to put an identity back on an erased row.
+    if target is not None and target.deleted_at:
+        messages.error(request, "That account's personal data was deleted — it can't be reactivated or changed.")
+        return redirect('accounts:user_list')
 
     if target is None:
         if request.method != 'POST':
