@@ -218,7 +218,8 @@ It deletes existing transactional records, so it requires `--yes` and refuses a
 non-local database unless `--allow-remote` is also given. `--seed` makes a
 rebuild reproducible; `--scale 0.3 --start 2026-09-20` gives a quick small run.
 By default every product picture is deleted and regenerated; `--no-images`
-leaves the existing pictures (files and rows) untouched and generates none, and
+leaves the existing pictures (files and rows) untouched and generates none (the
+consistency report then skips its "every product has a primary image" check), and
 `--images-only` regenerates just the pictures without touching any other record.
 Note that `seed_demo --reset` (above) is a different, older dataset with three
 differently named branches — running it afterwards replaces these records.

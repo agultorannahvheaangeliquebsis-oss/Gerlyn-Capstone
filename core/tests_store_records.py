@@ -154,3 +154,16 @@ class RebuildWithoutImagesTests(TestCase):
         for name, size in sizes.items():
             self.assertEqual(os.path.getsize(os.path.join(self._media, name)), size)
         self.assertEqual([c for c in checks if not c[1]], [])
+
+    def test_no_images_build_does_not_demand_a_primary_picture(self):
+        # A live catalogue can hold pictures that are not flagged primary (or
+        # none at all). With --no-images they are left alone, so the build
+        # must not fail its report over pictures it was told not to touch.
+        end = timezone.localtime(timezone.now()).replace(microsecond=0)
+        _, checks = history.rebuild(
+            StringIO(), start=end.date() - dt.timedelta(days=2), end_dt=end,
+            scale=0.05, seed=7, images=False, reset_counters=False)
+
+        self.assertFalse(ProductImage.objects.exists())
+        self.assertEqual([c[0] for c in checks if not c[1]], [])
+        self.assertNotIn("every product has a primary image", [c[0] for c in checks])

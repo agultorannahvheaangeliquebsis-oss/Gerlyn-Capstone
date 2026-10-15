@@ -15,14 +15,20 @@ build starts, so a build that fails part-way leaves the database emptied.
 
 ## 0. Before you start
 
-1. **The `--no-images` fix must be deployed.** Releases before it wipe every
-   picture even with `--no-images`. In the shell:
+1. **The `--no-images` fixes must be deployed.** Releases before them wipe every
+   picture even with `--no-images`, and then fail the final report. In the
+   shell:
 
    ```
    grep -n "if self.with_images" core/store_data/history.py
    ```
 
-   It must print a match inside `Builder.wipe()`. If it prints nothing, stop.
+   It must print **three** matches: the 8-space-indented guard in
+   `Builder.wipe()` (about line 243), the one in `catalog()` (about line 439)
+   and the one in `verify()` (about line 1412). Two matches, or only the
+   `catalog()` one, means an older release: stop. A single match at line 436 is
+   the original code. (Use `/opt/venv/bin/python` for Python commands in the
+   service shell; plain `python` has no Django.)
 
 2. **Pick a quiet window**, and stay clear of the nightly backup
    (19:00 UTC = 03:00 Manila). A backup taken mid-build captures a half-built
@@ -84,8 +90,10 @@ print(s.USE_CLOUDINARY, s.MEDIA_ROOT, type(d).__name__)"
 find /app/media/products -type f | wc -l; du -sb /app/media/products
 ```
 
-The last number of the fingerprint line must be `0`. A product without a
-primary picture fails the build's final check *after* the data is committed.
+The last number is how many products have no picture flagged primary. It is
+informational: with `--no-images` the build skips that check, so a catalogue
+with unflagged or uploaded pictures is fine. (An older release without the
+`verify()` guard would fail its final report *after* committing the data.)
 
 Also run the picture-load check from step 5 now, so a picture that already
 404s is not blamed on the rebuild.
@@ -124,8 +132,9 @@ start a second rebuild or a backup while it runs.
 
 ## 4. Check the log
 
-- 16 lines marked `[ok]`, none marked `[FAIL]`, and no
-  "consistency check(s) failed".
+- 15 lines marked `[ok]` (16 on a build that generates pictures; with
+  `--no-images` the "every product has a primary image" line is not
+  printed), none marked `[FAIL]`, and no "consistency check(s) failed".
 - It ends with
   `Built through 2026-10-20 08:00: 4125 walk-in sales, 216 online orders (22 cancelled), 551 purchase orders (543 receipts), 530 restock slips, 7 write-offs, 14 supplier returns, 11 refunds.`
   These are the local figures for the same seed. A small difference means
@@ -134,7 +143,7 @@ start a second rebuild or a backup while it runs.
 ## 5. Post-run checks
 
 **Products and pictures unchanged.** Re-run the fingerprint from step 1. All
-four values must be identical to before, and the last must be `0`.
+four values must be identical to before.
 
 **Pictures load, nothing was re-uploaded:**
 

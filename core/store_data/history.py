@@ -1407,8 +1407,11 @@ class Builder:
                 mismatched += 1
         add("every product matches the exported master list", mismatched == 0,
             f"{mismatched} differ")
-        add("every product has a primary image",
-            not Product.objects.exclude(images__is_primary=True).exists())
+        # A build without pictures (--no-images) leaves whatever pictures
+        # exist as they are, so it cannot promise each product has a primary one.
+        if self.with_images:
+            add("every product has a primary image",
+                not Product.objects.exclude(images__is_primary=True).exists())
         names = sorted(Branch.objects.values_list("branch_name", flat=True))
         add("4 branches, names unchanged", names == sorted(C.BRANCH_PROFILE), str(names))
         bad = 0
