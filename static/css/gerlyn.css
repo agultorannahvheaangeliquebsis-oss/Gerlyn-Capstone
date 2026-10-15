@@ -2105,6 +2105,17 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .grid-2 > .card:not(.table-wrap) > .card-pad:last-child > svg {
   flex: 1 1 140px; width: 100%; height: auto; min-height: 140px;
 }
+/* These charts are drawn with preserveAspectRatio="none", so once the svg
+   grows to its row the x and y scales differ (e.g. 0.38 vs 1.63 beside a tall
+   pie card). A stroke is scaled by each axis separately, which made flat
+   segments about four times heavier than steep ones. Non-scaling keeps the
+   line one weight, in screen px, whatever shape the chart is stretched to —
+   the same treatment .kpi-graph-panel svg gets above. Only the line is
+   affected; the area fill has stroke="none". */
+.grid-2 > .card:not(.table-wrap) > .card-pad:last-child > svg path,
+.grid-2 > .card:not(.table-wrap) > .card-pad:last-child > svg polyline {
+  vector-effect: non-scaling-stroke;
+}
 .grid-2 > .card:not(.table-wrap) > .feed-row,
 .grid-2 > .card:not(.table-wrap) > .attn-row,
 .grid-2 > .card:not(.table-wrap) > .attn-card {

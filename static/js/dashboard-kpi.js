@@ -436,18 +436,39 @@
     });
   }
 
-  // The scale-compensation factor (axisLabelScale above) is a
-  // function of the chart's LIVE rendered width and height, not a constant — a window
-  // resize alone, with no card switch and no font event to piggyback on,
-  // would otherwise leave the ticks at whatever size matched the width
-  // before the resize. Debounced: resize fires continuously while dragging,
-  // and re-measuring/redrawing on every single event is wasted work against
-  // a value that only matters once the drag settles.
-  var resizeTimer = null;
-  window.addEventListener('resize', function () {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function () {
+  // The scale-compensation factor (axisLabelScale above) is a function of the
+  // chart's LIVE rendered width and height, not a constant — a window resize
+  // alone, with no card switch and no font event to piggyback on, would
+  // otherwise leave the ticks at whatever size matched the chart before it
+  // changed.
+  //
+  // Observed on the svg itself rather than timed off the window's `resize`
+  // event: that event says the window changed, not that the chart has
+  // finished changing. The chart's width settles a few hundred ms later (the
+  // layout animates) and its height follows the neighbouring card's, so a
+  // redraw 150ms after the event measured a half-resized chart and left the
+  // labels skewed 10-12% until the next resize. ResizeObserver fires whenever
+  // the svg's box really changes — a window drag, a sidebar toggle, a legend
+  // re-wrapping — and after layout, so each redraw measures the geometry it
+  // is about to paint into. Drawing labels never changes the svg's own size,
+  // so this cannot feed back on itself.
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(function (entries) {
+      var box = entries[entries.length - 1].contentRect;
+      // Zero-sized means the chart is hidden ("Nothing to chart"): there is
+      // nothing to measure, and activate() redraws when it is shown again.
+      if (!box.width || !box.height) return;
       if (currentEntry) renderAxisLabels(currentEntry);
-    }, 150);
-  });
+    }).observe(svg);
+  } else {
+    // No ResizeObserver: fall back to the window event, debounced because it
+    // fires continuously while dragging and only the settled size matters.
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        if (currentEntry) renderAxisLabels(currentEntry);
+      }, 150);
+    });
+  }
 })();
