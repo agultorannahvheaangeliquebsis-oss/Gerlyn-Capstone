@@ -237,10 +237,13 @@ class Builder:
         # Placeholder catalogue rows and accounts from the earlier loader.
         Product.objects.filter(sku_code__startswith=OLD_SKU_PREFIX).delete()
         ProductCategory.objects.filter(category_name__startswith=OLD_CATEGORY_PREFIX).delete()
-        # Every product image is regenerated from the catalog.
-        for image in ProductImage.objects.all():
-            image.image.delete(save=False)
-        ProductImage.objects.all().delete()
+        # Every product image is regenerated from the catalog, so clear them
+        # first. Without pictures in this build (--no-images) the existing
+        # files and rows are left exactly as they are.
+        if self.with_images:
+            for image in ProductImage.objects.all():
+                image.image.delete(save=False)
+            ProductImage.objects.all().delete()
         # Reassign branches before the account that owned them goes away.
         gerlyn = User.objects.get(username="gerlyn")
         Branch.objects.exclude(owner=gerlyn).update(owner=gerlyn)

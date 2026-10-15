@@ -38,7 +38,8 @@ class Command(BaseCommand):
         parser.add_argument("--seed", type=int, default=2026,
                             help="Random seed, so a rebuild is reproducible.")
         parser.add_argument("--no-images", action="store_true",
-                            help="Skip generating product pictures.")
+                            help="Leave product pictures untouched: existing images are "
+                                 "kept as they are and none are generated.")
         parser.add_argument("--images-only", action="store_true",
                             help="Only regenerate the product pictures; touch nothing else.")
 

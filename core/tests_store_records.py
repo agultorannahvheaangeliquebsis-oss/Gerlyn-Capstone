@@ -1,8 +1,10 @@
 import datetime as dt
+import os
 import shutil
 import tempfile
-from io import StringIO
+from io import BytesIO, StringIO
 
+from django.core.files.base import ContentFile
 from django.db.models import F, Sum
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -11,7 +13,7 @@ from PIL import Image
 from branches.models import Branch
 from core.store_data import catalog, history
 from billing.models import BillingRecord
-from inventory.models import Batch, Inventory, Product, WarehouseStock
+from inventory.models import Batch, Inventory, Product, ProductImage, WarehouseStock
 from procurement.models import Procurement
 from reports.services import gross_sales_total
 from sales.models import SalesItem, SalesTransaction
@@ -105,3 +107,50 @@ class RebuildStoreRecordsTests(TestCase):
     def test_catalog_flags_match_the_master_list(self):
         exempt = set(Product.objects.filter(is_vat_exempt=True).values_list("sku_code", flat=True))
         self.assertEqual(exempt, {r[0] for r in catalog.PRODUCTS if "v" in r[9]})
+
+
+class RebuildWithoutImagesTests(TestCase):
+    """--no-images must leave the existing product pictures alone: same rows,
+    same files. It is the only way to rebuild records without re-uploading
+    (and renumbering) every picture."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._media = tempfile.mkdtemp()
+        cls._override = override_settings(MEDIA_ROOT=cls._media)
+        cls._override.enable()
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._override.disable()
+        shutil.rmtree(cls._media, ignore_errors=True)
+        super().tearDownClass()
+
+    def test_rebuild_with_images_false_keeps_the_same_product_images(self):
+        end = timezone.localtime(timezone.now()).replace(microsecond=0)
+        window = {"start": end.date() - dt.timedelta(days=2), "end_dt": end,
+                  "scale": 0.05, "seed": 7, "reset_counters": False}
+        # Build the products without pictures (rendering the full set takes
+        # minutes), then give each one a small picture of its own to protect.
+        history.rebuild(StringIO(), images=False, **window)
+        buf = BytesIO()
+        Image.new("RGB", (8, 8), "white").save(buf, "JPEG")
+        for product in Product.objects.all():
+            ProductImage(product=product, is_primary=True).image.save(
+                f"{product.sku_code.lower()}.jpg", ContentFile(buf.getvalue()), save=True)
+
+        def snapshot():
+            return sorted(ProductImage.objects.values_list("id", "product_id", "image"))
+
+        before = snapshot()
+        self.assertEqual(len(before), len(catalog.PRODUCTS))
+        sizes = {name: os.path.getsize(os.path.join(self._media, name))
+                 for _, _, name in before}
+
+        _, checks = history.rebuild(StringIO(), images=False, **window)
+
+        self.assertEqual(snapshot(), before)
+        for name, size in sizes.items():
+            self.assertEqual(os.path.getsize(os.path.join(self._media, name)), size)
+        self.assertEqual([c for c in checks if not c[1]], [])
