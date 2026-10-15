@@ -62,11 +62,20 @@
   // switch) would otherwise leave stale, wrong-sized ticks on screen.
   var AXIS_LABEL_TARGET_PX = 14;
 
-  function axisLabelScaleFactor() {
+  //
+  // Per axis, not one number: the chart fills whatever height its card is
+  // given (gerlyn.css, .kpi-graph-panel), and with preserveAspectRatio="none"
+  // that scales x and y by different factors. Font size is a vertical
+  // measurement, so it is divided by the y factor; the text is then
+  // counter-scaled horizontally by y/x (see renderAxisLabels) so a glyph
+  // keeps its natural proportions however the plot is stretched.
+  function axisLabelScale() {
     var vb = svg.viewBox.baseVal;
-    if (!vb || !vb.width) return 1;
     var rect = svg.getBoundingClientRect();
-    return rect.width ? (rect.width / vb.width) : 1;
+    if (!vb || !vb.width || !vb.height || !rect.width || !rect.height) {
+      return { x: 1, y: 1 };
+    }
+    return { x: rect.width / vb.width, y: rect.height / vb.height };
   }
 
   // The series continuous hover reads from — kept in sync by activate() on
@@ -269,14 +278,17 @@
     // See AXIS_LABEL_TARGET_PX above — computed once per call, not once per
     // tick: the chart's rendered width can't change between two ticks in
     // the same draw.
-    var userUnitSize = AXIS_LABEL_TARGET_PX / axisLabelScaleFactor();
+    var scale = axisLabelScale();
+    var userUnitSize = AXIS_LABEL_TARGET_PX / scale.y;
+    var stretch = scale.y / scale.x;
     (entry.axisLabels || []).forEach(function (tick) {
       var text = document.createElementNS(SVG_NS, 'text');
-      text.setAttribute('x', tick.x);
-      // 254, not 214 — the viewBox grew from height 220 to 260 (see
-      // dashboard.html's #kpi-graph-svg), and this must track the same
-      // offset-from-baseline the template's own server-rendered ticks use.
-      text.setAttribute('y', 254);
+      // Positioned by transform rather than x/y so the horizontal
+      // counter-scale pivots on the tick's own anchor point. 254, not 214 —
+      // the viewBox grew from height 220 to 260 (see dashboard.html's
+      // #kpi-graph-svg), and this must track the same offset-from-baseline
+      // the template's own server-rendered ticks use.
+      text.setAttribute('transform', 'translate(' + tick.x + ' 254) scale(' + stretch + ' 1)');
       text.setAttribute('text-anchor', tick.anchor);
       text.setAttribute('class', 'kpi-graph-axis-label');
       // Inline, not the class's own font-size: an inline style wins over
@@ -424,8 +436,8 @@
     });
   }
 
-  // The scale-compensation factor (axisLabelScaleFactor above) is a
-  // function of the chart's LIVE rendered width, not a constant — a window
+  // The scale-compensation factor (axisLabelScale above) is a
+  // function of the chart's LIVE rendered width and height, not a constant — a window
   // resize alone, with no card switch and no font event to piggyback on,
   // would otherwise leave the ticks at whatever size matched the width
   // before the resize. Debounced: resize fires continuously while dragging,

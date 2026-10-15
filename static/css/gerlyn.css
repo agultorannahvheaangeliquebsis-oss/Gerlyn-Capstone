@@ -503,11 +503,32 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-card); box-shadow: var(--shadow-card);
 }
-/* height:auto keeps the 760x220 viewBox proportional, so on a wide screen the
-   panel balloons to match. The cap holds the page's vertical rhythm; the SVG
-   carries preserveAspectRatio="none", so it compresses to fit rather than
-   cropping anything. */
-.kpi-graph-panel svg { display: block; width: 100%; height: auto; max-height: 280px; }
+/* The panel shares a row with the Sales by Branch donut (.grid-2), and the row
+   is as tall as the taller of the two. The old chart was sized from its width
+   (height:auto on a 760x260 viewBox, capped at 280px), so it got shorter as the
+   window narrowed while the donut and its legend did not — and the panel, being
+   stretched to the donut's height, showed a blank band under the chart that
+   grew with every pixel the window lost.
+
+   Now the panel is a flex column and the chart is the part that flexes: the
+   svg wrap takes the slack and the svg grows into it. flex-basis 240px is the
+   chart's resting height at any width (it no longer depends on the viewport
+   width, so it cannot fall behind the donut), min-height keeps it readable on
+   a phone, and there is no max-height — the panel's height is now decided by
+   its row, not by the chart. The SVG carries preserveAspectRatio="none", so
+   it stretches to fit rather than cropping anything. That scales x and y by
+   different factors, which would smear text and line weight, so dashboard-
+   kpi.js sizes the axis labels per axis and the strokes below are
+   non-scaling. */
+.kpi-graph-panel { display: flex; flex-direction: column; min-width: 0; }
+.kpi-graph-panel > .kpi-graph-svg-wrap {
+  flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;
+}
+.kpi-graph-panel svg { display: block; width: 100%; height: auto; flex: 1 1 240px; min-height: 200px; }
+.kpi-graph-panel svg path, .kpi-graph-panel svg line { vector-effect: non-scaling-stroke; }
+/* "Nothing to chart" takes the chart's place, so it fills and centres in the
+   same space rather than sitting at the top of an otherwise empty panel. */
+.kpi-graph-panel .kpi-graph-svg-wrap > .empty { flex: 1 1 auto; justify-content: center; }
 /* Sales Trend by Branch's own chart (reports/views.py::
    _sales_trend_by_branch_chart) reuses .kpi-graph-svg-wrap for the tooltip's
    positioned ancestor (below) but isn't itself a .kpi-graph-panel — it never
@@ -2044,6 +2065,54 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    centers in it. */
 .card-fill { display: flex; flex-direction: column; }
 .card-fill > .card-fill-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+
+/* Equal-height cards in a shared grid row — the general case of .card-fill and
+   .donut-card, applied to every .card that is a direct child of .grid-2.
+
+   A grid row is as tall as its tallest card and the shorter ones stretch to
+   match (align-items: stretch), but a stretched .card is a plain block, so
+   its header and content stay at the top and the extra height pools as an
+   empty band along the bottom edge. Which card is the tall one changes with
+   the window: a chart panel is width-driven and shrinks as the window
+   narrows, a legend or feed is not, so the blank band appeared, grew and
+   vanished as the window was resized.
+
+   The fix is structural rather than a per-width tweak — the card becomes a
+   flex column, its body (the last .card-pad, or the row list in the feed
+   cards) takes the slack, and the content sits centred in it, so the same
+   rule holds at every width and for every pair of cards:
+     - min-width/min-height: 0 so a long legend or figure yields inside the
+       card instead of stretching the track past the viewport.
+     - .table-wrap cards are excluded: those scroll sideways and are never
+       one of a pair.
+     - a chart <svg> that is the body's direct child (Daily Sales, Daily
+       Spend) grows with the body instead of floating in it; flex-basis keeps
+       the 140px it was drawn at as the floor. Charts nested deeper, such as
+       the donut inside .pie-wrap, keep their drawn size and are centred.
+     - rows that are direct children of the card (Recent Activity, Needs
+       Attention) share the slack between them. They already centre their own
+       content (align-items: center) so a taller row reads as more air around
+       each row's text rather than a gap under the list. */
+.grid-2 > .card:not(.table-wrap),
+.grid-2 > a.card {
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+}
+.grid-2 > .card:not(.table-wrap) > .card-pad:last-child {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.grid-2 > .card:not(.table-wrap) > .card-pad:last-child > svg {
+  flex: 1 1 140px; width: 100%; height: auto; min-height: 140px;
+}
+.grid-2 > .card:not(.table-wrap) > .feed-row,
+.grid-2 > .card:not(.table-wrap) > .attn-row,
+.grid-2 > .card:not(.table-wrap) > .attn-card {
+  flex: 1 1 auto;
+}
+/* Quick-action link cards (Staff dashboard): the label block centres in the
+   card instead of hugging its top edge when the sibling wraps to more lines. */
+.grid-2 > a.card { justify-content: center; }
 .hidden { display: none !important; }
 .mt-0{margin-top:0}.mt-2{margin-top:var(--s2)}.mt-4{margin-top:var(--s4)}.mt-6{margin-top:var(--s6)}
 .mb-0{margin-bottom:0}.mb-2{margin-bottom:var(--s2)}.mb-4{margin-bottom:var(--s4)}.mb-6{margin-bottom:var(--s6)}

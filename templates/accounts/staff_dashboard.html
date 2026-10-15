@@ -22,7 +22,7 @@
 
 {# ---------------------------- quick actions ---------------------------- #}
 <div class="grid-2 mb-6">
-  <a class="card card-pad" href="{% url 'inventory_list' %}" style="display:block; text-decoration:none; color:inherit;">
+  <a class="card card-pad" href="{% url 'inventory_list' %}" style="text-decoration:none; color:inherit;">
     <div class="row-between">
       <div>
         <div style="font-weight:600; font-size:16px;">Check Inventory</div>
@@ -31,7 +31,7 @@
       <span class="count count-info" aria-label="{{ total_products }} item{{ total_products|pluralize }}">{{ total_products }}</span>
     </div>
   </a>
-  <a class="card card-pad" href="{% url 'delivery_list' %}" style="display:block; text-decoration:none; color:inherit;">
+  <a class="card card-pad" href="{% url 'delivery_list' %}" style="text-decoration:none; color:inherit;">
     <div class="row-between">
       <div>
         <div style="font-weight:600; font-size:16px;">Receive Stock</div>
