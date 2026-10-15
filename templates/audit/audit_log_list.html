@@ -55,7 +55,7 @@ match buried in a secondary record still shows here in full — see
 audit.views.audit_log_list's second, unfiltered fetch.
 {% endcomment %}
 <div class="card table-wrap">
-  <table class="gv-table" id="audit-table">
+  <table class="gv-table audit-table" id="audit-table">
     <thead>
       <tr><th>When</th><th>Actor</th><th>Action</th><th>Record</th><th>What happened</th></tr>
     </thead>
@@ -67,7 +67,7 @@ audit.views.audit_log_list's second, unfiltered fetch.
           {% if g.primary.ip_address %}<div class="audit-when-ip">{{ g.primary.ip_address }}</div>{% endif %}
         </td>
         <td data-label="Actor">
-          <span class="strong">{{ g.actor }}</span>
+          <span class="strong audit-wrap">{{ g.actor }}</span>
           {% if g.primary.actor_role %}<div class="gv-meta">{{ g.primary.actor_role }}</div>{% endif %}
         </td>
         <td data-label="Action">
@@ -79,13 +79,16 @@ audit.views.audit_log_list's second, unfiltered fetch.
         </td>
         <td data-label="Record">
           <span class="strong">{{ g.entity_label }}</span>
-          <div class="gv-meta">{{ g.primary.record_repr }} · ID {{ g.primary.record_id }}{% if g.branch %} · {{ g.branch }}{% endif %}</div>
+          <div class="gv-meta audit-wrap">{{ g.primary.record_repr }} · ID {{ g.primary.record_id }}{% if g.branch %} · {{ g.branch }}{% endif %}</div>
         </td>
         <td data-label="What happened" class="audit-what">
-          <span class="audit-what-text">{{ g.summary_text }}</span>
-          <a href="{% url 'audit_action_detail' g.key %}" class="icon-btn icon-btn-action" title="View processes" aria-label="View the {{ g.process_count }} process{{ g.process_count|pluralize }} in this action">
-            {% include "partials/_empty_icon.html" with icon="eye" %}
-          </a>
+          {# The flex row lives on this inner div, not on the <td> — a flex <td> stops being a table cell and its row no longer grows with the text. #}
+          <div class="audit-what-body">
+            <span class="audit-what-text">{{ g.summary_text }}</span>
+            <a href="{% url 'audit_action_detail' g.key %}" class="icon-btn icon-btn-action" title="View processes" aria-label="View the {{ g.process_count }} process{{ g.process_count|pluralize }} in this action">
+              {% include "partials/_empty_icon.html" with icon="eye" %}
+            </a>
+          </div>
         </td>
       </tr>
       {% empty %}

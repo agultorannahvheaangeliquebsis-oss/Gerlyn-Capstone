@@ -396,7 +396,10 @@
       text-transform: uppercase; color: var(--ink-500); background: var(--sp-thead);
       padding: 14px 16px; border-bottom: 1px solid var(--sp-border); white-space: nowrap;
     }
-    .sp-pp-table td { padding: 14px 16px; border-bottom: 1px solid var(--sp-row); font-size: 13.5px; vertical-align: middle; }
+    /* overflow-wrap: with table-layout: fixed a cell never grows for its
+       content, so an unbroken product name / SKU / review note used to spill
+       into the next column. Wrap it inside its own cell instead. */
+    .sp-pp-table td { padding: 14px 16px; border-bottom: 1px solid var(--sp-row); font-size: 13.5px; vertical-align: middle; overflow-wrap: anywhere; }
     .sp-pp-table th.num, .sp-pp-table td.num { text-align: right; }
     .sp-pp-table th.end, .sp-pp-table td.end { text-align: right; }
     .sp-pp-price-input { width: 100%; height: 36px; border-radius: 7px; border: 1px solid var(--sp-border); padding: 0 8px; text-align: right; font: 400 15px/1.4 var(--font-sans); box-sizing: border-box; }
@@ -435,7 +438,7 @@
       .sp-action-strip { flex-wrap: wrap; }
       .sp-action-strip-btn { margin-left: 0; }
       .sp-orders-table thead { display: none; }
-      .sp-orders-table td { display: block; padding: 6px 14px; }
+      .sp-orders-table td { display: block; padding: 6px 14px; overflow-wrap: anywhere; }
       .sp-orders-table tr.sp-order-row { display: block; padding: 10px 0; border-bottom: 1px solid var(--sp-row); }
     }
   </style>

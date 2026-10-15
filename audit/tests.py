@@ -1,9 +1,12 @@
 import json
+import re
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from unittest import mock
 
 from django.apps import apps
+from django.conf import settings
 from django.db import DatabaseError, connection, transaction
 from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
 from django.urls import reverse
@@ -619,6 +622,40 @@ class AuditLogViewTests(TestCase):
         self.assertContains(detail, 'Baliuag')
         self.assertContains(detail, 'Bulacan')
         self.assertContains(detail, 'View 1 field')
+
+    def test_the_what_happened_cell_stays_a_table_cell_so_long_text_grows_its_row(self):
+        """A long summary overlapped the rows below it because `.audit-what`
+        put display:flex on the <td> itself: a td that is not a table-cell
+        drops out of row-height layout, and .gv-table td's `height: 48px`
+        (a minimum on a real cell) became an exact box. The flex layout has
+        to live on a wrapper INSIDE the td."""
+        AuditLog.objects.create(
+            action='update', entity='branches.Branch', record_id='7',
+            record_repr='x' * 200, actor_role='STAFF',
+            summary='Updated Branch ' + ' '.join(['very-long-summary'] * 24),
+        )
+
+        html = self.client.get(self.url).content.decode()
+
+        # Markup: the flex row is the inner wrapper, and the table opts in to
+        # the audit wrapping rules on the elements that can hold a long token.
+        self.assertIn('class="gv-table audit-table"', html)
+        self.assertRegex(
+            html, r'<td data-label="What happened" class="audit-what">\s*<div class="audit-what-body">',
+        )
+        self.assertIn('audit-wrap', html)
+
+        # Stylesheet: no rule may turn the cell itself into a flex/grid box.
+        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'gerlyn.css').read_text(encoding='utf-8')
+        css = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
+        for rule in re.finditer(r'(?P<sel>[^{}]+)\{(?P<body>[^{}]*)\}', css):
+            selectors = [s.strip() for s in rule.group('sel').split(',')]
+            if any(re.fullmatch(r'\.audit-what|td\.audit-what|\.audit-table td(\.audit-what)?', s)
+                   for s in selectors):
+                self.assertNotRegex(
+                    rule.group('body'), r'display\s*:\s*(inline-)?(flex|grid)',
+                    f'{rule.group("sel").strip()} must stay a table cell',
+                )
 
     def test_a_removed_actor_is_labelled_not_a_crash(self):
         AuditLog.objects.create(

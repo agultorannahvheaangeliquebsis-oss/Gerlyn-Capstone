@@ -53,7 +53,7 @@ same way it always has.
   <div class="card-pad" style="padding-bottom:0;">
     <h3>Processes <span class="pill pill-neutral">{{ rows|length }}</span></h3>
   </div>
-  <table class="gv-table">
+  <table class="gv-table audit-table">
     <thead>
       <tr><th>Action</th><th>Record</th><th>What happened</th></tr>
     </thead>
@@ -67,14 +67,14 @@ same way it always has.
         </td>
         <td data-label="Record">
           <span class="strong">{{ r.entity_label }}</span>
-          <div class="gv-meta">{{ r.log.record_repr }} · ID {{ r.log.record_id }}{% if r.branch %} · {{ r.branch }}{% endif %}</div>
+          <div class="gv-meta audit-wrap">{{ r.log.record_repr }} · ID {{ r.log.record_id }}{% if r.branch %} · {{ r.branch }}{% endif %}</div>
         </td>
-        <td data-label="What happened">
-          {{ r.log.summary }}
+        <td data-label="What happened" class="audit-what">
+          <div class="audit-wrap">{{ r.log.summary }}</div>
           {% if r.changes %}
           <details class="mt-1">
             <summary class="gv-meta" style="cursor:pointer;">View {{ r.changes|length }} field{{ r.changes|length|pluralize }}</summary>
-            <table class="gv-table kv-table" style="border:0; margin-top:8px;">
+            <table class="gv-table kv-table audit-fields" style="border:0; margin-top:8px;">
               <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
               <tbody>
                 {% for field, before, after in r.changes %}

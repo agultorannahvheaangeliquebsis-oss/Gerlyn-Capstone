@@ -2016,6 +2016,14 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
     letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500);
     text-align: left; flex: none;
   }
+  /* A value with no break opportunity (an email, a SKU, a file path, a
+     username) is an anonymous flex item whose min-content is the whole
+     string, so it ran straight past the card's right edge. `anywhere` lets
+     that item shrink and wrap inside its own row. Safe to say for every cell
+     here — unlike an auto-layout desktop table there is no column
+     distribution for it to distort — and a value with spaces still wraps at
+     the spaces first. */
+  .gv-table td { overflow-wrap: anywhere; }
   .gv-table td.num { text-align: right; }
   .row-actions { justify-content: flex-end; gap: 4px; }
   /* Stacked cards are touched, not clicked — take the icon buttons up
@@ -2045,9 +2053,15 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    of being replaced by an empty data-label pseudo-element. */
 @media (max-width: 860px) {
   .kv-table tr { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); }
-  .kv-table td { display: block; text-align: right; border-bottom: none; height: auto; padding: 8px 0; }
+  /* width:auto undoes the stacked card's `.gv-table td { width: 100% }`. With
+     it left in, the flex:none label cell below was a full row wide and the
+     value cell was pushed past the card's right edge — every value sat
+     outside its card and the .table-wrap scrolled sideways to find it.
+     overflow-wrap lets a long value (an address, an email) wrap in the room
+     that is left beside the label rather than run past the edge. */
+  .kv-table td { display: block; width: auto; text-align: right; border-bottom: none; height: auto; padding: 8px 0; overflow-wrap: anywhere; }
   .kv-table td::before { content: none; }
-  .kv-table td:first-child { text-align: left; flex: none; }
+  .kv-table td:first-child { text-align: left; flex: none; max-width: 50%; }
 }
 
 /* -------------------------------------------------------------- utilities */
@@ -3122,6 +3136,11 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
      its container, and the existing .table-wrap overflow-x:auto scrolls it
      instead of letting Priority/Status/Action collide. */
   .notif-table { table-layout: fixed; min-width: 930px; }
+  /* Fixed layout never grows a column for its content, so an unbroken title
+     or message (an order reference, a file path) used to paint straight over
+     the next column. `anywhere` wraps it inside its own cell; the column
+     widths are explicit, so there is no auto-layout squeeze for it to feed. */
+  .notif-table td { overflow-wrap: anywhere; }
   .notif-table th:nth-child(1), .notif-table td:nth-child(1) { width: 28%; }
   .notif-table th:nth-child(2), .notif-table td:nth-child(2) { width: 13%; }
   .notif-table th:nth-child(3), .notif-table td:nth-child(3) { width: 11%; }
@@ -3277,9 +3296,48 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .audit-when-ts { color: var(--ink-900); }
 .audit-when-ip { margin-top: 2px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
-.audit-what { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
-.audit-what-text { flex: 1 1 240px; }
-.audit-what .icon-btn { flex: none; }
+/* Cells wrap and rows grow to fit. "What happened" used to be `display:flex`
+   on the <td> itself. A td that is no longer display:table-cell drops out of
+   the table's row-height calculation, so .gv-table td's `height: 48px` — only
+   a minimum on a real cell — became an exact 48px box: a long summary wrapped
+   inside it, ran past the bottom edge and was painted over the rows below
+   while its own row stayed short. The flex row now lives on .audit-what-body,
+   a div INSIDE the cell, so the td stays a table cell and the row grows. */
+.audit-what-body { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.audit-what-text { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.audit-what-body .icon-btn { flex: none; }
+
+/* An unbroken string (a username, a backup file path, an IPv6 address, a
+   255-character record name) breaks inside its own cell instead of stretching
+   the table past its card. `anywhere`, not `break-word`: only `anywhere`
+   lowers the cell's min-content width, which is what stops one long token
+   from making the whole table — and its horizontal scrollbar — enormous.
+   Opt-in per element (.audit-wrap) on purpose, NOT on every td: in an
+   auto-layout table the browser hands spare width out in proportion to
+   (max-content − min-content), so `anywhere` on the short columns lets the
+   long summary squeeze When/Action to a few characters wide and the
+   timestamp snaps mid-digit. Only the strings that can actually be long get it. */
+.audit-wrap, .audit-when-ip { overflow-wrap: anywhere; }
+/* Floor for the summary column. Without it a 500-character summary is handed
+   whatever is left over after the other four columns — measured ~150px at a
+   1024px viewport with the sidebar open, i.e. a row 800px tall. Below the
+   floor the card scrolls sideways (.table-wrap), as notif-table does too. */
+@media (min-width: 861px) {
+  .audit-table td.audit-what { min-width: 16rem; }
+}
+
+/* Field-level diff inside a process row (audit_action_detail.html). Fixed
+   layout so Before/After split the row evenly whatever they contain, and long
+   values wrap in their column instead of pushing the table wider than the
+   cell it sits in. Desktop only — below 860px .gv-table/.kv-table already
+   turn every cell into its own stacked row and a column width would fight it. */
+@media (min-width: 861px) {
+  .audit-fields { table-layout: fixed; width: 100%; }
+  .audit-fields th:first-child, .audit-fields td:first-child { width: 30%; }
+}
+/* Safe on every cell here: fixed layout gives each column an explicit width,
+   so `anywhere` cannot take part in the proportional squeeze described above. */
+.audit-fields td { overflow-wrap: anywhere; }
 
 /* ------------------------------------------------------------- pagination */
 /* Drawn by templates/partials/_pager.html. Count on the left, buttons on the
