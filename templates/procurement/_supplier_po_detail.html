@@ -86,9 +86,9 @@ back to after POSTing — see _supplier_next_redirect in procurement/views.py).
     <button type="submit" class="sp-confirm-btn">Confirm &amp; start preparing</button>
   </form>
 </div>
-{% elif o.status == 'Communicated/Ordered' %}
+{% elif o.status == 'Ordered' %}
 <div class="sp-confirm-box">
-  <p>This PO was communicated outside the portal for delivery on {{ o.delivery_date|date:"M j, Y" }}. You may acknowledge it here; the store can receive it either way.</p>
+  <p>This PO was ordered outside the portal for delivery on {{ o.delivery_date|date:"M j, Y" }}. You may acknowledge it here; the store can receive it either way.</p>
   <form method="POST" action="{% url 'procurement_supplier_confirm' o.pk %}">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next_url }}">

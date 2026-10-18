@@ -27,7 +27,7 @@ class Procurement(models.Model):
         PENDING_OWNER_REVIEW = 'Pending Owner Review', 'Pending Owner Review'
         PENDING_SUPPLIER_REVIEW = 'Pending Supplier Review', 'Pending Supplier Review'
         TERMS_AGREED = 'Terms Agreed', 'Terms Agreed'
-        COMMUNICATED = 'Communicated/Ordered', 'Communicated/Ordered'
+        ORDERED = 'Ordered', 'Ordered'
         INCOMING = 'Incoming', 'Incoming'
         PARTIALLY_RECEIVED = 'Partially Received', 'Partially Received'
         RECEIVED = 'Received', 'Received'
@@ -50,7 +50,7 @@ class Procurement(models.Model):
     # where the money comes from stops being editable. Cancelled is locked too:
     # a closed order's paperwork shouldn't change.
     FUNDING_LOCKED_STATUSES = frozenset({
-        Status.TERMS_AGREED, Status.COMMUNICATED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
+        Status.TERMS_AGREED, Status.ORDERED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
         Status.RECEIVED, Status.CANCELLED,
     })
 
@@ -87,20 +87,20 @@ class Procurement(models.Model):
     ALLOWED_TRANSITIONS = {
         Status.DRAFT: {Status.APPROVED, Status.CANCELLED},
         Status.APPROVED: {
-            Status.PENDING_OWNER_REVIEW, Status.COMMUNICATED, Status.CANCELLED,
+            Status.PENDING_OWNER_REVIEW, Status.ORDERED, Status.CANCELLED,
         },
         Status.PENDING_OWNER_REVIEW: {
             Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED,
-            Status.COMMUNICATED, Status.CANCELLED,
+            Status.ORDERED, Status.CANCELLED,
         },
         Status.PENDING_SUPPLIER_REVIEW: {
             Status.PENDING_OWNER_REVIEW, Status.TERMS_AGREED,
-            Status.COMMUNICATED, Status.CANCELLED,
+            Status.ORDERED, Status.CANCELLED,
         },
         Status.TERMS_AGREED: {
-            Status.COMMUNICATED, Status.INCOMING, Status.CANCELLED,
+            Status.ORDERED, Status.INCOMING, Status.CANCELLED,
         },
-        Status.COMMUNICATED: {
+        Status.ORDERED: {
             Status.INCOMING, Status.PARTIALLY_RECEIVED,
             Status.RECEIVED, Status.CANCELLED,
         },
@@ -117,7 +117,7 @@ class Procurement(models.Model):
     # Statuses in which goods are still expected from the supplier against a
     # delivery_date the two sides already agreed.
     AWAITING_DELIVERY_STATUSES = frozenset({
-        Status.COMMUNICATED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
+        Status.ORDERED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
     })
 
     def days_overdue(self, today=None):
@@ -150,7 +150,7 @@ class Procurement(models.Model):
     })
     # Every status short of Received/Cancelled, including Draft.
     OPEN_STATUSES = frozenset({Status.DRAFT, Status.APPROVED}) | NEGOTIATION_STATUSES | frozenset({
-        Status.COMMUNICATED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
+        Status.ORDERED, Status.INCOMING, Status.PARTIALLY_RECEIVED,
     })
     # Same, but Draft excluded — Draft has no owner/authorized_at yet and
     # commits no spend, so it's left out of anything counting "committed"
@@ -170,7 +170,7 @@ class Procurement(models.Model):
     # so both read the same real span rather than a hand-copied status list.
     SUPPLIER_ACTION_STATUSES = frozenset({
         Status.APPROVED, Status.PENDING_SUPPLIER_REVIEW, Status.TERMS_AGREED,
-        Status.COMMUNICATED,
+        Status.ORDERED,
     })
 
     # --- existing fields (untouched) ----------------------------------------
@@ -337,12 +337,6 @@ class Procurement(models.Model):
                 name='procurement_total_cost_not_negative',
             ),
         ]
-
-
-# Temporary source-code compatibility for integrations that imported the old
-# enum member. Its value is now the explicit Approved state; no new database
-# row is written as Ordered.
-Procurement.Status.ORDERED = Procurement.Status.APPROVED
 
 
 class ProcurementItem(models.Model):

@@ -11,7 +11,7 @@ from procurement.services import process_overdue_deliveries
 
 
 class Command(BaseCommand):
-    help = 'Notify about communicated/incoming orders past their delivery date.'
+    help = 'Notify about ordered/incoming orders past their delivery date.'
 
     def handle(self, *args, **options):
         result = process_overdue_deliveries()

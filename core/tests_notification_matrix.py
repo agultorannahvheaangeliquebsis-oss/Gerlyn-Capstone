@@ -155,7 +155,7 @@ class NotificationMatrixTests(TestCase):
             supplier=self.supplier,
             created_by=self.manager,
             order_date=timezone.localdate(),
-            status=Procurement.Status.ORDERED,
+            status=Procurement.Status.APPROVED,
         )
         notify_po_approved(procurement, self.owner)
 
@@ -177,7 +177,7 @@ class NotificationMatrixTests(TestCase):
             created_by=self.manager,
             order_date=timezone.localdate(),
             delivery_date=timezone.localdate() + timedelta(days=3),
-            status=Procurement.Status.ORDERED,
+            status=Procurement.Status.APPROVED,
         )
         notify_incoming_delivery(procurement, self.supplier)
 

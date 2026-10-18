@@ -80,7 +80,7 @@ class OptionalSupplierParticipationTests(TestCase):
         )
         self.po.refresh_from_db()
         self.item.refresh_from_db()
-        self.assertEqual(self.po.status, Procurement.Status.COMMUNICATED)
+        self.assertEqual(self.po.status, Procurement.Status.ORDERED)
         self.assertEqual(self.po.communicated_by, self.owner)
         self.assertEqual(self.po.communication_method, 'Message')
         self.assertEqual(self.po.total_cost, Decimal('500.00'))
@@ -116,7 +116,7 @@ class OptionalSupplierParticipationTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.po.refresh_from_db()
         big.refresh_from_db()
-        self.assertEqual(self.po.status, Procurement.Status.COMMUNICATED)
+        self.assertEqual(self.po.status, Procurement.Status.ORDERED)
         self.assertEqual(big.unit_cost_snapshot, Decimal('30.00'))
         self.assertEqual(self.po.total_cost, Decimal('600.00'))
 
@@ -177,7 +177,7 @@ class OptionalSupplierParticipationTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.po.refresh_from_db()
-        self.assertEqual(self.po.status, Procurement.Status.COMMUNICATED)
+        self.assertEqual(self.po.status, Procurement.Status.ORDERED)
         self.assertEqual(self.po.communicated_by, self.staff)
 
     def test_supplier_can_acknowledge_but_acknowledgement_is_not_required(self):
@@ -246,14 +246,14 @@ class OptionalSupplierParticipationTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()['status'], Procurement.Status.COMMUNICATED)
+        self.assertEqual(response.json()['status'], Procurement.Status.ORDERED)
         self.assertEqual(response.json()['total'], '512.50')
 
     def test_bare_status_update_cannot_bypass_external_terms(self):
         self.client.force_login(self.owner)
         response = self.client.patch(
             reverse('api-procurement-status', args=[self.po.pk]),
-            data=json.dumps({'status': Procurement.Status.COMMUNICATED}),
+            data=json.dumps({'status': Procurement.Status.ORDERED}),
             content_type='application/json',
         )
 

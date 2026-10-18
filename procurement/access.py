@@ -17,7 +17,7 @@ from .models import Procurement
 STAFF_VISIBLE_STATUSES = frozenset({
     Procurement.Status.APPROVED,
     *Procurement.NEGOTIATION_STATUSES,
-    Procurement.Status.COMMUNICATED,
+    Procurement.Status.ORDERED,
     Procurement.Status.INCOMING,
     Procurement.Status.PARTIALLY_RECEIVED,
     Procurement.Status.RECEIVED,

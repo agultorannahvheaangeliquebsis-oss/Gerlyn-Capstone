@@ -36,7 +36,7 @@ class SupplierCostError(Exception):
 
 
 class ExternalOrderError(Exception):
-    """Externally communicated terms are incomplete or no longer applicable."""
+    """Externally agreed terms are incomplete or no longer applicable."""
 
 
 class DeliveryError(Exception):
@@ -165,13 +165,13 @@ def record_external_order(
     receiving and reporting paths do not need separate business rules.
     ``procurement`` must already be row-locked by the caller.
     """
-    if not procurement.can_transition_to(Procurement.Status.COMMUNICATED):
+    if not procurement.can_transition_to(Procurement.Status.ORDERED):
         raise ExternalOrderError(
-            f'{procurement.po_number} cannot be communicated while it is '
+            f'{procurement.po_number} cannot be marked Ordered while it is '
             f'{procurement.status}.'
         )
     if method not in Procurement.CommunicationMethod.values:
-        raise ExternalOrderError('Choose how the purchase order was communicated.')
+        raise ExternalOrderError('Choose how the purchase order was ordered.')
 
     try:
         validate_expected_delivery_date(delivery_date)
@@ -202,7 +202,7 @@ def record_external_order(
     procurement.communication_note = (note or '').strip()[:300]
     procurement.communicated_by = actor
     procurement.communicated_at = now
-    procurement.status = Procurement.Status.COMMUNICATED
+    procurement.status = Procurement.Status.ORDERED
     procurement.save(update_fields=[
         'proposed_delivery_date', 'delivery_date', 'proposed_by', 'total_cost',
         'communication_method', 'communication_note', 'communicated_by',

@@ -103,7 +103,7 @@ orders, filtered, now that it's a real page.
         </div>
         <div class="sp-resp-total">₱{{ o.total_cost|floatformat:2 }}</div>
         <a class="sp-resp-btn" href="{% url 'supplier_purchase_orders' %}?status=NeedsAction">
-          {% if o.status == 'Communicated/Ordered' %}Acknowledge{% elif o.status == 'Terms Agreed' %}Confirm{% else %}Respond{% endif %}
+          {% if o.status == 'Ordered' %}Acknowledge{% elif o.status == 'Terms Agreed' %}Confirm{% else %}Respond{% endif %}
         </a>
       </div>
       {% endfor %}

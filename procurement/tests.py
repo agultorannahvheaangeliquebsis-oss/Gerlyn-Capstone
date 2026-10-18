@@ -34,17 +34,17 @@ class ProcurementTransitionMapTests(TestCase):
         S = Procurement.Status
         self.assertEqual(Procurement.ALLOWED_TRANSITIONS, {
             S.DRAFT: {S.APPROVED, S.CANCELLED},
-            S.APPROVED: {S.PENDING_OWNER_REVIEW, S.COMMUNICATED, S.CANCELLED},
+            S.APPROVED: {S.PENDING_OWNER_REVIEW, S.ORDERED, S.CANCELLED},
             S.PENDING_OWNER_REVIEW: {
                 S.PENDING_SUPPLIER_REVIEW, S.TERMS_AGREED,
-                S.COMMUNICATED, S.CANCELLED,
+                S.ORDERED, S.CANCELLED,
             },
             S.PENDING_SUPPLIER_REVIEW: {
                 S.PENDING_OWNER_REVIEW, S.TERMS_AGREED,
-                S.COMMUNICATED, S.CANCELLED,
+                S.ORDERED, S.CANCELLED,
             },
-            S.TERMS_AGREED: {S.COMMUNICATED, S.INCOMING, S.CANCELLED},
-            S.COMMUNICATED: {
+            S.TERMS_AGREED: {S.ORDERED, S.INCOMING, S.CANCELLED},
+            S.ORDERED: {
                 S.INCOMING, S.PARTIALLY_RECEIVED, S.RECEIVED, S.CANCELLED,
             },
             S.INCOMING: {
@@ -57,10 +57,10 @@ class ProcurementTransitionMapTests(TestCase):
 
     def test_can_transition_to(self):
         S = Procurement.Status
-        self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.ORDERED))
+        self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.APPROVED))
         self.assertTrue(Procurement(status=S.DRAFT).can_transition_to(S.CANCELLED))
         self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.PENDING_OWNER_REVIEW))
-        self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.COMMUNICATED))
+        self.assertTrue(Procurement(status=S.APPROVED).can_transition_to(S.ORDERED))
         self.assertTrue(Procurement(status=S.PENDING_OWNER_REVIEW).can_transition_to(S.TERMS_AGREED))
         self.assertTrue(Procurement(status=S.PENDING_OWNER_REVIEW).can_transition_to(S.PENDING_SUPPLIER_REVIEW))
         self.assertTrue(Procurement(status=S.PENDING_SUPPLIER_REVIEW).can_transition_to(S.TERMS_AGREED))
@@ -70,9 +70,9 @@ class ProcurementTransitionMapTests(TestCase):
         # The old direct backdoor — no longer legal, negotiation is mandatory.
         self.assertFalse(Procurement(status=S.APPROVED).can_transition_to(S.INCOMING))
         self.assertFalse(Procurement(status=S.APPROVED).can_transition_to(S.RECEIVED))
-        self.assertFalse(Procurement(status=S.ORDERED).can_transition_to(S.DRAFT))
-        self.assertFalse(Procurement(status=S.RECEIVED).can_transition_to(S.ORDERED))
-        self.assertFalse(Procurement(status=S.CANCELLED).can_transition_to(S.ORDERED))
+        self.assertFalse(Procurement(status=S.APPROVED).can_transition_to(S.DRAFT))
+        self.assertFalse(Procurement(status=S.RECEIVED).can_transition_to(S.APPROVED))
+        self.assertFalse(Procurement(status=S.CANCELLED).can_transition_to(S.APPROVED))
         self.assertFalse(Procurement(status=S.DRAFT).can_transition_to('Bogus'))
         self.assertFalse(Procurement(status=S.DRAFT).can_transition_to(None))
 
@@ -107,9 +107,9 @@ class ProcurementUpdateStatusViewTests(TestCase):
 
     def test_draft_to_ordered(self):
         po = self._po(Procurement.Status.DRAFT)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.APPROVED)
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
         self.assertRedirects(resp, reverse('procurement_detail', args=[po.pk]))
 
     def test_draft_to_cancelled(self):
@@ -119,7 +119,7 @@ class ProcurementUpdateStatusViewTests(TestCase):
         self.assertEqual(po.status, Procurement.Status.CANCELLED)
 
     def test_ordered_to_cancelled(self):
-        po = self._po(Procurement.Status.ORDERED)
+        po = self._po(Procurement.Status.APPROVED)
         self._post(po, Procurement.Status.CANCELLED)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.CANCELLED)
@@ -128,7 +128,7 @@ class ProcurementUpdateStatusViewTests(TestCase):
 
     def test_received_cannot_go_back_to_ordered(self):
         po = self._po(Procurement.Status.RECEIVED)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.APPROVED)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.RECEIVED, 'unchanged')
         self.assertRedirects(resp, reverse('procurement_detail', args=[po.pk]))
@@ -143,16 +143,16 @@ class ProcurementUpdateStatusViewTests(TestCase):
 
     def test_cancelled_is_terminal(self):
         po = self._po(Procurement.Status.CANCELLED)
-        for target in (Procurement.Status.ORDERED, Procurement.Status.DRAFT):
+        for target in (Procurement.Status.APPROVED, Procurement.Status.DRAFT):
             self._post(po, target)
             po.refresh_from_db()
             self.assertEqual(po.status, Procurement.Status.CANCELLED)
 
     def test_ordered_cannot_go_back_to_draft(self):
-        po = self._po(Procurement.Status.ORDERED)
+        po = self._po(Procurement.Status.APPROVED)
         self._post(po, Procurement.Status.DRAFT)
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
 
     def test_arbitrary_string_is_rejected(self):
         po = self._po(Procurement.Status.DRAFT)
@@ -165,10 +165,10 @@ class ProcurementUpdateStatusViewTests(TestCase):
     # -- the Received-target special case is untouched ----------------------
 
     def test_received_target_redirects_to_delivery_without_writing_status(self):
-        po = self._po(Procurement.Status.ORDERED)
+        po = self._po(Procurement.Status.APPROVED)
         resp = self._post(po, Procurement.Status.RECEIVED)
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED, 'status NOT written here')
+        self.assertEqual(po.status, Procurement.Status.APPROVED, 'status NOT written here')
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp['Location'], reverse('delivery_receive', args=[po.pk]))
 
@@ -212,14 +212,14 @@ class ProcurementStatusAPIParityTests(TestCase):
 
     def test_legal_draft_to_ordered_ok(self):
         po = self._po(Procurement.Status.DRAFT)
-        resp = self._patch(po, Procurement.Status.ORDERED)
+        resp = self._patch(po, Procurement.Status.APPROVED)
         self.assertEqual(resp.status_code, 200)
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
 
     def test_illegal_cancelled_to_ordered_400(self):
         po = self._po(Procurement.Status.CANCELLED)
-        resp = self._patch(po, Procurement.Status.ORDERED)
+        resp = self._patch(po, Procurement.Status.APPROVED)
         self.assertEqual(resp.status_code, 400)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.CANCELLED)
@@ -285,9 +285,9 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
     def test_owner_updates_status_on_any_branch(self):
         self.client.force_login(self.owner)
         po = self._po(self.other_branch, Procurement.Status.DRAFT)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.APPROVED)
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
         self.assertRedirects(resp, reverse('procurement_detail', args=[po.pk]))
 
     # -- Branch Manager: own branch works, same as C-3's transitions --------
@@ -316,7 +316,7 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
         branch it must still be refused, record untouched."""
         self.client.force_login(self.manager)
         po = self._po(self.other_branch, Procurement.Status.DRAFT)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.APPROVED)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.DRAFT, 'unchanged')
         self.assertRedirects(resp, reverse('procurement_list'))
@@ -331,7 +331,7 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
         names the branch, never the transition."""
         self.client.force_login(self.manager)
         po = self._po(self.other_branch, Procurement.Status.RECEIVED)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.APPROVED)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.RECEIVED, 'unchanged')
         self.assertRedirects(resp, reverse('procurement_list'))
@@ -348,7 +348,7 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
     def test_staff_cannot_reach_status_update_on_own_branch(self):
         self.client.force_login(self.staff)
         po = self._po(self.home_branch, Procurement.Status.DRAFT)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.APPROVED)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.DRAFT, 'unchanged')
         self.assertEqual(resp.status_code, 403)
@@ -356,7 +356,7 @@ class ProcurementUpdateStatusBranchScopeTests(TestCase):
     def test_staff_cannot_reach_status_update_on_foreign_branch(self):
         self.client.force_login(self.staff)
         po = self._po(self.other_branch, Procurement.Status.DRAFT)
-        resp = self._post(po, Procurement.Status.ORDERED)
+        resp = self._post(po, Procurement.Status.APPROVED)
         po.refresh_from_db()
         self.assertEqual(po.status, Procurement.Status.DRAFT, 'unchanged')
         self.assertEqual(resp.status_code, 403)
@@ -514,7 +514,7 @@ class StaffDeliveryAccessTests(ProcurementAuthorizationBase):
 
         self.assertContains(
             response,
-            'Approved, communicated, and incoming purchase orders will '
+            'Approved, ordered, and incoming purchase orders will '
             'appear here as they move toward receiving.',
         )
 
@@ -631,7 +631,7 @@ class ProcurementAddAuthorizationTests(ProcurementAuthorizationBase):
         self._add(self.home_branch)
 
         po = Procurement.objects.get()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
         self.assertEqual(po.owner, self.owner)
         self.assertIsNotNone(po.authorized_at)
         self.assertEqual(po.created_by, self.owner)
@@ -650,7 +650,7 @@ class ProcurementApproveTests(ProcurementAuthorizationBase):
         self._approve(po)
 
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
         self.assertEqual(po.owner, self.owner)
         self.assertIsNotNone(po.authorized_at)
 
@@ -673,13 +673,13 @@ class ProcurementApproveTests(ProcurementAuthorizationBase):
         original_owner = User.objects.create_user(
             username='c1-owner-2', password='pw', role=User.Role.OWNER
         )
-        po = self._po(status=Procurement.Status.ORDERED, owner=original_owner)
+        po = self._po(status=Procurement.Status.APPROVED, owner=original_owner)
         self.client.force_login(self.owner)
 
         self._approve(po)
 
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
         self.assertEqual(po.owner, original_owner)
         self.assertIsNone(po.authorized_at)
 
@@ -713,7 +713,7 @@ class ProcurementApproveTests(ProcurementAuthorizationBase):
 
         self.client.post(
             reverse('procurement_update_status', args=[po.pk]),
-            {'status': Procurement.Status.ORDERED},
+            {'status': Procurement.Status.APPROVED},
         )
 
         po.refresh_from_db()
@@ -747,7 +747,7 @@ class ProcurementApproveTests(ProcurementAuthorizationBase):
         self.client.post(reverse('procurement_approve', args=[po.pk]))
 
         po.refresh_from_db()
-        self.assertEqual(po.status, Procurement.Status.ORDERED)
+        self.assertEqual(po.status, Procurement.Status.APPROVED)
 
     def test_manager_cannot_approve_a_foreign_branch_draft(self):
         """A Manager reaching for another branch's draft is refused, and the
@@ -971,7 +971,7 @@ class SupplierPortalHidesDraftsTests(ProcurementAuthorizationBase):
         self.assertNotContains(resp, draft.po_number)
 
     def test_approved_order_is_listed_in_the_supplier_portal(self):
-        ordered = self._po(status=Procurement.Status.ORDERED)
+        ordered = self._po(status=Procurement.Status.APPROVED)
         self.client.force_login(self.supplier)
 
         resp = self.client.get(reverse('supplier_portal'))

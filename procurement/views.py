@@ -152,8 +152,8 @@ def _procurement_list_context(request):
             status=Procurement.Status.PENDING_OWNER_REVIEW
         ).count(),
         'incoming': procurements.filter(status=Procurement.Status.INCOMING).count(),
-        'communicated': procurements.filter(
-            status=Procurement.Status.COMMUNICATED
+        'ordered': procurements.filter(
+            status=Procurement.Status.ORDERED
         ).count(),
         'partially_received': procurements.filter(
             status=Procurement.Status.PARTIALLY_RECEIVED
@@ -253,14 +253,14 @@ PROCUREMENT_PROGRESS_STEPS = ['Draft', 'Approved', 'Terms Agreed', 'Incoming', '
 _PROGRESS_STEP_BY_STATUS = {
     Procurement.Status.DRAFT: 0,
     Procurement.Status.APPROVED: 1,
-    # The three negotiation sub-statuses and the manual Communicated/Ordered
+    # The three negotiation sub-statuses and the manual Ordered
     # bypass all mean the same thing on the stepper: the two sides are
     # settling how the order ships. Approved reads as done the moment
     # negotiation starts, whichever path got there.
     Procurement.Status.PENDING_OWNER_REVIEW: 2,
     Procurement.Status.PENDING_SUPPLIER_REVIEW: 2,
     Procurement.Status.TERMS_AGREED: 2,
-    Procurement.Status.COMMUNICATED: 2,
+    Procurement.Status.ORDERED: 2,
     # Partially Received still reads as "Incoming" on the track — the items
     # table and receipt_flag pill already carry the partial-vs-full
     # distinction, so the stepper doesn't need a sixth dot for it.
@@ -303,7 +303,7 @@ def _procurement_timeline(proc, receipts):
     if proc.communicated_at:
         timeline.append({
             'when': proc.communicated_at,
-            'label': f'Communicated/Ordered ({proc.get_communication_method_display()})',
+            'label': f'Ordered ({proc.get_communication_method_display()})',
             'note': proc.communication_note or None,
         })
 
@@ -378,7 +378,7 @@ def procurement_detail(request, pk):
                 User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
             )
             and user_can_perform_module_action(request.user, DELIVERIES, EDIT)
-            and proc.can_transition_to(Procurement.Status.COMMUNICATED)
+            and proc.can_transition_to(Procurement.Status.ORDERED)
         ),
         'communication_methods': Procurement.CommunicationMethod.choices,
         'today': timezone.localdate(),
@@ -944,7 +944,7 @@ def procurement_update_status(request, pk):
             Procurement.Status.PENDING_OWNER_REVIEW,
             Procurement.Status.PENDING_SUPPLIER_REVIEW,
             Procurement.Status.TERMS_AGREED,
-            Procurement.Status.COMMUNICATED,
+            Procurement.Status.ORDERED,
             Procurement.Status.INCOMING,
         ):
             messages.error(
@@ -1427,7 +1427,7 @@ def procurement_supplier_confirm(request, pk):
         locked = Procurement.objects.select_for_update().get(pk=pk)
         if locked.status not in (
             Procurement.Status.TERMS_AGREED,
-            Procurement.Status.COMMUNICATED,
+            Procurement.Status.ORDERED,
         ):
             messages.error(request, f'{locked.po_number} is not ready to confirm.')
             return _supplier_next_redirect(request)
@@ -1467,10 +1467,10 @@ def procurement_mark_communicated(request, pk):
     if request.user.role not in (
         User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF,
     ):
-        messages.error(request, 'You do not have permission to communicate this order.')
+        messages.error(request, 'You do not have permission to mark this order as ordered.')
         return redirect('delivery_list')
     if not user_can_perform_module_action(request.user, DELIVERIES, EDIT):
-        messages.error(request, 'You do not have permission to communicate this order.')
+        messages.error(request, 'You do not have permission to mark this order as ordered.')
         return redirect('delivery_list')
 
     proc = get_object_or_404(
@@ -1504,7 +1504,7 @@ def procurement_mark_communicated(request, pk):
 
     messages.success(
         request,
-        f'{locked.po_number} marked Communicated/Ordered. It can now be '
+        f'{locked.po_number} marked Ordered. It can now be '
         f'received without supplier portal acknowledgement.',
         extra_tags='sheet',
     )
@@ -1545,7 +1545,7 @@ def _not_receivable_reason(proc):
             f'on terms.'
         )
     if proc.status not in (
-        Procurement.Status.COMMUNICATED,
+        Procurement.Status.ORDERED,
         Procurement.Status.INCOMING,
         Procurement.Status.PARTIALLY_RECEIVED,
     ):
@@ -1642,7 +1642,7 @@ def delivery_list(request):
     if staff_delivery_view and status_filter not in (
         Procurement.Status.APPROVED,
         'Negotiating',
-        Procurement.Status.COMMUNICATED,
+        Procurement.Status.ORDERED,
         Procurement.Status.INCOMING,
         Procurement.Status.PARTIALLY_RECEIVED,
         Procurement.Status.RECEIVED,
@@ -1654,8 +1654,8 @@ def delivery_list(request):
             status__in=STAFF_PENDING_DELIVERY_STATUSES
         ).count(),
         'approved': deliveries.filter(status=Procurement.Status.APPROVED).count(),
-        'communicated': deliveries.filter(
-            status=Procurement.Status.COMMUNICATED
+        'ordered': deliveries.filter(
+            status=Procurement.Status.ORDERED
         ).count(),
         'negotiating': deliveries.filter(
             status__in=Procurement.NEGOTIATION_STATUSES
@@ -1706,7 +1706,7 @@ def delivery_list(request):
         ).filter(
             pk=receive_pk,
             status__in=[
-                Procurement.Status.COMMUNICATED,
+                Procurement.Status.ORDERED,
                 Procurement.Status.INCOMING,
                 Procurement.Status.PARTIALLY_RECEIVED,
             ],
@@ -3885,7 +3885,7 @@ class ProcurementStatusUpdateAPIView(APIView):
             Procurement.Status.PENDING_OWNER_REVIEW,
             Procurement.Status.PENDING_SUPPLIER_REVIEW,
             Procurement.Status.TERMS_AGREED,
-            Procurement.Status.COMMUNICATED,
+            Procurement.Status.ORDERED,
             Procurement.Status.INCOMING,
             Procurement.Status.PARTIALLY_RECEIVED,
             Procurement.Status.RECEIVED,
