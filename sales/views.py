@@ -283,6 +283,10 @@ def _transaction_list_context(request):
     channel_filter = request.GET.get('channel', '')
     branch_filter = request.GET.get('branch', '')
     fulfillment_filter = request.GET.get('fulfillment', '')
+    # Payment column (mode_of_payment); a hand-typed value falls back to "all".
+    payment_filter = request.GET.get('payment', '')
+    if payment_filter not in SalesTransaction.ModeOfPayment.values:
+        payment_filter = ''
     # A branch id is a number; anything else (a hand-edited URL) would raise
     # ValueError inside the ORM instead of just matching nothing.
     if branch_filter and not branch_filter.isdigit():
@@ -302,6 +306,8 @@ def _transaction_list_context(request):
         transactions = transactions.filter(branch_id=branch_filter)
     if fulfillment_filter:
         transactions = transactions.filter(fulfillment_type=fulfillment_filter)
+    if payment_filter:
+        transactions = transactions.filter(mode_of_payment=payment_filter)
 
     # The shared back-office range control (_daterange.html), same as the
     # Dashboard, Reports, the audit log and Billing. transaction_date is a
@@ -350,6 +356,8 @@ def _transaction_list_context(request):
         'channel_filter': channel_filter,
         'branch_filter': branch_filter,
         'fulfillment_filter': fulfillment_filter,
+        'payment_filter': payment_filter,
+        'payment_choices': SalesTransaction.ModeOfPayment.choices,
         'branches': branches,
         # The topbar branch chip renders this — same pattern as Floor Stock,
         # Warehouse Stock, Product Master List, Stock Adjustments and
@@ -366,7 +374,7 @@ def _transaction_list_context(request):
         'daterange_carry': [
             ('q', search_query), ('status', status_filter),
             ('channel', channel_filter), ('fulfillment', fulfillment_filter),
-            ('branch', branch_filter),
+            ('payment', payment_filter), ('branch', branch_filter),
         ],
         # Every active filter except `status` — the status tabs below build
         # their href off this (O-3), so adding a new filter to the toolbar
@@ -377,7 +385,8 @@ def _transaction_list_context(request):
         # fact now, not a per-sale one, so there is no single type left for a
         # sale to be filtered by.
         'filter_qs': _order_filter_querystring(
-            search_query, channel_filter, branch_filter, fulfillment_filter
+            search_query, channel_filter, branch_filter, fulfillment_filter,
+            payment_filter,
         ),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along — same idea as
@@ -385,6 +394,7 @@ def _transaction_list_context(request):
         'branch_switch_carry': [
             ('q', search_query), ('status', status_filter),
             ('channel', channel_filter), ('fulfillment', fulfillment_filter),
+            ('payment', payment_filter),
         ],
     }
     return context
@@ -450,8 +460,10 @@ def _over_committed_order_ids(user):
     return order_ids, len(order_ids)
 
 
-def _order_filter_querystring(search_query, channel_filter, branch_filter, fulfillment_filter):
-    """`q`, `channel`, `branch` and `fulfillment`, urlencoded, without
+def _order_filter_querystring(
+    search_query, channel_filter, branch_filter, fulfillment_filter, payment_filter=''
+):
+    """`q`, `channel`, `branch`, `fulfillment` and `payment`, urlencoded, without
     `status` — the Order Console's status tabs append their own `status=`."""
     params = QueryDict(mutable=True)
     if search_query:
@@ -462,6 +474,8 @@ def _order_filter_querystring(search_query, channel_filter, branch_filter, fulfi
         params['branch'] = branch_filter
     if fulfillment_filter:
         params['fulfillment'] = fulfillment_filter
+    if payment_filter:
+        params['payment'] = payment_filter
     return params.urlencode()
 
 

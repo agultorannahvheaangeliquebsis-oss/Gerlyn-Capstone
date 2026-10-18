@@ -51,6 +51,12 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       <option value="Delivery" {% if fulfillment_filter == "Delivery" %}selected{% endif %}>Delivery only</option>
       <option value="Pickup" {% if fulfillment_filter == "Pickup" %}selected{% endif %}>Pickup only</option>
     </select>
+    <select name="payment" onchange="this.form.submit()" aria-label="Filter by payment method">
+      <option value="">All Payment Methods</option>
+      {% for value, label in payment_choices %}
+      <option value="{{ value }}" {% if payment_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
   </div>
   <input type="hidden" name="status" value="{{ status_filter }}">
 </form>

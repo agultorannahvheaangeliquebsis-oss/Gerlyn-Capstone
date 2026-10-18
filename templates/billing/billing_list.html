@@ -45,6 +45,12 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
       <option value="Delivery" {% if fulfillment_filter == "Delivery" %}selected{% endif %}>Delivery only</option>
       <option value="Pickup" {% if fulfillment_filter == "Pickup" %}selected{% endif %}>Pickup only</option>
     </select>
+    <select name="payment" onchange="this.form.submit()" aria-label="Filter by payment method">
+      <option value="">All Payment Methods</option>
+      {% for value, label in payment_choices %}
+      <option value="{{ value }}" {% if payment_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
   </div>
   <input type="hidden" name="status" value="{{ status_filter }}">
 </form>
@@ -115,7 +121,7 @@ chip has to track whichever branch the toolbar is actually narrowed to.{% endcom
         <td colspan="8">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span>
-            {% if search_query or branch_filter or channel_filter or fulfillment_filter or active_range != 'all' %}
+            {% if search_query or branch_filter or channel_filter or fulfillment_filter or payment_filter or active_range != 'all' %}
             <h3>No billing records match</h3>
             <p>Try clearing the search or filters, or widening the date range.</p>
             {% else %}

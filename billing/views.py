@@ -160,6 +160,14 @@ def billing_list(request):
     if fulfillment_filter:
         records = records.filter(transaction__fulfillment_type=fulfillment_filter)
 
+    # Payment-method dropdown — the bill's own method (what the Method column
+    # shows), checked against the model's choices like the two above.
+    payment_filter = request.GET.get('payment', '')
+    if payment_filter not in BillingRecord.PaymentMethod.values:
+        payment_filter = ''
+    if payment_filter:
+        records = records.filter(payment_method=payment_filter)
+
     records = records.order_by('-date_recorded')
 
     # The shared back-office range control (_daterange.html), same as the
@@ -219,6 +227,8 @@ def billing_list(request):
         'search_query': search_query,
         'channel_filter': channel_filter,
         'fulfillment_filter': fulfillment_filter,
+        'payment_filter': payment_filter,
+        'payment_choices': BillingRecord.PaymentMethod.choices,
         'branches': branches,
         'branch_filter': branch_filter,
         # _daterange.html: a preset click must not drop the search/filters.
@@ -228,7 +238,7 @@ def billing_list(request):
         'daterange_carry': [
             ('q', search_query), ('status', status_filter),
             ('channel', channel_filter), ('fulfillment', fulfillment_filter),
-            ('branch', branch_filter),
+            ('payment', payment_filter), ('branch', branch_filter),
         ],
         # The topbar branch chip renders this — same pattern as Floor Stock,
         # Warehouse Stock, Product Master List, Stock Adjustments, Receive
@@ -244,6 +254,7 @@ def billing_list(request):
         'filter_qs': list_filter_querystring(
             q=search_query, branch=branch_filter,
             channel=channel_filter, fulfillment=fulfillment_filter,
+            payment=payment_filter,
         ),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along — same idea as
@@ -252,6 +263,7 @@ def billing_list(request):
         'branch_switch_carry': [
             ('q', search_query), ('status', status_filter),
             ('channel', channel_filter), ('fulfillment', fulfillment_filter),
+            ('payment', payment_filter),
         ],
     })
 
